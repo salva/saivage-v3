@@ -11,7 +11,7 @@ import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext
 import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
-import { cardWorkRoot } from '../../src/persistence/layout.js';
+import { cardProcessOutputRoot, cardWorkRoot, nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
   return bindToolProvider('process', processToolBinders, { projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
@@ -59,7 +59,7 @@ describe('process provider', () => {
     ]);
   }));
 
-  it('segments only unfinished process waits and keeps background, inspection, terminal, and kill work active', async () => withRoot(async (root) => {
+  it('segments only unfinished process waits and retires a background process only after terminal consumption', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const waitProcessCalls: string[] = [];
@@ -83,12 +83,16 @@ describe('process provider', () => {
     const processId = (background.data as { process_id: string }).process_id;
     await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
     expect(waitProcessCalls).toHaveLength(0);
-    await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
+    const consumed = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
+    expect(consumed.success).toBe(true);
     expect(waitProcessCalls).toHaveLength(1);
+    expect(processRunner.processRunner.get(processId)).toBeNull();
 
     waitProcessCalls.length = 0;
-    await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
-    await invokeTestTool(surface, 'kill_process', { process_id: processId }, new AbortController().signal, { ...context, toolName: 'kill_process' });
+    const repeated = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
+    const killed = await invokeTestTool(surface, 'kill_process', { process_id: processId }, new AbortController().signal, { ...context, toolName: 'kill_process' });
+    expect(repeated.success).toBe(false);
+    expect(killed.success).toBe(false);
     expect(waitProcessCalls).toHaveLength(0);
   }));
 
@@ -111,6 +115,7 @@ describe('process provider', () => {
 
   it('supplies the existing card work root to card commands without changing default cwd', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processes.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
 
     const result = await invokeTestTool(surface, 'run_command', {
@@ -121,13 +126,13 @@ describe('process provider', () => {
     expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ exit_code: 0 }) }));
     if (!result.success) return;
     const processId = (result.data as { process_id: string }).process_id;
-    const record = processes.processRunner.get(processId)!;
-    expect(readFileSync(record.stdout_path, 'utf8')).toBe(`${cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa')}\n${root}\n`);
-    expect(record.cwd).toBe(root);
+    expect(readFileSync(join(cardProcessOutputRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', processId), 'stdout.log'), 'utf8')).toBe(`${cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa')}\n${root}\n`);
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: root }));
   }));
 
   it('does not supply a card work root to global Analyst commands', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processes.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processes)]);
 
     const result = await invokeTestTool(surface, 'run_command', {
@@ -137,9 +142,9 @@ describe('process provider', () => {
 
     expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ exit_code: 0 }) }));
     if (!result.success) return;
-    const record = processes.processRunner.get((result.data as { process_id: string }).process_id)!;
-    expect(readFileSync(record.stdout_path, 'utf8')).toBe(`\n${root}\n`);
-    expect(record.cwd).toBe(root);
+    const processId = (result.data as { process_id: string }).process_id;
+    expect(readFileSync(join(nonCardProcessOutputRoot(root, processId), 'stdout.log'), 'utf8')).toBe(`\n${root}\n`);
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: root }));
   }));
 
   it('rejects the removed inactivity timeout before launching a process', async () => withRoot(async (root) => {
@@ -153,6 +158,7 @@ describe('process provider', () => {
   it('runs commands in canonical project and system cwd URLs', async () => withRoot(async (root) => {
     mkdirSync(join(root, 'packages', 'api'), { recursive: true });
     const processRunner = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processRunner.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const cases = [
       ['project:///', root],
@@ -166,8 +172,7 @@ describe('process provider', () => {
       const result = await invokeTestTool(surface, 'run_command', { command: 'exit 0', cwd, timeout_ms: 1000 });
       expect(result.success).toBe(true);
       if (result.success) {
-        const processId = (result.data as { process_id: string }).process_id;
-        expect(processRunner.processRunner.get(processId)?.cwd).toBe(expected);
+        expect(spawn).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: expected }));
       }
     }
   }));
@@ -222,6 +227,29 @@ describe('process provider', () => {
     }
   }));
 
+  it('keeps wait:false and timed-out observations unconsumed until a terminal wait or kill owns the result', async () => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+
+    const fast = await invokeTestTool(surface, 'run_command', { command: 'exit 0', wait: false });
+    if (!fast.success) throw new Error(fast.error);
+    const fastId = (fast.data as { process_id: string }).process_id;
+    await processes.processRunner.waitForSettlement(fastId);
+    expect(processes.processRunner.get(fastId)).toMatchObject({ status: 'exited' });
+    const consumed = await invokeTestTool(surface, 'wait_process', { process_id: fastId, timeout_ms: 0 });
+    expect(consumed).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'exited' }) }));
+    expect(processes.processRunner.get(fastId)).toBeNull();
+
+    const slow = await invokeTestTool(surface, 'run_command', { command: 'sleep 60', timeout_ms: 5 });
+    if (!slow.success) throw new Error(slow.error);
+    const slowId = (slow.data as { process_id: string }).process_id;
+    expect(slow.data).toEqual(expect.objectContaining({ status: 'running' }));
+    expect(processes.processRunner.get(slowId)).toMatchObject({ status: 'running' });
+    const killed = await invokeTestTool(surface, 'kill_process', { process_id: slowId });
+    expect(killed).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'killed' }) }));
+    expect(processes.processRunner.get(slowId)).toBeNull();
+  }));
+
   it('returns a killed partial result when a foreground command is aborted', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
     const kill = jest.spyOn(processRunner.processRunner, 'kill');
@@ -262,35 +290,35 @@ describe('process provider', () => {
 
   it('records Analyst command provenance as operator-owned session work', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processRunner.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processRunner)]);
 
     const result = await invokeTestTool(surface, 'run_command', { command: 'printf analyst', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    const processId = (result.data as { process_id: string }).process_id;
-    expect(processRunner.processRunner.get(processId)).toEqual(expect.objectContaining({
-      card_id: null,
-      owner_id: 'agent:analyst:global',
-      agent_session_id: 'agent:analyst:global',
-      owner_kind: 'operator',
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: null,
+      ownerId: 'agent:analyst:global',
+      agentSessionId: 'agent:analyst:global',
+      ownerKind: 'operator',
     }));
   }));
 
   it('records executor command provenance as agent-owned card work', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processRunner.processRunner, 'spawn');
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
     const result = await invokeTestTool(surface, 'run_command', { command: 'printf executor', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    const processId = (result.data as { process_id: string }).process_id;
-    expect(processRunner.processRunner.get(processId)).toEqual(expect.objectContaining({
-      card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      owner_id: 'activation-1',
-      agent_session_id: 'activation-1',
-      owner_kind: 'agent',
+    expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      ownerId: 'activation-1',
+      agentSessionId: 'activation-1',
+      ownerKind: 'agent',
     }));
   }));
 
@@ -301,7 +329,7 @@ describe('process provider', () => {
     const result = await invokeTestTool(surface, 'run_command', { command: 'printf gated', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
-    expect(processRunner.processRunner.list()).toHaveLength(1);
+    expect(processRunner.processRunner.list()).toHaveLength(0);
   }));
 
   it('does not gate operator-owned Analyst command spawn', async () => withRoot(async (root) => {
@@ -311,6 +339,6 @@ describe('process provider', () => {
     const result = await invokeTestTool(surface, 'run_command', { command: 'printf operator', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
-    expect(processRunner.processRunner.list()).toHaveLength(1);
+    expect(processRunner.processRunner.list()).toHaveLength(0);
   }));
 });

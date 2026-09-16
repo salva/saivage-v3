@@ -210,12 +210,19 @@ export class McpServerRuntime {
       new Promise<null>((resolve) => observerController.signal.addEventListener('abort', () => resolve(null), { once: true })),
     ]).then((result) => {
       if (!result || generation !== this.generation || !this.admissionOpen) return;
-      const record = this.#processRunner.get(launch.record.id);
-      if (record?.status === 'exited') this.statusOverride = { status: 'stopped' };
-      else this.statusOverride = { status: 'error', error: record?.signal ? 'Process exited with a signal' : 'Process exited unsuccessfully' };
+      if (result.record.status === 'exited') this.statusOverride = { status: 'stopped' };
+      else this.statusOverride = { status: 'error', error: result.record.signal ? 'Process exited with a signal' : 'Process exited unsuccessfully' };
       this.handle = undefined;
       this.ready = false;
       this.clearCaches();
+      this.#processRunner.retireSettled(launch.record.id, this.#processScope);
+    }, (_error) => {
+      if (generation !== this.generation || !this.admissionOpen) return;
+      this.statusOverride = { status: 'error', error: 'Process output capture failed' };
+      this.handle = undefined;
+      this.ready = false;
+      this.clearCaches();
+      this.#processRunner.retireSettled(launch.record.id, this.#processScope);
     });
     const tracked = settlement.finally(() => {
       this.controllers.delete(observerController);

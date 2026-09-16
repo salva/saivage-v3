@@ -1045,6 +1045,10 @@ A concurrent observer of that same captured record may report absence only when 
 Unverifiable groups and their closed scopes remain retained.
 There is no scope/group scan, tombstone, historical-ID set, retry, or repair path.
 
+Process presentation has one finite owner-visible lifetime: launch, live or unconsumed result, final owner consumption, then retirement. Foreground `run_command`, terminal `wait_process`, and confirmed `kill_process` copy the terminal record and form their result before retiring it; terminal capture failure is likewise consumed and then reported unchanged. `wait:false`, a running `timeout_ms:0` inspection, and a timed-out running wait do not retire the presentation: that outstanding result remains available for a later wait or kill. Closing the exact direct scope is the final consumer for all residual terminal presentations and joins every eligible settlement even when another rejects, retires eligible entries, and then propagates the first settlement rejection. A failed or unconfirmed group remains present.
+
+Stdio MCP consumes each launch's terminal record or capture error in its terminal observer, retains the corresponding stopped/error MCP projection, clears the live handle and caches, and retires that launch without waiting for revision-scope teardown. Process lists are current-lifetime snapshots, not execution history; after final consumption the process ID is unknown to wait/kill and absent from lists. This claims no fixed bound on deliberately outstanding background jobs. Previously returned canonical `work:///` output URLs remain independently readable subject to ordinary Files admission and file availability; presentation retirement neither deletes output nor promises durable retention.
+
 Each process-owning component leaf closes admission/revokes callbacks and starts exact root termination before any await, then awaits it with its actor/session/operation joins.
 A fulfilled `ProcessStopReport` is successful only when `failed` is empty.
 Runtime project Stop and App runtime cleanup share the supervisor halt's one runtime-root termination rather than overlapping it.
@@ -1073,6 +1077,7 @@ Missing transport fields, cross-transport fields, unknown fields, relative or ma
 `run_command` executes its command as one argument to `bash -c`.
 `timeout_ms` is its sole wait timeout; there is no inactivity-timeout input.
 Results expose process status, exit code, file-backed stdout/stderr URLs, and byte counts, with no inline-output or truncation contract.
+A terminal result is consumed after result formation and its ID leaves current process observation; background and timed-out running results remain outstanding for later consumption or scope closure.
 A missing or empty cwd and canonical `project:///` select the project root; plain cwd values are project-relative and contained; `project:///...` selects a contained project descendant; and `system:///` or `system:///...` selects the system root or descendant.
 Malformed scoped URLs, query/fragment cwd values, unknown scoped schemes, and the `record`, `tmp`, and `work` schemes fail before launch.
 The one shared card/global tool definition states the conditional scratch contract independently of the selected agent prompt: card-scoped invocations receive `SAIVAGE_CARD_WORK_ROOT` equal to the exact `.saivage/work/cards/<cardId>` root and must put disposable copies, extraction areas, caches, and intermediate command work in purpose-named children there, while ordinary source edits, builds, and tests remain in the project workspace; `processes/` and `tmp/` beneath that root are reserved, and project-root `.card-*-work` siblings must not be invented.
@@ -1080,6 +1085,7 @@ Global/non-card invocations do not receive `SAIVAGE_CARD_WORK_ROOT` and must not
 Supported agent-prompt replacement does not replace configured tool definitions.
 This command environment locator does not grant workspace-tool writes into `.saivage` and does not change `tmp:///` or `work:///` behavior.
 The managed-process registry consumes child `error` events immediately from spawn return, so a handled OS launch failure cannot independently crash the runtime, and it never registers a process group without a positive leader PID.
+Raw output-readable `error` events and ordinary output append-open failures are recorded by the launch's capture owner rather than thrown from stream handlers. After registry-confirmed absence and both readable drains, they force the final presentation to `failed` while retaining any known leader exit code/signal, and the original error reaches terminal-settlement awaiters including command tools and the stdio MCP observer.
 
 Workspace `read.read_mode` supports only `auto` and `text`; it controls the workspace tool's scoped text reads and is not the web fetch option.
 Separately, `webfetch.read_mode` also supports only `auto` and `text`.
@@ -1827,6 +1833,7 @@ Only a first-write `EINTR` proving zero transferred bytes may repeat, and positi
 
 Captured process output is synchronously appended one chunk at a time without retained writers or descriptors.
 Terminal process presentation and successful termination results require both registry-confirmed group absence and stdout/stderr readable drain; failed or unconfirmed groups are not awaited.
+The runner immediately observes each original terminal-settlement rejection while retaining that same rejecting promise for later identity-preserving delivery. Raw readable errors and ordinary append-open failures therefore cannot become an unhandled rejection merely because a background launch has no current waiter. A later terminal wait, including timeout zero against an already-terminal record, and direct-scope closure still receive the original error. Process-output mutation uncertainty remains the fatal boundary above and is not converted into capture failure.
 
 This fatal exit occurs before Supervisor halt or runtime-status mutation.
 Ordinary Stop, application close, actor-main failure, and containment failure retain the existing `closing -> stopped | error` contract.

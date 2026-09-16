@@ -5,7 +5,7 @@ import type { ProcessToolResult } from '../contracts/operator-api-processes.js';
 import { killProcessInputSchema, runCommandInputSchema, waitProcessInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
-import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner, ProcessWaitResult } from '../runtime/process-runner.js';
 import { cardWorkRoot } from '../persistence/layout.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineToolBinder, executedToolOutcome, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolProviderCleanupReason, type ToolExecutionResult } from './invocation.js';
@@ -36,7 +36,7 @@ function throwIfAborted(signal: AbortSignal): void {
   throw reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Tool invocation was interrupted.');
 }
 
-function waitForProcess(ctx: ProcessProviderContext, processId: string, timeoutMs: number, signal: AbortSignal): Promise<{ timedOut: boolean }> {
+function waitForProcess(ctx: ProcessProviderContext, processId: string, timeoutMs: number, signal: AbortSignal): Promise<ProcessWaitResult> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
       reject(signal.reason instanceof Error ? signal.reason : new Error('Tool invocation was interrupted.'));
@@ -55,7 +55,7 @@ function waitForProcess(ctx: ProcessProviderContext, processId: string, timeoutM
       if (settled) return;
       settled = true;
       cleanup();
-      resolve({ timedOut: result.timedOut });
+      resolve(result);
     }, (error) => {
       if (settled) return;
       settled = true;
@@ -104,8 +104,7 @@ function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRec
   return record;
 }
 
-function processResult(ctx: ProcessProviderContext, processId: string): ProcessToolResult {
-  const record = assertOwned(ctx, processId);
+function processResult(record: ProcessRecord): ProcessToolResult {
   const logSegments = record.card_id
     ? ['cards', record.card_id, 'processes', record.id]
     : ['processes', record.id];
@@ -131,7 +130,7 @@ function cleanupReasonLabel(reason: ToolProviderCleanupReason): string {
 export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any>[] = Object.freeze([
       defineToolBinder({
         name: 'run_command',
-        description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
+        description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. A terminal result is consumed after this tool forms it and its process ID is no longer available for wait, kill, or current-process listing; the returned output URLs remain independently readable while their files remain available. Set wait=false to start a background process that remains available for later wait_process or kill_process until one consumes its terminal result or the owning scope closes.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => runCommandInputSchema,
         executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
@@ -148,17 +147,40 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               ...(ctx.cardId ? { env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(ctx.projectRoot, ctx.cardId) } } : {}),
               ownerKind: ctx.ownerKind,
             });
-            if (args.wait === false) return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
+            if (args.wait === false) return executedToolOutcome('none', toolSucceeded(processResult(record)));
             try {
               const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
-              await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
+              const result = await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
+              if (result.timedOut || result.record.status === 'running') {
+                return executedToolOutcome('none', toolSucceeded(processResult(result.record)));
+              }
+              try {
+                return executedToolOutcome('none', toolSucceeded(processResult(result.record)));
+              } finally {
+                ctx.processRunner.retireSettled(record.id, ctx.directScope);
+              }
             } catch (err) {
               throwIfPublicationOutcomeUnknown(err);
-              await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted' });
-              if (isAbortError(err, signal)) return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
+              let finalRecord: ProcessRecord | null;
+              try {
+                finalRecord = await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted' });
+              } catch (killError) {
+                throwIfPublicationOutcomeUnknown(killError);
+                const terminal = ctx.processRunner.get(record.id);
+                if (terminal?.status !== 'running') ctx.processRunner.retireSettled(record.id, ctx.directScope);
+                throw killError;
+              }
+              if (!finalRecord) throw new Error(`Unknown process '${record.id}'.`);
+              if (isAbortError(err, signal)) {
+                try {
+                  return executedToolOutcome('none', toolSucceeded(processResult(finalRecord)));
+                } finally {
+                  ctx.processRunner.retireSettled(record.id, ctx.directScope);
+                }
+              }
+              ctx.processRunner.retireSettled(record.id, ctx.directScope);
               throw err;
             }
-            return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
@@ -168,19 +190,38 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       }),
       defineToolBinder({
         name: 'wait_process',
-        description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
+        description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. A terminal result or terminal capture error is consumed by this call and retires the process ID after result formation; returned output URLs remain independently readable while available. Use timeout_ms=0 for non-blocking inspection; a running inspection or timed-out wait does not consume or retire the process.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => waitProcessInputSchema,
         executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
           try {
             throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
-            if (args.timeout_ms === 0 && current.status === 'running') return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
-            if (current.status !== 'running') return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
-            const pending = waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
-            const result = await (invocation ? invocation.waits.waitProcess(args.process_id, pending) : pending);
-            if (result.timedOut) return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
-            return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
+            if (args.timeout_ms === 0 && current.status === 'running') {
+              return executedToolOutcome('none', toolSucceeded(processResult(current)));
+            }
+            let terminalFailure: unknown;
+            let terminalFailed = false;
+            const pending = waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal).catch((error) => {
+              terminalFailure = error;
+              terminalFailed = true;
+              throw error;
+            });
+            let result: ProcessWaitResult;
+            try {
+              result = await (invocation ? invocation.waits.waitProcess(args.process_id, pending) : pending);
+            } catch (error) {
+              if (terminalFailed && error === terminalFailure) ctx.processRunner.retireSettled(args.process_id, ctx.directScope);
+              throw error;
+            }
+            if (result.timedOut || result.record.status === 'running') {
+              return executedToolOutcome('none', toolSucceeded(processResult(result.record)));
+            }
+            try {
+              return executedToolOutcome('none', toolSucceeded(processResult(result.record)));
+            } finally {
+              ctx.processRunner.retireSettled(args.process_id, ctx.directScope);
+            }
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
@@ -190,15 +231,27 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       }),
       defineToolBinder({
         name: 'kill_process',
-        description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep.',
+        description: 'Signal a process owned by this activation or session and consume its confirmed terminal result. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. After result formation the process ID is retired from wait, kill, and current-process listing, while returned output URLs remain independently readable while available.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => killProcessInputSchema,
         executor: (ctx, args) => executeToolAction('none', async () => {
           try {
             assertOwned(ctx, args.process_id);
-            const record = await ctx.processRunner.kill(args.process_id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool kill_process' });
+            let record: ProcessRecord | null;
+            try {
+              record = await ctx.processRunner.kill(args.process_id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool kill_process' });
+            } catch (error) {
+              throwIfPublicationOutcomeUnknown(error);
+              const terminal = ctx.processRunner.get(args.process_id);
+              if (terminal?.status !== 'running') ctx.processRunner.retireSettled(args.process_id, ctx.directScope);
+              throw error;
+            }
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
-            return toolSucceeded(processResult(ctx, args.process_id));
+            try {
+              return toolSucceeded(processResult(record));
+            } finally {
+              ctx.processRunner.retireSettled(args.process_id, ctx.directScope);
+            }
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             return failureFromError(err);

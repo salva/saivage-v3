@@ -58,12 +58,13 @@ interface InteractiveProcessLaunch {
   process: ChildProcess;
 }
 
-interface ProcessWaitResult {
+export interface ProcessWaitResult {
   id: string;
   status: ProcessStatus;
   exitCode: number | null;
   timedOut: boolean;
   waitDurationMs: number;
+  record: ProcessRecord;
 }
 
 interface ProcessListFilter {
@@ -73,6 +74,7 @@ interface ProcessListFilter {
 
 interface ProcessPresentation {
   record: ProcessRecord;
+  directScope: ManagedProcessScope;
   leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal'> | null;
   terminationReason: string | null | undefined;
   terminalSettlement: Promise<void>;
@@ -126,25 +128,28 @@ export class ProcessRunner {
   async wait(procId: string, timeoutMs = 0): Promise<ProcessWaitResult> {
     const started = Date.now();
     const presentation = this.presentations.get(procId);
-    if (!presentation) return { id: procId, status: 'failed', exitCode: null, timedOut: false, waitDurationMs: Date.now() - started };
-    if (presentation.record.status !== 'running') return this.waitResult(procId, false, started);
-    if (timeoutMs === 0) return this.waitResult(procId, false, started);
+    if (!presentation) throw new Error(`Unknown process '${procId}'.`);
+    if (presentation.record.status !== 'running') {
+      await presentation.terminalSettlement;
+      return this.waitResult(presentation, false, started);
+    }
+    if (timeoutMs === 0) return this.waitResult(presentation, false, started);
     const result = await Promise.race([presentation.terminalSettlement.then(() => 'settled' as const), delay(timeoutMs).then(() => 'timeout' as const)]);
-    if (result === 'timeout') return this.waitResult(procId, true, started);
-    return this.waitResult(procId, false, started);
+    if (result === 'timeout') return this.waitResult(presentation, true, started);
+    return this.waitResult(presentation, false, started);
   }
 
   async waitForSettlement(procId: string): Promise<ProcessWaitResult> {
     const started = Date.now();
     const presentation = this.presentations.get(procId);
-    if (!presentation) return { id: procId, status: 'failed', exitCode: null, timedOut: false, waitDurationMs: 0 };
+    if (!presentation) throw new Error(`Unknown process '${procId}'.`);
     await presentation.terminalSettlement;
-    return this.waitResult(procId, false, started);
+    return this.waitResult(presentation, false, started);
   }
 
   async kill(procId: string, authority: { directScope: ManagedProcessScope; category: ProcessCategory; reason?: string; graceMs?: number }): Promise<ProcessRecord | null> {
-    const record = this.get(procId);
-    if (!record) return null;
+    const presentation = this.presentations.get(procId);
+    if (!presentation) return null;
     const report = await this.#registry.terminateGroup({
       groupId: procId,
       directScope: authority.directScope,
@@ -152,21 +157,51 @@ export class ProcessRunner {
       reason: authority.reason ?? 'process killed',
       graceMs: authority.graceMs,
     });
-    await this.#joinStopped(report);
+    if (report.failed.length === 0) await presentation.terminalSettlement;
+    else await this.#joinStopped(report, new Map([[procId, presentation]]));
     this.assertStopSucceeded(report);
-    return this.get(procId);
+    return { ...presentation.record };
   }
 
   async terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+    const presentations = new Map(this.presentations);
     const report = await this.#registry.terminateScopeTree(input);
-    await this.#joinStopped(report);
+    await this.#joinStopped(report, presentations);
     return report;
   }
 
   async closeAndTerminateDirectScope(input: { directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
-    const report = await this.#registry.closeAndTerminateDirectScope(input);
-    await this.#joinStopped(report);
+    const presentations = new Map(
+      [...this.presentations].filter(([, presentation]) => presentation.directScope === input.directScope),
+    );
+    let report: ProcessStopReport;
+    try {
+      report = await this.#registry.closeAndTerminateDirectScope(input);
+    } catch (error) {
+      const alreadyTerminal = [...presentations.values()].filter((presentation) => presentation.record.status !== 'running');
+      await Promise.allSettled(alreadyTerminal.map((presentation) => presentation.terminalSettlement));
+      for (const [id, presentation] of presentations) {
+        if (presentation.record.status !== 'running') this.retireSettled(id, input.directScope);
+      }
+      throw error;
+    }
+    const joinable = [...presentations.entries()].filter(([id, presentation]) =>
+      report.stopped.includes(id) || presentation.record.status !== 'running');
+    const settlements = await Promise.allSettled(joinable.map(([, presentation]) => presentation.terminalSettlement));
+    for (const [id, presentation] of presentations) {
+      if (presentation.record.status !== 'running') this.retireSettled(id, input.directScope);
+    }
+    const rejection = settlements.find((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected');
+    if (rejection) throw rejection.reason;
     return report;
+  }
+
+  retireSettled(procId: string, directScope: ManagedProcessScope): void {
+    const presentation = this.presentations.get(procId);
+    if (!presentation) return;
+    if (presentation.directScope !== directScope) throw new Error(`Process '${procId}' is not bound to the invoking direct scope.`);
+    if (presentation.record.status === 'running') return;
+    this.presentations.delete(procId);
   }
 
   closeLaunchAdmission(): void { this.#registry.closeLaunchAdmission(); }
@@ -228,7 +263,9 @@ export class ProcessRunner {
     };
     let resolveAbsence!: () => void;
     const absence = new Promise<void>((resolveAbsent) => { resolveAbsence = resolveAbsent; });
-    const presentation: ProcessPresentation = { record, leaderOutcome: null, terminationReason: undefined, terminalSettlement: Promise.resolve() };
+    let captureFailure: Error | null = null;
+    const recordCaptureFailure = (error: Error): void => { captureFailure ??= error; };
+    const presentation: ProcessPresentation = { record, directScope: spec.directScope, leaderOutcome: null, terminationReason: undefined, terminalSettlement: Promise.resolve() };
     this.presentations.set(id, presentation);
     let child: ChildProcess;
     try {
@@ -249,9 +286,13 @@ export class ProcessRunner {
       this.presentations.delete(id);
       throw error;
     }
-    const stdoutDrain = captureOutput ? this.#captureReadable(child.stdout, stdoutPath) : Promise.resolve();
-    const stderrDrain = captureOutput ? this.#captureReadable(child.stderr, stderrPath) : Promise.resolve();
-    presentation.terminalSettlement = Promise.all([absence, stdoutDrain, stderrDrain]).then(() => { this.finalize(id, presentation.terminationReason ?? null); });
+    const stdoutDrain = captureOutput ? this.#captureReadable(child.stdout, stdoutPath, recordCaptureFailure) : Promise.resolve();
+    const stderrDrain = captureOutput ? this.#captureReadable(child.stderr, stderrPath, recordCaptureFailure) : Promise.resolve();
+    presentation.terminalSettlement = Promise.all([absence, stdoutDrain, stderrDrain]).then(() => {
+      this.finalize(presentation, presentation.terminationReason ?? null, captureFailure);
+      if (captureFailure) throw captureFailure;
+    });
+    void presentation.terminalSettlement.catch(() => undefined);
     child.once('exit', (exitCode, signalCode) => {
       presentation.leaderOutcome = {
         status: signalCode === 'SIGKILL' || signalCode === 'SIGTERM' ? 'killed' : exitCode === 0 ? 'exited' : 'failed',
@@ -261,28 +302,36 @@ export class ProcessRunner {
     });
     child.once('error', (error) => {
       try { appendProcessOutputChunk(stderrPath, Buffer.from(`[process-runner] spawn error: ${error.message}\n`), this.#outputIo); }
-      catch (failure) { if (failure instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(failure); throw failure; }
+      catch (failure) {
+        if (failure instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(failure);
+        recordCaptureFailure(failure instanceof Error ? failure : new Error(String(failure)));
+      }
       presentation.leaderOutcome = { status: 'failed', exit_code: -1, signal: null };
     });
     return { record: { ...record }, process: child };
   }
 
-  private finalize(procId: string, terminationReason: string | null): void {
-    const presentation = this.presentations.get(procId);
-    if (!presentation || presentation.record.status !== 'running') return;
-    const outcome = terminationReason
+  private finalize(presentation: ProcessPresentation, terminationReason: string | null, captureFailure: Error | null): void {
+    if (presentation.record.status !== 'running') return;
+    const outcome = captureFailure
+      ? { ...(presentation.leaderOutcome ?? { exit_code: null, signal: null }), status: 'failed' as const }
+      : terminationReason
       ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM' }
       : presentation.leaderOutcome ?? { status: 'failed' as const, exit_code: null, signal: null };
     presentation.record = { ...presentation.record, ...outcome, completed_at: now() };
   }
 
-  #captureReadable(readable: Readable | null, path: string): Promise<void> {
+  #captureReadable(readable: Readable | null, path: string, recordFailure: (error: Error) => void): Promise<void> {
     if (!readable) return Promise.resolve();
     readable.on('data', (chunk: Buffer | string) => {
       try { appendProcessOutputChunk(path, typeof chunk === 'string' ? Buffer.from(chunk) : chunk, this.#outputIo); }
-      catch (error) { if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error); throw error; }
+      catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error);
+        recordFailure(error instanceof Error ? error : new Error(String(error)));
+        readable.destroy();
+      }
     });
-    readable.on('error', (error) => { throw error; });
+    readable.on('error', recordFailure);
     return new Promise<void>((resolveDrain) => {
       let settled = false;
       const settle = (): void => { if (!settled) { settled = true; resolveDrain(); } };
@@ -291,17 +340,17 @@ export class ProcessRunner {
     });
   }
 
-  async #joinStopped(report: ProcessStopReport): Promise<void> {
+  async #joinStopped(report: ProcessStopReport, presentations: ReadonlyMap<string, ProcessPresentation>): Promise<void> {
     await Promise.all(report.stopped.map((id) => {
-      const presentation = this.presentations.get(id);
+      const presentation = presentations.get(id);
       if (!presentation) throw new Error(`Registry-confirmed stopped process '${id}' has no ProcessRunner presentation.`);
       return presentation.terminalSettlement;
     }));
   }
 
-  private waitResult(procId: string, timedOut: boolean, started: number): ProcessWaitResult {
-    const record = this.presentations.get(procId)!.record;
-    return { id: procId, status: record.status, exitCode: record.exit_code ?? null, timedOut, waitDurationMs: Date.now() - started };
+  private waitResult(presentation: ProcessPresentation, timedOut: boolean, started: number): ProcessWaitResult {
+    const record = { ...presentation.record };
+    return { id: record.id, status: record.status, exitCode: record.exit_code ?? null, timedOut, waitDurationMs: Date.now() - started, record };
   }
 
   private assertStopSucceeded(report: ProcessStopReport): void {

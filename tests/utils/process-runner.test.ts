@@ -81,7 +81,7 @@ describe('ProcessRunner managed process groups', () => {
     expect(runner.get(record.id)).toMatchObject({ status: 'running' });
     const report = await runner.closeAndTerminateDirectScope({ directScope: scope, category, reason: 'scope complete', graceMs: 100 });
     expect(report).toEqual({ selected: [record.id], stopped: [record.id], failed: [] });
-    expect(runner.get(record.id)).toMatchObject({ status: 'killed' });
+    expect(runner.get(record.id)).toBeNull();
   });
 
   it('uses exact direct scope and category rather than owner metadata for kill authorization', async () => {
@@ -137,10 +137,11 @@ describe('ProcessRunner managed process groups', () => {
       closeAndTerminateDirectScope: async () => { absent?.(); return report; },
     };
     const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
-    const record = synthetic.spawn({ command: 'synthetic', directScope: {} as never, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const syntheticScope = {} as ManagedProcessScope;
+    const record = synthetic.spawn({ command: 'synthetic', directScope: syntheticScope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
     const terminal = surface === 'kill'
-      ? synthetic.kill(record.id, { directScope: {} as never, category: 'runtime_card' })
-      : synthetic[surface]({ ...(surface === 'terminateScopeTree' ? { rootScope: {} as never, categories: ['runtime_card'] as const } : { directScope: {} as never, category: 'runtime_card' as const }), reason: 'test' } as never);
+      ? synthetic.kill(record.id, { directScope: syntheticScope, category: 'runtime_card' })
+      : synthetic[surface]({ ...(surface === 'terminateScopeTree' ? { rootScope: {} as never, categories: ['runtime_card'] as const } : { directScope: syntheticScope, category: 'runtime_card' as const }), reason: 'test' } as never);
     let settled = false; void terminal.then(() => { settled = true; });
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
@@ -150,7 +151,8 @@ describe('ProcessRunner managed process groups', () => {
     await terminal;
     expect(readFileSync(record.stdout_path, 'utf8')).toBe('late-out');
     expect(readFileSync(record.stderr_path, 'utf8')).toBe('late-err');
-    expect(synthetic.get(record.id)?.status).not.toBe('running');
+    if (surface === 'closeAndTerminateDirectScope') expect(synthetic.get(record.id)).toBeNull();
+    else expect(synthetic.get(record.id)?.status).not.toBe('running');
     rmSync(syntheticRoot, { recursive: true, force: true });
   });
 
@@ -195,6 +197,93 @@ describe('ProcessRunner managed process groups', () => {
     let settled = false; void termination.then(() => { settled = true; }); await new Promise<void>((resolve) => setImmediate(resolve)); expect(settled).toBe(false);
     child.emit('exit', 0, null); stdout.end('tail'); stderr.end();
     await expect(termination).resolves.toMatchObject({ stopped: [record.id], failed: [{ groupId: 'unconfirmed' }] });
+    rmSync(syntheticRoot, { recursive: true, force: true });
+  });
+
+  it.each(['stream-error', 'append-open'] as const)('observes a background %s capture failure immediately and preserves its identity for later terminal consumers', async (failureKind) => {
+    const syntheticRoot = mkdtempSync(join(tmpdir(), `proc-runner-capture-${failureKind}-`));
+    initProjectTree(syntheticRoot);
+    const stdout = new PassThrough(); const stderr = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+    child.stdout = stdout; child.stderr = stderr;
+    let absent!: () => void;
+    const fakeRegistry = {
+      launch(input: { onAbsent(): void }) { absent = input.onAbsent; return child; },
+      closeAndTerminateDirectScope: async () => ({ selected: [], stopped: [], failed: [] }),
+    };
+    const sentinel = Object.assign(new Error(`${failureKind} sentinel`), failureKind === 'append-open' ? { code: 'EMFILE' } : {});
+    const output = failureKind === 'append-open'
+      ? { open: () => { throw sentinel; } }
+      : undefined;
+    const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort, { output: output as never });
+    const scope = {} as ManagedProcessScope;
+    const record = synthetic.spawn({ command: 'synthetic', directScope: scope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+
+    if (failureKind === 'stream-error') stdout.emit('error', sentinel);
+    else stdout.write('capture me');
+    child.emit('exit', 0, null); stdout.end(); stderr.end(); absent();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(synthetic.get(record.id)).toMatchObject({ status: 'failed', exit_code: 0 });
+    await expect(synthetic.wait(record.id, 0)).rejects.toBe(sentinel);
+    await expect(synthetic.waitForSettlement(record.id)).rejects.toBe(sentinel);
+    await expect(synthetic.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'consume capture failure' })).rejects.toBe(sentinel);
+    expect(synthetic.get(record.id)).toBeNull();
+    rmSync(syntheticRoot, { recursive: true, force: true });
+  });
+
+  it('routes a raw child-error diagnostic append failure through the same terminal capture settlement', async () => {
+    const syntheticRoot = mkdtempSync(join(tmpdir(), 'proc-runner-child-error-capture-'));
+    initProjectTree(syntheticRoot);
+    const stdout = new PassThrough(); const stderr = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+    child.stdout = stdout; child.stderr = stderr;
+    let absent!: () => void;
+    const fakeRegistry = { launch(input: { onAbsent(): void }) { absent = input.onAbsent; return child; } };
+    const sentinel = Object.assign(new Error('child diagnostic EMFILE'), { code: 'EMFILE' });
+    const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort, {
+      output: { open: () => { throw sentinel; } } as never,
+    });
+    const record = synthetic.spawn({ command: 'synthetic', directScope: {} as ManagedProcessScope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+
+    child.emit('error', new Error('spawn error')); stdout.end(); stderr.end(); absent();
+
+    await expect(synthetic.waitForSettlement(record.id)).rejects.toBe(sentinel);
+    expect(synthetic.get(record.id)).toMatchObject({ status: 'failed', exit_code: -1 });
+    rmSync(syntheticRoot, { recursive: true, force: true });
+  });
+
+  it('scope close joins and retires every eligible presentation before propagating the first capture failure', async () => {
+    const syntheticRoot = mkdtempSync(join(tmpdir(), 'proc-runner-close-rejections-'));
+    initProjectTree(syntheticRoot);
+    const launches: Array<{ child: EventEmitter & { stdout: PassThrough; stderr: PassThrough }; absent(): void; id: string }> = [];
+    const fakeRegistry = {
+      launch(input: { groupId: string; onAbsent(): void }) {
+        const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+        child.stdout = new PassThrough(); child.stderr = new PassThrough();
+        launches.push({ child, absent: input.onAbsent, id: input.groupId });
+        return child;
+      },
+      closeAndTerminateDirectScope: async () => ({ selected: launches.map(({ id }) => id), stopped: launches.map(({ id }) => id), failed: [] }),
+    };
+    const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
+    const scope = {} as ManagedProcessScope;
+    const first = synthetic.spawn({ command: 'first', directScope: scope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const second = synthetic.spawn({ command: 'second', directScope: scope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const sentinel = new Error('first capture failure');
+    launches[0]!.child.stdout.emit('error', sentinel);
+    launches[0]!.child.emit('exit', 0, null); launches[0]!.child.stdout.end(); launches[0]!.child.stderr.end(); launches[0]!.absent();
+    launches[1]!.child.emit('exit', 0, null); launches[1]!.absent();
+
+    const closing = synthetic.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'close all' });
+    let settled = false; void closing.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    launches[1]!.child.stdout.end(); launches[1]!.child.stderr.end();
+
+    await expect(closing).rejects.toBe(sentinel);
+    expect(synthetic.get(first.id)).toBeNull();
+    expect(synthetic.get(second.id)).toBeNull();
     rmSync(syntheticRoot, { recursive: true, force: true });
   });
 

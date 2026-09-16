@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import * as YAML from 'yaml';
 
 import { McpManager } from '../../src/mcp/mcp-manager.js';
@@ -9,7 +11,7 @@ import { ServerNotRunningError } from '../../src/mcp/errors.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { ProcessRunner, type ProcessStopReport } from '../../src/runtime/process-runner.js';
+import { ProcessRunner, type ProcessRecord, type ProcessStopReport, type ProcessWaitResult } from '../../src/runtime/process-runner.js';
 import { testConfigAuthority } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
@@ -106,5 +108,58 @@ describe('current named-agent MCP manager contract',()=>{
     rootTermination.reject(rootFailure);
     await expect(cleanup).rejects.toBe(rootFailure);
     expect(value.getStatus()).toHaveLength(1);
+  });
+
+  it('projects a stdio capture-settlement rejection as error and retires the consumed launch', async () => {
+    const captureFailure = new Error('capture failed');
+    const terminal = deferred<ProcessWaitResult>();
+    const process = new EventEmitter() as EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough };
+    process.stdin = new PassThrough(); process.stdout = new PassThrough(); process.stderr = new PassThrough();
+    const record: ProcessRecord = {
+      id: 'proc-capture', card_id: null, owner_id: 'mcp:one', owner_kind: 'runtime', agent_session_id: null,
+      command: 'server', cwd: '/project', status: 'running', started_at: '2026-01-01T00:00:00.000Z', completed_at: null,
+      exit_code: null, signal: null, stdout_path: '/stdout', stderr_path: '/stderr',
+    };
+    const processScope = {} as never;
+    const processRunner = {
+      spawnInteractive: jest.fn(() => ({ process, record })),
+      waitForSettlement: jest.fn(() => terminal.promise),
+      retireSettled: jest.fn(),
+    };
+    const runtime = new McpServerRuntime({
+      name: 'one', config: { transport: 'stdio', command: 'server', autostart: true, disabled: false }, revision: 'revision',
+      processRunner: processRunner as never, processScope, ids: { next: () => 1 }, invocationStats: {} as never,
+    });
+
+    const startStdio = Reflect.get(runtime, 'startStdio') as (config: { transport: 'stdio'; command: string; autostart: boolean; disabled: boolean }, generation: number, signal: AbortSignal) => void;
+    startStdio.call(runtime, runtime.config as never, 0, new AbortController().signal);
+    terminal.reject(captureFailure);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(runtime.getStatus()).toEqual(expect.objectContaining({ status: 'error', error: 'Process output capture failed' }));
+    expect(runtime.isRunning()).toBe(false);
+    expect(processRunner.retireSettled).toHaveBeenCalledWith(record.id, processScope);
+  });
+
+  it('retires each naturally exited stdio launch while reusing one open revision scope', async () => {
+    const projectRoot = root();
+    const registry = new ManagedProcessGroupRegistry();
+    const mcpRoot = registry.createContainerScope(registry.rootScope, 'mcp');
+    const processScope = registry.createDirectScope(mcpRoot, 'one:revision', 'service_infrastructure');
+    const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
+    const config = { transport: 'stdio' as const, command: '/bin/sh', args: ['-c', 'exit 0'], autostart: true, disabled: false };
+    const runtime = new McpServerRuntime({ name: 'one', config, revision: 'revision', processRunner, processScope, ids: { next: () => 1 }, invocationStats: {} as never });
+    const startStdio = Reflect.get(runtime, 'startStdio') as (selected: typeof config, generation: number, signal: AbortSignal) => void;
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      startStdio.call(runtime, config, 0, new AbortController().signal);
+      for (let attempt = 0; attempt < 100 && processRunner.list().length > 0; attempt += 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+      expect(runtime.getStatus()).toEqual(expect.objectContaining({ status: 'stopped' }));
+      expect(processRunner.list()).toEqual([]);
+    }
+
+    await processRunner.closeAndTerminateDirectScope({ directScope: processScope, category: 'service_infrastructure', reason: 'test complete' });
   });
 });

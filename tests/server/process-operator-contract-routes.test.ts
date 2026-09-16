@@ -25,6 +25,8 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { createEventLog } from '../../src/observability/index.js';
 import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { WorkspaceFileReadModelService } from '../../src/application/read-models/workspace-file-read-model.js';
+import { writeSaivageConfig } from '../helpers/project-config.js';
 
 const providerRoutingReadModelProvider = () => ({
   availabilityScope: 'process_local_reset_on_restart' as const,
@@ -81,9 +83,10 @@ describe('contract-backed process routes', () => {
     );
   });
 
-  it('lists safe process views and does not mount process detail', async () => {
+  it('lists only current process presentations, keeps retired log URLs readable, and does not mount process detail', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     initProjectTree(projectRoot);
+    writeSaivageConfig(projectRoot, TEST_SAIVAGE_CONFIG);
     const fastify = Fastify({ logger: false });
     try {
       const processes = createTestProcessRunner(projectRoot);
@@ -104,7 +107,7 @@ describe('contract-backed process routes', () => {
         command: 'echo hello',
         directScope: processScope,
         category: 'runtime_card',
-        cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        cardId: null,
         ownerId: 'runtime-owner',
         ownerKind: 'runtime',
       });
@@ -147,15 +150,15 @@ describe('contract-backed process routes', () => {
         processes: [
           expect.objectContaining({
             id: record.id,
-            card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            card_id: null,
             owner_id: 'runtime-owner',
             owner_kind: 'runtime',
             status: 'exited',
             ended_at: expect.any(String),
             exit_code: 0,
             logs: {
-              stdout: `work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${record.id}/stdout.log`,
-              stderr: `work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${record.id}/stderr.log`,
+              stdout: `work:///processes/${record.id}/stdout.log`,
+              stderr: `work:///processes/${record.id}/stderr.log`,
             },
           }),
         ],
@@ -169,6 +172,12 @@ describe('contract-backed process routes', () => {
       expect(
         (await fastify.inject({ method: 'GET', url: `/api/processes/${record.id}` })).statusCode,
       ).toBe(404);
+
+      processRunner.retireSettled(record.id, processScope);
+      expect((await fastify.inject({ method: 'GET', url: '/api/processes' })).json()).toEqual({ processes: [] });
+      const retainedLog = new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
+        .readFileContent(`work:///processes/${record.id}/stdout.log`);
+      expect(retainedLog).toEqual(expect.objectContaining({ body: expect.objectContaining({ content: 'hello\n' }) }));
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });
