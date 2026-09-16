@@ -5,10 +5,10 @@ import {
   ConnectedStatusContentSchema,
   ControlActionRecordedContentSchema,
   InboundAnalystMessageContentSchema,
-  MAX_INBOUND_ANALYST_TEXT_CHARS,
   NotificationAddedContentSchema,
   ClassifiedToolInvocationActivityContentSchema,
 } from '../../src/contracts/operator-events.js';
+import { MAX_INBOUND_ANALYST_TEXT_CHARS } from '../../src/contracts/index.js';
 
 const strictContentCases = [
   {
