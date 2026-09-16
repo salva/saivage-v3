@@ -371,7 +371,7 @@ This settlement-before-join order breaks the Conversation LLM â†’ child lease â†
 Dynamic execution uses existing direct scopes under the runtime-card, operator-session, and service-infrastructure process roots; halt cleanup closes/joins only owned volatile scopes and cannot replace the publication error at its owning boundary.
 Exact continuation fences compare map owner, activation identity, relationships, and absence of halt before and after every await that could publish, activate, settle, or release.
 The exact consuming roots remain the global Fastify error handler, registered Analyst WebSocket message rejection observer, and Supervisor `activateProcessor()` rejection callback.
-They expose no cause and publish no replacement evidence.
+They publish no replacement evidence and expose no cause through HTTP or WebSocket responses; delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr.
 
 `EventQueryService` is the sole event/error query authority for the authenticated operator API and Analyst tools.
 Each query performs one complete strict event-lane read and then filters/slices.

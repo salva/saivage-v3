@@ -1273,7 +1273,7 @@ Inner catches rethrow the identical object before local classification.
 The Supervisor `activateProcessor()` rejection callback synchronously begins the one runtime halt and preserves the identical publication error on the owning activation settlement.
 Structural child waits receive the shared `RuntimeStoppedInterruption`, become terminal and consumable before joins, and cannot turn the stop into an ordinary failed planner tool result.
 The halt performs no publication follow-up I/O and cleanup failure cannot replace publication-error identity at that owning boundary.
-The other consuming roots remain the global Fastify handler and registered Analyst WebSocket message rejection observer; they publish nothing and expose no cause.
+The other consuming roots remain the global Fastify handler and registered Analyst WebSocket message rejection observer; they publish no replacement evidence and expose no cause through HTTP or WebSocket responses, while delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr.
 
 Successful owners call narrow SyncHub effects directly.
 Conversation publication emits `conversationChanged({session_id,segment_version,visible_message_id})` only after confirmed append/index commit.
