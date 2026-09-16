@@ -17,7 +17,7 @@ export class OperatorRuntimeHttpClient {
     const headers: Record<string, string> = { accept: 'application/json' };
     if (endpoint.auth === 'bearer') {
       const token = process.env.SAIVAGE_API_TOKEN;
-      if (!token) throw new Error('Live service requires bearer authentication; set SAIVAGE_API_TOKEN.');
+      if (!token || token.trim() === '') throw new Error('Live service requires bearer authentication; set a non-blank SAIVAGE_API_TOKEN.');
       headers.authorization = `Bearer ${token}`;
     }
     if (body !== undefined) headers['content-type'] = 'application/json';

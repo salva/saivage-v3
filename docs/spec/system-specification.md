@@ -740,6 +740,7 @@ Failed, disposed, closed-admission, canonical-state, provider, persistence, inva
 WebSocket connection and successful turn acknowledgement and final Analyst tool activities carry the configured identity; a busy loser emits no acknowledgement or activity.
 Generic Agent detail, conversation, and LLM-exchange parameters use the full shared session grammar.
 Invalid raw frames are rejected before subscription mutation or acknowledgement, and malformed Vue Agent route input mounts no detail, REST, or live-sync work.
+The single WebSocket transport caps every inbound frame at 1 MiB (`1_048_576` bytes); an oversized frame closes with code 1009 before JSON parsing, schema validation, or Analyst handler work. Inbound Analyst `text` is additionally capped by schema at `1_048_576` characters. The transport limit is authoritative for multibyte content, and its nominal 1 MiB ceiling is aligned with the explicit global REST body limit.
 
 Agent summaries require `id`, `agent_name`, `session_scope`, `card_id`, `started_at`, required nullable `compaction`, and exactly one valid liveness pair: `status:'active'` with `activity:'busy'`, or `status:'inactive'` with `activity:'idle'`. `compaction` is null unless that exact executing session owns current ephemeral progress; otherwise it is exactly `{strategy,started_at,folds_done,fold_in_flight}` with a nonnegative logical-success count.
 `GET /api/agents` derives the configured global Analyst and every active linked card's distinct compiled workflow agents.
@@ -1147,6 +1148,7 @@ Selection is project root `--project-root` > `SAIVAGE_PROJECT_ROOT` > current wo
 Each chain selects its highest-precedence raw value before validating only that selected value.
 This specification is the exact owner of those four startup precedence chains; deployment procedures reference rather than redefine them.
 `NODE_ENV`, `LOG_LEVEL`, and `SAIVAGE_API_TOKEN` are independent environment-only inputs.
+A set-but-blank `SAIVAGE_API_TOKEN` (empty or whitespace-only) and a token with leading or trailing whitespace each fail startup with a typed environment-load error. Unset is the only authentication-disabled selector, and an accepted token is used verbatim rather than trimmed.
 Startup requires the existing project identity needed for bound lock acquisition.
 Only after environment validation succeeds may `--create-runtime` invoke the shared initial-runtime publisher after the classifier returns `null`; a returned existing card skips publication.
 Both cases then use the same strict startup admission.
@@ -1172,7 +1174,7 @@ The shared client never reads current YAML, host/port flags, host/port environme
 - delegation, authentication, response, and schema failure never falls back.
 
 Published disabled auth omits Authorization.
-Published bearer requires nonempty `SAIVAGE_API_TOKEN` and sends it only as a header.
+Published bearer requires a non-blank `SAIVAGE_API_TOKEN` and sends it only as a header; the client rejects empty and whitespace-only values before making a request.
 CLI `stop` delegates to REST operation `stop_project`; there is no `stop_project` CLI alias.
 
 The exact public operator REST contracts are `GET /health` and `GET /health/ready`, and the complete registry uses only `GET | POST`.
@@ -1184,6 +1186,7 @@ Null runtime state and stopped runtime status remain valid.
 Every `/api/*` operator contract requires operator-session admission through the shared policy and explicitly declares the shared unauthorized response in the [exact shared operator error contracts](#exact-shared-operator-error-contracts).
 Ordinary deployments require bearer authentication.
 With `SAIVAGE_API_TOKEN` configured, only the exact bearer header admits the request; rejection occurs before request validation or handler work.
+Set-but-blank and leading- or trailing-whitespace values fail startup rather than silently disabling authentication or starting a server whose configured token cannot be presented unchanged by the bearer protocol.
 Authentication-disabled mode, in which the same operator-session contracts admit headerless requests, is supported only when deployment-owned external isolation limits exposure to trusted origins.
 Saivage neither establishes nor detects that isolation.
 Wildcard CORS remains enabled and is not authentication.

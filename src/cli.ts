@@ -147,7 +147,8 @@ async function handleRuntimeControl(command: 'status' | 'pause' | 'resume' | 'st
   if (command === 'resume') { console.log(JSON.stringify(await client.resumeRuntime(endpoint))); return; }
   if (command === 'stop') { console.log(JSON.stringify(await client.stopProject(endpoint))); return; }
   if (endpoint.auth === 'disabled') throw new Error('restart unavailable: operator authentication disabled');
-  if (!process.env.SAIVAGE_API_TOKEN) throw new Error('Live service requires bearer authentication; set SAIVAGE_API_TOKEN.');
+  const token = process.env.SAIVAGE_API_TOKEN;
+  if (!token || token.trim() === '') throw new Error('Live service requires bearer authentication; set a non-blank SAIVAGE_API_TOKEN.');
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const confirmation = await prompt.question('Type RESTART SERVER to confirm: ');

@@ -845,7 +845,7 @@ A null endpoint fails exactly `active lifecycle owner; runtime control unavailab
 The shared operator HTTP client appends only canonical operation paths.
 It sends bodyless Pause, Resume, and Stop requests without JSON `Content-Type`, while confirmed Restart carries its exact JSON body and content type.
 It never rediscovers YAML, flags, host/port environment, defaults, runtime files, or current process config.
-Published disabled auth omits Authorization; published bearer requires `SAIVAGE_API_TOKEN` and sends it only in a header.
+Published disabled auth omits Authorization; published bearer requires a non-blank `SAIVAGE_API_TOKEN` and sends it only in a header. The client rejects empty and whitespace-only values before delegation.
 Connection, authentication, response, or schema failure has no fallback.
 
 ## 9. Conversation Compaction

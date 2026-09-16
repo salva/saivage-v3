@@ -16,13 +16,21 @@ describe('OperatorRuntimeHttpClient', () => {
     delete process.env.SAIVAGE_API_TOKEN;
     const request = jest.fn<typeof fetch>();
     const client = new OperatorRuntimeHttpClient(request);
-    await expect(client.stopProject({ origin: 'https://operator.example', auth: 'bearer' })).rejects.toThrow('Live service requires bearer authentication; set SAIVAGE_API_TOKEN.');
+    await expect(client.stopProject({ origin: 'https://operator.example', auth: 'bearer' })).rejects.toThrow('Live service requires bearer authentication; set a non-blank SAIVAGE_API_TOKEN.');
     expect(request).not.toHaveBeenCalled();
     process.env.SAIVAGE_API_TOKEN = 'secret';
     request.mockResolvedValue(new Response(JSON.stringify({ status: 'stopped', contained: true }), { status: 200 }));
     await client.stopProject({ origin: 'https://operator.example', auth: 'bearer' });
     expect(request.mock.calls[0]![0]).toBe('https://operator.example/api/runtime/stop-project');
     expect((request.mock.calls[0]![1]!.headers as Record<string, string>).authorization).toBe('Bearer secret');
+  });
+
+  it.each(['', '   '])('rejects blank bearer credentials before sending a request %#', async (token) => {
+    process.env.SAIVAGE_API_TOKEN = token;
+    const request = jest.fn<typeof fetch>();
+    await expect(new OperatorRuntimeHttpClient(request).stopProject({ origin: 'https://operator.example', auth: 'bearer' }))
+      .rejects.toThrow('Live service requires bearer authentication; set a non-blank SAIVAGE_API_TOKEN.');
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('rejects malformed success responses without fallback', async () => {

@@ -120,7 +120,20 @@ export async function loadEnvironment(inputs: StartInputs, env: EnvironmentSourc
       : config.server.port ?? 8080;
   const logLevel = parseLogLevel(env['LOG_LEVEL']) ?? 'info';
   const nodeEnv = parseNodeEnv(env['NODE_ENV']);
-  const apiToken = env['SAIVAGE_API_TOKEN'] && env['SAIVAGE_API_TOKEN'].trim() !== '' ? env['SAIVAGE_API_TOKEN'] : undefined;
+  const rawApiToken = env['SAIVAGE_API_TOKEN'];
+  if (rawApiToken !== undefined && rawApiToken.trim() === '') {
+    throw new EnvironmentLoadError(
+      'SAIVAGE_API_TOKEN is set but blank; unset it to run with authentication disabled, or set a non-blank token.',
+      { field: 'auth.apiToken', expected: 'unset or a non-blank token without surrounding whitespace', received: 'blank', source: 'env' },
+    );
+  }
+  if (rawApiToken !== undefined && rawApiToken !== rawApiToken.trim()) {
+    throw new EnvironmentLoadError(
+      'SAIVAGE_API_TOKEN must not have leading or trailing whitespace.',
+      { field: 'auth.apiToken', expected: 'token without leading or trailing whitespace', received: 'leading or trailing whitespace', source: 'env' },
+    );
+  }
+  const apiToken = rawApiToken;
 
   const candidate: Environment = {
     nodeEnv,

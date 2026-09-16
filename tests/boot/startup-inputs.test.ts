@@ -93,4 +93,34 @@ describe('typed startup input precedence', () => {
       NODE_ENV: 'test', LOG_LEVEL: 'debug', SAIVAGE_API_TOKEN: 'startup-token',
     })).resolves.toMatchObject({ nodeEnv: 'test', server: { logLevel: 'debug' }, auth: { apiToken: 'startup-token', devModeAuthDisabled: false } });
   });
+
+  it.each(['', '   '])('rejects a set-but-blank API token %#', async (apiToken) => {
+    const root = rootWithConfig();
+    await expect(loadEnvironment(inputs(root), { SAIVAGE_API_TOKEN: apiToken })).rejects.toMatchObject({
+      name: 'EnvironmentLoadError',
+      field: 'auth.apiToken',
+      expected: 'unset or a non-blank token without surrounding whitespace',
+      received: 'blank',
+      source: 'env',
+    });
+  });
+
+  it('rejects an API token with surrounding whitespace without exposing it', async () => {
+    const root = rootWithConfig();
+    await expect(loadEnvironment(inputs(root), { SAIVAGE_API_TOKEN: ' padded ' })).rejects.toMatchObject({
+      name: 'EnvironmentLoadError',
+      field: 'auth.apiToken',
+      expected: 'token without leading or trailing whitespace',
+      received: 'leading or trailing whitespace',
+      source: 'env',
+    });
+  });
+
+  it('uses only an absent token to select authentication-disabled mode', async () => {
+    const root = rootWithConfig();
+    await expect(loadEnvironment(inputs(root), {})).resolves.toMatchObject({ auth: { apiToken: undefined, devModeAuthDisabled: true } });
+    await expect(loadEnvironment(inputs(root), { SAIVAGE_API_TOKEN: 'verbatim-token' })).resolves.toMatchObject({
+      auth: { apiToken: 'verbatim-token', devModeAuthDisabled: false },
+    });
+  });
 });

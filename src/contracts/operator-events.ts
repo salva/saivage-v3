@@ -252,9 +252,12 @@ const ServerActivityEnvelopeSchema = z.object({
   content: AnalystActivityContentSchema,
 }).strict();
 
+export const MAX_INBOUND_ANALYST_TEXT_CHARS = 1_048_576;
+export const MAX_ANALYST_WS_FRAME_BYTES = 1_048_576;
+
 export const InboundAnalystMessageContentSchema = z
   .object({
-    text: z.string().min(1),
+    text: z.string().min(1).max(MAX_INBOUND_ANALYST_TEXT_CHARS),
   })
   .strict();
 

@@ -70,10 +70,12 @@ async function unusedPort(): Promise<number> {
 }
 
 function runCli(root: string, command: 'init' | 'reset'): string {
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' };
+  delete env.SAIVAGE_API_TOKEN;
   const result = spawnSync(process.execPath, [TSX, CLI, command], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', SAIVAGE_API_TOKEN: '' },
+    env,
   });
   if (result.status !== 0) throw new Error(`${command} failed:\n${result.stdout}\n${result.stderr}`);
   return result.stdout;

@@ -14,8 +14,11 @@ const REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS = 20_000;
 const children = new Set<ChildProcess>();
 
 function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.ProcessEnv = {}): ChildProcess {
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' };
+  delete env.SAIVAGE_API_TOKEN;
+  Object.assign(env, extraEnv);
   const child = spawn(process.execPath, [tsx, fixture, scenario, ...(projectRoot ? [projectRoot] : [])], {
-    cwd: process.cwd(), env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: process.cwd(), env, stdio: ['ignore', 'pipe', 'pipe'],
   });
   children.add(child);
   child.once('exit', () => children.delete(child));
@@ -57,7 +60,7 @@ describe('App terminal process adapters', () => {
 
   it('handles a real SIGTERM through the App coordinator and exits zero', async () => {
     const root = project(validConfig(await availablePort())); roots.push(root);
-    const child = runChild('signal', root, { SAIVAGE_API_TOKEN: '' });
+    const child = runChild('signal', root);
     const result = collect(child);
     await new Promise<void>((resolve, reject) => {
       let output = '';

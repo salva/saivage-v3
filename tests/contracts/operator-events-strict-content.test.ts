@@ -5,6 +5,7 @@ import {
   ConnectedStatusContentSchema,
   ControlActionRecordedContentSchema,
   InboundAnalystMessageContentSchema,
+  MAX_INBOUND_ANALYST_TEXT_CHARS,
   NotificationAddedContentSchema,
   ClassifiedToolInvocationActivityContentSchema,
 } from '../../src/contracts/operator-events.js';
@@ -77,5 +78,10 @@ describe('strict WebSocket content contracts', () => {
 
   it.each(strictContentCases)('rejects an undeclared key on $name content', ({ schema, valid }) => {
     expect(schema.safeParse({ ...valid, unexpected: true }).success).toBe(false);
+  });
+
+  it('bounds inbound Analyst text at the exact character limit', () => {
+    expect(InboundAnalystMessageContentSchema.safeParse({ text: 'a'.repeat(MAX_INBOUND_ANALYST_TEXT_CHARS) }).success).toBe(true);
+    expect(InboundAnalystMessageContentSchema.safeParse({ text: 'a'.repeat(MAX_INBOUND_ANALYST_TEXT_CHARS + 1) }).success).toBe(false);
   });
 });
