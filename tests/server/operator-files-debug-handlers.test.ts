@@ -108,7 +108,8 @@ describe('operator files and debug contract handlers', () => {
 
   it('normalizes hostile Doctor authentication evaluation without route work', async () => {
     const authPolicy = new AuthPolicy();
-    jest.spyOn(authPolicy, 'validateHttpRequest').mockImplementation(() => { throw new Error('hostile auth'); });
+    const failure = new Error('hostile auth');
+    jest.spyOn(authPolicy, 'validateHttpRequest').mockImplementation(() => { throw failure; });
     const list = jest.fn();
     const { handler, request, reply } = mountedDoctorHandler({
       projectRoot,
@@ -123,7 +124,7 @@ describe('operator files and debug contract handlers', () => {
     expect(reply.status).toHaveBeenCalledWith(500);
     expect(reply.send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
     expect(request.log.error).toHaveBeenCalledWith(
-      { operation: 'debug.doctor', failureCode: 'auth_evaluation_failed' },
+      { err: failure, operation: 'debug.doctor', failureCode: 'auth_evaluation_failed' },
       'Operator contract operation failed',
     );
   });
@@ -196,14 +197,15 @@ describe('operator files and debug contract handlers', () => {
       authPolicy: new AuthPolicy(),
       fatalPort: testApplicationFatalPort,
     });
-    request.log.error.mockImplementationOnce(() => { throw new Error('outer'); });
+    const outerFailure = new Error('outer');
+    request.log.error.mockImplementationOnce(() => { throw outerFailure; });
 
     await handler(request, reply.value);
 
     expect(reply.status).toHaveBeenCalledWith(500);
     expect(reply.send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
     expect(request.log.error).toHaveBeenCalledTimes(2);
-    expect(request.log.error.mock.calls[1]?.[0]).toEqual({ operation: 'debug.doctor', failureCode: 'handler_failed' });
+    expect(request.log.error.mock.calls[1]?.[0]).toEqual({ err: outerFailure, operation: 'debug.doctor', failureCode: 'handler_failed' });
   });
 
   it('fails a malformed Doctor handler projection through response-contract validation', async () => {
