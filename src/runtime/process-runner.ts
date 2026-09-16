@@ -206,10 +206,6 @@ export class ProcessRunner {
 
   closeLaunchAdmission(): void { this.#registry.closeLaunchAdmission(); }
 
-  closeScope(scope: ManagedProcessScope): void {
-    this.#registry.closeScope(scope);
-  }
-
   createContainerScope(parent: ManagedProcessScope, label: string): ManagedProcessScope {
     return this.#registry.createContainerScope(parent, label);
   }

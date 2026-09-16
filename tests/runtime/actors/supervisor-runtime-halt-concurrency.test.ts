@@ -78,6 +78,7 @@ interface SupervisorInternals {
   activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<CardActivationOutcome>;
   createOwner(...args: never[]): CardActivationOwner;
   activateProcessor(owner: CardActivationOwner): void;
+  haltOnSettlementFailure(owner: CardActivationOwner, error: Error): void;
   settleResult(owner: CardActivationOwner, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): Promise<void>;
   onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void;
 }
@@ -367,6 +368,68 @@ describe('Supervisor singular runtime halt concurrency', () => {
     h.processTermination.resolve(processReport);
     await expect(within(halt!.promise)).resolves.toBeUndefined();
     await nextTurn();
+  });
+
+  it('ignores a stale settlement observer when no run or halt remains', () => {
+    const h = harness();
+    const staleProcessor = processor();
+    const staleOwner = new CardActivationOwner({ card: card('project'), processor: staleProcessor.actor, activationId: 'stale-root', entry: 'BACKLOG', phase: 'prepared_root' });
+    staleOwner.phase = 'active';
+    h.internals.activationOwners.clear();
+    h.internals.runIdentity = null;
+    h.internals.currentCardId = null;
+    h.internals.status = 'stopped';
+
+    expect(() => h.internals.haltOnSettlementFailure(staleOwner, new Error('stale settlement'))).not.toThrow();
+
+    expect(h.internals.halt).toBeNull();
+    expect(h.internals.status).toBe('stopped');
+    expect(h.internals.currentCardId).toBeNull();
+    expect(h.terminateScopeTree).not.toHaveBeenCalled();
+    expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+    expect(h.store.setStatus).not.toHaveBeenCalled();
+    expect(h.store.stopRunning).not.toHaveBeenCalled();
+  });
+
+  it('contains a live run once for a distinct stale owner without attributing its failure', async () => {
+    const h = harness();
+    const staleProcessor = processor();
+    const staleOwner = new CardActivationOwner({ card: card('project'), processor: staleProcessor.actor, activationId: 'stale-root', entry: 'BACKLOG', phase: 'prepared_root' });
+    staleOwner.phase = 'active';
+    const currentSettlement = h.root.settlement.promise.catch((error) => error);
+
+    h.internals.haltOnSettlementFailure(staleOwner, new Error('obsolete owner failure'));
+
+    const halt = h.internals.halt;
+    expect(halt).not.toBeNull();
+    expect(halt?.trigger).toBe('runtime_failure');
+    expect(halt?.owners).toEqual([h.root]);
+    expect(halt?.failure).toBeUndefined();
+    expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
+    await expect(currentSettlement).resolves.toBe(halt?.interruption);
+
+    h.rootProcessor.join.resolve([]);
+    h.processTermination.resolve(processReport);
+    await expect(within(halt!.promise)).resolves.toBeUndefined();
+  });
+
+  it('joins a retained halt for a stale owner without repeating termination', async () => {
+    const h = harness();
+    const staleProcessor = processor();
+    const staleOwner = new CardActivationOwner({ card: card('project'), processor: staleProcessor.actor, activationId: 'stale-root', entry: 'BACKLOG', phase: 'prepared_root' });
+    staleOwner.phase = 'active';
+    void h.root.settlement.promise.catch(() => undefined);
+    const stop = h.supervisor.stopProject();
+    const halt = h.internals.halt;
+
+    h.internals.haltOnSettlementFailure(staleOwner, new Error('obsolete owner failure'));
+
+    expect(h.internals.halt).toBe(halt);
+    expect(h.internals.halt?.promise).toBe(halt?.promise);
+    expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
+    h.rootProcessor.join.resolve([]);
+    h.processTermination.resolve(processReport);
+    await expect(within(stop)).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
   it.each([

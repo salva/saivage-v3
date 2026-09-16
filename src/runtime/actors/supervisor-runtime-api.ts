@@ -444,6 +444,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       void this.beginHalt('runtime_failure', owner, error).catch(() => undefined);
       return;
     }
+    if (!this.runIdentity && !this.halt) return;
     void this.beginHalt('runtime_failure').catch(() => undefined);
   }
 
