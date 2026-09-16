@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { CardService } from '../helpers/canonical-project.js';
-import { readConversation } from '../../src/persistence/conversation-file.js';
+import { readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -17,6 +17,12 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
+import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
+import { appendLlmTurnToolCallBatch, type InvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
+import { canonicalJson, type CardConversationSessionId } from '../../src/schemas/index.js';
+import { conversationSha256 } from '../../src/persistence/canonical-conversation-artifacts.js';
+import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\nThe Reviewer requires revision. Address the immediately preceding findings and update the `project` card evidence before selecting the next route.\n';
@@ -33,6 +39,16 @@ function complete(result: LlmCompleteResult): ProviderTurnCompletion {
 
 function tool(id: string, name: string, args: object): LlmCompleteResult {
   return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] };
+}
+
+const READ_POLICY: InvocationResultPolicy = (() => {
+  const resultPolicyTemplateBytes = canonicalJson(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE);
+  return Object.freeze({ resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes, resultPolicyTemplateSha256: conversationSha256(resultPolicyTemplateBytes) });
+})();
+
+function seedFinalUnmatchedRead(projectRoot: string, sessionId: CardConversationSessionId, inputId: string, callId: string): void {
+  appendActivationMarker({ projectRoot }, sessionId, { event: 'activation_open', agent_name: sessionId.split(':')[1]!, card_id: sessionId.split(':')[2]!, input_id: inputId });
+  appendLlmTurnToolCallBatch({ projectRoot }, { inputId, sessionId, agentName: sessionId.split(':')[1] } as never, { id: callId, type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'work:///' }) } }, READ_POLICY);
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
@@ -52,6 +68,17 @@ describe('reviewer rework completion E2E', () => {
     const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', bootstrap_content: 'Complete the child.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(child.id, 'running');
     cards.commitActivationOutcome(child.id, { status: 'done', summary: 'Child complete.', result: workflowResult('DONE','Child complete.') }, '2026-07-17T00:00:00.000Z');
+    const untouched = cards.create({ type: 'code', parent: 'project', title: 'Unselected child', bootstrap_content: 'Remain unselected.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    cards.setStatus(untouched.id, 'cancelled');
+    const oldReviewerInputId = '00000000-0000-4000-8000-000000000091';
+    const oldReviewerCallId = 'old-reviewer-root-read';
+    const reviewerSession = 'agent:reviewer:project' as const;
+    const untouchedSession = `agent:executor:${untouched.id}` as const;
+    seedFinalUnmatchedRead(projectRoot, reviewerSession, oldReviewerInputId, oldReviewerCallId);
+    const reviewerPrefix = readConversation(projectRoot, reviewerSession).physicalRows;
+    const reviewerBytePrefix = readCurrentConversationSegment(projectRoot, reviewerSession)!.bytes;
+    seedFinalUnmatchedRead(projectRoot, untouchedSession, '00000000-0000-4000-8000-000000000092', 'unselected-read');
+    const untouchedBefore = readConversation(projectRoot, untouchedSession).physicalRows;
 
     let plannerCalls = 0;
     let reviewerCalls = 0;
@@ -72,15 +99,29 @@ describe('reviewer rework completion E2E', () => {
         }
 
         reviewerCalls += 1;
-        if (reviewerCalls === 1) return complete(tool('reviewer-write-rework', 'write', { path: 'record:///review.md?card=project', content: 'Rework required: add explicit remediation evidence.' }));
-        if (reviewerCalls === 2) return complete(tool('reviewer-request-rework', 'emit_result', { outcome: 'revision_required', summary: REVIEW_SUMMARY }));
+        if (reviewerCalls === 1) {
+          const settled = input.providerConversation.messages.find((row) => row.kind === 'tool_result' && row.tool_call_id === oldReviewerCallId);
+          if (!settled || JSON.parse(settled.content).data?.outcome_unknown !== true) throw new Error('Reviewer did not receive the prior uncertainty settlement.');
+          return complete(tool('reviewer-read-root', 'read', { path: 'work:///' }));
+        }
+        if (reviewerCalls === 2) {
+          const result = input.providerConversation.messages.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'reviewer-read-root');
+          if (!result || JSON.parse(result.content).success !== true || JSON.parse(result.content).data?.path !== 'work:///') throw new Error('Reviewer work-root read did not settle successfully.');
+          return complete(tool('reviewer-read-missing', 'read', { path: 'work:///missing-review-evidence.txt' }));
+        }
         if (reviewerCalls === 3) {
+          const result = input.providerConversation.messages.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'reviewer-read-missing');
+          if (!result || JSON.parse(result.content).success !== false) throw new Error('Reviewer missing-file read was not an ordinary failed result.');
+          return complete(tool('reviewer-write-rework', 'write', { path: 'record:///review.md?card=project', content: 'Rework required: add explicit remediation evidence.' }));
+        }
+        if (reviewerCalls === 4) return complete(tool('reviewer-request-rework', 'emit_result', { outcome: 'revision_required', summary: REVIEW_SUMMARY }));
+        if (reviewerCalls === 5) {
           const status=cards.readRecordCurrent('project','status.md');if(status.kind!=='found'||status.value.projection?.artifact.accepted?.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
           return complete(tool('reviewer-write-free-notes', 'write', { path: 'record:///review-notes-1.md?card=project', content: 'Initial wildcard note.' }));
         }
-        if (reviewerCalls === 4) return complete(tool('reviewer-edit-free-notes', 'edit', { path: 'record:///review-notes-1.md?card=project', old_string: 'Initial wildcard note.', new_string: 'Repeatedly edited wildcard note.' }));
-        if (reviewerCalls === 5) return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?card=project', content: 'Approved after concrete remediation.' }));
-        if (reviewerCalls === 6) return complete(tool('reviewer-done', 'emit_result', { outcome: 'approved', summary: 'Approved after concrete remediation.' }));
+        if (reviewerCalls === 6) return complete(tool('reviewer-edit-free-notes', 'edit', { path: 'record:///review-notes-1.md?card=project', old_string: 'Initial wildcard note.', new_string: 'Repeatedly edited wildcard note.' }));
+        if (reviewerCalls === 7) return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?card=project', content: 'Approved after concrete remediation.' }));
+        if (reviewerCalls === 8) return complete(tool('reviewer-done', 'emit_result', { outcome: 'approved', summary: 'Approved after concrete remediation.' }));
         throw new Error(`Unexpected reviewer provider call ${reviewerCalls}.`);
       });
     const provider: LLMProviderPort = scriptedAdmissionProvider(providerTurn);
@@ -118,8 +159,8 @@ describe('reviewer rework completion E2E', () => {
     expect(runtime.getRuntimeState()).toBeNull();
     expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'Approved after concrete remediation.' } } });
     expect(plannerCalls).toBe(4);
-    expect(reviewerCalls).toBe(6);
-    expect(providerTurn).toHaveBeenCalledTimes(10);
+    expect(reviewerCalls).toBe(8);
+    expect(providerTurn).toHaveBeenCalledTimes(12);
     expect(membershipRecords.length).toBeGreaterThan(0);
     expect(new Set(membershipRecords.map(({ target }) => target.scope))).toEqual(new Set(['card']));
     expect(new Set(membershipRecords.map(({ target }) => target.scope === 'card' ? target.cardId : target.sessionId))).toEqual(new Set(['project']));
@@ -135,6 +176,21 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.readRecordVersion('project','review.md',2)).toMatchObject({kind:'found',value:{projection:{versionUrl:'record:///review.md?card=project&v=2',artifact:{draft:{content:'Rework required: add explicit remediation evidence.'}}}}});
     expect(cards.readRecordVersion('project','review.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Approved after concrete remediation.'}}}}});
     expect(cards.readRecordCurrent('project','review-notes-1.md')).toMatchObject({kind:'found',value:{projection:{artifact:{state:'closed',accepted:{content:'Repeatedly edited wildcard note.',writer_agent:'reviewer'}}}}});
+    const reviewerRows = readConversation(projectRoot, reviewerSession).physicalRows;
+    const reviewerFinalBytes = readCurrentConversationSegment(projectRoot, reviewerSession)!.bytes;
+    expect(reviewerFinalBytes.subarray(0, reviewerBytePrefix.length)).toEqual(reviewerBytePrefix);
+    expect(reviewerRows.slice(0, reviewerPrefix.length)).toEqual(reviewerPrefix);
+    expect(reviewerRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === oldReviewerCallId)).toEqual([
+      expect.objectContaining({
+        tool: 'read',
+        context_policy: expect.objectContaining({ settlement_origin: 'execution_failed', call_policy_sha256: READ_POLICY.resultPolicyTemplateSha256, evidence: { kind: 'none' } }),
+      }),
+    ]);
+    const oldResultIndex = reviewerRows.findIndex((row) => row.kind === 'tool_result' && row.tool_call_id === oldReviewerCallId);
+    expect(JSON.parse(reviewerRows[oldResultIndex]!.content)).toEqual({ success: false, error: 'Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.', data: { outcome_unknown: true } });
+    expect(reviewerRows[oldResultIndex + 1]).toMatchObject({ kind: 'activity' });
+    expect(reviewerRows.some((row) => row.kind === 'model_recovered')).toBe(false);
+    expect(readConversation(projectRoot, untouchedSession).physicalRows).toEqual(untouchedBefore);
   });
 
   it('lets the owning goal Planner reopen the same completed child for reviewed correction', async () => {
@@ -281,5 +337,61 @@ describe('reviewer rework completion E2E', () => {
     expect(goalPlannerCalls).toBe(8);
     expect(executorCalls).toBe(4);
     expect(reviewerCalls).toBe(4);
+  });
+
+  it('propagates a plain Error from the real bound Reviewer read without settling the live call', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-bound-error-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const failure = new Error('BOUND_REVIEWER_READ_SENTINEL');
+    const originalBind = BoundAgentToolSet.prototype.bind;
+    const bind = jest.spyOn(BoundAgentToolSet.prototype, 'bind').mockImplementation(function (this: BoundAgentToolSet, runtime: Parameters<BoundAgentToolSet['bind']>[0]) {
+      const surface = originalBind.call(this, runtime);
+      if (runtime.scope !== 'card' || runtime.agentName !== 'reviewer') return surface;
+      const read = surface.tools.get('read');
+      if (!read) throw new Error('Reviewer read tool is missing.');
+      return { ...surface, tools: new Map(surface.tools).set('read', { ...read, executor: async () => { throw failure; } }) };
+    });
+    let plannerCalls = 0;
+    let reviewerCalls = 0;
+    const providerTurn = jest.fn(async (input: LlmInvocationInput) => {
+      if (input.agentName === 'planner') {
+        plannerCalls += 1;
+        if (plannerCalls === 1) return complete(tool('bound-error-status', 'write', { path: 'record:///status.md?card=project', content: 'Ready for bound error review.' }));
+        if (plannerCalls === 2) return complete(tool('bound-error-admit', 'emit_result', { outcome: 'admit_review', summary: 'Ready.' }));
+      }
+      if (input.agentName === 'reviewer') {
+        reviewerCalls += 1;
+        if (reviewerCalls === 1) return complete(tool('bound-error-read', 'read', { path: 'work:///' }));
+      }
+      throw new Error(`Unexpected provider call for ${input.agentName}.`);
+    });
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const runtime = createSupervisorRuntimeApi({
+      fatalPort: testApplicationFatalPort,
+      ...testAutonomousCompaction,
+      runtimeGate: new RuntimeGate(),
+      projectRoot,
+      actorStore: cards,
+      provider: scriptedAdmissionProvider(providerTurn),
+      conversations: { projectRoot },
+      freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+      processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
+      runtimeProcessRootScope: processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards'),
+      promptTemplates: { render: () => 'test prompt' },
+    });
+    try {
+      const started = await runtime.startProject();
+      if (!started.started) throw new Error('Run was not accepted.');
+      await waitUntil(() => runtime.getStatus().status === 'stopped');
+      expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', error: failure.message } });
+      expect(providerTurn).toHaveBeenCalledTimes(3);
+      const reviewer = readConversation(projectRoot, 'agent:reviewer:project');
+      expect(reviewer.unmatchedCall?.toolCallId).toBe('bound-error-read');
+      expect(reviewer.physicalRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'bound-error-read')).toHaveLength(0);
+    } finally {
+      bind.mockRestore();
+    }
   });
 });

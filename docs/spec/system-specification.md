@@ -757,11 +757,11 @@ A failed halt retains its owner graph and emits no successful-removal freshness.
 
 One canonical durable conversation state machine owns exact session and message identity, source classification, tool call/result settlement and ordering, source rounds/segments, provider bundles, compaction coverage/hashes/static IDs, and the zero-or-one final-source unmatched-call rule.
 Its in-memory adapter returns immutable `ValidatedConversation` physical/source rows and derived durable facts.
-Append admission, `readConversation`, complete Agent transcripts, bounded `read_agent_session`, compaction source selection, ordinary provider source selection, and card Run recovery consume this grammar or its facts.
+Append admission, `readConversation`, complete Agent transcripts, bounded `read_agent_session`, compaction source selection, ordinary provider source selection, card Run recovery, and exact selected card-session activation settlement consume this grammar or its facts.
 `GET /api/agents/:id/conversation` returns exactly `{session_id,segment_version,segment_context,entries,cursor:{segment_version,message_id}}` only after complete exact validation. Selected conversation history returns exactly `{session_id,version,entry_id,published_at,segment_context,entries}`. Ordinary v1 has `segment_context:null`; each compacted version has a strict separately projected context.
 Optional `since` is an opaque equality token.
 An absent token alone is `400`; later outward rows are selected only after complete validation, and the cursor advances over filtered provider-private rows.
-A sole final unmatched call has no active, waiting, pending, or snapshot meaning.
+A sole final unmatched call has no active, waiting, pending, or snapshot meaning. When a later ordinary card workflow selects that exact configured session for imminent activation, the consuming `AgentNodeExecution` may pair it with one permanent synthetic failed result stating that external or domain effects may or may not have happened. The result preserves the old source input, call, tool, and persisted result-policy template bytes/hash, carries `outcome_unknown:true` and evidence `none`, and is appended immediately before the fresh activation marker. It neither continues nor replays the old invocation and appends no recovery notice.
 
 Successful `GET /api/agents/:id/llm-exchange` returns exactly `{session_id,exchange}`.
 `session_id` is the selected Agent-session identity, and `exchange` is the strict provider-exchange projection.
@@ -861,13 +861,13 @@ Explicit Run traverses all canonical linked membership and proves that every lin
 Every selected card is then processed as one leaf-to-root unit.
 Its configured planning-cycle nodes stabilize in graph order—by default the plan node's configured agent, then the review node's—while single-node types stabilize that node's configured executor; immediately after all of that card's sessions stabilize, that same card is published stopped before recovery advances to its ancestor.
 Planner/Reviewer/Executor are the default named agents, not runtime roles.
-This explicit Supervisor Run path is the only conversation corrective-recovery owner and accepts only card-scoped sessions; it consumes canonical `ValidatedConversation` call facts before applying its card policy.
+This explicit Supervisor Run path is the only broad conversation corrective-recovery owner and accepts only card-scoped sessions; it consumes canonical `ValidatedConversation` call facts before applying its card policy. Separately, the exact consuming card-session activation owner may settle only the sole strict-valid final unmatched call of the configured session selected for imminent actual use. That bounded operation performs no chain selection, state classification, notice append, old continuation, or session scan.
 Recovery makes an explicit local visibility decision for every current message kind before classification and rejects an unsupported runtime kind before filtering or state derivation.
 `activity` and `provider_private` are ignored when deriving implicit state; every other current kind is recovery-visible.
 For an OpenAI Responses bundle, the marked visible projection alone controls text, tool, and terminal state, while the private row remains persisted for provider replay.
 Empty, system-prompt-only, settled-terminal, and exact settled-recovery sessions are read-only.
 Tool-pending sessions receive the ordinary interrupted `outcome_unknown:true` failed tool result and then a recovery notice; provider/text-pending sessions receive only the notice.
-Multiple unmatched calls or malformed canonical data fail directly.
+Multiple or nonfinal unmatched calls and malformed canonical data fail directly at activation use, before its activation marker or provider request. Lifecycle admission is unchanged. Settlement publication uncertainty, or uncertainty while publishing the following activation, is fatal and authorizes no read, retry, second result, context append, provider request, cleanup, or reconciliation.
 An unfinished `activate_card` is always ordinary interruption: a running child is independently in the reset set, while a terminal or other non-running child is unchanged.
 No child result is read, formatted, reconstructed, or replayed.
 Global Analyst startup and ordinary reads never enter this recovery path.
@@ -879,7 +879,7 @@ A fresh STOPPED activation has a fresh marker and can later receive its own dist
 
 After all configured sessions for one selected card stabilize, `stopRunning` immediately publishes that card `stopped`, regardless of whether stabilization appended `model_recovered` or recognized an exact final existing notice as read-only clean conversation state.
 The notice never waives lifecycle settlement.
-The source must be running. Full-Run recovery and exact joined live-descendant interruption share this singular domain operation and its sole durable reason `recovery stopped lifecycle`; other literals are invalid and are not normalized. Recovery remains the only conversation-corrective orchestration owner, while interruption does not invoke recovery.
+The source must be running. Full-Run recovery and exact joined live-descendant interruption share this singular domain operation and its sole durable reason `recovery stopped lifecycle`; other literals are invalid and are not normalized. Run recovery remains the only conversation-corrective orchestration owner, while interruption does not invoke recovery; exact selected-session settlement at later activation use is owner-local and is not orchestration.
 The first stabilization or publication error ends that attempt with no later effect, read, retry, rollback, or reconciliation.
 Stopped descendants below the remaining unique running ancestor prefix are a valid committed prefix, and a later Run derives that remaining prefix from canonical state.
 If all cards are already stopped, Run directly selects project `STOPPED`.
@@ -1714,7 +1714,7 @@ Supersession never aborts shared `ensureChildren()` work, changes its keyed owne
 Files has exactly two concerns: a pre-generic admission/classification gate, followed by either the generic read path or the canonical-card virtual read model.
 For an ordinary project spelling, the gate performs decoded traversal rejection and lexical derivation/outside-root rejection, lexical blocked-source admission, lexical card reservation, and then bounded symlink classification for an allowed lexical non-card source.
 POSIX backslash is an ordinary filename character, not a card-grammar separator.
-For `work:///`, existing parse, query/fragment rejection, exact canonical round-trip validation, project-relative `.saivage/work` derivation, and traversal/outside-root checks precede the same lexical blocked-source, reservation, and allowed-source symlink stages.
+For `work:///`, existing parse, query/fragment rejection, exact canonical round-trip validation, project-relative `.saivage/work` derivation, and traversal/outside-root checks precede the same lexical blocked-source, reservation, and allowed-source symlink stages. Directory and metadata reads represent the exact admitted `.saivage/work` root as `work:///`; descendants retain canonical single encoding, including spaces, literal percent signs, and Unicode. `#` and `?` remain unrepresentable path characters, and raw query or fragment syntax remains rejected by the work resolver.
 A lexically blocked explicit source returns 403 and a blocked listed child is omitted; both stop before any classifier `lstat`, `readlink`, or card-target I/O, even if the source aliases into cards.
 A canonical project card spelling dispatches virtually.
 Any allowed non-singular project spelling that normalizes into cards, any allowed card alias, and any allowed validated-work spelling or alias that enters cards is reserved but opaque as 404 for an explicit request or omitted from a listing; no generic fallback follows.

@@ -1,19 +1,26 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
-import { initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
+import { initializeConversation, readConversation, readCurrentConversationSegment, type ConversationFileContext } from '../../../src/persistence/conversation-file.js';
 import { canonicalJson, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows, describeNodeResultContract, type CompiledNodeContract } from '../../../src/runtime/card-process/card-process-config.js';
-import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
+import { defineTool, executedToolOutcome, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 import { dynamicBlocksSha256 } from '../../../src/runtime/actors/context/context-blocks.js';
+import { appendActivationMarker } from '../../../src/runtime/actors/conversation-session.js';
+import { appendLlmTurnToolCallBatch, type InvocationResultPolicy } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { conversationSha256 } from '../../../src/persistence/canonical-conversation-artifacts.js';
+import { cardConversationVersionFile } from '../../../src/persistence/layout.js';
+import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
+import { deterministicRoundId } from '../../../src/schemas/round-id-server.js';
+import { validateConversation } from '../../../src/contracts/conversation-validation.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -31,6 +38,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   const sessionId: ConversationSessionId = `agent:planner:${cardId}`;
   initializeConversation(projectRoot, sessionId);
   const events: string[] = [];
+  let conversationChanged: (target: { visible_message_id: string | null }) => void = () => undefined;
   const cleanupReasons: ToolProviderCleanupReason[] = [];
   const execute = jest.fn(async () => { events.push('tool-execute'); return { success: true as const, data: 'must not run' }; });
   const tool = defineTool({ name: 'lookup', description: 'lookup', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: async () => executedToolOutcome('none', toolSucceeded((await execute()).data)) });
@@ -109,7 +117,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
     projectRoot,
     cardId,
     store,
-    conversations: { projectRoot },
+    conversations: { projectRoot, changes: { conversationChanged: (target: Parameters<NonNullable<ConversationFileContext['changes']>['conversationChanged']>[0]) => conversationChanged(target), agentMembershipChanged: () => undefined } },
     promptTemplates,
     compactionConfig: { context_utilization_fraction: 0.8, trigger_fraction: 0.7, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
     processRunner: { createDirectScope: jest.fn(() => ({})) },
@@ -125,7 +133,17 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   const surfaceOverride = execution as unknown as { buildSurface: (...args: unknown[]) => InvocationSurface };
   surfaceOverride.buildSurface = () => surface;
   const run = () => execution.execute({ process, stateId, node, transition, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never);
-  return { events, cleanupReasons, llm, store, removeNotifications, selectNotifications, projectRoot, sessionId, process, processPromptGet, node, productionNode, run };
+  return { events, cleanupReasons, llm, store, removeNotifications, selectNotifications, projectRoot, sessionId, process, processPromptGet, node, productionNode, run, onConversationChanged: (callback: typeof conversationChanged) => { conversationChanged = callback; } };
+}
+
+const READ_POLICY: InvocationResultPolicy = (() => { const bytes = canonicalJson(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE); return { resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes: bytes, resultPolicyTemplateSha256: conversationSha256(bytes) }; })();
+function seedUnmatched(test: ReturnType<typeof harness>, inputId = '00000000-0000-4000-8000-000000000031') {
+  appendActivationMarker({ projectRoot: test.projectRoot }, test.sessionId, { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId });
+  appendLlmTurnToolCallBatch({ projectRoot: test.projectRoot }, { inputId, sessionId: test.sessionId, agentName: 'planner' } as never, { id: 'old-read', type: 'function', function: { name: 'read', arguments: '{"path":"work:///"}' } }, READ_POLICY);
+}
+function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[]): void {
+  const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
+  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 1, type: 'conversation-segment', rows })}\n`);
 }
 
 describe('AgentNodeExecution static preparation', () => {
@@ -221,5 +239,75 @@ describe('AgentNodeExecution static preparation', () => {
       expect.objectContaining({ kind: 'activity', role: 'system' }),
     ]);
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
+  });
+
+  it('settles one strict-valid final unmatched call immediately before a fresh activation', async () => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'system' });
+    seedUnmatched(test);
+    await expect(test.run()).rejects.toThrow('turn sentinel');
+    const rows = readConversation(test.projectRoot, test.sessionId).physicalRows;
+    const result = rows.findIndex((row) => row.kind === 'tool_result' && row.tool_call_id === 'old-read');
+    expect(result).toBeGreaterThan(0);
+    expect(JSON.parse(rows[result]!.content)).toEqual({ success: false, error: 'Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.', data: { outcome_unknown: true } });
+    expect(rows[result]).toMatchObject({ tool: 'read', context_policy: { settlement_origin: 'execution_failed', call_policy_sha256: READ_POLICY.resultPolicyTemplateSha256, evidence: { kind: 'none' } } });
+    expect(rows[result + 1]).toMatchObject({ kind: 'activity' });
+    expect(rows.some((row) => row.kind === 'model_recovered')).toBe(false);
+  });
+
+  it.each(['complete malformed data', 'nonfinal unmatched call', 'multiple unmatched calls'] as const)('strictly rejects %s before activation or provider invocation', async (fixture) => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'system' });
+    seedUnmatched(test);
+    const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
+    const segmentPath = cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename);
+    if (fixture === 'complete malformed data') {
+      appendFileSync(segmentPath, '{"version":1,"type":"conversation-segment","rows":[{"broken":true}]}\n');
+    } else if (fixture === 'nonfinal unmatched call') {
+      const marker = readConversation(test.projectRoot, test.sessionId).physicalRows[0]!;
+      appendRawRows(test, [{ ...marker, id: `${marker.id}-later`, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000032', timestamp: marker.timestamp }) }]);
+    } else {
+      const call = readConversation(test.projectRoot, test.sessionId).physicalRows[1]!;
+      const secondInput = '00000000-0000-4000-8000-000000000033';
+      const secondCall = { ...call, id: `${secondInput}:tool-call:second-read`, tool_call_id: 'second-read', round_id: deterministicRoundId('assistant', secondInput), content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'second-read', type: 'function', function: { name: 'read', arguments: '{"path":"work:///"}' } }] }) };
+      const existing = readConversation(test.projectRoot, test.sessionId).physicalRows;
+      expect(() => validateConversation(test.sessionId, [...existing, secondCall])).toThrow('Conversation contains more than one unmatched tool call.');
+      appendRawRows(test, [secondCall]);
+    }
+    const corruptBytes = readFileSync(segmentPath);
+    await expect(test.run()).rejects.toThrow(fixture === 'multiple unmatched calls' ? /more than one unmatched tool call/u : /malformed|invalid|unmatched/u);
+    expect(test.llm.turn).not.toHaveBeenCalled();
+    expect(test.events).not.toContain('turn');
+    expect(readFileSync(segmentPath)).toEqual(corruptBytes);
+  });
+
+  it('treats uncertainty after the settlement append as fatal with no entry or cleanup follow-up', async () => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'system' });
+    seedUnmatched(test);
+    const failure = new PublicationOutcomeUnknownError();
+    let publications = 0;
+    test.onConversationChanged(({ visible_message_id }) => { publications += 1; if (visible_message_id?.endsWith(':tool-result:old-read')) throw failure; });
+    await expect(test.run()).rejects.toBe(failure);
+    expect(publications).toBe(1);
+    expect(test.llm.turn).not.toHaveBeenCalled();
+    expect(test.cleanupReasons).toEqual([]);
+    expect(test.store.discardRecord).not.toHaveBeenCalled();
+    const rows = readConversation(test.projectRoot, test.sessionId).physicalRows;
+    expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'old-read')).toHaveLength(1);
+    expect(rows.filter((row) => row.kind === 'activity')).toHaveLength(1);
+  });
+
+  it('treats uncertainty after the following activation append as fatal without replaying settlement', async () => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'system' });
+    seedUnmatched(test);
+    const failure = new PublicationOutcomeUnknownError();
+    let publications = 0;
+    test.onConversationChanged(() => { publications += 1; if (publications === 2) throw failure; });
+    await expect(test.run()).rejects.toBe(failure);
+    expect(publications).toBe(2);
+    expect(test.llm.turn).not.toHaveBeenCalled();
+    expect(test.cleanupReasons).toEqual([]);
+    expect(test.store.discardRecord).not.toHaveBeenCalled();
+    const rows = readConversation(test.projectRoot, test.sessionId).physicalRows;
+    expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'old-read')).toHaveLength(1);
+    expect(rows.filter((row) => row.kind === 'activity')).toHaveLength(2);
   });
 });

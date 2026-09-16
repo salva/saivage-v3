@@ -18,6 +18,27 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('workspace tool settlement', () => {
+  it('settles the exact work root directory and metadata locators with observational evidence', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-work-root-')); roots.push(root); initProjectTree(root);
+    const surface = buildInvocationSurfaceFixture('reviewer', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'reviewer', store: new CardService(root) })]);
+    const definition = surface.tools.get('read')!;
+    const contract = compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate);
+    for (const args of [{ path: 'work:///' }, { path: 'work:///', metadata_only: true }]) {
+      const settlement = await invokeToolForLlm(surface, 'read', args, testLlmToolInvocationContext({ toolName: 'read' }));
+      const facts = settleToolResultForConversation('read', contract, settlement);
+      expect(facts.providerResult).toMatchObject({
+        success: true,
+        data: {
+          path: 'metadata_only' in args
+            ? { content: 'work:///', offset_bytes: 0, next_offset_bytes: 8, utf8_bytes: 8 }
+            : 'work:///',
+          is_directory: true,
+        },
+      });
+      expect(facts.evidence).toMatchObject({ kind: 'observational_query', observedSha256: facts.resultContentSha256 });
+    }
+  });
+
   it.each([
     ['write', { path: 'record:///brief.md?card=project', content: 'denied' }],
     ['edit', { path: 'record:///brief.md?card=project', old_string: 'x', new_string: 'y' }],

@@ -41,6 +41,17 @@ describe('scoped path URL helper', () => {
 
   it('validates raw segments before emitting', () => {
     expect(() => buildScopedPathUrl('work', ['processes', 'a/b', 'stdout.log'])).toThrow('Unrepresentable segment');
+    expect(() => buildScopedPathUrl('work', ['a#b'])).toThrow('Unrepresentable segment');
     expect(() => buildScopedPathUrl('work', ['a?b'])).toThrow('Unrepresentable segment');
+  });
+
+  it('round-trips supported work descendants without widening the separator contract', () => {
+    for (const [segment, encoded] of [['space name', 'space%20name'], ['100%', '100%25'], ['café', 'caf%C3%A9']] as const) {
+      const raw = buildScopedPathUrl('work', [segment]);
+      expect(raw).toBe(`work:///${encoded}`);
+      expect(parseScopedPathUrl(raw, 'work').segments).toEqual([segment]);
+    }
+    expect(() => parseScopedPathUrl('work:///a%23b', 'work')).toThrow();
+    expect(() => parseScopedPathUrl('work:///a%3Fb', 'work')).toThrow();
   });
 });

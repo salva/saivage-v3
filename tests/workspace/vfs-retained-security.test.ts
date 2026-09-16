@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, parse, relative, resolve, sep } from 'node:path';
 
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { listScopedPath, visitFiles, visitScopedFiles } from '../../src/workspace/vfs.js';
+import { displayPathForResolved, listScopedPath, resolveScopedPath, visitFiles, visitScopedFiles } from '../../src/workspace/vfs.js';
 import { authorizeWriteProject, editProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
 import { buildScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
@@ -149,5 +149,21 @@ describe('workspace VFS and project-file security', () => {
     expect(work.content.content).not.toContain(secret);
     expect(work.content.content).toContain('[REDACTED]');
     expect(project.content.content).toContain(secret);
+  });
+
+  it('returns the canonical work root for directory and metadata reads', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-work-root-'));
+    roots.push(root);
+    initProjectTree(root);
+    const resolved = resolveScopedPath({ projectRoot: root, fail }, 'work:///', 'read');
+    expect(resolved).toMatchObject({ kind: 'work', isRoot: true });
+    expect(displayPathForResolved(root, resolved!)).toBe('work:///');
+    await expect(listScopedPath({ projectRoot: root, fail }, 'work:///')).resolves.toMatchObject({ kind: 'entries' });
+    await expect(readProject({ projectRoot: root }, { path: 'work:///' })).resolves.toMatchObject({ path: 'work:///', is_directory: true });
+    await expect(readProject({ projectRoot: root }, { path: 'work:///', metadata_only: true })).resolves.toMatchObject({
+      path: { content: 'work:///', offset_bytes: 0, next_offset_bytes: 8, utf8_bytes: 8 },
+      metadata_only: true,
+      is_directory: true,
+    });
   });
 });

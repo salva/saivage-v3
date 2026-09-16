@@ -1,6 +1,6 @@
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
-import { canonicalJson, cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
+import { canonicalJson, cardAgentSessionId, type AgentName, type CardConversationSessionId, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
 import { agentCanWriteRecord, describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledRuntimeWorkflows, type ProcessPromptId } from '../card-process/card-process-config.js';
@@ -23,6 +23,7 @@ import { toolFailed, toolSucceeded } from '../../contracts/tool-result.js';
 import { isCardInterruptedError } from './card-interrupted-error.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import { settleReturnedToolCallWithoutEntry } from './returned-tool-call-settlement.js';
+import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
 
 export interface AcceptedNodeResult {
   readonly nodeId: string;
@@ -265,7 +266,8 @@ export class AgentNodeExecution {
     return primaryCompletion.value;
   }
 
-  private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
+  private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, transition: NodeTransition, input: CardActivationInput, sessionId: CardConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
+    this.settlePriorFinalCallForActivation(sessionId);
     appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', agent_name: node.agent.name, card_id: this.deps.cardId, input_id: inputId });
     const roleContext: ProviderVisibleUserContextMessage[] = [];
     const selected = this.selectRecipientNotifications(process, node, input);
@@ -275,6 +277,27 @@ export class AgentNodeExecution {
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
     const transitionMessage = this.transitionContext(process, transition);
     if (transitionMessage) appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage);
+  }
+
+  private settlePriorFinalCallForActivation(sessionId: CardConversationSessionId): void {
+    const call = readConversation(this.deps.conversations.projectRoot, sessionId).unmatchedCall;
+    if (!call) return;
+    const message = call.message;
+    if (message.kind !== 'tool_call' || message.context_policy.kind !== 'tool_call' || !message.tool || !message.tool_call_id || message.tool !== call.toolName || message.tool_call_id !== call.toolCallId)
+      throw new Error(`Unmatched tool call '${message.id}' is missing its tool identity or tool_call context policy.`);
+    appendProviderVisibleSyntheticFailedToolResult(this.deps.conversations, {
+      sessionId,
+      sourceInputId: call.sourceInputId,
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      error: 'Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.',
+      data: { outcome_unknown: true },
+      resultPolicy: Object.freeze({
+        resultPolicyTemplate: message.context_policy.template,
+        resultPolicyTemplateBytes: message.context_policy.template_bytes,
+        resultPolicyTemplateSha256: message.context_policy.template_sha256,
+      }),
+    });
   }
 
   private transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): ProviderVisibleUserContextMessage | null {

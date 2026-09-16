@@ -1,8 +1,16 @@
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it } from '@jest/globals';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-definitions.js';
-import { resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, type ResolveScopedPathContext } from '../../src/workspace/scoped-path-schemes.js';
+import { resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, workUrlFromAbsolutePath, type ResolveScopedPathContext } from '../../src/workspace/scoped-path-schemes.js';
 import { resolveScopedPath } from '../../src/workspace/vfs.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
+import { saivageWorkRoot } from '../../src/persistence/layout.js';
+
+const roots: string[] = [];
+afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function fail(message: string): Error {
   const error = new Error(message);
@@ -60,6 +68,28 @@ describe('scoped path resolvers', () => {
 
   it('keeps a syntactically valid tmp root semantically invalid', async () => {
     await expectWorkspaceToolInputError(() => scopedPathResolvers.tmp(ctx(), 'tmp:///', 'read'));
+  });
+
+  it('formats the admitted exact work root and supported descendants canonically', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-work-root-format-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const workRoot = saivageWorkRoot(projectRoot);
+    expect(workUrlFromAbsolutePath(projectRoot, workRoot)).toBe('work:///');
+    for (const [segment, encoded] of [['space name', 'space%20name'], ['100%', '100%25'], ['café', 'caf%C3%A9']] as const) {
+      mkdirSync(join(workRoot, segment));
+      const url = workUrlFromAbsolutePath(projectRoot, join(workRoot, segment));
+      expect(url).toBe(`work:///${encoded}`);
+      expect(scopedPathResolvers.work({ ...ctx(), projectRoot }, url, 'read')).toMatchObject({ absolutePath: join(workRoot, segment) });
+    }
+    expect(() => workUrlFromAbsolutePath(projectRoot, join(projectRoot, 'outside'))).toThrow(/not under the work root/u);
+  });
+
+  it('leaves raw work query and fragment rejection at the work resolver boundary', async () => {
+    await expectWorkspaceToolInputError(() => scopedPathResolvers.work(ctx(), 'work:///?query=yes', 'read'));
+    await expectWorkspaceToolInputError(() => scopedPathResolvers.work(ctx(), 'work:///#fragment', 'read'));
+    await expectWorkspaceToolInputError(() => scopedPathResolvers.work(ctx(), 'work:///child?query=yes', 'read'));
+    await expectWorkspaceToolInputError(() => scopedPathResolvers.work(ctx(), 'work:///child#fragment', 'read'));
   });
 
   it('resolves adjacent-dot segments and rejects exact parent segments for filesystem schemes', () => {

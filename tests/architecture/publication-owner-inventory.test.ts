@@ -98,7 +98,7 @@ describe('source-derived publication owner inventory', () => {
     expect(allSource).not.toMatch(/AppLogPublicationError|rethrowAppLogPublicationError|RecordAcceptanceOutcomeUnknown|createWriteStream|WriteStream|streamClose/);
   });
 
-  it('keeps corrective conversation recovery solely in Supervisor explicit Run', () => {
+  it('keeps broad corrective conversation stabilization solely in Supervisor explicit Run', () => {
     const recoveryModule = 'src/runtime/actors/conversation-recovery.ts';
     const correctiveCalls = sourceFiles
       .filter((path) => relativePath(path) !== recoveryModule)

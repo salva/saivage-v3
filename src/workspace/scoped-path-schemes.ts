@@ -111,9 +111,9 @@ export type ScopedPathScheme = keyof typeof scopedPathResolvers;
 export function workUrlFromAbsolutePath(projectRoot: string, absolutePath: string): string {
   const workRoot = saivageWorkRoot(projectRoot);
   const rel = relative(workRoot, absolutePath).replace(/\\/g, '/');
-  const contained = resolveContainedProjectPath(workRoot, rel);
-  if (!contained.safe || !contained.relativePath || contained.relativePath === '.' || contained.relativePath.startsWith('../')) throw new Error(`Path '${absolutePath}' is not under the work root.`);
-  return buildScopedPathUrl('work', contained.relativePath.split('/'));
+  const contained = resolveContainedProjectPath(workRoot, rel === '' ? '.' : rel);
+  if (!contained.safe || !contained.relativePath || contained.relativePath.startsWith('../')) throw new Error(`Path '${absolutePath}' is not under the work root.`);
+  return buildScopedPathUrl('work', contained.relativePath === '.' ? [] : contained.relativePath.split('/'));
 }
 
 export function parseScopedPathScheme(raw: string): ScopedPathScheme | null {
