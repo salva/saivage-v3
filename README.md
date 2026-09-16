@@ -139,8 +139,12 @@ acceptance setup, not before every ordinary local command invocation. Both
 installs retain development dependencies so the validation toolchain remains
 available. The lint
 profile runs the guard before stamp-producer, ESLint, backend import-boundary,
-and web-component boundary checks. Backend import-boundary findings remain
-advisory accumulated debt.
+and web-component boundary checks. Backend import-boundary findings are
+baseline-ratcheted: the check fails when the total violation count exceeds
+`scripts/import-boundary-baseline.json`; when a change reduces the count,
+ratchet the baseline down to the printed number in the same commit.
+Intentionally raising the baseline is a guard weakening that requires an
+explicit owner decision.
 
 The push-only `master` workflow in
 [`.github/workflows/validation.yml`](.github/workflows/validation.yml) uses
@@ -153,7 +157,11 @@ build and non-E2E Jest. The independently visible `backend-e2e` job uses a root
 clean install and owns `npm run test:e2e`; it needs no web install, browser,
 secret, or external service. Applicable UI paths run complete web typechecking
 and Vitest plus a separate browser-smoke job. Package/workflow changes run the
-dependency security gate `npm run audit:security`.
+dependency security gate `npm run audit:security`. The `lint-guards` job
+performs the dual clean install and runs `npm run lint` on backend,
+web/Playwright, package/workflow, and run-all pushes; `validation-required`
+enforces it with the same applies/skipped semantics as the other conditional
+jobs.
 
 ```bash
 npm run check:export-consumers
