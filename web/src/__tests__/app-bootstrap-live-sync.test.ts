@@ -15,6 +15,7 @@ function installBootstrapMocks() {
   const contentPolicyRefetch = vi.fn(async () => undefined);
   const contentPolicyReset = vi.fn();
   const fetchSessions = vi.fn();
+  const resolveIdentity = vi.fn(async () => undefined);
   vi.doMock('../stores/sync', () => ({
     useSyncStore: () => ({ registerResource, connect, reconfigure }),
   }));
@@ -25,6 +26,7 @@ function installBootstrapMocks() {
     useCardStore: () => ({ ensureRoot, reset, onInvalidate: vi.fn(), onReconnect: vi.fn() }),
   }));
   vi.doMock('../stores/agents', () => ({ useAgentStore: () => ({ fetchSessions }) }));
+  vi.doMock('../stores/analystChat', () => ({ useAnalystChat: () => ({ resolveIdentity }) }));
   vi.doMock('../stores/contentPolicy', () => ({ useContentPolicyStore: () => ({ refetch: contentPolicyRefetch, reset: contentPolicyReset }) }));
   vi.doMock('../stores/auth', () => ({
     AUTH_TOKEN_CHANGED_EVENT: authEvent,
@@ -40,6 +42,7 @@ function installBootstrapMocks() {
     reset,
     authRefresh,
     fetchSessions,
+    resolveIdentity,
     contentPolicyRefetch,
     contentPolicyReset,
   };
@@ -52,7 +55,7 @@ describe('application bootstrap live sync', () => {
     setActivePinia(createPinia());
   });
 
-  it('starts only runtime and root hierarchy and performs no hidden Agent request', async () => {
+  it('starts only runtime and root hierarchy without resolving Analyst identity or hidden Agent inventory', async () => {
     const mocks = installBootstrapMocks();
     const { startAppBootstrap } = await import('../composables/useAppBootstrap');
     startAppBootstrap();
@@ -64,16 +67,18 @@ describe('application bootstrap live sync', () => {
     expect(mocks.ensureRoot).toHaveBeenCalledTimes(1);
     expect(mocks.contentPolicyRefetch).toHaveBeenCalledTimes(1);
     expect(mocks.fetchSessions).not.toHaveBeenCalled();
+    expect(mocks.resolveIdentity).not.toHaveBeenCalled();
     expect(
       mocks.registerResource.mock.calls.map(([registration]) => registration.resource),
     ).toEqual(['cards', 'runtime']);
     expect(mocks.registerResource.mock.calls[1]![0]).toEqual({ resource: 'runtime', refetch: mocks.runtimeRefetch });
   });
 
-  it('reconfigures runtime and root without bootstrapping hidden Agent state', async () => {
+  it('reconfigures runtime and root and re-resolves only Analyst identity', async () => {
     const mocks = installBootstrapMocks();
     const { startAppBootstrap } = await import('../composables/useAppBootstrap');
     startAppBootstrap();
+    mocks.resolveIdentity.mockRejectedValueOnce(new Error('identity unavailable'));
     window.dispatchEvent(new Event(mocks.authEvent));
     await Promise.resolve();
 
@@ -85,6 +90,7 @@ describe('application bootstrap live sync', () => {
     expect(mocks.contentPolicyReset).toHaveBeenCalledTimes(1);
     expect(mocks.contentPolicyRefetch).toHaveBeenCalledTimes(2);
     expect(mocks.fetchSessions).not.toHaveBeenCalled();
+    expect(mocks.resolveIdentity).toHaveBeenCalledTimes(1);
   });
 
   it('composes content-policy refresh after card invalidation and reconnect without another resource', async () => {
