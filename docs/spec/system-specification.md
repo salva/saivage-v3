@@ -743,14 +743,14 @@ identity.conversation-session = {"agentParser":"agentNameSchema","captures":[{"i
 
 The Analyst runtime owns at most one lazily created actor and accepts no caller-selected session identity.
 `GET /api/chat` returns only the configured global Analyst `session_id` and is the sole REST chat identity response.
-`POST /api/chat` accepts exactly a strict object with required non-empty `content` and optional strict workspace context; success returns only tool-invocation and restart results, with no session identity field.
+`POST /api/chat` accepts exactly a strict object with required non-empty `content` and optional strict workspace context; success returns only tool-invocation and restart results, with no session identity field. REST `content` is additionally capped by schema at `1_048_576` UTF-16 code units (JavaScript `string.length`).
 The first synchronous `AnalystSession.submit()` admission wins across REST and every WebSocket.
 An overlap is rejected immediately, never queued: REST maps the typed busy error to HTTP 409 while WebSocket uses the corresponding strict discriminated error member; the exact shared variant is documented in [Section 11](#exact-shared-operator-error-contracts).
 Failed, disposed, closed-admission, canonical-state, provider, persistence, invariant, and publication-uncertain failures are not busy.
 WebSocket connection and successful turn acknowledgement and final Analyst tool activities carry the configured identity; a busy loser emits no acknowledgement or activity.
 Generic Agent detail, conversation, and LLM-exchange parameters use the full shared session grammar.
 Invalid raw frames are rejected before subscription mutation or acknowledgement, and malformed Vue Agent route input mounts no detail, REST, or live-sync work.
-The single WebSocket transport caps every inbound frame at 1 MiB (`1_048_576` bytes); an oversized frame closes with code 1009 before JSON parsing, schema validation, or Analyst handler work. Inbound Analyst `text` is additionally capped by schema at `1_048_576` characters. The transport limit is authoritative for multibyte content, and its nominal 1 MiB ceiling is aligned with the explicit global REST body limit.
+The single WebSocket transport caps every inbound frame at 1 MiB (`1_048_576` bytes); an oversized frame closes with code 1009 before JSON parsing, schema validation, or Analyst handler work. Inbound Analyst `text` is additionally capped by schema at `1_048_576` UTF-16 code units (JavaScript `string.length`). The transport limit is authoritative for multibyte content, and its nominal 1 MiB ceiling is aligned with the explicit global REST body limit.
 
 Agent summaries require `id`, `agent_name`, `session_scope`, `card_id`, `started_at`, required nullable `compaction`, and exactly one valid liveness pair: `status:'active'` with `activity:'busy'`, or `status:'inactive'` with `activity:'idle'`. `compaction` is null unless that exact executing session owns current ephemeral progress; otherwise it is exactly `{strategy,started_at,folds_done,fold_in_flight}` with a nonnegative logical-success count.
 `GET /api/agents` derives the configured global Analyst and every active linked card's distinct compiled workflow agents.

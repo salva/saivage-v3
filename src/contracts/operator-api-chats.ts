@@ -9,13 +9,15 @@ import {
 import { ConversationSessionIdSchema } from '../schemas/index.js';
 import { ToolResultSchema } from './tool-result.js';
 
+export const MAX_INBOUND_ANALYST_TEXT_CHARS = 1_048_576;
+
 const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
   entityId: z.string().nullable(),
   refinement: z.record(z.string(), z.string()).nullable(),
 }).strict();
 export const ChatSendRequestSchema = z.object({
-  content: z.string().min(1),
+  content: z.string().min(1).max(MAX_INBOUND_ANALYST_TEXT_CHARS),
   workspaceContext: ChatWorkspaceContextSchema.optional(),
 }).strict();
 export const ChatIdentityResponseSchema = z

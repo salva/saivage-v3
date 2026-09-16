@@ -207,6 +207,20 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule).not.toHaveProperty('ChatListResponseSchema');
   });
 
+  it('bounds REST Analyst content in UTF-16 code units', () => {
+    const content = '😀' + 'a'.repeat(contractsModule.MAX_INBOUND_ANALYST_TEXT_CHARS - 2);
+    expect(content.length).toBe(contractsModule.MAX_INBOUND_ANALYST_TEXT_CHARS);
+    expect(operatorApiModule.ChatSendRequestSchema.safeParse({ content }).success).toBe(true);
+
+    const aboveLimit = operatorApiModule.ChatSendRequestSchema.safeParse({ content: `${content}a` });
+    if (aboveLimit.success) throw new Error('Expected oversized REST Analyst content to fail validation.');
+    expect(aboveLimit.error.issues).toContainEqual(expect.objectContaining({
+      code: 'too_big',
+      path: ['content'],
+      maximum: contractsModule.MAX_INBOUND_ANALYST_TEXT_CHARS,
+    }));
+  });
+
   it('registers Doctor as an authenticated files/debug contract operation', () => {
     expect(Object.values(operatorApiContracts)).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationId: 'debug.doctor', method: 'GET', path: '/api/debug/doctor', auth: 'operator-session' }),

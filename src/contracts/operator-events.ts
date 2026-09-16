@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ConversationSessionIdSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
 import {
   AnalystTurnBusyErrorSchema,
+  MAX_INBOUND_ANALYST_TEXT_CHARS,
   RestartChatAcknowledgementSchema,
 } from './operator-api-chats.js';
 import { ToolResultSchema } from './tool-result.js';
@@ -252,7 +253,6 @@ const ServerActivityEnvelopeSchema = z.object({
   content: AnalystActivityContentSchema,
 }).strict();
 
-export const MAX_INBOUND_ANALYST_TEXT_CHARS = 1_048_576;
 export const MAX_ANALYST_WS_FRAME_BYTES = 1_048_576;
 
 export const InboundAnalystMessageContentSchema = z
