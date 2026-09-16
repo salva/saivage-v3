@@ -482,7 +482,7 @@ export class ConversationLLMActor {
       if (gracefulCancellation && !(error instanceof ProviderTurnFailure)) {
         if (!cancellationFailure) throw error;
         operation.completionPersistenceEntered = true;
-        const appended = appendLlmTurnError(this.conversations, operation.input, 'Invocation cancelled.');
+        appendLlmTurnError(this.conversations, operation.input, 'Invocation cancelled.');
         const outcome: Extract<LLMActorOutcome, { type: 'error' }> = { type: 'error', agentId: this.agentId, error: 'Invocation cancelled.' };
         this.#phase = { kind: 'idle', disposition: operation.disposition };
         this.#invocations.settleKnown(operation.lease); operation.lease = null;

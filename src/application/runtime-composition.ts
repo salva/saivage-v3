@@ -178,7 +178,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const workflows = services.workflows;
   const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
   const oversightBinding = runtimeAgentBinding(workflows, workflows.oversight.name);
-  let projectOversight:ProjectOversight;
   const runtimeSupervisor = createSupervisorRuntimeApi({
     projectRoot,
     processIdentity: services.processIdentity,
@@ -314,7 +313,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   };
   const oversightSessionId=globalAgentSessionId(workflows.oversight.name);
   const oversightProvider=createInvocationServiceProvider(invocationService);
-  projectOversight=new ProjectOversight({enabled:config.oversight.enabled,intervalMs:config.oversight.interval_seconds*1000,agentName:workflows.oversight.name,sessionId:oversightSessionId,serviceEpoch:services.processIdentity.startedAt,clock:services.oversightClock,changed:()=>services.freshness.runtimeChanged(),onOwnerFailure:services.onOversightOwnerFailure,createCheck:()=>{
+  const projectOversight=new ProjectOversight({enabled:config.oversight.enabled,intervalMs:config.oversight.interval_seconds*1000,agentName:workflows.oversight.name,sessionId:oversightSessionId,serviceEpoch:services.processIdentity.startedAt,clock:services.oversightClock,changed:()=>services.freshness.runtimeChanged(),onOwnerFailure:services.onOversightOwnerFailure,createCheck:()=>{
     const submitNotification=createOversightNotificationPort({oversight:projectOversight,cards:cardStore,workflows,submitNotification:runtimeApi.submitNotification.bind(runtimeApi)});
     const observationToolContext={agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeObservation,queueNotification:(input:QueueNotificationToolInput,signal:AbortSignal)=>executeToolAction('none',()=>submitNotificationTool(input,submitNotification,signal)),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null};
     const surface=oversightBinding.toolSet.bind({scope:'global',agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,mcpToolInvocation:services.mcpToolInvocation,observationToolContext,cardTypeVocabulary:workflows.cardTypeVocabulary});
