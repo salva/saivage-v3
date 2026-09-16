@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 
 const root = process.cwd();
 const SRC = path.join(root, 'src');
@@ -70,6 +71,11 @@ function isCrossPackageAllowed(fromPkg, parts) {
 
 function normalizedParts(parts) { return parts.join('/').replace(/\.ts$/, '.js'); }
 
+function violationDigest(violations) {
+  const serializedIdentities = violations.map(({ identity }) => JSON.stringify(identity)).sort();
+  return createHash('sha256').update(JSON.stringify(serializedIdentities), 'utf8').digest('hex');
+}
+
 function isAgentRuntimeAllowed(fromPkg, parts, fromRel = '') {
   if (fromPkg !== 'agents' || parts[0] !== 'runtime') return true;
   if (AGENT_RUNTIME_IMPORT_EXCEPTIONS.has(fromRel)) return true;
@@ -115,6 +121,20 @@ function runSelfTest() {
       failures.push(`${testCase.label}: expected ${testCase.ok ? 'allowed' : 'rejected'}, got ${allowed ? 'allowed' : 'rejected'}`);
     }
   }
+  const base = { identity: ['src/agents/consumer.ts', 'cross-package-deep', 'cards/internal.js'], diagnostic: 'src/agents/consumer.ts:1: first wording' };
+  const other = { identity: ['src/runtime/consumer.ts', 'runtime-agents', 'agents/internal.js'], diagnostic: 'src/runtime/consumer.ts:2: second wording' };
+  const baseDigest = violationDigest([base, other]);
+  const digestCases = [
+    { ok: violationDigest([other, base]) === baseDigest, label: 'digest must be traversal-order independent' },
+    { ok: violationDigest([base, base, other]) !== baseDigest, label: 'digest must preserve duplicate identities' },
+    { ok: violationDigest([{ ...base, identity: ['src/agents/other.ts', base.identity[1], base.identity[2]] }, other]) !== baseDigest, label: 'digest must distinguish files' },
+    { ok: violationDigest([{ ...base, identity: [base.identity[0], 'agents-runtime', base.identity[2]] }, other]) !== baseDigest, label: 'digest must distinguish rules' },
+    { ok: violationDigest([{ ...base, identity: [base.identity[0], base.identity[1], 'cards/other.js'] }, other]) !== baseDigest, label: 'digest must distinguish targets' },
+    { ok: violationDigest([{ ...base, diagnostic: 'src/agents/consumer.ts:99: changed wording' }, other]) === baseDigest, label: 'digest must exclude diagnostics and line numbers' },
+  ];
+  for (const testCase of digestCases) {
+    if (!testCase.ok) failures.push(testCase.label);
+  }
   if (failures.length) {
     console.error('Import boundary self-test failed:');
     for (const failure of failures) console.error(`- ${failure}`);
@@ -140,26 +160,28 @@ for (const file of walk(SRC)) {
     if (!parts) continue;
     const toPkg = parts[0];
     const relFile = path.relative(root, file);
+    const identityFile = relFile.split(path.sep).join('/');
+    const target = normalizedParts(parts);
     const line = text.slice(0, match.index).split('\n').length;
     if (toPkg === 'server' && fromPkg !== 'server' && fromPkg !== 'boot' && !PREEXISTING_SERVER_IMPORT_EXCEPTIONS.has(relFile)) {
       const consumer = fromPkg === null ? 'root entrypoint' : fromPkg;
-      violations.push(`${relFile}:${line}: ${consumer} must not import server (${spec})`);
+      violations.push({ identity: [identityFile, 'server-import', target], diagnostic: `${relFile}:${line}: ${consumer} must not import server (${spec})` });
     }
     if (fromPkg === 'contracts' && CONTRACT_FORBIDDEN.has(toPkg)) {
-      violations.push(`${relFile}:${line}: contracts must stay declarative and must not import ${toPkg} (${spec})`);
+      violations.push({ identity: [identityFile, 'contracts-declarative', target], diagnostic: `${relFile}:${line}: contracts must stay declarative and must not import ${toPkg} (${spec})` });
     }
     if (fromPkg === 'schemas' && SCHEMA_FORBIDDEN.has(toPkg)) {
-      violations.push(`${relFile}:${line}: schemas must stay a bottom-layer contract package and must not import ${toPkg} (${spec})`);
+      violations.push({ identity: [identityFile, 'schemas-bottom-layer', target], diagnostic: `${relFile}:${line}: schemas must stay a bottom-layer contract package and must not import ${toPkg} (${spec})` });
     }
     if (fromPkg === 'agents' && AGENT_RUNTIME_RESTRICTED.has(toPkg) && !isAgentRuntimeAllowed(fromPkg, parts, relFile)) {
-      violations.push(`${relFile}:${line}: agents must not import runtime (${spec}); inject runtime-owned state/ledger ports instead`);
+      violations.push({ identity: [identityFile, 'agents-runtime', target], diagnostic: `${relFile}:${line}: agents must not import runtime (${spec}); inject runtime-owned state/ledger ports instead` });
     }
     if (fromPkg === 'runtime' && toPkg === 'agents' && !isRuntimeAgentAllowed(fromPkg, parts, relFile)) {
-      violations.push(`${relFile}:${line}: runtime must not import agents package internals (${spec}); depend on contracts or exact composition factory only`);
+      violations.push({ identity: [identityFile, 'runtime-agents', target], diagnostic: `${relFile}:${line}: runtime must not import agents package internals (${spec}); depend on contracts or exact composition factory only` });
     }
     if (!isCrossPackageAllowed(fromPkg, parts) && !(fromPkg === 'runtime' && isRuntimeAgentAllowed(fromPkg, parts, relFile)) && !isPreexistingDeepImportException(relFile, parts)) {
       const consumer = fromPkg === null ? 'root entrypoint' : `cross-package import into ${toPkg}`;
-      violations.push(`${relFile}:${line}: deep ${consumer} is forbidden (${spec}); import from the package index or move within the owning package`);
+      violations.push({ identity: [identityFile, 'cross-package-deep', target], diagnostic: `${relFile}:${line}: deep ${consumer} is forbidden (${spec}); import from the package index or move within the owning package` });
     }
   }
 }
@@ -170,19 +192,30 @@ try {
   console.error(`Import boundary baseline ${BASELINE_PATH} is missing or unparseable: ${error.message}`);
   process.exit(1);
 }
+if (baseline === null || typeof baseline !== 'object' || Array.isArray(baseline)) {
+  console.error(`Import boundary baseline ${BASELINE_PATH} must be an object with totalViolations and violationDigest.`);
+  process.exit(1);
+}
 if (typeof baseline.totalViolations !== 'number' || !Number.isInteger(baseline.totalViolations) || baseline.totalViolations < 0) {
   console.error(`Import boundary baseline ${BASELINE_PATH} must contain a non-negative integer totalViolations.`);
   process.exit(1);
 }
-const count = violations.length;
-if (count > baseline.totalViolations) {
-  console.error('Import boundary violations:');
-  for (const violation of violations) console.error(`- ${violation}`);
-  console.error(`import-boundary violations ${count} exceed baseline ${baseline.totalViolations} by ${count - baseline.totalViolations}; fix the new violations`);
+if (typeof baseline.violationDigest !== 'string' || !/^[0-9a-f]{64}$/.test(baseline.violationDigest)) {
+  console.error(`Import boundary baseline ${BASELINE_PATH} must contain a violationDigest of exactly 64 lowercase hexadecimal characters.`);
   process.exit(1);
 }
-if (count < baseline.totalViolations) {
-  console.log(`Import boundary check passed: violations dropped to ${count} below baseline ${baseline.totalViolations}; ratchet down by setting totalViolations to ${count} in scripts/import-boundary-baseline.json and committing.`);
-} else {
-  console.log(`Import boundary check passed: ${count} violations equal baseline ${baseline.totalViolations}.`);
+const count = violations.length;
+const digest = violationDigest(violations);
+if (count !== baseline.totalViolations || digest !== baseline.violationDigest) {
+  console.error('Import boundary violations:');
+  for (const violation of violations) console.error(`- ${violation.diagnostic}`);
+  console.error(`Actual: ${JSON.stringify({ totalViolations: count, violationDigest: digest })}`);
+  console.error(`Expected: ${JSON.stringify({ totalViolations: baseline.totalViolations, violationDigest: baseline.violationDigest })}`);
+  if (count < baseline.totalViolations) {
+    console.error('Import-boundary violations decreased; verify the removal introduced no substitutions, then ratchet down both totalViolations and violationDigest in scripts/import-boundary-baseline.json in the same commit. Admitting any new identity weakens the guard and requires an explicit owner decision.');
+  } else {
+    console.error('Import-boundary identities changed or increased; fix the new violations instead of blindly rebaselining. Admitting any new identity weakens the guard and requires an explicit owner decision.');
+  }
+  process.exit(1);
 }
+console.log(`Import boundary check passed: ${count} violations and digest ${digest} match the baseline.`);

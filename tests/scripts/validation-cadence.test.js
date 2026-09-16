@@ -44,7 +44,8 @@ const PACKAGE_SCRIPTS = {
   'deps:freshness': 'node scripts/check-dependency-freshness.js',
   'deps:review': 'npm run audit:security:all && npm run deps:freshness',
   'check:export-consumers': 'node scripts/check-export-consumers.js',
-  lint: 'npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && node scripts/check-import-boundaries.cjs && node scripts/check-web-component-boundaries.cjs',
+  'test:import-boundaries': 'node scripts/check-import-boundaries.cjs --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs',
+  lint: 'npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && npm run test:import-boundaries && node scripts/check-web-component-boundaries.cjs',
   'web:typecheck': 'cd web && npm run typecheck',
   'web:test': 'cd web && npm run test',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
@@ -165,6 +166,8 @@ describe('validation cadence guard', () => {
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
       expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json validate:routine export-consumer order');
       expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json lint export-consumer order');
+      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json exact import-boundary test command');
+      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json singular lint import-boundary delegation');
       expect(result.canonicalWebTestNamespaceEntriesChecked).toContain('package.json singular canonical web-test namespace');
       expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
       expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
@@ -193,6 +196,32 @@ describe('validation cadence guard', () => {
 
     it('rejects a drifted checker script edge', () => {
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'check:export-consumers': 'node scripts/other.js' } }), 'check:export-consumers" must be exactly');
+    });
+  });
+
+  describe('import-boundary command mutations', () => {
+    it.each([
+      ['drops the self-test', PACKAGE_SCRIPTS['test:import-boundaries'].replace('node scripts/check-import-boundaries.cjs --self-test && ', '')],
+      ['drops the subprocess regressions', PACKAGE_SCRIPTS['test:import-boundaries'].replace('node --test tests/scripts/import-boundary-ratchet.test.cjs && ', '')],
+      ['drops repository admission', PACKAGE_SCRIPTS['test:import-boundaries'].replace(' && node scripts/check-import-boundaries.cjs', '')],
+      ['reorders the three phases', 'node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs --self-test && node scripts/check-import-boundaries.cjs'],
+    ])('rejects a focused command that %s', (_label, command) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:import-boundaries': command } }), 'test:import-boundaries" must be exactly');
+    });
+
+    it('rejects lint without the focused delegation', () => {
+      const lint = PACKAGE_SCRIPTS.lint.replace('npm run test:import-boundaries', 'node scripts/check-import-boundaries.cjs');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint } }), 'must delegate exactly once');
+    });
+
+    it('rejects lint with a duplicate direct checker invocation', () => {
+      const lint = PACKAGE_SCRIPTS.lint.replace('npm run test:import-boundaries', 'npm run test:import-boundaries && node scripts/check-import-boundaries.cjs');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint } }), 'must delegate exactly once');
+    });
+
+    it('rejects lint with the focused delegation outside its boundary-check position', () => {
+      const lint = PACKAGE_SCRIPTS.lint.replace('eslint src/ && npm run test:import-boundaries', 'npm run test:import-boundaries && eslint src/');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint } }), 'must delegate exactly once');
     });
   });
 

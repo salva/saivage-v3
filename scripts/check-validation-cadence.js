@@ -31,6 +31,9 @@ const JEST_IGNORE_PATTERNS = [
 const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
 const EXPORT_CONSUMER_COMMAND = 'npm run check:export-consumers';
 const EXPORT_CONSUMER_SCRIPT = 'node scripts/check-export-consumers.js';
+const IMPORT_BOUNDARY_COMMAND = 'npm run test:import-boundaries';
+const IMPORT_BOUNDARY_SCRIPT = 'node scripts/check-import-boundaries.cjs';
+const IMPORT_BOUNDARY_TEST_COMMAND = `${IMPORT_BOUNDARY_SCRIPT} --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && ${IMPORT_BOUNDARY_SCRIPT}`;
 const ARCHIVED_PLAYWRIGHT_DIRECTORY = 'tests/playwright/live-getrich-v2/';
 const PLAYWRIGHT_SUITE_OWNERS = [
   ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
@@ -1192,10 +1195,16 @@ function validateExportConsumerCadence({ scripts }) {
     'package.json exact export-consumer script edge',
     'package.json validate:routine export-consumer order',
     'package.json lint export-consumer order',
+    'package.json exact import-boundary test command',
+    'package.json singular lint import-boundary delegation',
   ];
 
   if (scripts['check:export-consumers'] !== EXPORT_CONSUMER_SCRIPT) {
     failures.push(`package.json script "check:export-consumers" must be exactly ${EXPORT_CONSUMER_SCRIPT}, but is currently: ${scripts['check:export-consumers'] ?? '<missing>'}`);
+  }
+
+  if (scripts['test:import-boundaries'] !== IMPORT_BOUNDARY_TEST_COMMAND) {
+    failures.push(`package.json script "test:import-boundaries" must be exactly ${IMPORT_BOUNDARY_TEST_COMMAND}, but is currently: ${scripts['test:import-boundaries'] ?? '<missing>'}`);
   }
 
   const routineSegments = splitCommandSegments(scripts['validate:routine'] ?? '');
@@ -1211,12 +1220,24 @@ function validateExportConsumerCadence({ scripts }) {
 
   const lintSegments = splitCommandSegments(scripts.lint ?? '');
   const exportConsumerIndexes = lintSegments.flatMap((segment, index) => segment === EXPORT_CONSUMER_COMMAND ? [index] : []);
-  const orderedLintCommands = ['eslint src/', 'node scripts/check-import-boundaries.cjs', 'node scripts/check-web-component-boundaries.cjs'];
+  const orderedLintCommands = ['eslint src/', IMPORT_BOUNDARY_COMMAND, 'node scripts/check-web-component-boundaries.cjs'];
   if (exportConsumerIndexes.length !== 1 || orderedLintCommands.some((command) => {
     const index = lintSegments.indexOf(command);
     return index === -1 || exportConsumerIndexes[0] >= index;
   })) {
     failures.push(`package.json script "lint" must invoke ${EXPORT_CONSUMER_COMMAND} exactly once before ESLint and both boundary guards`);
+  }
+  const importBoundaryIndexes = lintSegments.flatMap((segment, index) => segment === IMPORT_BOUNDARY_COMMAND ? [index] : []);
+  const eslintIndex = lintSegments.indexOf('eslint src/');
+  const webBoundaryIndex = lintSegments.indexOf('node scripts/check-web-component-boundaries.cjs');
+  const invokesDirectChecker = lintSegments.some((segment) => segment === IMPORT_BOUNDARY_SCRIPT || segment.startsWith(`${IMPORT_BOUNDARY_SCRIPT} `));
+  if (importBoundaryIndexes.length !== 1
+      || invokesDirectChecker
+      || eslintIndex === -1
+      || webBoundaryIndex === -1
+      || importBoundaryIndexes[0] <= eslintIndex
+      || importBoundaryIndexes[0] >= webBoundaryIndex) {
+    failures.push(`package.json script "lint" must delegate exactly once to ${IMPORT_BOUNDARY_COMMAND} and must not invoke ${IMPORT_BOUNDARY_SCRIPT} directly`);
   }
 
   return { checked, failures };

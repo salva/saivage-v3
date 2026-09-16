@@ -139,12 +139,19 @@ acceptance setup, not before every ordinary local command invocation. Both
 installs retain development dependencies so the validation toolchain remains
 available. The lint
 profile runs the guard before stamp-producer, ESLint, backend import-boundary,
-and web-component boundary checks. Backend import-boundary findings are
-baseline-ratcheted: the check fails when the total violation count exceeds
-`scripts/import-boundary-baseline.json`; when a change reduces the count,
-ratchet the baseline down to the printed number in the same commit.
-Intentionally raising the baseline is a guard weakening that requires an
-explicit owner decision.
+and web-component boundary checks. Backend import-boundary findings are pinned
+by both their count and a SHA-256 digest of normalized file/rule/resolved-target
+identities in `scripts/import-boundary-baseline.json`. The check fails on
+increases, genuine removals, and equal-count substitutions; line-only movement
+and equivalent relative, alias, or terminal `.ts`/`.js` spellings of the same
+resolved target do not change identity. After reviewing a genuine removal, copy
+both printed fields into the baseline in the same commit. Admitting any new
+identity, including through an equal or lower count, weakens the guard and
+requires an explicit owner decision. `npm run test:import-boundaries` is the
+canonical focused command: it runs the checker self-test, real-CLI ratchet
+subprocess regressions, and repository admission. Lint delegates to that command
+once; direct component invocations are diagnostic evidence, not alternative
+maintained profiles.
 
 The push-only `master` workflow in
 [`.github/workflows/validation.yml`](.github/workflows/validation.yml) uses

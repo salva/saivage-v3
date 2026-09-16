@@ -46,7 +46,7 @@
     "check:stamp-producers": "bash scripts/check-stamp-producers.sh",
     "check:canonical-persistence-drift": "node scripts/check-canonical-persistence-drift.js",
     "check:export-consumers": "node scripts/check-export-consumers.js",
-    "lint": "npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && node scripts/check-import-boundaries.cjs && node scripts/check-web-component-boundaries.cjs",
+    "lint": "npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && npm run test:import-boundaries && node scripts/check-web-component-boundaries.cjs",
     "format": "prettier --check src/",
     "format:fix": "prettier --write src/",
     "docs:build": "vitepress build docs",
@@ -65,7 +65,7 @@
     "web:test:e2e:browser-client-smoke": "playwright test -c tests/playwright/browser-client/chat-api-client-browser.config.ts",
     "web:test:e2e:smoke": "npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke",
     "web:test:e2e:install": "playwright install chromium",
-    "test:import-boundaries": "node scripts/check-import-boundaries.cjs --self-test && node scripts/check-import-boundaries.cjs"
+    "test:import-boundaries": "node scripts/check-import-boundaries.cjs --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
