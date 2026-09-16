@@ -17,6 +17,7 @@ import { useFeedbackStore } from './feedback';
 import type { ConversationSessionId } from '../api/contracts';
 import { DURABLE_PRIMARY_CONTENT_POLICY, workspaceNavigationIntentSchema } from '../api/contracts';
 import { createConversationFetch, type ConversationFrame } from './conversation-fetch';
+import { optimisticUserRoundId } from '../utils/round-id';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -51,7 +52,7 @@ function optimisticUserMessage(
     kind: 'text',
     content,
     context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
-    round_id: `r-user-${Date.now().toString(16).padStart(32, '0').slice(-32)}`,
+    round_id: optimisticUserRoundId(),
     message_index: index,
     block_index: 0,
     timestamp,
