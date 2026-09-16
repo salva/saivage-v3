@@ -261,6 +261,21 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
+  it('directs an unauthorized initial transcript to Token without requesting it prematurely', async () => {
+    live.connectionState!.value = 'unauthorized';
+    live.openConversation.mockImplementation(() => live.closeConversation);
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain(
+      'Live connection unauthorized. Open Token and save a valid API token to reconnect.',
+    );
+    expect(wrapper.text()).not.toContain('Waiting for live connection…');
+    expect(wrapper.text()).not.toContain('Loading history…');
+    expect(api.getAgentConversation).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('renders one singleton surface without a session picker or new-chat control', async () => {
     const wrapper = mountPanel();
     await flushPromises();

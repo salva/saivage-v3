@@ -208,6 +208,20 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(wrapper.find('[data-entry-id="first"]').exists()).toBe(true);
   });
 
+  it('directs an unauthorized initial transcript to Token without requesting it prematurely', async () => {
+    live.connectionState!.value = 'unauthorized';
+    const { wrapper } = await mountConversation('');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain(
+      'Live connection unauthorized. Open Token and save a valid API token to reconnect.',
+    );
+    expect(wrapper.text()).not.toContain('The conversation will load when the live connection is re-established.');
+    expect(wrapper.text()).not.toContain('subscription acknowledgement');
+    expect(api.getAgentConversation).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('centers initial evidence after render and leaves evidence centering after pinned auto-tail', async () => {
     api.getAgentConversation.mockResolvedValueOnce(response([textEntry('target', 1), textEntry('latest', 2)]));
     const { wrapper, callback } = await mountConversation('target');

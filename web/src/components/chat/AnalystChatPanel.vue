@@ -24,7 +24,9 @@
         class="chat-status-card"
         role="status"
       >
-        Waiting for live connection…
+        {{ liveSync.connectionState === 'unauthorized'
+          ? 'Live connection unauthorized. Open Token and save a valid API token to reconnect.'
+          : 'Waiting for live connection…' }}
       </div>
       <div v-else-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">
         Loading history…

@@ -119,6 +119,36 @@ describe('websocket ticket client', () => {
     expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(1);
   });
 
+  it('retries a typed ticket-endpoint 500 after the base backoff', async () => {
+    mocks.issueWebSocketTicket
+      .mockRejectedValueOnce(new OperatorApiError(
+        'auth.wsTicket',
+        500,
+        { error: 'InternalServerError', message: 'Internal server error' },
+      ))
+      .mockResolvedValueOnce({ ticket: 'fresh-ticket', expiresAt: '2026-01-01T00:00:30.000Z' });
+    const conn = createWsConnection();
+
+    conn.connect();
+    await vi.runAllTicks();
+
+    expect(conn.state.value).toBe('connecting');
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(1);
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    vi.advanceTimersByTime(999);
+    await vi.runAllTicks();
+    expect(conn.state.value).toBe('connecting');
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(1);
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    vi.advanceTimersByTime(1);
+    await vi.runAllTicks();
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(2);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(new URL(MockWebSocket.instances[0]!.url).searchParams.get('ticket')).toBe('fresh-ticket');
+  });
+
   it('recovers after a restart spans a failed reconnect ticket request', async () => {
     mocks.issueWebSocketTicket
       .mockResolvedValueOnce({ ticket: 'before-restart', expiresAt: '2026-01-01T00:00:00.000Z' })

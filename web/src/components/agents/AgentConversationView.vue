@@ -158,7 +158,9 @@ const entryTargetState = ref<'idle' | 'found' | 'missing'>('idle');
 const historicalExpandedIds = ref(new Set<string>());
 const historicalTimeline = computed(() => entriesToTimeline(selectedConversationVersion.value?.entries ?? []));
 const socketWaitingMessage = computed(() =>
-  liveSync.connectionState === 'connected'
+  liveSync.connectionState === 'unauthorized'
+    ? 'Live connection unauthorized. Open Token and save a valid API token to reconnect.'
+    : liveSync.connectionState === 'connected'
     ? 'Waiting for the live conversation subscription acknowledgement.'
     : 'Live sync is not connected. The conversation will load when the live connection is re-established.',
 );
