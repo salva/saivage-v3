@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
+import { nextTick, type Ref } from 'vue';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
 import { useCardStore } from '../stores/cards';
 import { useAnalystChat } from '../stores/analystChat';
 import { OperatorApiError } from '../api/client';
-import { SyncClient } from '../sync/client';
+import { SyncClient, type ConversationInvalidation } from '../sync/client';
 import type { WsConnectionManager, WsSyncFrameHandler } from '../api/websocket';
 
 const analystSessionId = 'agent:analyst:global' as const;
@@ -16,13 +17,28 @@ const api = vi.hoisted(() => ({
   getCardChildren: vi.fn(),
   sendChatMessage: vi.fn(),
 }));
-const live = vi.hoisted(() => ({ openConversation: vi.fn(), closeConversation: vi.fn() }));
+const live = vi.hoisted(() => ({
+  connectionState: null as Ref<'connected' | 'connecting' | 'offline' | 'unauthorized'> | null,
+  openConversation: vi.fn(),
+  closeConversation: vi.fn(),
+}));
 
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   ...api,
 }));
-vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
+vi.mock('../stores/sync', async () => {
+  const { ref } = await import('vue');
+  live.connectionState = ref<'connected' | 'connecting' | 'offline' | 'unauthorized'>('connected');
+  return {
+    useSyncStore: () => ({
+      get connectionState() {
+        return live.connectionState!.value;
+      },
+      openConversation: live.openConversation,
+    }),
+  };
+});
 
 const entries = [
   {
@@ -86,6 +102,7 @@ describe('AnalystChatPanel', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
+    live.connectionState!.value = 'connected';
     api.getChatEntries.mockResolvedValue({ session_id: analystSessionId });
     api.getAgentSession.mockResolvedValue({
       session: {
@@ -214,6 +231,33 @@ describe('AnalystChatPanel', () => {
     resolveConversation({ session_id: analystSessionId, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: null } });
     await flushPromises();
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
+    wrapper.unmount();
+  });
+
+  it('distinguishes waiting for live sync from connected history loading', async () => {
+    let callback!: (frame: ConversationInvalidation) => Promise<void>;
+    live.connectionState!.value = 'offline';
+    live.openConversation.mockImplementation((_id, value) => {
+      callback = value;
+      return live.closeConversation;
+    });
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Waiting for live connection…');
+    expect(wrapper.text()).not.toContain('Loading history…');
+    expect(wrapper.find('.loading-skeleton').exists()).toBe(false);
+    expect(api.getAgentConversation).not.toHaveBeenCalled();
+
+    live.connectionState!.value = 'connected';
+    await nextTick();
+    expect(wrapper.text()).toContain('Loading history…');
+    expect(wrapper.find('.loading-skeleton').exists()).toBe(true);
+
+    await callback(null);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Loading history…');
+    expect(wrapper.text()).toContain('hello');
     wrapper.unmount();
   });
 

@@ -43,6 +43,12 @@
       <ViewState v-if="loading" state="loading" title="Loading conversation" />
       <ViewState v-else-if="conversationUnauthorized && errorMsg" state="unauthorized" title="Conversation unavailable" message="Provide a valid API token to load this conversation." />
       <ViewState v-else-if="errorMsg" state="error" title="Could not load conversation" :message="errorMsg" />
+      <ViewState
+        v-else-if="!conversationBaselineAccepted"
+        state="loading"
+        title="Waiting for conversation"
+        :message="socketWaitingMessage"
+      />
       <template v-else>
       <RawLlmExchangePanel
         v-if="rawPanelOpen"
@@ -109,6 +115,7 @@ import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSelectedConversation } from '../../composables/useSelectedConversation';
 import { useAgentStore } from '../../stores/agents';
+import { useSyncStore } from '../../stores/sync';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
@@ -120,6 +127,7 @@ import type { ConversationSessionId } from '../../api/contracts';
 import { entriesToTimeline } from '../../utils/agent-timeline/timeline';
 const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();
 const agentStore = useAgentStore();
+const liveSync = useSyncStore();
 const {
   currentSession,
   sessionSummaryLoading,
@@ -128,6 +136,7 @@ const {
   sessionSummaryRefreshError,
   sessionSummaryUnauthorized,
   entries,
+  conversationBaselineAccepted,
   conversationLoading: loading,
   conversationError: errorMsg,
   conversationRefreshError,
@@ -148,6 +157,11 @@ const timelineControls = useAgentTimeline(entries);
 const entryTargetState = ref<'idle' | 'found' | 'missing'>('idle');
 const historicalExpandedIds = ref(new Set<string>());
 const historicalTimeline = computed(() => entriesToTimeline(selectedConversationVersion.value?.entries ?? []));
+const socketWaitingMessage = computed(() =>
+  liveSync.connectionState === 'connected'
+    ? 'Waiting for the live conversation subscription acknowledgement.'
+    : 'Live sync is not connected. The conversation will load when the live connection is re-established.',
+);
 function toggleHistoricalExpanded(id: string): void { const next = new Set(historicalExpandedIds.value); next.has(id) ? next.delete(id) : next.add(id); historicalExpandedIds.value = next; }
 function onVersionHistoryToggle(event: Event): void { if ((event.currentTarget as HTMLDetailsElement).open) void selectedConversation.fetchVersions(); }
 function selectVersion(version: number): void { void selectedConversation.selectVersion(version); }

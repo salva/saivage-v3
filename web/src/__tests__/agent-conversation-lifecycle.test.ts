@@ -3,7 +3,7 @@ import { DURABLE_PRIMARY_CONTENT_POLICY } from '../api/contracts';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import { nextTick } from 'vue';
+import { nextTick, type Ref } from 'vue';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 import AgentsView from '../views/AgentsView.vue';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
@@ -22,17 +22,27 @@ const api = vi.hoisted(() => ({
   getAgentConversation: vi.fn(),
   getAgentSession: vi.fn(),
 }));
-
-vi.mock('../stores/sync', () => ({
-  useSyncStore: () => ({
-    openAgents: () => () => {},
-    openConversation: (sessionId: string, callback: (frame: ConversationInvalidation) => Promise<void>) => {
-      lifecycle.events.push(`subscribe:${sessionId}`);
-      lifecycle.callbacks.set(sessionId, callback);
-      return () => lifecycle.events.push(`unsubscribe:${sessionId}`);
-    },
-  }),
+const live = vi.hoisted(() => ({
+  connectionState: null as Ref<'connected' | 'connecting' | 'offline' | 'unauthorized'> | null,
 }));
+
+vi.mock('../stores/sync', async () => {
+  const { ref } = await import('vue');
+  live.connectionState = ref<'connected' | 'connecting' | 'offline' | 'unauthorized'>('connected');
+  return {
+    useSyncStore: () => ({
+      get connectionState() {
+        return live.connectionState!.value;
+      },
+      openAgents: () => () => {},
+      openConversation: (sessionId: string, callback: (frame: ConversationInvalidation) => Promise<void>) => {
+        lifecycle.events.push(`subscribe:${sessionId}`);
+        lifecycle.callbacks.set(sessionId, callback);
+        return () => lifecycle.events.push(`unsubscribe:${sessionId}`);
+      },
+    }),
+  };
+});
 
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
@@ -146,6 +156,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
   beforeEach(() => {
     lifecycle.events.length = 0;
     lifecycle.callbacks.clear();
+    live.connectionState!.value = 'connected';
     setActivePinia(createPinia());
     vi.clearAllMocks();
     api.getAgentConversation.mockImplementation(async (sessionId: 'agent:planner:project' | 'agent:reviewer:project') => {
@@ -174,6 +185,27 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(rawPanelSource).not.toContain('maybeFetch');
     expect(agentsViewSource).toContain(':entry-id="selectedEntryId"');
     expect(agentConversationSource).toContain('[data-entry-id=');
+  });
+
+  it('presents the gated first transcript as waiting until acknowledgement loads its baseline', async () => {
+    live.connectionState!.value = 'offline';
+    api.getAgentConversation.mockResolvedValueOnce(response([textEntry('first', 1)]));
+    const { wrapper, callback } = await mountConversation('');
+
+    expect(wrapper.text()).toContain('Waiting for conversation');
+    expect(wrapper.text()).toContain('Live sync is not connected');
+    expect(wrapper.find('.conv-rounds').exists()).toBe(false);
+    expect(api.getAgentConversation).not.toHaveBeenCalled();
+
+    live.connectionState!.value = 'connected';
+    await nextTick();
+    expect(wrapper.text()).toContain('subscription acknowledgement');
+
+    await callback(null);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Waiting for conversation');
+    expect(wrapper.find('.conv-rounds').exists()).toBe(true);
+    expect(wrapper.find('[data-entry-id="first"]').exists()).toBe(true);
   });
 
   it('centers initial evidence after render and leaves evidence centering after pinned auto-tail', async () => {

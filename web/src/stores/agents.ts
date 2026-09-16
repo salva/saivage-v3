@@ -85,6 +85,7 @@ export const useAgentStore = defineStore('agents', () => {
     },
   });
   const entries = conversation.entries;
+  const conversationBaselineAccepted = conversation.baselineAccepted;
   const conversationLoading = conversation.coldLoading;
   const conversationRefreshing = conversation.refreshing;
   const conversationError = conversation.initialError;
@@ -450,6 +451,7 @@ export const useAgentStore = defineStore('agents', () => {
     sessionSummaryUnauthorized,
     entries,
     conversationWarning,
+    conversationBaselineAccepted,
     conversationLoading,
     conversationRefreshing,
     conversationError,

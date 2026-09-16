@@ -19,7 +19,14 @@
         </ul>
       </section>
 
-      <div v-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">
+      <div
+        v-if="messagesLoading && liveSync.connectionState !== 'connected'"
+        class="chat-status-card"
+        role="status"
+      >
+        Waiting for live connection…
+      </div>
+      <div v-else-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">
         Loading history…
       </div>
       <template v-else>
