@@ -1262,11 +1262,11 @@ The application log uses the [exact app-log vocabularies](#exact-app-log-vocabul
 Identity and time exist only in each lane payload, and the derived error set is both runtime kinds plus failed MCP invocations.
 The writer's sole boundary accepts the project root, lane, and synchronous preparation closure.
 It first performs identity/time construction, centralized outbound redaction or audit/provider projection, authoritative validation, and serialization.
-It then strictly reads the exact existing canonical stream without mutation, rejecting incomplete content and every complete malformed envelope, invalid UTF-8 sequence, or invalid row.
-One call-local semantic validator checks global logical-ID uniqueness across all lanes over the exact existing rows followed by the parsed candidate before append acquisition or first-publication directory work; explicit reads use that same validator over the complete sequence before optional lane filtering.
-Duplicate admission performs no candidate write or post-commit effect.
+It then performs one bounded tail admission proving that an existing stream ends with a complete newline-terminated strict envelope; a missing target is admissible, while a present zero-byte file or dirty tail fails before any write and is never truncated by the append path.
+Explicit reads use the call-local semantic validator over the complete sequence before optional lane filtering; complete-stream validation and global logical-ID rejection remain read-time and startup properties and no longer run at append.
+A duplicate logical ID that a writer defect nonetheless produces is published and then fails every complete read and startup validation, with recovery only through the Storage Policy's exceptional owner-authorized offline reconstruction; append never silently accepts or repairs anything.
 After successful validation the owner directly opens the exact target once with no-follow/nonblocking append flags and verifies the opened descriptor is a regular file before writing.
-Exact pre-read `ENOENT` alone supplies an empty existing sequence, while append-open `ENOENT` alone selects one first-publication attempt after real owner-directory validation.
+Append-open `ENOENT` alone selects one first-publication attempt after real owner-directory validation.
 Every other open, read, or descriptor-operation failure propagates, and a symlink or non-regular target is never treated as missing or replaced.
 
 ### Exact app-log vocabularies
@@ -1282,7 +1282,7 @@ Append open and descriptor regular-file admission are pre-publication.
 Their failures remain exact ordinary errors and permit one close.
 After the first canonical write begins, any write, zero-progress, fsync, or close failure becomes `PublicationOutcomeUnknownError`; no second close or operation follows.
 Exact append-open `ENOENT` is the growing-file owner's `missing` selection result.
-Preparation, validation, serialization, strict reading without mutation, and directory failures remain ordinary.
+Preparation, validation, serialization, tail admission, and directory failures remain ordinary.
 Once the shared signal exists, no catch may convert it into a failed tool/model/card result or perform a read, retry, append, fallback, later provider attempt, diagnostic, settlement, or hint.
 
 The current terminal propagation path is direct Conversation LLM to plain `AnalystSession` or `CardProcessActor`, then centralized Supervisor ownership.

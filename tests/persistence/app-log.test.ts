@@ -81,19 +81,17 @@ describe('strict app-log publication', () => {
     expect(readFileSync(appLogFile(projectRoot))).toEqual(serializeGrowingEnvelope([entry], appLogEntrySchema));
   });
 
-  it('rejects a duplicate logical id before publication and preserves strict lane reads', () => {
+  it('publishes a duplicate logical id and rejects it on every complete read and startup validation', () => {
     const projectRoot = root(); const duplicate = event('same');
     append(projectRoot, duplicate);
-    const before = readFileSync(appLogFile(projectRoot));
 
-    expect(() => append(projectRoot, duplicate)).toThrow(/duplicate logical id 'same'/);
-    expect(readFileSync(appLogFile(projectRoot))).toEqual(before);
-    expect(readAppLogEntries(projectRoot)).toEqual([duplicate]);
-    expect(readAppLogEntries(projectRoot, 'event')).toEqual([duplicate]);
-    expect(readAppLogEntries(projectRoot, 'control_action')).toEqual([]);
+    expect(append(projectRoot, duplicate)).toEqual(duplicate);
+    expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id 'same'/);
+    expect(() => readAppLogEntries(projectRoot, 'event')).toThrow(/duplicate logical id 'same'/);
+    expect(() => initializeAppLog(projectRoot)).toThrow(/duplicate logical id 'same'/);
   });
 
-  it('rejects a distinct candidate when existing complete rows duplicate an id across lanes', () => {
+  it('appends after existing cross-lane duplicates and rejects the resulting stream on read and startup', () => {
     const projectRoot = root();
     const path = appLogFile(projectRoot);
     mkdirSync(join(projectRoot, '.saivage'));
@@ -117,14 +115,14 @@ describe('strict app-log publication', () => {
         },
       }),
     ];
-    const preserved = serializeGrowingEnvelope(duplicateRows, appLogEntrySchema);
-    writeFileSync(path, preserved);
+    writeFileSync(path, serializeGrowingEnvelope(duplicateRows, appLogEntrySchema));
     const log = createEventLog(projectRoot);
 
-    expect(() => log.appendEvent(event('distinct', '2026-07-20T00:00:02.000Z').data)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
-    expect(readFileSync(path)).toEqual(preserved);
+    expect(log.appendEvent(event('distinct', '2026-07-20T00:00:02.000Z').data)).toEqual(event('distinct', '2026-07-20T00:00:02.000Z').data);
+    expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(2);
     expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
     expect(() => readAppLogEntries(projectRoot, 'provider_exchange')).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
+    expect(() => initializeAppLog(projectRoot)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
   });
 
   it('keeps ordinary reads correction-free for an unterminated final suffix', () => {
@@ -169,5 +167,20 @@ describe('strict app-log publication', () => {
 
     expect(() => append(projectRoot, event('later', '2026-07-20T00:00:02.000Z'))).toThrow(/malformed/);
     expect(readFileSync(path)).toEqual(before);
+  });
+
+  it('appends after an earlier malformed line when the final envelope is clean, then strict reads and startup fail', () => {
+    const projectRoot = root();
+    mkdirSync(join(projectRoot, '.saivage', 'logs'), { recursive: true });
+    const path = appLogFile(projectRoot);
+    const clean = serializeGrowingEnvelope([event('clean-final')], appLogEntrySchema);
+    const before = Buffer.concat([Buffer.from('{earlier malformed}\n'), clean]);
+    writeFileSync(path, before);
+
+    const later = event('later', '2026-07-20T00:00:01.000Z');
+    expect(append(projectRoot, later)).toEqual(later);
+    expect(readFileSync(path).byteLength).toBe(before.byteLength + serializeGrowingEnvelope([later], appLogEntrySchema).byteLength);
+    expect(() => readAppLogEntries(projectRoot)).toThrow(/malformed/);
+    expect(() => initializeAppLog(projectRoot)).toThrow(/malformed/);
   });
 });

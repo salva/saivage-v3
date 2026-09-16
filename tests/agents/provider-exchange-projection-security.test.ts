@@ -65,7 +65,7 @@ describe('provider exchange publication security projection', () => {
     expect(readableCounts).toHaveLength(5);
   });
 
-  it('rejects a duplicate canonical exchange before an Agent hint and stops later attempts', () => {
+  it('publishes a duplicate canonical exchange and then fails its post-commit complete read before later attempts', () => {
     const root = projectRoot();
     const llmExchangeChanged = jest.fn(() => {
       readAppLogEntries(root, 'provider_exchange');
@@ -78,24 +78,26 @@ describe('provider exchange publication security projection', () => {
     const rows = rawProviderRows(root);
     expect(rows.map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
+      providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
     ]);
-    expect(llmExchangeChanged).toHaveBeenCalledTimes(1);
-    expect(readAppLogEntries(root, 'provider_exchange')).toHaveLength(1);
+    expect(llmExchangeChanged).toHaveBeenCalledTimes(2);
+    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
   });
 
-  it('rejects a duplicate summary exchange without an Agent hint and retains one readable row', () => {
+  it('publishes a duplicate summary exchange without an Agent hint and rejects the complete read', () => {
     const root = projectRoot();
     const llmExchangeChanged = jest.fn();
     const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
     const attempt = attemptFor('summary-input', 0);
     service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs);
-    expect(() => service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs)).toThrow(/duplicate logical id/);
+    expect(() => service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs)).not.toThrow();
     expect(rawProviderRows(root).map((row) => providerExchangeLogId(row.data))).toEqual([
+      providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
     ]);
     expect(llmExchangeChanged).not.toHaveBeenCalled();
-    expect(readAppLogEntries(root, 'provider_exchange')).toHaveLength(1);
+    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
   });
 
   it('redacts classified diagnostic fields before durable append without changing identity or source attempts', () => {

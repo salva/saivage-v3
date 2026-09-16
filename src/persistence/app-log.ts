@@ -7,10 +7,9 @@ import {
   type AppLogEntryOfType,
   type AppLogEntryType,
 } from '../contracts/app-log.js';
-import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
+import { admitGrowingFileTail, appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
 import { appLogFile, saivageLogsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface AppLogPublicationContext {
   readonly publicationTemporaryId?: PublicationTemporaryIdFactory;
@@ -53,14 +52,7 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
   const prepared = prepareGrowingEnvelope([candidate], appLogEntrySchema);
   const parsed = prepared.rows[0] as AppLogEntryOfType<T>;
   const path = appLogFile(projectRoot);
-  let existingEntries: AppLogEntry[];
-  try { existingEntries = readStrictCanonicalGrowingFile(path, appLogEntrySchema); }
-  catch (error) {
-    throwIfPublicationOutcomeUnknown(error);
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    existingEntries = [];
-  }
-  validateAppLogEntries(path, [...existingEntries, parsed]);
+  admitGrowingFileTail(path, appLogEntrySchema);
   const result = appendEnvelope(path, prepared.bytes);
   switch (result.kind) {
     case 'appended': return parsed;

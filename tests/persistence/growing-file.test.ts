@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { constants, closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { constants, closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
-import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { admitGrowingFileTail, appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo, type GrowingFileReadIo } from '../../src/persistence/growing-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
@@ -244,6 +244,154 @@ describe('strict growing-file boundaries', () => {
     writeFileSync(path, incomplete);
     expect(() => readStrictCanonicalGrowingFile(path, row)).toThrow(/incomplete final envelope/);
     expect(readFileSync(path)).toEqual(incomplete);
+  });
+
+  it('admits missing files and clean multi-line tails but rejects present empty files', () => {
+    const missing = target();
+    expect(() => admitGrowingFileTail(missing, row)).not.toThrow();
+
+    const clean = target();
+    writeFileSync(clean, Buffer.concat([bytes(1), bytes(2)]));
+    expect(() => admitGrowingFileTail(clean, row)).not.toThrow();
+
+    const empty = target();
+    writeFileSync(empty, '');
+    expect(() => admitGrowingFileTail(empty, row)).toThrow(`Growing file '${empty}' is empty.`);
+  });
+
+  it('rejects incomplete, malformed, and invalid-UTF-8 final envelopes without mutation', () => {
+    const cases = [
+      Buffer.concat([bytes(1), Buffer.from('partial')]),
+      Buffer.concat([bytes(1), Buffer.from('{complete malformed}\n')]),
+      Buffer.concat([bytes(1), Buffer.from([0x7b, 0xff, 0x7d, 0x0a])]),
+    ];
+    for (const [index, content] of cases.entries()) {
+      const path = target();
+      writeFileSync(path, content);
+      expect(() => admitGrowingFileTail(path, row)).toThrow(index === 0 ? /incomplete final envelope/ : /malformed/);
+      expect(readFileSync(path)).toEqual(content);
+    }
+  });
+
+  it('admits a clean final envelope without inspecting an earlier malformed envelope', () => {
+    const path = target();
+    writeFileSync(path, Buffer.concat([Buffer.from('{earlier malformed}\n'), bytes(2)]));
+    expect(() => admitGrowingFileTail(path, row)).not.toThrow();
+    expect(() => readStrictCanonicalGrowingFile(path, row)).toThrow(/malformed/);
+  });
+
+  it('admits a final envelope larger than the initial suffix window', () => {
+    const path = target();
+    const largeRow = z.object({ value: z.string() }).strict();
+    const largeEnvelope = serializeGrowingEnvelope([{ value: 'x'.repeat(70 * 1024) }], largeRow);
+    writeFileSync(path, Buffer.concat([bytes(1), largeEnvelope]));
+    expect(() => admitGrowingFileTail(path, largeRow)).not.toThrow();
+  });
+
+  it('uses one read-only descriptor lifecycle and bounds geometric suffix reads independently of history length', () => {
+    const largeRow = z.object({ value: z.string() }).strict();
+    const preceding = serializeGrowingEnvelope([{ value: 'p'.repeat(20 * 1024) }], largeRow);
+    const finalEnvelope = serializeGrowingEnvelope([{ value: 'f'.repeat(70 * 1024) }], largeRow);
+
+    function admitWithHistory(count: number): { operations: string[]; readBytes: number } {
+      const path = target();
+      writeFileSync(path, Buffer.concat([...Array<Buffer>(count).fill(preceding), finalEnvelope]));
+      const operations: string[] = [];
+      let readBytes = 0;
+      let flags = 0;
+      const io: GrowingFileReadIo = {
+        open(candidate, suppliedFlags) { operations.push('open'); flags = Number(suppliedFlags); return openSync(candidate, suppliedFlags); },
+        stat(fd) { operations.push('stat'); return fstatSync(fd); },
+        read: ((...args: unknown[]) => { operations.push('read'); const amount = Reflect.apply(readSync, undefined, args) as number; readBytes += amount; return amount; }) as typeof readSync,
+        close(fd) { operations.push('close'); closeSync(fd); },
+      };
+      admitGrowingFileTail(path, largeRow, io);
+      expect(flags).toBe(constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      expect(operations.filter((operation) => operation === 'open')).toHaveLength(1);
+      expect(operations.filter((operation) => operation === 'stat')).toHaveLength(1);
+      expect(operations.filter((operation) => operation === 'close')).toHaveLength(1);
+      expect(operations).not.toContain('write');
+      expect(operations).not.toContain('fsync');
+      expect(readBytes).toBeLessThanOrEqual(64 * 1024 + 4 * finalEnvelope.byteLength);
+      return { operations, readBytes };
+    }
+
+    const shortHistory = admitWithHistory(10);
+    const longHistory = admitWithHistory(500);
+    expect(shortHistory.readBytes).toBe(longHistory.readBytes);
+  });
+
+  it('completes each EOF suffix window across positive short reads within the geometric bound', () => {
+    const path = target();
+    const largeRow = z.object({ value: z.string() }).strict();
+    const preceding = serializeGrowingEnvelope([{ value: 'p'.repeat(80 * 1024) }], largeRow);
+    const finalEnvelope = serializeGrowingEnvelope([{ value: 'f'.repeat(70 * 1024) }], largeRow);
+    writeFileSync(path, Buffer.concat([preceding, finalEnvelope]));
+    const operations: string[] = [];
+    let readBytes = 0;
+    const io: GrowingFileReadIo = {
+      open(candidate, flags) { operations.push('open'); return openSync(candidate, flags); },
+      stat(fd) { operations.push('stat'); return fstatSync(fd); },
+      read: ((...args: unknown[]) => {
+        operations.push('read');
+        args[3] = Math.min(Number(args[3]), 4096);
+        const amount = Reflect.apply(readSync, undefined, args) as number;
+        readBytes += amount;
+        return amount;
+      }) as typeof readSync,
+      close(fd) { operations.push('close'); closeSync(fd); },
+    };
+
+    expect(() => admitGrowingFileTail(path, largeRow, io)).not.toThrow();
+    expect(operations.filter((operation) => operation === 'read').length).toBeGreaterThan(2);
+    expect(operations.filter((operation) => operation === 'open')).toHaveLength(1);
+    expect(operations.filter((operation) => operation === 'stat')).toHaveLength(1);
+    expect(operations.filter((operation) => operation === 'close')).toHaveLength(1);
+    expect(readBytes).toBeLessThanOrEqual(64 * 1024 + 4 * finalEnvelope.byteLength);
+  });
+
+  it('fails loudly and closes once when a tail read makes no progress', () => {
+    const path = target();
+    writeFileSync(path, bytes(1));
+    const operations: string[] = [];
+    const io: GrowingFileReadIo = {
+      open(candidate, flags) { operations.push('open'); return openSync(candidate, flags); },
+      stat(fd) { operations.push('stat'); return fstatSync(fd); },
+      read: (() => { operations.push('read'); return 0; }) as typeof readSync,
+      close(fd) { operations.push('close'); closeSync(fd); },
+    };
+
+    expect(() => admitGrowingFileTail(path, row, io)).toThrow(/made no progress/);
+    expect(operations).toEqual(['open', 'stat', 'read', 'close']);
+  });
+
+  it('closes once after post-open tail rejection and lets a close error win', () => {
+    const path = target();
+    writeFileSync(path, Buffer.concat([bytes(1), Buffer.from('partial')]));
+
+    function admission(closeFailure?: Error): { thrown: unknown; operations: string[] } {
+      const operations: string[] = [];
+      const io: GrowingFileReadIo = {
+        open(candidate, flags) { operations.push('open'); return openSync(candidate, flags); },
+        stat(fd) { operations.push('stat'); return fstatSync(fd); },
+        read: ((...args: unknown[]) => { operations.push('read'); return Reflect.apply(readSync, undefined, args); }) as typeof readSync,
+        close(fd) { operations.push('close'); closeSync(fd); if (closeFailure) throw closeFailure; },
+      };
+      let thrown: unknown;
+      try { admitGrowingFileTail(path, row, io); } catch (error) { thrown = error; }
+      return { thrown, operations };
+    }
+
+    const rejected = admission();
+    expect(rejected.thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/incomplete final envelope/) }));
+    expect(rejected.operations.filter((operation) => operation === 'close')).toHaveLength(1);
+    expect(rejected.operations).not.toContain('write');
+    expect(rejected.operations).not.toContain('fsync');
+
+    const closeFailure = new Error('tail close failure');
+    const displaced = admission(closeFailure);
+    expect(displaced.thrown).toBe(closeFailure);
+    expect(displaced.operations.filter((operation) => operation === 'close')).toHaveLength(1);
   });
 
   it('rejects final symlinks and non-regular read targets', () => {

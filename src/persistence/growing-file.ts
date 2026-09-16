@@ -9,8 +9,12 @@ import { writeAllExact } from './write-all-exact.js';
 export interface GrowingFileIo {
   open: typeof openSync; stat: (descriptor: number) => Stats; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync;
 }
+export interface GrowingFileReadIo {
+  open: typeof openSync; stat: (descriptor: number) => Stats; read: typeof readSync; close: typeof closeSync;
+}
 export interface CanonicalReadInstrumentation { readonly onRead: (path: string) => void }
 const growingFileIo: GrowingFileIo = { open: openSync, stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync };
+const growingFileReadIo: GrowingFileReadIo = { open: openSync, stat: fstatSync, read: readSync, close: closeSync };
 const DEFAULT_READ_CHUNK_BYTES = 64 * 1024;
 
 const envelopeSchema = z.object({
@@ -34,6 +38,16 @@ export function serializeGrowingEnvelope<Row>(rows: readonly unknown[], rowSchem
   return prepareGrowingEnvelope(rows, rowSchema).bytes;
 }
 
+function parseEnvelopeLine<Row>(path: string, lineLabel: string, line: string, rowSchema: z.ZodType<Row>): Row[] {
+  if (line.length === 0) throw new Error(`Growing file '${path}' ${lineLabel} is empty.`);
+  try {
+    const envelope = envelopeSchema.parse(JSON.parse(line));
+    return envelope.rows.map((row) => rowSchema.parse(row));
+  } catch (error) {
+    throw new Error(`Growing file '${path}' ${lineLabel} is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+}
+
 function parseGrowingFile<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType<Row>): Row[] {
   if (bytes.byteLength === 0) throw new Error(`Growing file '${path}' is empty.`);
   if (bytes.at(-1) !== 0x0a) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
@@ -42,19 +56,9 @@ function parseGrowingFile<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType
   catch (error) {
     throw new Error(`Growing file '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
-  const rows: Row[] = [];
   const lines = content.split('\n');
   lines.pop();
-  for (const [index, line] of lines.entries()) {
-    if (line.length === 0) throw new Error(`Growing file '${path}' envelope ${index + 1} is empty.`);
-    try {
-      const envelope = envelopeSchema.parse(JSON.parse(line));
-      rows.push(...envelope.rows.map((row) => rowSchema.parse(row)));
-    } catch (error) {
-      throw new Error(`Growing file '${path}' envelope ${index + 1} is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
-    }
-  }
-  return rows;
+  return lines.flatMap((line, index) => parseEnvelopeLine(path, `envelope ${index + 1}`, line, rowSchema));
 }
 
 function readAt(read: typeof readSync, descriptor: number, position: number, length: number): Buffer {
@@ -62,6 +66,18 @@ function readAt(read: typeof readSync, descriptor: number, position: number, len
   const bytesRead = read(descriptor, buffer, 0, length, position);
   if (bytesRead < 0 || bytesRead > length) throw new Error(`Canonical growing-file read returned invalid byte count ${bytesRead}.`);
   return buffer.subarray(0, bytesRead);
+}
+
+function readExactAt(read: typeof readSync, descriptor: number, position: number, length: number): Buffer {
+  const buffer = Buffer.allocUnsafe(length);
+  let offset = 0;
+  while (offset < length) {
+    const bytesRead = read(descriptor, buffer, offset, length - offset, position + offset);
+    if (bytesRead < 0 || bytesRead > length - offset) throw new Error(`Canonical growing-file read returned invalid byte count ${bytesRead}.`);
+    if (bytesRead === 0) throw new Error('Canonical growing-file read made no progress.');
+    offset += bytesRead;
+  }
+  return buffer;
 }
 
 function readAll(descriptor: number): Buffer {
@@ -83,6 +99,47 @@ export function readStrictCanonicalGrowingFile<Row>(path: string, rowSchema: z.Z
     if (!fstatSync(descriptor).isFile()) throw new Error(`Canonical growing file '${path}' must be a regular file.`);
     return parseGrowingFile(path, readAll(descriptor), rowSchema);
   } finally { closeSync(descriptor); }
+}
+
+export function admitGrowingFileTail<Row>(
+  path: string,
+  rowSchema: z.ZodType<Row>,
+  io: GrowingFileReadIo = growingFileReadIo,
+): void {
+  let descriptor: number;
+  try {
+    descriptor = io.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+
+  try {
+    const stat = io.stat(descriptor);
+    if (!stat.isFile()) throw new Error(`Canonical growing file '${path}' must be a regular file.`);
+    if (stat.size === 0) throw new Error(`Growing file '${path}' is empty.`);
+
+    let windowBytes = DEFAULT_READ_CHUNK_BYTES;
+    for (;;) {
+      const length = Math.min(windowBytes, stat.size);
+      const tail = readExactAt(io.read, descriptor, stat.size - length, length);
+      if (tail.at(-1) !== 0x0a) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
+      const priorTerminator = tail.lastIndexOf(0x0a, tail.byteLength - 2);
+      if (priorTerminator >= 0 || length === stat.size) {
+        const lineBytes = tail.subarray(priorTerminator + 1, tail.byteLength - 1);
+        let line: string;
+        try { line = new TextDecoder('utf-8', { fatal: true }).decode(lineBytes); }
+        catch (error) {
+          throw new Error(`Growing file '${path}' final envelope is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        }
+        parseEnvelopeLine(path, 'final envelope', line, rowSchema);
+        return;
+      }
+      windowBytes *= 2;
+    }
+  } finally {
+    io.close(descriptor);
+  }
 }
 
 export function publishFirstEnvelope(
