@@ -5,13 +5,17 @@ const mocks = vi.hoisted(() => ({
   getAuthToken: vi.fn(),
 }));
 
-vi.mock('../api/client', () => ({ issueWebSocketTicket: mocks.issueWebSocketTicket }));
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
+  issueWebSocketTicket: mocks.issueWebSocketTicket,
+}));
 vi.mock('../api/auth', () => ({ getAuthToken: mocks.getAuthToken }));
 vi.mock('../utils/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
 import { createWsConnection } from '../api/websocket';
+import { OperatorApiError } from '../api/client';
 
 class MockWebSocket {
   static OPEN = 1;
@@ -77,8 +81,32 @@ describe('websocket ticket client', () => {
     expect(new URL(MockWebSocket.instances[1]!.url).searchParams.get('ticket')).toBe('arch004-ticket-second');
   });
 
-  it('marks unauthorized when ticket acquisition fails without constructing a WebSocket', async () => {
-    mocks.issueWebSocketTicket.mockRejectedValueOnce(new Error('Unauthorized'));
+  it('retries a generic ticket acquisition failure with a fresh ticket', async () => {
+    mocks.issueWebSocketTicket
+      .mockRejectedValueOnce(new Error('Ticket endpoint unavailable'))
+      .mockResolvedValueOnce({ ticket: 'retry-ticket', expiresAt: '2026-01-01T00:00:30.000Z' });
+    const conn = createWsConnection();
+
+    conn.connect();
+    await vi.runAllTicks();
+
+    expect(conn.state.value).toBe('connecting');
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(2);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(new URL(MockWebSocket.instances[0]!.url).searchParams.get('ticket')).toBe('retry-ticket');
+  });
+
+  it('treats a validated ticket-endpoint 401 as terminal unauthorized', async () => {
+    mocks.issueWebSocketTicket.mockRejectedValueOnce(new OperatorApiError(
+      'auth.wsTicket',
+      401,
+      { error: 'Unauthorized', statusCode: 401 },
+    ));
     const conn = createWsConnection();
 
     conn.connect();
@@ -86,6 +114,36 @@ describe('websocket ticket client', () => {
 
     expect(conn.state.value).toBe('unauthorized');
     expect(MockWebSocket.instances).toHaveLength(0);
+    vi.advanceTimersByTime(60_000);
+    await vi.runAllTicks();
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers after a restart spans a failed reconnect ticket request', async () => {
+    mocks.issueWebSocketTicket
+      .mockResolvedValueOnce({ ticket: 'before-restart', expiresAt: '2026-01-01T00:00:00.000Z' })
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ticket: 'after-restart', expiresAt: '2026-01-01T00:00:30.000Z' });
+    const conn = createWsConnection();
+
+    conn.connect();
+    await vi.runAllTicks();
+    const first = MockWebSocket.instances[0]!;
+    first.onopen?.();
+    first.onclose?.({ code: 1006, reason: '' });
+
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+    expect(conn.state.value).toBe('connecting');
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(1500);
+    await vi.runAllTicks();
+    expect(mocks.issueWebSocketTicket).toHaveBeenCalledTimes(3);
+    const recovered = MockWebSocket.instances[1]!;
+    expect(new URL(recovered.url).searchParams.get('ticket')).toBe('after-restart');
+    recovered.onopen?.();
+    expect(conn.state.value).toBe('connected');
   });
 
   it('dispatches the parsed server-egress envelope', async () => {

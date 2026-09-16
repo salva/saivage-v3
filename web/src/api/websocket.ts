@@ -11,7 +11,7 @@
  */
 
 import type { WsConnectionState } from './types';
-import { issueWebSocketTicket } from './client';
+import { isOperatorApiError, issueWebSocketTicket } from './client';
 import { LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseServerEgressWsEnvelope, type ServerEgressWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
 import { createLogger } from '../utils/logger';
 
@@ -199,9 +199,14 @@ export function createWsConnection(): WsConnectionManager {
       };
     } catch (err) {
       if (attempt !== connectAttempt) return;
-      log.error('Failed to create WebSocket', err);
-      setState('unauthorized');
-      shouldReconnect = false;
+      log.error('WebSocket connection attempt failed', err);
+      if (isOperatorApiError(err, 'auth.wsTicket', 401)) {
+        setState('unauthorized');
+        shouldReconnect = false;
+        return;
+      }
+      setState('connecting');
+      scheduleReconnect();
     }
   }
 
