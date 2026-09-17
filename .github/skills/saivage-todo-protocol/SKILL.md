@@ -11,6 +11,8 @@ Maintain a single living view of all active and completed work items for Saivage
 
 ## Files
 
+`docs/working/todo.md` and `docs/working/done.md` are checkout-local ignored working artifacts. They are not published issue documentation or a tracked/public issue registry.
+
 ### `docs/working/todo.md`
 
 Active work items. Every item the team or agents are working on or plan to work on lives here. Items are organized into sections (Open Issues, UI Responsiveness, Open Refactoring, Reference, etc.) and each carries a status.
@@ -18,10 +20,6 @@ Active work items. Every item the team or agents are working on or plan to work 
 ### `docs/working/done.md`
 
 Completed items. When an item is finished, its full entry moves from `todo.md` to `done.md`. The entry in `done.md` should preserve enough context (commits, scope, key decisions) to serve as a historical record.
-
-### `known_issues.md` (repo root)
-
-Points to `docs/working/todo.md`. Do not add content here; it is a signpost only.
 
 ## Item lifecycle
 
