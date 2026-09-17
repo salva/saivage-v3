@@ -131,10 +131,11 @@ describe('static tool presenter authority', () => {
     }
   });
 
-  it('projects primitive data only through an intentional successful descriptor', () => {
-    const wrapped = presentToolResult(JSON.stringify({ success: true, data: 42 }), { tool: 'mcp_tool_call' });
+  it('projects current MCP result metadata while keeping bare responses semantic-free', () => {
+    const wrapped = presentToolResult(JSON.stringify({ success: true, data: { result: 42, result_complete: true, result_utf8_bytes: 2 } }), { tool: 'mcp_tool_call' });
     const bare = presentToolResult(JSON.stringify(42), { tool: 'mcp_tool_call' });
-    expect(inlineText(wrapped.headline)).toBe('42');
+    expect(inlineText(wrapped.headline)).toBe('MCP call completed');
+    expect(inlineText(wrapped.detail ?? [])).toBe('result complete · 2 B total JSON source');
     expect(inlineText(bare.headline)).toBe('result unavailable');
   });
 

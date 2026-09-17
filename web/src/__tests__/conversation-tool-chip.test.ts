@@ -75,6 +75,24 @@ describe('ToolChip', () => {
     expect(raw.map((n) => n.text()).join('\n')).toContain('secret-value');
   });
 
+  it('shows current MCP completeness and source size while keeping the exact result raw-only', async () => {
+    const r = router(); await r.push('/'); await r.isReady();
+    const resultContent = JSON.stringify({ success: true, data: { result: 'private-mcp-prefix', result_complete: false, result_utf8_bytes: 4096 } });
+    const pair = toolPair('mcp_tool_call', resultContent, { serverName: 'server', toolName: 'lookup', args: {} });
+    const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-mcp' }, global: { plugins: [r, createPinia()] } });
+
+    const statusParts = wrapper.find('.tool-chip-status').findAll('.inline-part-text').map((part) => part.text());
+    expect(statusParts).toEqual(['MCP call completed', 'result truncated · 4.0 kB total JSON source']);
+    expect(wrapper.find('.tool-chip-status').attributes('data-tone')).toBe('ok');
+    expect(wrapper.find('.tool-chip-body').text()).toContain('result truncated · 4.0 kB total JSON source');
+    expect(wrapper.text()).not.toContain('private-mcp-prefix');
+
+    const rawResponseToggle = wrapper.findAll('button.raw-toggle').find((button) => button.text() === 'Show raw response');
+    expect(rawResponseToggle).toBeDefined();
+    await rawResponseToggle!.trigger('click');
+    expect(wrapper.find('[aria-label="Raw tool response"]').text()).toContain(resultContent);
+  });
+
   it('keeps failure data and every malformed response raw-only through built displays', async () => {
     const longError = `permission denied ${'x'.repeat(140)}`;
     const boundedError = `${longError.slice(0, 119)}…`;

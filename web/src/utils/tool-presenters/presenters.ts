@@ -67,6 +67,16 @@ function webfetchResult(ctx: ResultPresenterContext) {
   };
 }
 
+function mcpResult(ctx: ResultPresenterContext) {
+  const result = ctx.dataRecord;
+  const headline = textPart('MCP call completed');
+  if (typeof result?.result_complete !== 'boolean' || typeof result.result_utf8_bytes !== 'number') return { headline };
+  return {
+    headline,
+    detail: textPart(`result ${result.result_complete ? 'complete' : 'truncated'} · ${formatBytes(result.result_utf8_bytes)} total JSON source`),
+  };
+}
+
 export const TOOL_PRESENTERS = {
   activate_card: { action: 'Activate', call: (a) => ({ icon: '▶', headline: cardPart(a.card_id) }), result: (ctx) => ({ headline: textPart(str(ctx.dataRecord?.outcome) || 'activated'), detail: cardPart(ctx.dataRecord?.card_id) }) },
   apply_patch: { action: 'Patch', call: () => ({ icon: '🩹', headline: textPart('apply patch') }), result: (ctx) => { const n = Array.isArray(ctx.dataRecord?.changed_files) ? ctx.dataRecord.changed_files.length : null; return { headline: textPart(n === null ? 'patch applied' : `patched ${n} file${n === 1 ? '' : 's'}`) }; } },
@@ -89,7 +99,7 @@ export const TOOL_PRESENTERS = {
   list_cards: { action: 'List cards', group: 'context', call: (a) => ({ icon: '🔎', headline: textPart(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : str(v)}`).join(' · ') || 'all cards') }), result: (ctx) => pageCount(ctx.dataRecord?.cards, 'card') },
   list_processes_tool: { action: 'List processes', call: (a) => ({ icon: '⚙', headline: textPart(Object.keys(a).length ? `filter ${argKeys(a)}` : 'all processes') }), result: (ctx) => pageCount(ctx.dataRecord?.processes, 'process', 'processes') },
   mcp_reconcile: { action: 'Reconcile MCP', call: () => ({ icon: '🔌', headline: textPart('retry MCP convergence from persisted configuration') }) },
-  mcp_tool_call: { action: 'MCP', call: (a) => ({ icon: '🔌', headline: textPart(`${str(a.serverName)}/${str(a.toolName)}`), detail: a.args === undefined ? undefined : textPart(a.args, 72) }), result: (ctx) => ({ headline: typeof ctx.data === 'string' || typeof ctx.data === 'number' || typeof ctx.data === 'boolean' ? textPart(ctx.data, 96) : textPart('MCP call completed') }) },
+  mcp_tool_call: { action: 'MCP', call: (a) => ({ icon: '🔌', headline: textPart(`${str(a.serverName)}/${str(a.toolName)}`), detail: a.args === undefined ? undefined : textPart(a.args, 72) }), result: mcpResult },
   navigate_back: { action: 'Back', call: () => ({ icon: '↩', headline: textPart('navigate back') }), result: () => ({ headline: textPart('back navigation queued') }) },
   navigate_workspace: { action: 'Navigate', call: (a) => { const target = asRecord(a.target); return { icon: '🧭', headline: textPart([str(target?.kind), str(target?.id), str(target?.refinement)].filter(Boolean).join(' · ')) }; }, result: () => ({ headline: textPart('workspace navigation queued') }) },
   pause_runtime: { action: 'Pause', call: () => ({ icon: '⏸', headline: textPart('pause runtime') }) },
