@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 
 import type { ToolInvocationProjectionInput } from '../../src/contracts/tool-invocation-projection.js';
+import { TERMINAL_RESULT_TOOL_NAME } from '../../src/contracts/result-envelope.js';
 import { parseConversationSessionId } from '../../src/schemas/index.js';
+import { buildRuntimeToolCatalog } from '../../src/tools/runtime-tool-catalog.js';
 import {
   KNOWN_TOOL_INVOCATION_NAMES,
   projectToolInvocation,
@@ -68,9 +70,11 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
-  it('contains the exact 46-name baseline and every name reaches complete, call-row, and result-row', () => {
-    expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(46);
-    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(46);
+  it('matches the runtime catalog plus the generated terminal tool and every name reaches complete, call-row, and result-row', () => {
+    const catalogNames = new Set(Array.from(buildRuntimeToolCatalog().values(), ({ binder }) => binder.name));
+    const expectedNames = new Set([...catalogNames, TERMINAL_RESULT_TOOL_NAME]);
+    expect([...KNOWN_TOOL_INVOCATION_NAMES].sort()).toEqual([...expectedNames].sort());
+    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(KNOWN_TOOL_INVOCATION_NAMES.length);
     expect(Object.keys(validArguments).sort()).toEqual([...KNOWN_TOOL_INVOCATION_NAMES].sort());
 
     for (const toolName of KNOWN_TOOL_INVOCATION_NAMES) {

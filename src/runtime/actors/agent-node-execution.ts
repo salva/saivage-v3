@@ -459,7 +459,7 @@ export class AgentNodeExecution {
       accepted.push({name:filename,url:`${closed.currentUrl}&v=${snapshot.source_version}`,version:snapshot.source_version});
     }
     for(const filename of [...writtenRecords].filter((name)=>!requiredNames.has(name)).sort()){
-      if(!agentCanWriteRecord(node.agent, filename as never))throw new Error(`Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`);
+      if(!agentCanWriteRecord(node.agent, filename))throw new Error(`Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`);
       const result=this.deps.store.readRecordCurrent(this.deps.cardId,filename);if(result.kind!=='found'||!result.value.projection)throw new Error(`Written record '${this.deps.cardId}/${filename}' is missing.`);const current=result.value.projection;
       if(current.artifact.state!=='open'||!current.artifact.draft||current.artifact.draft.content.trim().length===0)throw new Error(`Written record '${this.deps.cardId}/${filename}' is not a non-empty open draft.`);
       this.deps.store.closeRecord(this.deps.cardId,filename,node.agent.name);

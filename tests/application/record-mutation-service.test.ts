@@ -3,12 +3,12 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { admitRecordMutation,mutateRecord } from '../../src/application/record-mutation-service.js';
+import { admitRecordMutation,mutateRecord,preflightAnalystRecordWrite } from '../../src/application/record-mutation-service.js';
 import { cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function setup() {
   const root = mkdtempSync(join(tmpdir(), 'saivage-record-mutation-'));
@@ -24,6 +24,55 @@ const DENIAL_CASES:Array<[string,'active'|'cancelled'|null,'analyst'|'card_agent
   ['tool_not_authorized','active','analyst',undefined,true,false],
   ['lifecycle_unsupported','cancelled','analyst',undefined,true,true],
 ];
+
+const analystPreflightRequest = { path: 'record:///brief.md?card=project', operation: 'write' as const, surface: 'analyst' as const, agentName: 'analyst' as const, requiredTools: ['write', 'webfetch'] as const };
+
+function preflightHarness(cards: CardService, read: () => ReturnType<CardService['read']>, classifyCurrentRecord: () => ReturnType<CardService['classifyCurrentRecord']>) {
+  jest.spyOn(cards, 'read').mockImplementation(read);
+  jest.spyOn(cards, 'classifyCurrentRecord').mockImplementation(classifyCurrentRecord);
+  const openRecord = jest.spyOn(cards, 'openRecord');
+  const editRecord = jest.spyOn(cards, 'editRecord');
+  const closeRecord = jest.spyOn(cards, 'closeRecord');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch');
+  const result = preflightAnalystRecordWrite(cards, analystPreflightRequest);
+  expect(openRecord).not.toHaveBeenCalled();
+  expect(editRecord).not.toHaveBeenCalled();
+  expect(closeRecord).not.toHaveBeenCalled();
+  expect(fetchSpy).not.toHaveBeenCalled();
+  return result;
+}
+
+describe('Analyst record preflight', () => {
+  it('classifies admission denial as denied without write or network effects', () => {
+    const { cards } = setup();
+    expect(preflightHarness(cards, () => null, () => { throw new Error('CLASSIFIER_MUST_NOT_RUN'); })).toMatchObject({ ok: false, audit_outcome: 'denied', result: { data: { code: 'record_mutation_denied', reason: 'card_not_active' } } });
+  });
+
+  it('classifies an open record conflict as an error without write or network effects', () => {
+    const { cards } = setup();
+    const card = cards.read('project')!;
+    const opened = cards.openRecord('project', 'brief.md');
+    expect(preflightHarness(cards, () => card, () => ({ kind: 'present', projection: opened }))).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'record_open_conflict', current_head: opened.headVersion } } });
+  });
+
+  it('classifies card-read failure as an error without write or network effects', () => {
+    const { cards } = setup();
+    expect(preflightHarness(cards, () => { throw new Error('card read failed'); }, () => { throw new Error('CLASSIFIER_MUST_NOT_RUN'); })).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'current_state_unavailable', resource: 'card' } } });
+  });
+
+  it('classifies record-read failure as an error without write or network effects', () => {
+    const { cards } = setup();
+    const card = cards.read('project')!;
+    expect(preflightHarness(cards, () => card, () => { throw new Error('record read failed'); })).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'current_state_unavailable', resource: 'authored_record' } } });
+  });
+
+  it('allows an admitted record without write or network effects', () => {
+    const { cards } = setup();
+    const card = cards.read('project')!;
+    const classification = cards.classifyCurrentRecord(card, 'brief.md');
+    expect(preflightHarness(cards, () => card, () => classification)).toEqual({ ok: true });
+  });
+});
 
 describe('card-agent record mutation', () => {
   it.each(DENIAL_CASES)('returns %s before definition or record classification', (reason,state,surface,cardId,writerAllowed,toolAllowed) => {

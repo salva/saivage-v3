@@ -195,7 +195,7 @@ export class CardService {
   editRecord(cardId: string, filename: string, content: string): RecordProjection {const a=this.admitWrite(cardId,filename);return editOpenAuthoredRecord(this.projectRoot,a.card,a.definition,content,this.cardAppendIo); }
   closeRecord(cardId: string, filename: string, agentName: AgentName): RecordProjection {
     const a=this.admitWrite(cardId,filename);const closed = closeOpenAuthoredRecord(this.projectRoot,a.card,a.definition,agentName,this.cardAppendIo);
-    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename });
     return closed;
   }
   discardRecord(cardId: string, filename: string, reason: string): RecordProjection {const a=this.admitWrite(cardId,filename);return discardOpenAuthoredRecord(this.projectRoot,a.card,a.definition,reason,this.cardAppendIo); }
