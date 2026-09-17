@@ -10,9 +10,9 @@ import { appendProcessOutputChunk, type ProcessOutputIo } from '../../src/runtim
 import { acquireRuntimeLifecycleLock, type RuntimeLockPublicationIo } from '../../src/runtime/lock.js';
 
 const regular = { isFile: () => true } as never;
-const zeroEintr = Object.assign(new Error('interrupted before transfer'), { code: 'EINTR', bytesWritten: 0 });
-const unknownEintr = Object.assign(new Error('interrupted with unknown transfer'), { code: 'EINTR' });
 const failure = new Error('injected failure');
+const writeFailure = Object.assign(new Error('write failed'), { code: 'EIO' });
+const noSpaceFailure = Object.assign(new Error('no space for write'), { code: 'ENOSPC' });
 
 
 function replacementIo(failAt?: string, trace: string[] = []): ReplacementFileIo {
@@ -28,7 +28,7 @@ function replacementIo(failAt?: string, trace: string[] = []): ReplacementFileIo
 }
 
 describe('publication syscall boundaries', () => {
-  it('repeats only a proven-zero temp write EINTR and advances short-write suffixes', () => {
+  it('advances replacement short-write suffixes without repeating offset zero', () => {
     const calls: Array<[number, number]> = [];
     let writes = 0;
     const io: ReplacementFileIo = {
@@ -36,13 +36,12 @@ describe('publication syscall boundaries', () => {
       write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => {
         calls.push([offset, length]);
         writes += 1;
-        if (writes === 1) throw zeroEintr;
-        return writes === 2 ? 2 : length;
+        return writes === 1 ? 2 : length;
       }) as never,
       fsync() {}, close() {}, rename() {},
     };
     replaceFile('/owner/state', Buffer.from('abcd'), () => '11111111-1111-4111-8111-111111111111', io);
-    expect(calls).toEqual([[0, 4], [0, 4], [2, 2]]);
+    expect(calls).toEqual([[0, 4], [2, 2]]);
   });
 
   it.each(['temp-open', 'temp-write', 'temp-fsync', 'temp-close'] as const)('keeps replacement %s failure direct and stops immediately', (stage) => {
@@ -59,8 +58,8 @@ describe('publication syscall boundaries', () => {
     expect(trace.filter((entry) => entry === stage)).toHaveLength(1);
   });
 
-  it('does not repeat replacement unknown-transfer EINTR or zero progress', () => {
-    for (const result of [unknownEintr, 0]) {
+  it('does not repeat a replacement write error or zero progress', () => {
+    for (const result of [writeFailure, 0]) {
       let writes = 0;
       const io = replacementIo();
       io.write = (() => { writes += 1; if (result instanceof Error) throw result; return result; }) as never;
@@ -69,15 +68,18 @@ describe('publication syscall boundaries', () => {
     }
   });
 
-  it('types append EINTR after positive progress and performs no close', () => {
+  it('types an append write error after positive progress and performs no close', () => {
     const trace: string[] = [];
     let write = 0;
     const io: GrowingFileIo = {
       open() { trace.push('open'); return 7; }, stat() { trace.push('stat'); return regular; },
-      write: ((_fd: number, _bytes: Uint8Array, _offset: number, _length: number) => { trace.push('write'); write += 1; if (write === 1) return 1; throw zeroEintr; }) as never,
+      write: ((_fd: number, _bytes: Uint8Array, _offset: number, _length: number) => { trace.push('write'); write += 1; if (write === 1) return 1; throw noSpaceFailure; }) as never,
       fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
     };
-    expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('ab'), io)).toThrow(PublicationOutcomeUnknownError);
+    let thrown: unknown;
+    try { appendEnvelope('/owner/app.jsonl', Buffer.from('ab'), io); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect((thrown as PublicationOutcomeUnknownError).cause).toBe(noSpaceFailure);
     expect(trace).toEqual(['open', 'stat', 'write', 'write']);
   });
 
@@ -100,13 +102,13 @@ describe('publication syscall boundaries', () => {
     expect(trace.at(-1)).toBe(stage);
   });
 
-  it('repeats only first zero-transfer append EINTR and advances short writes', () => {
+  it('advances append short-write suffixes and does not repeat failures or zero progress', () => {
     const offsets: number[] = []; let writes = 0;
-    const io: GrowingFileIo = { open() { return 1; }, stat() { return regular; }, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { offsets.push(offset); writes += 1; if (writes === 1) throw zeroEintr; return writes === 2 ? 1 : length; }) as never, fsync() {}, close() {} };
+    const io: GrowingFileIo = { open() { return 1; }, stat() { return regular; }, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { offsets.push(offset); writes += 1; return writes === 1 ? 1 : length; }) as never, fsync() {}, close() {} };
     expect(appendEnvelope('/owner/app.jsonl', Buffer.from('ab'), io)).toEqual({ kind: 'appended' });
-    expect(offsets).toEqual([0, 0, 1]);
-    const unknownIo = { ...io, write: (() => { throw unknownEintr; }) as never };
-    expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('x'), unknownIo)).toThrow(PublicationOutcomeUnknownError);
+    expect(offsets).toEqual([0, 1]);
+    const failingIo = { ...io, write: (() => { throw writeFailure; }) as never };
+    expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('x'), failingIo)).toThrow(PublicationOutcomeUnknownError);
     let zeroWrites = 0;
     expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('x'), { ...io, write: (() => { zeroWrites += 1; return 0; }) as never })).toThrow(PublicationOutcomeUnknownError);
     expect(zeroWrites).toBe(1);
@@ -130,21 +132,21 @@ describe('publication syscall boundaries', () => {
     expect(trace).toEqual([`open:${constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK}`, 'stat', 'write']);
   });
 
-  it('binds process-output admission, short writes, zero EINTR, zero progress, fsync, and close', () => {
+  it('binds process-output admission, short writes, thrown errors, zero progress, fsync, and close', () => {
     const admissionTrace: string[] = [];
     const admission: ProcessOutputIo = { open() { return 1; }, stat() { admissionTrace.push('stat'); throw failure; }, write() { return 1; }, fsync() {}, close() { admissionTrace.push('close'); } } as never;
     expect(() => appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), admission)).toThrow(failure);
     expect(admissionTrace).toEqual(['stat', 'close']);
     const offsets: number[] = []; let writes = 0;
-    const short: ProcessOutputIo = { open() { return 1; }, stat() { return regular; }, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { offsets.push(offset); writes += 1; if (writes === 1) throw zeroEintr; return writes === 2 ? 1 : length; }) as never, fsync() {}, close() {} };
+    const short: ProcessOutputIo = { open() { return 1; }, stat() { return regular; }, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { offsets.push(offset); writes += 1; return writes === 1 ? 1 : length; }) as never, fsync() {}, close() {} };
     appendProcessOutputChunk('/owner/stdout.log', Buffer.from('ab'), short);
-    expect(offsets).toEqual([0, 0, 1]);
+    expect(offsets).toEqual([0, 1]);
     let zeroWrites = 0;
     expect(() => appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), { ...short, write: (() => { zeroWrites += 1; return 0; }) as never })).toThrow(PublicationOutcomeUnknownError);
     expect(zeroWrites).toBe(1);
     for (const stage of ['write', 'fsync', 'close'] as const) {
       const trace: string[] = [];
-      const operation = (name: string): void => { trace.push(name); if (name === stage) throw stage === 'write' ? unknownEintr : failure; };
+      const operation = (name: string): void => { trace.push(name); if (name === stage) throw stage === 'write' ? writeFailure : failure; };
       const io: ProcessOutputIo = { open() { trace.push('open'); return 1; }, stat() { trace.push('stat'); return regular; }, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { operation('write'); return stage === 'write' ? 0 : length; }) as never, fsync() { operation('fsync'); }, close() { operation('close'); } };
       expect(() => appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), io)).toThrow(PublicationOutcomeUnknownError);
       expect(trace.at(-1)).toBe(stage);
@@ -155,17 +157,27 @@ describe('publication syscall boundaries', () => {
     const root = mkdtempSync(join(tmpdir(), 'publication-lock-syscalls-'));
     try {
       const trace: string[] = []; let writes = 0; let opens = 0;
-      const io: RuntimeLockPublicationIo = { open: ((_path: string, _flags: number) => { opens += 1; trace.push(opens === 1 ? 'lock-open' : 'parent-open'); return opens; }) as never, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { trace.push(`write:${offset}`); writes += 1; if (writes === 1) throw zeroEintr; return writes === 2 ? 1 : length; }) as never, fsync(fd) { trace.push(fd === 1 ? 'file-fsync' : 'parent-fsync'); }, close(fd) { trace.push(fd === 1 ? 'file-close' : 'parent-close'); } };
+      const io: RuntimeLockPublicationIo = { open: ((_path: string, _flags: number) => { opens += 1; trace.push(opens === 1 ? 'lock-open' : 'parent-open'); return opens; }) as never, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { trace.push(`write:${offset}`); writes += 1; return writes === 1 ? 1 : length; }) as never, fsync(fd) { trace.push(fd === 1 ? 'file-fsync' : 'parent-fsync'); }, close(fd) { trace.push(fd === 1 ? 'file-close' : 'parent-close'); } };
       acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'init', config: { readProcessStartIdentity: () => '1', publicationIo: io } });
-      expect(trace.slice(0, 4)).toEqual(['lock-open', 'write:0', 'write:0', 'write:1']);
+      expect(trace.slice(0, 3)).toEqual(['lock-open', 'write:0', 'write:1']);
       expect(trace.slice(-3)).toEqual(['parent-open', 'parent-fsync', 'parent-close']);
+      const laterTrace: string[] = [];
       let laterWrites = 0;
-      const laterEintr: RuntimeLockPublicationIo = { ...io, open: (() => 1) as never, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { laterWrites += 1; if (laterWrites === 1) return 1; throw zeroEintr; }) as never };
-      expect(() => acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'init', config: { lockFilePath: join(root, 'lock-later-eintr'), readProcessStartIdentity: () => '1', publicationIo: laterEintr } })).toThrow(PublicationOutcomeUnknownError);
-      expect(laterWrites).toBe(2);
+      const laterFailure: RuntimeLockPublicationIo = {
+        open: ((_path: string, _flags: number) => { laterTrace.push('lock-open'); return 1; }) as never,
+        write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { laterTrace.push(`write:${offset}`); laterWrites += 1; if (laterWrites === 1) return 1; throw noSpaceFailure; }) as never,
+        fsync() { laterTrace.push('fsync'); },
+        close() { laterTrace.push('close'); },
+      };
+      let laterThrown: unknown;
+      try { acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'init', config: { lockFilePath: join(root, 'lock-later-failure'), readProcessStartIdentity: () => '1', publicationIo: laterFailure } }); }
+      catch (error) { laterThrown = error; }
+      expect(laterThrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+      expect((laterThrown as PublicationOutcomeUnknownError).cause).toBe(noSpaceFailure);
+      expect(laterTrace).toEqual(['lock-open', 'write:0', 'write:1']);
       for (const stage of ['write', 'file-fsync', 'file-close', 'parent-open', 'parent-fsync', 'parent-close'] as const) {
         const failedTrace: string[] = []; let failedOpens = 0;
-        const failed: RuntimeLockPublicationIo = { open: ((_path: string, _flags: number) => { failedOpens += 1; const name = failedOpens === 1 ? 'lock-open' : 'parent-open'; failedTrace.push(name); if (name === stage) throw failure; return failedOpens; }) as never, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { failedTrace.push('write'); if (stage === 'write') throw unknownEintr; return length; }) as never, fsync(fd) { const name = fd === 1 ? 'file-fsync' : 'parent-fsync'; failedTrace.push(name); if (name === stage) throw failure; }, close(fd) { const name = fd === 1 ? 'file-close' : 'parent-close'; failedTrace.push(name); if (name === stage) throw failure; } };
+        const failed: RuntimeLockPublicationIo = { open: ((_path: string, _flags: number) => { failedOpens += 1; const name = failedOpens === 1 ? 'lock-open' : 'parent-open'; failedTrace.push(name); if (name === stage) throw failure; return failedOpens; }) as never, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { failedTrace.push('write'); if (stage === 'write') throw writeFailure; return length; }) as never, fsync(fd) { const name = fd === 1 ? 'file-fsync' : 'parent-fsync'; failedTrace.push(name); if (name === stage) throw failure; }, close(fd) { const name = fd === 1 ? 'file-close' : 'parent-close'; failedTrace.push(name); if (name === stage) throw failure; } };
         expect(() => acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'init', config: { lockFilePath: join(root, `lock-${stage}`), readProcessStartIdentity: () => '1', publicationIo: failed } })).toThrow(PublicationOutcomeUnknownError);
         expect(failedTrace.at(-1)).toBe(stage);
       }

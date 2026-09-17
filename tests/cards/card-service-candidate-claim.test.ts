@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import * as realFs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 
 const candidateMkdirPaths: string[] = [];
 const candidateInspectionPaths: string[] = [];
@@ -11,9 +11,16 @@ let injectedCandidatePath: string | null = null;
 let injectedFailure: NodeJS.ErrnoException | null = null;
 let failureThrown = false;
 let readdirCalls = 0;
+let strandedCandidateUnderInspection: string | null = null;
+const strandedCandidateInspections: string[] = [];
 
 function traceInspection(name: string, path: unknown): void {
-  if (childrenPath !== null && dirname(String(path)) === childrenPath) candidateInspectionPaths.push(String(path));
+  const inspectedPath = String(path);
+  if (childrenPath !== null && dirname(inspectedPath) === childrenPath) candidateInspectionPaths.push(inspectedPath);
+  if (strandedCandidateUnderInspection !== null) {
+    const fromCandidate = relative(strandedCandidateUnderInspection, inspectedPath);
+    if (fromCandidate === '' || (!fromCandidate.startsWith('..') && !isAbsolute(fromCandidate))) strandedCandidateInspections.push(`${name}:${inspectedPath}`);
+  }
   if (failureThrown) inspectionsAfterFailure.push(name);
 }
 
@@ -66,6 +73,8 @@ beforeEach(() => {
   injectedFailure = null;
   failureThrown = false;
   readdirCalls = 0;
+  strandedCandidateUnderInspection = null;
+  strandedCandidateInspections.length = 0;
 });
 afterEach(() => { while (roots.length > 0) realFs.rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -116,5 +125,47 @@ describe('direct child namespace claims', () => {
     expect(cardChanged).not.toHaveBeenCalled();
     expect(runtimeChanged).not.toHaveBeenCalled();
     expect(inspectionsAfterFailure).toEqual([]);
+  });
+
+  it('consumes a safely published but unlinked candidate without inspecting it before claiming the next candidate', () => {
+    const root = realFs.mkdtempSync(join(tmpdir(), 'saivage-candidate-claim-'));
+    roots.push(root);
+    initProjectTree(root);
+    childrenPath = join(root, '.saivage', 'cards', 'project', 'children');
+    const strandedCandidate = join(childrenPath, 'a');
+    const parentPath = cardStreamFile(root, 'project');
+    const linkFailure = Object.assign(new Error('parent link open denied'), { code: 'EACCES' });
+    const linkOperations: string[] = [];
+    const failingLinkIo = {
+      open: ((path: string) => { linkOperations.push(`open:${path}`); if (path === parentPath) throw linkFailure; throw new Error(`Unexpected append target '${path}'.`); }) as typeof realFs.openSync,
+      stat: ((descriptor: number) => { linkOperations.push('stat'); return realFs.fstatSync(descriptor); }) as typeof realFs.fstatSync,
+      write: ((...args: Parameters<typeof realFs.writeSync>) => { linkOperations.push('write'); return Reflect.apply(realFs.writeSync, undefined, args); }) as typeof realFs.writeSync,
+      fsync: ((...args: Parameters<typeof realFs.fsyncSync>) => { linkOperations.push('fsync'); return Reflect.apply(realFs.fsyncSync, undefined, args); }) as typeof realFs.fsyncSync,
+      close: ((...args: Parameters<typeof realFs.closeSync>) => { linkOperations.push('close'); return Reflect.apply(realFs.closeSync, undefined, args); }) as typeof realFs.closeSync,
+    };
+    const cardChanged = jest.fn();
+    const runtimeChanged = jest.fn();
+    const membershipChanged = jest.fn();
+
+    let caught: unknown;
+    try {
+      new CardService(root, { cardProjectionChanged: cardChanged, runtimeChanged, agentMembershipChanged: membershipChanged }, failingLinkIo).create(input);
+    } catch (error) { caught = error; }
+
+    expect(caught).toBe(linkFailure);
+    expect(linkOperations).toEqual([`open:${parentPath}`]);
+    expect(cardChanged).not.toHaveBeenCalled();
+    expect(runtimeChanged).not.toHaveBeenCalled();
+    expect(membershipChanged).not.toHaveBeenCalled();
+
+    strandedCandidateUnderInspection = strandedCandidate;
+    const service = new CardService(root);
+    const linked = service.create(input);
+
+    expect(linked.id).toBe('card-b');
+    expect(candidateMkdirPaths.map((path) => basename(path))).toEqual(['a', 'a', 'b']);
+    expect(strandedCandidateInspections).toEqual([]);
+    expect(service.read('project')).toMatchObject({ child_membership: ['card-b'], active_child_order: ['card-b'] });
+    expect(service.read(linked.id)?.id).toBe('card-b');
   });
 });

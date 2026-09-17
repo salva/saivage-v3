@@ -21,15 +21,19 @@ describe('immutable version file publication', () => {
     expect(opens).toBe(1);
   });
 
-  it('retries only a first proven-zero-byte EINTR', () => {
-    let calls = 0;
+  it('propagates the exact first-write error without durability operations', () => {
+    const failure = Object.assign(new Error('version write failed'), { code: 'EIO' });
+    const trace: string[] = [];
     const io: ImmutableVersionFileIo = {
       open: (() => 7) as ImmutableVersionFileIo['open'],
-      write: ((_descriptor, _bytes, _offset, length) => { calls += 1; if (calls === 1) throw Object.assign(new Error('interrupted'), { code: 'EINTR', bytesWritten: 0 }); return length; }) as ImmutableVersionFileIo['write'],
-      fsync: () => undefined,
-      close: () => undefined,
+      write: (() => { trace.push('write'); throw failure; }) as ImmutableVersionFileIo['write'],
+      fsync: (() => { trace.push('fsync'); }) as ImmutableVersionFileIo['fsync'],
+      close: (() => { trace.push('close'); }) as ImmutableVersionFileIo['close'],
     };
-    createImmutableVersionFile('/card/versions/1-id.json', Buffer.from('abc'), io);
-    expect(calls).toBe(2);
+    let thrown: unknown;
+    try { createImmutableVersionFile('/card/versions/1-id.json', Buffer.from('abc'), io); }
+    catch (error) { thrown = error; }
+    expect(thrown).toBe(failure);
+    expect(trace).toEqual(['write']);
   });
 });

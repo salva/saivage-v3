@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { closeSync, existsSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -59,32 +59,19 @@ describe('five-way runtime lifecycle lock classification', () => {
     expect(readRuntimeLockStatus(root, { lockFilePath: unreadablePath }).kind).toBe('indeterminate');
   });
 
-  it('repeats only a proven-zero first-write EINTR after known empty creation', () => {
-    let writes = 0;
-    handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound', config: { publicationIo: {
-      open: openSync,
-      write: ((...args: Parameters<typeof writeSync>) => { writes += 1; if (writes === 1) throw Object.assign(new Error('interrupted'), { code: 'EINTR', bytesWritten: 0 }); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
-      fsync: fsyncSync,
-      close: closeSync,
-    } } });
-    expect(writes).toBe(2);
-    expect(readRuntimeLockStatus(root).kind).toBe('live');
-  });
-
-  it('leaves the known empty lock namespace and types unknown first-write failure', () => {
-    const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
-    const failure = Object.assign(new Error('interrupted'), { code: 'EINTR' });
+  it('types a first record-write error and performs no following operation', () => {
+    const failure = Object.assign(new Error('lock record write failed'), { code: 'EIO' });
+    const trace: string[] = [];
     let thrown: unknown;
     try { acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound', config: { publicationIo: {
-      open: openSync,
-      write: (() => { throw failure; }) as typeof writeSync,
-      fsync: fsyncSync,
-      close: closeSync,
+      open: ((...args: Parameters<typeof openSync>) => { trace.push('open'); return Reflect.apply(openSync, undefined, args); }) as typeof openSync,
+      write: (() => { trace.push('write'); throw failure; }) as never,
+      fsync: (() => { trace.push('fsync'); }) as never,
+      close: (() => { trace.push('close'); }) as never,
     } } }); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect((thrown as PublicationOutcomeUnknownError).cause).toBe(failure);
-    expect(readFileSync(lockPath)).toHaveLength(0);
-    expect(readRuntimeLockStatus(root).kind).toBe('malformed');
+    expect(trace).toEqual(['open', 'write']);
   });
 });
 

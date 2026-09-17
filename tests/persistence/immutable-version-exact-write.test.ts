@@ -27,12 +27,12 @@ describe('immutable version exact writes', () => {
     ]);
   });
 
-  const interruptionCases: Array<[string, Error, boolean]> = [
-    ['later proven-zero EINTR', Object.assign(new Error('later interrupted'), { code: 'EINTR', bytesWritten: 0 }), true],
-    ['first unknown-transfer EINTR', Object.assign(new Error('unknown transfer'), { code: 'EINTR' }), false],
+  const writeFailureCases: Array<[string, Error, boolean]> = [
+    ['later EIO', Object.assign(new Error('later write failed'), { code: 'EIO' }), true],
+    ['first ENOSPC', Object.assign(new Error('no space for write'), { code: 'ENOSPC' }), false],
   ];
 
-  it.each(interruptionCases)('preserves the exact %s object and stops before durability', (_name, failure, makeProgress) => {
+  it.each(writeFailureCases)('preserves the exact %s object and stops before durability', (_name, failure, makeProgress) => {
     const trace: string[] = [];
     let writes = 0;
     const io: ImmutableVersionFileIo = {

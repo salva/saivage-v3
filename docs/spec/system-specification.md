@@ -1835,7 +1835,7 @@ Replacement becomes uncertain at rename.
 JSONL append-open `ENOENT` remains the explicit `missing` selection result; process-output append-open `ENOENT` is an ordinary exact-file error.
 Truncation becomes uncertain at `ftruncate`.
 Successful exclusive lifecycle-lock creation is a known empty canonical namespace effect; subsequent record publication uncertainty leaves it for fail-closed manual repair.
-Only a first-write `EINTR` proving zero transferred bytes may repeat, and positive short writes continue with only the unsent suffix.
+The storage ceiling permits repetition only for a first-write `EINTR` proving zero transferred bytes. Node/libuv handles interrupted writes below JavaScript, so Saivage does not retry a thrown write; positive short writes continue with only the unsent suffix.
 
 Captured process output is synchronously appended one chunk at a time without retained writers or descriptors.
 Terminal process presentation and successful termination results require both registry-confirmed group absence and stdout/stderr readable drain; failed or unconfirmed groups are not awaited.
