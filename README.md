@@ -71,7 +71,9 @@ stateless collection pages; this removes one context amplifier but is not a
 guarantee that accumulated conversations will never require compaction. See the
 [search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction).
 
-Open the UI at `http://localhost:8080/`, or check the public probes:
+Open the UI at `http://localhost:8080/` and the built documentation at
+`http://localhost:8080/docs/` (`/docs` redirects there), or check the public
+probes:
 
 ```bash
 curl http://localhost:8080/health
@@ -232,11 +234,10 @@ network requirement.
 
 The build and release gates package every registered prompt tree and run its
 compiled composition smoke. After building the documentation and web UI, they
-also run a real-Fastify static-serving smoke over the built `/docs/runbook/`
-page, web entry point, and a built web asset. This checks that the actual static
-plugin registrations serve those artifacts without promising a `/docs/` root
-page. `npm run test:static-serving` runs that smoke directly and therefore
-requires the documentation and web assets to have already been built.
+also run a real-Fastify static-serving smoke over the `/docs` redirect, built
+`/docs/` landing and linked pages, documentation resources, web entry point, and
+built web assets. `npm run test:static-serving` runs that smoke directly and
+therefore requires the documentation and web assets to have been freshly built.
 
 `npm run test:compiled-prompt-composition` runs
 `dist/tests/scripts/compiled-prompt-composition-smoke.js --source-root .` against
