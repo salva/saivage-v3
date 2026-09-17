@@ -10,7 +10,7 @@ An ordinary same-format binary deployment instead stops the old service and stri
 The selected strict YAML chooses card-type definitions through exactly one source form: a complete `card_types` map, or omission of `card_types`, which selects the bundled `classic` definitions.
 The deleted `card_type_set` selector key fails strict source validation as an unknown key; it never defaults, falls back, or merges with an explicit map.
 `saivage init [--profile <classic|classic-typed>]` materializes the complete selected system template once on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single completion commit.
-An existing `.saivage/saivage.yaml` gates the whole materialization: `init` then writes nothing, and `--profile` is inert.
+An existing `.saivage/saivage.yaml` gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML, and `--profile` is inert.
 After init the instance is the single runtime authority; templates are data used once at init and never consulted at runtime.
 `ResolvedConfigAuthority` resolves the source once to a complete effective `card_types` map before structural compilation.
 All compiler, runtime, REST config, `show_config`, and selected-config Files consumers receive only that singular effective map.
@@ -1144,6 +1144,7 @@ The decision derives only exact canonical authorities and never enumerates sibli
 Four absent roots permit the singular initial-runtime publisher to create project authority and the global Analyst conversation.
 Existing required current-format streams enter strict startup admission.
 Both paths require one nonempty canonical linked-card projection, active dependency validation, and compiled workflow/parent-type admission before exact-missing conversation indexes are initialized and all configured current authority is strictly read.
+After that final validation succeeds, `init` reports the two outcomes independently: `Project layout initialized at <canonical root>` or `Project layout already exists at <canonical root>`, followed by `Configuration materialized from template <selected name>` or `Existing configuration preserved`. No completion line is emitted before final success.
 
 The first identity read is non-mutating.
 A known-unsuccessful exclusive open publishes no new lock; a failure after that open is outcome-unknown and may retain the lock.

@@ -315,7 +315,9 @@ describe('disposable production-composition smoke', () => {
     const providerPort = await listen(provider);
 
     try {
-      expect(runCli(root, 'init')).toContain('Project initialized');
+      const freshInitOutput = runCli(root, 'init');
+      expect(freshInitOutput).toContain(`Project layout initialized at ${root}`);
+      expect(freshInitOutput).toContain('Configuration materialized from template classic');
       expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"id":"project"');
       writeFileSync(join(root, 'compaction-source-a.txt'), `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`);
       writeFileSync(join(root, 'compaction-source-b.txt'), `Refreshed unresolved task after first compaction. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`);
@@ -408,7 +410,9 @@ describe('disposable production-composition smoke', () => {
       await stop(app);
       app = null;
       expect(runCli(root, 'reset')).toContain('Project reset with a new root project card');
-      expect(runCli(root, 'init')).toContain('Project already initialized');
+      const postResetInitOutput = runCli(root, 'init');
+      expect(postResetInitOutput).toContain(`Project layout already exists at ${root}`);
+      expect(postResetInitOutput).toContain('Existing configuration preserved');
       const resetConfig = readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf8');
       expect(resetConfig).toContain('model_route: executor');
       expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"status":"backlog"');

@@ -105,10 +105,12 @@ async function handleInit(options: InitInputs): Promise<void> {
     const canonicalProjectRoot = composition.projectRoot;
     const template = resolveSystemTemplate(options.profile ?? DEFAULT_SYSTEM_TEMPLATE);
     const configPath=join(canonicalProjectRoot,'.saivage','saivage.yaml');
+    let configurationMaterialized = false;
     if(!existsSync(configPath)){
       materializePromptTree(template.promptRoot,join(canonicalProjectRoot,'.saivage','config','prompts'));
       writeFileSync(join(canonicalProjectRoot,'.saivage','config','template.json'),JSON.stringify({template:template.name,saivage_version:SAIVAGE_VERSION}));
       replaceConfigYaml(configPath,structuredClone(template.config));
+      configurationMaterialized = true;
     }
     const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
     if (readProjectIdentity(canonicalProjectRoot) === null) composition.createAndBindProjectIdentity();
@@ -117,7 +119,8 @@ async function handleInit(options: InitInputs): Promise<void> {
       publishInitialProjectRuntime(canonicalProjectRoot, workflows);
     }
     initializeAndValidateCurrentGeneratedState(canonicalProjectRoot, workflows);
-    console.log(projectCard === null ? `Project initialized at ${canonicalProjectRoot}` : `Project already initialized at ${canonicalProjectRoot}`);
+    console.log(projectCard === null ? `Project layout initialized at ${canonicalProjectRoot}` : `Project layout already exists at ${canonicalProjectRoot}`);
+    console.log(configurationMaterialized ? `Configuration materialized from template ${template.name}` : 'Existing configuration preserved');
   });
 }
 async function handleStart(inputs: StartInputs): Promise<void> { const app = await startApp(inputs); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
