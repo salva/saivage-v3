@@ -1,4 +1,4 @@
-import { argKeys, asRecord, cardPart, describeJsonlTail, formatBytes, oneLine, pathParts, str, textPart, webfetchContentPart } from './helpers';
+import { argKeys, asRecord, cardPart, describeJsonlTail, formatBytes, oneLine, pathParts, processLogPart, str, textPart, webfetchContentPart } from './helpers';
 import type { ResultPresenterContext, ToolPresenter } from './types';
 
 function cardResult(ctx: ResultPresenterContext, verb: string) {
@@ -17,7 +17,15 @@ function processResult(ctx: ResultPresenterContext) {
   const parts: string[] = [];
   if (exit !== null) parts.push(`exit ${exit}`);
   if (status) parts.push(status);
-  return { headline: textPart(parts.length ? parts.join(' · ') : 'completed'), detail: procId ? textPart(`process ${procId}`) : undefined };
+  const stdoutLink = processLogPart(r?.stdout_url, 'stdout');
+  const stderrLink = processLogPart(r?.stderr_url, 'stderr');
+  const detail = [
+    ...textPart(`${procId ? `process ${procId} · ` : ''}stdout ${r?.stdout_complete === true ? 'complete' : 'partial'}`),
+    ...(stdoutLink ? [...textPart(' · '), stdoutLink] : []),
+    ...textPart(` · stderr ${r?.stderr_complete === true ? 'complete' : 'partial'}`),
+    ...(stderrLink ? [...textPart(' · '), stderrLink] : []),
+  ];
+  return { headline: textPart(parts.length ? parts.join(' · ') : 'completed'), detail };
 }
 
 function pageCount(page: unknown, noun: string, plural?: string, totalQualifier = '') {

@@ -62,6 +62,13 @@ export function webfetchContentPart(value: unknown): InlinePart | null {
   return { kind: 'file', root: 'output', path: `.saivage/work/tmp/stash/${file}`, label: url };
 }
 
+export function processLogPart(value: unknown, stream: 'stdout' | 'stderr'): InlinePart | null {
+  const url = str(value);
+  const match = /^work:\/\/\/((?:cards\/(?:project|card-[a-z]+(?:-[a-z]+){0,11})\/)?processes\/proc-[0-9a-f]{12}\/(stdout|stderr)\.log)$/u.exec(url);
+  if (!match || match[0] !== url || match[2] !== stream) return null;
+  return { kind: 'file', root: 'output', path: `.saivage/work/${match[1]}`, label: `${stream} Files` };
+}
+
 export function pathParts(pathValue: unknown): InlinePart[] {
   const path = str(pathValue);
   if (!path) return [];

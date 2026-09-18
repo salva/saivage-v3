@@ -93,6 +93,24 @@ describe('ToolChip', () => {
     expect(wrapper.find('[aria-label="Raw tool response"]').text()).toContain(resultContent);
   });
 
+  it('renders process completeness and Files links while keeping multiline heads behind Show raw response', async () => {
+    const r = router(); await r.push('/'); await r.isReady();
+    const id = 'proc-0123456789ab';
+    const resultContent = JSON.stringify({ success: true, data: { process_id: id, exit_code: 0, status: 'exited', stdout: 'first\nsecond', stderr: 'warning', stdout_complete: true, stderr_complete: false, stdout_url: `work:///processes/${id}/stdout.log`, stderr_url: `work:///processes/${id}/stderr.log`, stdout_bytes: 12, stderr_bytes: 100 } });
+    const pair = toolPair('run_command', resultContent, { command: 'check' });
+    const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-process' }, global: { plugins: [r, createPinia()] } });
+
+    expect(wrapper.find('.tool-chip-status').text()).toContain('stdout complete');
+    expect(wrapper.find('.tool-chip-status').text()).toContain('stderr partial');
+    expect(wrapper.findAll('.tool-chip-links a')).toHaveLength(2);
+    expect(wrapper.text()).not.toContain('first');
+    expect(wrapper.text()).not.toContain('warning');
+    const rawResponseToggle = wrapper.findAll('button.raw-toggle').find((button) => button.text() === 'Show raw response')!;
+    await rawResponseToggle.trigger('click');
+    expect(wrapper.find('[aria-label="Raw tool response"]').text()).toContain('first');
+    expect(wrapper.find('[aria-label="Raw tool response"]').text()).toContain('warning');
+  });
+
   it('keeps failure data and every malformed response raw-only through built displays', async () => {
     const longError = `permission denied ${'x'.repeat(140)}`;
     const boundedError = `${longError.slice(0, 119)}…`;

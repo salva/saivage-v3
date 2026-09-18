@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_SAIVAGE_CONFIG,DEFAULT_SYSTEM_TEMPLATE,SYSTEM_TEMPLATES,resolveSystemTemplate,validateSystemTemplates } from '../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 
 const SHARED_PROMPT_FILES=[...['analyst','oversight','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`),...['execute','stopped-recovery','correct-plan-result','correct-review-result','correct-execution-result'].map((id)=>`process/_shared/${id}.md`),...['common','analyst','oversight','planner','executor','reviewer'].map((id)=>`fragments/_shared/project-guidance-${id}.md`)];
 
@@ -70,6 +72,18 @@ describe('system template registry',()=>{
     expect(typed.config.compaction).toEqual(classic.config.compaction);
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
     for(const file of SHARED_PROMPT_FILES)expect(readFileSync(join(typed.promptRoot,file),'utf8')).toBe(readFileSync(join(classic.promptRoot,file),'utf8'));
+  });
+
+  it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{
+    for(const templateName of ['classic','classic-typed'] as const){
+      const template=resolveSystemTemplate(templateName);const observed:string[]=[];
+      const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot,artifactObserver:(artifact)=>observed.push(artifact.path)});
+      const rendered=createPromptTemplateRegistry(workflows).render({kind:'workflow-agent',cardType:'code'},'executor',{contractDescription:'UNIQUE-OUTCOME-CONTRACT'});
+      expect(rendered.split('UNIQUE-OUTCOME-CONTRACT')).toHaveLength(2);
+      expect(observed.some((path)=>path.endsWith('/agents/_shared/executor.md'))).toBe(true);
+      expect(observed.some((path)=>path.endsWith('/fragments/_shared/project-guidance-common.md'))).toBe(true);
+      expect(observed.some((path)=>path.endsWith('/fragments/_shared/project-guidance-executor.md'))).toBe(true);
+    }
   });
 
   it('ships exact Analyst notification-target guidance, source tokens, and role safety',()=>{

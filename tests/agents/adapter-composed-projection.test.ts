@@ -1,12 +1,16 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
-import { DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { LlmCompleteOptions, ProviderConversationProjection } from '../../src/agents/llm-contracts.js';
 import type { ContextBlock } from '../../src/runtime/actors/context/context-blocks.js';
+import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
+import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -79,5 +83,62 @@ describe('protocol adapters consume the composed projection', () => {
     expect(serializedInput.match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
     expect(JSON.stringify(body)).not.toContain('RAW-A');
     expect(JSON.stringify(body)).not.toContain('RAW-B');
+  });
+
+  it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)('admits the actual bounded process projection and hashes its complete %s request bytes', (transportProtocol) => {
+    const processId = 'proc-0123456789ab';
+    const data = {
+      process_id: processId,
+      exit_code: 0,
+      status: 'exited',
+      stdout: 'done',
+      stderr: 'partial',
+      stdout_complete: true,
+      stderr_complete: false,
+      stdout_url: `work:///processes/${processId}/stdout.log`,
+      stderr_url: `work:///processes/${processId}/stderr.log`,
+      stdout_bytes: 4,
+      stderr_bytes: 20_000,
+    } as const;
+    const sourceContent = `${' '.repeat(33_000)}${JSON.stringify({ data, success: true })}`;
+    const policies = toolRowPolicies({ content: sourceContent, template: OPERATIONAL_RESULT_POLICY_TEMPLATE });
+    const common = { session_id: SESSION, round_id: `r-assistant-${'3'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: TS } as const;
+    const call: AgentMessage = {
+      ...common,
+      id: `${INPUT_A}:tool-call:call-process`,
+      role: 'assistant',
+      kind: 'tool_call',
+      tool: 'run_command',
+      tool_call_id: 'call-process',
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-process', type: 'function', function: { name: 'run_command', arguments: '{}' } }] }),
+      context_policy: policies.call,
+    };
+    const result: AgentMessage = {
+      ...common,
+      id: `${INPUT_A}:tool-result:call-process`,
+      role: 'tool',
+      kind: 'tool_result',
+      tool: 'run_command',
+      tool_call_id: 'call-process',
+      content: sourceContent,
+      context_policy: policies.result,
+    };
+    const composedProcess = composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [], uncoveredRows: [call, result] });
+    const projected = providerConversationFromComposedContext(composedProcess);
+    const projectedResult = projected.messages.find((message) => message.kind === 'tool_result');
+    if (!projectedResult) throw new Error('Missing projected process result.');
+    const projectedData = (JSON.parse(projectedResult.content) as { data: Record<string, unknown> }).data;
+    expect(projectedData).not.toHaveProperty('stdout_url');
+    expect(projectedData.stderr_url).toBe(data.stderr_url);
+
+    const adapter = selectLlmProtocolAdapter(transportProtocol);
+    const plan = buildCandidateRequest({ candidate: CANDIDATE, capabilities: capabilities(transportProtocol), adapter, systemPrompt: 'prefix-instructions', providerConversation: projected, options: OPTS });
+    expect(plan.request.serializedBody).toBe(canonicalJson(plan.request.body));
+    expect(plan.request.requestHash).toBe(createHash('sha256').update(plan.request.serializedBody, 'utf8').digest('hex'));
+    expect(plan.request.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(plan.request.serializedBody, 'utf8') / 4));
+    expect(plan.request.serializedBody).toContain(data.stderr_url);
+    expect(plan.request.serializedBody).not.toContain(data.stdout_url);
+    expect(plan.request.serializedBody).not.toContain(' '.repeat(1_000));
+    expect(result.content).toBe(sourceContent);
   });
 });

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  agentMessageSchema,
+  canonicalJson,
   CONTENT_POLICY_RETRY_TEXT,
   contentPolicyRefusalProjectionText,
   DURABLE_PRIMARY_CONTENT_POLICY,
@@ -12,6 +14,7 @@ import {
   type SettledToolEvidence,
   type ToolResultPolicyTemplate,
 } from '../../../../src/schemas/index.js';
+import type { ProcessToolResult } from '../../../../src/contracts/operator-api-processes.js';
 import {
   composeContextProjection,
   providerConversationFromComposedContext,
@@ -22,6 +25,7 @@ import { contextContentSha256, type ContextBlock } from '../../../../src/runtime
 import { buildContentPolicyRefusalMessage } from '../../../../src/runtime/actors/content-policy-messages.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
+import { settledSuccessBytes } from '../../../../src/tools/tool-result-settlement.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -75,6 +79,32 @@ const recoveryRow = (inputId: string): AgentMessage =>
 
 const refusalRow = (inputId: string): AgentMessage =>
   buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: inputId, candidate: { provider: 'test', account: null, model: 'model' }, providerResponse: `RAW-REFUSAL-${inputId}` });
+
+const PROCESS_ID = 'proc-0123456789ab';
+
+function processData(overrides: Partial<ProcessToolResult> = {}, cardId?: string): ProcessToolResult {
+  const directory = cardId ? `cards/${cardId}/processes/${PROCESS_ID}` : `processes/${PROCESS_ID}`;
+  return {
+    process_id: PROCESS_ID,
+    exit_code: 0,
+    status: 'exited',
+    stdout: 'output',
+    stderr: 'warning',
+    stdout_complete: true,
+    stderr_complete: false,
+    stdout_url: `work:///${directory}/stdout.log`,
+    stderr_url: `work:///${directory}/stderr.log`,
+    stdout_bytes: 6,
+    stderr_bytes: 7,
+    ...overrides,
+  };
+}
+
+function processRows(tool: 'run_command' | 'wait_process' | 'kill_process', data: unknown, content = canonicalJson({ success: true, data })): readonly [AgentMessage, AgentMessage] {
+  const call = callRow(INPUT_A, `call-${tool}`, tool, OPERATIONAL_RESULT_POLICY_TEMPLATE, '{}');
+  const result = resultRow(INPUT_A, `call-${tool}`, tool, content, OPERATIONAL_RESULT_POLICY_TEMPLATE);
+  return [agentMessageSchema.parse(call), agentMessageSchema.parse(result)];
+}
 
 describe('composition projector selection pass', () => {
   it('derives both projections from one selection with dynamic blocks before canonical rows', () => {
@@ -276,6 +306,132 @@ describe('tool bundle indivisibility', () => {
     expect(() => compose([orphan])).toThrow(/settles no prior unmatched tool call/);
     const call = callRow(INPUT_A, 'call-1', 'get_card', OPERATIONAL_RESULT_POLICY_TEMPLATE);
     expect(() => compose([call, call])).toThrow(/repeats the composite identity/);
+  });
+});
+
+describe('primary process-result projection', () => {
+  it.each(['run_command', 'wait_process', 'kill_process'] as const)('omits each eligible URL independently for %s without changing durable or summarizer bytes', (tool) => {
+    const data = processData();
+    const equivalentDataJson = JSON.stringify(data).replace('"output"', '"\\u006futput"');
+    const sourceContent = ` { "data" : ${equivalentDataJson}, "success" : true } `;
+    const rows = processRows(tool, data, sourceContent);
+    const original = structuredClone(rows[1]);
+    const composed = compose(rows);
+    const provider = providerConversationFromComposedContext(composed);
+    const copied = provider.messages.find((message) => message.kind === 'tool_result');
+    if (!copied || copied.kind === 'synthetic_context') throw new Error('Missing projected process result.');
+    const parsed = JSON.parse(copied.content) as { success: true; data: Record<string, unknown> };
+
+    expect(parsed.data).not.toHaveProperty('stdout_url');
+    expect(parsed.data.stderr_url).toBe(data.stderr_url);
+    expect(copied.content).toBe(canonicalJson(parsed));
+    expect(copied.context_policy).toEqual({ ...rows[1].context_policy, result_content_sha256: contextContentSha256(copied.content) });
+    expect(agentMessageSchema.parse(copied)).toEqual(copied);
+    expect(rows[1]).toEqual(original);
+    expect(composed.summarizer).toContainEqual(expect.objectContaining({ kind: 'settled_tool_bundle', resultContent: sourceContent }));
+  });
+
+  it('retains both URLs for a running result and still canonicalizes the provider copy', () => {
+    const data = processData({ status: 'running', exit_code: null, stdout_complete: true, stderr_complete: true });
+    const sourceContent = `${' '.repeat(33_000)}${JSON.stringify({ data, success: true })}`;
+    const rows = processRows('wait_process', data, sourceContent);
+    const composed = compose(rows);
+    const copied = providerConversationFromComposedContext(composed).messages.find((message): message is AgentMessage => message.kind === 'tool_result')!;
+
+    expect(copied.content).toBe(settledSuccessBytes(data));
+    expect(Buffer.byteLength(copied.content, 'utf8')).toBeLessThan(32_768);
+    expect(JSON.parse(copied.content).data).toEqual(data);
+    expect(rows[1].content).toBe(sourceContent);
+    expect(composed.summarizer).toContainEqual(expect.objectContaining({ resultContent: sourceContent }));
+  });
+
+  it.each(['failed', 'killed'] as const)('treats %s as done for independently complete stream omission', (status) => {
+    const data = processData({ status, stderr_complete: true });
+    const rows = processRows('wait_process', data);
+    const copied = providerConversationFromComposedContext(compose(rows)).messages.find((message) => message.kind === 'tool_result')!;
+    const projected = (JSON.parse(copied.content) as { data: Record<string, unknown> }).data;
+    expect(projected).not.toHaveProperty('stdout_url');
+    expect(projected).not.toHaveProperty('stderr_url');
+  });
+
+  it('omits both eligible URLs from padded retained JSON while preserving prepared and retained instruction context', () => {
+    const data = processData({ stderr_complete: true });
+    const sourceContent = `\n${' '.repeat(33_000)}{ "data": ${JSON.stringify(data)}, "success": true }`;
+    const rows = processRows('run_command', data, sourceContent);
+    const retained = agentMessageSchema.parse(row({ id: 'retained', role: 'user', kind: 'text', content: 'EXACT RETAINED INSTRUCTION' }));
+    const prepared = Object.freeze(dynamicBlock('prepared', { role: 'system', content: 'EXACT PREPARED PREFIX' }));
+    const effectiveHistory: EffectiveCompactedHistoryFacts = {
+      ...historyFacts({ summaryText: 'prior', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } }),
+      protectedPrompts: [{ source: { segmentVersion: 2, rowIndex: 7 }, message: retained }],
+    };
+    const composed = compose(rows, { effectiveHistory, dynamicBlocks: [prepared] });
+    const provider = providerConversationFromComposedContext(composed);
+    const copied = provider.messages.find((message): message is AgentMessage => message.kind === 'tool_result')!;
+    const copiedData = (JSON.parse(copied.content) as { data: Record<string, unknown> }).data;
+    const expectedData: Record<string, unknown> = { ...data };
+    delete expectedData.stdout_url;
+    delete expectedData.stderr_url;
+
+    expect(copiedData).not.toHaveProperty('stdout_url');
+    expect(copiedData).not.toHaveProperty('stderr_url');
+    expect(copied.content).toBe(canonicalJson({ success: true, data: expectedData }));
+    expect(Buffer.byteLength(copied.content, 'utf8')).toBeLessThan(Buffer.byteLength(settledSuccessBytes(data), 'utf8'));
+    expect(provider.messages.map((message) => message.kind === 'synthetic_context' ? [message.origin, message.content, message.block_identity] : message.id)).toEqual([
+      ['dynamic', prepared.content, prepared.id],
+      ['context_boundary', expect.any(String), `${SESSION}:context-boundary`],
+      ['history_summary', 'Historical summary:\nprior', 'genesis-1:compacted-history'],
+      ['retained_instruction', retained.content, '2:7:retained'],
+      rows[0].id,
+      rows[1].id,
+    ]);
+    expect(rows[1].content).toBe(sourceContent);
+    expect(composed.summarizer).toContainEqual(expect.objectContaining({ resultContent: sourceContent }));
+    const invalidSourceHash = { ...rows[1], context_policy: { ...rows[1].context_policy, result_content_sha256: '0'.repeat(64) } };
+    expect(agentMessageSchema.safeParse(invalidSourceHash).success).toBe(false);
+  });
+
+  it('passes failed process results and non-process results through unchanged', () => {
+    const failed = canonicalJson({ success: false, error: 'command failed' });
+    const process = processRows('kill_process', undefined, failed);
+    const otherContent = canonicalJson({ success: true, data: { value: 1 } });
+    const other = [
+      callRow(INPUT_B, 'call-other', 'get_card', OPERATIONAL_RESULT_POLICY_TEMPLATE, '{}'),
+      resultRow(INPUT_B, 'call-other', 'get_card', otherContent, OPERATIONAL_RESULT_POLICY_TEMPLATE),
+    ] as const;
+    const rows = [...process, ...other];
+    const projected = providerConversationFromComposedContext(compose(rows));
+    expect(projected.messages.filter((message): message is AgentMessage => message.kind === 'tool_result')).toEqual([rows[1], rows[3]]);
+  });
+
+  it.each([
+    ['oversized stdout', () => processData({ stdout: 'x'.repeat(2_049) })],
+    ['oversized stdout lines', () => processData({ stdout: 'x\n'.repeat(31) })],
+    ['oversized stderr', () => processData({ stderr: 'x'.repeat(2_049) })],
+    ['oversized stderr lines', () => processData({ stderr: 'x\n'.repeat(31) })],
+    ['unstable head', () => processData({ stdout: 'token=synthetic-secret-value' })],
+    ['missing URL', () => { const { stdout_url: _removed, ...data } = processData({ stderr_complete: true }); return data; }],
+    ['mismatched URL', () => processData({ stderr_complete: true, stdout_url: 'work:///processes/proc-aaaaaaaaaaaa/stdout.log' })],
+    ['inconsistent URL directories', () => processData({ stderr_complete: true, stderr_url: `work:///cards/card-a/processes/${PROCESS_ID}/stderr.log` })],
+    ['noncanonical URL', () => processData({ stderr_complete: true, stdout_url: `work:///processes/${PROCESS_ID}/stdout.log?raw=1` })],
+    ['oversized fixed metadata', () => processData({ stderr_complete: true }, `card-${'a'.repeat(40_000)}`)],
+  ])('rejects %s at direct primary use without mutating the canonical row', (_label, makeData) => {
+    const rows = processRows('run_command', makeData());
+    const original = structuredClone(rows[1]);
+    const composed = compose(rows);
+    expect(() => providerConversationFromComposedContext(composed)).toThrow();
+    expect(rows[1]).toEqual(original);
+  });
+
+  it('rejects malformed process ToolResult JSON at direct use', () => {
+    const call = callRow(INPUT_A, 'call-malformed', 'run_command', OPERATIONAL_RESULT_POLICY_TEMPLATE, '{}');
+    const malformed = resultRow(INPUT_A, 'call-malformed', 'run_command', '{not-json', OPERATIONAL_RESULT_POLICY_TEMPLATE);
+    expect(() => providerConversationFromComposedContext(compose([call, malformed]))).toThrow(SyntaxError);
+  });
+
+  it('strictly rejects extra successful ToolResult envelope members', () => {
+    const data = processData();
+    const content = canonicalJson({ success: true, data, extra: true });
+    expect(() => providerConversationFromComposedContext(compose(processRows('run_command', data, content)))).toThrow();
   });
 });
 

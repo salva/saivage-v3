@@ -1,5 +1,6 @@
 import {
   agentMessageSchema,
+  canonicalJson,
   CONTENT_POLICY_RETRY_TEXT,
   contentPolicyRefusalProjectionText,
   DURABLE_PRIMARY_CONTENT_POLICY,
@@ -12,6 +13,9 @@ import { deterministicRoundId } from '../../../schemas/round-id-server.js';
 import { validateResponsesPairs } from '../../../agents/llm-openai-responses-mapper.js';
 import type { ProviderConversationItem, ProviderConversationProjection, SyntheticProviderContextItem } from '../../../agents/llm-contracts.js';
 import { parseToolCallMessageForModel } from '../../../contracts/persisted-tool-call.js';
+import { ToolResultSchema } from '../../../contracts/tool-result.js';
+import type { ProcessToolResult } from '../../../contracts/operator-api-processes.js';
+import { validateProcessToolResult } from '../../../tools/process-tool-result.js';
 import { contextContentSha256, selectLatestContextBlocks, type ContextBlock, type ContextEvidence } from './context-blocks.js';
 import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToolBundlePolicy } from './row-policy.js';
 
@@ -173,10 +177,36 @@ export function providerConversationFromComposedContext(composed: ComposedContex
       if (entry.semantic === 'recovery_notice') messages.push(syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id));
       else if (entry.semantic === 'refusal_notice') messages.push(syntheticProviderContext('user', entry.row.content, 'refusal_notice', entry.row.id));
       else if (entry.semantic === 'retry_notice') messages.push(syntheticProviderContext('user', entry.row.content, 'retry_notice', entry.row.id));
-      else messages.push(entry.row);
+      else messages.push(projectProcessResultForPrimary(entry.row));
     }
   }
   return { sourceSessionId: composed.sourceSessionId, messages };
+}
+
+type PrimaryProcessToolResult = Omit<ProcessToolResult, 'stdout_url' | 'stderr_url'>
+  & Partial<Pick<ProcessToolResult, 'stdout_url' | 'stderr_url'>>;
+
+const PROCESS_TOOLS = new Set(['run_command', 'wait_process', 'kill_process']);
+
+function projectProcessResultForPrimary(row: AgentMessage): AgentMessage {
+  if (row.kind !== 'tool_result' || !row.tool || !PROCESS_TOOLS.has(row.tool)) return row;
+  const result = ToolResultSchema.parse(JSON.parse(row.content));
+  if (!result.success) return row;
+  const data = validateProcessToolResult(result.data);
+  const projected: PrimaryProcessToolResult = { ...data };
+  const done = data.status !== 'running';
+  if (done && data.stdout_complete) delete projected.stdout_url;
+  if (done && data.stderr_complete) delete projected.stderr_url;
+  const content = canonicalJson({ success: true, data: projected });
+  if (row.context_policy.kind !== 'tool_result') throw new Error(`Process result '${row.id}' is missing its tool-result policy.`);
+  return agentMessageSchema.parse({
+    ...row,
+    content,
+    context_policy: {
+      ...row.context_policy,
+      result_content_sha256: contextContentSha256(content),
+    },
+  });
 }
 
 function syntheticProviderContext(

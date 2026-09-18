@@ -30,6 +30,46 @@ function isCanonicalProcessLogUrl(filename: string): (value: string | null) => b
   };
 }
 
+const processResultIdSchema = z.string().regex(/^proc-[0-9a-f]{12}$/u);
+
+interface ProcessResultLogLocation {
+  readonly cardId: string | null;
+  readonly processId: string;
+}
+
+function processResultLogLocation(value: string, filename: string): ProcessResultLogLocation | null {
+  try {
+    const parsed = parseScopedPathUrl(value, 'work');
+    if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== value) return null;
+    if (parsed.segments.length === 3
+      && parsed.segments[0] === 'processes'
+      && parsed.segments[2] === filename) {
+      return { cardId: null, processId: parsed.segments[1]! };
+    }
+    if (parsed.segments.length === 5
+      && parsed.segments[0] === 'cards'
+      && cardIdSchema.safeParse(parsed.segments[1]).success
+      && parsed.segments[2] === 'processes'
+      && parsed.segments[4] === filename) {
+      return { cardId: parsed.segments[1]!, processId: parsed.segments[3]! };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function hasAtMostThirtyLines(value: string): boolean {
+  let lines = 0;
+  for (const character of value) if (character === '\n') lines += 1;
+  if (value.length > 0 && !value.endsWith('\n')) lines += 1;
+  return lines <= 30;
+}
+
+const processOutputHeadSchema = z.string()
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= 2_048, 'process output head must not exceed 2048 UTF-8 bytes')
+  .refine(hasAtMostThirtyLines, 'process output head must not exceed 30 lines');
+
 export const ProcessLogRefsSchema = z.object({
   stdout: z.string().nullable().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout must be a canonical work:///cards/<cardId>/processes/<id>/stdout.log or work:///processes/<id>/stdout.log URL or null'),
   stderr: z.string().nullable().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr must be a canonical work:///cards/<cardId>/processes/<id>/stderr.log or work:///processes/<id>/stderr.log URL or null'),
@@ -52,14 +92,26 @@ export const ProcessViewSchema = z.object({
 }).strict();
 
 export const ProcessToolResultSchema = z.object({
-  process_id: z.string().min(1),
+  process_id: processResultIdSchema,
   exit_code: z.number().int().nullable(),
   status: processStatusSchema,
-  stdout_url: z.string().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout_url must be a canonical process stdout work URL'),
-  stderr_url: z.string().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr_url must be a canonical process stderr work URL'),
+  stdout: processOutputHeadSchema,
+  stderr: processOutputHeadSchema,
+  stdout_complete: z.boolean(),
+  stderr_complete: z.boolean(),
+  stdout_url: z.string(),
+  stderr_url: z.string(),
   stdout_bytes: z.number().int().nonnegative(),
   stderr_bytes: z.number().int().nonnegative(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  const stdout = processResultLogLocation(value.stdout_url, 'stdout.log');
+  const stderr = processResultLogLocation(value.stderr_url, 'stderr.log');
+  if (!stdout) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stdout_url'], message: 'stdout_url must be a canonical process stdout work URL' });
+  if (!stderr) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stderr_url'], message: 'stderr_url must be a canonical process stderr work URL' });
+  if (stdout && stdout.processId !== value.process_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stdout_url'], message: 'stdout_url process identity must equal process_id' });
+  if (stderr && stderr.processId !== value.process_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stderr_url'], message: 'stderr_url process identity must equal process_id' });
+  if (stdout && stderr && stdout.cardId !== stderr.cardId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stderr_url'], message: 'process log URLs must name the same process directory' });
+});
 
 export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessViewSchema) }).strict();
 

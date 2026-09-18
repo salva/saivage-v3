@@ -34,11 +34,15 @@ describe('process outbound owner', () => {
 
   it('validates and preserves process-provider result identities, exit state, bytes, and work URLs', () => {
     const result: ProcessToolResult = {
-      process_id: 'tok_process',
+      process_id: 'proc-0123456789ab',
       exit_code: 17,
       status: 'failed',
-      stdout_url: 'work:///processes/tok_process/stdout.log',
-      stderr_url: 'work:///processes/tok_process/stderr.log',
+      stdout: 'short output',
+      stderr: '',
+      stdout_complete: true,
+      stderr_complete: true,
+      stdout_url: 'work:///processes/proc-0123456789ab/stdout.log',
+      stderr_url: 'work:///processes/proc-0123456789ab/stderr.log',
       stdout_bytes: 123,
       stderr_bytes: 456,
     };

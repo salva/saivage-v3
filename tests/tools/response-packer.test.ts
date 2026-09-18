@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import { canonicalJson } from '../../src/schemas/index.js';
 import {
   boundedToolError,
+  certifiedPrefixEndpoints,
   DiscoveryBudgetTooSmallError,
   DiscoveryCollectionPositionError,
   DISCOVERY_RESPONSE_MAX_BYTES,
@@ -21,6 +22,13 @@ import { redactTextForOutbound } from '../../src/redaction/index.js';
 const envelope = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
 
 describe('response packer primitives', () => {
+  it('enumerates certified code-point endpoints without crossing byte, source, or indivisible-span bounds', () => {
+    const stable = { text: 'a🚀[REDACTED]z', maxPrefixEnd: 14, indivisibleSpans: [{ start: 3, end: 13 }] };
+    expect(certifiedPrefixEndpoints(stable, stable.text.length, 100)).toEqual([0, 1, 3, 13, 14]);
+    expect(certifiedPrefixEndpoints(stable, 12, 100)).toEqual([0, 1, 3]);
+    expect(certifiedPrefixEndpoints(stable, stable.text.length, 4)).toEqual([0, 1]);
+  });
+
   it('slices text on UTF-8 boundaries and never splits a code point', () => {
     const text = 'héllo wörld 🚀 éè';
     for (let max = 1; max <= utf8ByteLength(text); max += 1) {

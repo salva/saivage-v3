@@ -78,6 +78,14 @@ stateless collection pages; this removes one context amplifier but is not a
 guarantee that accumulated conversations will never require compaction. See the
 [search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction).
 
+Process tools return independently bounded, redacted stdout/stderr heads with
+completeness flags, raw byte counts, and durable log URLs. Primary model context
+omits only a done+complete stream's URL; operator and summarizer views retain both
+fallback references. The payload change is reset-only for deployments with retained
+metadata-only process rows. See the [process result contract](docs/spec/system-specification.md#7-run-pause-resume-stop-and-restart),
+[operator presentation](docs/spec/operator-ui.md#10-process-and-tool-output-projections),
+and [cutover procedure](docs/runbook/index.md#card-process-configuration-and-prompt-cutover).
+
 Open the UI at `http://localhost:8080/` and the built documentation at
 `http://localhost:8080/docs/` (`/docs` redirects there), or check the public
 probes:

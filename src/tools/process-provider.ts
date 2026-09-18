@@ -1,9 +1,9 @@
-import { statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import type { ProcessToolResult } from '../contracts/operator-api-processes.js';
 import { killProcessInputSchema, runCommandInputSchema, waitProcessInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { redactForOutbound } from '../redaction/index.js';
+import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner, ProcessWaitResult } from '../runtime/process-runner.js';
 import { cardWorkRoot } from '../persistence/layout.js';
@@ -11,6 +11,11 @@ import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace
 import { defineToolBinder, executedToolOutcome, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolProviderCleanupReason, type ToolExecutionResult } from './invocation.js';
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { certifiedPrefixEndpoints } from './response-packer.js';
+import { validateProcessToolResult } from './process-tool-result.js';
+
+const PROCESS_OUTPUT_HEAD_MAX_BYTES = 2_048;
+const PROCESS_ERROR_MAX_BYTES = 512;
 
 export interface ProcessProviderContext {
   readonly projectRoot: string;
@@ -23,7 +28,9 @@ export interface ProcessProviderContext {
 }
 
 function failureFromError(err: unknown): ToolActionOutcome {
-  return toolFailed(err instanceof Error ? err.message : String(err));
+  const stable = redactTextWithStablePrefixesForOutbound(err instanceof Error ? err.message : String(err));
+  const endpoints = certifiedPrefixEndpoints(stable, stable.text.length, PROCESS_ERROR_MAX_BYTES);
+  return toolFailed(stable.text.slice(0, endpoints.at(-1)!));
 }
 
 function isAbortError(err: unknown, signal: AbortSignal): boolean {
@@ -88,13 +95,35 @@ function scopedCwd(projectRoot: string, raw: string | undefined): string {
   return resolved.absolutePath;
 }
 
-function logBytes(path: string): number {
-  try {
-    return statSync(path).size;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
-    throw err;
+interface ProcessOutputCapture {
+  readonly head: string;
+  readonly complete: boolean;
+  readonly rawBytes: number;
+}
+
+function firstThirtyLinesEnd(text: string): number {
+  let newlineCount = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '\n') continue;
+    newlineCount += 1;
+    if (newlineCount === 30 && index + 1 < text.length) return index + 1;
   }
+  return text.length;
+}
+
+function captureProcessOutput(path: string): ProcessOutputCapture {
+  const raw = readFileSync(path);
+  const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+  const decodedPrefix = decoder.decode(raw, { stream: true });
+  const bufferedSuffix = decoder.decode();
+  const stable = redactTextWithStablePrefixesForOutbound(decodedPrefix);
+  const endpoints = certifiedPrefixEndpoints(stable, firstThirtyLinesEnd(stable.text), PROCESS_OUTPUT_HEAD_MAX_BYTES);
+  const head = stable.text.slice(0, endpoints.at(-1)!);
+  return {
+    head,
+    complete: bufferedSuffix.length === 0 && head === stable.text,
+    rawBytes: raw.byteLength,
+  };
 }
 
 function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRecord {
@@ -108,15 +137,21 @@ function processResult(record: ProcessRecord): ProcessToolResult {
   const logSegments = record.card_id
     ? ['cards', record.card_id, 'processes', record.id]
     : ['processes', record.id];
-  return redactForOutbound({ source: 'process-view', value: {
+  const stdout = captureProcessOutput(record.stdout_path);
+  const stderr = captureProcessOutput(record.stderr_path);
+  return validateProcessToolResult({
     process_id: record.id,
     exit_code: record.exit_code ?? null,
     status: record.status,
+    stdout: stdout.head,
+    stderr: stderr.head,
+    stdout_complete: stdout.complete,
+    stderr_complete: stderr.complete,
     stdout_url: buildScopedPathUrl('work', [...logSegments, 'stdout.log']),
     stderr_url: buildScopedPathUrl('work', [...logSegments, 'stderr.log']),
-    stdout_bytes: logBytes(record.stdout_path),
-    stderr_bytes: logBytes(record.stderr_path),
-  } });
+    stdout_bytes: stdout.rawBytes,
+    stderr_bytes: stderr.rawBytes,
+  });
 }
 
 function cleanupReasonLabel(reason: ToolProviderCleanupReason): string {
@@ -130,7 +165,7 @@ function cleanupReasonLabel(reason: ToolProviderCleanupReason): string {
 export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any>[] = Object.freeze([
       defineToolBinder({
         name: 'run_command',
-        description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. A terminal result is consumed after this tool forms it and its process ID is no longer available for wait, kill, or current-process listing; the returned output URLs remain independently readable while their files remain available. Set wait=false to start a background process that remains available for later wait_process or kill_process until one consumes its terminal result or the owning scope closes.',
+        description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results include independently bounded stdout/stderr text heads, complete/partial flags, raw byte counts, and durable work:/// stdout_url/stderr_url references. Use a complete inline head directly; read or grep its returned URL when the stream is partial or when more artifact context is needed. A terminal result is consumed after this tool forms it and its process ID is no longer available for wait, kill, or current-process listing; returned output URLs remain independently readable while their files remain available. Set wait=false to start a background process that remains available for later wait_process or kill_process until one consumes its terminal result or the owning scope closes.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => runCommandInputSchema,
         executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
@@ -148,12 +183,20 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               ownerKind: ctx.ownerKind,
             });
             if (args.wait === false) return executedToolOutcome('none', toolSucceeded(processResult(record)));
+            let knownTerminal = false;
+            let waitFailure: unknown;
+            let waitFailed = false;
             try {
-              const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
+              const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal).catch((error) => {
+                waitFailure = error;
+                waitFailed = true;
+                throw error;
+              });
               const result = await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
               if (result.timedOut || result.record.status === 'running') {
                 return executedToolOutcome('none', toolSucceeded(processResult(result.record)));
               }
+              knownTerminal = true;
               try {
                 return executedToolOutcome('none', toolSucceeded(processResult(result.record)));
               } finally {
@@ -161,6 +204,14 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               }
             } catch (err) {
               throwIfPublicationOutcomeUnknown(err);
+              if (knownTerminal) throw err;
+              if (!isAbortError(err, signal) && waitFailed && err === waitFailure) {
+                const terminal = ctx.processRunner.get(record.id);
+                if (terminal && terminal.status !== 'running') {
+                  ctx.processRunner.retireSettled(record.id, ctx.directScope);
+                  throw err;
+                }
+              }
               let finalRecord: ProcessRecord | null;
               try {
                 finalRecord = await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted' });
@@ -190,7 +241,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       }),
       defineToolBinder({
         name: 'wait_process',
-        description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. A terminal result or terminal capture error is consumed by this call and retires the process ID after result formation; returned output URLs remain independently readable while available. Use timeout_ms=0 for non-blocking inspection; a running inspection or timed-out wait does not consume or retire the process.',
+        description: 'Wait for a process owned by this activation or session. Results include independently bounded stdout/stderr text heads, complete/partial flags, raw byte counts, and durable work:/// stdout_url/stderr_url references. Use a complete inline head directly; read or grep its returned URL when the stream is partial or when more artifact context is needed. A terminal result or terminal capture error is consumed by this call and retires the process ID after result formation; returned output URLs remain independently readable while available. Use timeout_ms=0 for non-blocking inspection; a running inspection or timed-out wait does not consume or retire the process.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => waitProcessInputSchema,
         executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
@@ -231,7 +282,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       }),
       defineToolBinder({
         name: 'kill_process',
-        description: 'Signal a process owned by this activation or session and consume its confirmed terminal result. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. After result formation the process ID is retired from wait, kill, and current-process listing, while returned output URLs remain independently readable while available.',
+        description: 'Signal a process owned by this activation or session and consume its confirmed terminal result. Results include independently bounded stdout/stderr text heads, complete/partial flags, raw byte counts, and durable work:/// stdout_url/stderr_url references. Use a complete inline head directly; read or grep its returned URL when the stream is partial or when more artifact context is needed. After result formation the process ID is retired from wait, kill, and current-process listing, while returned output URLs remain independently readable while available.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => killProcessInputSchema,
         executor: (ctx, args) => executeToolAction('none', async () => {

@@ -163,11 +163,11 @@ describe('static tool presenter authority', () => {
   });
 
   it('uses exact current process, card, and terminal result payloads', () => {
-    const process = { process_id: 'proc-a', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/proc-a/stdout.log', stderr_url: 'work:///processes/proc-a/stderr.log', stdout_bytes: 10, stderr_bytes: 0 };
+    const process = { process_id: 'proc-0123456789ab', exit_code: 0, status: 'exited', stdout: 'completed', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 10, stderr_bytes: 0 };
     for (const tool of ['run_command', 'wait_process'] as const) {
       const view = presentToolResult(JSON.stringify({ success: true, data: process }), { tool });
       expect(inlineText(view.headline)).toContain('exit 0');
-      expect(inlineText(view.detail ?? [])).toContain('proc-a');
+      expect(inlineText(view.detail ?? [])).toContain('proc-0123456789ab');
     }
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { processes: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [process] } } }), { tool: 'list_processes_tool' }).headline)).toBe('1 of 1 process');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: PLANNER_COMPACT_CARD } }), { tool: 'create_card' }).headline)).toContain('card-p');

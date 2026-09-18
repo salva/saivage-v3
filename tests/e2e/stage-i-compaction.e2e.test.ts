@@ -78,14 +78,20 @@ describe('Stage-I versioned compaction', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-protected-compaction-')); initProjectTree(root);
     const summaryInputs: string[] = [];
     const summarizerProvider: SummarizerProviderPort = { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async (input) => { summaryInputs.push(...input.providerConversation.messages.map(({ content }) => content)); return { result: { kind: 'message' as const, content: `summary-${summaryInputs.length}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
+    const originalFetch = globalThis.fetch;
     try {
       appendProtectedRound(root, 1, 'protected-old', 'EXACT OLD INSTRUCTION', 'workflow.rule');
+      const coveredProcess = appendProcessSettlement(root, 1, 'covered-process', { stdout_complete: true, stderr_complete: false });
       for (let ordinal = 2; ordinal <= 7; ordinal++) appendRound(root, ordinal);
       const firstBefore = readConversation(root, SESSION);
       expect((await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(firstBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
       const first = readCurrentConversationSegment(root, SESSION)!;
       expect(first.conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-old']);
       expect(providerConversationProjection(first.conversation, []).messages.filter(({ content }) => content === 'EXACT OLD INSTRUCTION')).toHaveLength(1);
+      const coveredSummaryBodies = summaryInputs.filter((content) => content.includes(coveredProcess.process_id)).map(summaryWrappedBody);
+      expect(coveredSummaryBodies).toContain(coveredProcess.content);
+      expect(coveredSummaryBodies.join('')).toContain(coveredProcess.stdout_url);
+      expect(coveredSummaryBodies.join('')).toContain(coveredProcess.stderr_url);
 
       appendProtectedRound(root, 8, 'protected-new', 'EXACT NEW INSTRUCTION', 'workflow.rule');
       for (let ordinal = 9; ordinal <= 14; ordinal++) appendRound(root, ordinal);
@@ -94,12 +100,51 @@ describe('Stage-I versioned compaction', () => {
       const second = readCurrentConversationSegment(root, SESSION)!;
       expect(second.entry.version).toBe(3);
       expect(second.conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-new']);
-      const projected = providerConversationProjection(second.conversation, []).messages;
+      const uncoveredProcess = appendProcessSettlement(root, 14, 'uncovered-process', { stdout_complete: true, stderr_complete: false });
+      const current = readConversation(root, SESSION);
+      const projectedConversation = providerConversationProjection(current, []);
+      const projected = projectedConversation.messages;
       expect(projected.filter(({ content }) => content === 'EXACT OLD INSTRUCTION')).toHaveLength(0);
       expect(projected.filter(({ content }) => content === 'EXACT NEW INSTRUCTION')).toHaveLength(1);
       expect(summaryInputs.filter((content) => content.includes('kind=released_protected_instruction') && content.includes('EXACT OLD INSTRUCTION'))).toHaveLength(1);
       expect(readHistoricalConversationSegment(root, SESSION, 2).conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-old']);
-    } finally { rmSync(root, { recursive: true, force: true }); }
+      expect(projected.some((message) => message.kind !== 'synthetic_context' && message.id === coveredProcess.resultId)).toBe(false);
+      const retainedInstructionIndex = projected.findIndex((message) => message.kind === 'synthetic_context' && message.origin === 'retained_instruction' && message.content === 'EXACT NEW INSTRUCTION');
+      const uncoveredResultIndex = projected.findIndex((message) => message.kind !== 'synthetic_context' && message.id === uncoveredProcess.resultId);
+      expect(retainedInstructionIndex).toBeGreaterThanOrEqual(0);
+      expect(uncoveredResultIndex).toBeGreaterThan(retainedInstructionIndex);
+      const uncoveredProjected = projected[uncoveredResultIndex];
+      if (!uncoveredProjected || uncoveredProjected.kind === 'synthetic_context') throw new Error('Missing uncovered process result.');
+      const uncoveredData = (JSON.parse(uncoveredProjected.content) as { data: Record<string, unknown> }).data;
+      expect(uncoveredData).not.toHaveProperty('stdout_url');
+      expect(uncoveredData.stderr_url).toBe(uncoveredProcess.stderr_url);
+      expect(uncoveredProjected.content).not.toContain(uncoveredProcess.stdout_url);
+      expect(uncoveredProjected.content).toContain(uncoveredProcess.stderr_url);
+      expect(current.physicalRows.find((row) => row.id === uncoveredProcess.resultId)?.content).toBe(uncoveredProcess.content);
+
+      const registryConfig = structuredClone(TEST_SAIVAGE_CONFIG);
+      registryConfig.providers.test = { ...registryConfig.providers.test!, apiKey: 'synthetic-test-key', baseUrl: 'https://process-projection.example.test/v1' };
+      const registry = new ProviderRegistry(registryConfig);
+      const service = invocationService(root, registry);
+      const admission = service.preparePrimaryRequestAdmission(invocationFor(SESSION, projected));
+      if (admission.kind !== 'admitted') throw new Error(`Post-compaction process request was ${admission.kind}.`);
+      const verdict = admission.candidates[0];
+      if (!verdict || verdict.kind !== 'admitted') throw new Error('Post-compaction process candidate was not admitted.');
+      const admittedBody = verdict.plan.request.serializedBody;
+      const admittedHash = verdict.plan.request.requestHash;
+      expect(admittedBody).toContain(uncoveredProcess.stderr_url);
+      expect(admittedBody).not.toContain(uncoveredProcess.stdout_url);
+      expect(admittedBody).not.toContain(coveredProcess.stdout_url);
+      let sentBody = '';
+      globalThis.fetch = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        sentBody = String(init?.body);
+        expect(sentBody).toBe(admittedBody);
+        expect(createHash('sha256').update(sentBody, 'utf8').digest('hex')).toBe(admittedHash);
+        return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'post-compaction admitted' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as typeof fetch;
+      await expect(service.executeAdmittedWithRecovery(admission)).resolves.toMatchObject({ result: { kind: 'message', content: 'post-compaction admitted' } });
+      expect(sentBody).toBe(admittedBody);
+    } finally { globalThis.fetch = originalFetch; rmSync(root, { recursive: true, force: true }); }
   });
 
   it('walks multiple cutoffs with disjoint raw inputs, sequential calls, and one canonical selected successor', async () => {
@@ -345,6 +390,24 @@ describe('Stage-I versioned compaction', () => {
 const SESSION = 'agent:planner:project' as const;
 function appendRound(root: string, ordinal: number): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(400), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
 function appendProtectedRound(root: string, ordinal: number, id: string, content: string, compactionKey: string): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id, session_id: SESSION, role: 'user', kind: 'text', context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: compactionKey }, content, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
+function appendProcessSettlement(root: string, ordinal: number, callId: string, flags: { stdout_complete: boolean; stderr_complete: boolean }): Readonly<{ process_id: string; stdout_url: string; stderr_url: string; content: string; resultId: string }> {
+  const suffix = ordinal.toString(16).padStart(12, '0');
+  const process_id = `proc-${suffix}`;
+  const stdout_url = `work:///processes/${process_id}/stdout.log`;
+  const stderr_url = `work:///processes/${process_id}/stderr.log`;
+  const data = { process_id, exit_code: 0, status: 'exited', stdout: `stdout-${callId}`, stderr: `stderr-${callId}`, ...flags, stdout_url, stderr_url, stdout_bytes: Buffer.byteLength(`stdout-${callId}`), stderr_bytes: Buffer.byteLength(`stderr-${callId}`) };
+  const content = JSON.stringify({ success: true, data });
+  const policies = toolRowPolicies({ content });
+  const inputId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
+  const roundId = `r-user-${String(ordinal).padStart(32, '0')}`;
+  const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:30.000Z`;
+  const resultId = `${inputId}:tool-result:${callId}`;
+  appendConversationBatch({ projectRoot: root }, [
+    agentMessageSchema.parse({ id: `${inputId}:tool-call:${callId}`, session_id: SESSION, role: 'assistant', kind: 'tool_call', tool: 'run_command', tool_call_id: callId, context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'run_command', arguments: '{}' } }] }), round_id: roundId, message_index: 2, block_index: 0, timestamp }),
+    agentMessageSchema.parse({ id: resultId, session_id: SESSION, role: 'tool', kind: 'tool_result', tool: 'run_command', tool_call_id: callId, context_policy: policies.result, content, round_id: roundId, message_index: 3, block_index: 0, timestamp }),
+  ]);
+  return { process_id, stdout_url, stderr_url, content, resultId };
+}
 function invocationFor(sessionId: ConversationSessionId, messages: readonly ProviderConversationItem[]): PreparedLlmInvocationInput { const agentName = conversationSessionIdentity(sessionId).agentName; const preparedCompaction = prepareCompaction(config, 'system', [], 8_000, 2_000); return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [...messages] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [TEST_CANDIDATE] }, episodeContext: {} }; }
 
 type ExpectedSourceComponent = Readonly<{ source: string; content: string; sourceRowIndex: number }>;
@@ -512,7 +575,11 @@ function summaryProvider(args: {
 }
 
 function summaryMessageBody(message: ProviderConversationItem): string {
-  const match = /^\[order \d+\/\d+\] [^\n]+\n([\s\S]*)$/u.exec(message.content);
+  return summaryWrappedBody(message.content);
+}
+
+function summaryWrappedBody(content: string): string {
+  const match = /^\[order \d+\/\d+\] [^\n]+\n([\s\S]*)$/u.exec(content);
   if (!match) throw new Error('Invalid summary wrapper.');
   return match[1]!;
 }

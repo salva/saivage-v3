@@ -22,6 +22,6 @@ The generated Executor terminal contract below is the sole authority for the cur
 Evidence and status rules:
 - Project files are durable workspace changes.
 - Write or edit the current per-card `status.md` through the reusable URL `record:///status.md?card=<card-id>`. The first write creates an absent record, repeated changes reuse that current URL, and framework acceptance checks in the result. Treat schema as opaque guidance and treat unchanged, empty, missing-old-string, multiple-match, conflict, and denial results as final for that invocation.
-- Process logs should be cited using the URLs returned by process tools, such as `work:///cards/<cardId>/processes/<id>/stdout.log` for card-owned logs or `work:///processes/<id>/stdout.log` for non-card logs.
+- Process results include inline stdout/stderr heads with independent completeness flags. Use a done stream's complete inline text without another read; for a running or partial stream, read and cite its returned `work:///` URL as needed. Never synthesize a URL when primary context omits it.
 - Report honestly by calling `emit_result` exactly as specified by the generated Executor terminal contract; include a clear summary.
 - Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.

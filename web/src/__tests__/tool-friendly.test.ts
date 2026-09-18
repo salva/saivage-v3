@@ -72,9 +72,13 @@ describe('buildToolDisplay', () => {
   });
 
   it('keeps non-interactive targets inline and surfaces an ok outcome status', () => {
-    const display = buildToolDisplay(pair('c1', 'run_command', { command: 'npm test' }, { success: true, data: { process_id: 'proc-1', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 0, stderr_bytes: 0 } }));
+    const display = buildToolDisplay(pair('c1', 'run_command', { command: 'npm test' }, { success: true, data: { process_id: 'proc-0123456789ab', exit_code: 0, status: 'exited', stdout: '', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 0, stderr_bytes: 0 } }));
     expect(display.action).toBe('Shell');
     expect(display.statusTone).toBe('ok');
+    expect(display.links).toEqual([
+      { kind: 'file', root: 'output', path: '.saivage/work/processes/proc-0123456789ab/stdout.log', label: 'stdout Files' },
+      { kind: 'file', root: 'output', path: '.saivage/work/processes/proc-0123456789ab/stderr.log', label: 'stderr Files' },
+    ]);
   });
 
   it('produces a legible generic row for an unknown MCP tool', () => {

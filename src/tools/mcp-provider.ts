@@ -4,35 +4,13 @@ import { defineToolBinder, executedToolOutcome, MCP_RESULT_POLICY_TEMPLATE, type
 import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
-import { DISCOVERY_RESPONSE_MAX_BYTES } from './response-packer.js';
+import { certifiedPrefixEndpoints, DISCOVERY_RESPONSE_MAX_BYTES } from './response-packer.js';
 import { canonicalJson } from '../schemas/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
 import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 
 const MCP_ERROR_MAX_BYTES = 512;
-
-interface StableTextProjection {
-  readonly text: string;
-  readonly maxPrefixEnd: number;
-  readonly indivisibleSpans: readonly { start: number; end: number }[];
-}
-
-function certifiedPrefixEndpoints(stable: StableTextProjection, maximumEnd: number, maximumBytes: number): number[] {
-  const endpoints = [0];
-  let end = 0;
-  let bytes = 0;
-  let spanIndex = 0;
-  for (const character of stable.text) {
-    end += character.length;
-    bytes += Buffer.byteLength(character, 'utf8');
-    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end) spanIndex += 1;
-    const span = stable.indivisibleSpans[spanIndex];
-    const insideSpan = span !== undefined && span.start < end && end < span.end;
-    if (end <= stable.maxPrefixEnd && end <= maximumEnd && bytes <= maximumBytes && !insideSpan) endpoints.push(end);
-  }
-  return endpoints;
-}
 
 function commonPrefixEnd(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);

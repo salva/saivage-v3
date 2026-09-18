@@ -72,6 +72,30 @@ export function utf8SafePreview(text: string, maxBytes: number): string {
   return utf8SafeSlice(text, 0, maxBytes).content;
 }
 
+export function certifiedPrefixEndpoints(
+  stable: Readonly<{
+    text: string;
+    maxPrefixEnd: number;
+    indivisibleSpans: readonly Readonly<{ start: number; end: number }>[];
+  }>,
+  maximumEnd: number,
+  maximumBytes: number,
+): number[] {
+  const endpoints = [0];
+  let end = 0;
+  let bytes = 0;
+  let spanIndex = 0;
+  for (const character of stable.text) {
+    end += character.length;
+    bytes += Buffer.byteLength(character, 'utf8');
+    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end) spanIndex += 1;
+    const span = stable.indivisibleSpans[spanIndex];
+    const insideSpan = span !== undefined && span.start < end && end < span.end;
+    if (end <= stable.maxPrefixEnd && end <= maximumEnd && bytes <= maximumBytes && !insideSpan) endpoints.push(end);
+  }
+  return endpoints;
+}
+
 export function boundedToolError(message: string): string {
   return utf8SafeSlice(message, 0, DISCOVERY_FAILURE_ERROR_MAX_BYTES).content;
 }

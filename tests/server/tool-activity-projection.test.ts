@@ -40,11 +40,11 @@ describe('tool activity projection', () => {
     const projected = projectAnalystToolInvocationActivity({
       tool: 'run_command',
       params: { command: 'npm test' },
-      result: { success: true, data: { process_id: 'proc-1', exit_code: null, status: 'running', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0 } },
+      result: { success: true, data: { process_id: 'proc-0123456789ab', exit_code: null, status: 'running', stdout: 'x', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 1, stderr_bytes: 0 } },
       ...IDENTITY,
     },'agent:analyst:global');
 
-    expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({ process_id: 'proc-1', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0 }));
+    expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({ process_id: 'proc-0123456789ab', stdout: 'x', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 1, stderr_bytes: 0 }));
   });
 
   it('projects webfetch URL options and opaque result data through the generic invocation owner', () => {
@@ -72,13 +72,13 @@ describe('tool activity projection', () => {
   it.each([
     {
       label: 'valid run_command',
-       invocation: { tool: 'run_command', params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` }, result: { success: true as const, data: { process_id: 'tok-[REDACTED]', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/tok-[REDACTED]', stderr_url: 'work:///processes/tok-[REDACTED]', stdout_bytes: 1, stderr_bytes: 2 } }, ...IDENTITY },
+        invocation: { tool: 'run_command', params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` }, result: { success: true as const, data: { process_id: 'proc-0123456789ab', exit_code: 0, status: 'exited', stdout: 'ok', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 2, stderr_bytes: 0 } }, ...IDENTITY },
       expectedActivity: {
         event: 'tool_invocation',
         sessionId: 'agent:analyst:global',
         tool: 'run_command',
         params: { command: 'TOKEN=[REDACTED] npm test' },
-        result: { success: true, data: { process_id: 'tok-[REDACTED]', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/tok-[REDACTED]', stderr_url: 'work:///processes/tok-[REDACTED]', stdout_bytes: 1, stderr_bytes: 2 } },
+        result: { success: true, data: { process_id: 'proc-0123456789ab', exit_code: 0, status: 'exited', stdout: 'ok', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 2, stderr_bytes: 0 } },
       },
     },
     {
