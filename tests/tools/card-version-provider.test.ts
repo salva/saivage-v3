@@ -19,9 +19,6 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
 import { settleToolResultForConversation } from '../../src/runtime/actors/llm-delivery-log.js';
-import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
-import { redactTextForOutbound } from '../../src/redaction/index.js';
-import { DISCOVERY_TEXT_PREVIEW_MAX_BYTES, utf8SafePreview } from '../../src/tools/response-packer.js';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { CanonicalCardFilesReadModel } from '../../src/application/read-models/canonical-card-files-read-model.js';
 import { workflowResult } from '../helpers/workflow-result.js';
@@ -51,8 +48,8 @@ function settleExecution(surface: InvocationSurface, name: string, execution: Aw
   );
 }
 
-function childInput(title: string, tags: string[] = []) {
-  return { type: 'code' as const, parent: 'project', title, bootstrap_content: 'Brief', tags, priority: 0, urgency: 'normal' as const, created_by: 'planner' as const, depends_on: [] as string[], related: [] as string[] };
+function childInput(title: string, depends_on: string[] = []) {
+  return { type: 'code' as const, parent: 'project', title, bootstrap_content: 'Brief', priority: 0, urgency: 'normal' as const, created_by: 'planner' as const, depends_on };
 }
 
 describe('card version provider', () => {
@@ -100,7 +97,7 @@ describe('card version provider', () => {
   it('settles a fitting immutable summary with locator evidence while rejecting notification queue reads', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-parity-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create(childInput('Parity title', ['alpha', 'beta']));
+    const child = cards.create(childInput('Parity title'));
     cards.enqueueNotification(child.id, { id: 'notification-1', content: 'review token=[REDACTED]', created_at: '2026-09-03T10:00:00.000Z' });
     const version = cards.read(child.id)!.version_seq;
     const surface = completeSurfaceFor(cards);
@@ -361,22 +358,22 @@ describe('card version provider', () => {
   it('pins an immutable card version row across pages and sections', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-pin-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const tags = Array.from({ length: 900 }, (_, index) => `tag-${index}`);
-    const child = cards.create(childInput('Card', tags));
+    const dependencies = Array.from({ length: 40 }, (_, index) => cards.create(childInput(`dependency-${index}`)).id);
+    const child = cards.create(childInput('Card', dependencies));
     const surface = surfaceFor(cards);
 
-    const first = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'tags', response_bytes: 2048 });
+    const first = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'dependencies', response_bytes: 512 });
     const firstData = (settleToolActionOutcome(first.providerOutcome).providerResult as { data: { artifact_sha256: string; entry_id: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
     expect(first.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((first.evidence as { locator: string }).locator).toBe(`card:///${child.id}?v=1#entry=${firstData.entry_id}`);
-    expect(firstData.content.total).toBe(900);
-    expect(firstData.content.returned).toBeLessThan(900);
-    expect(firstData.content.items.every((tag) => tag.startsWith('tag-'))).toBe(true);
+    expect(firstData.content.total).toBe(dependencies.length);
+    expect(firstData.content.returned).toBeLessThan(dependencies.length);
+    expect(firstData.content.items).toEqual(dependencies.slice(0, firstData.content.returned));
 
     const position = firstData.content.next as { item_index: number; item_byte_offset: number };
-    const second = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'tags', response_bytes: 32768, position });
+    const second = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'dependencies', response_bytes: 32768, position });
     const secondData = (settleToolActionOutcome(second.providerOutcome).providerResult as { data: { artifact_sha256: string; content: { items: string[] } } }).data;
-    expect(secondData.content.items[0]).toBe(`tag-${firstData.content.returned}`);
+    expect(secondData.content.items[0]).toBe(dependencies[firstData.content.returned]);
     expect(secondData.artifact_sha256).toBe(firstData.artifact_sha256);
     expect((second.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
     expect((second.evidence as { locator: string }).locator).toBe((first.evidence as { locator: string }).locator);
@@ -386,40 +383,4 @@ describe('card version provider', () => {
     expect((summary.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
   });
 
-  it('reconstructs an oversized immutable collection item from projected canonical JSON hex slices', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-json-slice-')); roots.push(root); initProjectTree(root);
-    const cards = new CardService(root);
-    const tag = `ask-secret-tail token=synthetic-token-value ${'🚀 quoted " \\ '.repeat(180)}`;
-    const child = cards.create(childInput('Card', [tag]));
-    const surface = surfaceFor(cards);
-    const expected = canonicalJson(projectDynamicForOutbound(utf8SafePreview(redactTextForOutbound(tag), DISCOVERY_TEXT_PREVIEW_MAX_BYTES)));
-    const chunks: Buffer[] = [];
-    let position: { item_index: number; item_byte_offset: number } | undefined;
-
-    for (;;) {
-      const result = await invokeTestTool(surface, 'get_card_version', {
-        card_id: child.id,
-        version: 1,
-        section: 'tags',
-        response_bytes: 700,
-        position,
-      });
-      expect(envelopeBytes(result.data)).toBeLessThanOrEqual(700);
-      const content = (result.data as { content: { items: unknown[]; next: { item_index: number; item_byte_offset: number } | null } }).content;
-      const slice = content.items[0] as { content_hex: string; utf8_bytes: number; offset_bytes: number; next_offset_bytes: number; total_bytes: number };
-      expect(slice.content_hex).toMatch(/^(?:[0-9a-f]{2})+$/u);
-      const decoded = Buffer.from(slice.content_hex, 'hex');
-      expect(decoded).toHaveLength(slice.utf8_bytes);
-      expect(decoded).toEqual(Buffer.from(expected, 'utf8').subarray(slice.offset_bytes, slice.next_offset_bytes));
-      expect(slice.total_bytes).toBe(Buffer.byteLength(expected, 'utf8'));
-      chunks.push(decoded);
-      if (content.next === null) break;
-      position = content.next;
-    }
-
-    expect(Buffer.concat(chunks).toString('utf8')).toBe(expected);
-    expect(expected).toContain('ask-secret-tail');
-    expect(expected).toContain('[REDACTED]');
-    expect(expected).not.toContain('synthetic-token-value');
-  });
 });

@@ -38,12 +38,10 @@ describe('AgentOperatorReadModelService granular resources', () => {
       parent: 'project',
       title: 'Code child',
       bootstrap_content: 'brief',
-      tags: [],
       priority: 0,
       urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
-      related: [],
     });
     const analyst = globalAgentSessionId(TEST_WORKFLOWS.analyst.name);
     const oversight = globalAgentSessionId(TEST_WORKFLOWS.oversight.name);
@@ -100,12 +98,12 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const first = cards.create({
-      type: 'code', parent: 'project', title: 'First', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'code', parent: 'project', title: 'First', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     const second = cards.create({
-      type: 'code', parent: 'project', title: 'Second', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'code', parent: 'project', title: 'Second', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     const firstSession = cardAgentSessionId('executor', first.id);
     const secondSession = cardAgentSessionId('executor', second.id);
@@ -125,8 +123,8 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const child = cards.create({
-      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);
@@ -181,12 +179,12 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const goal = cards.create({
-      type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     const code = cards.create({
-      type: 'code', parent: goal.id, title: 'Code', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'code', parent: goal.id, title: 'Code', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     publishMarker(projectRoot, cardAgentSessionId('planner', 'project'));
     publishMarker(projectRoot, cardAgentSessionId('executor', code.id));
@@ -215,8 +213,8 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const child = cards.create({
-      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     const cardTypes = new Map(TEST_WORKFLOWS.cardTypes);
     cardTypes.delete(child.type);
@@ -229,8 +227,8 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const child = cards.create({
-      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [],
-      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief',
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [],
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);

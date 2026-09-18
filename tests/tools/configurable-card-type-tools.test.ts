@@ -18,7 +18,7 @@ import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fix
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
 
 const DEFAULT_TYPES=['project','goal','architecture','code','test','doc','data','research','ops'] as const;
-function card(id:string,type:string,children:string[]=[]):CardRecord{return {id,type,title:id,child_membership:children,active_child_order:children,subtype:null,tags:[],priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,assigned_to:null,depends_on:[],related:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:null,status_text_updated_at:null,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[]};}
+function card(id:string,type:string,children:string[]=[]):CardRecord{return {id,type,title:id,child_membership:children,active_child_order:children,subtype:null,priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,assigned_to:null,depends_on:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:null,status_text_updated_at:null,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[]};}
 const unusedParentControl: PlannerChildControlPort = {
   activateChild() { throw new Error('unused parent control'); },
   cancelChild() { throw new Error('unused parent control'); },
@@ -62,6 +62,8 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const binder=getAnalystControlToolBinders().find((candidate)=>candidate.name==='create_card')!;
     const tool=binder.bind({cardTypeVocabulary:workflows.cardTypeVocabulary} as ToolContext);
     expect(tool.inputSchema.safeParse({type:'project',parent:'project',title:'root',bootstrap_content:'root'}).success).toBe(true);
+    expect(tool.inputSchema.safeParse({type:'project',parent:'project',title:'root',bootstrap_content:'root',tags:[]}).success).toBe(false);
+    expect(tool.inputSchema.safeParse({type:'project',parent:'project',title:'root',bootstrap_content:'root',related:[]}).success).toBe(false);
     const parameters=surfaceToolDefinitions({agentName:'analyst',tools:new Map([['create_card',tool]]),providers:[]})[0]!.function.parameters as any;
     expect(parameters.properties.type.enum).toEqual(['project']);
     expect(parameters.required).toContain('parent');
@@ -99,6 +101,11 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const surface=buildInvocationSurfaceFixture('planner',[provider]);
     const schema=surface.tools.get('create_card')!.inputSchema;
     expect(schema.safeParse({type:'wire-unknown',title:'x',bootstrap_content:'x'}).success).toBe(true);
+    expect(schema.safeParse({type:'custom-leaf',title:'x',bootstrap_content:'x',tags:[]}).success).toBe(false);
+    expect(schema.safeParse({type:'custom-leaf',title:'x',bootstrap_content:'x',related:[]}).success).toBe(false);
+    const editSchema=surface.tools.get('edit_card')!.inputSchema;
+    expect(editSchema.safeParse({card_id:'card-a',tags:[]}).success).toBe(false);
+    expect(editSchema.safeParse({card_id:'card-a',related:[]}).success).toBe(false);
     await expect(invokeTestTool(surface,'create_card',{type:'wire-unknown',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card.type must be one of: custom-leaf, other.'});
     await expect(invokeTestTool(surface,'create_card',{type:'project',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card cannot create project cards.'});
     await expect(invokeTestTool(surface,'create_card',{type:'other',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:"Child type 'other' is not permitted for this node."});

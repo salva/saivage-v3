@@ -67,7 +67,7 @@ function projectCardDocument(artifact: CardArtifact): unknown {
   const projected = projectCardArtifactForOutbound(artifact);
   if (artifact.kind === 'card-version') {
     return {
-      format_version: 2,
+      format_version: 3,
       entry_id: artifact.entry_id,
       card_id: artifact.card_id,
       version: artifact.version,
@@ -76,7 +76,7 @@ function projectCardDocument(artifact: CardArtifact): unknown {
     };
   }
   return {
-    format_version: 2,
+    format_version: 3,
     entry_id: artifact.entry_id,
     card_id: artifact.card_id,
     version: artifact.version,

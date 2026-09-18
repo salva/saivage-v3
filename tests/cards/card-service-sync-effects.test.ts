@@ -16,7 +16,7 @@ import { workflowResult } from '../helpers/workflow-result.js';
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'sync effects' };
 
 function input(parent = 'project') {
-  return { type: 'code' as const, parent, title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
+  return { type: 'code' as const, parent, title: 'card', bootstrap_content: 'brief', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [] };
 }
 
 function versionFrames(cardId: string, parentId: string | null): LiveSyncInvalidateFrame[] {

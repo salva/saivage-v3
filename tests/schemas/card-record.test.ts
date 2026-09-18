@@ -19,7 +19,7 @@ describe('card record hierarchy shape', () => {
 
   it.each(['child_membership', 'active_child_order'] as const)('rejects non-direct ids in %s at schema parsing', (field) => {
     const { cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const parsed = cardRecordSchema.safeParse({ ...child, child_membership: ['card-a-a-a'], active_child_order: ['card-a-a-a'], [field]: ['project'] });
     expect(parsed.success).toBe(false);
     if (!parsed.success) expect(parsed.error.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: [field], message: `Card ${field} must contain only direct child ids.` })]));
@@ -42,6 +42,13 @@ describe('card record hierarchy shape', () => {
     const { active_child_order: _order, ...missingOrder } = project;
     expect(() => cardRecordSchema.parse(missingMembership)).toThrow();
     expect(() => cardRecordSchema.parse(missingOrder)).toThrow();
+  });
+
+  it.each(['tags', 'related'] as const)('strictly rejects removed %s on durable and outbound records', (field) => {
+    const project = fixture().cards.read('project')!;
+    const { pending_notifications: _pending, ...outbound } = project;
+    expect(cardRecordSchema.safeParse({ ...project, [field]: [] }).success).toBe(false);
+    expect(outboundCardRecordSchema.safeParse({ ...outbound, [field]: [] }).success).toBe(false);
   });
 
   it('keeps pending notifications required only on the durable record and forbidden on the outbound record', () => {

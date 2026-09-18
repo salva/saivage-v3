@@ -373,7 +373,7 @@ describe('project file tool read limits', () => {
     expect(treeSnapshot(projectRoot)).toEqual(beforeSystem);
 
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'goal', parent: 'project', title: 'Search records', bootstrap_content: 'needle brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Search records', bootstrap_content: 'needle brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const recordContext = { ...ctx(projectRoot), store: cards };
     const recordRoot = `record:///${child.id}`;
     const recordPath = `record:///brief.md?card=${encodeURIComponent(child.id)}`;

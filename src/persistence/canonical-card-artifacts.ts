@@ -9,7 +9,7 @@ import { uuidV4Schema } from './version-index.js';
 export { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 
 export const cardVersionArtifactSchema = z.object({
-  format_version: z.literal(2),
+  format_version: z.literal(3),
   kind: z.literal('card-version'),
   entry_id: uuidV4Schema,
   card_id: cardIdSchema,
@@ -24,7 +24,7 @@ export const cardVersionArtifactSchema = z.object({
 });
 
 export const cardTombstoneArtifactSchema = z.object({
-  format_version: z.literal(2),
+  format_version: z.literal(3),
   kind: z.literal('card-tombstone'),
   entry_id: uuidV4Schema,
   card_id: nonRootCardIdSchema,
@@ -107,7 +107,7 @@ export function validateInitialCard(card: CardRecord, path: string): void {
   const common = card.child_membership.length === 0 && card.active_child_order.length === 0 && card.version_seq === 1 && card.created_at === card.updated_at && card.subtype === null && card.assigned_to === null && card.metrics === null && card.estimate === null && card.started_at === null && card.duration_ms === null && card.status_text === null && card.status_text_updated_at === null && card.status_text_author_session_id === null && card.latest_self_report === null && card.metadata === null && card.pending_notifications.length === 0 && card.lifecycle.status === 'backlog';
   if (!common) fail(path, 'has an invalid initial card');
   if (card.id === 'project') {
-    if (card.type !== 'project' || card.created_by !== 'runtime:bootstrap' || card.tags.length !== 0 || card.priority !== 0 || card.urgency !== 'normal' || card.depends_on.length !== 0 || card.related.length !== 0) fail(path, 'has an invalid initial project card');
+    if (card.type !== 'project' || card.created_by !== 'runtime:bootstrap' || card.priority !== 0 || card.urgency !== 'normal' || card.depends_on.length !== 0) fail(path, 'has an invalid initial project card');
   } else if (card.type === 'project') fail(path, 'has an invalid initial child card');
 }
 
@@ -136,7 +136,7 @@ export function validateCardTransition(prior: CardRecord, next: CardRecord, chan
     case 'update': {
       if (!['backlog', 'changed', 'stopped'].includes(prior.lifecycle.status)) fail(path, 'edits a disallowed lifecycle state');
       const fields = actualDelta(prior, next);
-      if (fields.length === 0 || fields.some((field) => !['title', 'tags', 'priority', 'urgency', 'related'].includes(field))) fail(path, 'has an invalid update delta');
+      if (fields.length === 0 || fields.some((field) => !['title', 'priority', 'urgency'].includes(field))) fail(path, 'has an invalid update delta');
       requireChange(path, change, fields, 'agent edit_card'); break;
     }
     case 'notification_enqueue': {

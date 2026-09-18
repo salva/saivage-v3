@@ -123,7 +123,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await childProviderEntered.promise;
@@ -166,8 +166,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider);
-    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
-    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await leafProviderEntered.promise;
@@ -207,7 +207,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       agentMembershipChanged(): void {},
     };
     h = harness(provider, changes);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     armed = true;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
@@ -231,7 +231,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await childProviderEntered.promise;
@@ -259,7 +259,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await childProviderEntered.promise;
@@ -287,7 +287,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await childProviderEntered.promise;
@@ -317,7 +317,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider, undefined, unverifiableProcessPlatform());
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Process child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Process child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await childWaiting.promise;
@@ -349,7 +349,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await childProviderEntered.promise;
@@ -493,7 +493,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       throw new Error('Executor continued after retained notification settlement.');
     });
     const h = harness(provider, undefined, unverifiableProcessPlatform(), workflowsWithExecutorNotification());
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Notifying process child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Notifying process child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     const enqueue = h.cards.enqueueNotification.bind(h.cards);
     let stopping: Promise<unknown> | null = null;
     jest.spyOn(h.cards, 'enqueueNotification').mockImplementation((...args) => {

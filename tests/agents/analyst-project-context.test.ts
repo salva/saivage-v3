@@ -46,9 +46,9 @@ describe('Analyst project context', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const persisted = new CardService(projectRoot);
-    const child = persisted.create({ type: 'goal', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const retained = persisted.create({ type: 'goal', parent: 'project', title: 'Retained tombstone', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const second = persisted.create({ type: 'goal', parent: 'project', title: 'Second', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = persisted.create({ type: 'goal', parent: 'project', title: 'Child', bootstrap_content: 'brief', priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const retained = persisted.create({ type: 'goal', parent: 'project', title: 'Retained tombstone', bootstrap_content: 'brief', priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const second = persisted.create({ type: 'goal', parent: 'project', title: 'Second', bootstrap_content: 'brief', priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     persisted.deleteSubtrees([retained.id], () => true, 'analyst');
     persisted.reorderChildren('project', [second.id, child.id]);
     const listed = persisted.list();
@@ -82,7 +82,7 @@ describe('Analyst project context', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const persisted = new CardService(projectRoot);
-    persisted.create({ type: 'goal', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    persisted.create({ type: 'goal', parent: 'project', title: 'Child', bootstrap_content: 'brief', priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const render = jest.fn(() => 'rendered prompt');
     const providerInputs: unknown[] = [];
     const completeTurn = jest.fn(async (input: unknown) => {

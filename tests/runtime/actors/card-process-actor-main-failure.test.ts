@@ -237,7 +237,7 @@ describe('real CardProcess actor-main fatal containment', () => {
       return { result: { kind: 'tool_calls', tool_calls: [{ id: 'activate-child', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Fatal child', bootstrap_content: 'Fail in actor callback', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id;
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Fatal child', bootstrap_content: 'Fail in actor callback', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] }).id;
     const commit = jest.spyOn(h.cards, 'commitActivationOutcome');
     const notification = fatalNotificationSpy(h.supervisor);
     const internals = h.supervisor as unknown as SupervisorInternals;

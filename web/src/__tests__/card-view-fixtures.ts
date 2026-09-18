@@ -18,9 +18,9 @@ function workflowResult(terminal: 'DONE' | 'BLOCKED' | 'FAILED', outcome: string
 export function historyCard(id: string, overrides: Partial<HistoryCard> = {}): HistoryCard {
   return {
     id, type: id === 'project' ? 'project' : 'code', child_membership: [], active_child_order: [], title: id === 'project' ? 'Project' : 'Card',
-    lifecycle: lifecycleFor('backlog'), subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
+    lifecycle: lifecycleFor('backlog'), subtype: null, priority: 0, urgency: 'normal', created_by: 'analyst',
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
-    assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
+    assigned_to: null, depends_on: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
     status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null,
     metadata: null, ...overrides,
   };

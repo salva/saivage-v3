@@ -2,7 +2,7 @@ import type { CardEditPatch, NewChildCardInput, SetStatusTarget } from '../../sr
 import type { CardService } from '../../src/cards/card-service.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import type { CardRecord } from '../../src/schemas/index.js';
-const edit = { title: 'updated', tags: [], priority: 1, urgency: 'high', related: [] } satisfies CardEditPatch;
+const edit = { title: 'updated', priority: 1, urgency: 'high' } satisfies CardEditPatch;
 void edit;
 // @ts-expect-error dependencies are immutable after creation
 ({ depends_on: [] } satisfies CardEditPatch);
@@ -21,7 +21,7 @@ void edit;
 // @ts-expect-error terminal companions are lifecycle-owned
 ({ status_text: 'working' } satisfies CardEditPatch);
 
-const creation = { type: 'code', parent: 'project', title: 'new', bootstrap_content: 'new', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] } satisfies NewChildCardInput;
+const creation = { type: 'code', parent: 'project', title: 'new', bootstrap_content: 'new', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] } satisfies NewChildCardInput;
 void creation;
 // @ts-expect-error creation callers cannot supply lifecycle
 ({ ...creation, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } } satisfies NewChildCardInput);
@@ -69,10 +69,10 @@ void status;
 // @ts-expect-error backlog is initial-publication-only
 ('backlog' satisfies SetStatusTarget);
 
-const complete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
+const complete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', subtype: null, priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
 void complete;
 // @ts-expect-error canonical fields cannot be omitted
-const incomplete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, pending_notifications: [] };
+const incomplete: CardRecord = { id: 'card-a', type: 'code', child_membership: [], active_child_order: [], title: 'card', priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, pending_notifications: [] };
 void incomplete;
 // @ts-expect-error running cannot retain a result
 const broadRunning: CardRecord = { ...complete, lifecycle: { status: 'running', result: { kind: 'done', summary: 'old' }, error: null, completed_at: null } };

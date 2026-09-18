@@ -65,10 +65,10 @@ describe('reviewer rework completion E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', bootstrap_content: 'Complete the child.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', bootstrap_content: 'Complete the child.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus(child.id, 'running');
     cards.commitActivationOutcome(child.id, { status: 'done', summary: 'Child complete.', result: workflowResult('DONE','Child complete.') }, '2026-07-17T00:00:00.000Z');
-    const untouched = cards.create({ type: 'code', parent: 'project', title: 'Unselected child', bootstrap_content: 'Remain unselected.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const untouched = cards.create({ type: 'code', parent: 'project', title: 'Unselected child', bootstrap_content: 'Remain unselected.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus(untouched.id, 'cancelled');
     const oldReviewerInputId = '00000000-0000-4000-8000-000000000091';
     const oldReviewerCallId = 'old-reviewer-root-read';
@@ -198,8 +198,8 @@ describe('reviewer rework completion E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Reviewed goal', bootstrap_content: 'Deliver the implementation and correct review findings.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const implementation = cards.create({ type: 'code', parent: goal.id, title: 'Implementation', bootstrap_content: 'Implement the reviewed behavior.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Reviewed goal', bootstrap_content: 'Deliver the implementation and correct review findings.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const implementation = cards.create({ type: 'code', parent: goal.id, title: 'Implementation', bootstrap_content: 'Implement the reviewed behavior.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     const correction = 'Correction required: preserve the explicit cleanup guarantee when finalization throws.';
     const firstReview = 'Revision required: prove cleanup still closes the resource when finalization throws.';
     const approvedReview = 'Approved: corrected implementation demonstrates the required cleanup guarantee.';

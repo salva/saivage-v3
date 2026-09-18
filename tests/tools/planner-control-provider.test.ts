@@ -147,7 +147,7 @@ describe('planner control provider ownership delegation', () => {
   function editHarness(status: CardStatus) {
     const root = mkdtempSync(join(tmpdir(), `planner-edit-${status}-`)); roots.push(root); initProjectTree(root);
     const store = new CardService(root);
-    const child = store.create({ type: 'code', parent: 'project', title: 'Original', bootstrap_content: 'Brief', tags: ['existing'], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = store.create({ type: 'code', parent: 'project', title: 'Original', bootstrap_content: 'Brief', priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     if (status === 'changed') {
       store.setStatus(child.id, 'running');
       store.commitActivationOutcome(child.id, { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');

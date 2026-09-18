@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { ToolContext } from './analyst-tool-types.js';
 import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCanonicalLocatorToolAction, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
-import { redactForOutbound, redactTextForOutbound } from '../redaction/index.js';
+import { redactForOutbound } from '../redaction/index.js';
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema, readRecordVersionInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
 import type { CardArtifact } from '../persistence/canonical-card-artifacts.js';
@@ -11,12 +11,10 @@ import { recordContentSha256 } from '../persistence/canonical-record-artifacts.j
 import {
   boundedToolError,
   DISCOVERY_RESPONSE_MAX_BYTES,
-  DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
   observationSha256,
   packCollectionData,
   packTextSliceData,
   utf8ByteLength,
-  utf8SafePreview,
   type CollectionPage,
   type TextSlice,
 } from './response-packer.js';
@@ -30,7 +28,7 @@ const COLLECTION_HELP = 'Collection pages expose total, position, returned, next
 
 export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'list_card_versions', description: `List the committed card version catalog as a byte-bounded paged collection. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => listCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => listCardVersions(ctx, args)) }),
-  defineToolBinder({ name: 'get_card_version', description: `Read exactly one committed immutable card version summary, tags, dependencies, related cards, or children section. Pending delivery context is not readable. The 'children' section is that row's complete active_child_order carrier and may include retained tombstoned links. Non-summary sections are byte-bounded collections. ${COLLECTION_HELP}`, resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)) }),
+  defineToolBinder({ name: 'get_card_version', description: `Read exactly one committed immutable card version summary, dependencies, or children section. Pending delivery context is not readable. The 'children' section is that row's complete active_child_order carrier and may include retained tombstoned links. Non-summary sections are byte-bounded collections. ${COLLECTION_HELP}`, resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)) }),
   defineToolBinder({ name: 'diff_card_versions', description: 'Compare two exact committed card versions through a plaintext TextSlice of the outbound-projected canonical JSON diff; offsets count UTF-8 bytes and this content is not hex encoded.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => diffCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => diffCardVersions(ctx, args)) }),
   defineToolBinder({ name: 'read_record_version', description: 'Read exactly one immutable authored-record version row by exact version. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => readRecordVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)) }),
 ]);
@@ -95,9 +93,7 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   }
   const projected = projectCardRecordForOutbound(card);
   let items: readonly unknown[];
-  if (params.section === 'tags') items = projected.tags.map((tag) => utf8SafePreview(redactTextForOutbound(tag), DISCOVERY_TEXT_PREVIEW_MAX_BYTES));
-  else if (params.section === 'dependencies') items = [...projected.depends_on];
-  else if (params.section === 'related') items = [...projected.related];
+  if (params.section === 'dependencies') items = [...projected.depends_on];
   else items = [...projected.active_child_order];
   const { data } = packCollectionData({
     cap: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES,

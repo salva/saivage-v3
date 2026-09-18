@@ -291,19 +291,19 @@ Linked-tree operations start at the exact root and recursively follow committed 
 Multi-root deletion uses that one fresh projection to form a subtree union, reject permissions and surviving dependents, and topologically order dependent-before-dependency plus child-before-parent tombstones.
 This graph is call-local write admission, not persistence coordination.
 
-Card stream format v3 retains envelope version 1 and requires artifact row format 2.
+Card stream format v4 retains envelope version 1 and requires artifact row format 3.
 Every parent snapshot has duplicate-free direct-child `child_membership` and `active_child_order` arrays with equal sets and lengths.
 Membership is monotonic link chronology; order is a complete carrier retaining tombstones.
-`CARD_RECORD_FIELDS` remains the exhaustive inventory and derives business deltas, so link changes exactly both fields while reorder changes only order.
+`CARD_RECORD_FIELDS` remains the exhaustive inventory—`id`, `type`, `child_membership`, `active_child_order`, `title`, `subtype`, `priority`, `urgency`, `created_by`, `created_at`, `updated_at`, `version_seq`, `assigned_to`, `depends_on`, `lifecycle`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text`, `status_text_updated_at`, `status_text_author_session_id`, `latest_self_report`, `metadata`, and `pending_notifications`—and derives business deltas, so link changes exactly both relationship fields while reorder changes only order. The strict parser rejects removed `tags` and `related` members.
 `cardRecordSchema` owns structural/direct-child/equal-set checks; canonical transition validation alone owns prior-relative link/reorder grammar, exact metadata, and no-piggyback admission.
 Immediate hierarchy reads each membership fold once and emits live folds in carrier order.
 A real reorder appends requested active IDs followed by retained tombstones in prior carrier-relative order; active identity returns before successor construction or effects.
 Existing `appendEnvelope` and centralized `writeAllExact` remain the unchanged write boundary.
 
 CardService uses membership for exact reachability and linked-history traversal, active order for semantic hierarchy and `CardIndex.childrenOf()`, and writes both arrays only for `child_link`.
-Files keeps `children` as the active virtual directory name while virtual current/version `card.json` documents expose both durable arrays at artifact row format 2 through the queue-free outbound card and ordinary-change projection.
+Files keeps `children` as the active virtual directory name while virtual current/version `card.json` documents expose both durable arrays at artifact row format 3 through the queue-free outbound card and ordinary-change projection.
 The Cards REST hierarchy and web store remain ordered active projections and do not interpret durable arrays.
-Historical section `children` is intentionally the selected row's complete stored carrier.
+Current inspection sections are exactly summary, workflow, dependencies, children, and records; immutable inspection sections are summary, dependencies, and children. `list_cards` filters only by status, type, and parent. Historical section `children` is intentionally the selected row's complete stored carrier. Planner/Analyst creation has no tag or generic relationship input, Planner edits only title/priority/urgency, and `depends_on` retains its caller-specific admission and read authority.
 Outbound history and selected artifacts expose both relationship fields, omit `pending_notifications`, and require nullable `{summary,changed_fields,actor}` ordinary change metadata. Initial and queue-only publications project null; mixed lifecycle/queue publications retain only ordinary metadata. Public diffs remain queue-free, and authored-record diffs continue to apply `projectRecordArtifact()` before `recordView()` comparison so redaction remains before comparison.
 
 Planner activation validates schema and immediate-child identity, reserves the exact invocation lease, and delegates through the bound parent port.
@@ -1181,7 +1181,7 @@ Shared strict Zod operation contracts are the server response validator and the 
 Browser contracts and inferred types import that backend contract surface through `web/src/api/contracts.ts`; backend schema, route fallback, store/view, and fixtures cut over together.
 `CardDiffRowSchema` is the sole card-diff row owner: it validates required strict `{field,before,after}` recursive-JSON rows at backend final egress and in browser declared status-200 parsing and rejects `field:'pending_notifications'`.
 The browser has no local card-diff row overlay or card-diff client result cast. Public history catalogs retain exactly `entry_id`, `version`, `published_at`, `artifact_kind`, and required nullable `change`; selected outer responses retain `card_id`, `version`, `entry_id`, and `published_at`, with artifact exactly `{kind:'card-version',card,change}` or `{kind:'card-tombstone',final_card,change}`. Non-null change is the strict ordinary `{summary,changed_fields,actor}` projection; initial and queue-only versions use null, mixed lifecycle/queue versions expose only ordinary metadata, and durable change vocabulary/provenance, versioning, and time validation remain unchanged.
-Agent version catalogs retain those same five item fields, selected version responses retain their existing locator identity/time/kind/hash/section fields, and agent diffs retain their existing pivots, side entry/hash identities, observation, and sliced diff. The artifact hash input is exactly the queue-free REST artifact `{kind,card,change}` or `{kind,final_card,change}`, with no outer wrapper metadata. Files current/historical documents retain exactly `{format_version:2,kind,entry_id,card_id,version,published_at,card,change}`; tombstones substitute `final_card` and add `prior_card_version`. Their listing/preview size is computed from those serialized public bytes.
+Agent version catalogs retain those same five item fields, selected version responses retain their existing locator identity/time/kind/hash/section fields, and agent diffs retain their existing pivots, side entry/hash identities, observation, and sliced diff. The artifact hash input is exactly the queue-free REST artifact `{kind,card,change}` or `{kind,final_card,change}`, with no outer wrapper metadata. Files current/historical documents retain exactly `{format_version:3,kind,entry_id,card_id,version,published_at,card,change}`; tombstones substitute `final_card` and add `prior_card_version`. Their listing/preview size is computed from those serialized public bytes.
 The Debug error row type is indexed directly from `OperatorApiSuccess`; no response overlay or client assertion replaces it.
 DebugStore keeps those canonical REST rows, while the pure exhaustive web read-model projector creates separate error presentation items.
 This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.
@@ -1373,7 +1373,7 @@ Content-policy retry/refusal rows, typed refusal BLOCKED results, and the requir
 Generated-state test and E2E fixtures are reset to the singular current schemas; no omitted-field fixture, compatibility transport, legacy blocked/tool shape, migration, or normalization path remains.
 
 Within the preceding cumulative inventory, complete parent-owned `children` names a historical reset-only milestone rather than the current relationship model.
-Current card stream format v3 accepts only envelope-version-1 rows at artifact format 2 with monotonic `child_membership` and complete same-set `active_child_order`; artifact format 1 and durable `children` are rejection terminology only.
+Current card stream format v4 accepts only envelope-version-1 rows at artifact format 3 with no `tags` or `related`, monotonic `child_membership`, and complete same-set `active_child_order`; artifact formats 1 and 2, removed fields, and durable `children` are rejection terminology only.
 
 The `.saivage/locks` namespace is the exceptional lifecycle-exclusion boundary, not reset-owned generated persistence.
 Reset acquires the exact canonical `runtime.lock`, removes the four complete roots, publishes the new `project` root card while still holding the lock, and then uses exact-owner release.

@@ -13,7 +13,7 @@ import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-d
 
 const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
-const input=(parent:string,title:string,type:'goal'|'code'='goal')=>({type,parent,title,bootstrap_content:`${title} token=secret`,tags:[],priority:0,urgency:'normal' as const,created_by:'analyst' as const,depends_on:[],related:[]});
+const input=(parent:string,title:string,type:'goal'|'code'='goal')=>({type,parent,title,bootstrap_content:`${title} token=secret`,priority:0,urgency:'normal' as const,created_by:'analyst' as const,depends_on:[]});
 const paths=()=>{const value:string[]=[];const instrumentation:CanonicalReadInstrumentation={onRead:(path)=>value.push(path)};return{value,instrumentation};};
 
 describe('exact Card operator resources',()=>{
@@ -95,9 +95,9 @@ describe('exact Card operator resources',()=>{
 
   it('projects ordinary multi-field history metadata and its genuine configured actor through catalog and selection', () => {
     const root=mkdtempSync(join(tmpdir(),'saivage-card-ordinary-history-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
-    cards.editCard(card.id,{title:'Retitled',tags:['ordinary'],priority:7},'designer');
+    cards.editCard(card.id,{title:'Retitled',priority:7},'designer');
     const history=model.listHistory(card.id);if('statusCode'in history)throw new Error('Expected history.');
-    expect(history.body.versions.map(({change})=>change)).toEqual([null,{summary:'title, tags, priority updated',changed_fields:['title','tags','priority'],actor:'designer'}]);
+    expect(history.body.versions.map(({change})=>change)).toEqual([null,{summary:'title, priority updated',changed_fields:['title','priority'],actor:'designer'}]);
     const selected=model.getHistoryEntry(card.id,2);if('statusCode'in selected)throw new Error('Expected selected history.');
     expect(selected.body.artifact.change).toEqual(history.body.versions[1]!.change);
     expect(selected.body.artifact).not.toHaveProperty('entry_id');

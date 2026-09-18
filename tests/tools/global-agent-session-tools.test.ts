@@ -383,12 +383,10 @@ describe('global agent-session observation tools', () => {
       parent: 'project',
       title: 'child',
       bootstrap_content: 'brief',
-      tags: [],
       priority: 0,
       urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
-      related: [],
     });
     const sessionId = `agent:executor:${child.id}` as const;
     appendConversationBatch({ projectRoot }, [

@@ -73,11 +73,11 @@ describe('SyncHub semantic hints', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root, hub);
-      const parent = cards.create({ type: 'goal', parent: 'project', title: 'sync parent', bootstrap_content: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const parent = cards.create({ type: 'goal', parent: 'project', title: 'sync parent', bootstrap_content: 'sync', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       jest.advanceTimersByTime(25);
       jest.mocked(ws.send).mockClear();
 
-      const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', bootstrap_content: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', bootstrap_content: 'sync', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       expect(child.id).toBe('card-a-a');
       expect(cards.read(parent.id)?.active_child_order).toEqual([child.id]);
       expect(cards.listChildren(parent.id)).toEqual([child.id]);

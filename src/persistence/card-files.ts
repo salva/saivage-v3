@@ -207,14 +207,14 @@ function claimChildNamespace(projectRoot: string, parentId: string): string { co
 export function publishInitialChildCard(projectRoot: string, input: NewChildCardInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): CardRecord {
   if (workflow.cardType !== input.type) throw new Error(`Compiled workflow '${workflow.cardType}' does not match child type '${input.type}'.`);
   const id = claimChildNamespace(projectRoot, input.parent); if (cardParentId(id) !== input.parent) throw new Error(`Claimed card '${id}' does not belong to requested parent '${input.parent}'.`);
-  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id, type: input.type, child_membership: [], active_child_order: [], title: input.title, subtype: null, tags: input.tags, priority: input.priority, urgency: input.urgency, created_by: input.created_by, created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: input.depends_on, related: input.related, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
+  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id, type: input.type, child_membership: [], active_child_order: [], title: input.title, subtype: null, priority: input.priority, urgency: input.urgency, created_by: input.created_by, created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: input.depends_on, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
   const definitions = [...workflow.records.values()].map((record): RecordDefinition => ({ filename: record.name, format: record.format, schema: record.schema, bootstrap: record.bootstrap,declared:true }));
   mkdirSync(cardConversationsRoot(projectRoot, id)); initializeCardConversations(projectRoot, card, workflow, temporary); publishInitialStreams(projectRoot, card, input.bootstrap_content, definitions, temporary); return card;
 }
 
 export function publishInitialProjectCard(projectRoot: string, input: InitialProjectCardInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): void {
   if (workflow.cardType !== 'project') throw new Error('Initial project publication requires the compiled project workflow.'); if (input.bootstrap_content.trim().length === 0) throw new Error('Project bootstrap_content must contain non-whitespace Markdown.');
-  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id: 'project', type: 'project', child_membership: [], active_child_order: [], title: input.title, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
+  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id: 'project', type: 'project', child_membership: [], active_child_order: [], title: input.title, subtype: null, priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
   const definitions = [...workflow.records.values()].map((record): RecordDefinition => ({ filename: record.name, format: record.format, schema: record.schema, bootstrap: record.bootstrap,declared:true }));
   mkdirSync(cardNamespace(projectRoot, 'project')); mkdirSync(cardConversationsRoot(projectRoot, 'project')); mkdirSync(saivageAgentsRoot(projectRoot)); mkdirSync(globalAgentConversationsRoot(projectRoot)); initializeCardConversations(projectRoot, card, workflow, temporary); publishInitialStreams(projectRoot, card, input.bootstrap_content, definitions, temporary);
 }
@@ -222,14 +222,14 @@ export function publishInitialProjectCard(projectRoot: string, input: InitialPro
 export function publishCardVersion(projectRoot: string, card: CardRecord, change: CardVersionChange | null, io?: GrowingFileIo, temporary?: PublicationTemporaryIdFactory): CardVersionArtifact {
   const path = cardStreamFile(projectRoot, card.id);
   if (change === null) {
-    const artifact = cardVersionArtifactSchema.parse({ format_version: 2, kind: 'card-version', entry_id: randomUUID(), card_id: card.id, version: 1, committed_at: card.created_at, card, change: null });
+    const artifact = cardVersionArtifactSchema.parse({ format_version: 3, kind: 'card-version', entry_id: randomUUID(), card_id: card.id, version: 1, committed_at: card.created_at, card, change: null });
     validateInitialCard(artifact.card, path);
     publishFirstEnvelope(path, serializeGrowingEnvelope([artifact], cardArtifactSchema), temporary);
     return artifact;
   }
   const fold = validateCardStream(readStrictCanonicalGrowingFile(path, cardArtifactSchema), path, card.id);
   if (fold.tombstone) throw new Error(`Card '${card.id}' is terminal.`);
-  const artifact = cardVersionArtifactSchema.parse({ format_version: 2, kind: 'card-version', entry_id: change.entry_id, card_id: card.id, version: fold.head.version + 1, committed_at: change.changed_at, card, change });
+  const artifact = cardVersionArtifactSchema.parse({ format_version: 3, kind: 'card-version', entry_id: change.entry_id, card_id: card.id, version: fold.head.version + 1, committed_at: change.changed_at, card, change });
   validateCardTransition(fold.current.card, artifact.card, artifact.change!, path);
   appendCardRow(path, artifact, io); return artifact;
 }
@@ -238,6 +238,6 @@ export function publishCardTombstone(projectRoot: string, cardId: string, finalC
   if (cardId === 'project') throw new Error('Cannot tombstone the project card.'); const fold = readCardArtifacts(projectRoot, cardId);
   if (fold.tombstone) throw new Error(`Card '${cardId}' is terminal.`);
   if (JSON.stringify(fold.current.card) !== JSON.stringify(finalCard)) throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
-  const artifact = cardTombstoneArtifactSchema.parse({ format_version: 2, kind: 'card-tombstone', entry_id: change.entry_id, card_id: cardId, version: fold.head.version + 1, committed_at: change.changed_at, prior_card_version: finalCard.version_seq, final_card: finalCard, change });
+  const artifact = cardTombstoneArtifactSchema.parse({ format_version: 3, kind: 'card-tombstone', entry_id: change.entry_id, card_id: cardId, version: fold.head.version + 1, committed_at: change.changed_at, prior_card_version: finalCard.version_seq, final_card: finalCard, change });
   appendCardRow(cardStreamFile(projectRoot, cardId), artifact, io); return artifact;
 }

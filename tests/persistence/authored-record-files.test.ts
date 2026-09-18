@@ -20,7 +20,7 @@ function setup() {
   roots.push(root);
   initProjectTree(root);
   const cards = new CardService(root);
-  const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+  const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
   return { cards, card, root };
 }
 
@@ -158,7 +158,7 @@ describe('authored record exact streams', () => {
     expect(existsSync(streamPath(root, card.id, 'card.md'))).toBe(true);
     expect(streamPath(root, card.id, 'card.md')).not.toBe(cardStreamFile(root, card.id));
 
-    const other = cards.create({ type: 'code', parent: 'project', title: 'other', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const other = cards.create({ type: 'code', parent: 'project', title: 'other', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const dynamicCardMd = statusDefinition({ filename: 'card.md', declared: false });
     expect(classifyCurrentAuthoredRecord(root, other, dynamicCardMd)).toEqual({ kind: 'unclaimed' });
     const otherCardAuthority = cardStreamFile(root, other.id);

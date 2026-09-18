@@ -6,7 +6,7 @@ import type { CardRecord } from '../../src/schemas/index.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 
-const card: CardRecord = { id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'project', subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
+const card: CardRecord = { id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'project', subtype: null, priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
 const processor = {
   activate: async () => ({ status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') }),
 } as unknown as CardProcessActor;

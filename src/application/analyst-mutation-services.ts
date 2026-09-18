@@ -24,11 +24,9 @@ export interface CreateAnalystCardInput {
   parent: CardId;
   title: string;
   bootstrap_content: string;
-  tags?: string[];
   priority?: number;
   urgency?: 'low' | 'normal' | 'high' | 'critical';
   depends_on?: string[];
-  related?: string[];
 }
 
 interface AnalystCardMutationService {
@@ -96,7 +94,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const analyst=this.store.workflows.analyst;
     if(!analyst.canCreateChildren||!analyst.tools.some((tool)=>tool.name==='create_card'))return denied(`agent '${analyst.name}' is not configured to create children`);
     const parentWorkflow=this.store.workflows.cardTypes.get(parentCard.type);if(!parentWorkflow)throw new Error(`No compiled workflow exists for card type '${parentCard.type}'.`);if(!parentWorkflow.permittedChildTypes.has(input.type))return denied(`child type '${input.type}' is not permitted under '${parentCard.type}'`);
-    const card = this.store.create({ type: input.type, parent, title: input.title, bootstrap_content: input.bootstrap_content, tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: this.store.workflows.analyst.name, depends_on: input.depends_on ?? [], related: input.related ?? [] });
+    const card = this.store.create({ type: input.type, parent, title: input.title, bootstrap_content: input.bootstrap_content, priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: this.store.workflows.analyst.name, depends_on: input.depends_on ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
     return success(toCardView(this.store, card));
   }

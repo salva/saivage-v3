@@ -19,7 +19,7 @@ afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: tru
 describe('current generated state startup admission', () => {
   it('accepts a valid custom type on the wire and rejects it at compiled startup admission',()=>{
     const root=fixture();const cards=new CardService(root);const codeWorkflow=TEST_WORKFLOWS.cardTypes.get('code')!;const customWorkflow={...codeWorkflow,cardType:'custom-leaf'};
-    const unknown=publishInitialChildCard(root,{type:'custom-leaf',parent:'project',title:'custom wire',bootstrap_content:'brief',tags:[],priority:0,urgency:'normal',created_by:'analyst',depends_on:[],related:[]},customWorkflow);
+    const unknown=publishInitialChildCard(root,{type:'custom-leaf',parent:'project',title:'custom wire',bootstrap_content:'brief',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]},customWorkflow);
     const parent=cards.read('project')!;const linked=cardRecordSchema.parse({...parent,child_membership:[...parent.child_membership,unknown.id],active_child_order:[...parent.active_child_order,unknown.id],version_seq:parent.version_seq+1,updated_at:'2026-08-15T00:00:01.000Z'});
     const change=cardVersionChangeSchema.parse({entry_id:'11111111-1111-4111-8111-111111111111',kind:'child_link',card_id:'project',resulting_version:linked.version_seq,changed_at:linked.updated_at,changed_by_actor:'runtime',changed_by_surface:'runtime',change_reason:'child linked',changed_fields:['child_membership','active_child_order'],change_summary:`linked child ${unknown.id}`,terminal_summary:null});
     publishCardVersion(root,linked,change);
@@ -79,7 +79,7 @@ describe('current generated state startup admission', () => {
     const root = fixture(); const cards = new CardService(root);
     if (fault === 'missing-dependency') mutateCurrentCard(root, 'project', (card) => ({ ...card, depends_on: ['card-z'] }));
     else {
-      const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       mutateCurrentCard(root, 'project', (card) => ({ ...card, depends_on: [child.id] }));
       mutateCurrentCard(root, child.id, (card) => ({ ...card, depends_on: ['project'] }));
     }
@@ -91,7 +91,7 @@ describe('current generated state startup admission', () => {
 
   it('terminates startup at a retained tombstone before workflow lookup and any operation below it', () => {
     const root = fixture(); const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const agentName = [...TEST_WORKFLOWS.cardTypes.get('code')!.states.values()].flatMap((state) => state.kind === 'node' && state.agent.session === 'card' ? [state.agent.name] : [])[0]!;
     const sessionId = cardAgentSessionId(agentName, child.id);
     appendConversationBatch({ projectRoot: root }, [message('tombstone-sentinel', sessionId)]);
@@ -110,7 +110,7 @@ describe('current generated state startup admission', () => {
 
   it('rejects a missing compiled workflow before optional effects', () => {
     const root = fixture(); const cards = new CardService(root);
-    cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const cardTypes = new Map(TEST_WORKFLOWS.cardTypes); cardTypes.delete('code');
     const workflows = { ...TEST_WORKFLOWS, cardTypes } as CompiledProjectWorkflows;
     const effects = preparePhaseAEffectSentinels(root);
@@ -121,7 +121,7 @@ describe('current generated state startup admission', () => {
 
   it('rejects a disallowed child type before optional effects', () => {
     const root = fixture(); const cards = new CardService(root);
-    cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const project = TEST_WORKFLOWS.cardTypes.get('project')!;
     const cardTypes = new Map(TEST_WORKFLOWS.cardTypes); cardTypes.set('project', { ...project, permittedChildTypes: new Set() });
     const workflows = { ...TEST_WORKFLOWS, cardTypes } as CompiledProjectWorkflows;

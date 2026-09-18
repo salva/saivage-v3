@@ -35,9 +35,9 @@ const runtimeState = {
 };
 
 const canonicalCard = {
-  id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'Project', subtype: null, tags: [], priority: 0,
+  id: 'project', type: 'project', child_membership: [], active_child_order: [], title: 'Project', subtype: null, priority: 0,
   urgency: 'normal', created_by: 'analyst', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
-  assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+  assigned_to: null, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
   metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
   status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
 } as const;
@@ -47,7 +47,7 @@ const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecy
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog',permitted_child_types:['goal','code'] } as const;
 const canonicalHierarchyChild = { id:'card-a',type:'code',title:'Card',status:'backlog',permitted_child_types:[] } as const;
 const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null }] as const;
-const outboundCanonicalCardKeys = ['id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata'] as const;
+const outboundCanonicalCardKeys = ['id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata'] as const;
 const validOperatorApiRow: OperatorApiCardDiffRow = { field: 'title', before: null, after: 'new' };
 // @ts-expect-error CardDiffRow requires before through operator-api.ts.
 const missingBefore: OperatorApiCardDiffRow = { field: 'title', after: 'new' };

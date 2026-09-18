@@ -24,7 +24,6 @@ export function projectCardRecordForOutbound(card: CardRecord): OutboundCardReco
     title: redactTextForOutbound(parsed.title),
     lifecycle: projectLifecycle(parsed.lifecycle),
     subtype: parsed.subtype,
-    tags: [...parsed.tags],
     priority: parsed.priority,
     urgency: parsed.urgency,
     created_by: parsed.created_by,
@@ -33,7 +32,6 @@ export function projectCardRecordForOutbound(card: CardRecord): OutboundCardReco
     version_seq: parsed.version_seq,
     assigned_to: parsed.assigned_to,
     depends_on: [...parsed.depends_on],
-    related: [...parsed.related],
     metrics: parsed.metrics,
     estimate: parsed.estimate,
     started_at: parsed.started_at,
@@ -121,7 +119,6 @@ function projectDiffValue(field: string, value: unknown): unknown {
     case 'child_membership':
     case 'active_child_order':
     case 'subtype':
-    case 'tags':
     case 'priority':
     case 'urgency':
     case 'created_by':
@@ -130,7 +127,6 @@ function projectDiffValue(field: string, value: unknown): unknown {
     case 'version_seq':
     case 'assigned_to':
     case 'depends_on':
-    case 'related':
     case 'metrics':
     case 'estimate':
     case 'started_at':

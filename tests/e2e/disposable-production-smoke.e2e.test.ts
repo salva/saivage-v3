@@ -212,8 +212,8 @@ describe('disposable production-composition smoke', () => {
     const executorEffects: string[] = [];
     const analystTools: Array<{ name: string; args: object }> = [
       { name: 'write', args: { path: 'record:///brief.md?card=project', content: 'Disposable Analyst bootstrap edit.' } },
-      { name: 'create_card', args: { type: 'code', parent: 'project', title: 'Promoted child', bootstrap_content: 'Produce and review child evidence.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
-      { name: 'create_card', args: { type: 'goal', parent: 'card-a', title: 'Forbidden nested goal', bootstrap_content: 'Must be rejected by parent narrowing.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
+      { name: 'create_card', args: { type: 'code', parent: 'project', title: 'Promoted child', bootstrap_content: 'Produce and review child evidence.', priority: 0, urgency: 'normal', depends_on: [] } },
+      { name: 'create_card', args: { type: 'goal', parent: 'card-a', title: 'Forbidden nested goal', bootstrap_content: 'Must be rejected by parent narrowing.', priority: 0, urgency: 'normal', depends_on: [] } },
       { name: 'reconfigure', args: { action: 'set_agent_model_route', agent: 'planner', model_route: 'executor' } },
       { name: 'show_config', args: {} },
       { name: 'start_project', args: {} },

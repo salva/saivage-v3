@@ -36,7 +36,7 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function card(id: string, type: 'project' | 'code' = id === 'project' ? 'project' : 'code'): CardRecord {
-  return { id, type, child_membership: [], active_child_order: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
+  return { id, type, child_membership: [], active_child_order: [], title: id, subtype: null, priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
 }
 
 interface ProcessorHarness {
@@ -150,7 +150,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
   it.each(['done', 'failed'] as const)('reopens a real %s child through the bound owner port with one status append', (status) => {
     const projectRoot = mkdtempSync(join(tmpdir(), `saivage-reopen-${status}-`)); roots.push(projectRoot); initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');
     cards.commitActivationOutcome(child.id, status === 'done'

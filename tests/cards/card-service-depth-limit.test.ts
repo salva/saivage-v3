@@ -16,12 +16,10 @@ const childInput = (parent: string, type: 'goal' | 'code') => ({
   parent,
   title: `${type} child`,
   bootstrap_content: `${type} child brief.`,
-  tags: [],
   priority: 0,
   urgency: 'normal' as const,
   created_by: 'planner' as const,
   depends_on: [],
-  related: [],
 });
 
 describe('CardService maximum depth admission', () => {

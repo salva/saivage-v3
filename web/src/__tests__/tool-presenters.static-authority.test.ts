@@ -16,7 +16,7 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   emit_result: { outcome: 'done', summary: 'complete' }, get_card: { id: 'card-a', section: 'summary' },
   get_card_version: { card_id: 'card-a', version: 2, section: 'summary' }, get_status: {}, get_tree: { rootId: 'card-a', depth: 2 },
   glob: { directory: '.', pattern: '**/*.ts' }, grep: { pattern: 'needle', path: 'src' }, kill_process: { process_id: 'proc-a' },
-  list_agent_sessions: {}, list_card_versions: { card_id: 'card-a' }, list_cards: { status: ['backlog'], type: 'code', parent: 'project', tag: 'ui' },
+  list_agent_sessions: {}, list_card_versions: { card_id: 'card-a' }, list_cards: { status: ['backlog'], type: 'code', parent: 'project' },
   list_processes_tool: { status: 'running', cardId: 'card-a' }, mcp_reconcile: {},
   mcp_tool_call: { serverName: 'github', toolName: 'issues', args: { state: 'open' } }, navigate_back: {},
   navigate_workspace: { target: { kind: 'card', id: 'card-a', refinement: 'history' } }, pause_runtime: {},
@@ -41,14 +41,14 @@ const EXPECTED_NAMES = [
 
 const PLANNER_COMPACT_CARD = {
   id: 'card-p', type: 'code', parent: 'project', status: 'backlog', title: 'Planner',
-  depends_on: [], related: [], tags: [], priority: 0, urgency: 'normal',
+  depends_on: [], priority: 0, urgency: 'normal',
 };
 
 const ANALYST_CARD_VIEW = {
   card: {
-    id: 'card-a', type: 'code', title: 'Analyst', child_membership: [], active_child_order: [], subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
+    id: 'card-a', type: 'code', title: 'Analyst', child_membership: [], active_child_order: [], subtype: null, priority: 0, urgency: 'normal', created_by: 'analyst',
     created_at: '2026-07-21T00:00:00.000Z', updated_at: '2026-07-21T00:00:00.000Z', version_seq: 1,
-    assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
+    assigned_to: null, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
   },
   logical_path: '1', status: 'backlog', parent: 'project',
   operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false },

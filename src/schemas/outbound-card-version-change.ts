@@ -4,10 +4,8 @@ import { agentNameSchema } from './agent-name.js';
 
 const ordinaryCardChangeFieldSchema = z.enum([
   'title',
-  'tags',
   'priority',
   'urgency',
-  'related',
   'lifecycle',
   'status_text',
   'status_text_updated_at',

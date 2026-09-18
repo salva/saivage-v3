@@ -55,9 +55,9 @@ describe('dependency-completion activation admission E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Run dependency order', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Complete first', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Complete second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Run dependency order', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Complete first', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Complete second', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id] });
     cards.setStatus('project', 'running');
 
     const bRejected = deferred<void>();

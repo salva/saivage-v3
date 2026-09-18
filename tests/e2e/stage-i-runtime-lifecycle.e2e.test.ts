@@ -93,7 +93,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Execute', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');
     const inputs: LlmInvocationInput[] = [];
@@ -148,8 +148,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', bootstrap_content: 'Done', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', bootstrap_content: 'Execute', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', bootstrap_content: 'Done', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus(done.id, 'running');
     cards.commitActivationOutcome(done.id, { status: 'done', summary: 'kept', result: workflowResult('DONE','kept') }, '2026-07-16T00:00:00.000Z');
     cards.setStatus('project', 'running');
@@ -185,7 +185,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const leaf = cards.create({ type: 'code', parent: 'project', title: 'Interrupted leaf', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const leaf = cards.create({ type: 'code', parent: 'project', title: 'Interrupted leaf', bootstrap_content: 'Execute', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(leaf.id, 'running');
     appendOpenMatchedRound(projectRoot, leaf.id);
@@ -211,8 +211,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Stopped gap', bootstrap_content: 'Plan', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Ownerless running leaf', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Stopped gap', bootstrap_content: 'Plan', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Ownerless running leaf', bootstrap_content: 'Execute', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(leaf.id, 'running');
     const versions = new Map(cards.list().map((card) => [card.id, card.version_seq]));
@@ -231,8 +231,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Stopped gap', bootstrap_content: 'Plan', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Ownerless running leaf', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Stopped gap', bootstrap_content: 'Plan', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Ownerless running leaf', bootstrap_content: 'Execute', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(leaf.id, 'running');
     const rootBefore = cards.read('project')!;

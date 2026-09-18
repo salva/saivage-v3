@@ -27,15 +27,51 @@ function streamRows(root: string, cardId: string): CardArtifact[] { return readS
 function envelopeCount(root: string, cardId: string): number { return readFileSync(cardStreamFile(root, cardId), 'utf8').trimEnd().split('\n').length; }
 
 function childInput(cardId: string, title: string) {
-  return { type: 'code' as const, parent: cardId, title, bootstrap_content: 'brief', tags: [] as string[], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [] as string[], related: [] as string[] };
+  return { type: 'code' as const, parent: cardId, title, bootstrap_content: 'brief', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [] as string[] };
 }
 
 describe('card exact stream', () => {
-  it('publishes only row format 2 and rejects row format 1', () => {
-    const { root } = fixture();
-    const current = streamRows(root, 'project')[0]!;
-    expect(current.format_version).toBe(2);
-    expect(cardArtifactSchema.safeParse({ ...current, format_version: 1 }).success).toBe(false);
+  it('publishes row format 3 without removed fields for root, child, update, and tombstone rows', () => {
+    const { root, cards } = fixture();
+    const child = cards.create(childInput('project', 'before'));
+    cards.editCard(child.id, { title: 'after' }, 'planner');
+    cards.deleteSubtrees([child.id], () => true, 'analyst');
+    const rows = [streamRows(root, 'project')[0]!, ...streamRows(root, child.id)];
+    expect(rows.map(({ format_version }) => format_version)).toEqual([3, 3, 3, 3]);
+    for (const row of rows) {
+      const card = row.kind === 'card-version' ? row.card : row.final_card;
+      expect(card).not.toHaveProperty('tags');
+      expect(card).not.toHaveProperty('related');
+    }
+  });
+
+  it('independently rejects old formats and each removed field for both artifact kinds', () => {
+    const { root, cards } = fixture();
+    const child = cards.create(childInput('project', 'delete'));
+    cards.deleteSubtrees([child.id], () => true, 'analyst');
+    const [version, tombstone] = streamRows(root, child.id);
+    if (!version || version.kind !== 'card-version' || !tombstone || tombstone.kind !== 'card-tombstone') throw new Error('Expected version and tombstone fixtures.');
+
+    expect(cardArtifactSchema.safeParse({ ...version, format_version: 2 }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...tombstone, format_version: 2 }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...version, card: { ...version.card, tags: [] } }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...version, card: { ...version.card, related: [] } }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...tombstone, final_card: { ...tombstone.final_card, tags: [] } }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...tombstone, final_card: { ...tombstone.final_card, related: [] } }).success).toBe(false);
+  });
+
+  it('rejects a complete mixed-format stream without changing its bytes', () => {
+    const { root, cards } = fixture();
+    const child = cards.create(childInput('project', 'before'));
+    cards.editCard(child.id, { title: 'after' }, 'planner');
+    const path = cardStreamFile(root, child.id);
+    const lines = readFileSync(path, 'utf8').trimEnd().split('\n');
+    const second = JSON.parse(lines[1]!) as { rows: Array<Record<string, unknown>> };
+    second.rows[0] = { ...second.rows[0], format_version: 2 };
+    writeFileSync(path, `${lines[0]}\n${JSON.stringify(second)}\n`);
+    const mixed = readFileSync(path);
+    expect(() => readCard(root, child.id)).toThrow();
+    expect(readFileSync(path)).toEqual(mixed);
   });
 
   it.each(['blocked', 'failed'] as const)('retains strict changed-status then metadata-update history for a real %s correction', (status) => {

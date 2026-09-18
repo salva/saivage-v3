@@ -237,8 +237,8 @@ describe('current runtime composition', () => {
     const requests: string[] = [];
     const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
     const cardStore=new CardService(projectRoot,workflows,freshness);
-    const goal=cardStore.create({type:'goal',parent:'project',title:'deep planning scope',bootstrap_content:'plan',tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
-    const leaf=cardStore.create({type:'code',parent:goal.id,title:'deep active child',bootstrap_content:'execute',tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
+    const goal=cardStore.create({type:'goal',parent:'project',title:'deep planning scope',bootstrap_content:'plan',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+    const leaf=cardStore.create({type:'code',parent:goal.id,title:'deep active child',bootstrap_content:'execute',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (request, init) => {
       requests.push(String(init?.body ?? (request instanceof Request ? await request.clone().text() : '')));
       const activationTarget=requests.length===1?goal.id:requests.length===2?leaf.id:null;

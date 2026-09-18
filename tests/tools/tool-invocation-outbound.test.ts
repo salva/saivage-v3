@@ -24,7 +24,7 @@ const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
-  create_card: { type: 'code', title: marker, bootstrap_content: marker, tags: [OUTBOUND_IDENTITY] },
+  create_card: { type: 'code', title: marker, bootstrap_content: marker },
   cancel_card: { cardId: 'card-a', reason: marker },
   delete_card: { ids: ['card-a'] },
   reorder_child: { parentId: 'project', orderedChildIds: ['card-a'] },
@@ -39,7 +39,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   read_control_actions: { limit: 1, since: '2026-07-22T10:00:00.000Z' },
   list_processes_tool: { status: 'running', cardId: 'card-a' },
   list_agent_sessions: {}, read_agent_session: { session_id: 'agent:planner:project', section: 'messages', last_n: 1 },
-  list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a', section: 'summary' }, get_tree: { rootId: 'card-a', depth: 2 },
+  list_cards: { parent: OUTBOUND_IDENTITY }, get_card: { id: 'card-a', section: 'summary' }, get_tree: { rootId: 'card-a', depth: 2 },
   list_card_versions: { card_id: 'card-a' },
   get_card_version: { card_id: 'card-a', version: 1, section: 'summary' },
   diff_card_versions: { card_id: 'card-a', from_version: 1, to_version: 2 },
@@ -64,7 +64,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   },
   skill: { name: 'tok_primary' },
   mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
-  edit_card: { card_id: 'card-a', title: marker, tags: ['tok_primary'] },
+  edit_card: { card_id: 'card-a', title: marker },
   activate_card: { card_id: 'card-a' },
   emit_result: { outcome: 'tok_primary', summary: marker },
 };
@@ -94,7 +94,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
   });
 
   it('preserves structural identities while classifying every valid argument group', () => {
-    expect(complete('list_cards').arguments).toEqual({ tag: OUTBOUND_IDENTITY });
+    expect(complete('list_cards').arguments).toEqual({ parent: OUTBOUND_IDENTITY });
     expect(complete('reopen_card').arguments).toEqual({ cardId: 'card-a' });
     const analystReopenCall = projectToolInvocation({ shape: 'call-row', identity: callIdentity('reopen_card'), arguments: JSON.stringify({ cardId: 'card-a' }) });
     expect(JSON.parse((analystReopenCall as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ cardId: 'card-a' });
@@ -194,28 +194,28 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     expect(known.result).toEqual(unknown.result);
   });
 
-  it('keeps the shared tag filter and matching card result exact in every invocation shape', () => {
+  it('keeps the shared parent filter and matching card result exact in every invocation shape', () => {
     const card = credentialShapedCard();
     const completeProjection = projectToolInvocation({
-      shape: 'complete', identity: identity('list_cards'), arguments: { tag: OUTBOUND_IDENTITY },
+      shape: 'complete', identity: identity('list_cards'), arguments: { parent: OUTBOUND_IDENTITY },
       result: { success: true, data: [card] },
     });
     expect(completeProjection).toMatchObject({
-      arguments: { tag: OUTBOUND_IDENTITY },
-      result: { success: true, data: [{ id: 'card-token', tags: ['tok-[REDACTED]'], title: 'title token=[REDACTED]' }] },
+      arguments: { parent: OUTBOUND_IDENTITY },
+      result: { success: true, data: [{ id: 'card-token', title: 'title token=[REDACTED]' }] },
     });
     expect(JSON.stringify(completeProjection)).not.toContain(OUTBOUND_RAW_MARKER);
 
     const callProjection = projectToolInvocation({
-      shape: 'call-row', identity: callIdentity('list_cards'), arguments: JSON.stringify({ tag: OUTBOUND_IDENTITY }),
+      shape: 'call-row', identity: callIdentity('list_cards'), arguments: JSON.stringify({ parent: OUTBOUND_IDENTITY }),
     });
-    expect(JSON.parse((callProjection as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ tag: OUTBOUND_IDENTITY });
+    expect(JSON.parse((callProjection as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ parent: OUTBOUND_IDENTITY });
     expect(callProjection).not.toHaveProperty('result');
 
     const resultProjection = projectToolInvocation({
       shape: 'result-row', identity: identity('list_cards'), result: { success: true, data: [card] },
     });
-    expect(resultProjection).toMatchObject({ result: { data: [{ tags: ['tok-[REDACTED]'] }] } });
+    expect(resultProjection).toMatchObject({ result: { data: [{ id: 'card-token', title: 'title token=[REDACTED]' }] } });
     expect(resultProjection).not.toHaveProperty('arguments');
     expect(JSON.stringify(resultProjection)).not.toContain(OUTBOUND_RAW_MARKER);
   });

@@ -99,7 +99,7 @@ describe('application startup generated-state admission', () => {
     const explicitWorkflows = compileProjectWorkflows(explicitConfig);
     replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), explicitConfig);
     publishInitialProjectRuntime(root, explicitWorkflows);
-    new CardService(root, explicitWorkflows).create({ type: 'fixture-leaf', parent: 'project', title: 'Fixture-family child', bootstrap_content: 'Fixture-family authority.', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    new CardService(root, explicitWorkflows).create({ type: 'fixture-leaf', parent: 'project', title: 'Fixture-family child', bootstrap_content: 'Fixture-family authority.', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     expect(() => initializeAndValidateCurrentGeneratedState(root, explicitWorkflows)).not.toThrow();
 
     replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), selectedStandardConfig());

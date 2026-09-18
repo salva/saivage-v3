@@ -14,7 +14,7 @@ import { toCardView } from '../../src/application/read-models/card-view.js';
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'e2e' };
-function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) { return { type, parent, title: type, bootstrap_content: `${type} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on, related: [] }; }
+function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) { return { type, parent, title: type, bootstrap_content: `${type} brief`, priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on }; }
 function row(session_id: ConversationSessionId, id: string) { return { id, session_id, role: 'user' as const, kind: 'text' as const, content: id, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } as const, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' }; }
 
 describe('reset-only hierarchical card storage', () => {
@@ -59,7 +59,7 @@ describe('reset-only hierarchical card storage', () => {
     if ('statusCode' in filesResult) throw new Error('Expected Files child directory.');
     expect(filesResult.body.files.map(({ name }) => name)).toEqual([dependent.id.split('-').at(-1), dependency.id.split('-').at(-1)]);
     const parentRows = readFileSync(cardStreamFile(root, goal.id), 'utf8').trimEnd().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ format_version: number; card: { child_membership: string[]; active_child_order: string[] }; change: { kind: string; changed_fields: string[] } | null }> }).rows);
-    expect(parentRows.every((artifact) => artifact.format_version === 2)).toBe(true);
+    expect(parentRows.every((artifact) => artifact.format_version === 3)).toBe(true);
     const linkRows = parentRows.filter((artifact) => artifact.change?.kind === 'child_link');
     expect(linkRows.map((artifact) => artifact.card.child_membership)).toEqual([
       [dependency.id], [dependency.id, dependent.id], [dependency.id, dependent.id, retainedTombstone.id],

@@ -18,9 +18,9 @@ const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('collection'), item_index: z.number().int().min(0), item_byte_offset: z.number().int().min(0) }).strict(),
   z.object({ kind: z.literal('text'), byte_offset: z.number().int().min(0) }).strict(),
 ]);
-const cardSectionSchema = z.enum(['summary', 'workflow', 'tags', 'dependencies', 'related', 'children', 'records'])
+const cardSectionSchema = z.enum(['summary', 'workflow', 'dependencies', 'children', 'records'])
   .describe('Exactly one current-card section per call. Pending delivery context is not readable.');
-const cardVersionSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'children'])
+const cardVersionSectionSchema = z.enum(['summary', 'dependencies', 'children'])
   .describe("Exactly one card-artifact-owned section per call. The children section is the selected immutable row's complete active_child_order carrier and may include retained tombstoned links. Pending delivery context is not readable.");
 
 const cardTypeEnum = (cardTypeVocabulary: readonly CardTypeName[]) => z.enum(cardTypeVocabulary as [CardTypeName, ...CardTypeName[]]);
@@ -30,11 +30,9 @@ export const createAnalystCreateCardInputSchema = (cardTypeVocabulary: readonly 
   parent: cardIdSchema.describe('The exact existing parent card ID for the new child.'),
   title: z.string().describe('A short title.'),
   bootstrap_content: z.string().trim().min(1).describe('Non-empty Markdown content for the child type configured bootstrap record.'),
-  tags: z.array(z.string().describe('A tag string')).optional().describe('Optional tags.'),
   priority: z.number().int().optional().describe('Optional priority value (0-100).'),
   urgency: z.enum(urgencyValues).optional().describe('Optional urgency level.'),
   depends_on: z.array(z.string().describe('A card ID')).optional().describe('Optional dependency list.'),
-  related: z.array(z.string().describe('A card ID')).optional().describe('Optional related-card list.'),
 }).strict();
 export type AnalystCreateCardInput = z.infer<ReturnType<typeof createAnalystCreateCardInputSchema>>;
 export const analystReorderChildInputSchema = z.object({ parentId: z.string().describe('Parent whose children to reorder.'), orderedChildIds: z.array(z.string()).describe('New child id order; must be a permutation of the current child set.') }).strict();
@@ -66,7 +64,6 @@ export interface ListCardsInput {
   status?: CardStatus | CardStatus[];
   type?: CardTypeName | CardTypeName[];
   parent?: string;
-  tag?: string;
   position?: z.infer<typeof discoveryCollectionPositionSchema>;
   response_bytes?: number;
 }
@@ -74,7 +71,6 @@ export const createListCardsInputSchema = (cardTypeVocabulary: readonly CardType
   status: z.union([z.enum(cardStatusValues), z.array(z.enum(cardStatusValues))]).optional(),
   type: z.union([cardTypeEnum(cardTypeVocabulary), z.array(cardTypeEnum(cardTypeVocabulary))]).optional(),
   parent: z.string().optional(),
-  tag: z.string().optional(),
   position: discoveryCollectionPositionSchema.optional(),
   response_bytes: responseBytesSchema.optional(),
 }).strict();
@@ -151,8 +147,8 @@ export const killProcessInputSchema = z.object({ process_id: z.string().min(1) }
 export const websearchInputSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
 export const skillInputSchema = z.object({ name: z.string().optional() }).strict();
 
-export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string(), bootstrap_content: z.string().trim().min(1), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), depends_on: z.array(z.string()).optional(), related: z.array(z.string()).optional() }).strict();
-export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, title: z.string().optional(), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), related: z.array(z.string()).optional() }).strict();
+export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string(), bootstrap_content: z.string().trim().min(1), priority: z.number().int().optional(), urgency: z.string().optional(), depends_on: z.array(z.string()).optional() }).strict();
+export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, title: z.string().optional(), priority: z.number().int().optional(), urgency: z.string().optional() }).strict();
 export const plannerCancelCardInputSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
 export const plannerReopenCardInputSchema = z.object({ card_id: cardIdSchema.describe('The exact done or failed direct-child card ID to reopen.') }).strict();
 export const plannerReorderChildInputSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();

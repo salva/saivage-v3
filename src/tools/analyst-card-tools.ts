@@ -6,7 +6,7 @@ import type { ToolContext } from './analyst-tool-types.js';
 import { defineToolBinder, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 
 async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
-  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent: params.parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on, related: params.related };
+  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent: params.parent, title: params.title, bootstrap_content: params.bootstrap_content, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on };
   return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
 }
 

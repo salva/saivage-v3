@@ -7,19 +7,17 @@ export interface NewChildCardInput {
   parent: string;
   title: string;
   bootstrap_content: string;
-  tags: string[];
   priority: number;
   urgency: Urgency;
   created_by: CreatedBy;
   depends_on: string[];
-  related: string[];
 }
 
-export type CardEditPatch = Partial<Pick<CardRecord, 'title' | 'tags' | 'priority' | 'urgency' | 'related'>>;
+export type CardEditPatch = Partial<Pick<CardRecord, 'title' | 'priority' | 'urgency'>>;
 export type SetStatusTarget = 'running' | 'changed' | 'cancelled';
 type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
 
-const EDIT_FIELDS = ['title', 'tags', 'priority', 'urgency', 'related'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
+const EDIT_FIELDS = ['title', 'priority', 'urgency'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
 const SET_STATUS_SOURCES: Record<SetStatusTarget, readonly CardStatus[]> = {
   running: ['backlog', 'blocked', 'changed'],
   changed: ['blocked', 'done', 'failed'],

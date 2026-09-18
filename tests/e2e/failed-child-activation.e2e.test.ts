@@ -81,7 +81,7 @@ describe('failed child activation lifecycle E2E', () => {
   it('pins one autonomous safety reframing, blocks on a second refusal, and returns only nested safe parent evidence', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-content-policy-child-')); roots.push(projectRoot); initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Refusal child', bootstrap_content: 'Perform scoped work', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Refusal child', bootstrap_content: 'Perform scoped work', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     let plannerCalls = 0; let childCalls = 0; let parentResult: unknown;
     const childInputs: LlmInvocationInput[] = [];
@@ -126,9 +126,9 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Plan children', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Fail once', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Run second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Plan children', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Fail once', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Run second', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
 
     const parentAfterRejectedRetry = deferred<void>();
@@ -237,7 +237,7 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Retry child', bootstrap_content: 'Fail, change, and retry', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Retry child', bootstrap_content: 'Fail, change, and retry', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     const retryAdmitted = deferred<void>();
     const releaseRetry = deferred<void>();
@@ -296,7 +296,7 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', bootstrap_content: 'Fail cleanup', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', bootstrap_content: 'Fail cleanup', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     cards.setStatus('project', 'running');
     const initialVersion = cards.read(child.id)!.version_seq;
     const registry = new ManagedProcessGroupRegistry();

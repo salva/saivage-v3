@@ -65,12 +65,10 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof p
     parent: ctx.parentCardId,
     title: requireNonEmptyString(record.title, 'title'),
     bootstrap_content: requireNonEmptyString(record.bootstrap_content, 'bootstrap_content'),
-    tags: record.tags ?? [],
     priority: record.priority ?? 0,
     urgency: optionalUrgency(record.urgency),
     created_by: parseAgentName(ctx.sessionId.split(':')[1]),
     depends_on: dependsOn,
-    related: record.related ?? [],
   };
   return toolSucceeded({ card: compactPlannerToolCard(ctx.store.create(input)) });
 }
@@ -152,10 +150,8 @@ function plannerCreatedType(value: string, cardTypeVocabulary: readonly CardType
 function plannerEditablePatch(record: z.infer<typeof plannerEditCardInputSchema>): CardEditPatch {
   const patch: CardEditPatch = {};
   if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
-  if (record.tags !== undefined) patch.tags = record.tags;
   if (record.priority !== undefined) patch.priority = record.priority;
   if (record.urgency !== undefined) patch.urgency = requireUrgency(record.urgency);
-  if (record.related !== undefined) patch.related = record.related;
   return patch;
 }
 
@@ -173,8 +169,8 @@ function optionalUrgency(value: string | undefined): Urgency {
   return value === undefined ? 'normal' : requireUrgency(value);
 }
 
-function compactPlannerToolCard(card: CardRecord): { id: string; type: CardTypeName; parent: string | null; status: CardRecord['lifecycle']['status']; title: string; depends_on: string[]; related: string[]; tags: string[]; priority: number; urgency: Urgency } {
-  return { id: card.id, type: card.type, parent: cardParentId(card.id), status: card.lifecycle.status, title: card.title, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency };
+function compactPlannerToolCard(card: CardRecord): { id: string; type: CardTypeName; parent: string | null; status: CardRecord['lifecycle']['status']; title: string; depends_on: string[]; priority: number; urgency: Urgency } {
+  return { id: card.id, type: card.type, parent: cardParentId(card.id), status: card.lifecycle.status, title: card.title, depends_on: card.depends_on, priority: card.priority, urgency: card.urgency };
 }
 
 function failure(error: string): ToolActionOutcome {

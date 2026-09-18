@@ -33,8 +33,8 @@ describe('custom card type execution admission',()=>{
     const structural=compileProjectWorkflows(config);
     const providerRegistry=new ProviderRegistry(config);const workflows=bindRuntimeWorkflows(structural,new ModelRouter(providerRegistry),providerRegistry,config.compaction.context_utilization_fraction);
     const cards=new ProductionCardService(root,structural);
-    const initiativeCard=cards.create({type:'initiative',parent:'project',title:'Initiative',bootstrap_content:'plan',tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
-    const taskCard=cards.create({type:'task',parent:initiativeCard.id,title:'Task',bootstrap_content:'execute',tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
+    const initiativeCard=cards.create({type:'initiative',parent:'project',title:'Initiative',bootstrap_content:'plan',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
+    const taskCard=cards.create({type:'task',parent:initiativeCard.id,title:'Task',bootstrap_content:'execute',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
     expect([initiativeCard.type,taskCard.type]).toEqual(['initiative','task']);
     const admitted=deferred<LlmInvocationInput>();
     const provider=scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput,signal:AbortSignal)=>{

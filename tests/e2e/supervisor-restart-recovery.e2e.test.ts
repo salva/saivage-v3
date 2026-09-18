@@ -144,7 +144,7 @@ describe('Supervisor kill/restart full-chain recovery', () => {
       });
       writeProductionConfig(projectRoot, config);
       const setupCards = new CardService(projectRoot, compileProjectWorkflows(config, { projectRoot }));
-      const child = setupCards.create({ type: 'code', parent: 'project', title: 'Held child', bootstrap_content: 'Wait in the provider request.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+      const child = setupCards.create({ type: 'code', parent: 'project', title: 'Held child', bootstrap_content: 'Wait in the provider request.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
       expect(child.id).toBe('card-a');
 
       let childStdout = '';

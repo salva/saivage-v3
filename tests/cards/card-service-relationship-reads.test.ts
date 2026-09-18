@@ -21,7 +21,7 @@ function project(): { root: string; cards: CardService } {
 }
 
 function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) {
-  return { type, parent, title: `${parent} child`, bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on, related: [] };
+  return { type, parent, title: `${parent} child`, bootstrap_content: 'brief', priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on };
 }
 
 function link(root: string, parent: CardRecord, childId: string): CardRecord {
