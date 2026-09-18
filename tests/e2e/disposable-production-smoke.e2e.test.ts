@@ -116,15 +116,15 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
     },
     workflow: {
       notification_recipient: 'executor',
-      entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
+      entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
       nodes: {
         execute: {
-          agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: { 'status.md': {mode:'continue',gate:'updated'} },
-          edges: { verify: { target: { node: 'verify' }, prompt: 'execute-to-verify' } },
+          agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true }, records: { 'status.md': {mode:'continue',gate:'updated'} },
+          edges: { verify: { target: { node: 'verify' }, prompt: { reference: 'execute-to-verify', compactable: true } } },
         },
         verify: {
-          agent: 'reviewer', prompt: 'verify', correction_prompt: 'correct-verify-result', records: { 'status.md': {mode:'continue',gate:'exists'}, 'review.md': {mode:'clean',gate:'updated'} },
-          edges: { approved: { target: { terminal: 'DONE', promote: { latest_node: 'execute' }, export_records: ['status.md', 'review.md'] }, pending_notifications: { node: 'execute', prompt: 'review-notifications-to-execute' } } },
+          agent: 'reviewer', prompt: { reference: 'verify', compactable: true }, correction_prompt: { reference: 'correct-verify-result', compactable: true }, records: { 'status.md': {mode:'continue',gate:'exists'}, 'review.md': {mode:'clean',gate:'updated'} },
+          edges: { approved: { target: { terminal: 'DONE', promote: { latest_node: 'execute' }, export_records: ['status.md', 'review.md'] }, pending_notifications: { node: 'execute', prompt: { reference: 'review-notifications-to-execute', compactable: true } } } },
         },
       },
     },

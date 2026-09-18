@@ -61,8 +61,8 @@ function dynamicBlock(id: string, overrides: Partial<Omit<ContextBlock, 'id'>> =
   return { id, role: 'user', content: `content:${id}`, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, ...overrides };
 }
 
-const historyFacts = (partial: Omit<EffectiveCompactedHistoryFacts, 'historyMessageId' | 'historyTimestamp'>): EffectiveCompactedHistoryFacts =>
-  ({ historyMessageId: 'genesis-1:compacted-history', historyTimestamp: '2026-08-17T00:00:00.000Z', ...partial });
+const historyFacts = (partial: Omit<EffectiveCompactedHistoryFacts, 'historyMessageId' | 'historyTimestamp' | 'protectedPrompts'>): EffectiveCompactedHistoryFacts =>
+  ({ historyMessageId: 'genesis-1:compacted-history', historyTimestamp: '2026-08-17T00:00:00.000Z', protectedPrompts: [], ...partial });
 
 const compose = (uncoveredRows: readonly AgentMessage[], args: { effectiveHistory?: EffectiveCompactedHistoryFacts | null; dynamicBlocks?: readonly ContextBlock[] } = {}): ComposedContextProjection =>
   composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: args.effectiveHistory ?? null, dynamicBlocks: args.dynamicBlocks ?? [], uncoveredRows });
@@ -162,8 +162,8 @@ describe('composition projector selection pass', () => {
   });
 
   it('routes summarizer-only and evidence-only content rows by audience', () => {
-    const summarizerOnly = { kind: 'content' as const, storage: 'durable' as const, replacement: { kind: 'retain' as const }, audience: 'summarizer_only' as const, evidence: { kind: 'none' as const } };
-    const evidenceOnly = { kind: 'content' as const, storage: 'durable' as const, replacement: { kind: 'retain' as const }, audience: 'evidence_only' as const, evidence: { kind: 'canonical_locator' as const, locator: 'card://project/version/1', sha256: 'b'.repeat(64) } };
+    const summarizerOnly = { kind: 'content' as const, storage: 'durable' as const, replacement: { kind: 'retain' as const }, audience: 'summarizer_only' as const, evidence: { kind: 'none' as const }, compactable: true };
+    const evidenceOnly = { kind: 'content' as const, storage: 'durable' as const, replacement: { kind: 'retain' as const }, audience: 'evidence_only' as const, evidence: { kind: 'canonical_locator' as const, locator: 'card://project/version/1', sha256: 'b'.repeat(64) }, compactable: true };
     const composed = compose([
       row({ id: 'so', role: 'user', kind: 'text', content: 'hidden from primary? no', context_policy: summarizerOnly }),
       row({ id: 'eo', role: 'user', kind: 'text', content: 'body never summarized', context_policy: evidenceOnly }),

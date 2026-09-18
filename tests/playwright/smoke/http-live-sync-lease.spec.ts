@@ -66,6 +66,10 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
     lease,
   }), { id: sessionId, lease: subscribe.lease });
   await expect.poll(() => rest.counts.get(conversationKey) ?? 0).toBe(readsBeforeAcknowledgement + 1);
+  const retained = page.getByTestId('retained-instruction-context');
+  await expect(retained).toContainText('Retained instruction context');
+  await expect(retained).toContainText('Preserve this exact operator constraint.');
+  await expect(retained).toContainText('key: smoke.constraint');
 
   await page.evaluate(() => {
     window.history.pushState({}, '', '/agents');

@@ -31,10 +31,15 @@ const BIG = 'x'.repeat(12_000);
 export async function publishThreeGenerationCompactedConversation(
   projectRoot: string,
   summaryText = 'fixture compacted summary',
+  protectedPrompts?: Readonly<{
+    first: Readonly<{ content: string; key: string }>;
+    replacement: Readonly<{ content: string; key: string }>;
+  }>,
 ): Promise<ConversationSessionId> {
   appendConversationBatch({ projectRoot }, [
     activation(1),
     text('text-1', BIG),
+    ...(protectedPrompts ? [protectedText('protected-1', protectedPrompts.first.content, protectedPrompts.first.key)] : []),
     recoveryNotice(1),
     activation(2),
     ...summarizerOnlyBundle(2, 'fact-bundle'.concat('-fact'.repeat(4_000))),
@@ -48,6 +53,7 @@ export async function publishThreeGenerationCompactedConversation(
   appendConversationBatch({ projectRoot }, [
     repair('small repair'),
     activation(4),
+    ...(protectedPrompts ? [protectedText('protected-2', protectedPrompts.replacement.content, protectedPrompts.replacement.key)] : []),
     text('text-4', BIG),
     ...summarizerOnlyBundle(4, 'second-open-round'.concat('-open'.repeat(400))),
   ]);
@@ -144,6 +150,13 @@ function text(id: string, content: string): AgentMessage {
     message_index: 1,
     block_index: 0,
     timestamp: '2026-09-07T00:00:01.000Z',
+  };
+}
+
+function protectedText(id: string, content: string, compactionKey: string): AgentMessage {
+  return {
+    ...text(id, content),
+    context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: compactionKey },
   };
 }
 

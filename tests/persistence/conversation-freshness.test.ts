@@ -18,7 +18,7 @@ function row(session_id: ConversationSessionId, id: string, kind: 'activity' | '
     session_id,
     role: kind === 'activity' ? 'system' : 'assistant',
     kind,
-    context_policy: kind === 'activity' ? { kind: 'structural', behavior: 'activation_boundary' } : { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
+    context_policy: kind === 'activity' ? { kind: 'structural', behavior: 'activation_boundary' } : { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
     content:
       kind === 'activity'
         ? JSON.stringify({

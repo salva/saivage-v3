@@ -70,7 +70,7 @@ export type SyntheticProviderContextItem = Readonly<{
   kind: 'synthetic_context';
   role: 'system' | 'user' | 'assistant';
   content: string;
-  origin: 'dynamic' | 'context_boundary' | 'history_summary' | 'recovery_notice' | 'refusal_notice' | 'retry_notice' | 'summary_material';
+  origin: 'dynamic' | 'context_boundary' | 'history_summary' | 'retained_instruction' | 'recovery_notice' | 'refusal_notice' | 'retry_notice' | 'summary_material';
   block_identity: string;
 }>;
 

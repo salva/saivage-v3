@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
+import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, durablePrimaryContentPolicy, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/conversation-validation.js';
@@ -14,7 +14,7 @@ import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-se
 type UserContextMessageCategory =
   | 'notification' | 'reviewer_descendant' | 'process_transition' | 'continuation_hook';
 
-export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
+export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string; protection?: Readonly<{ compactable: boolean; compaction_key?: string }> }>;
 
 export function appendUserContextMessage(
   conversations: ConversationFileContext,
@@ -51,7 +51,7 @@ export function buildUserContextMessage(
     role: 'user',
     kind: 'text',
     content,
-    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
+    context_policy: userContextMessage.protection ? durablePrimaryContentPolicy(userContextMessage.protection) : DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: deterministicRoundId('user', seed),
     message_index: 1,
     block_index: 0,
@@ -212,6 +212,7 @@ export function providerConversationProjection(
           historyMessageId: `${genesis.id}:compacted-history`,
           historyTimestamp: genesis.timestamp,
           requiredModelFacts: history.requiredModelFacts,
+          protectedPrompts: history.protectedPrompts,
         }
       : null,
     dynamicBlocks: preparedDynamicBlocks,

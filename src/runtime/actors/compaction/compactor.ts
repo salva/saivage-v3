@@ -7,11 +7,12 @@ import {
   type CompactionSuccessorIdentity,
   type ConversationFileContext,
 } from '../../../persistence/conversation-file.js';
-import { compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, type AgentMessage, type CompactedHistory,
+import { compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, protectedPromptsSha256, type AgentMessage, type CompactedHistory,
 } from '../../../schemas/index.js';
 import {
   deriveRequiredModelFacts,
   selectAtomicCoveredSourceGroups,
+  selectConversationProtection,
   validateCompactedHistorySuccessor,
   validateConversation,
   type CompactedGenesisSeed,
@@ -204,6 +205,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     : null;
   const sourceVersion = segment.entry.version;
   const inheritedHistory = sourceGenesis?.history ?? null;
+  const operationProtection = selectConversationProtection({ inherited: inheritedHistory?.protectedPrompts ?? [], rows: sourceRows, sourceVersion, cutoffCount: sourceRows.length });
   const classified = classifyConversationRounds(conversation);
   const successorIdentity = allocateSuccessorIdentity(segment.entry.version);
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
@@ -216,6 +218,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     budget: { contextUtilizationFraction: budget.contextUtilizationFraction },
     signal: args.signal,
     progress: args.progress,
+    protectedPrompts: operationProtection.activePrompts,
+    releasedInheritedMessages: operationProtection.releasedInheritedMessages,
   });
 
   const candidateFor = async (cutoffCount: number): Promise<Candidate | null> => {
@@ -468,9 +472,11 @@ function buildSuccessorHistory(args: {
   coveredRows: readonly AgentMessage[];
   summaryText: string;
 }): CompactedHistory {
-  const selection = selectAtomicCoveredSourceGroups(args.conversation, args.coveredRows);
+  const protection = selectConversationProtection({ inherited: args.sourceGenesis?.history.protectedPrompts ?? [], rows: args.conversation.sourceRows, sourceVersion: args.sourceVersion, cutoffCount: args.coveredRows.length });
+  const selection = selectAtomicCoveredSourceGroups(args.conversation, args.coveredRows, protection.protectedCoveredIds);
   return compactedHistorySchema.parse({
     summaryText: args.summaryText,
+    protectedPrompts: protection.protectedPrompts,
     source: args.sourceGenesis
       ? { kind: 'prior_genesis_plus_current_rows', priorGenesisId: args.sourceGenesis.id, priorHistoryHash: canonicalValueSha256(args.sourceGenesis.history), groups: selection.groups }
       : { kind: 'current_rows', groups: selection.groups },
@@ -481,6 +487,7 @@ function buildSuccessorHistory(args: {
       coveredThroughMessageId: args.coveredRows.at(-1)!.id,
       coveredSourceGroupsSha256: coveredSourceGroupsSha256(selection.groups),
       accumulatedSummarySha256: accumulatedSummarySha256(args.summaryText),
+      protectedPromptsSha256: protectedPromptsSha256(protection.protectedPrompts),
     },
     requiredModelFacts: deriveRequiredModelFacts({
       inherited: args.sourceGenesis?.history.requiredModelFacts ?? { latestRecovery: null, latestContentPolicyRefusal: null },

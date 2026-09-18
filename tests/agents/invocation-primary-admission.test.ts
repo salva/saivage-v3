@@ -54,7 +54,7 @@ function request(chain: readonly Candidate[]): InvocationRequest {
 }
 
 function message(id: string, content: string) {
-  return agentMessageSchema.parse({ id, session_id: SESSION, role: 'user', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp: '2026-08-16T00:00:00.000Z' });
+  return agentMessageSchema.parse({ id, session_id: SESSION, role: 'user', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp: '2026-08-16T00:00:00.000Z' });
 }
 
 function service(candidates: readonly Candidate[], overrides: Record<string, SaivageConfig['providers'][string]['capabilities']> = {}): InvocationService {

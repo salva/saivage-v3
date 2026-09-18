@@ -25,7 +25,8 @@ import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invoc
 import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
-const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\nThe Reviewer requires revision. Address the immediately preceding findings and update the `project` card evidence before selecting the next route.\n';
+const FEEDBACK_HANDOFF = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\n';
+const FEEDBACK_PROMPT = 'The Reviewer requires revision. Address the immediately preceding findings and update the `project` card evidence before selecting the next route.\n';
 const REVISED_EVIDENCE = 'Revised remediation evidence addressing the concrete review.';
 const roots: string[] = [];
 
@@ -90,8 +91,8 @@ describe('reviewer rework completion E2E', () => {
           if (plannerCalls === 2) return complete(tool('planner-done-initial', 'emit_result', { outcome: 'admit_review', summary: 'Initial submission.' }));
           if (plannerCalls === 3) {
             remediationProjection = input.providerConversation;
-            const feedbackRows = input.providerConversation.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK);
-            if (feedbackRows.length !== 1) throw new Error(`Expected one projected reviewer feedback row, received ${feedbackRows.length}.`);
+            const feedbackRows = input.providerConversation.messages.filter((row) => row.role === 'user' && row.kind === 'text' && (row.content === FEEDBACK_HANDOFF || row.content === FEEDBACK_PROMPT));
+            if (feedbackRows.length !== 2) throw new Error(`Expected the projected reviewer handoff and configured prompt rows, received ${feedbackRows.length}.`);
             return complete(tool('planner-write-revised', 'write', { path: 'record:///status.md?card=project', content: REVISED_EVIDENCE }));
           }
           if (plannerCalls === 4) return complete(tool('planner-done-revised', 'emit_result', { outcome: 'admit_review', summary: 'Concrete remediation complete.' }));
@@ -169,9 +170,11 @@ describe('reviewer rework completion E2E', () => {
     expect(membershipRecords.some(({ liveIds }) => liveIds.length === 0)).toBe(true);
 
     expect(remediationProjection).not.toBeNull();
-    expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
+    expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_HANDOFF)).toHaveLength(1);
+    expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_PROMPT)).toHaveLength(1);
     const plannerRows = readConversation(projectRoot, 'agent:planner:project').physicalRows;
-    expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
+    expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_HANDOFF)).toHaveLength(1);
+    expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_PROMPT)).toHaveLength(1);
     expect(cards.readRecordVersion('project','status.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:REVISED_EVIDENCE}}}}});
     expect(cards.readRecordVersion('project','review.md',2)).toMatchObject({kind:'found',value:{projection:{versionUrl:'record:///review.md?card=project&v=2',artifact:{draft:{content:'Rework required: add explicit remediation evidence.'}}}}});
     expect(cards.readRecordVersion('project','review.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Approved after concrete remediation.'}}}}});

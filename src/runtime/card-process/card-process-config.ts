@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from '../../config/system-templates/registry.js';
 import type { AgentName } from '../../schemas/agent-name.js';
 import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
-import type { CardTypeSource, SaivageConfig } from '../../schemas/saivage-config.js';
+import type { CardTypeSource, DurablePromptDeclaration, SaivageConfig, StaticPromptDeclaration } from '../../schemas/saivage-config.js';
 import { parseCardTypeName, type CardStatus, type CardTypeName } from '../../schemas/index.js';
 import { validateCompiledActorTable } from '../micro-actor/micro-actor.js';
 import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
@@ -32,19 +32,20 @@ type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined;
 
 type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
 type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
-type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; recordWrites: readonly CompiledRecordWritePattern[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
+type CompiledAgentContract = Readonly<{ name: AgentName; prompt: StaticPromptDeclaration; tools: readonly CompiledToolReference[]; recordWrites: readonly CompiledRecordWritePattern[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
 type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; mode: RecordRequirementMode; gate: RecordRequirementGate }>;
 type CompiledDescendantContext = Readonly<{ records: readonly CompiledRecordDefinition[]; requireUnchangedUntilAccept: boolean }>;
 type CompiledTerminalBehavior = Readonly<{ promotion: Readonly<{ kind: 'current' } | { kind: 'latest-node'; nodeId: string }>; exportRecords: readonly CompiledRecordDefinition[] }>;
+export type CompiledPromptDeclaration = Readonly<{ promptId: ProcessPromptId; compactable: boolean; compactionKey?: string }>;
 type ProcessTransitionSemantic =
   | Readonly<{ kind: 'activation' }>
-  | Readonly<{ kind: 'entry-route'; promptId: ProcessPromptId | null }>
-  | Readonly<{ kind: 'configured-outcome'; outcome: string; promptId: ProcessPromptId | null; terminalBehavior: CompiledTerminalBehavior | null }>
-  | Readonly<{ kind: 'configured-pending-notifications'; outcome: string; promptId: ProcessPromptId }>
+  | Readonly<{ kind: 'entry-route'; prompt: CompiledPromptDeclaration | null }>
+  | Readonly<{ kind: 'configured-outcome'; outcome: string; prompt: CompiledPromptDeclaration | null; terminalBehavior: CompiledTerminalBehavior | null }>
+  | Readonly<{ kind: 'configured-pending-notifications'; outcome: string; prompt: CompiledPromptDeclaration }>
   | Readonly<{ kind: 'runtime-terminal'; cause: 'failed' | 'blocked' }>;
 export type CompiledProcessTransition = Readonly<{ targetStateId: string; reenter: boolean; semantic: ProcessTransitionSemantic }>;
 type ProcessStateBase = Readonly<{ on: ReadonlyMap<string, CompiledProcessTransition>; isTerminal: boolean; isParked: boolean }>;
-export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardTypeName>; childActivationTypes: ReadonlySet<CardTypeName>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
+export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; prompt: CompiledPromptDeclaration; correctionPrompt: CompiledPromptDeclaration; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardTypeName>; childActivationTypes: ReadonlySet<CardTypeName>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
 type CompiledProcessState =
   | (ProcessStateBase & Readonly<{ kind: 'ready' }>)
   | (ProcessStateBase & Readonly<{ kind: 'entry'; entry: CardProcessEntry }>)
@@ -95,7 +96,7 @@ function selectAgentPrompt(
   agent: CompiledAgentContract,
   roots: PromptRoots,
 ): CompiledAgentPrompt {
-  return compileSelected(host,agent.name,agent.prompt,roots);
+  return compileSelected(host,agent.name,agent.prompt.reference,roots);
 }
 function selectProcessPrompt(
   cardType: CardTypeName,
@@ -109,6 +110,7 @@ function selectProcessPrompt(
 }
 function identifier(value:string,location:string):string { if(!IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase identifier of at most 64 characters.`);return value; }
 function promptId(value:string,location:string):ProcessPromptId{return identifier(value,location) as ProcessPromptId;}
+function compilePromptDeclaration(value: DurablePromptDeclaration | StaticPromptDeclaration, location: string): CompiledPromptDeclaration { return Object.freeze({ promptId: promptId(value.reference, `${location}.reference`), compactable: value.compactable, ...('compaction_key' in value && value.compaction_key !== undefined ? { compactionKey: value.compaction_key } : {}) }); }
 function outcomeIdentifier(value:string,location:string):string{if(!OUTCOME_IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase outcome identifier of at most 64 characters.`);return value;}
 const nodeState=(id:string)=>`node:${id}`; const entryState=(entry:CardProcessEntry)=>`entry:${entry}`; const terminalState=(terminal:CardProcessTerminal)=>`terminal:${terminal}`;
 export function cardProcessEntryForStatus(status:CardStatus):CardProcessEntry|null{if(status==='backlog')return'BACKLOG';if(status==='changed')return'CHANGED';if(status==='blocked')return'BLOCKED';if(status==='stopped')return'STOPPED';return null;}
@@ -132,14 +134,14 @@ export function agentCanWriteRecord(agent:CompiledAgentContract,name:RecordName)
 export function genericRecordDefinition(name:RecordName):CompiledRecordDefinition{return Object.freeze({name,format:'markdown',schema:GENERIC_RECORD_SCHEMA,bootstrap:false,declared:false});}
 function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const[rawName,source]of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();const tools:CompiledToolReference[]=[];for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);try{tools.push(resolveRuntimeTool(source.session,tool));}catch{throw new Error(`agents.${name}.tools contains unknown tool '${tool}' for ${source.session} session scope.`);}}const patternNames=new Set<string>();const recordWrites=source.record_writes.map((pattern)=>{if(patternNames.has(pattern))throw new Error(`agents.${name}.record_writes contains duplicate '${pattern}'.`);patternNames.add(pattern);return compileRecordWritePattern(pattern);});if(source.skills!==tools.some((tool)=>tool.name==='skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(tools.some((tool)=>tool.name==='create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze(tools),recordWrites:Object.freeze(recordWrites),modelRoute:source.model_route,model:Object.freeze({orderedModelIds:expandModelOrder(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
 
-type PendingNotificationsEdgeDraft = Readonly<{ targetStateId:string; targetNodeId:string; promptId:ProcessPromptId }>;
-type ProcessEdgeDraft = Readonly<{ outcome:string; targetStateId:string; targetNodeId:string|null; promptId:ProcessPromptId|null; terminalBehavior:CompiledTerminalBehavior|null; pendingNotifications:PendingNotificationsEdgeDraft|null }>;
+type PendingNotificationsEdgeDraft = Readonly<{ targetStateId:string; targetNodeId:string; prompt:CompiledPromptDeclaration }>;
+type ProcessEdgeDraft = Readonly<{ outcome:string; targetStateId:string; targetNodeId:string|null; prompt:CompiledPromptDeclaration|null; terminalBehavior:CompiledTerminalBehavior|null; pendingNotifications:PendingNotificationsEdgeDraft|null }>;
 type ProcessNodeDraft = Readonly<{
   nodeId: string;
   agent: CompiledAgentContract;
   selectedAgentPrompt: CompiledAgentPrompt;
-  promptId: ProcessPromptId;
-  correctionPromptId: ProcessPromptId;
+  prompt: CompiledPromptDeclaration;
+  correctionPrompt: CompiledPromptDeclaration;
   requirements: readonly CompiledRecordRequirement[];
   descendantContext: CompiledDescendantContext | null;
   edges: ReadonlyMap<string, ProcessEdgeDraft>;
@@ -156,7 +158,7 @@ type CardTypeCompileDraft = Readonly<{
   nodes: ReadonlyMap<string, ProcessNodeDraft>;
   entries: ReadonlyMap<
     CardProcessEntry,
-    Readonly<{ targetNodeId: string; promptId: ProcessPromptId | null }>
+    Readonly<{ targetNodeId: string; prompt: CompiledPromptDeclaration | null }>
   >;
 }>;
 
@@ -238,13 +240,10 @@ function compileCardTypeInputs(
             outcome,
             targetStateId: nodeState(edge.target.node),
             targetNodeId: edge.target.node,
-            promptId:
+            prompt:
               edge.prompt === undefined
                 ? null
-                : promptId(
-                    edge.prompt,
-                    `${location}.workflow.nodes.${nodeId}.edges.${outcome}.prompt`,
-                  ),
+                : compilePromptDeclaration(edge.prompt, `${location}.workflow.nodes.${nodeId}.edges.${outcome}.prompt`),
             terminalBehavior: null,
             pendingNotifications: null,
           }),
@@ -278,12 +277,12 @@ function compileCardTypeInputs(
           outcome,
           targetStateId: terminalState(edge.target.terminal),
           targetNodeId: null,
-          promptId: null,
+          prompt: null,
           pendingNotifications: edge.pending_notifications
             ? Object.freeze({
                 targetStateId: nodeState(edge.pending_notifications.node),
                 targetNodeId: edge.pending_notifications.node,
-                promptId: promptId(edge.pending_notifications.prompt, `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications.prompt`),
+                prompt: compilePromptDeclaration(edge.pending_notifications.prompt, `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications.prompt`),
               })
             : null,
           terminalBehavior: Object.freeze({
@@ -318,8 +317,8 @@ function compileCardTypeInputs(
         nodeId,
         agent,
         selectedAgentPrompt,
-        promptId: promptId(node.prompt, `${location}.workflow.nodes.${nodeId}.prompt`),
-        correctionPromptId: promptId(
+        prompt: compilePromptDeclaration(node.prompt, `${location}.workflow.nodes.${nodeId}.prompt`),
+        correctionPrompt: compilePromptDeclaration(
           node.correction_prompt,
           `${location}.workflow.nodes.${nodeId}.correction_prompt`,
         ),
@@ -339,7 +338,7 @@ function compileCardTypeInputs(
   if (nodes.size === 0) throw new Error(`${location}.workflow.nodes must not be empty.`);
   const entries = new Map<
     CardProcessEntry,
-    Readonly<{ targetNodeId: string; promptId: ProcessPromptId | null }>
+    Readonly<{ targetNodeId: string; prompt: CompiledPromptDeclaration | null }>
   >();
   for (const entry of ENTRY_PORTS) {
     const value = source.workflow.entries[entry];
@@ -347,10 +346,10 @@ function compileCardTypeInputs(
       entry,
       Object.freeze({
         targetNodeId: value.node,
-        promptId:
+        prompt:
           value.prompt === undefined
             ? null
-            : promptId(value.prompt, `${location}.workflow.entries.${entry}.prompt`),
+            : compilePromptDeclaration(value.prompt, `${location}.workflow.entries.${entry}.prompt`),
       }),
     );
   }
@@ -481,7 +480,7 @@ function buildCardTypeStateTable(
             'entry:route',
             compiledProcessTransition(
               nodeState(route.targetNodeId),
-              Object.freeze({ kind: 'entry-route', promptId: route.promptId }),
+              Object.freeze({ kind: 'entry-route', prompt: route.prompt }),
             ),
           ],
         ]),
@@ -502,7 +501,7 @@ function buildCardTypeStateTable(
           Object.freeze({
             kind: 'configured-outcome',
             outcome: edge.outcome,
-            promptId: edge.promptId,
+            prompt: edge.prompt,
             terminalBehavior: edge.terminalBehavior,
           }),
           edge.targetStateId === stateId,
@@ -513,7 +512,7 @@ function buildCardTypeStateTable(
           `result:${edge.outcome}:pending-notifications`,
           compiledProcessTransition(
             edge.pendingNotifications.targetStateId,
-            Object.freeze({ kind: 'configured-pending-notifications', outcome: edge.outcome, promptId: edge.pendingNotifications.promptId }),
+            Object.freeze({ kind: 'configured-pending-notifications', outcome: edge.outcome, prompt: edge.pendingNotifications.prompt }),
             edge.pendingNotifications.targetStateId === stateId,
           ),
         );
@@ -539,8 +538,8 @@ function buildCardTypeStateTable(
         nodeId,
         agent: node.agent,
         selectedAgentPrompt: node.selectedAgentPrompt,
-        promptId: node.promptId,
-        correctionPromptId: node.correctionPromptId,
+        prompt: node.prompt,
+        correctionPrompt: node.correctionPrompt,
         requirements: node.requirements,
         descendantContext: node.descendantContext,
         childCreationTypes: node.childCreationTypes,
@@ -569,15 +568,15 @@ function buildCardTypeStateTable(
   const ids = new Set<ProcessPromptId>();
   for (const state of states.values()) {
     if (state.kind === 'node') {
-      ids.add(state.promptId);
-      ids.add(state.correctionPromptId);
+      ids.add(state.prompt.promptId);
+      ids.add(state.correctionPrompt.promptId);
     }
     for (const route of state.on.values())
       if (
         (route.semantic.kind === 'entry-route' || route.semantic.kind === 'configured-outcome' || route.semantic.kind === 'configured-pending-notifications') &&
-        route.semantic.promptId !== null
+        route.semantic.prompt !== null
       )
-        ids.add(route.semantic.promptId);
+        ids.add(route.semantic.prompt.promptId);
   }
   const processPrompts = immutableMap(
     [...ids].map((id) => [id, selectProcessPrompt(draft.cardType, id, roots)] as const),

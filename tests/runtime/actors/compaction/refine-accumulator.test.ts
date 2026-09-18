@@ -363,6 +363,40 @@ describe('sequential contextual refine accumulator', () => {
     expect(inputs[1]!.systemPrompt).toBe(SUMMARY_REFINE_INSTRUCTION.replace(String(SUMMARY_OUTPUT_TARGET_BYTES), '6000'));
   });
 
+  it('orients normal and corrective folds with protected instructions while folding a released instruction exactly once', async () => {
+    const inputs: SummaryInput[] = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      completeTurn: async (input) => {
+        inputs.push(input);
+        return { result: { kind: 'message' as const, content: inputs.length === 1 ? ' ' : 'corrected release' }, provider_exchanges: [] };
+      },
+    });
+    const retained = protectedText('retained-instruction', 'CURRENT EXACT INSTRUCTION', 'workflow.rule');
+    const released = protectedText('released-instruction', 'RELEASED OLD INSTRUCTION', 'workflow.rule');
+    const rows = [activation(), retained];
+    const accumulator = createSequentialRefineAccumulator({
+      conversation: validateConversation(SESSION, rows),
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: provider,
+      budget: BUDGET,
+      signal: new AbortController().signal,
+      protectedPrompts: [{ source: { segmentVersion: 1, rowIndex: 1 }, message: retained }],
+      releasedInheritedMessages: [released],
+    });
+
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('corrected release');
+    expect(inputs).toHaveLength(2);
+    for (const input of inputs) {
+      const messages = parseSummaryMessages(input);
+      expect(messages.filter(({ label, body }) => label === '[kind=protected_instruction source=1:1:retained-instruction]' && body === retained.content)).toHaveLength(1);
+      expect(messages.filter(({ label, body }) => label.includes('kind=new_source') && body === retained.content)).toHaveLength(0);
+      expect(messages.filter(({ label, body }) => label.includes('source_kind=released_protected_instruction') && body === released.content)).toHaveLength(1);
+    }
+    expect(accumulator.correctionCount).toBe(1);
+  });
+
   it('corrects the last genuine fold when its output blocks the next minimum source range and resumes at the unconsumed cursor', async () => {
     const sent: SummaryInput[] = [];
     const provider = recordingProvider({
@@ -616,6 +650,10 @@ function activation(): AgentMessage {
 
 function text(id: string, content: string): AgentMessage {
   return agentMessageSchema.parse({ id, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content, round_id: `r-user-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-09-08T00:00:01.000Z' });
+}
+
+function protectedText(id: string, content: string, compactionKey?: string): AgentMessage {
+  return agentMessageSchema.parse({ id, session_id: SESSION, role: 'user', kind: 'text', context_policy: { ...TEXT_ROW_POLICY, compactable: false, ...(compactionKey === undefined ? {} : { compaction_key: compactionKey }) }, content, round_id: `r-user-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-09-08T00:00:01.000Z' });
 }
 
 function settledToolRows(callId: string, firstMessageIndex: number, argumentsJson: string, resultContent: string): AgentMessage[] {

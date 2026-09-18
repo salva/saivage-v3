@@ -8,10 +8,10 @@ import { compact as compactWithoutProgress, prepareCompaction, type AutonomousCo
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import { ConversationSessionIdSchema, globalAgentSessionId, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { ConversationSessionIdSchema, globalAgentSessionId, protectedPromptsSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { internalCompactionSummarySessionId, type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
-import type { ValidatedConversation } from '../../src/contracts/conversation-validation.js';
+import { validateCompactedHistorySuccessor, type ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { createImmutableVersionFile } from '../../src/persistence/version-file.js';
 import { replaceFile } from '../../src/persistence/replace-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -106,6 +106,7 @@ function text(id: string, content: string, sessionId: ConversationSessionId = SE
     timestamp: '2026-08-18T00:00:01.000Z',
   } as AgentMessage;
 }
+function protectedText(id: string, content: string, key?: string): AgentMessage { const message = text(id, content); return { ...message, context_policy: { ...TEXT_ROW_POLICY, compactable: false, ...(key === undefined ? {} : { compaction_key: key }) } } as AgentMessage; }
 
 function settledBundle(inputId: string, callId: string, body: string, sessionId: ConversationSessionId = SESSION): AgentMessage[] {
   const result = JSON.stringify({ success: true, data: { content: body } });
@@ -122,6 +123,29 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
+  it('rejects prospectively mutated protected rows and extraction coordinates even when their replacement list hash is self-consistent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const source = readConversation(root, SESSION);
+      const result = await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary') }), source);
+      expect(result.kind).toBe('compacted');
+      const segment = readCurrentConversationSegment(root, SESSION)!;
+      if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
+      const history = segment.genesis.compaction;
+      expect(history.protectedPrompts).toHaveLength(1);
+      const cutoff = source.sourceRows.findIndex(({ id }) => id === history.coverageCommitment.coveredThroughMessageId) + 1;
+      const validate = (successor: CompactedHistory) => validateCompactedHistorySuccessor({ source, sourceGenesis: null, sourceVersion: 1, successor, coveredRows: source.sourceRows.slice(0, cutoff) });
+      expect(() => validate(history)).not.toThrow();
+
+      const changedMessage = [{ ...history.protectedPrompts[0]!, message: { ...history.protectedPrompts[0]!.message, content: 'MUTATED INSTRUCTION' } }];
+      expect(() => validate({ ...history, protectedPrompts: changedMessage, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: protectedPromptsSha256(changedMessage) } })).toThrow(/do not exactly derive/);
+      const changedCoordinate = [{ ...history.protectedPrompts[0]!, source: { ...history.protectedPrompts[0]!.source, rowIndex: history.protectedPrompts[0]!.source.rowIndex + 1 } }];
+      expect(() => validate({ ...history, protectedPrompts: changedCoordinate, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: protectedPromptsSha256(changedCoordinate) } })).toThrow(/do not exactly derive/);
+      expect(() => validate({ ...history, protectedPrompts: [], coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: protectedPromptsSha256([]) } })).toThrow(/do not exactly derive/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('advances deterministically across closed rounds and a partial open prefix, never completing the open round', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-fallback-open-'));
     initProjectTree(root);

@@ -51,6 +51,44 @@ describe('configuration-owned card types',()=>{
     expect(saivageConfigSchema.safeParse(malformed).success).toBe(false);
   });
 
+  it('uses strict site-owned prompt declarations and resolves omitted compactability to true',()=>{
+    const omitted=structuredClone(projectOnly());
+    delete (omitted.agents.planner!.prompt as {compactable?:boolean}).compactable;
+    delete (omitted.card_types.project!.workflow.nodes.plan!.prompt as {compactable?:boolean}).compactable;
+    delete (omitted.card_types.project!.workflow.nodes.plan!.correction_prompt as {compactable?:boolean}).compactable;
+    const parsed=effectiveSaivageConfigSchema.parse(omitted);
+    expect(parsed.agents.planner!.prompt).toEqual({reference:'planner',compactable:true});
+    expect(parsed.card_types.project!.workflow.nodes.plan!.prompt).toEqual({reference:'plan',compactable:true});
+    expect(parsed.card_types.project!.workflow.nodes.plan!.correction_prompt).toEqual({reference:'correct-plan-result',compactable:true});
+
+    const staticFalse=structuredClone(projectOnly());
+    staticFalse.agents.planner!.prompt={reference:'planner',compactable:false};
+    staticFalse.card_types.project!.workflow.nodes.plan!.prompt={reference:'plan',compactable:false};
+    const parsedStaticFalse=effectiveSaivageConfigSchema.parse(staticFalse);
+    expect(parsedStaticFalse.agents.planner!.prompt).toEqual({reference:'planner',compactable:false});
+    expect(parsedStaticFalse.card_types.project!.workflow.nodes.plan!.prompt).toEqual({reference:'plan',compactable:false});
+
+    const protectedPrompt=structuredClone(projectOnly());
+    protectedPrompt.card_types.project!.workflow.nodes.plan!.correction_prompt={reference:'correct-plan-result',compactable:false,compaction_key:'   '};
+    expect(effectiveSaivageConfigSchema.parse(protectedPrompt).card_types.project!.workflow.nodes.plan!.correction_prompt).toEqual({reference:'correct-plan-result',compactable:false,compaction_key:'   '});
+
+    const stringDeclaration=structuredClone(projectOnly()) as any;
+    stringDeclaration.card_types.project.workflow.nodes.plan.prompt='plan';
+    expect(saivageConfigSchema.safeParse(stringDeclaration).success).toBe(false);
+    const staticKey=structuredClone(projectOnly()) as any;
+    staticKey.agents.planner.prompt={reference:'planner',compactable:false,compaction_key:'forbidden'};
+    expect(saivageConfigSchema.safeParse(staticKey).success).toBe(false);
+    const nodeKey=structuredClone(projectOnly()) as any;
+    nodeKey.card_types.project.workflow.nodes.plan.prompt={reference:'plan',compactable:false,compaction_key:'forbidden'};
+    expect(saivageConfigSchema.safeParse(nodeKey).success).toBe(false);
+    const compactableKey=structuredClone(projectOnly()) as any;
+    compactableKey.card_types.project.workflow.nodes.plan.correction_prompt={reference:'correct-plan-result',compactable:true,compaction_key:'forbidden'};
+    expect(saivageConfigSchema.safeParse(compactableKey).success).toBe(false);
+    const emptyKey=structuredClone(projectOnly()) as any;
+    emptyKey.card_types.project.workflow.nodes.plan.correction_prompt={reference:'correct-plan-result',compactable:false,compaction_key:''};
+    expect(saivageConfigSchema.safeParse(emptyKey).success).toBe(false);
+  });
+
   it('rejects missing project, invalid names, duplicate/project children, and missing references at the referring path',()=>{
     const missing=projectOnly();delete missing.card_types.project;
     expect(saivageConfigSchema.safeParse(missing).error?.issues).toEqual(expect.arrayContaining([expect.objectContaining({path:['card_types','project']})]));

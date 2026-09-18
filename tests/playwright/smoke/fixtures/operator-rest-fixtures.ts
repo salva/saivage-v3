@@ -72,12 +72,13 @@ const debugErrors = parseOperatorResponse('debug.errors', 200, {
 const codeDebugGraph = {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false }],
-    entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt_reference: entry === 'STOPPED' ? 'stopped-recovery' : null })),
-    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', reference: 'executor', process_reference: 'execute', correction_reference: 'correct-execute-result' }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
-    edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt_reference: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
+    entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
+    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
+    edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
 const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
+  global_agents: [{ agent_name: 'analyst', session: { scope: 'global', identity: 'agent:analyst:global' }, prompt: { source: 'bundled-shared', declaration: { reference: 'analyst', compactable: true } }, model: { route: 'analyst', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'] }],
   graphs: [codeDebugGraph, { ...codeDebugGraph, card_type: 'goal', permitted_child_types: ['code'] }],
 });
 const doctorOk = parseOperatorResponse('debug.doctor', 200, {
@@ -138,7 +139,12 @@ export const smokeServerAvailability = {
 } as const;
 
 function stampedText(sessionId: string, id: string, content: string) {
-  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
+  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
+}
+
+function retainedInstructionContext(sessionId: string) {
+  const instruction = { id: 'retained-smoke-instruction', session_id: sessionId, role: 'user', kind: 'text', content: 'Preserve this exact operator constraint.', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: false, compaction_key: 'smoke.constraint' }, round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: now };
+  return { kind: 'compacted', source_version: 1, covered_through_message_id: instruction.id, summary_text: 'Earlier work was compacted.', source_kind: 'current_rows', prior_genesis_id: null, prior_history_hash: null, covered_group_count: 1, protected_prompts: [{ source: { segment_version: 1, row_index: 1 }, message: instruction }], dispositions: { sha256: 'a'.repeat(64), count: 1, summarized: 0, evidence_only: 0, superseded: 0, protected: 1 }, coverage: { source_session_id: sessionId, source_version: 1, covered_through_message_id: instruction.id, covered_source_groups_sha256: 'b'.repeat(64), accumulated_summary_sha256: 'c'.repeat(64), protected_prompts_sha256: 'd'.repeat(64) }, required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null }, continuation: { kind: 'between_rounds' } };
 }
 
 function pagedObservationToolPair(sessionId: string) {
@@ -234,12 +240,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       const since = url.searchParams.get('since');
       const cursorIndex = since === null ? -1 : allEntries.findIndex((entry) => entry.id === since);
       const entries = cursorIndex < 0 ? allEntries : allEntries.slice(cursorIndex + 1);
+      const retainedContext = sessionId === 'agent:planner:project' ? retainedInstructionContext(sessionId) : null;
       return json(route, parseOperatorResponse('agents.conversation', 200, {
         session_id: sessionId,
-        segment_version: 1,
-        segment_context: null,
+        segment_version: retainedContext ? 2 : 1,
+        segment_context: retainedContext,
         entries,
-        cursor: { segment_version: 1, message_id: allEntries.at(-1)?.id ?? since },
+        cursor: { segment_version: retainedContext ? 2 : 1, message_id: allEntries.at(-1)?.id ?? since },
       }));
     }
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.split('/').length === 4) {
@@ -359,7 +366,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         role: 'assistant' as const,
         kind: 'text' as const,
         content: `Synthetic analyst response to: ${visiblePrompt}`,
-        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } as const,
+        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } as const,
         round_id: 'r-assistant-00000000000000000000000000000002',
         message_index: 1,
         block_index: 0,

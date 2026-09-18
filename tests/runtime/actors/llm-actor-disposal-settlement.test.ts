@@ -68,10 +68,10 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
 
     fixture.observer.expectOnePublication();
     expectToolResult(fixture,settlement,'demo');
-    expect(continuation).not.toHaveBeenCalled();
+    expect(continuation).toHaveBeenCalledTimes(1);
     expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
     await expect(fixture.actor.turn(fixture.input,undefined,jest.fn())).rejects.toThrow('invocation admission is closed');
-    await expect(fixture.actor.continueAfterPlainText('repair',undefined,jest.fn())).rejects.toThrow('no open plain-text result');
+    await expect(fixture.actor.continueAfterPlainText([{ role: 'user', content: 'repair' }],undefined,jest.fn())).rejects.toThrow('no open plain-text result');
     await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,settlement)).rejects.toThrow('not waiting for a tool result');
     await expect(fixture.actor.join()).resolves.toEqual({status:'joined'});
   });
@@ -88,7 +88,7 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     expectToolResult(fixture,settlement,'restart_server');
     expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
     await expect(fixture.actor.turn(fixture.input,undefined,jest.fn())).rejects.toThrow('invocation admission is closed');
-    await expect(fixture.actor.continueAfterPlainText('repair',undefined,jest.fn())).rejects.toThrow('no open plain-text result');
+    await expect(fixture.actor.continueAfterPlainText([{ role: 'user', content: 'repair' }],undefined,jest.fn())).rejects.toThrow('no open plain-text result');
     await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,settlement)).rejects.toThrow('not waiting for a tool result');
     await expect(fixture.actor.join()).resolves.toEqual({status:'joined'});
   });

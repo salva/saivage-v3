@@ -160,10 +160,14 @@ interface ToolSettlementAppendRecord {
 }
 
 export function appendToolResult(conversations: ConversationFileContext, record: ToolSettlementAppendRecord): SettledToolResultFacts {
-  const facts = settleToolResultForConversation(record.tool_name, record.resultPolicy, record.settlement);
-  const message = buildToolResultMessage(record, facts, new Date().toISOString());
+  const { facts, message } = buildSettledToolResult(record);
   appendOne(conversations, message);
   return facts;
+}
+
+export function buildSettledToolResult(record: ToolSettlementAppendRecord): Readonly<{ facts: SettledToolResultFacts; message: AgentMessage }> {
+  const facts = settleToolResultForConversation(record.tool_name, record.resultPolicy, record.settlement);
+  return Object.freeze({ facts, message: buildToolResultMessage(record, facts, new Date().toISOString()) });
 }
 
 function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: ToolCall, resultPolicy: InvocationResultPolicy, index = 0, timestamp = new Date().toISOString()): AgentMessage {
@@ -248,21 +252,19 @@ function toolCallAgentContent(toolCall: ToolCall): unknown {
   };
 }
 
-export function appendModelRepairMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
-  const message = agentMessageSchema.parse({
+export function buildModelRepairMessage(input: CanonicalLlmInvocationInput, directive: import('./conversation-session.js').ProviderVisibleUserContextMessage): AgentMessage {
+  return agentMessageSchema.parse({
     id: `${input.inputId}:repair`,
     session_id: input.sessionId,
     role: 'user',
     kind: 'model_repair',
-    content,
-    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
+    content: directive.content,
+    context_policy: directive.protection ? { ...DURABLE_PRIMARY_CONTENT_POLICY, ...directive.protection } : DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: deterministicRoundId('user', input.inputId),
     message_index: 3,
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
-  appendOne(conversations, message);
-  return message;
 }
 
 function appendOne(conversations: ConversationFileContext, message: AgentMessage): void {

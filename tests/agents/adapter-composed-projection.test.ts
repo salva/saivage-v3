@@ -30,7 +30,7 @@ describe('protocol adapters consume the composed projection', () => {
   const refusalB = buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: INPUT_B, candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, providerResponse: 'RAW-B' });
   const composed = composeContextProjection({
     sourceSessionId: SESSION,
-    effectiveHistory: { summaryText: 'prior summary', historyMessageId: 'history-block', historyTimestamp: TS, requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } },
+    effectiveHistory: { summaryText: 'prior summary', historyMessageId: 'history-block', historyTimestamp: TS, requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null }, protectedPrompts: [] },
     dynamicBlocks: [
       { id: 'prepared-card', role: 'system', content: '{"brief":"FULL-BRIEF"}', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock,
       { id: 'prepared-node', role: 'system', content: "Current workflow node 'work':\n\nEXACT-COMPILED-NODE", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock,

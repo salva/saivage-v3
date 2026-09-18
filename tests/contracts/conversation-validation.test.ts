@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { validateConversation } from '../../src/contracts/conversation-validation.js';
-import { accumulatedSummarySha256, agentMessageSchema, compactedHistorySchema, coveredSourceGroupsSha256, type AgentMessage, type CompactedHistory } from '../../src/schemas/index.js';
+import { accumulatedSummarySha256, agentMessageSchema, compactedHistorySchema, coveredSourceGroupsSha256, protectedPromptsSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -40,6 +40,32 @@ describe('canonical conversation validation', () => {
     const history = validHistory();
     expect(() => validateConversation(SESSION, [], undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history: { ...history, coverageCommitment: { ...history.coverageCommitment, sourceVersion: 4 } }, sourceVersion: 3 })).toThrow(/does not name its own source segment version/);
     expect(() => validateConversation(SESSION, [], undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history: { ...history, coverageCommitment: { ...history.coverageCommitment, accumulatedSummarySha256: '0'.repeat(64) } }, sourceVersion: 3 })).toThrow(/summary hash/);
+  });
+
+  it('strictly validates protected-list hashes, sessions, ids, coordinates, policies, and suffix disjointness at current read', () => {
+    const first = protectedText('protected-a', 'instruction a');
+    const second = protectedText('protected-b', 'instruction b');
+    const valid = historyWithProtected([
+      { source: { segmentVersion: 1, rowIndex: 2 }, message: first },
+      { source: { segmentVersion: 2, rowIndex: 0 }, message: second },
+    ]);
+    const seed = (history: CompactedHistory) => ({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3 } as const);
+    expect(validateConversation(SESSION, [], undefined, seed(valid)).effectiveCompactedHistory?.protectedPrompts).toHaveLength(2);
+    expect(() => validateConversation(SESSION, [], undefined, seed({ ...valid, coverageCommitment: { ...valid.coverageCommitment, protectedPromptsSha256: '0'.repeat(64) } }))).toThrow(/protected prompts hash/);
+
+    const wrongSession = protectedText('protected-other-session', 'instruction', 'agent:planner:card-a');
+    expect(() => validateConversation(SESSION, [], undefined, seed(historyWithProtected([{ source: { segmentVersion: 1, rowIndex: 0 }, message: wrongSession }])))).toThrow(/another session/);
+    expect(() => validateConversation(SESSION, [], undefined, seed(historyWithProtected([
+      { source: { segmentVersion: 1, rowIndex: 0 }, message: first },
+      { source: { segmentVersion: 1, rowIndex: 1 }, message: { ...first } },
+    ])))).toThrow(/duplicate message ids/);
+    expect(() => validateConversation(SESSION, [], undefined, seed(historyWithProtected([
+      { source: { segmentVersion: 1, rowIndex: 1 }, message: first },
+      { source: { segmentVersion: 1, rowIndex: 1 }, message: second },
+    ])))).toThrow(/coordinates are not strictly ordered/);
+    expect(() => validateConversation(SESSION, [], undefined, seed(historyWithProtected([{ source: { segmentVersion: 4, rowIndex: 0 }, message: first }])))).toThrow(/source is later/);
+    expect(() => validateConversation(SESSION, [], undefined, seed(historyWithProtected([{ source: { segmentVersion: 1, rowIndex: 0 }, message: { ...first, context_policy: TEXT_ROW_POLICY } }])))).toThrow(/not protected-capable/);
+    expect(() => validateConversation(SESSION, [first], undefined, seed(historyWithProtected([{ source: { segmentVersion: 1, rowIndex: 0 }, message: first }])))).toThrow(/disjoint/);
   });
 
   it('rejects malformed required-model-fact slots', () => {
@@ -89,18 +115,25 @@ const MARKER_ID = '22222222-2222-4222-8222-222222222222';
 
 function activation(id = 'activation', inputId = INPUT): AgentMessage { const timestamp = '2026-08-11T00:00:00.000Z'; return agentMessageSchema.parse({ id, context_policy: ACTIVITY_ROW_POLICY, session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
 function text(id: string): AgentMessage { return agentMessageSchema.parse({ id, context_policy: TEXT_ROW_POLICY, session_id: SESSION, role: 'assistant', kind: 'text', content: id, round_id: `r-assistant-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
+function protectedText(id: string, content: string, sessionId: ConversationSessionId = SESSION): AgentMessage { return agentMessageSchema.parse({ id, context_policy: { ...TEXT_ROW_POLICY, compactable: false }, session_id: sessionId, role: 'user', kind: 'text', content, round_id: `r-user-${'2'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
 
 function validHistory(overrides: { requiredModelFactsOverride?: Record<string, unknown>; dispositionsOverride?: Partial<CompactedHistory['dispositionCommitment']> } = {}): CompactedHistory {
   const groups = [{ message_ids: ['activation', 'tail'], content_sha256: 'b'.repeat(64) }];
   return {
     summaryText: 'accumulated prose',
     source: { kind: 'current_rows', groups },
-    dispositionCommitment: { sha256: 'c'.repeat(64), count: 2, summarized: 2, evidenceOnly: 0, superseded: 0, ...overrides.dispositionsOverride },
-    coverageCommitment: { sourceSessionId: SESSION, sourceVersion: 3, coveredThroughMessageId: 'tail', coveredSourceGroupsSha256: coveredSourceGroupsSha256(groups), accumulatedSummarySha256: accumulatedSummarySha256('accumulated prose') },
+    dispositionCommitment: { sha256: 'c'.repeat(64), count: 2, summarized: 2, evidenceOnly: 0, superseded: 0, protected: 0, ...overrides.dispositionsOverride },
+    coverageCommitment: { sourceSessionId: SESSION, sourceVersion: 3, coveredThroughMessageId: 'tail', coveredSourceGroupsSha256: coveredSourceGroupsSha256(groups), accumulatedSummarySha256: accumulatedSummarySha256('accumulated prose'), protectedPromptsSha256: protectedPromptsSha256([]) },
+    protectedPrompts: [],
     requiredModelFacts: {
       latestRecovery: { sourceMessageId: `${INPUT}:model-recovered`, activationInputId: INPUT },
       latestContentPolicyRefusal: { markerId: MARKER_ID, activationInputId: INPUT },
       ...overrides.requiredModelFactsOverride,
     },
   };
+}
+
+function historyWithProtected(protectedPrompts: CompactedHistory['protectedPrompts']): CompactedHistory {
+  const history = validHistory();
+  return { ...history, protectedPrompts, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: protectedPromptsSha256(protectedPrompts) } };
 }

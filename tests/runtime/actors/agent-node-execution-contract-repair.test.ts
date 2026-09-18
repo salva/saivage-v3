@@ -35,6 +35,8 @@ function harness(args: {
   writtenRecords?: string[];
   discardError?: Error;
   useRealCorrection?: boolean;
+  protectedCorrection?: boolean;
+  executeContinuationHook?: boolean;
 }) {
   const events: string[] = [];
   const handoffs: unknown[] = [];
@@ -43,6 +45,7 @@ function harness(args: {
   const settledToolResults: Array<{ toolCallId: string; result: unknown }> = [];
   const llmInputArguments: unknown[][] = [];
   const plainTextCorrections: string[] = [];
+  const plainTextCorrectionMessages: Array<readonly { content: string; protection?: { compactable: boolean; compaction_key?: string } }[]> = [];
   const continuationContextCallbacks: Array<unknown> = [];
   const continuations = [...(args.continuations ?? [])];
   const next = (): LLMActorOutcome => {
@@ -52,8 +55,8 @@ function harness(args: {
   };
   const llm = {
     turn: async (_input: unknown, _signal: AbortSignal, handoff: unknown) => { events.push('turn'); handoffs.push(handoff); return args.initial; },
-    continueAfterPlainText: async (correction: string, _signal: AbortSignal, handoff: unknown, context: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction); handoffs.push(handoff); continuationContextCallbacks.push(context); return next(); },
-    appendToolResult: async (toolCallId: string, result: unknown, _signal: AbortSignal, context?: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); continuationContextCallbacks.push(context); return { outcome: next(), settled: {} }; },
+    continueAfterPlainText: async (correction: readonly { content: string; protection?: { compactable: boolean; compaction_key?: string } }[], _signal: AbortSignal, handoff: unknown, context: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction.map(({content})=>content).join('')); plainTextCorrectionMessages.push(correction); handoffs.push(handoff); continuationContextCallbacks.push(context); return next(); },
+    appendToolResult: async (toolCallId: string, result: unknown, _signal: AbortSignal, context?: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); continuationContextCallbacks.push(context); if(args.executeContinuationHook&&typeof context==='function'){const prepared=(context as (inputId:string)=>{afterAppend?:()=>void})('continuation-input');prepared.afterAppend?.();} return { outcome: next(), settled: {} }; },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
     settleToolResultWithoutContinuation: async (toolCallId: string, result: unknown) => { events.push('settle-terminal'); settledToolResults.push({ toolCallId, result }); },
@@ -80,12 +83,12 @@ function harness(args: {
   const node = {
     kind: 'node',
     nodeId: 'work',
-    promptId: 'work',
-    correctionPromptId: 'correct',
+    prompt: { promptId: 'work', compactable: true },
+    correctionPrompt: args.protectedCorrection ? { promptId: 'correct', compactable: false, compactionKey: ' correction key ' } : { promptId: 'correct', compactable: true },
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
-    on: new Map([['result:complete', Object.freeze({targetStateId:'terminal:DONE',reenter:false,semantic:Object.freeze({kind:'configured-outcome',outcome:'complete',promptId:null,terminalBehavior:Object.freeze({promotion:Object.freeze({kind:'current'}),exportRecords:Object.freeze([])})})})]]),
+    on: new Map([['result:complete', Object.freeze({targetStateId:'terminal:DONE',reenter:false,semantic:Object.freeze({kind:'configured-outcome',outcome:'complete',prompt:null,terminalBehavior:Object.freeze({promotion:Object.freeze({kind:'current'}),exportRecords:Object.freeze([])})})})]]),
     childCreationTypes: new Set(),
     childActivationTypes: new Set(),
   };
@@ -101,11 +104,14 @@ function harness(args: {
   };
   const selectNotifications: () => Array<{ id: string; content: string }> = args.terminalVariant === 'pending'
     ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
-    : () => [];
+    : args.terminalVariant === 'stale' && args.executeContinuationHook
+      ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([]).mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
+      : () => [];
+  const removeNotifications=jest.fn(() => { events.push('remove-notifications'); });
   const input = {
     card,
     activationId: 'activation-1',
-    notificationDelivery: { hasPendingNotifications: () => selectNotifications().length > 0, selectNotifications, removeNotifications: () => undefined },
+    notificationDelivery: { hasPendingNotifications: () => selectNotifications().length > 0, selectNotifications, removeNotifications },
     claimResult: () => { events.push('claim-result'); },
   };
   const createDirectScope = jest.fn(() => ({}));
@@ -134,7 +140,7 @@ function harness(args: {
     prepareNodeInvocation: (...args: unknown[]) => object;
     enterNodeConversation: (prepared: object) => object;
     buildSurface: (...args: unknown[]) => InvocationSurface;
-    correction: (_process: unknown, _node: unknown, violations: readonly string[], remaining: number) => string;
+    correctionContext: (_process: unknown, _node: unknown, violations: readonly string[], remaining: number) => readonly { role: 'user'; content: string }[];
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
     validateRecords: () => { candidates: Map<string, unknown> } | { violations: string[] };
     captureReviewerPair: () => unknown;
@@ -146,7 +152,7 @@ function harness(args: {
   internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: 'input-1' }; };
   internals.enterNodeConversation = (prepared) => ({ ...prepared, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } });
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
-  if (!args.useRealCorrection) internals.correction = (_process, _node, violations, remaining) => `correction: ${violations.join('; ')}\nCorrective attempts remaining before this node fails: ${remaining}.`;
+  if (!args.useRealCorrection) internals.correctionContext = (_process, _node, violations, remaining) => [{ role: 'user', content: `correction: ${violations.join('; ')}\nCorrective attempts remaining before this node fails: ${remaining}.` }];
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
   if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
   if (args.terminalVariant === 'records') {
@@ -169,13 +175,16 @@ function harness(args: {
     settledToolResults,
     llmInputArguments,
     plainTextCorrections,
+    plainTextCorrectionMessages,
     continuationContextCallbacks,
+    removeNotifications,
     createDirectScope,
     run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
 }
 
 const correctionWithRemaining = (correction: string, remaining: number) => `${correction}\nCorrective attempts remaining before this node fails: ${remaining}.`;
+const runtimeViolation = (correction: string) => correction.replace(/^correction: /u, '').replace(/\nCorrective attempts remaining before this node fails: \d+\.$/u, '');
 const objectGuardCorrection = correctionWithRemaining("correction: Terminal tool 'emit_result' arguments must be a JSON object.", 15);
 const missingSummaryCorrection = `correction: [
   {
@@ -262,8 +271,10 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const test = harness({ initial: terminal('invalid', args), continuations: [terminal('accepted')] });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
-    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed(objectGuardCorrection)) });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed("Terminal tool 'emit_result' arguments must be a JSON object.")) });
     expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
+    const context = (test.continuationContextCallbacks[0] as (inputId:string) => { messages: Array<{ content: string }> })('input-2');
+    expect(context.messages.map(({content})=>content).join('')).toBe(objectGuardCorrection);
   });
 
   it.each([
@@ -277,7 +288,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const test = harness({ initial: terminal('invalid', args), continuations: [terminal('accepted')] });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
-    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed(expected)) });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed(runtimeViolation(expected))) });
     expect(expected).not.toContain("Terminal tool 'emit_result' arguments must be a JSON object.");
   });
 
@@ -292,7 +303,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.events.filter((event) => event.startsWith('append:'))).toHaveLength(15);
     expect(test.appendedToolResults).toEqual(Array.from({ length: 15 }, (_, index) => ({
       toolCallId: `invalid-${index}`,
-      result: executedNoneSettlement(toolFailed(correctionWithRemaining(missingSummaryCorrection.replace(/\nCorrective attempts remaining before this node fails: 15\.$/u, ''), 15 - index))),
+      result: executedNoneSettlement(toolFailed(runtimeViolation(missingSummaryCorrection))),
     })));
   });
 
@@ -366,6 +377,39 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
   });
 
+  it('keeps configured correction text separate from runtime diagnostics on the plain-result path', async () => {
+    const test = harness({ initial: resultOutcome, continuations: [terminal('accepted')], useRealCorrection: true, protectedCorrection: true });
+
+    await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
+    expect(test.plainTextCorrectionMessages[0]).toEqual([
+      { role: 'user', content: 'correct the result', protection: { compactable: false, compaction_key: ' correction key ' } },
+      { role: 'user', content: '\n\nValidation errors:\n- emit_result is required.\n\nCorrective attempts remaining before this node fails: 15.' },
+    ]);
+  });
+
+  it.each([
+    ['invalid terminal arguments', undefined, terminal('rejected', null), []],
+    ['record validation', 'records' as const, terminal('rejected'), []],
+    ['descendant completion gate', 'incomplete' as const, terminal('rejected'), []],
+    ['pending recipient notifications', 'pending' as const, terminal('rejected'), ['operator context']],
+    ['stale Reviewer context', 'stale' as const, terminal('rejected'), ['operator context', 'context']],
+  ])('orders ordinary context before protected configured correction and ordinary diagnostics for %s', async (_label, terminalVariant, initial, expectedPrefix) => {
+    const test = harness({ initial, continuations: [terminal('accepted')], terminalVariant, useRealCorrection: true, protectedCorrection: true, executeContinuationHook: true });
+
+    await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
+    const callback = test.continuationContextCallbacks[0] as (inputId: string) => { messages: Array<{ content: string; protection?: { compactable: boolean; compaction_key?: string } }>; afterAppend?: () => void };
+    const continuation = callback('continuation-input');
+    expect(continuation.messages.slice(0, expectedPrefix.length).map(({content})=>content)).toEqual(expectedPrefix);
+    expect(continuation.messages.slice(expectedPrefix.length, expectedPrefix.length + 2)).toEqual([
+      { role: 'user', content: 'correct the result', protection: { compactable: false, compaction_key: ' correction key ' } },
+      expect.objectContaining({ role: 'user', content: expect.stringMatching(/^\n\nValidation errors:\n- .+\n\nCorrective attempts remaining before this node fails: 15\.$/us) }),
+    ]);
+    if(terminalVariant==='pending'||terminalVariant==='stale'){
+      expect(test.removeNotifications).toHaveBeenCalledWith(['notice-1']);
+      expect(test.events.indexOf('append:rejected')).toBeLessThan(test.events.indexOf('remove-notifications'));
+    }
+  });
+
   it('invokes and appends a nonterminal result before continuing to terminal acceptance', async () => {
     const test = harness({ initial: nonterminal('lookup-1'), continuations: [terminal('accepted')], toolExecutor: async () => ({ success: true, data: 'found' }) });
 
@@ -418,9 +462,9 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
   const settlementCases: Array<[string, NonNullable<Parameters<typeof harness>[0]['terminalVariant']>, unknown]> = [
     ['pending notifications', 'pending', { success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }],
-    ['record violations', 'records', { success: false, error: 'correction: required record is invalid\nCorrective attempts remaining before this node fails: 15.' }],
+    ['record violations', 'records', { success: false, error: 'Record validation failed.' }],
     ['stale descendant context', 'stale', { success: false, error: 'Review context is stale: changed.' }],
-    ['incomplete descendant completion', 'incomplete', { success: false, error: "correction: Completion gate failed: descendant 'card-a' is 'running'.\nCorrective attempts remaining before this node fails: 15." }],
+    ['incomplete descendant completion', 'incomplete', { success: false, error: "Completion gate failed: descendant 'card-a' is 'running'." }],
   ];
   it.each(settlementCases)('validates the %s settlement before append', async (_label, terminalVariant, expected) => {
     const test = harness({ initial: terminal('rejected'), continuations: [terminal('accepted')], terminalVariant });
@@ -428,7 +472,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const failure = expected as { error: string; data?: unknown };
     expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'rejected', result: executedNoneSettlement(toolFailed(failure.error, failure.data)) });
     expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
-    if (terminalVariant === 'pending' || terminalVariant === 'stale') {
+    if (terminalVariant === 'pending' || terminalVariant === 'stale' || terminalVariant === 'records' || terminalVariant === 'incomplete') {
       const context = (test.continuationContextCallbacks[0] as () => { messages: Array<{ content: string }> })();
       expect(context.messages.at(-1)?.content).toContain('Corrective attempts remaining before this node fails: 15.');
     }

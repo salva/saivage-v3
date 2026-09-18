@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
-import { canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId, type RowContextPolicy, type ToolResultPolicyTemplate } from '../../../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId, type RowContextPolicy, type ToolResultPolicyTemplate } from '../../../../src/schemas/index.js';
 import { classifyConversationRowPolicy, settledToolBundlePolicy } from '../../../../src/runtime/actors/context/row-policy.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 
@@ -66,6 +66,18 @@ describe('conversation row policy classification', () => {
     const missing = row({ id: 't', role: 'assistant', kind: 'text', content: 'x' });
     const structural = { ...missing, context_policy: STRUCTURAL_ROW_POLICY.activation_boundary };
     expect(() => classifyConversationRowPolicy(structural as never)).toThrow(/missing its content policy/);
+  });
+
+  it('permits protection only on independent visible configured user instructions',()=>{
+    const protectedPolicy={...DURABLE_PRIMARY_CONTENT_POLICY,compactable:false,compaction_key:' exact key '};
+    expect(agentMessageSchema.safeParse(row({id:'protected-text',role:'user',kind:'text',content:'exact',context_policy:protectedPolicy})).success).toBe(true);
+    expect(agentMessageSchema.safeParse(row({id:'protected-repair',role:'user',kind:'model_repair',content:'exact',context_policy:protectedPolicy})).success).toBe(true);
+    for(const invalid of [
+      row({id:'assistant',role:'assistant',kind:'text',content:'x',context_policy:protectedPolicy}),
+      row({id:'retry',role:'user',kind:'content_policy_retry',content:'x',context_policy:protectedPolicy}),
+      row({id:'projected',role:'user',kind:'text',content:'x',context_policy:protectedPolicy,provider_projection:{kind:'openai_responses',source_input_id:SOURCE,private_message_id:'private',projection_kind:'assistant_message'}}),
+    ]) expect(agentMessageSchema.safeParse(invalid).success).toBe(false);
+    expect(agentMessageSchema.safeParse(row({id:'bad-key',role:'user',kind:'text',content:'x',context_policy:{...DURABLE_PRIMARY_CONTENT_POLICY,compaction_key:'key'}})).success).toBe(false);
   });
 });
 

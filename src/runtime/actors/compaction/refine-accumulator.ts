@@ -8,6 +8,7 @@ import {
   type AgentMessage,
   type CompactedHistory,
   type ConversationSessionId,
+  type ProtectedPrompt,
 } from '../../../schemas/index.js';
 import type { ValidatedConversation } from '../../../contracts/conversation-validation.js';
 import { composeContextProjection, type SummarizerContextItem } from '../context/composition-projector.js';
@@ -89,20 +90,27 @@ export function createSequentialRefineAccumulator(args: {
   budget: RefinePolicy;
   signal: AbortSignal;
   progress: CompactionProgressCallbacks;
+  protectedPrompts?: readonly ProtectedPrompt[];
+  releasedInheritedMessages?: readonly AgentMessage[];
 }): SequentialRefineAccumulator {
   let materializedThrough = 0;
   let accumulatedSummary = args.inheritedHistory?.summaryText ?? null;
   let inheritedRecoveryFolded = false;
   let inheritedRefusalFolded = false;
+  let releasedInstructionsFolded = false;
   let invocationCount = 0;
   let correctionUsed = false;
   let latestFold: FoldRecipe | null = null;
 
-  const orientation = selectLatestContextBlocks(args.preparedBlocks).map((block): SummaryRequestItem => ({
+  const protectedPrompts = args.protectedPrompts ?? [];
+  const protectedMessages = protectedPrompts.map(({ message }) => message);
+  const releasedInheritedMessages = args.releasedInheritedMessages ?? [];
+  const orientation: SummaryRequestItem[] = selectLatestContextBlocks(args.preparedBlocks).map((block): SummaryRequestItem => ({
     label: `[kind=prepared_context source=${block.id}]`,
     role: block.role === 'tool' ? failToolOrientation(block.id) : block.role,
     content: block.content,
   }));
+  orientation.push(...protectedPrompts.map(({ source, message }) => ({ label: `[kind=protected_instruction source=${source.segmentVersion}:${source.rowIndex}:${message.id}]`, role: message.role === 'tool' ? failToolOrientation(message.id) : message.role, content: message.content })));
 
   return {
     get materializedThrough() { return materializedThrough; },
@@ -122,7 +130,9 @@ export function createSequentialRefineAccumulator(args: {
         includeRecovery: !inheritedRecoveryFolded,
         includeRefusal: !inheritedRefusalFolded,
       });
-      const components = [...superseded.components, ...projectSourceComponents(args.conversation, incrementRows)];
+      const protectedIds = new Set(protectedMessages.map((message) => message.id));
+      const released = releasedInstructionsFolded ? [] : releasedInheritedMessages.map((message): RefineSourceComponent => ({ identity: message.id, kind: 'released_protected_instruction', role: message.role === 'tool' ? failToolOrientation(message.id) : message.role, content: message.content }));
+      const components = [...released, ...superseded.components, ...projectSourceComponents(args.conversation, incrementRows.filter((row) => !protectedIds.has(row.id)))];
       let nextSummary = accumulatedSummary;
       let localLatestFold = latestFold;
       const preparedComponents = components.map(prepareComponent);
@@ -161,6 +171,7 @@ export function createSequentialRefineAccumulator(args: {
       accumulatedSummary = nextSummary;
       inheritedRecoveryFolded ||= superseded.recovery;
       inheritedRefusalFolded ||= superseded.refusal;
+      releasedInstructionsFolded ||= releasedInheritedMessages.length > 0;
       materializedThrough = cutoffCount;
       latestFold = localLatestFold;
       return accumulatedSummary ?? EMPTY_COVERAGE_SUMMARY;

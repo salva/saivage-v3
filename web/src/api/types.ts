@@ -52,6 +52,7 @@ export type FileContent = OperatorApiSuccess<'files.content'>;
 
 export type DebugErrorRecord = OperatorApiSuccess<'debug.errors'>['errors'][number];
 export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
+export type DebugGlobalAgent = OperatorApiSuccess<'debug.graphs'>['global_agents'][number];
 export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
 
 export type McpServerWithTools = ContractMcpToolsResponse['servers'][number];

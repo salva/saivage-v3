@@ -29,6 +29,7 @@ export type EffectiveCompactedHistoryFacts = Readonly<{
   historyMessageId: string;
   historyTimestamp: string;
   requiredModelFacts: EffectiveRequiredModelFacts;
+  protectedPrompts: readonly import('../../../schemas/index.js').ProtectedPrompt[];
 }>;
 
 type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
@@ -36,6 +37,7 @@ type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice
 type PrimaryContextEntry =
   | Readonly<{ origin: 'history_summary'; content: string; messageId: string; timestamp: string }>
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
+  | Readonly<{ origin: 'retained_instruction'; prompt: import('../../../schemas/index.js').ProtectedPrompt }>
   | Readonly<{ origin: 'canonical'; row: AgentMessage; semantic: ProjectedCanonicalSemantic }>;
 
 export type SummarizerContextItem =
@@ -103,6 +105,7 @@ export function composeContextProjection(args: {
     primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'user', content), semantic: 'refusal_notice' });
     summarizer.push({ kind: 'message', sourceId: row.id, role: 'user', content, semantic: 'refusal_notice', responsesPrivateMessageId: null });
   }
+  if (args.effectiveHistory) for (const prompt of args.effectiveHistory.protectedPrompts) primary.push({ origin: 'retained_instruction', prompt });
   for (const row of args.uncoveredRows) {
     const policy = classifyConversationRowPolicy(row);
     if (policy.kind === 'structural') {
@@ -160,6 +163,11 @@ export function providerConversationFromComposedContext(composed: ComposedContex
     if (entry.origin === 'dynamic') {
       if (entry.block.role === 'tool') throw new Error(`Dynamic context block '${entry.block.id}' cannot use the tool role in a provider request.`);
       messages.push(syntheticProviderContext(entry.block.role, entry.block.content, 'dynamic', entry.block.id));
+    }
+    if (entry.origin === 'retained_instruction') {
+      const message = entry.prompt.message;
+      if (message.role === 'tool') throw new Error(`Retained instruction '${message.id}' cannot use the tool role.`);
+      messages.push(syntheticProviderContext(message.role, message.content, 'retained_instruction', `${entry.prompt.source.segmentVersion}:${entry.prompt.source.rowIndex}:${message.id}`));
     }
     if (entry.origin === 'canonical') {
       if (entry.semantic === 'recovery_notice') messages.push(syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id));

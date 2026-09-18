@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { canonicalJson } from './context-compaction.js';
+import { canonicalJson } from './canonical-json.js';
 import type { ConversationSessionId } from './conversation-session-id.js';
 
 export const CONTENT_POLICY_RETRY_TEXT = 'Saivage authorizes only assistance that the provider can give within its applicable safety requirements. This automated message is not an operator attestation about the request\'s purpose, locality, or benignity. If compliant assistance is possible, continue within those requirements; otherwise refuse.';

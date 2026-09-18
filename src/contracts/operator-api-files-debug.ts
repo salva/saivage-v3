@@ -56,10 +56,26 @@ const DebugGraphRecordSchema = z.object({
   schema: z.string().min(1),
   bootstrap: z.boolean(),
 }).strict();
+const ResolvedPromptDeclarationSchema = z.object({ reference: z.string().min(1), compactable: z.boolean(), compaction_key: z.string().min(1).optional() }).strict();
+const DebugGraphPromptSourceSchema = z.enum(['override-card', 'override-shared', 'bundled-card', 'bundled-shared']);
+const DebugGraphModelSchema = z.object({
+  route: z.string().min(1),
+  candidates: z.array(z.object({ provider: z.string().min(1), model: z.string().min(1) }).strict()),
+  temperature: z.number(),
+  max_tokens: z.number().int().positive(),
+}).strict();
+const DebugGlobalAgentSchema = z.object({
+  agent_name: agentNameSchema,
+  session: z.object({ scope: z.literal('global'), identity: z.string().min(1) }).strict(),
+  prompt: z.object({ source: DebugGraphPromptSourceSchema, declaration: ResolvedPromptDeclarationSchema }).strict(),
+  model: DebugGraphModelSchema,
+  skills: z.boolean(),
+  tools: z.array(z.string().min(1)),
+}).strict();
 const DebugGraphEntrySchema = z.object({
   entry: z.enum(['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED']),
   node_id: z.string().min(1),
-  prompt_reference: z.string().min(1).nullable(),
+  prompt: ResolvedPromptDeclarationSchema.nullable(),
 }).strict();
 const DebugGraphPromotionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('current') }).strict(),
@@ -70,7 +86,7 @@ const DebugGraphEdgeSchema = z.object({
   outcome: z.string().min(1),
   runtime_owned: z.boolean(),
   condition: z.enum(['default', 'pending_notifications']),
-  prompt_reference: z.string().min(1).nullable(),
+  prompt: ResolvedPromptDeclarationSchema.nullable(),
   target: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('node'), node_id: z.string().min(1) }).strict(),
     z.object({ kind: z.literal('terminal'), terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']) }).strict(),
@@ -83,17 +99,12 @@ const DebugGraphNodeSchema = z.object({
   agent_name: agentNameSchema,
   session: z.object({ scope: z.literal('card'), identity_pattern: z.string().min(1) }).strict(),
   prompt: z.object({
-    source: z.enum(['override-card', 'override-shared', 'bundled-card', 'bundled-shared']),
-    reference: z.string().min(1),
-    process_reference: z.string().min(1),
-    correction_reference: z.string().min(1),
+    source: DebugGraphPromptSourceSchema,
+    declaration: ResolvedPromptDeclarationSchema,
+    process: ResolvedPromptDeclarationSchema,
+    correction: ResolvedPromptDeclarationSchema,
   }).strict(),
-  model: z.object({
-    route: z.string().min(1),
-    candidates: z.array(z.object({ provider: z.string().min(1), model: z.string().min(1) }).strict()),
-    temperature: z.number(),
-    max_tokens: z.number().int().positive(),
-  }).strict(),
+  model: DebugGraphModelSchema,
   skills: z.boolean(),
   tools: z.array(z.string().min(1)),
   child_creation_types: z.array(cardTypeSchema),
@@ -114,7 +125,7 @@ const DebugGraphSchema = z.object({
   edges: z.array(DebugGraphEdgeSchema).min(1),
   terminals: z.array(z.object({ terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']) }).strict()).length(3),
 }).strict();
-export const DebugGraphsResponseSchema = z.object({ graphs: z.array(DebugGraphSchema) }).strict();
+export const DebugGraphsResponseSchema = z.object({ global_agents: z.array(DebugGlobalAgentSchema), graphs: z.array(DebugGraphSchema) }).strict();
 
 const DoctorCardsLoadableOkCheckSchema = z.object({
   name: z.literal('cards_loadable'),

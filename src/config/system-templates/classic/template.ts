@@ -1,13 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import type { CardTypeName } from '../../../schemas/card-type-name.js';
 import type { CardTypesSource, SaivageConfigSource } from '../../../schemas/saivage-config.js';
+const prompt = (reference: string) => ({ reference, compactable: true });
 
 const CLASSIC_AGENTS = Object.freeze({
-  analyst: Object.freeze({ prompt: 'analyst', tools: Object.freeze(['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'analyst', skills: true, session: 'global', can_create_children: true, record_writes: Object.freeze(['brief.md']) }),
-  oversight: Object.freeze({ prompt: 'oversight', tools: Object.freeze(['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification']), model_route: 'oversight', skills: false, session: 'global', can_create_children: false, record_writes: Object.freeze([]) }),
-  planner: Object.freeze({ prompt: 'planner', tools: Object.freeze(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch']), model_route: 'planner', skills: false, session: 'card', can_create_children: true, record_writes: Object.freeze(['brief.md', 'status.md']) }),
-  reviewer: Object.freeze({ prompt: 'reviewer', tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill']), model_route: 'reviewer', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['review.md', 'review-*.md']) }),
-  executor: Object.freeze({ prompt: 'executor', tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'executor', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['status.md']) }),
+  analyst: Object.freeze({ prompt: prompt('analyst'), tools: Object.freeze(['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'analyst', skills: true, session: 'global', can_create_children: true, record_writes: Object.freeze(['brief.md']) }),
+  oversight: Object.freeze({ prompt: prompt('oversight'), tools: Object.freeze(['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification']), model_route: 'oversight', skills: false, session: 'global', can_create_children: false, record_writes: Object.freeze([]) }),
+  planner: Object.freeze({ prompt: prompt('planner'), tools: Object.freeze(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch']), model_route: 'planner', skills: false, session: 'card', can_create_children: true, record_writes: Object.freeze(['brief.md', 'status.md']) }),
+  reviewer: Object.freeze({ prompt: prompt('reviewer'), tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill']), model_route: 'reviewer', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['review.md', 'review-*.md']) }),
+  executor: Object.freeze({ prompt: prompt('executor'), tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'executor', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['status.md']) }),
 });
 
 const MODEL_ROUTES = Object.freeze({
@@ -38,28 +39,28 @@ function planningCardType(): CardTypesSource[CardTypeName] {
     },
     workflow: {
       notification_recipient: 'planner',
-      entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: 'stopped-recovery' } },
+      entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: prompt('stopped-recovery') } },
       nodes: {
-        plan: { agent: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
+        plan: { agent: 'planner', prompt: prompt('plan'), correction_prompt: prompt('correct-plan-result'), records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
           complete_direct: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
-          admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
+          admit_review: { target: { node: 'review' }, prompt: prompt('plan-to-review') },
           blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
         } },
-        review: { agent: 'reviewer', prompt: 'review', correction_prompt: 'correct-review-result', records: { 'review.md': { mode: 'clean', gate: 'updated' } }, descendant_context: { records: ['status.md'], require_unchanged_until_accept: true }, edges: {
-          approved: { target: { terminal: 'DONE', promote: 'current', export_records: ['review.md'] }, pending_notifications: { node: 'handle-notifications', prompt: 'review-to-notifications' } },
-          revision_required: { target: { node: 'plan' }, prompt: 'review-to-plan' },
+        review: { agent: 'reviewer', prompt: prompt('review'), correction_prompt: prompt('correct-review-result'), records: { 'review.md': { mode: 'clean', gate: 'updated' } }, descendant_context: { records: ['status.md'], require_unchanged_until_accept: true }, edges: {
+          approved: { target: { terminal: 'DONE', promote: 'current', export_records: ['review.md'] }, pending_notifications: { node: 'handle-notifications', prompt: prompt('review-to-notifications') } },
+          revision_required: { target: { node: 'plan' }, prompt: prompt('review-to-plan') },
           blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['review.md'] } },
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['review.md'] } },
         } },
-        recover: { agent: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
+        recover: { agent: 'planner', prompt: prompt('recover'), correction_prompt: prompt('correct-plan-result'), records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
           complete_direct: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
-          admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
+          admit_review: { target: { node: 'review' }, prompt: prompt('plan-to-review') },
           blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
         } },
-        'handle-notifications': { agent: 'planner', prompt: 'handle-notifications', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
-          admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
+        'handle-notifications': { agent: 'planner', prompt: prompt('handle-notifications'), correction_prompt: prompt('correct-plan-result'), records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
+          admit_review: { target: { node: 'review' }, prompt: prompt('plan-to-review') },
           blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
         } },
@@ -77,8 +78,8 @@ function executionCardType(): CardTypesSource[CardTypeName] {
     },
     workflow: {
       notification_recipient: 'executor',
-      entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
-      nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
+      entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: prompt('stopped-recovery') } },
+      nodes: { execute: { agent: 'executor', prompt: prompt('execute'), correction_prompt: prompt('correct-execution-result'), records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
         done: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
         blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
         failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },

@@ -9,6 +9,7 @@ import type { ConversationSegmentGenesis } from '../../persistence/canonical-con
 import { type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
 import type { ConversationSegmentContext } from '../../contracts/index.js';
 import { projectToolInvocation } from '../../tools/tool-invocation-outbound.js';
+import { redactTextForOutbound } from '../../redaction/text.js';
 
 export interface FoldedConversation {
   readonly sessionId: ConversationSessionId;
@@ -81,12 +82,17 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
         prior_genesis_id: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorGenesisId : null,
         prior_history_hash: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorHistoryHash : null,
         covered_group_count: genesis.compaction.source.groups.length,
+        protected_prompts: genesis.compaction.protectedPrompts.map((entry) => {
+          const message = projectCanonicalConversationRow(entry.message, projectToolInvocation);
+          return { source: { segment_version: entry.source.segmentVersion, row_index: entry.source.rowIndex }, message: message.context_policy.kind === 'content' && message.context_policy.compaction_key !== undefined ? { ...message, context_policy: { ...message.context_policy, compaction_key: redactTextForOutbound(message.context_policy.compaction_key) } } : message };
+        }),
         dispositions: {
           sha256: genesis.compaction.dispositionCommitment.sha256,
           count: genesis.compaction.dispositionCommitment.count,
           summarized: genesis.compaction.dispositionCommitment.summarized,
           evidence_only: genesis.compaction.dispositionCommitment.evidenceOnly,
           superseded: genesis.compaction.dispositionCommitment.superseded,
+          protected: genesis.compaction.dispositionCommitment.protected,
         },
         coverage: {
           source_session_id: genesis.compaction.coverageCommitment.sourceSessionId,
@@ -94,6 +100,7 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
           covered_through_message_id: genesis.compaction.coverageCommitment.coveredThroughMessageId,
           covered_source_groups_sha256: genesis.compaction.coverageCommitment.coveredSourceGroupsSha256,
           accumulated_summary_sha256: genesis.compaction.coverageCommitment.accumulatedSummarySha256,
+          protected_prompts_sha256: genesis.compaction.coverageCommitment.protectedPromptsSha256,
         },
         required_model_facts: genesis.compaction.requiredModelFacts,
         continuation: genesis.continuation,

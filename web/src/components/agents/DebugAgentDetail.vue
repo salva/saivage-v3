@@ -36,8 +36,9 @@
       <ViewState v-if="conversationLoading" state="loading" title="Loading agent conversation..." />
       <ViewState v-else-if="conversationUnauthorized && conversationError" state="unauthorized" title="Conversation unavailable" message="Provide a valid API token to load this conversation." />
       <ViewState v-else-if="conversationError" state="error" title="Failed to load" :message="conversationError" />
+      <RetainedInstructionContext v-else :context="conversationSegmentContext" />
       <div
-        v-else
+        v-if="!conversationLoading && !conversationError"
         ref="timelineControls.scrollAreaRef"
         class="agent-debug-conversation"
         @scroll="timelineControls.handleTimelineScroll"
@@ -113,6 +114,7 @@ import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import CompactionProgressBanner from './CompactionProgressBanner.vue';
+import RetainedInstructionContext from './RetainedInstructionContext.vue';
 
 import type { ConversationSessionId } from '../../api/contracts';
 const props = defineProps<{
@@ -135,6 +137,7 @@ const {
   conversationRefreshError,
   conversationUnauthorized,
   conversationWarning,
+  conversationSegmentContext,
   currentLlmExchange,
   llmExchangeLoaded,
   llmExchangeLoading,

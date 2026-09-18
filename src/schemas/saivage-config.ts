@@ -131,13 +131,17 @@ const streamableHttpMcpServerSchema = z.object({
 const mcpServerEntrySchema = z.discriminatedUnion('transport', [stdioMcpServerSchema, streamableHttpMcpServerSchema]);
 
 const processTerminalPortSchema = z.enum(['DONE', 'BLOCKED', 'FAILED']);
+const staticPromptDeclarationSchema = z.object({ reference: namedIdentifierSchema, compactable: z.boolean().optional().default(true) }).strict();
+const durablePromptDeclarationSchema = z.object({ reference: namedIdentifierSchema, compactable: z.boolean().optional().default(true), compaction_key: z.string().min(1).optional() }).strict().superRefine((value, ctx) => {
+  if (value.compaction_key !== undefined && value.compactable) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['compaction_key'], message: 'compaction_key is allowed only when compactable is false' });
+});
 const processEntrySchema = z.object({
   node: z.string(),
-  prompt: z.string().optional(),
+  prompt: durablePromptDeclarationSchema.optional(),
 }).strict();
 const stoppedProcessEntrySchema = z.object({
   node: z.string(),
-  prompt: z.string(),
+  prompt: durablePromptDeclarationSchema,
 }).strict();
 const promotionSchema = z.union([z.literal('current'), z.object({ latest_node: namedIdentifierSchema }).strict()]);
 const processEdgeTargetSchema = z.union([
@@ -146,17 +150,17 @@ const processEdgeTargetSchema = z.union([
 ]);
 const pendingNotificationsEdgeSchema = z.object({
   node: namedIdentifierSchema,
-  prompt: namedIdentifierSchema,
+  prompt: durablePromptDeclarationSchema,
 }).strict();
 const processEdgeSchema = z.object({
   target: processEdgeTargetSchema,
-  prompt: z.string().optional(),
+  prompt: durablePromptDeclarationSchema.optional(),
   pending_notifications: pendingNotificationsEdgeSchema.optional(),
 }).strict();
 const processNodeSchema = z.object({
   agent: agentNameSchema,
-  prompt: namedIdentifierSchema,
-  correction_prompt: namedIdentifierSchema,
+  prompt: staticPromptDeclarationSchema,
+  correction_prompt: durablePromptDeclarationSchema,
   records: z.record(recordNameSchema, z.object({ mode: z.enum(['clean', 'continue']), gate: z.enum(['exists', 'updated']) }).strict()).default({}),
   descendant_context: z.object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() }).strict().optional(),
   edges: z.record(outcomeIdentifierSchema, processEdgeSchema),
@@ -199,7 +203,7 @@ const cardTypesSchema = z.record(cardTypeNameSchema, cardTypeWorkflowSchema).sup
 });
 
 const agentDefinitionSchema = z.object({
-  prompt: namedIdentifierSchema,
+  prompt: staticPromptDeclarationSchema,
   tools: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u)),
   model_route: namedIdentifierSchema,
   skills: z.boolean(),
@@ -285,7 +289,7 @@ export const outboundEffectiveSaivageConfigSchema = z.object({
 // ── Derived Types ─────────────────────────────────────────────
 
 export type SaivageConfig = z.infer<typeof effectiveSaivageConfigSchema>;
-export type SaivageConfigSource = z.infer<typeof saivageConfigSchema>;
+export type SaivageConfigSource = z.input<typeof saivageConfigSchema>;
 export type SystemTemplateName = z.infer<typeof systemTemplateNameSchema>;
 export type OutboundEffectiveSaivageConfig = z.infer<typeof outboundEffectiveSaivageConfigSchema>;
 export type McpServerConfig = z.infer<typeof effectiveMcpServerEntrySchema>;
@@ -294,5 +298,7 @@ export type StreamableHttpMcpServerConfig = z.infer<typeof effectiveStreamableHt
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
-export type CardTypesSource = z.infer<typeof cardTypesSchema>;
-export type CardTypeSource = NonNullable<CardTypesSource[keyof CardTypesSource]>;
+export type CardTypesSource = z.input<typeof cardTypesSchema>;
+export type CardTypeSource = SaivageConfig['card_types'][keyof SaivageConfig['card_types']];
+export type StaticPromptDeclaration = z.infer<typeof staticPromptDeclarationSchema>;
+export type DurablePromptDeclaration = z.infer<typeof durablePromptDeclarationSchema>;

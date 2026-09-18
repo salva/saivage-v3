@@ -49,7 +49,7 @@ describe('Debug selected-tab ownership', () => {
     api.getDebugErrors.mockResolvedValue({ errors: [], total: 0 });
     api.listProcesses.mockResolvedValue({ processes: [] });
     api.listAgentSessions.mockResolvedValue({ sessions: [] });
-    api.getDebugGraphs.mockResolvedValue({ graphs: [] });
+    api.getDebugGraphs.mockResolvedValue({ global_agents:[],graphs: [] });
     api.getDoctor.mockResolvedValue({ status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: [] });
   });
 

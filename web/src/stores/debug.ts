@@ -51,6 +51,7 @@ export const useDebugStore = defineStore('debug', () => {
   const doctorError = ref<string | null>(null);
 
   const graphs = ref<DebugGraph[] | null>(null);
+  const globalAgents = ref<import('../api/types').DebugGlobalAgent[]>([]);
   const graphsLoading = ref(false);
   const graphsRefreshing = ref(false);
   const graphsError = ref<string | null>(null);
@@ -125,6 +126,7 @@ export const useDebugStore = defineStore('debug', () => {
       const response = await getDebugGraphs(request.controller.signal);
       if (graphsRequest !== request) return;
       graphs.value = response.graphs;
+      globalAgents.value = response.global_agents;
       graphsError.value = null;
       graphsRefreshError.value = null;
     } catch (err) {
@@ -156,6 +158,7 @@ export const useDebugStore = defineStore('debug', () => {
     doctorLoading: readonly(doctorLoading),
     doctorError: readonly(doctorError),
     graphs: readonly(graphs),
+    globalAgents: readonly(globalAgents),
     graphsLoading: readonly(graphsLoading),
     graphsRefreshing: readonly(graphsRefreshing),
     graphsError: readonly(graphsError),

@@ -38,6 +38,8 @@ export const rowContextPolicySchema = z.discriminatedUnion('kind', [
     replacement: contextReplacementSchema,
     audience: contextAudienceSchema,
     evidence: contextEvidenceSchema,
+    compactable: z.boolean(),
+    compaction_key: z.string().min(1).optional(),
   }).strict(),
   z.object({
     kind: z.literal('tool_call'),
@@ -56,7 +58,10 @@ export const rowContextPolicySchema = z.discriminatedUnion('kind', [
     kind: z.literal('structural'),
     behavior: z.enum(['activation_boundary', 'provider_failure', 'model_recovery_notice', 'content_policy_refusal', 'responses_private']),
   }).strict(),
-]);
+]).superRefine((policy, ctx) => {
+  if (policy.kind === 'content' && policy.compaction_key !== undefined && policy.compactable)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['compaction_key'], message: 'compaction_key is allowed only when compactable is false.' });
+});
 
 export type ContextReplacement = z.infer<typeof contextReplacementSchema>;
 export type ContextAudience = z.infer<typeof contextAudienceSchema>;
@@ -75,7 +80,16 @@ export const DURABLE_PRIMARY_CONTENT_POLICY: Extract<RowContextPolicy, { kind: '
   replacement: Object.freeze({ kind: 'retain' }),
   audience: 'primary_and_summarizer',
   evidence: Object.freeze({ kind: 'none' }),
+  compactable: true,
 });
+
+export function durablePrimaryContentPolicy(declaration: Readonly<{ compactable: boolean; compaction_key?: string }>): Extract<RowContextPolicy, { kind: 'content' }> {
+  return Object.freeze({
+    ...DURABLE_PRIMARY_CONTENT_POLICY,
+    compactable: declaration.compactable,
+    ...(declaration.compaction_key === undefined ? {} : { compaction_key: declaration.compaction_key }),
+  });
+}
 
 export const STRUCTURAL_ROW_POLICY: Record<StructuralRowBehavior, Extract<RowContextPolicy, { kind: 'structural' }>> = Object.freeze({
   activation_boundary: Object.freeze({ kind: 'structural', behavior: 'activation_boundary' }),

@@ -63,6 +63,7 @@
         </span>
         <span v-else>Compacted between rounds</span>
       </section>
+      <RetainedInstructionContext :context="conversationSegmentContext" />
       <details class="version-history" @toggle="onVersionHistoryToggle">
         <summary>Segment history</summary>
         <ViewState v-if="conversationVersionsLoading" state="loading" title="Loading segment history" />
@@ -74,6 +75,7 @@
         <StatusBanner v-else-if="selectedConversationVersionError" tone="warning" :message="selectedConversationVersionError" />
         <div v-else-if="selectedConversationVersion" class="selected-version">
           <strong>Historical segment {{ selectedConversationVersion.version }}</strong>
+          <RetainedInstructionContext :context="selectedConversationVersion.segment_context" />
           <ConversationTimeline :timeline="historicalTimeline" :expanded-ids="historicalExpandedIds" @toggle="toggleHistoricalExpanded" />
         </div>
       </details>
@@ -123,6 +125,7 @@ import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 import CompactionProgressBanner from './CompactionProgressBanner.vue';
+import RetainedInstructionContext from './RetainedInstructionContext.vue';
 import type { ConversationSessionId } from '../../api/contracts';
 import { entriesToTimeline } from '../../utils/agent-timeline/timeline';
 const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();

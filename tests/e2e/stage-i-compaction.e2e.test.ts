@@ -74,6 +74,34 @@ describe('Stage-I versioned compaction', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('retains configured instructions across two compactions and releases a replaced key only into the successor summary', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-protected-compaction-')); initProjectTree(root);
+    const summaryInputs: string[] = [];
+    const summarizerProvider: SummarizerProviderPort = { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async (input) => { summaryInputs.push(...input.providerConversation.messages.map(({ content }) => content)); return { result: { kind: 'message' as const, content: `summary-${summaryInputs.length}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
+    try {
+      appendProtectedRound(root, 1, 'protected-old', 'EXACT OLD INSTRUCTION', 'workflow.rule');
+      for (let ordinal = 2; ordinal <= 7; ordinal++) appendRound(root, ordinal);
+      const firstBefore = readConversation(root, SESSION);
+      expect((await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(firstBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
+      const first = readCurrentConversationSegment(root, SESSION)!;
+      expect(first.conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-old']);
+      expect(providerConversationProjection(first.conversation, []).messages.filter(({ content }) => content === 'EXACT OLD INSTRUCTION')).toHaveLength(1);
+
+      appendProtectedRound(root, 8, 'protected-new', 'EXACT NEW INSTRUCTION', 'workflow.rule');
+      for (let ordinal = 9; ordinal <= 14; ordinal++) appendRound(root, ordinal);
+      const secondBefore = readConversation(root, SESSION);
+      expect((await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(secondBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
+      const second = readCurrentConversationSegment(root, SESSION)!;
+      expect(second.entry.version).toBe(3);
+      expect(second.conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-new']);
+      const projected = providerConversationProjection(second.conversation, []).messages;
+      expect(projected.filter(({ content }) => content === 'EXACT OLD INSTRUCTION')).toHaveLength(0);
+      expect(projected.filter(({ content }) => content === 'EXACT NEW INSTRUCTION')).toHaveLength(1);
+      expect(summaryInputs.filter((content) => content.includes('kind=released_protected_instruction') && content.includes('EXACT OLD INSTRUCTION'))).toHaveLength(1);
+      expect(readHistoricalConversationSegment(root, SESSION, 2).conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-old']);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('walks multiple cutoffs with disjoint raw inputs, sequential calls, and one canonical selected successor', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-incremental-compaction-')); initProjectTree(root);
     try {
@@ -316,6 +344,7 @@ describe('Stage-I versioned compaction', () => {
 
 const SESSION = 'agent:planner:project' as const;
 function appendRound(root: string, ordinal: number): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(400), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
+function appendProtectedRound(root: string, ordinal: number, id: string, content: string, compactionKey: string): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id, session_id: SESSION, role: 'user', kind: 'text', context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: compactionKey }, content, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
 function invocationFor(sessionId: ConversationSessionId, messages: readonly ProviderConversationItem[]): PreparedLlmInvocationInput { const agentName = conversationSessionIdentity(sessionId).agentName; const preparedCompaction = prepareCompaction(config, 'system', [], 8_000, 2_000); return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [...messages] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [TEST_CANDIDATE] }, episodeContext: {} }; }
 
 type ExpectedSourceComponent = Readonly<{ source: string; content: string; sourceRowIndex: number }>;

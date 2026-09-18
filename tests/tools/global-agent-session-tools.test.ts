@@ -104,7 +104,10 @@ function rows(): AgentMessage[] {
 describe('global agent-session observation tools', () => {
   it('returns a strict compacted current session through the production binder and executor', async () => {
     const projectRoot = setup();
-    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot);
+    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture compacted summary', {
+      first: { content: 'token=obsolete-tool-context-secret', key: 'api_key=tool-context-key-secret' },
+      replacement: { content: 'token=current-tool-context-secret', key: 'api_key=tool-context-key-secret' },
+    });
     const binder = globalObservationToolBinders.find((candidate) => candidate.name === 'read_agent_session');
     if (!binder) throw new Error('Expected production read_agent_session binder.');
     const bound = binder.bind(context(projectRoot) as unknown as GlobalObservationToolContext);
@@ -142,6 +145,7 @@ describe('global agent-session observation tools', () => {
       'kind',
       'prior_genesis_id',
       'prior_history_hash',
+      'protected_prompts',
       'required_model_facts',
       'source_kind',
       'source_version',
@@ -150,6 +154,7 @@ describe('global agent-session observation tools', () => {
     expect(Object.keys(segmentContext.dispositions).sort()).toEqual([
       'count',
       'evidence_only',
+      'protected',
       'sha256',
       'summarized',
       'superseded',
@@ -159,6 +164,7 @@ describe('global agent-session observation tools', () => {
       'accumulated_summary_sha256',
       'covered_source_groups_sha256',
       'covered_through_message_id',
+      'protected_prompts_sha256',
       'source_session_id',
       'source_version',
     ]);
@@ -166,9 +172,22 @@ describe('global agent-session observation tools', () => {
       'accumulatedSummarySha256',
       'coveredSourceGroupsSha256',
       'coveredThroughMessageId',
+      'protectedPromptsSha256',
       'sourceSessionId',
       'sourceVersion',
     ]) expect(segmentContext.coverage).not.toHaveProperty(domainKey);
+    expect(segmentContext.protected_prompts).toHaveLength(1);
+    expect(segmentContext.protected_prompts[0]).toMatchObject({
+      source: { segment_version: 2, row_index: 2 },
+      message: {
+        id: 'protected-2',
+        content: 'token=[REDACTED]',
+        context_policy: { kind: 'content', compactable: false, compaction_key: 'api_key=[REDACTED]' },
+      },
+    });
+    expect(JSON.stringify(contextData)).not.toContain('obsolete-tool-context-secret');
+    expect(JSON.stringify(contextData)).not.toContain('current-tool-context-secret');
+    expect(JSON.stringify(contextData)).not.toContain('tool-context-key-secret');
     expect(Object.keys(segmentContext.required_model_facts).sort()).toEqual([
       'latestContentPolicyRefusal',
       'latestRecovery',

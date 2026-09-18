@@ -14,7 +14,7 @@ import { agentNameSchema } from './agent-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
 import { ConversationSessionIdSchema } from './conversation-session-id.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from './content-policy.js';
-import { canonicalJson } from './context-compaction.js';
+import { canonicalJson } from './canonical-json.js';
 import { rowContextPolicySchema, type StructuralRowBehavior } from './context-policy.js';
 export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
@@ -99,6 +99,17 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
       if (message.context_policy.settlement_origin !== 'executed' && message.context_policy.evidence.kind !== 'none') policyIssue('A synthetic tool_result must carry none evidence.', ['context_policy', 'evidence']);
       break;
     }
+  }
+  if (message.context_policy.kind === 'content' && !message.context_policy.compactable) {
+    if (
+      message.role !== 'user' ||
+      (message.kind !== 'text' && message.kind !== 'model_repair') ||
+      message.context_policy.storage !== 'durable' ||
+      message.context_policy.replacement.kind !== 'retain' ||
+      message.context_policy.audience !== 'primary_and_summarizer' ||
+      message.context_policy.evidence.kind !== 'none' ||
+      message.provider_projection !== undefined
+    ) policyIssue('Non-compactable content is allowed only for independent visible configured user text or model_repair rows.');
   }
   if (message.kind === 'content_policy_retry') {
     if (message.role !== 'user' || message.content !== CONTENT_POLICY_RETRY_TEXT) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content_policy_retry rows require the exact code-owned user message.', path: ['content'] });

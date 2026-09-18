@@ -31,7 +31,12 @@ describe('mounted operator compacted Agent conversations', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mounted-compacted-conversation-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot);
+    const firstProtected = { content: 'token=first-protected-secret', key: 'api_key=shared-key-secret' };
+    const replacementProtected = { content: 'token=replacement-protected-secret', key: 'api_key=shared-key-secret' };
+    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture compacted summary', {
+      first: firstProtected,
+      replacement: replacementProtected,
+    });
     const fastify = Fastify({ logger: false });
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot,
@@ -92,6 +97,17 @@ describe('mounted operator compacted Agent conversations', () => {
       expect(historical[0]!.segment_context).toBeNull();
       assertCompactedContext(historical[1]!.segment_context, false);
       assertCompactedContext(historical[2]!.segment_context, true);
+      expect(historical[1]!.segment_context?.protected_prompts).toHaveLength(1);
+      expect(historical[2]!.segment_context?.protected_prompts).toHaveLength(1);
+      expect(historical[1]!.segment_context?.protected_prompts[0]!.message.id).toBe('protected-1');
+      expect(historical[2]!.segment_context?.protected_prompts[0]!.message.id).toBe('protected-2');
+      expect(current.segment_context?.protected_prompts).toEqual(historical[2]!.segment_context?.protected_prompts);
+      for (const projected of [current, ...historical]) {
+        const serialized = JSON.stringify(projected.segment_context);
+        expect(serialized).not.toContain('first-protected-secret');
+        expect(serialized).not.toContain('shared-key-secret');
+        expect(serialized).not.toContain('replacement-protected-secret');
+      }
     } finally {
       await fastify.close();
     }
@@ -113,6 +129,7 @@ function assertCompactedContext(
     'kind',
     'prior_genesis_id',
     'prior_history_hash',
+    'protected_prompts',
     'required_model_facts',
     'source_kind',
     'source_version',
@@ -121,6 +138,7 @@ function assertCompactedContext(
   expect(Object.keys(context.dispositions).sort()).toEqual([
     'count',
     'evidence_only',
+    'protected',
     'sha256',
     'summarized',
     'superseded',
@@ -130,6 +148,7 @@ function assertCompactedContext(
     'accumulated_summary_sha256',
     'covered_source_groups_sha256',
     'covered_through_message_id',
+    'protected_prompts_sha256',
     'source_session_id',
     'source_version',
   ]);
@@ -137,9 +156,16 @@ function assertCompactedContext(
     'accumulatedSummarySha256',
     'coveredSourceGroupsSha256',
     'coveredThroughMessageId',
+    'protectedPromptsSha256',
     'sourceSessionId',
     'sourceVersion',
   ]) expect(context.coverage).not.toHaveProperty(domainKey);
+  for (const entry of context.protected_prompts) {
+    expect(entry.message.content).toContain('[REDACTED]');
+    if (entry.message.context_policy.kind !== 'content') throw new Error('Expected protected content policy.');
+    expect(entry.message.context_policy.compactable).toBe(false);
+    expect(entry.message.context_policy.compaction_key).toContain('[REDACTED]');
+  }
   expect(Object.keys(context.required_model_facts).sort()).toEqual([
     'latestContentPolicyRefusal',
     'latestRecovery',

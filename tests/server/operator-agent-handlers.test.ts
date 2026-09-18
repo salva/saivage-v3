@@ -393,7 +393,7 @@ function entry(session_id: string) {
     role: 'user',
     kind: 'text',
     content: 'hello',
-    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
+    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
     round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     message_index: 0,
     block_index: 0,

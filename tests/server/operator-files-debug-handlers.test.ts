@@ -234,6 +234,8 @@ describe('operator files and debug contract handlers', () => {
     const response = await fastify.inject({ method: 'GET', url: '/api/debug/graphs', headers: authHeaders });
     expect(response.statusCode).toBe(200);
     const body = response.json();
+    expect(body.global_agents.map((agent: { agent_name: string }) => agent.agent_name)).toEqual(['analyst', 'oversight']);
+    expect(body.global_agents[0]).toMatchObject({ session: { scope: 'global', identity: 'agent:analyst:global' }, prompt: { declaration: { compactable: true } } });
     expect(body.graphs).toHaveLength(9);
     expect(body.graphs.map((graph: { card_type: string }) => graph.card_type)).toEqual(['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
     expect(body.graphs[0]).toEqual(expect.objectContaining({ entries: expect.arrayContaining([expect.objectContaining({ entry: 'STOPPED', node_id: 'recover' })]), terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }] }));

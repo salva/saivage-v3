@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,jest} from '@jest/globals';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ConversationLLMActor,type LlmTerminalHandoff} from '../../../src/runtime/actors/llm-actor.js';
@@ -9,12 +9,16 @@ import {prepareCompaction} from '../../../src/runtime/actors/compaction/compacto
 import {buildPreparedInvocationContext} from '../../../src/runtime/actors/context/context-blocks.js';
 import {initProjectTree} from '../../helpers/canonical-project.js';
 import type {LlmInvocationInput} from '../../../src/runtime/actors/llm-invocation.js';
-import {appendConversationBatch,readConversation} from '../../../src/persistence/conversation-file.js';
+import {appendConversationBatch,readConversation,readCurrentConversationSegment,type ConversationFileContext} from '../../../src/persistence/conversation-file.js';
 import {agentMessageSchema,CONTENT_POLICY_RETRY_TEXT,parseCanonicalContentPolicyRefusal,type ConversationSessionId} from '../../../src/schemas/index.js';
 import type {ProviderExchangeAttempt} from '../../../src/contracts/provider-exchange.js';
 import {testApplicationFatalPort} from '../../helpers/test-application-fatal-port.js';
 import {scriptedAdmissionProvider,testCompactor,unusedSummarizerProvider} from '../../helpers/llm-test-helpers.js';
 import {RuntimeGate} from '../../../src/runtime/runtime-gate.js';
+import {executedNoneSettlement} from '../../../src/tools/invocation.js';
+import {toolFailed} from '../../../src/contracts/tool-result.js';
+import {cardConversationVersionFile} from '../../../src/persistence/layout.js';
+import {PublicationOutcomeUnknownError} from '../../../src/contracts/publication-outcome.js';
 
 const provider=scriptedAdmissionProvider(async()=>({result:{kind:'message' as const,content:'unused'},provider_exchanges:[]}));
 const common={provider,conversations:{projectRoot:'/unused'},compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort};
@@ -49,6 +53,88 @@ describe('ConversationLLMActor purpose authority',()=>{
     await expect(actor.turn({...input,inputId:'00000000-0000-4000-8000-000000000002'},undefined,jest.fn())).resolves.toMatchObject({type:'result',result:{content:'plain text'}});
     expect(completeTurn).toHaveBeenCalledTimes(2);
     expect(readConversation(projectRoot,input.sessionId).sourceRows.filter(row=>row.role==='assistant'&&row.kind==='text')).toHaveLength(2);
+  });
+
+  it('publishes one tool-result/correction batch with original call identity before continuation callbacks',async()=>{
+    const {projectRoot,input}=cardFixture();
+    const completeTurn=jest.fn(async()=>completeTurn.mock.calls.length===1
+      ? {result:{kind:'tool_calls' as const,tool_calls:[{id:'call-1',type:'function' as const,function:{name:'demo',arguments:'{}'}}]},provider_exchanges:[]}
+      : {result:{kind:'message' as const,content:'accepted'},provider_exchanges:[]});
+    const effects:string[]=[];
+    let armed=false;
+    const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:()=>{if(armed){armed=false;effects.push('batch-published');}},agentMembershipChanged:()=>undefined}};
+    const actor=new ConversationLLMActor({...common,provider:scriptedAdmissionProvider(completeTurn),conversations,agentId:'agent:planner:project',purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate()});
+    const outcome=await actor.turn(input,undefined,jest.fn());
+    if(outcome.type!=='tool_call')throw new Error('Expected tool call.');
+    armed=true;
+
+    await actor.appendToolResult(outcome.toolCallId,executedNoneSettlement(toolFailed('rejected')),undefined,()=>({
+      messages:[
+        {role:'user',content:'configured correction',protection:{compactable:false,compaction_key:'correction-key'}},
+        {role:'user',content:'runtime diagnostic'},
+      ],
+      afterAppend:()=>{effects.push('after-append');},
+    }));
+
+    expect(effects.slice(0,2)).toEqual(['batch-published','after-append']);
+    const segment=readCurrentConversationSegment(projectRoot,input.sessionId)!;
+    const envelopes=readFileSync(cardConversationVersionFile(projectRoot,'project','planner',segment.entry.filename),'utf8').trimEnd().split('\n').map((line)=>JSON.parse(line) as {rows:Array<{id:string;kind:string;content:string;context_policy:{kind:string;compactable?:boolean;compaction_key?:string}}>});
+    const envelope=envelopes.find(({rows})=>rows.some(({id})=>id===`${input.inputId}:tool-result:call-1`));
+    expect(envelope?.rows).toMatchObject([
+      {id:`${input.inputId}:tool-result:call-1`,kind:'tool_result'},
+      {kind:'text',content:'configured correction',context_policy:{kind:'content',compactable:false,compaction_key:'correction-key'}},
+      {kind:'text',content:'runtime diagnostic',context_policy:{kind:'content',compactable:true}},
+    ]);
+    expect(envelope?.rows).toHaveLength(3);
+  });
+
+  it('publishes protected model repair, diagnostics, and ordinary continuation context in one batch',async()=>{
+    const {projectRoot,input}=cardFixture();
+    const completeTurn=jest.fn(async()=>({result:{kind:'message' as const,content:completeTurn.mock.calls.length===1?'plain':'accepted'},provider_exchanges:[]}));
+    const effects:string[]=[];
+    let armed=false;
+    const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:()=>{if(armed){armed=false;effects.push('batch-published');}},agentMembershipChanged:()=>undefined}};
+    const actor=new ConversationLLMActor({...common,provider:scriptedAdmissionProvider(completeTurn),conversations,agentId:'agent:planner:project',purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate()});
+    await actor.turn(input,undefined,jest.fn());
+    armed=true;
+
+    await actor.continueAfterPlainText([
+      {role:'user',content:'configured correction',protection:{compactable:false,compaction_key:'correction-key'}},
+      {role:'user',content:'runtime diagnostic'},
+    ],undefined,jest.fn(),()=>({messages:[{role:'user',content:'ordinary notification'}],afterAppend:()=>{effects.push('after-append');}}));
+
+    expect(effects.slice(0,2)).toEqual(['batch-published','after-append']);
+    const segment=readCurrentConversationSegment(projectRoot,input.sessionId)!;
+    const envelopes=readFileSync(cardConversationVersionFile(projectRoot,'project','planner',segment.entry.filename),'utf8').trimEnd().split('\n').map((line)=>JSON.parse(line) as {rows:Array<{id:string;kind:string;content:string;context_policy:{kind:string;compactable?:boolean;compaction_key?:string}}>});
+    const envelope=envelopes.find(({rows})=>rows.some(({kind})=>kind==='model_repair'));
+    expect(envelope?.rows).toMatchObject([
+      {kind:'model_repair',content:'configured correction',context_policy:{kind:'content',compactable:false,compaction_key:'correction-key'}},
+      {kind:'text',content:'runtime diagnostic',context_policy:{kind:'content',compactable:true}},
+      {kind:'text',content:'ordinary notification',context_policy:{kind:'content',compactable:true}},
+    ]);
+    expect(envelope?.rows).toHaveLength(3);
+  });
+
+  it('delivers plain-repair batch uncertainty with its cause before callbacks or continuation',async()=>{
+    const {projectRoot,input}=cardFixture();
+    const completeTurn=jest.fn(async()=>({result:{kind:'message' as const,content:'plain'},provider_exchanges:[]}));
+    const cause=new Error('uncertain append cause');
+    const publication=new PublicationOutcomeUnknownError(cause);
+    const delivered=new Error('fatal delivery');
+    let armed=false;
+    const afterAppend=jest.fn();
+    const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:()=>{if(armed)throw publication;},agentMembershipChanged:()=>undefined}};
+    const actor=new ConversationLLMActor({...common,provider:scriptedAdmissionProvider(completeTurn),conversations,fatalPort:{publicationOutcomeUnknown(error):never{expect(error).toBe(publication);expect(error.cause).toBe(cause);throw delivered;}},agentId:'agent:planner:project',purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate()});
+    await actor.turn(input,undefined,jest.fn());
+    armed=true;
+
+    expect(()=>actor.continueAfterPlainText([
+      {role:'user',content:'configured correction',protection:{compactable:false}},
+      {role:'user',content:'runtime diagnostic'},
+    ],undefined,jest.fn(),()=>({messages:[{role:'user',content:'ordinary notification'}],afterAppend}))).toThrow(delivered);
+
+    expect(afterAppend).not.toHaveBeenCalled();
+    expect(completeTurn).toHaveBeenCalledTimes(1);
   });
 
   it('leaves Analyst content refusal terminal with one ordinary provider call',async()=>{

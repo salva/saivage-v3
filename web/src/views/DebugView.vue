@@ -64,6 +64,7 @@
       <GraphsPanel
         v-if="localActiveTab === 'graphs'"
         :graphs="graphs"
+        :global-agents="globalAgents"
         :graphs-loading="graphsLoading"
         :graphs-refreshing="graphsRefreshing"
         :graphs-error="graphsError"
@@ -148,6 +149,7 @@ const {
   doctorLoading,
   doctorError,
   graphs,
+  globalAgents,
   graphsLoading,
   graphsRefreshing,
   graphsError,

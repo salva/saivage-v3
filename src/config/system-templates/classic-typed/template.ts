@@ -1,13 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import type { CardTypeName } from '../../../schemas/card-type-name.js';
 import type { CardTypesSource, SaivageConfigSource } from '../../../schemas/saivage-config.js';
+const prompt = (reference: string) => ({ reference, compactable: true });
 
 const AGENTS = Object.freeze({
-  analyst: Object.freeze({ prompt: 'analyst', tools: Object.freeze(['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'analyst', skills: true, session: 'global', can_create_children: true, record_writes: Object.freeze(['brief.md']) }),
-  oversight: Object.freeze({ prompt: 'oversight', tools: Object.freeze(['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification']), model_route: 'oversight', skills: false, session: 'global', can_create_children: false, record_writes: Object.freeze([]) }),
-  planner: Object.freeze({ prompt: 'planner', tools: Object.freeze(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch']), model_route: 'planner', skills: false, session: 'card', can_create_children: true, record_writes: Object.freeze(['brief.md', 'status.md']) }),
-  reviewer: Object.freeze({ prompt: 'reviewer', tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill']), model_route: 'reviewer', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['review.md', 'review-*.md']) }),
-  executor: Object.freeze({ prompt: 'executor', tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'executor', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['status.md']) }),
+  analyst: Object.freeze({ prompt: prompt('analyst'), tools: Object.freeze(['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'analyst', skills: true, session: 'global', can_create_children: true, record_writes: Object.freeze(['brief.md']) }),
+  oversight: Object.freeze({ prompt: prompt('oversight'), tools: Object.freeze(['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification']), model_route: 'oversight', skills: false, session: 'global', can_create_children: false, record_writes: Object.freeze([]) }),
+  planner: Object.freeze({ prompt: prompt('planner'), tools: Object.freeze(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch']), model_route: 'planner', skills: false, session: 'card', can_create_children: true, record_writes: Object.freeze(['brief.md', 'status.md']) }),
+  reviewer: Object.freeze({ prompt: prompt('reviewer'), tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill']), model_route: 'reviewer', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['review.md', 'review-*.md']) }),
+  executor: Object.freeze({ prompt: prompt('executor'), tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'executor', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['status.md']) }),
 });
 
 const MODEL_ROUTES = Object.freeze({
@@ -41,7 +42,7 @@ function terminal(
 }
 
 function transition(node: string, prompt: string): ProcessEdge {
-  return { target: { node }, prompt };
+  return { target: { node }, prompt: { reference: prompt, compactable: true } };
 }
 
 function executionEntries(node: string): CardTypeSource['workflow']['entries'] {
@@ -49,15 +50,15 @@ function executionEntries(node: string): CardTypeSource['workflow']['entries'] {
     BACKLOG: { node },
     CHANGED: { node },
     BLOCKED: { node },
-    STOPPED: { node, prompt: 'stopped-recovery' },
+    STOPPED: { node, prompt: prompt('stopped-recovery') },
   };
 }
 
 function executorNode(prompt: string, edges: ProcessNode['edges']): ProcessNode {
   return {
     agent: 'executor',
-    prompt,
-    correction_prompt: 'correct-execution-result',
+    prompt: { reference: prompt, compactable: true },
+    correction_prompt: { reference: 'correct-execution-result', compactable: true },
     records: { 'status.md': { mode: 'continue', gate: 'updated' } },
     edges,
   };
@@ -83,24 +84,24 @@ function planningCardType(): CardTypeSource {
         BACKLOG: { node: 'plan' },
         CHANGED: { node: 'plan' },
         BLOCKED: { node: 'plan' },
-        STOPPED: { node: 'recover', prompt: 'stopped-recovery' },
+        STOPPED: { node: 'recover', prompt: prompt('stopped-recovery') },
       },
       nodes: {
         plan: {
           agent: 'planner',
-          prompt: 'specialized-plan',
-          correction_prompt: 'correct-plan-result',
+          prompt: prompt('specialized-plan'),
+          correction_prompt: prompt('correct-plan-result'),
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: planningEdges,
         },
         review: {
           agent: 'reviewer',
-          prompt: 'specialized-review',
-          correction_prompt: 'correct-review-result',
+          prompt: prompt('specialized-review'),
+          correction_prompt: prompt('correct-review-result'),
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           descendant_context: { records: ['status.md'], require_unchanged_until_accept: true },
           edges: {
-            approved: { ...terminal('DONE', 'review.md'), pending_notifications: { node: 'handle-notifications', prompt: 'review-to-notifications' } },
+            approved: { ...terminal('DONE', 'review.md'), pending_notifications: { node: 'handle-notifications', prompt: prompt('review-to-notifications') } },
             revision_required: transition('plan', 'specialized-review-to-plan'),
             blocked: terminal('BLOCKED', 'review.md'),
             failed: terminal('FAILED', 'review.md'),
@@ -108,15 +109,15 @@ function planningCardType(): CardTypeSource {
         },
         recover: {
           agent: 'planner',
-          prompt: 'specialized-recover',
-          correction_prompt: 'correct-plan-result',
+          prompt: prompt('specialized-recover'),
+          correction_prompt: prompt('correct-plan-result'),
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: planningEdges,
         },
         'handle-notifications': {
           agent: 'planner',
-          prompt: 'handle-notifications',
-          correction_prompt: 'correct-plan-result',
+          prompt: prompt('handle-notifications'),
+          correction_prompt: prompt('correct-plan-result'),
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: {
             admit_review: transition('review', 'specialized-plan-to-review'),
@@ -281,8 +282,8 @@ function architectureCardType(): CardTypeSource {
         }),
         'component-review': {
           agent: 'reviewer',
-          prompt: 'architecture-component-review',
-          correction_prompt: 'correct-review-result',
+          prompt: prompt('architecture-component-review'),
+          correction_prompt: prompt('correct-review-result'),
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           edges: {
             approved: transition('system-review', 'architecture-to-system-review'),
@@ -293,11 +294,11 @@ function architectureCardType(): CardTypeSource {
         },
         'system-review': {
           agent: 'reviewer',
-          prompt: 'architecture-system-review',
-          correction_prompt: 'correct-review-result',
+          prompt: prompt('architecture-system-review'),
+          correction_prompt: prompt('correct-review-result'),
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           edges: {
-            approved: { ...terminal('DONE', 'review.md', { latest_node: 'draft' }), pending_notifications: { node: 'draft', prompt: 'architecture-notifications-to-draft' } },
+            approved: { ...terminal('DONE', 'review.md', { latest_node: 'draft' }), pending_notifications: { node: 'draft', prompt: prompt('architecture-notifications-to-draft') } },
             revision_required: transition('draft', 'architecture-system-revision'),
             blocked: terminal('BLOCKED', 'review.md'),
             failed: terminal('FAILED', 'review.md'),

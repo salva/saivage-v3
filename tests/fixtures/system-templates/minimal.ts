@@ -15,13 +15,13 @@ function minimalCardTypes(nodeAgent: 'executor' | 'specialist', prompt: string):
           BACKLOG: { node: 'execute' },
           CHANGED: { node: 'execute' },
           BLOCKED: { node: 'execute' },
-          STOPPED: { node: 'execute', prompt: 'stopped-recovery' },
+          STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery' } },
         },
         nodes: {
           execute: {
             agent: nodeAgent,
-            prompt,
-            correction_prompt: 'correct-execution-result',
+            prompt: { reference: prompt },
+            correction_prompt: { reference: 'correct-execution-result' },
             records: { 'status.md': { mode: 'continue', gate: 'updated' } },
             edges: {
               done: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
@@ -46,6 +46,6 @@ export function minimalSystemTemplate(promptRoot: string): SystemTemplateDefinit
 
 export function secondSystemTemplate(promptRoot: string): SystemTemplateDefinition {
   const config = { ...templateGlobals(), card_types: minimalCardTypes('specialist', 'second-execute') };
-  config.agents = { ...config.agents, specialist: { ...structuredClone(config.agents.executor!), prompt: 'specialist' } };
+  config.agents = { ...config.agents, specialist: { ...structuredClone(config.agents.executor!), prompt: { reference: 'specialist' } } };
   return { name: 'second', config, promptRoot };
 }

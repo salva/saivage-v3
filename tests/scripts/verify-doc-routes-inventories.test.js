@@ -84,16 +84,17 @@ describe('source-derived Config schema inventory', () => {
     const result = verifyConfigDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect([...result.expected.keys()]).toEqual([
-      'top-level', 'agents.entry', 'oversight', 'models', 'models.routes.entry', 'models.profiles.entry', 'providers.entry',
+      'top-level', 'agents.entry', 'agents.entry.prompt', 'oversight', 'models', 'models.routes.entry', 'models.profiles.entry', 'providers.entry',
       'providers.entry.capabilities', 'providers.entry.capabilities.responsesReasoning',
       'providers.entry.modelCapabilities.entry', 'providers.entry.modelCapabilities.entry.responsesReasoning',
       'providers.entry.accounts.entry', 'providers.entry.accounts.entry.capabilities',
       'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'compaction', 'compaction.summarizer_candidate',
       'card_types.entry', 'card_types.entry.records.entry', 'card_types.entry.workflow', 'card_types.entry.workflow.entries',
-      'card_types.entry.workflow.entries.BACKLOG', 'card_types.entry.workflow.entries.CHANGED', 'card_types.entry.workflow.entries.BLOCKED', 'card_types.entry.workflow.entries.STOPPED',
-      'card_types.entry.workflow.nodes.entry', 'card_types.entry.workflow.nodes.entry.records.entry', 'card_types.entry.workflow.nodes.entry.descendant_context', 'card_types.entry.workflow.nodes.entry.edges.entry',
+      'card_types.entry.workflow.entries.BACKLOG', 'card_types.entry.workflow.entries.BACKLOG.prompt', 'card_types.entry.workflow.entries.CHANGED', 'card_types.entry.workflow.entries.CHANGED.prompt',
+      'card_types.entry.workflow.entries.BLOCKED', 'card_types.entry.workflow.entries.BLOCKED.prompt', 'card_types.entry.workflow.entries.STOPPED', 'card_types.entry.workflow.entries.STOPPED.prompt',
+      'card_types.entry.workflow.nodes.entry', 'card_types.entry.workflow.nodes.entry.prompt', 'card_types.entry.workflow.nodes.entry.correction_prompt', 'card_types.entry.workflow.nodes.entry.records.entry', 'card_types.entry.workflow.nodes.entry.descendant_context', 'card_types.entry.workflow.nodes.entry.edges.entry',
       'card_types.entry.workflow.nodes.entry.edges.entry.target.variant1', 'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2',
-      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2', 'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications', 'mcpServers.entry.variant1', 'mcpServers.entry.variant2',
+      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2', 'card_types.entry.workflow.nodes.entry.edges.entry.prompt', 'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications', 'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications.prompt', 'mcpServers.entry.variant1', 'mcpServers.entry.variant2',
     ]);
   });
 

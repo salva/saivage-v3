@@ -52,6 +52,13 @@ completion-reserve, and merge/summary escalation keys do not exist. See
 the [prepared conversation compaction runbook](docs/runbook/index.md#prepared-conversation-compaction)
 for capacity, 16-call, and failure limits; these bounds are not latency or
 summary-quality guarantees.
+Durable lifecycle-entry, edge, pending-notification, and correction prompt
+declarations may independently retain their exact rendered occurrence through
+compaction. Anonymous protected occurrences accumulate; exact keyed declarations
+retain the latest occurrence and release the prior one into the next successful
+summary. The strict conversation index, genesis, and segment-envelope format is
+version 2. See the [prompt contract](docs/architecture/prompts.md) and the
+[reset-only cutover procedure](docs/runbook/index.md#configuration-file-cutovers).
 Each card-node request keeps the complete accepted brief in its unchanged prepared
 card block and follows it with the full text of the actual compiled current node.
 The static role instruction, generated outcome contract, and compiled tools remain

@@ -1,5 +1,6 @@
-export { accumulatedSummarySha256, canonicalJson, compactedHistorySchema, coveredSourceGroupsSha256, foldDispositionCommitment, requiredModelFactSlotsSchema, type CompactedHistory, type CoveredDisposition, type CoveredSourceGroup, type RequiredModelFactSlots } from './context-compaction.js';
-export { DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, sha256HexSchema, type ContextAudience, type ContextEvidence, type ContextReplacement, type RowContextPolicy, type SettledToolEvidence, type ToolResultPolicyTemplate, type ToolSettlementOrigin } from './context-policy.js';
+export { canonicalJson } from './canonical-json.js';
+export { accumulatedSummarySha256, compactedHistorySchema, coveredSourceGroupsSha256, foldDispositionCommitment, protectedPromptsSha256, requiredModelFactSlotsSchema, type CompactedHistory, type CoveredDisposition, type CoveredSourceGroup, type ProtectedPrompt, type RequiredModelFactSlots } from './context-compaction.js';
+export { DURABLE_PRIMARY_CONTENT_POLICY, durablePrimaryContentPolicy, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, sha256HexSchema, type ContextAudience, type ContextEvidence, type ContextReplacement, type RowContextPolicy, type SettledToolEvidence, type ToolResultPolicyTemplate, type ToolSettlementOrigin } from './context-policy.js';
 export { CONTENT_POLICY_RETRY_TEXT, contentPolicyEvidenceUrl, contentPolicyRefusalContentSchema, contentPolicyRefusalProjectionText, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
 export {
   ConversationSessionIdSchema,

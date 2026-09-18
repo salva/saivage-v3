@@ -31,17 +31,29 @@ function entryPrompt(workflow: CompiledCardTypeWorkflow, entry: CardProcessEntry
     throw new Error(
       `Compiled workflow '${workflow.cardType}' entry '${entry}' has invalid semantics.`,
     );
-  return route.semantic.promptId;
+  return route.semantic.prompt;
 }
+function projectedPrompt(declaration: import('./card-process-config.js').CompiledPromptDeclaration | null) { return declaration === null ? null : { reference: declaration.promptId, compactable: declaration.compactable, ...(declaration.compactionKey === undefined ? {} : { compaction_key: declaration.compactionKey }) }; }
 
 /** Safe operator projection of the already-bound startup artifact. No source or runtime-state reads occur here. */
 export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): DebugGraphsResponse {
+  const globalAgents = [...workflows.selectedGlobalParticipants.values()].map(({ agent, prompt }) => {
+    const binding = runtimeAgentBinding(workflows, agent.name);
+    return {
+      agent_name: agent.name,
+      session: { scope: 'global' as const, identity: `agent:${agent.name}:global` },
+      prompt: { source: prompt.source, declaration: { reference: agent.prompt.reference, compactable: agent.prompt.compactable } },
+      model: { route: agent.modelRoute, candidates: binding.candidateChain.map(({ provider, model }) => ({ provider, model })), temperature: agent.model.temperature, max_tokens: agent.model.maxTokens },
+      skills: agent.skills,
+      tools: agent.tools.map(({ name }) => name),
+    };
+  });
   const graphs = [...workflows.cardTypes.values()].map((workflow) => {
     const cardType=workflow.cardType;
     const graphEntries = entries.map((entry) => ({
       entry,
       node_id: entryTarget(workflow, entry),
-      prompt_reference: entryPrompt(workflow, entry),
+       prompt: projectedPrompt(entryPrompt(workflow, entry)),
     }));
     const nodeStates = [...workflow.states.values()].filter((state) => state.kind === 'node');
     const nodes = nodeStates.map((node) => {
@@ -52,9 +64,9 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         session: { scope: 'card' as const, identity_pattern: `agent:${node.agent.name}:<card-id>` },
         prompt: {
           source: node.selectedAgentPrompt.source,
-          reference: node.selectedAgentPrompt.reference,
-          process_reference: node.promptId,
-          correction_reference: node.correctionPromptId,
+           declaration: { reference: node.agent.prompt.reference, compactable: node.agent.prompt.compactable },
+           process: projectedPrompt(node.prompt)!,
+           correction: projectedPrompt(node.correctionPrompt)!,
         },
         model: {
           route: node.agent.modelRoute,
@@ -99,7 +111,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             outcome: route.semantic.outcome,
             runtime_owned: false,
             condition: 'default' as const,
-            prompt_reference: route.semantic.promptId,
+             prompt: projectedPrompt(route.semantic.prompt),
             target:
               target.kind === 'terminal'
                 ? { kind: 'terminal' as const, terminal: target.terminal }
@@ -120,7 +132,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             outcome: route.semantic.outcome,
             runtime_owned: false,
             condition: 'pending_notifications' as const,
-            prompt_reference: route.semantic.promptId,
+             prompt: projectedPrompt(route.semantic.prompt),
             target: { kind: 'node' as const, node_id: target.nodeId },
             export_records: [],
             promotion: null,
@@ -135,7 +147,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           outcome: route.semantic.cause === 'failed' ? 'execution:failed' : 'execution:blocked',
           runtime_owned: true,
           condition: 'default' as const,
-          prompt_reference: null,
+           prompt: null,
           target: { kind: 'terminal' as const, terminal: target.terminal },
           export_records: [],
           promotion: null,
@@ -153,5 +165,5 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
       terminals: terminals.map((terminal) => ({ terminal })),
     };
   });
-  return DebugGraphsResponseSchema.parse({ graphs });
+  return DebugGraphsResponseSchema.parse({ global_agents: globalAgents, graphs });
 }

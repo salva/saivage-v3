@@ -212,10 +212,10 @@ const SOURCE_MUTATIONS = [
   ...['classic', 'classic-typed'].flatMap((template) => {
     const path = `src/config/system-templates/${template}/template.ts`;
     return [
-      [`${template} Analyst tool set`, verifyToolContractDocs, path, "analyst: Object.freeze({ prompt: 'analyst', tools: Object.freeze(['create_card'"],
-      [`${template} Planner tool set`, verifyToolContractDocs, path, "planner: Object.freeze({ prompt: 'planner', tools: Object.freeze(['create_card'"],
-      [`${template} Reviewer tool set`, verifyToolContractDocs, path, "reviewer: Object.freeze({ prompt: 'reviewer', tools: Object.freeze(['read'"],
-      [`${template} Executor tool set`, verifyToolContractDocs, path, "executor: Object.freeze({ prompt: 'executor', tools: Object.freeze(['read'"],
+      [`${template} Analyst tool set`, verifyToolContractDocs, path, "analyst: Object.freeze({ prompt: prompt('analyst'), tools: Object.freeze(['create_card'"],
+      [`${template} Planner tool set`, verifyToolContractDocs, path, "planner: Object.freeze({ prompt: prompt('planner'), tools: Object.freeze(['create_card'"],
+      [`${template} Reviewer tool set`, verifyToolContractDocs, path, "reviewer: Object.freeze({ prompt: prompt('reviewer'), tools: Object.freeze(['read'"],
+      [`${template} Executor tool set`, verifyToolContractDocs, path, "executor: Object.freeze({ prompt: prompt('executor'), tools: Object.freeze(['read'"],
     ];
   }),
   ['known projected tools', verifyToolContractDocs, 'src/tools/tool-invocation-outbound.ts', 'KNOWN_TOOL_INVOCATION_NAMES'],

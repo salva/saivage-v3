@@ -5,7 +5,7 @@ This in-depth companion to [System architecture](./system-architecture.md) and [
 ::: v-pre
 ## Purposes and layout
 
-Agent prompts become provider static instructions. Process prompts are startup-compiled operational context: the actual current node's prompt is frozen as prepared request context, while lifecycle-entry, correction, and configured non-terminal-edge prompts remain ordinary durable conversation context at their producer-owned positions. Fragments are not prompts; they are directly included pieces compiled under the host prompt's policy.
+Agent prompts become provider static instructions. Process prompts are startup-compiled operational context: the actual current node's prompt is frozen as prepared request context, while lifecycle-entry, correction, configured non-terminal-edge, and pending-notification prompts remain durable conversation context at their producer-owned positions. Each consuming declaration owns its compaction policy; shared prompt text remains policy-free. Fragments are not prompts; they are directly included pieces compiled under the host prompt's policy.
 
 Bundled defaults and project overrides use the same tree:
 
@@ -37,7 +37,26 @@ For a card host, exact lookup order is:
 
 The global Analyst has no card type and checks project shared then bundled shared only. Prompt APIs represent that with `{kind:'global-agent'}`; workflow and process hosts instead carry `{kind,cardType}`. Scope is never encoded by comparing a card name. Consequently a configured card type named `global` follows the complete card-host order above for agents, processes, and fragments and receives workflow/process placeholder policy, while the Analyst remains independent. Only exact `ENOENT` advances. Empty, invalid UTF-8, directory, unreadable, malformed, or otherwise failing paths abort compilation. Selection never enumerates directories.
 
-`agents.<agent-name>.prompt` is the filename reference at every agent tier. Agent name remains runtime/session identity, not a file key. Agents sharing a prompt reference share the same applicable override; independent override content requires distinct configured references. This is a breaking no-compatibility contract.
+`agents.<agent-name>.prompt` is the strict declaration `{reference,compactable?}` at every agent tier. `reference` is the filename reference and omitted `compactable` resolves to `true`. Static agent and node declarations accept explicit true or false but never `compaction_key`; their policy does not change delivery because neither creates a durable occurrence. Agent name remains runtime/session identity, not a file key. Agents sharing a prompt reference share the same applicable override; independent override content requires distinct configured references. This is a breaking no-compatibility contract.
+
+Every process node likewise declares `prompt:{reference,compactable?}` and `correction_prompt:{reference,compactable?,compaction_key?}`. Lifecycle entries, nonterminal edge prompts, and pending-notification prompts use the durable declaration shape. At durable sites omitted/true means ordinary compactable content and forbids a key; false without a key retains every occurrence; false with a nonempty exact key retains only the latest occurrence of that key and releases the older occurrence into the next successful compaction summary. Keys are exact, including whitespace, and are neither trimmed nor synthesized. Policy belongs to the consuming declaration, so two sites may share one reference while choosing different retention.
+
+```yaml
+agents:
+  executor:
+    prompt: { reference: executor, compactable: false }
+card_types:
+  code:
+    workflow:
+      entries:
+        STOPPED:
+          node: red
+          prompt: { reference: stopped-recovery }
+      nodes:
+        red:
+          prompt: { reference: code-red, compactable: false }
+          correction_prompt: { reference: correct-execution-result, compactable: false, compaction_key: execution.correction }
+```
 
 Fragments use the host card type even when the host itself came from a shared tier. Thus a shared code host may select a project `fragments/code/<id>.md`. The Analyst can use only shared fragments.
 
@@ -106,7 +125,7 @@ The shared Planner prompt also owns prompt-level distinctions among bounded rese
 
 The same shared Planner host in both templates states the existing bounded cancellation policy without changing its tool contract: an obsolete or explicitly rejected direct-child approach may be cancelled with rationale when current admission permits it, but cancellation cannot defer actionable work, reopen later, satisfy DONE dependencies, or conceal unfinished acceptance. In the typed test process, `test-diagnose` may classify a fresh or resumed already-passing, meaningfully covered baseline as `coverage_ready`; the existing `test-to-verify` transition then requires independent verification-owned acceptance. This changes no process-host inventory—the typed-only count remains 42—and custom Planner hosts still receive this policy only if operators merge it while preserving their explicit guidance includes.
 
-The authenticated Debug Graphs projection exposes prompt reference and one of `override-card | override-shared | bundled-card | bundled-shared`. It omits bodies and paths. The projection is computed from the installed immutable workflow artifact, not recorded state.
+The authenticated Debug Graphs projection exposes each resolved workflow declaration and each selected global agent declaration with explicit `reference`, `compactable`, and an allowed optional exact `compaction_key`, plus one of `override-card | override-shared | bundled-card | bundled-shared`. Selected globals are projected separately from card graphs with their exact global session identity and installed model/tool binding. The projection omits bodies and paths and is computed from the installed immutable workflow artifact, not recorded state.
 
 ## Runtime invariants and operator cutover
 
@@ -116,8 +135,8 @@ The authenticated Debug Graphs projection exposes prompt reference and one of `o
 - There is no workflow-family map or runtime prompt selection; templates are consulted only by `init`, never at runtime.
 - Old path forms and agent-name-keyed overrides are not read, moved, warned about, or normalized.
 - A fresh `saivage init [--profile <name>]` on a config-absent project materializes the selected template's complete closure; a materialized instance is upgrade-independent by construction because its override tree resolves every reference at the override tier. Hand-authored typed-graph configs carry their typed-only prompt files in `.saivage/config/prompts` (one-time copy from the classic-typed template's tree) because the bundled root contains only the classic template's compiled source closure.
-- Operators stop the service, manually reconcile the selected materialized overrides while preserving customizations, then start a genuinely new server process. Project Stop/Run, pause/resume, and browser refresh do not compile prompt changes. The prepared-node/request-composition change does not alter durable formats and requires no generated-state reset.
-- Producer-declared compaction policy and conversation format 2 remain deferred work. Their future reset-only cutover protects durable entry/edge/correction occurrences; it does not add a durable current-node occurrence or change current node delivery according to a declaration flag.
+- Operators stop the service, manually reconcile the selected materialized overrides while preserving customizations, then start a genuinely new server process. Project Stop/Run, pause/resume, and browser refresh do not compile prompt changes.
+- Producer-declared compaction policy uses strict object declarations and conversation format 2. It is a reset-only cutover from format 1. It protects eligible durable entry, edge, pending-notification, and correction occurrences; it adds no durable current-node occurrence and never changes static or node delivery according to a declaration flag.
 
 ## Key source files
 

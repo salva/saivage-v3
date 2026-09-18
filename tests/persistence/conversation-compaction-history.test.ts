@@ -103,7 +103,7 @@ function composedOf(conversation: ValidatedConversation): ComposedContextProject
   return composeContextProjection({
     sourceSessionId: conversation.sourceSessionId,
     effectiveHistory: genesis && history
-      ? { summaryText: history.summaryText, historyMessageId: `${genesis.id}:compacted-history`, historyTimestamp: genesis.timestamp, requiredModelFacts: history.requiredModelFacts }
+      ? { summaryText: history.summaryText, historyMessageId: `${genesis.id}:compacted-history`, historyTimestamp: genesis.timestamp, requiredModelFacts: history.requiredModelFacts, protectedPrompts: history.protectedPrompts }
       : null,
     dynamicBlocks: [],
     uncoveredRows: conversation.sourceRows,
@@ -133,13 +133,18 @@ function text(id: string, content: string, audience: 'primary_and_summarizer' | 
     session_id: SESSION,
     role: 'user',
     kind: 'text',
-    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience, evidence: { kind: 'none' } },
+    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience, evidence: { kind: 'none' }, compactable: true },
     content,
     round_id: `r-user-${'2'.repeat(32)}`,
     message_index: 1,
     block_index: 0,
     timestamp: '2026-08-18T00:00:01.000Z',
   } as AgentMessage;
+}
+
+function protectedText(id:string,content:string,key?:string):AgentMessage{
+  const message=text(id,content);
+  return {...message,context_policy:{...message.context_policy,compactable:false,...(key===undefined?{}:{compaction_key:key})}} as AgentMessage;
 }
 
 function summarizerOnlyBundle(inputId: string, callId: string, body: string): AgentMessage[] {
@@ -179,6 +184,37 @@ async function compactOnce(root: string, strategy: 'preventive' | 'authoritative
 }
 
 describe('accumulated compaction history generations', () => {
+  it('extracts protected instructions, orients without summarizing them, and folds a released keyed instruction once',async()=>{
+    const root=mkdtempSync(join(tmpdir(),'compaction-history-protected-'));initProjectTree(root);
+    try{
+      const oldInstruction='EXACT-KEYED-INSTRUCTION-OLD';
+      appendConversationBatch({projectRoot:root},[activation(1),text('q1',BIG),protectedText('instruction-old',oldInstruction,'workflow.rule'),activation(2),text('q2',BIG),activation(3),text('q3',BIG)]);
+      const firstCalls:SummaryCall[]=[];
+      expect((await compactOnce(root,'preventive',firstCalls)).kind).toBe('compacted');
+      const first=readCurrentConversationSegment(root,SESSION)!;
+      const firstHistory=first.conversation.effectiveCompactedHistory!;
+      expect(firstHistory.protectedPrompts.map(({message})=>message.id)).toEqual(['instruction-old']);
+      expect(firstHistory.dispositionCommitment.protected).toBe(1);
+      expect(first.rows.some(({id})=>id==='instruction-old')).toBe(false);
+      const firstItems=firstCalls.flatMap(parseSummaryContents);
+      expect(firstItems.filter(({label,body})=>label.includes('kind=protected_instruction')&&body===oldInstruction)).toHaveLength(firstCalls.length);
+      expect(firstItems.some(({label,body})=>!label.includes('kind=protected_instruction')&&body===oldInstruction)).toBe(false);
+      expect(providerConversationProjection(first.conversation,[]).messages.filter(({content})=>content===oldInstruction)).toHaveLength(1);
+
+      const newInstruction='EXACT-KEYED-INSTRUCTION-NEW';
+      appendConversationBatch({projectRoot:root},[activation(4),text('q4',BIG),protectedText('instruction-new',newInstruction,'workflow.rule'),activation(5),text('q5',BIG),activation(6),text('q6',BIG)]);
+      const secondCalls:SummaryCall[]=[];
+      expect((await compactOnce(root,'preventive',secondCalls)).kind).toBe('compacted');
+      const second=readCurrentConversationSegment(root,SESSION)!;
+      expect(second.conversation.effectiveCompactedHistory!.protectedPrompts.map(({message})=>message.id)).not.toContain('instruction-old');
+      expect([...second.conversation.effectiveCompactedHistory!.protectedPrompts.map(({message})=>message.id),...second.rows.map(({id})=>id)]).toContain('instruction-new');
+      const secondItems=secondCalls.flatMap(parseSummaryContents);
+      expect(secondItems.filter(({label,body})=>label.includes('kind=released_protected_instruction')&&body===oldInstruction)).toHaveLength(1);
+      expect(secondItems.some(({label,body})=>label.includes('kind=protected_instruction')&&body===newInstruction)).toBe(true);
+      expect(secondItems.some(({label,body})=>label.includes('kind=released_protected_instruction')&&body===newInstruction)).toBe(false);
+    }finally{rmSync(root,{recursive:true,force:true});}
+  });
+
   it('publishes and rereads a tail-only successor with explicit policies, two nullable slots, and coverage commitments', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-history-format-'));
     initProjectTree(root);
@@ -496,7 +532,7 @@ describe('accumulated compaction history generations', () => {
         session_id: SESSION,
         role: 'user',
         kind: 'model_repair',
-        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
+        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
         content: 'repair directive after inherited open round',
         round_id: `r-user-${'5'.repeat(32)}`,
         message_index: 2,
@@ -630,6 +666,7 @@ describe('accumulated compaction history generations', () => {
           historyMessageId: `${predecessorGenesis.id}:compacted-history`,
           historyTimestamp: predecessorGenesis.timestamp,
           requiredModelFacts: predecessor.conversation.effectiveCompactedHistory!.requiredModelFacts,
+          protectedPrompts: predecessor.conversation.effectiveCompactedHistory!.protectedPrompts,
         },
         dynamicBlocks: [],
         uncoveredRows: conversation.sourceRows.slice(1),

@@ -194,8 +194,8 @@ try {
         const sourceContract = describeNodeResultContract(sourceProcess, `node:${nodeId}`);
         const packagedAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, packagedNode.agent.name, packagedNode.selectedAgentPrompt.compiled, { contractDescription: packagedContract });
         const sourceAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceNode.agent.name, sourceNode.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
-        const packagedProcessPrompt = requireValue(packagedProcess.processPrompts.get(packagedNode.promptId), `Missing packaged ${templateName}/${cardType}/${nodeId} process prompt.`);
-        const sourceProcessPrompt = requireValue(sourceProcess.processPrompts.get(sourceNode.promptId), `Missing source ${templateName}/${cardType}/${nodeId} process prompt.`);
+        const packagedProcessPrompt = requireValue(packagedProcess.processPrompts.get(packagedNode.prompt.promptId), `Missing packaged ${templateName}/${cardType}/${nodeId} process prompt.`);
+        const sourceProcessPrompt = requireValue(sourceProcess.processPrompts.get(sourceNode.prompt.promptId), `Missing source ${templateName}/${cardType}/${nodeId} process prompt.`);
         if (packagedNode.selectedAgentPrompt.source !== 'bundled-shared' || sourceNode.selectedAgentPrompt.source !== 'bundled-shared' || packagedNode.selectedAgentPrompt.reference !== 'planner' || sourceNode.selectedAgentPrompt.reference !== 'planner') throw new Error(`Planner source selection changed for ${templateName}/${cardType}/${nodeId}.`);
         if (packagedContract !== sourceContract || packagedAgent !== sourceAgent || packagedProcessPrompt.reference !== sourceProcessPrompt.reference || packagedProcessPrompt.text !== sourceProcessPrompt.text) throw new Error(`Source/package Planner rendering differs for ${templateName}/${cardType}/${nodeId}.`);
         if (packagedAgent.split(packagedContract).length - 1 !== 1) throw new Error(`Generated Planner contract is not rendered exactly once for ${templateName}/${cardType}/${nodeId}.`);
@@ -220,7 +220,7 @@ try {
     const node = requireValue(architecture.states.get(`node:${nodeId}`), `Missing ${nodeId}.`);
     if (node.kind !== 'node') throw new Error(`Missing ${nodeId}.`);
     const agent = renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'architecture' }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
-    if (node.selectedAgentPrompt.source !== 'bundled-shared' || !agent.includes('record:///review.md?card=<card-id>') || !requireValue(architecture.processPrompts.get(node.promptId), `Missing ${nodeId} prompt.`).text.includes('record:///review.md?card=<card-id>')) throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);
+    if (node.selectedAgentPrompt.source !== 'bundled-shared' || !agent.includes('record:///review.md?card=<card-id>') || !requireValue(architecture.processPrompts.get(node.prompt.promptId), `Missing ${nodeId} prompt.`).text.includes('record:///review.md?card=<card-id>')) throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);
   }
   for (const prompt of architecture.processPrompts.values()) if (prompt.reference.includes('revision') || prompt.reference === 'architecture-to-system-review') {
     if (!prompt.text.includes('versioned `review.md` URL')) throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);

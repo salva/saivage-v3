@@ -107,7 +107,7 @@ function runCopySystemTemplatePromptsTest() {
     writeFileSync(join(outside, 'analyst.md'), 'outside {{vocabularySnippet}}');
     const escaped = minimalSystemTemplate(escapedRoot);
     const escapedAnalyst = structuredClone(escaped.config.agents.analyst);
-    escaped.config.agents = { ...structuredClone(escaped.config.agents), analyst: { ...escapedAnalyst, prompt: `../../../${basename(outside)}/analyst` } };
+    escaped.config.agents = { ...structuredClone(escaped.config.agents), analyst: { ...escapedAnalyst, prompt: { reference: `../../../${basename(outside)}/analyst` } } };
     expectThrows(
       () => collectTemplatePromptClosure({ template: escaped }),
       /Invalid|outside the supplied prompt root/u,

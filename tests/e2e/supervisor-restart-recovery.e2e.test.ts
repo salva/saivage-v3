@@ -125,8 +125,8 @@ describe('Supervisor kill/restart full-chain recovery', () => {
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
           workflow: {
             notification_recipient: 'planner',
-            entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'plan', prompt: 'stopped-recovery' } },
-            nodes: { plan: { agent: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: {}, edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } } } } },
+            entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'plan', prompt: { reference: 'stopped-recovery', compactable: true } } },
+            nodes: { plan: { agent: 'planner', prompt: { reference: 'plan', compactable: true }, correction_prompt: { reference: 'correct-plan-result', compactable: true }, records: {}, edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } } } } },
           },
         };
         value.card_types.code = {
@@ -137,8 +137,8 @@ describe('Supervisor kill/restart full-chain recovery', () => {
           },
           workflow: {
             notification_recipient: 'executor',
-            entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
-            nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
+            entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
+            nodes: { execute: { agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
           },
         };
       });

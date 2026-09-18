@@ -23,7 +23,7 @@ type PlanningType = 'project' | 'goal';
 type VisibleContext = Readonly<{ role: 'user'; content: string }>;
 
 const transitionRenderer = new AgentNodeExecution({} as never, {} as never) as unknown as {
-  transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): VisibleContext | null;
+  transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): readonly VisibleContext[];
 };
 
 function requireNode(process: CompiledCardTypeWorkflow, nodeId: string): CompiledNodeContract {
@@ -57,8 +57,8 @@ function transition(process: CompiledCardTypeWorkflow, source: string, outcome: 
     context: { source: `node:${source}`, event: `result:${outcome}`, target: `node:${target}` },
     acceptedResult: result,
   } as NodeTransition);
-  if (!rendered) throw new Error(`Missing ${process.cardType} ${source}/${outcome} transition context.`);
-  return rendered.content;
+  if (!rendered.length) throw new Error(`Missing ${process.cardType} ${source}/${outcome} transition context.`);
+  return rendered.map(({content})=>content).join('');
 }
 
 function stoppedTransition(process: CompiledCardTypeWorkflow): string {
@@ -66,15 +66,15 @@ function stoppedTransition(process: CompiledCardTypeWorkflow): string {
     context: { source: 'entry:STOPPED', event: 'entry:route', target: 'node:recover' },
     acceptedResult: null,
   } as NodeTransition);
-  if (!rendered) throw new Error(`Missing ${process.cardType} STOPPED transition context.`);
-  return rendered.content;
+  if (!rendered.length) throw new Error(`Missing ${process.cardType} STOPPED transition context.`);
+  return rendered.map(({content})=>content).join('');
 }
 
 function routePrompt(process: CompiledCardTypeWorkflow, source: string, event: string): string {
   const route = process.states.get(source)?.on.get(event);
-  if (!route || (route.semantic.kind !== 'entry-route' && route.semantic.kind !== 'configured-outcome') || !route.semantic.promptId)
+  if (!route || (route.semantic.kind !== 'entry-route' && route.semantic.kind !== 'configured-outcome') || !route.semantic.prompt)
     throw new Error(`Missing prompt-bearing route ${process.cardType}/${source}/${event}.`);
-  return requirePrompt(process, route.semantic.promptId);
+  return requirePrompt(process, route.semantic.prompt.promptId);
 }
 
 function compile(template: SystemTemplateDefinition) {
@@ -198,7 +198,7 @@ describe('shipped project Planner semantic composition', () => {
       expect(plan.requirements.map(({ definition, mode, gate }) => [definition.name, mode, gate])).toEqual([['status.md', 'continue', 'updated']]);
 
       for (const value of [composition, recover, review]) {
-        const compiledPrompt = process.processPrompts.get(value.node.promptId)!;
+        const compiledPrompt = process.processPrompts.get(value.node.prompt.promptId)!;
         expect(compiledPrompt.text).toBe(readFileSync(compiledPrompt.path, 'utf8').replaceAll('{{cardType}}', cardType));
       }
 
@@ -213,11 +213,11 @@ describe('shipped project Planner semantic composition', () => {
       expect(reviewRevision).toContain(`record:///review.md?card=${cardId}&v=2`);
       expect(reviewRevision.endsWith(routePrompt(process, 'node:review', 'result:revision_required'))).toBe(true);
       if (templateName === 'classic-typed') {
-        expect(requirePrompt(process, plan.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
-        expect(requirePrompt(process, recover.node.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
+        expect(requirePrompt(process, plan.prompt.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
+        expect(requirePrompt(process, recover.node.prompt.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
         expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
       }
-      expect(requirePrompt(process, plan.correctionPromptId)).toBe(readFileSync(process.processPrompts.get(plan.correctionPromptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
+      expect(requirePrompt(process, plan.correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(plan.correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
     }
 
     expect(compositions[0]!.instruction).toBe(compositions[1]!.instruction);

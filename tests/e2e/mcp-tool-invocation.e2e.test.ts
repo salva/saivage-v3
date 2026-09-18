@@ -111,8 +111,8 @@ describe('MCP tool invocation production composition', () => {
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
           workflow: {
             notification_recipient: 'executor',
-            entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
-            nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
+            entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
+            nodes: { execute: { agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
           },
         };
         value.mcpServers = { [SERVER_NAME]: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, disabled: false, autostart: true } };

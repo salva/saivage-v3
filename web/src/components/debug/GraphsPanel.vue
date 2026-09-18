@@ -28,6 +28,10 @@
         message="A running server must have one compiled graph for every card type."
       />
       <template v-else-if="graphs && selectedGraph">
+        <section class="global-agents" data-testid="debug-global-agents">
+          <h5>Selected global agents</h5>
+          <pre v-for="agent in globalAgents" :key="agent.agent_name">{{ JSON.stringify(agent, null, 2) }}</pre>
+        </section>
         <label class="graph-selector-label" for="debug-graph-card-type">Card type</label>
         <select
           id="debug-graph-card-type"
@@ -47,13 +51,14 @@
 
 <script setup lang="ts">
 import type { DeepReadonly } from 'vue';
-import type { DebugGraph } from '../../api/types';
+import type { DebugGlobalAgent, DebugGraph } from '../../api/types';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import DebugGraphDiagram from './DebugGraphDiagram.vue';
 
 defineProps<{
   graphs: readonly DeepReadonly<DebugGraph>[] | null;
+  globalAgents: readonly DeepReadonly<DebugGlobalAgent>[];
   graphsLoading: boolean;
   graphsRefreshing: boolean;
   graphsError: string | null;
@@ -89,4 +94,7 @@ function selectGraph(event: Event): void {
   border-radius: 4px;
   padding: 7px 9px;
 }
+.global-agents { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); }
+.global-agents h5 { margin: 0 0 8px; color: var(--text-muted); text-transform: uppercase; font-size: 11px; }
+.global-agents pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 </style>

@@ -27,7 +27,7 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 
 type FailureMode = { kind: 'capacity'; systemPrompt: string } | { kind: 'render'; error: Error };
 
-function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project', productionPlanner = false) {
+function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project', productionPlanner = false, staticFalse = false) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-static-preparation-'));
   roots.push(projectRoot);
   const cardId = cardType === 'project' ? 'project' : 'card-a';
@@ -52,8 +52,8 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   let node = {
     kind: 'node',
     nodeId: 'work',
-    promptId: 'work',
-    correctionPromptId: 'correct',
+    prompt: { promptId: 'work', compactable: true },
+    correctionPrompt: { promptId: 'correct', compactable: true },
     agent: { name: 'planner', tools: [], model: { temperature: 0, maxTokens: 100 } },
     requirements: [{ definition: { name: 'status.md' }, mode: 'clean', gate: 'exists' }],
     descendantContext: null,
@@ -66,7 +66,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   let process = {
     cardType,
     states: new Map<string, unknown>([
-      ['entry:BACKLOG', { kind: 'entry', entry: 'BACKLOG', on: new Map([['entry:route', { targetStateId: 'node:work', reenter: false, semantic: { kind: 'entry-route', promptId: null } }]]) }],
+      ['entry:BACKLOG', { kind: 'entry', entry: 'BACKLOG', on: new Map([['entry:route', { targetStateId: 'node:work', reenter: false, semantic: { kind: 'entry-route', prompt: null } }]]) }],
       ['node:work', node],
     ]),
     processPrompts: { get: processPromptGet },
@@ -78,7 +78,12 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   let promptTemplates = { render: () => { if (failure.kind === 'render') throw failure.error; return failure.systemPrompt; } };
   if (productionPlanner) {
     const template = resolveSystemTemplate('classic-typed');
-    const compiled = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)), { defaultPromptRoot: template.promptRoot, projectRoot });
+    const config = structuredClone(template.config);
+    if (staticFalse) {
+      config.agents.planner!.prompt.compactable = false;
+      config.card_types!.project!.workflow.nodes.plan!.prompt.compactable = false;
+    }
+    const compiled = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config), { defaultPromptRoot: template.promptRoot, projectRoot });
     const compiledProcess = compiled.cardTypes.get(cardType)!;
     const compiledNode = compiledProcess.states.get('node:plan')!;
     if (compiledNode.kind !== 'node') throw new Error(`Missing ${cardType} Planner node.`);
@@ -143,14 +148,28 @@ function seedUnmatched(test: ReturnType<typeof harness>, inputId = '00000000-000
 }
 function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[]): void {
   const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
-  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 1, type: 'conversation-segment', rows })}\n`);
+  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 2, type: 'conversation-segment', rows })}\n`);
 }
 
 describe('AgentNodeExecution static preparation', () => {
+  it('delivers identical static and prepared-node bytes when their declarations explicitly disable compactability', async () => {
+    const ordinary = harness({ kind: 'capacity', systemPrompt: 'unused' }, 'project', true);
+    const protectedDeclaration = harness({ kind: 'capacity', systemPrompt: 'unused' }, 'project', true, true);
+
+    await expect(ordinary.run()).rejects.toThrow('turn sentinel');
+    await expect(protectedDeclaration.run()).rejects.toThrow('turn sentinel');
+
+    const ordinaryInput = (ordinary.llm.turn.mock.calls as unknown as [[{ systemPrompt: string; providerConversation: unknown }]])[0]![0];
+    const protectedInput = (protectedDeclaration.llm.turn.mock.calls as unknown as [[{ systemPrompt: string; providerConversation: unknown }]])[0]![0];
+    expect(protectedDeclaration.productionNode?.agent.prompt.compactable).toBe(false);
+    expect(protectedDeclaration.productionNode?.prompt.compactable).toBe(false);
+    expect(protectedInput).toEqual(ordinaryInput);
+  });
+
   it.each(['project', 'goal'] as const)('sends the selected Planner instruction and full frozen %s card block once on the actual initial actor request', async (cardType) => {
     const test = harness({ kind: 'capacity', systemPrompt: 'unused' }, cardType, true);
     if (!test.productionNode) throw new Error('Missing compiled Planner node.');
-    const selectedNodeText = test.process.processPrompts.get(test.productionNode.promptId)?.text;
+    const selectedNodeText = test.process.processPrompts.get(test.productionNode.prompt.promptId)?.text;
     if (!selectedNodeText) throw new Error('Missing compiled Planner process prompt.');
 
     await expect(test.run()).rejects.toThrow('turn sentinel');
@@ -179,7 +198,7 @@ describe('AgentNodeExecution static preparation', () => {
 
     await expect(test.run()).rejects.toThrow('turn sentinel');
 
-    expect(test.processPromptGet.mock.calls.filter(([promptId]) => promptId === test.node.promptId)).toHaveLength(1);
+    expect(test.processPromptGet.mock.calls.filter(([promptId]) => promptId === test.node.prompt.promptId)).toHaveLength(1);
     const input = (test.llm.turn.mock.calls as unknown as [[unknown]])[0][0] as { preparedContext: { dynamicBlocks: readonly { id: string; content: string }[]; dynamicBlocksSha256: string }; providerConversation: { messages: Array<{ content: string }> } };
     expect(input.preparedContext.dynamicBlocks.map((block) => block.id)).toEqual(['card-activation:project', 'node-activation:project:work']);
     expect(input.preparedContext.dynamicBlocks[1].content).toBe("Current workflow node 'work':\n\nnode prompt");

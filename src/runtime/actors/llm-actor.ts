@@ -16,7 +16,7 @@ import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, contentPolicyEvidenceUrl, conve
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
 import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
-import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, selectInvocationResultPolicy, type InvocationResultPolicy, type SettledToolResultFacts } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendToolResult, buildModelRepairMessage, buildSettledToolResult, selectInvocationResultPolicy, type InvocationResultPolicy, type SettledToolResultFacts } from './llm-delivery-log.js';
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolSettlementInput } from '../../tools/invocation.js';
@@ -241,7 +241,7 @@ export class ConversationLLMActor {
     } catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); return direct.promise; }
   }
 
-  continueAfterPlainText(repairDirective: string, signal: AbortSignal | undefined, terminal: LlmTerminalHandoff, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+  continueAfterPlainText(repairDirectives: readonly ProviderVisibleUserContextMessage[], signal: AbortSignal | undefined, terminal: LlmTerminalHandoff, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     if (this.#phase.kind !== 'retained_text' || this.#phase.operation.disposition.kind !== 'open') return rejected(new Error(`LLMActor '${this.agentId}' has no open plain-text result to continue.`));
     const retained = this.#phase.operation;
     const direct = deferred<LLMActorOutcome>(); observe(direct.promise);
@@ -251,12 +251,14 @@ export class ConversationLLMActor {
       signal?.throwIfAborted();
       const inputId = randomUUID();
       const input = { ...retained.input, inputId };
-      const repairMessage = appendModelRepairMessage(this.conversations, input, repairDirective);
+      const configuredRepair = repairDirectives[0];
+      if (!configuredRepair) throw new Error('Plain-text continuation requires configured repair context.');
+      const repairMessage = buildModelRepairMessage(input, configuredRepair);
       this.#assertRepairOpen(repair);
       const continuation = continuationContextHook?.(inputId);
       this.#assertRepairOpen(repair);
-      const contextRows = (continuation?.messages ?? []).map((message, index) => buildUserContextMessage(input.sessionId, inputId, 'continuation_hook', index, message));
-      if (contextRows.length > 0) appendConversationBatch(this.conversations, contextRows);
+      const contextRows = [...repairDirectives.slice(1), ...(continuation?.messages ?? [])].map((message, index) => buildUserContextMessage(input.sessionId, inputId, 'continuation_hook', index, message));
+      appendConversationBatch(this.conversations, [repairMessage, ...contextRows]);
       this.#assertRepairOpen(repair);
       continuation?.afterAppend?.();
       this.#assertRepairOpen(repair);
@@ -520,10 +522,12 @@ export class ConversationLLMActor {
   async #runToolSettlement(operation: OrdinaryToolSettlementOperation, settlement: ToolSettlementInput, signal?: AbortSignal, hook?: LLMToolContinuationContextHook): Promise<void> {
     try {
       if (signal?.aborted && !isCardInterruptedError(signal.reason)) signal.throwIfAborted();
-      const facts = this.#appendClaimedToolResult(operation, settlement);
-      if (operation.disposal) return this.#settleDisposedTool(operation);
+      const built = buildSettledToolResult({ session_id: operation.parked.input.sessionId, source_input_id: operation.parked.input.inputId, tool_call_id: operation.parked.waiting.toolCallId, tool_name: operation.parked.waiting.toolName, resultPolicy: operation.parked.waiting.resultPolicy, settlement });
+      const facts = built.facts;
+      if (operation.disposal) { appendConversationBatch(this.conversations, [built.message]); return this.#settleDisposedTool(operation); }
       if (operation.parked.disposition.kind === 'graceful_cancellation') {
         const reason = operation.parked.disposition.reason;
+        appendConversationBatch(this.conversations, [built.message]);
         this.#releaseTool(operation);
         operation.result.reject(reason);
         operation.settlement.resolve();
@@ -532,9 +536,9 @@ export class ConversationLLMActor {
       let continuationInput = { ...operation.parked.input, inputId: randomUUID(), episodeContext: { ...operation.parked.input.episodeContext, lastToolResult: { toolCallId: operation.parked.waiting.toolCallId, toolName: operation.parked.waiting.toolName, result: facts.providerResult } } };
       this.#assertContinuationPreparedContext(operation.parked.input, continuationInput);
       const continuation = hook?.(continuationInput.inputId);
-      if (operation.disposal) return this.#settleDisposedTool(operation);
+      if (operation.disposal) { appendConversationBatch(this.conversations, [built.message]); return this.#settleDisposedTool(operation); }
       const contextRows = (continuation?.messages ?? []).map((message, index) => buildUserContextMessage(continuationInput.sessionId, continuationInput.inputId, 'continuation_hook', index, message));
-      if (contextRows.length > 0) appendConversationBatch(this.conversations, contextRows);
+      appendConversationBatch(this.conversations, [built.message, ...contextRows]);
       if (operation.disposal) return this.#settleDisposedTool(operation);
       continuation?.afterAppend?.();
       if (operation.disposal) return this.#settleDisposedTool(operation);
