@@ -1,5 +1,4 @@
-import { ProcessToolResultSchema, type ProcessToolResult } from '../contracts/operator-api-processes.js';
-import { ToolResultSchema } from '../contracts/tool-result.js';
+import { ProcessToolResultSchema, ToolResultSchema, type ProcessToolResult } from '../contracts/index.js';
 import { canonicalJson } from '../schemas/index.js';
 import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES } from './response-packer.js';
