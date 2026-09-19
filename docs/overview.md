@@ -100,6 +100,9 @@ is configured per role and per card type, never inferred from a role label.
    after interruption, an explicit Run owns full-chain stopped recovery. See
    [Run, Pause, Resume, Stop, and Restart](spec/system-specification.md#7-run-pause-resume-stop-and-restart).
 
+The [operating guide](guides/operating.md) walks this loop from the
+operator's seat, panel by panel.
+
 Long agent conversations are kept viable by **conversation compaction**: when a
 session's context approaches its model's window, the runtime summarizes covered
 history into a new segment under exact admission and coverage rules. See the
@@ -122,11 +125,12 @@ history into a new segment under exact admission and coverage rules. See the
 
 Saivage stores all durable state as ordinary files under the target project's
 `.saivage/` tree: append-only JSONL streams with strict envelopes for cards,
-records, conversations, logs, and work artifacts. There is no database, no
-migration, and no compatibility reader. When a durable format changes
-incompatibly, the cutover is **reset-only**: stop, rewrite configuration, reset
-generated state (preserving configuration, credentials, operator inputs,
-source, and docs), and start the current binary. See
+records, conversations, and logs, plus plain directories for generated work
+artifacts. There is no database, no migration, and no compatibility reader.
+When a durable format changes incompatibly, the cutover is **reset-only**:
+stop, rewrite configuration, reset generated state (preserving configuration,
+credentials, operator inputs, source, and docs), and start the current
+binary. See
 [Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)
 and the [reset procedures](runbook/index.md#invalid-or-non-continuable-global-analyst-history).
 

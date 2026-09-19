@@ -29,10 +29,13 @@ providers:
 ```
 
 - `capabilities` must tell the truth about the endpoint; context admission
-  and compaction are computed from `contextWindowTokens`.
-- For providers with several credentials, add an `accounts` map and reference
-  `account: <name>` in routes; `account: null` means the provider-level
-  implicit account.
+  and compaction are computed from `contextWindowTokens`. Per-model overrides
+  go in `modelCapabilities`.
+- Use `apiKey`, or `authProfile` to reference a stored OAuth-style
+  authentication profile instead of a raw key.
+- Providers with several credentials add an `accounts` map; each named
+  account can carry its own `priority`, `apiKey`, `baseUrl`, `authProfile`,
+  `models`, and `capabilities`.
 - Credential validity is not probed at startup — a bad key surfaces on the
   first real model call.
 
@@ -60,7 +63,12 @@ models:
 ```
 
 - `candidates` is an explicit ordered list; `profile` selects a reusable
-  preference set instead. Route resolution happens once at startup.
+  preference set instead (the bundled templates use the `planning` and
+  `review` profiles). Route resolution happens once at startup.
+- A model ID resolves to **every** provider that lists it, ordered by
+  provider `priority` and then by account `priority` (lower first; defaults
+  100 and 50) — that ordering is the failover chain across providers. Named
+  `account:` selection exists only for the compaction summarizer.
 - Larger windows can materially increase request cost and latency; Saivage
   does not compact merely to make a small fallback fit.
 
@@ -95,9 +103,9 @@ agents:
 Omit `card_types` to select the bundled `classic` definitions (nine types:
 `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`,
 `ops`) — recommended for a first instance. Advanced: `saivage init --profile
-classic-typed` materializes the typed workflows (red/green/refactor, verify
-loops, review stages) before any config exists, or provide a complete closed
-`card_types` map by hand:
+classic-typed` materializes the typed template — with per-type processes such
+as code red/green/refactor and test diagnose/verify loops — before any config
+exists, or provide a complete closed `card_types` map by hand:
 
 ```yaml
 card_types:
@@ -118,7 +126,8 @@ card_types:
 
 Switching templates or replacing the map is a stopped configuration change;
 the runbook owns [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers)
-for instances with retained history.
+for instances with retained history. After a change, verify what actually
+compiled in the control room's [Debug > Graphs](./operating.md#debug) view.
 
 ## Compaction
 
@@ -130,6 +139,7 @@ compaction:
   context_utilization_fraction: 0.80   # usable fraction of the window
   trigger_fraction: 0.90               # when to prepare compaction
   tail_fraction: 0.25                  # recent history always kept verbatim
+  snap: keep_straddler_verbatim        # or compact_straddler
   summarizer_candidate: { provider: my-provider, account: null, model: my-model }
 ```
 
@@ -164,7 +174,8 @@ mcpServers:
     autostart: true
   local-tool:
     transport: stdio
-    command: node /path/to/server.js
+    command: node
+    args: [/path/to/server.js]
     autostart: true
 ```
 
@@ -185,11 +196,12 @@ server:
 ## Skills
 
 Optional `.saivage/skills/index.json` registers skill files for
-`executor`, `reviewer`, or `analyst`:
+`executor`, `reviewer`, or `analyst`. Each `file` path is relative to the
+`.saivage/skills/` directory and may not escape it:
 
 ```json
 [
-  { "name": "deploy-checklist", "file": "skills/deploy.md", "target_agents": ["executor"] }
+  { "name": "deploy-checklist", "file": "deploy.md", "target_agents": ["executor"] }
 ]
 ```
 

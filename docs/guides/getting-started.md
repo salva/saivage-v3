@@ -6,7 +6,8 @@ Status: non-authoritative guide. Contracts and exact behavior are owned by the
 [Operator runbook](../runbook/index.md).
 
 This guide takes you from nothing to a running Saivage instance working on
-your first objective. Configuration details live in the
+your first objective. If you are new to Saivage, read [What is
+Saivage](../overview.md) first. Configuration details live in the
 [Configuration guide](./configuration.md); day-to-day use lives in
 [Operating a project](./operating.md).
 
@@ -54,16 +55,17 @@ SAIVAGE_BIN="/absolute/path/to/saivage-v3/bin/saivage.js"
 
 `init` materializes the project layout under `.saivage/`: the configuration
 file `saivage.yaml`, the bundled prompt tree under `.saivage/config/prompts/`,
-and the root project card. Use `init --profile classic-typed` **before any
-config exists** if you want the typed card-type workflows instead of the
-classic set (see [Configuration](./configuration.md#card-types)).
+a durable project identity, and the root project card. Use `init --profile
+classic-typed` **before any config exists** if you want the typed card-type
+workflows instead of the classic set (see
+[Configuration](./configuration.md#card-types)).
 
 ## 3. Configure a provider
 
 Edit `.saivage/saivage.yaml`. At minimum, point the model routes at your
 provider and set the compaction summarizer to a model with a large context
-window. With the default classic template, replace the placeholder routes and
-add your provider:
+window. With the default classic template, replace its five placeholder
+routes and add your provider:
 
 ```yaml
 providers:

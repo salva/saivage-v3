@@ -22,9 +22,11 @@ conversation.
 
 The Dashboard shows the current runtime status, the current card, and the two
 direct runtime controls: **Stop project** and **Restart server**. Stop halts
-the run (it is a halt, not a cancellation — cards keep their state and resume
-through ordinary recovery). Restart server is a confirmed service restart,
-available only when bearer authentication is enabled.
+the run (it is a halt, not a cancellation — cards keep their state and
+continue through ordinary recovery after the next Run). Restart server is a
+confirmed service restart, available only when bearer authentication is
+enabled. The other runtime controls — Run, Pause, Resume — live in the
+Analyst panel, not here.
 
 ### Cards
 
@@ -70,16 +72,20 @@ The right-hand conversation is the ordinary operator surface. Everything you
 want changed goes through it in plain language:
 
 - **Start work**: describe the objective (or point at a spec file), settle
-  the root brief, then ask it to start the project. The Analyst calls
-  `start_project` and the runtime takes over.
+  the root brief (the root card's `brief.md` objective record), then ask it
+  to start the project. The Analyst calls `start_project` and the runtime
+  takes over.
 - **Steer**: ask for a new card, a reorder, a reopen of finished work, a
   cancellation, or an edit to a brief. The Analyst applies it with the
   proper audit trail.
 - **Ask**: the Analyst has read tools — it can report state, read sessions,
   and summarize progress on request.
 
-Runtime controls (pause, resume, stop, restart) are also reachable through
-the Analyst, but the Dashboard buttons are the direct surface.
+Runtime control is split by surface: **Run, Pause, and Resume are Analyst
+panel controls**; **Stop project** and the confirmed **Restart server** are
+the Dashboard's two direct actions. The CLI (`saivage status`, `pause`,
+`resume`, `stop`, `restart_server`) drives the same operations through the
+lifecycle lock.
 
 ## The rhythm of a long run
 
@@ -87,15 +93,17 @@ the Analyst, but the Dashboard buttons are the direct surface.
    decomposes the objective and activates children.
 2. **Watch — or don't**: sessions show live work; records accumulate
    evidence. Saivage keeps working between your visits.
-3. **Answer when asked**: if a card settles `blocked` because a genuine
-   decision, resource, or input is missing, the owning Planner escalates
-   what it needs. You answer in the Analyst conversation — provide the
-   decision or input, and ask for the blocked work to be reopened.
+3. **Answer when asked**: a card settles `blocked` when a genuine decision,
+   resource, or input is missing; its blocked result records what is needed.
+   Nothing is pushed at you — you see the blocked status in the tree (and
+   Oversight may flag it). Provide the decision or input through the Analyst
+   conversation and ask for the blocked work to be reopened. See
+   [activation outcomes](../spec/system-specification.md#6-activation-outcomes-and-cancellation).
 4. **Oversight checks in**: with the default two-hour cadence, the Oversight
    agent periodically reviews state read-only and, when warranted, sends an
    evidenced notification to a planning card — visible as new activity and
    a notification-driven re-entry in the tree. It never mutates anything
-   itself.
+   itself. See [Project Oversight](../spec/system-specification.md#project-oversight).
 5. **Accept**: completed planning work passes independent review against its
    brief. The root turns `done` when the whole objective is accepted.
 
