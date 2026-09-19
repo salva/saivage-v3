@@ -9,19 +9,25 @@ linked authorities — the [System specification](spec/system-specification.md),
 
 ## What it does for you
 
-Saivage is autonomous software engineering. You give it an objective for a
-software project — fix a defect, add a feature, translate a codebase, answer a
-research question with evidence — and Saivage does the work: it plans the
-change, writes and modifies the code, runs the tests, and verifies the
-results, iterating until the objective is met with evidence you can inspect.
-Completed goals go through independent review before acceptance. Saivage keeps
-working between your visits, records everything it did and decided, and never
-hides progress behind claims: you can watch each step live or audit it
-afterwards.
+Saivage is autonomous software engineering built for the long run. Its aim is
+to carry a software project all the way — from a specification to an accepted,
+evidenced delivery — with minimal user intervention. You describe what the
+project must achieve; Saivage turns that specification into its own plan and
+work tree, then implements, tests, reviews, and integrates the work, hour
+after hour and day after day, escalating to you only when a real decision,
+resource, or input is genuinely missing.
+
+Bounded work — a defect fix, a feature, a codebase translation, a research
+question answered with evidence — is simply the small end of that range. The
+same runtime is designed to hold a multi-week objective: it keeps its plan
+current as findings arrive, repairs its own completed work when review
+requires it, and records every command, change, test run, and decision
+durably, so you can watch the work live or audit it afterwards.
 
 You stay in charge throughout. You steer the project through a single
-conversation, you can pause, resume, or stop the work at any time, and results
-are accepted only against their stated brief.
+conversation, you can pause, resume, or stop the work at any time, and
+planning results are accepted only through independent review against their
+stated brief.
 
 ## How it works
 

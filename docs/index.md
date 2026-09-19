@@ -5,9 +5,10 @@ hero:
   name: Saivage v3
   text: Autonomous software delivery
   tagline: >-
-    State a software objective. Saivage plans, implements, tests, and reviews
-    the work itself — in the open, with evidence for every step, under your
-    control — until you accept the result.
+    Give Saivage the specification for a software project. It carries the work
+    from specification to accepted delivery — planning, implementing, testing,
+    and reviewing on its own, over long runs, with evidence for every step —
+    and asks for you only when a real decision is missing.
 
 actions:
   - theme: brand
@@ -22,11 +23,11 @@ actions:
 
 features:
   - icon: 🎯
-    title: Objectives, not task lists
+    title: Whole projects, not task lists
     details: >-
-      Describe the outcome you want. Saivage decomposes it, sequences the work,
-      and carries it through implementation and verification without
-      step-by-step instructions.
+      Describe what the project must achieve. Saivage decomposes the
+      specification, sequences the work, and carries it through implementation
+      and verification over long runs — without step-by-step instructions.
   - icon: 🔎
     title: Evidence, not promises
     details: >-
