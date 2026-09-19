@@ -37,6 +37,18 @@ owns startup options and precedence. The [runbook](docs/runbook/index.md) owns
 deployment, configuration cutovers, lifecycle operations, recovery, and reset.
 Service authors should also review the runbook's [command-environment guidance](docs/runbook/index.md#command-environment).
 
+After initialization, participating card-agent, selected Analyst, and existing
+workflow-state identity cutovers require an explicitly authorized stopped
+whole-generated-state reset with a successful full stopped backup and preserved
+configuration, credentials, project identity, operator inputs, prompts, skills,
+instructions, source, and canonical docs. Startup rejects a missing exact current
+card/Analyst session index instead of creating a replacement, but this is not
+complete identity-change detection and does not prove that no earlier effects
+occurred. Oversight remains lazy: changing a never-used unpublished selection is
+not reset-only merely because other history exists, while replacing an identity
+known to have published Oversight history is operator-assessed reset-only. See
+[Agent and workflow identity cutovers](docs/runbook/index.md#agent-and-workflow-identity-cutovers).
+
 Conversation compaction uses one contextual sequential-refine accumulator, at
 most two preselected safe coverage endpoints, and at most one source-faithful
 corrective regeneration inside the shared 16-logical-call bound. Its 12,000-byte

@@ -376,7 +376,7 @@ Each query performs one complete strict event-lane read and then filters/slices.
 `/api/events` supplies non-UI operator event queries with strict oldest-page or newest-tail selection, maximum 1000, and no session/since filters; `/api/debug/errors` is its complete derived error projection and the Debug UI's only event-derived input.
 Debug has no event Timeline; `/api/debug/timeline`, ErrorLog, and duplicate event read models do not exist.
 
-The strict global agent catalog is the sole agent authority. Startup selects one immutable participant collection containing configured Analyst and Oversight contracts and compiled global prompts; binding, prompt lookup, exact startup conversation validation, generic Agent admission, REST, and WebSocket reads use that collection. Unselected global catalog entries are not participants.
+The strict global agent catalog is the sole agent authority. Startup selects one immutable participant collection containing configured Analyst and Oversight contracts and compiled global prompts; binding, prompt lookup, generic Agent admission, REST, and WebSocket reads use that collection. Conversation admission is owner-specific rather than collection-wide: startup strictly requires the selected Analyst index, while Oversight retains lazy index initialization at actual check use. Unselected global catalog entries are not participants, and unrelated generated state creates no durable Oversight provenance.
 
 `ProjectOversight` is the process-local schedule owner. It owns either one monotonic deadline or one `OversightSession`, records only current-epoch attempt timestamps/outcomes in memory, and receives explicit authoritative Supervisor status transitions. It uses chained bounded timeouts for deadlines beyond Node's single-timeout range, never `setInterval`, catch-up ticks, a queue, persistence, reports, or a health latch. `OversightSession` creates one ordinary global-purpose `ConversationLLMActor` per check over the retained canonical global session, renders the selected compiled card-type vocabulary through the same global placeholder contract as Analyst, binds shared observation dependencies plus only its caller-authorized notification port, and settles known tool/provider evidence before suppressing continuation on cancellation. Its outer check owner clears the task and cancellation controller before publishing the existing exact global-session membership invalidation on every completion, so the subscriber's next projection cannot retain a settled executing snapshot. Analyst binds that same notification input/result contract to its audited intervention-ready mutation owner; Planner binds it to exact active-card authority. No binder infers authority from an agent name or falls back to raw runtime submission. Permanent application disposal follows owned settlement.
 
@@ -418,7 +418,7 @@ Historical component and system evidence remains readable because transition con
 No alternate review record, selected agent prompt, persisted graph phase, or engine branch exists.
 
 Wire and durable schemas validate card-type identifier syntax, not deployment membership.
-Strict generated-state startup resolves every reached card through the compiled map before parent/type admission; runtime creation resolves the child workflow and selected parent's permitted set before publication.
+Strict generated-state startup resolves every reached active card through the compiled map before parent/type admission; a reached tombstone terminates traversal before workflow/session/record admission. Runtime creation resolves the child workflow and selected parent's permitted set before publication.
 Operator DTOs therefore accept valid custom identifiers, while a removed configured type fails at startup with no fallback or repair.
 Child capability, rather than a literal type name, also owns Analyst record-edit ancestor notification.
 
@@ -802,7 +802,7 @@ Existing state is admitted only through the exact required current-format projec
 It never scans descendants or infers compatibility.
 
 Direct init performs pre-acquisition identity selection, exclusive lock publication, missing-only configuration publication, config/workflow validation, and identity creation/binding before generated-state classification.
-When first publication is admitted, the singular bootstrap helper creates cards authority, publishes the project card, and initializes the global Analyst conversation.
+When first publication is admitted, the singular bootstrap helper creates cards authority and the root card's distinct compiled node-agent indexes, publishes the project card, and only then initializes the selected global Analyst index. A failure in that sequence is strict partial publication; startup never coordinates, repairs, or reorders it.
 It then enters the same strict startup operation as ordinary start.
 The first identity read is non-mutating; failure after exclusive lock publication may retain the lock.
 
@@ -823,18 +823,20 @@ The App immediately narrows the owned lock handle to immutable process identity 
 Inside the existing terminal-cleanup boundary it then loads and fully validates the selected config/environment.
 Only a valid environment and a `null` bootstrap decision may invoke `publishInitialProjectRuntime()`; an existing card skips publication, and ordinary start never bootstraps.
 The unified generated-state operation then reuses `readCanonicalLinkedCardHistoryTree()` exactly once, rejects an empty projection, runs dependency-only validation on active cards, and flat-checks compiled workflow/parent admission for every reached active card, while a reached retained tombstone terminates startup traversal before workflow lookup.
-Phase B initializes exact-missing configured conversation indexes, requires each declared bootstrap record stream, and strictly validates each present record stream; optional record streams are validated only when present and never created.
+It derives the selected Analyst session plus each admitted card's sorted distinct node-agent sessions and strictly reads every exact index in deterministic Analyst/traversal order. Empty valid indexes pass. An index-read `ENOENT` becomes the actionable required-session error; malformed, identity-mismatched, and other I/O failures propagate strictly. Only after all required indexes pass does it initialize the app log, invoke each exact tail owner, and consume records. Bootstrap streams remain required, while optional streams are validated only when present and never created.
 Bootstrap record streams are published only at card creation; a missing declared bootstrap stream is canonical failure and startup never recreates it.
 Server start and control-endpoint publication follow.
 A pre-mutation admission failure uses ordinary terminal cleanup to release the lock.
 Reset remains bound to existing identity.
 A confirmed authenticated restart's exit 75 remains a handoff acknowledgement, not replacement-process or replacement-boot proof.
 
-After workflow compilation derives the exact configured global Analyst session, unified startup initializes its deterministic index only on exact absence and invokes the explicit conversation-tail owner before creating Fastify, reconciling MCP, constructing runtime/Analyst process scopes, or exposing transport admission.
+After workflow compilation derives the exact configured global Analyst session, unified startup requires its deterministic index even if it has no segment or messages, then later invokes the explicit conversation-tail owner before creating Fastify, reconciling MCP, constructing runtime/Analyst process scopes, or exposing transport admission. Existing-state startup never publishes that missing index. The selected Oversight index remains outside this gate and is initialized only by `OversightSession` at actual check use.
 Settled/text-ended history is read-only and final assistant text is not interruption evidence.
 A sole final unmatched call or invalid complete history fails startup unchanged; only truncation of bytes after the final newline is permitted after the retained nonempty prefix fully validates against index, genesis, session, and conversation semantics.
 No Analyst settlement, notice, or recovery actor is constructed.
 Supervisor card Run recovery remains a later explicit, card-only path.
+
+The compiled graph is current selection, not durable evidence of the prior effective graph. Card metadata and historical attribution do not provide a complete previous-identity authority, and old conversation namespaces remain inert unless exactly addressed. Required-index admission therefore prevents automatic replacement for many card-agent and selected-Analyst changes but does not detect or certify every identity cutover, including same-agent state-ID changes or cases where a newly expected index already exists. Operators own the bounded reset-only predicate; no config snapshot, fingerprint, session scan, inventory, alias, retirement, or history probe is introduced. A never-used unpublished Oversight selection can change without reset, while replacement of operator-known published Oversight history remains an operator-assessed reset-only cutover.
 
 CLI status, pause, resume, stop, and restart delegate only for a verified live record and only through its published non-null `control_endpoint.origin` and `control_endpoint.auth`.
 A null endpoint fails exactly `active lifecycle owner; runtime control unavailable`; no phase is inferred.

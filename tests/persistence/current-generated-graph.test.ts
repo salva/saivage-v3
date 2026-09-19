@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import { appendConversationBatch, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { appLogFile, cardConversationVersionFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, saivageCardsRoot } from '../../src/persistence/layout.js';
-import type { CompiledProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
-import { agentMessageSchema, cardAgentSessionId, cardRecordSchema, conversationSessionIdentity, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, saivageCardsRoot } from '../../src/persistence/layout.js';
+import { compileProjectWorkflows, type CompiledProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { agentMessageSchema, cardAgentSessionId, cardRecordSchema, conversationSessionIdentity, effectiveSaivageConfigSchema, type AgentMessage, type ConversationSessionId, type SaivageConfig } from '../../src/schemas/index.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';
 import { cardVersionChangeSchema } from '../../src/persistence/canonical-card-artifacts.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { testRecordDefinition } from '../helpers/record-definitions.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -49,6 +50,98 @@ describe('current generated state startup admission', () => {
 
     expect(existsSync(optional)).toBe(false);
     expect(readFileSync(path).byteLength).toBe(canonicalLength);
+  });
+
+  it('accepts empty required conversation indexes', () => {
+    const root = fixture();
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).not.toThrow();
+    for (const sessionId of ['agent:analyst:global', 'agent:planner:project', 'agent:reviewer:project'] as const) {
+      expect(readConversationCatalog(root, sessionId).versions).toEqual([]);
+    }
+  });
+
+  it('rejects a renamed card participant without creating it or applying earlier admission effects', () => {
+    const root = fixture(); const cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const previousSessionId = cardAgentSessionId('executor', child.id);
+    appendConversationBatch({ projectRoot: root }, [message('prior-executor-history', previousSessionId)]);
+    const previousIndex = cardConversationVersionIndexFile(root, child.id, 'executor');
+    const previousBytes = readFileSync(previousIndex);
+    const previousSegment = currentSegmentPath(root, previousSessionId);
+    const previousSegmentBytes = readFileSync(previousSegment);
+    const replacementIndex = cardConversationVersionIndexFile(root, child.id, 'executor-v2');
+    const effects = preparePhaseAEffectSentinels(root);
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, renamedCardAgentWorkflows())).toThrow(
+      `Required conversation index for current configured session 'agent:executor-v2:${child.id}' is missing from initialized generated state. Startup will not create a replacement session.`,
+    );
+    expect(existsSync(replacementIndex)).toBe(false);
+    expect(readFileSync(previousIndex)).toEqual(previousBytes);
+    expect(readFileSync(previousSegment)).toEqual(previousSegmentBytes);
+    expectPhaseAEffectsAbsent(root, effects);
+  });
+
+  it('rejects a renamed selected Analyst without creating it or changing retained state', () => {
+    const root = fixture();
+    appendConversationBatch({ projectRoot: root }, [globalActivation()]);
+    const previousIndex = globalAgentConversationVersionIndexFile(root, 'analyst');
+    const previousBytes = readFileSync(previousIndex);
+    const previousSegment = currentSegmentPath(root, 'agent:analyst:global');
+    const previousSegmentBytes = readFileSync(previousSegment);
+    const replacementIndex = globalAgentConversationVersionIndexFile(root, 'analyst-v2');
+    const effects = preparePhaseAEffectSentinels(root);
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, renamedAnalystWorkflows())).toThrow(
+      "Required conversation index for current configured session 'agent:analyst-v2:global' is missing from initialized generated state. Startup will not create a replacement session.",
+    );
+    expect(existsSync(replacementIndex)).toBe(false);
+    expect(readFileSync(previousIndex)).toEqual(previousBytes);
+    expect(readFileSync(previousSegment)).toEqual(previousSegmentBytes);
+    expectPhaseAEffectsAbsent(root, effects);
+  });
+
+  it('rejects a missing unvisited participant index before truncating earlier sessions', () => {
+    const root = fixture();
+    const missing = cardConversationVersionIndexFile(root, 'project', 'reviewer');
+    rmSync(missing);
+    const effects = preparePhaseAEffectSentinels(root);
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(
+      "Required conversation index for current configured session 'agent:reviewer:project' is missing from initialized generated state.",
+    );
+    expect(existsSync(missing)).toBe(false);
+    expectPhaseAEffectsAbsent(root, effects);
+  });
+
+  it.each(['malformed', 'mismatched'] as const)('strictly rejects a %s exact required index before optional effects', (fault) => {
+    const root = fixture();
+    const indexPath = cardConversationVersionIndexFile(root, 'project', 'reviewer');
+    if (fault === 'malformed') writeFileSync(indexPath, 'complete malformed index\n');
+    else {
+      const index = JSON.parse(readFileSync(indexPath, 'utf8')) as Record<string, unknown>;
+      index.session_id = 'agent:planner:project';
+      writeFileSync(indexPath, `${JSON.stringify(index)}\n`);
+    }
+    const before = readFileSync(indexPath);
+    const effects = preparePhaseAEffectSentinels(root);
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(
+      fault === 'malformed' ? /Conversation index .* is malformed/ : /Conversation index identity does not match 'agent:reviewer:project'/,
+    );
+    expect(readFileSync(indexPath)).toEqual(before);
+    expectPhaseAEffectsAbsent(root, effects);
+  });
+
+  it('does not discover an unconfigured malformed conversation namespace', () => {
+    const root = fixture();
+    const unknownIndex = globalAgentConversationVersionIndexFile(root, 'unused');
+    mkdirSync(dirname(unknownIndex), { recursive: true });
+    writeFileSync(unknownIndex, 'malformed inert namespace\n');
+    const before = readFileSync(unknownIndex);
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).not.toThrow();
+    expect(readFileSync(unknownIndex)).toEqual(before);
   });
 
   it.each(['empty', 'malformed'] as const)('rejects a present %s optional stream without changing it', (fault) => {
@@ -133,6 +226,9 @@ describe('current generated state startup admission', () => {
 });
 
 function fixture(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-current-generated-')); roots.push(root); initProjectTree(root); return root; }
+function config(): SaivageConfig { return effectiveSaivageConfigSchema.parse(structuredClone(TEST_SAIVAGE_CONFIG)); }
+function renamedCardAgentWorkflows(): CompiledProjectWorkflows { const value = config(); value.agents['executor-v2'] = { ...value.agents.executor! }; value.card_types.code!.workflow.notification_recipient = 'executor-v2'; value.card_types.code!.workflow.nodes.execute!.agent = 'executor-v2'; return compileProjectWorkflows(value); }
+function renamedAnalystWorkflows(): CompiledProjectWorkflows { const value = config(); value.agents['analyst-v2'] = { ...value.agents.analyst! }; value.analyst_agent = 'analyst-v2'; return compileProjectWorkflows(value); }
 function optionalStream(root: string): string { return cardRecordStreamFile(root, 'project', testRecordDefinition('status.md', 'project')); }
 function plannerText(id: string): AgentMessage { return message(id, 'agent:planner:project'); }
 function message(id: string, sessionId: ConversationSessionId): AgentMessage { return agentMessageSchema.parse({ id, session_id: sessionId, role: 'user', kind: 'text', content: id, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-14T00:00:00.000Z' }); }

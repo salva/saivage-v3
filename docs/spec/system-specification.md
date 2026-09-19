@@ -9,9 +9,9 @@ An ordinary same-format binary deployment instead stops the old service and stri
 
 The selected strict YAML chooses card-type definitions through exactly one source form: a complete `card_types` map, or omission of `card_types`, which selects the bundled `classic` definitions.
 The deleted `card_type_set` selector key fails strict source validation as an unknown key; it never defaults, falls back, or merges with an explicit map.
-`saivage init [--profile <classic|classic-typed>]` materializes the complete selected system template once on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single completion commit.
+`saivage init [--profile <classic|classic-typed>]` materializes the complete selected system template on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single configuration-materialization completion commit. This input publication is separate from generated-state admission and does not make retained generated work compatible with the materialized identities.
 An existing `.saivage/saivage.yaml` gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML, and `--profile` is inert.
-After init the instance is the single runtime authority; templates are data used once at init and never consulted at runtime.
+After successful init the instance is the single runtime authority; templates are materialization data and are never consulted at runtime. Template provenance is not authority for the effective identities that produced retained generated work.
 `ResolvedConfigAuthority` resolves the source once to a complete effective `card_types` map before structural compilation.
 All compiler, runtime, REST config, `show_config`, and selected-config Files consumers receive only that singular effective map.
 
@@ -27,7 +27,7 @@ Each installation resolves only its explicit model IDs through the Provider Regi
 Provider admission consumes that retained request unchanged.
 Real turns bind only selected invocation-scope executor/cleanup closures.
 Offline `init`, `reset`, and `start --create-runtime` use only the same structural compiler and never reconcile MCP or require live provider availability.
-Offline `init` additionally materializes the selected template's complete prompt tree and provenance marker before publishing the config YAML last; the copy skips already-existing destination paths, so a crashed config-absent attempt is completed by re-running `init`, while an existing config preserves the tree, marker, and YAML bytes exactly.
+Offline `init` additionally materializes the selected template's complete prompt tree and provenance marker before publishing the config YAML last; the copy skips already-existing destination paths, so a crashed config-absent materialization attempt can be completed by re-running `init`, while an existing config preserves the tree, marker, and YAML bytes exactly. If generated work already exists, that retry still undergoes strict current-state admission and is not an identity-changing upgrade or repair.
 `reset` and `start --create-runtime` materialize nothing.
 Actors receive only the bound artifact and perform no source-config, prompt, route, capability, or tool selection.
 
@@ -94,7 +94,7 @@ A revised draft updates cumulative `status.md` and can cite the accepted review 
 Final system approval promotes the latest accepted `draft` result while exporting the current system `review.md`.
 
 Card-type wire schemas validate only that identifier syntax.
-Startup then resolves every reached active or tombstoned canonical card against the selected compiled map and fails if its type is absent; parent/type admission follows from the compiled parent workflow.
+Startup resolves every reached active canonical card against the selected compiled map and fails if its type is absent; parent/type admission follows from the reached active parent's compiled workflow. A reached retained tombstone is strictly consumed and terminates traversal before workflow, record, or session admission for that card or any descendant behind it.
 The same ordered compiled vocabulary, always including `project`, supplies the Analyst prompt, Analyst `create_card` schema/preflight, both global-Analyst and card-agent `list_cards` schemas, and Planner execution membership.
 Analyst `create_card` requires one exact existing parent card ID; omission, `null`, and malformed card IDs fail invocation-schema admission.
 Analyst and Planner creation accept type, title, bootstrap content, optional priority/urgency, and optional `depends_on`; Analyst additionally supplies the explicit parent while Planner infers it from the session. Neither creation contract accepts tags or a generic related-card list. Current `get_card` sections are exactly summary, workflow, dependencies, children, and records; immutable `get_card_version` sections are summary, dependencies, and children. `list_cards` filters are exactly status, type, and parent, plus paging controls.
@@ -104,10 +104,13 @@ Planner's wire schema stays a plain string.
 `list_cards` rejects an unconfigured scalar or array filter at invocation-schema admission before its shared executor filters cards.
 The shipped nine-name prompt and tool schemas remain byte-identical.
 
-Changing templates, replacing an explicit map, adding a type, or changing matching prompt/config inputs requires stop, edit or fresh init, and start but no unconditional generated-state reset.
-Startup strictly admits retained generated state against the newly resolved effective map.
-If a reached active or tombstoned card type is absent or a retained parent/child relationship is no longer admitted, startup fails before optional generated-state effects.
+Changing templates, replacing an explicit map, adding a type, or changing matching prompt/config inputs requires stop, edit or fresh init, and start. Prompt, model-route, tool, host/port, edge, or outcome changes that retain participating identities are not made reset-only by the identity-cutover contract, although separately specified format cutovers still apply.
+After initialization, deliberately renaming, removing, or replacing a participating card agent; changing its scope; changing the selected Analyst; rebinding a reached card workflow node to a different named agent; or renaming, removing, or replacing existing workflow-node/state identities requires an authorized stopped whole-generated-state reset before those new identities are used. This applies to reached active cards, including non-tombstoned DONE or FAILED cards, not merely currently running actors. A wholly new card type, an unused catalog declaration, or another change that does not alter existing participating identities is not prohibited by this rule.
+Startup strictly admits retained generated state against the newly resolved effective map. It requires the exact current selected-Analyst index and every distinct node-agent index derived from each reached active card's compiled workflow. Missing expected indexes reject rather than being created; this catches some identity changes and incomplete or lost first publication, but it is not a comparison with prior configuration and does not certify that every identity was retained. In particular it cannot generally detect same-agent node-ID changes or changes whose newly expected indexes already exist.
+If a reached active card type is absent, a retained active parent/child relationship is no longer admitted, or a required current session index is absent, startup fails before subsequent shared-admission app-log creation, conversation-tail truncation, and record consumption. Lifecycle-lock publication, configuration/template materialization, project-identity work, and any already completed first publication precede this gate and are not rolled back.
 The operator must restore the compatible map or template, or intentionally use the stopped whole-generated-state reset for a fresh history; migration, probing, fallback, aliasing, compatibility reading, normalization, merging, and selective repair do not exist.
+
+The selected Oversight session remains lazy and is not part of this startup required-index gate. Changing a never-used selected Oversight identity that has published no durable conversation does not require reset merely because unrelated card or Analyst history exists. Replacing an Oversight identity that the operator knows has published durable session history is an operator-assessed reset-only identity cutover. Saivage adds no scan, inventory, prior-identity detector, or startup certification for either case.
 
 Bundled prompts live in per-template trees under `src/config/system-templates/<name>/prompts/`.
 Packaging compiles each registered template standalone against its own source prompts root, observes the bundled agent, process, and direct-fragment artifacts actually selected, and requires that template's physical tree to equal its sorted compiled closure exactly.
@@ -735,7 +738,7 @@ A later semantic change may reject again; unchanged refreshed context may succee
 Stable session IDs use the source-derived grammar in the exact block below for global-scoped and card-scoped configured agents.
 One parser owns this grammar across messages, persistence, Agent APIs, chat, live sync, and web contracts.
 Each deterministic configured session owns `conversations/<agent-name>/index.json` and immutable `versions/<version>-<uuid>.jsonl` segments; the global Analyst uses the corresponding `.saivage/agents/conversations/<agent-name>/` namespace.
-Configured indexes exist even while empty, no session/version directory is enumerated, and direct known tombstoned-card sessions remain readable.
+First publication creates an index even while it is empty for every distinct node agent in the published card's compiled workflow. Successful initial runtime publication also creates the selected global Analyst index after publishing the project card. Later startup strictly consumes those exact indexes for reached active cards and the selected Analyst without enumerating session/version directories or creating replacements. An interrupted initial runtime publication can therefore leave strict incomplete state requiring the authorized reset remedy. Oversight is different: its selected global index is initialized lazily only when an actual check first uses it. Direct known tombstoned-card sessions remain readable.
 Conversation indexes, ordinary and compacted genesis rows, and `conversation-segment` envelopes use strict format version 2. Segment-version numbers remain sequential conversation generations, not format numbers. Format 1 and mixed shapes are rejected; the generic append-only `rows` envelope used by card, record, and log owners remains version 1.
 
 ### Exact conversation-session identity contract
@@ -863,8 +866,8 @@ The system avoids these situations but does not hard-guarantee against them.
 Startup first reads the canonical linked-card projection exactly once and requires a nonempty project-rooted authority.
 Traversal admits only active cards through workflow and parent/type admission: a reached retained tombstone terminates startup traversal before workflow lookup, record validation, conversation initialization, or conversation truncation for that card, and its descendants are not read.
 It validates active dependency existence/cycles and checks each non-root active type against its reached active parent's compiled admission.
-It then initializes exact-missing configured conversation indexes, requires each declared bootstrap record stream, and strictly validates each present record stream; an optional record stream is validated only when present and startup never creates one.
-The exact configured global Analyst conversation is included before Fastify transport services, MCP reconciliation, runtime start, or listening.
+It then strictly reads the exact selected global Analyst conversation index and every distinct node-agent index derived from each admitted card's compiled workflow. Valid empty indexes are sufficient; startup creates none of these required indexes. Only after all required indexes are admitted does startup initialize the app log, run the exact conversation-tail owners, require each declared bootstrap record stream, and strictly validate each present record stream; an optional record stream is validated only when present and startup never creates one.
+The selected global Analyst index is required even before its first segment or operator message. The selected Oversight index is not included: actual check use retains its owner-local lazy initialization. These operations complete before Fastify transport services, MCP reconciliation, runtime start, or listening.
 Valid settled, final-assistant-text, and other text-ended history remains byte-identical; no text position proves interruption.
 A canonically valid sole final unmatched call is non-continuable by a fresh Analyst owner and fails startup with bytes unchanged.
 Complete malformed or invalid history also fails unchanged.
@@ -1150,9 +1153,9 @@ Partial required publication and old or mixed layouts fail reset-required; no st
 The decision derives only exact canonical authorities and never enumerates siblings or descendants.
 
 `saivage init` performs pre-acquisition identity selection, exclusive lifecycle-lock publication, missing-only configuration publication, effective configuration/workflow validation, and identity creation/binding before generated-state classification.
-Four absent roots permit the singular initial-runtime publisher to create project authority and the global Analyst conversation.
+Four absent roots permit the singular initial-runtime publisher to create card authority, publish the project card and its card-scoped workflow-agent indexes, and then create the selected global Analyst index.
 Existing required current-format streams enter strict startup admission.
-Both paths require one nonempty canonical linked-card projection, active dependency validation, and compiled workflow/parent-type admission before exact-missing conversation indexes are initialized and all configured current authority is strictly read.
+Both paths require one nonempty canonical linked-card projection, active dependency validation, and compiled workflow/parent-type admission before the exact required selected-Analyst and admitted-card node-agent indexes are strictly read. Existing-state admission never creates a missing required index.
 After that final validation succeeds, `init` reports the two outcomes independently: `Project layout initialized at <canonical root>` or `Project layout already exists at <canonical root>`, followed by `Configuration materialized from template <selected name>` or `Existing configuration preserved`. No completion line is emitted before final success.
 
 The first identity read is non-mutating.
@@ -1817,17 +1820,17 @@ Notification query-surface removal and current-activation enqueue admission chan
 The current widening of the unchanged card-ID field grammar from the former bound of five to the maximum in the [exact card identity contract](#exact-card-identity-contract) is instead a same-format forward deployment: every previously valid ID remains valid, so deployment requires no reset.
 Once a deeper card is created, an old binary cannot read that state and must not be used against it.
 Old or mixed structural formats are rejected and never migrated or accepted as current.
-An incompatible cutover requires stop, current-built wholesale reset, and start; same-format retained state must already satisfy the exact current stream contract.
+An incompatible durable-format cutover requires stop, current-built wholesale reset, and start; same-format retained state must already satisfy the exact current stream contract. The bounded participating card-agent, selected-Analyst, and existing workflow-state identity cutovers specified above are also reset-only after generated work exists, despite not changing a storage schema. The lazy Oversight qualification remains unchanged.
 
 The content-policy retry/refusal conversation kinds, typed refusal BLOCKED lifecycle result, and required error-exchange `terminal_conversation_output_id` are also named reset-only durable-format changes.
 The conversation-context compaction cutover—typed context blocks with the immutable activation prefix and compiled invocation tool contracts, append-order tool call/result policy with per-surface evidence templates, the bounded Analyst orientation snapshot, the bounded discovery/read/version surfaces, and the accumulated-history compacted-genesis schema with validated coverage, fixed-size commitments, required-model-fact slots, and open-round inheritance—is likewise a named reset-only durable-format change.
 The process-result payload cutover from metadata-only process results to the current strict inline-head/completeness shape is independently reset-only. Retained conversations must carry current process payloads even when both releases otherwise use conversation index/genesis/envelope format 2 and card stream v4/artifact row format 3; matching those outer formats alone does not establish compatibility. There is no old-shape reader, migration, normalization, or retained-row rewrite.
-When applying that incompatible cutover, rollout is stop, preserve configuration/credentials/operator inputs/source/docs, run the matching current built reset over generated roots, then start that binary.
+When applying an applicable reset-only cutover, keep the exact service stopped and positively verify no owner/process; obtain explicit authorization for irreversible loss of generated cards, records, conversations, logs, and work artifacts; create and retain a successful full stopped target-project backup; preserve configuration, credentials, project identity, operator inputs, prompt overrides, skills, instructions, source, and canonical project documentation; then run the positively identified matching current build's reset over all four generated roots and start and verify that same build. Plan or deployment approval, backup existence, and startup rejection are not destructive authorization. Reset does not preserve generated history, prove the cause of a missing index, retire an old identity, or imply that no earlier lock, input-materialization, identity, bootstrap, or publication effects occurred.
 Test and E2E generated-state fixtures use only this singular current format; omitted old fields, old blocked/tool shapes, mixed streams, compatibility readers, migrations, normalization, and backfill are unsupported.
 
 Initial publication is separately forbidden whenever any of the four exact generated roots remains without a valid canonical project card.
 Every exact-path object is an obstruction; Saivage does not inspect whether it is empty, complete, repairable, or directory-shaped.
-The failure names the first blocking exact path and directs the operator to stop Saivage, run the current built `saivage reset`, and retry.
+The failure names the first blocking exact path and directs the operator to keep Saivage stopped and follow the authorized current-build whole-generated-state reset procedure before retrying; the failure itself is not destructive authorization.
 Neither `init` nor `start --create-runtime` repairs, adopts, combines with, or selectively deletes retained state.
 
 Reset first acquires the exact `.saivage/locks/runtime.lock`; every pre-existing exact lock blocks the command before deletion.

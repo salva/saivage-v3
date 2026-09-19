@@ -8,7 +8,8 @@ import { readCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { stringify } from 'yaml';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
+import { startApp } from '../../src/boot/app.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const generatedDescendants = [
   'cards/project/marker.bin',
@@ -60,7 +61,7 @@ describe('CLI reset generated-root boundary', () => {
     const root = createInitializedProject('saivage-reset-cli-');
     const markers = seedGeneratedMarkers(root);
     const preserved = new Map<string, string>([
-      ['.saivage/saivage.yaml', stringify(DEFAULT_SAIVAGE_CONFIG)],
+      ['.saivage/saivage.yaml', stringify(TEST_SAIVAGE_CONFIG)],
       ['.saivage/auth-profiles.json', '{"profiles":[]}\n'],
       ['.saivage/project.json', readFileSync(join(root, '.saivage', 'project.json'), 'utf8')],
       ['.saivage/config/prompts/project/analyst.md', '# operator prompt\n'],
@@ -98,6 +99,11 @@ describe('CLI reset generated-root boundary', () => {
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
     expect(existsSync(join(root, '.saivage', 'agents', 'conversations'))).toBe(true);
     for (const name of ['logs', 'work']) expect(existsSync(join(root, '.saivage', name))).toBe(false);
+
+    const app = await startApp({ projectRoot: root, createRuntime: false, env: { NODE_ENV: 'test', SAIVAGE_HOST: '127.0.0.1', SAIVAGE_PORT: '0' } });
+    try { expect(app.server.fastify.server.address()).not.toBeNull(); }
+    finally { await app.stop(); }
+    expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
   });
 
   it('does not delete generated state when a live exact lifecycle lock blocks acquisition', async () => {
