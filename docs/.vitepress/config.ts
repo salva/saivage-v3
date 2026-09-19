@@ -55,7 +55,10 @@ export default defineConfig({
       },
       {
         text: 'Operations',
-        items: [{ text: 'Operator runbook', link: '/runbook/' }],
+        items: [
+          { text: 'Operator runbook', link: '/runbook/' },
+          { text: 'Validation internals', link: '/validation' },
+        ],
       },
     ],
     search: { provider: 'local' },

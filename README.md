@@ -1,10 +1,22 @@
 # Saivage v3
 
-Saivage v3 is an autonomous multi-agent runtime for software-development work.
+Saivage is autonomous software engineering built for the long run. Give it the
+specification for a software project and it carries the work from
+specification to accepted delivery — planning, implementing, testing, and
+reviewing on its own, over long runs, with evidence for every step — asking
+for you only when a real decision is missing. The operator observes
+everything through a web control room and steers through a single Analyst
+conversation.
+
+Start with the [documentation overview](docs/overview.md), the
+[getting-started guide](docs/guides/getting-started.md), or the
+[documentation site](https://salva.github.io/saivage-v3/) (also served by
+every running instance at `/docs/`).
 
 For an AI-guided LXC installation, use the subordinate
 [AI setup procedure](README-IF-YOU-ARE-AN-AI.md). It applies the canonical
-contracts linked below; it is not an independent product or operations authority.
+contracts linked below; it is not an independent product or operations
+authority.
 
 ## Quick start
 
@@ -28,85 +40,18 @@ TARGET_PROJECT="/absolute/path/to/target-project"
 mkdir -p "$TARGET_PROJECT"
 cd "$TARGET_PROJECT"
 "$SAIVAGE_BIN" init
-# Configure .saivage/saivage.yaml before starting.
+# Configure .saivage/saivage.yaml before starting (see docs/guides/configuration.md).
 SAIVAGE_API_TOKEN=test "$SAIVAGE_BIN" start
 ```
 
-The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
-owns startup options and precedence. The [runbook](docs/runbook/index.md) owns
-deployment, configuration cutovers, lifecycle operations, recovery, and reset.
-Service authors should also review the runbook's [command-environment guidance](docs/runbook/index.md#command-environment).
-
-After initialization, participating card-agent, selected Analyst, and existing
-workflow-state identity cutovers require an explicitly authorized stopped
-whole-generated-state reset with a successful full stopped backup and preserved
-configuration, credentials, project identity, operator inputs, prompts, skills,
-instructions, source, and canonical docs. Startup rejects a missing exact current
-card/Analyst session index instead of creating a replacement, but this is not
-complete identity-change detection and does not prove that no earlier effects
-occurred. Oversight remains lazy: changing a never-used unpublished selection is
-not reset-only merely because other history exists, while replacing an identity
-known to have published Oversight history is operator-assessed reset-only. See
-[Agent and workflow identity cutovers](docs/runbook/index.md#agent-and-workflow-identity-cutovers).
-
-Conversation compaction uses one contextual sequential-refine accumulator, at
-most two preselected safe coverage endpoints, and at most one source-faithful
-corrective regeneration inside the shared 16-logical-call bound. Its 12,000-byte
-normal and 6,000-byte corrective output values are concision targets, not
-validator ceilings; complete candidates still require strict reduction, hard
-budget qualification where applicable, and exact provider-request admission.
-Current configuration has model-aware `context_utilization_fraction` (default
-`0.80`), `trigger_fraction` (default `0.90`), and `tail_fraction` (default
-`0.25`). Preparation uses the largest eligible route capacity while exact
-serialized admission remains candidate-specific; the fixed summarizer applies
-the same utilization to its own window. Absolute input-budget,
-completion-reserve, and merge/summary escalation keys do not exist. See
-the [prepared conversation compaction runbook](docs/runbook/index.md#prepared-conversation-compaction)
-for capacity, 16-call, and failure limits; these bounds are not latency or
-summary-quality guarantees.
-Durable lifecycle-entry, edge, pending-notification, and correction prompt
-declarations may independently retain their exact rendered occurrence through
-compaction. Anonymous protected occurrences accumulate; exact keyed declarations
-retain the latest occurrence and release the prior one into the next successful
-summary. The strict conversation index, genesis, and segment-envelope format is
-version 2. See the [prompt contract](docs/architecture/prompts.md) and the
-[reset-only cutover procedure](docs/runbook/index.md#configuration-file-cutovers).
-Each card-node request keeps the complete accepted brief in its unchanged prepared
-card block and follows it with the full text of the actual compiled current node.
-The static role instruction, generated outcome contract, and compiled tools remain
-in their own request positions. These values are frozen across continuations and
-prepared anew for the next node; future node text is not a durable transcript row.
-Historical summaries are intentionally lossy context, are labeled as history, and
-do not by themselves prove execution, transition, acceptance, or approval. Existing
-one-time handoffs and owner requirements remain applicable when their semantics do.
-New projects enable an independent two-hour Project Oversight check by default. Oversight uses its own selected global Agent, model route, bounded read-only tools, and ordinary conversation; its only project effect is an evidenced notification to a planning-capable card. Agents exposes the conversation after first publication, while Debug State shows the current service-epoch schedule without controls or a health latch. Existing instances require deliberate configuration and selected-prompt adoption; assess unrelated retained durable-format cutovers separately. See [Project Oversight](docs/spec/system-specification.md#project-oversight), [operator presentation](docs/spec/operator-ui.md#project-oversight), and [configuration cutovers](docs/runbook/index.md#configuration-file-cutovers).
-
-Bounded agent-session observation reads messages and compacted context as separate stateless sections; callers page context explicitly when the messages response reports that context is present.
-
-Selected Agents and Debug conversation detail can show ephemeral completed-call,
-in-flight, and elapsed compaction progress without polling or durable state.
-Current `glob` and `grep` results are also packed into exact byte-bounded,
-stateless collection pages; this removes one context amplifier but is not a
-guarantee that accumulated conversations will never require compaction. See the
-[search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction).
-Projects may additionally define optional root `.saivage-search-ignore` literal
-directory roots for recursive project discovery. Absence preserves the default;
-the policy changes neither direct reads nor byte limits, infers nothing from Git,
-and remains outside Saivage's four reset-owned generated roots. See the
-[search-scope contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction)
-and [project discovery/reset guidance](docs/runbook/index.md#project-discovery-scope).
-
-Process tools return independently bounded, redacted stdout/stderr heads with
-completeness flags, raw byte counts, and durable log URLs. Primary model context
-omits only a done+complete stream's URL; operator and summarizer views retain both
-fallback references. The payload change is reset-only for deployments with retained
-metadata-only process rows. See the [process result contract](docs/spec/system-specification.md#7-run-pause-resume-stop-and-restart),
-[operator presentation](docs/spec/operator-ui.md#10-process-and-tool-output-projections),
-and [cutover procedure](docs/runbook/index.md#card-process-configuration-and-prompt-cutover).
+The [guides](docs/guides/getting-started.md) walk through configuration and
+first use. The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
+owns startup options and precedence; the [runbook](docs/runbook/index.md)
+owns deployment, configuration cutovers, lifecycle operations, recovery, and
+reset, including its [command-environment guidance](docs/runbook/index.md#command-environment).
 
 Open the UI at `http://localhost:8080/` and the built documentation at
-`http://localhost:8080/docs/` (`/docs` redirects there), or check the public
-probes:
+`http://localhost:8080/docs/`, or check the public probes:
 
 ```bash
 curl http://localhost:8080/health
@@ -122,8 +67,6 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 
 ## Current documentation
 
-Each running instance serves the built documentation site at `http://localhost:8080/docs/`, and the same site is published from this repository on GitHub Pages.
-
 | Link | Role |
 | --- | --- |
 | [Documentation overview](docs/overview.md) | Orientation summary: what Saivage is, the card model, agent roles, the run loop, and vocabulary. Not an authority. |
@@ -134,84 +77,72 @@ Each running instance serves the built documentation site at `http://localhost:8
 | [Operator UI specification](docs/spec/operator-ui.md) | Sole authority for operator web UI behavior and presentation. |
 | [System architecture](docs/architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
 | [Operator runbook](docs/runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
+| [Validation internals](docs/validation.md) | Validation toolchain detail: guard contracts, CI job topology, and browser/E2E profiles. |
 | [README](README.md) | Introduction, minimal quick start, authority navigation, and repository validation profiles. |
 | [AI setup procedure](README-IF-YOU-ARE-AN-AI.md) | Subordinate seven-stage LXC setup procedure; follow its links to the authorities above. |
 
 For prompt customization, see the canonical [shipped project-guidance authoring guide](docs/architecture/prompts.md#authoring-shipped-project-guidance).
 
+## Notable current behaviors
+
+- Conversation compaction is model-aware (`context_utilization_fraction` 0.80,
+  `trigger_fraction` 0.90, `tail_fraction` 0.25) with one contextual
+  sequential-refine accumulator inside a shared 16-logical-call bound; see the
+  [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
+  The conversation index/genesis/segment format is version 2 with strict
+  protected-prompt declarations
+  ([prompt contract](docs/architecture/prompts.md),
+  [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
+- New projects enable an independent two-hour
+  [Project Oversight](docs/spec/system-specification.md#project-oversight)
+  check by default; its only project effect is an evidenced notification.
+- Process tools return bounded, redacted inline stdout/stderr heads with
+  completeness flags and durable log URLs
+  ([process result contract](docs/spec/system-specification.md#7-run-pause-resume-stop-and-restart));
+  adopting that payload from metadata-only rows is a reset-only cutover
+  ([procedure](docs/runbook/index.md#card-process-configuration-and-prompt-cutover)).
+- `glob`/`grep` results are packed into byte-bounded stateless pages
+  ([search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction)).
+
 ## Verification
 
-`npm run check:export-consumers` is the singular complete semantic
-external-consumer guard. Its candidate boundary is every tracked, non-test,
-non-declaration TypeScript-family module under `src/**` and `web/src/**`, plus
-every tracked, non-test Vue SFC under `web/src/**`. Its consumer boundary is all
-tracked TypeScript-family files, including declarations and out-of-config
-tooling, all tracked Vue SFCs under `web/src/**`, and all tracked
-JavaScript-family files. Effective SFC defaults and explicit ordinary-script
-exports are governed surfaces. Exact `dist/src/**/*.js` JavaScript mappings and
-canonical browser `/src/<path>.ts` mappings participate in the same fixed
-analysis; the function and CLI expose no scope selector or alternate phase.
+Use the profile that matches the change; `docs/validation.md` owns the
+toolchain internals and CI topology behind them.
 
-Every explicit compiler-semantic cross-module source reference is immutable
-direct evidence, including references in type and declaration contexts. Each
-actual governed barrel or re-export route remains a distinct surface. For
-ordinary TypeScript-family candidate owners, the checker adds a strictly
-additive, seeded emitter-only declaration closure. Every genuinely production-
-or test-consumed exported surface seeds traversal of its complete
-compiler-emitted public/protected declaration contract. Declaration emit and
-checking are candidate-owner-scoped and in memory only: they create no artifact.
-Production reachability outranks test reachability. The dead-outer non-rescue
-rule means an unconsumed outer export never seeds emitter-only dependencies.
-SFCs remain complete
-surface and semantic-consumer owners but do not originate declaration units or
-emitter-only edges; `npm run web:typecheck` remains the authoritative Vue type
-gate. The four reported classes are `production-consumed`, `test-only`,
-`local-only`, and `zero-use`; the latter two fail, as do stale or unresolved
-edges and unsupported consumer forms. Run
-`node scripts/check-export-consumers.js --report-test-only` for the sorted
-test-only report. `scripts/export-consumer-allowlist.json` is the strict
-exceptional allowlist and remains an empty array.
+| Profile | Runs | Use for |
+| --- | --- | --- |
+| `npm run validate:docs` | `docs:verify` (docs build + all drift guards); excludes `npm test` and `web:test:operator-smoke` | Documentation-only changes |
+| `npm run validate:routine` | typecheck, `check:export-consumers`, canonical-persistence drift, `docs:verify` | Routine backend/runtime changes (no Jest) |
+| `npm run validate:ui-smoke` | `npm run web:test:operator-smoke` | Quick UI/operator smoke |
+| `npm run validate:ui` | web typecheck, complete `web:test`, operator browser smoke | Web UI changes |
+| `npm run validate:release` | typecheck, build, non-E2E Jest, backend E2E, operator smoke, docs | Release sign-off |
 
-Compatible root and web dependencies must be installed before running
-`npm run check:export-consumers`, `npm run lint`, or `npm run validate:routine`.
-Both lint and routine invoke the export-consumer guard directly; lint does not
-invoke routine. A fresh dual `npm ci` is required for CI setup and this issue's
-acceptance setup, not before every ordinary local command invocation. Both
-installs retain development dependencies so the validation toolchain remains
-available. The lint
-profile runs the guard before stamp-producer, ESLint, backend import-boundary,
-and web-component boundary checks. Backend import-boundary findings are pinned
-by both their count and a SHA-256 digest of normalized file/rule/resolved-target
-identities in `scripts/import-boundary-baseline.json`. The check fails on
-increases, genuine removals, and equal-count substitutions; line-only movement
-and equivalent relative, alias, or terminal `.ts`/`.js` spellings of the same
-resolved target do not change identity. After reviewing a genuine removal, copy
-both printed fields into the baseline in the same commit. Admitting any new
-identity, including through an equal or lower count, weakens the guard and
-requires an explicit owner decision. `npm run test:import-boundaries` is the
-canonical focused command: it runs the checker self-test, real-CLI ratchet
-subprocess regressions, and repository admission. Lint delegates to that command
-once; direct component invocations are diagnostic evidence, not alternative
-maintained profiles.
+Focused backend commands: `npm test` is the
+complete non-E2E backend authority — it runs ordinary parallel Jest followed by the exact serial
+real-terminal-child suite after ordinary workers exit. Use `npm run
+test:parallel -- <Jest arguments>` or `npm run test:direct -- <Jest
+arguments>` for focused tests in the ordinary Jest set, which excludes the
+terminal-child suite; run `npm run test:terminal-child` for that in-band
+exceptional suite, and `npm run test:e2e` for the backend E2E tier.
+Required guards: `npm run check:export-consumers`, `npm run
+web:test:operator-smoke`, `npm run lint`, `npm run test:import-boundaries`,
+`npm run audit:security`, and `npm run deps:review`. Root and web
+dependencies must be installed before `npm run check:export-consumers`,
+`npm run lint`, or `npm run validate:routine`.
 
-Intentional governed export-inventory changes must update the pinned classification counts in `tests/scripts/export-consumers.test.js` in the same commit.
-
-The push-only `master` workflow in
-[`.github/workflows/validation.yml`](.github/workflows/validation.yml) uses
-least-privilege, secret-free Node 24 jobs and cancels superseded runs. Its
-always-run `routine-docs` job clean-installs both root and web dependencies before
-executing `validate:routine` and `validate:docs`.
-Fail-closed path classification gates the other jobs. `backend-jest-build`
-performs the dual clean install—root `npm ci`, then web `cd web && npm ci`—before
-build and non-E2E Jest. The independently visible `backend-e2e` job uses a root
-clean install and owns `npm run test:e2e`; it needs no web install, browser,
-secret, or external service. Applicable UI paths run complete web typechecking
-and Vitest plus a separate browser-smoke job. Package/workflow changes run the
-dependency security gate `npm run audit:security`. The `lint-guards` job
-performs the dual clean install and runs `npm run lint` on backend,
-web/Playwright, package/workflow, and run-all pushes; `validation-required`
-enforces it with the same applies/skipped semantics as the other conditional
-jobs.
+CI notes: the always-run `routine-docs` job clean-installs both root and web
+dependencies before `validate:routine` and `validate:docs`; `backend-jest-build`
+performs the dual clean install — root `npm ci`, then web `cd web && npm ci` —
+before build and non-E2E Jest. `npm run web:test:e2e:smoke` is the
+complete self-contained browser profile: it owns
+every production-preview smoke test
+and the one source browser-client test. The preview owner starts the
+production preview server; the browser-client owner starts the Vite
+dev server, and neither contacts a live Saivage deployment. After a failed or cancelled
+CI browser run, a best-effort artifact upload preserves
+`tmp/playwright-report` and `tmp/playwright-results`; missing output only
+warns. See [validation internals](docs/validation.md) for the guard
+contracts, full CI topology, and dependency governance.
 
 ```bash
 npm run check:export-consumers
@@ -220,102 +151,8 @@ npm run validate:routine
 npm run validate:ui-smoke
 npm run validate:ui
 npm run validate:release
-```
-
-Root `npm test` is the complete non-E2E backend authority: it runs ordinary parallel Jest
-followed by the exact serial real-terminal-child suite after
-ordinary workers exit. Use `npm run test:parallel -- <Jest arguments>` or
-`npm run test:direct -- <Jest arguments>` for focused tests in the ordinary Jest
-set, which excludes the terminal-child suite. Run `npm run test:terminal-child`
-for that in-band exceptional suite. `validate:release` runs singular `npm test`,
-then the distinct `npm run test:e2e` backend tier exactly once before browser
-smoke.
-
-For Debug Graphs changes, run the focused projection/handler, web, and browser
-owners before broader profiles:
-
-```bash
-npm run test:parallel -- tests/runtime/card-process/compiled-graphs-projection.test.ts tests/server/operator-files-debug-handlers.test.ts --runInBand
-(cd web && npx vitest run src/__tests__/debug-graphs.test.ts src/__tests__/debug-view.integration.test.ts)
-npm run web:test:operator-smoke
-```
-
-`validate:routine` invokes `check:export-consumers` directly after TypeScript
-typechecking and before documentation guards. `validate:docs` is the docs-only
-profile: it runs `docs:verify` and excludes `npm test` and
-`web:test:operator-smoke`. `validate:routine` does not run backend Jest, so
-backend/runtime changes require focused Jest. `validate:ui-smoke` runs operator
-browser smoke. `validate:ui` runs web typechecking, complete `web:test` Vitest,
-and operator browser smoke. `validate:release` includes typecheck, build,
-non-E2E backend Jest, backend E2E, operator browser smoke, and docs verification.
-
-The normal Cards browser regression owner is
-`tests/playwright/smoke/cards-independent-scroll-selection.spec.ts`; card-status
-presentation is owned by
-`tests/playwright/smoke/card-status-presentation.spec.ts`. Both are included by
-the existing operator smoke scripts.
-
-`npm run web:test:e2e:smoke` is the complete self-contained browser profile:
-it owns every production-preview smoke test and the one source browser-client test.
-It composes exactly `npm run web:test:e2e:preview-smoke` and
-`npm run web:test:e2e:browser-client-smoke`.
-The preview owner starts the production preview server; the
-browser-client owner starts the Vite dev server. Neither contacts a live Saivage
-deployment. Install Chromium with `npm run web:test:e2e:install` and install host
-browser dependencies where required. After a failed or cancelled CI browser
-run, a best-effort artifact upload preserves `tmp/playwright-report` and
-`tmp/playwright-results`; missing output only warns.
-
-Operator browser smoke includes a non-loopback plain-HTTP scenario. The
-validation host must expose a non-internal IPv4 interface reachable by local
-Chromium; absence is a failing prerequisite, not a skipped test or production
-network requirement.
-
-The build and release gates package every registered prompt tree and run its
-compiled composition smoke. After building the documentation and web UI, they
-also run a real-Fastify static-serving smoke over the `/docs` redirect, built
-`/docs/` landing and linked pages, documentation resources, web entry point, and
-built web assets. `npm run test:static-serving` runs that smoke directly and
-therefore requires the documentation and web assets to have been freshly built.
-
-`npm run test:compiled-prompt-composition` runs
-`dist/tests/scripts/compiled-prompt-composition-smoke.js --source-root .` against
-the normal compiled `dist` tree. The required `--source-root <repository>`
-argument resolves relative paths against the invocation working directory and
-selects only the source prompt tree used for byte comparison; compiled modules
-and packaged prompts always derive from the emitted smoke's own output tree.
-
-For isolated validation, compile production modules and the smoke into one
-output root, package prompts into that root, then execute
-`<output>/tests/scripts/compiled-prompt-composition-smoke.js --source-root
-<repository>`. This isolated constituent is release-equivalent coverage, not a
-literal pass of the default validation profile.
-
-To use a locally installed Chrome for release validation:
-
-```bash
-PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/absolute/path/to/chrome npm run validate:release
-```
-
-Omitting the variable retains the managed-browser default. This affects local
-validation only, never service configuration.
-
-Run dependency security and the broader local review with:
-
-```bash
 npm run audit:security
 npm run deps:review
 ```
 
-`npm run audit:security` is the CI gate for high and critical findings in the
-root and web dependency graphs. Both project `.npmrc` files set `include=dev`,
-so npm's explicit inclusion takes precedence over the audit scripts' retained
-`--omit=dev` flags and the effective audit scope includes development
-dependencies. `npm run audit:security:all` uses the lower moderate threshold.
-`npm run deps:review` runs that broader audit plus local dependency-freshness
-review; it does not replace the CI gate.
-
-`npm run validate:release` is the singular local release-sign-off composition.
-Its constituent commands remain useful for diagnosis; release validation does
-not require another manual backend-E2E invocation. README owns validation
-selection and navigation, not product contracts.
+README owns validation selection and navigation, not product contracts.

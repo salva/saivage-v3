@@ -72,6 +72,7 @@ Each authority owns its subject exactly; nothing on this site overrides them.
 | [Operator UI specification](spec/operator-ui.md) | Sole authority for operator web UI behavior and presentation. |
 | [System architecture](architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
 | [Operator runbook](runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
+| [Validation internals](validation.md) | Contributor reference: guard contracts, CI topology, and browser/E2E profiles. |
 
 ## Reading paths
 
