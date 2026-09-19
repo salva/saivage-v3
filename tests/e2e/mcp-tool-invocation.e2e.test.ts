@@ -103,7 +103,6 @@ describe('MCP tool invocation production composition', () => {
       return response;
     };
     try {
-      initializeProject(projectRoot);
       const config = productionTestConfig(providerPort, (value) => {
         value.agents.executor = { ...value.agents.executor!, tools: ['write', 'mcp_tool_call'], skills: false };
         value.card_types.project = {
@@ -118,6 +117,7 @@ describe('MCP tool invocation production composition', () => {
         value.mcpServers = { [SERVER_NAME]: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, disabled: false, autostart: true } };
       });
       writeProductionConfig(projectRoot, config);
+      initializeProject(projectRoot);
       app = await startProductionApp(projectRoot, TOKEN);
       apps.add(app);
       expect(app.server.mcpManager.getServerTools(SERVER_NAME)).toEqual([

@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 
@@ -60,6 +60,10 @@ export function productionTestConfig(providerPort: number, customize?: (config: 
 }
 
 export function writeProductionConfig(projectRoot: string, config: SaivageConfig): void {
+  // The config must be writable before `initializeProject` so that `init` compiles
+  // the intended workflows and publishes matching root-card conversations; startup
+  // no longer creates missing configured session indexes.
+  mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
   writeFileSync(join(projectRoot, '.saivage', 'saivage.yaml'), stringify(config));
 }
 

@@ -130,7 +130,6 @@ describe('process inline output production composition', () => {
     const providerPort = await listen(provider);
     let app: App | null = null;
     try {
-      initializeProject(projectRoot);
       const config = productionTestConfig(providerPort, (value) => {
         value.card_types.project = {
           permitted_child_types: [],
@@ -143,6 +142,7 @@ describe('process inline output production composition', () => {
         };
       });
       writeProductionConfig(projectRoot, config);
+      initializeProject(projectRoot);
       app = await startProductionApp(projectRoot, TOKEN);
       apps.add(app);
 
