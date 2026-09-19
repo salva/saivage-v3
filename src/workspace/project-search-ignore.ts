@@ -29,7 +29,7 @@ export function parseProjectSearchIgnore(bytes: Uint8Array, fail: (message: stri
       || entry.startsWith('!')
       || entry.includes('\\')
       || entry.includes(':')
-      || /[*?\[\]{}]/u.test(entry)
+      || /[*?[\]{}]/u.test(entry)
       || /\p{Cc}/u.test(entry)
       || segments.some((segment) => segment === '' || segment === '.' || segment === '..');
     if (invalid) invalidPolicy(fail, 'entry must be a literal project-relative directory path.', index + 1);
