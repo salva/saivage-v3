@@ -40,12 +40,14 @@ TARGET_PROJECT="/absolute/path/to/target-project"
 mkdir -p "$TARGET_PROJECT"
 cd "$TARGET_PROJECT"
 "$SAIVAGE_BIN" init
-# Configure .saivage/saivage.yaml before starting (see docs/guides/configuration.md).
+# At minimum, configure a provider and point the model routes and compaction
+# summarizer at it before starting; the bundled template ships no provider.
 SAIVAGE_API_TOKEN=test "$SAIVAGE_BIN" start
 ```
 
-The [guides](docs/guides/getting-started.md) walk through configuration and
-first use. The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
+The [getting-started guide](docs/guides/getting-started.md) walks through a
+complete minimal configuration and first objective, and the
+[configuration guide](docs/guides/configuration.md) documents every key. The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
 owns startup options and precedence; the [runbook](docs/runbook/index.md)
 owns deployment, configuration cutovers, lifecycle operations, recovery, and
 reset, including its [command-environment guidance](docs/runbook/index.md#command-environment).

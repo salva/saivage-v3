@@ -9,7 +9,11 @@ Saivage turns a software goal into a visible tree of cards. Planners decompose
 work, executors perform terminal cards, reviewers assess results, and the
 runtime alone dispatches them. The Analyst is the ordinary operator and
 mutation surface. All of this runs inside an externally isolated container;
-the deployment supplies that boundary, not Saivage.
+the deployment supplies that boundary, not Saivage. For conceptual grounding,
+read the [documentation overview](docs/overview.md) once before Stage 1; the
+[configuration guide](docs/guides/configuration.md) and
+[operating guide](docs/guides/operating.md) are the practical companions to
+Stages 4 and 6.
 
 Guide the user through seven short stages: inspect, build, create and provision,
 initialize and configure, confine and start, verify and learn, then hand off.
@@ -159,7 +163,10 @@ Preserve the complete generated topology. Ask now about authorized provider and
 cost constraints, choose a strong current tool-capable model by default, and
 change only what that provider requires. Configure every required named route
 and the exact enabled-compaction `summarizer_candidate`; the candidate must name
-one configured provider, nullable account, and model.
+one configured provider, nullable account, and model. The
+[configuration guide](docs/guides/configuration.md) shows the current key
+shapes, including `${ENV_VAR}` interpolation for the container-local secret
+source.
 
 Apply the credential boundary above. For a container-local environment file,
 first determine whether it exists. Create it only on exact absence. If present,
@@ -319,14 +326,20 @@ positive reachability check fails, use classic `lxc-attach` to stop and disable
 tokenless service as durable.
 
 Require one real provider-backed Analyst interaction. Use the
-[operator UI specification](docs/spec/operator-ui.md) to explain the visible
-Dashboard, Cards, Agents, Files, and Debug surfaces, and the
-[functional specification](docs/spec/system-specification.md) for record and
-conversation behavior; do not restate those contracts here. The Analyst is the
-ordinary mutation surface. Inspect existing project authority and ask only the
-unresolved goal, constraint, and acceptance questions. Have the Analyst align
-the root brief to that accepted authority and obtain user approval before
-autonomous work begins.
+[operating guide](docs/guides/operating.md) to walk the user through the
+visible Dashboard, Cards, Agents, Files, and Debug surfaces, deferring to the
+[operator UI specification](docs/spec/operator-ui.md) and the
+[functional specification](docs/spec/system-specification.md) for exact
+record and conversation behavior; do not restate those contracts here. The
+built documentation is served by the running instance at
+`http://<CONTAINER_IP>:8080/docs/`. New projects enable a two-hour
+[Project Oversight](docs/spec/system-specification.md#project-oversight)
+check by default, so an Oversight conversation appears in Agents after its
+first check; its only project effect is an evidenced notification. The
+Analyst is the ordinary mutation surface. Inspect existing project authority
+and ask only the unresolved goal, constraint, and acceptance questions. Have
+the Analyst align the root brief to that accepted authority and obtain user
+approval before autonomous work begins.
 
 **Outcome.** Host-only tokenless reachability and successful firewall dependency
 are established before and after the guest restart; inspected semantics and
@@ -344,10 +357,13 @@ container lifecycle are different authorities.
 **Constraints and actions.** Report the URL and access boundary, container and
 `saivage.service`, both host/guest mappings, provider/model names, credential
 location but not values, health/log/rebuild operations, and unresolved items.
-Use host classic `lxc-attach` with guest `systemctl` and `journalctl` for routine
-maintenance. `saivage stop` stops the project runtime; systemd controls the
-server process; classic LXC controls the guest. In tokenless mode, confirmed
-application-level `restart_server` is unavailable, so restart the server through
+Point the user to the instance-served documentation at `/docs/` — its
+[runbook](docs/runbook/index.md) and [guides](docs/guides/getting-started.md)
+are the standing operations reference. Use host classic `lxc-attach` with
+guest `systemctl` and `journalctl` for routine maintenance. `saivage stop`
+stops the project runtime; systemd controls the server process; classic LXC
+controls the guest. In tokenless mode, confirmed application-level
+`restart_server` is unavailable, so restart the server through
 `saivage.service`.
 
 For an incompatible-format reset, follow the runbook's
