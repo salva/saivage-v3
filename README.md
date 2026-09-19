@@ -104,8 +104,11 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 
 ## Current documentation
 
+Each running instance serves the built documentation site at `http://localhost:8080/docs/`, and the same site is published from this repository on GitHub Pages.
+
 | Link | Role |
 | --- | --- |
+| [Documentation overview](docs/overview.md) | Orientation summary: what Saivage is, the card model, agent roles, the run loop, and vocabulary. Not an authority. |
 | [System specification](docs/spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
 | [Operator UI specification](docs/spec/operator-ui.md) | Sole authority for operator web UI behavior and presentation. |
 | [System architecture](docs/architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |

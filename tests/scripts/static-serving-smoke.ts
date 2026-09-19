@@ -21,15 +21,27 @@ assert(assetPath, `${webIndexPath} does not reference a built JavaScript or CSS 
 const assetBytes = readFileSync(join(packageRoot, 'web', 'dist', assetPath));
 const assetContentType = assetPath.endsWith('.js') ? 'application/javascript' : 'text/css';
 
+// Docs HTML may use absolute or relative asset URLs depending on the configured
+// VitePress base; resolve every emitted URL against the /docs/ serving prefix.
+const resolveDocsUrl = (href: string): string => {
+  const resolved = new URL(href, 'http://localhost/docs/');
+  return `${resolved.pathname}${resolved.search}`;
+};
+const assertUnderDocsPrefix = (label: string, href: string): void => {
+  const resolved = resolveDocsUrl(href);
+  assert(resolved.startsWith('/docs/'), `${label} URL does not resolve under /docs/: ${href} -> ${resolved}`);
+};
+
 const docsCssUrl = docsLandingHtml.match(/<link\b[^>]*\bhref="([^"]+\.css(?:[?#][^"]*)?)"/)?.[1];
 assert(docsCssUrl, `${docsLandingPath} does not reference a built CSS asset`);
-assert(docsCssUrl.startsWith('/docs/'), `${docsLandingPath} CSS URL is not under /docs/: ${docsCssUrl}`);
+assertUnderDocsPrefix(`${docsLandingPath} CSS`, docsCssUrl);
 const docsJavaScriptUrl = docsLandingHtml.match(/<script\b[^>]*\bsrc="([^"]+\.js(?:[?#][^"]*)?)"/)?.[1];
 assert(docsJavaScriptUrl, `${docsLandingPath} does not reference a built JavaScript asset`);
-assert(docsJavaScriptUrl.startsWith('/docs/'), `${docsLandingPath} JavaScript URL is not under /docs/: ${docsJavaScriptUrl}`);
+assertUnderDocsPrefix(`${docsLandingPath} JavaScript`, docsJavaScriptUrl);
 
 const docsHrefs = [...docsLandingHtml.matchAll(/\bhref="([^"]+)"/g)].map((match) => match[1]);
 const docsNavigation = [
+  { url: '/docs/overview.html', artifact: 'overview.html' },
   { url: '/docs/spec/system-specification.html', artifact: 'spec/system-specification.html' },
   { url: '/docs/spec/operator-ui.html', artifact: 'spec/operator-ui.html' },
   { url: '/docs/architecture/system-architecture.html', artifact: 'architecture/system-architecture.html' },
@@ -85,8 +97,9 @@ try {
     [docsCssUrl, 'text/css'],
     [docsJavaScriptUrl, 'application/javascript'],
   ] as const) {
-    const parsedUrl = new URL(url, 'http://localhost');
-    const response = await app.inject({ method: 'GET', url });
+    const requestUrl = resolveDocsUrl(url);
+    const parsedUrl = new URL(requestUrl, 'http://localhost');
+    const response = await app.inject({ method: 'GET', url: requestUrl });
     assert.equal(response.statusCode, 200, `GET ${url}`);
     assert.match(response.headers['content-type'] ?? '', new RegExp(`^${contentType.replace('/', '\\/')}\\b`), `GET ${url}`);
     assert.deepEqual(response.rawPayload, readFileSync(join(docsDistPath, parsedUrl.pathname.slice('/docs/'.length))), `GET ${url}`);
@@ -94,8 +107,8 @@ try {
 
   const docsIconsUrl = docsHrefs.find((href) => new URL(href, 'http://localhost/docs/').pathname === '/docs/vp-icons.css');
   if (docsIconsUrl) {
-    assert(docsIconsUrl.startsWith('/docs/'), `${docsLandingPath} icon CSS URL is not under /docs/: ${docsIconsUrl}`);
-    const response = await app.inject({ method: 'GET', url: docsIconsUrl });
+    assertUnderDocsPrefix(`${docsLandingPath} icon CSS`, docsIconsUrl);
+    const response = await app.inject({ method: 'GET', url: resolveDocsUrl(docsIconsUrl) });
     assert.equal(response.statusCode, 200, `GET ${docsIconsUrl}`);
     assert.match(response.headers['content-type'] ?? '', /^text\/css\b/, `GET ${docsIconsUrl}`);
     assert.deepEqual(response.rawPayload, readFileSync(join(docsDistPath, 'vp-icons.css')), `GET ${docsIconsUrl}`);
