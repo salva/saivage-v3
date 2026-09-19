@@ -20,14 +20,24 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Overview', link: '/overview' },
+      { text: 'Get started', link: '/guides/getting-started' },
       { text: 'Specifications', link: '/spec/' },
       { text: 'Architecture', link: '/architecture/' },
       { text: 'Runbook', link: '/runbook/' },
     ],
+    outline: 'deep',
     sidebar: [
       {
         text: 'Overview',
         items: [{ text: 'What is Saivage', link: '/overview' }],
+      },
+      {
+        text: 'Guides',
+        items: [
+          { text: 'Getting started', link: '/guides/getting-started' },
+          { text: 'Configuration', link: '/guides/configuration' },
+          { text: 'Operating a project', link: '/guides/operating' },
+        ],
       },
       {
         text: 'Specifications',

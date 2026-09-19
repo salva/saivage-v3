@@ -159,7 +159,10 @@ and the [reset procedures](runbook/index.md#invalid-or-non-continuable-global-an
 
 ## Where to go next
 
-- Deploy or operate an instance: the [Operator runbook](runbook/index.md).
+- Run your first instance: the [Getting started](guides/getting-started.md)
+  guide, then [Configuration](guides/configuration.md) and
+  [Operating a project](guides/operating.md).
+- Deploy or operate a deployment: the [Operator runbook](runbook/index.md).
 - Understand the internals: the
   [System architecture](architecture/system-architecture.md).
 - Check exact behavior: the [System specification](spec/system-specification.md).

@@ -12,14 +12,14 @@ hero:
 
 actions:
   - theme: brand
+    text: Get started
+    link: /guides/getting-started
+  - theme: alt
     text: What can it do?
     link: /overview
   - theme: alt
-    text: Operator runbook
-    link: /runbook/
-  - theme: alt
-    text: System specification
-    link: /spec/system-specification
+    text: Operating a project
+    link: /guides/operating
 
 features:
   - icon: 🎯
@@ -65,6 +65,9 @@ Each authority owns its subject exactly; nothing on this site overrides them.
 | Document | Role |
 | --- | --- |
 | [Overview](overview.md) | Orientation: what Saivage is, the card model, agent roles, the run loop, and vocabulary. Not an authority. |
+| [Getting started](guides/getting-started.md) | From nothing to a running instance working on your first objective. |
+| [Configuration](guides/configuration.md) | Every `saivage.yaml` key explained with annotated examples. |
+| [Operating a project](guides/operating.md) | The control room, the Analyst conversation, and the rhythm of a long run. |
 | [System specification](spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
 | [Operator UI specification](spec/operator-ui.md) | Sole authority for operator web UI behavior and presentation. |
 | [System architecture](architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
@@ -72,8 +75,9 @@ Each authority owns its subject exactly; nothing on this site overrides them.
 
 ## Reading paths
 
-- **New operator** — start with the [Overview](overview.md), then the
-  [runbook](runbook/index.md) for deployment and lifecycle procedures.
+- **New operator** — [Overview](overview.md) → [Getting started](guides/getting-started.md) →
+  [Operating a project](guides/operating.md), then the
+  [runbook](runbook/index.md) when you own a deployment.
 - **Contributor or reviewer** — read the [Overview](overview.md), then the
   [system architecture](architecture/system-architecture.md).
 - **Exact behavior question** — go straight to the
