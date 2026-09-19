@@ -2,6 +2,25 @@
 
 Status: current operator procedures for runtime maintenance.
 
+## Quick reference
+
+| Task | Command or location |
+| --- | --- |
+| Initialize a project | `saivage init [--profile classic\|classic-typed]` from the target project root |
+| Start the server | `saivage start --host <host> --port <port>` (bearer token via `SAIVAGE_API_TOKEN`) |
+| Runtime status / control | `saivage status` · `saivage pause` · `saivage resume` · `saivage stop` |
+| Confirmed service restart | `saivage restart_server` (bearer mode only; UI/dashboard alternative) |
+| Health probes | `curl http://<host>:<port>/health` and `/health/ready` (unauthenticated) |
+| Configuration | `.saivage/saivage.yaml` (see the [configuration guide](../guides/configuration.md)) |
+| Web control room / docs | `http://<host>:<port>/` and `http://<host>:<port>/docs/` |
+| Generated state | `.saivage/cards`, `.saivage/agents`, `.saivage/logs`, `.saivage/work` (reset-owned) |
+| Lifecycle lock | `.saivage/locks/runtime.lock`; never remove without [positive dead-owner verification](#runtime-controls-and-lifecycle-lock) |
+| Whole-generated-state reset | `saivage reset` — see [reset and cutovers](#storage-and-interruption) first |
+
+Everything below is the detailed material; the linked guides cover
+[getting started](../guides/getting-started.md) and
+[daily operation](../guides/operating.md).
+
 ## Activation ownership and runtime halt
 
 Supervisor startup begins in internal `uninitialized`, strictly validates the project root and initial empty ownership/gate state, and transitions its one status field to public `stopped` only after success. Startup failure leaves it uninitialized, rejects Analyst intervention, and prevents server services from returning or a listener from being published; public runtime-status reads are unavailable in that internal state. Do not confuse this process-local admission with HTTP health readiness at `GET /health/ready`.

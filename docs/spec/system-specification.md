@@ -5,270 +5,27 @@ Incompatible durable-format cutovers are reset-only.
 Mixed-version operation, migration, compatibility reading, format probing, normalization, and rollback against current generated state are unsupported.
 An ordinary same-format binary deployment instead stops the old service and strictly starts the new binary against retained current-format generated state; release format knowledge, not startup inspection, determines whether a reset-only cutover applies.
 
-## Named-Agent Workflow Cutover
 
-The selected strict YAML chooses card-type definitions through exactly one source form: a complete `card_types` map, or omission of `card_types`, which selects the bundled `classic` definitions.
-The deleted `card_type_set` selector key fails strict source validation as an unknown key; it never defaults, falls back, or merges with an explicit map.
-`saivage init [--profile <classic|classic-typed>]` materializes the complete selected system template on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single configuration-materialization completion commit. This input publication is separate from generated-state admission and does not make retained generated work compatible with the materialized identities.
-An existing `.saivage/saivage.yaml` gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML, and `--profile` is inert.
-After successful init the instance is the single runtime authority; templates are materialization data and are never consulted at runtime. Template provenance is not authority for the effective identities that produced retained generated work.
-`ResolvedConfigAuthority` resolves the source once to a complete effective `card_types` map before structural compilation.
-All compiler, runtime, REST config, `show_config`, and selected-config Files consumers receive only that singular effective map.
+## Contents
 
-The selected strict YAML is structurally compiled before any generated card publication.
-Structural compilation validates every configured card-type workflow, exact named-agent/model/skill/session references, resolves every ordered operational tool through the exact global/card catalog scope, and freezes each route/profile plus array-form equivalence and direct-failover expansion as `orderedModelIds`; it also validates child narrowing, record/bootstrap definitions, local source-node terminal exports, graph reachability, `latest_node` existence/path, and every selected agent/process prompt.
-Prompt roots mirror `agents|process|fragments/<card-type|_shared>/<reference>.md`; project card-specific, project shared, bundled card-specific, then bundled shared is the exact root-major order, and only exact absence advances.
-Agent filenames use the configured prompt reference; the global Analyst uses shared scope only.
-Direct `&#123;&#123;> fragment-id&#125;&#125;` inclusion is one level, uses the host card type, and is validated under the host policy.
-Each shipped Planner, Executor, Reviewer, and Analyst agent prompt directly includes `project-guidance-common` and its matching role fragment. These hooks compose only when that selected prompt contains them: custom prompt references and full overrides are not automatically modified or required to include them, and the Analyst remains shared-scope only.
-Workflow-agent system prompts require `&#123;&#123;contractDescription&#125;&#125;` exactly once after composition; process prompts allow only `&#123;&#123;cardType&#125;&#125;`, render eagerly, and are frozen as final text.
-Startup discovers the selected Analyst and distinct card agents directly from the singular state tables, then installs one immutable `agentBindings` map before actor construction.
-Each installation resolves only its explicit model IDs through the Provider Registry and retains its exact capability request: complete card surfaces include generated `emit_result` last and require tools plus exclusive choice, while Analyst has only its operational surface and may retain no-tools plus exclusive choice.
-Provider admission consumes that retained request unchanged.
-Real turns bind only selected invocation-scope executor/cleanup closures.
-Offline `init`, `reset`, and `start --create-runtime` use only the same structural compiler and never reconcile MCP or require live provider availability.
-Offline `init` additionally materializes the selected template's complete prompt tree and provenance marker before publishing the config YAML last; the copy skips already-existing destination paths, so a crashed config-absent materialization attempt can be completed by re-running `init`, while an existing config preserves the tree, marker, and YAML bytes exactly. If generated work already exists, that retry still undergoes strict current-state admission and is not an identity-changing upgrade or repair.
-`reset` and `start --create-runtime` materialize nothing.
-Actors receive only the bound artifact and perform no source-config, prompt, route, capability, or tool selection.
+- [1. Product Boundary](#1-product-boundary)
+- [2. Cards](#2-cards)
+- [3. Configured Card Processes And Sessions](#3-configured-card-processes-and-sessions)
+- [4. Full-Chain Stopped Recovery](#4-full-chain-stopped-recovery)
+- [5. Notifications And Reviewer Arbitration](#5-notifications-and-reviewer-arbitration)
+- [6. Activation Outcomes And Cancellation](#6-activation-outcomes-and-cancellation)
+- [7. Run, Pause, Resume, Stop, And Restart](#7-run-pause-resume-stop-and-restart)
+- [8. Lifecycle Lock And CLI](#8-lifecycle-lock-and-cli)
+- [9. Direct File Persistence](#9-direct-file-persistence)
+- [10. Prepared Invocation, Exact Admission, And Compaction](#10-prepared-invocation-exact-admission-and-compaction)
+- [11. API And Operator Projection](#11-api-and-operator-projection)
+- [12. Reset And Failure Consequences](#12-reset-and-failure-consequences)
+- [Publication outcome-unknown fatal boundary](#publication-outcome-unknown-fatal-boundary)
+- [Appendix: cutovers and recent contract changes](#appendix-cutovers-and-recent-contract-changes)
 
-`models.equivalents` is optional and defaults to `[]`; when present, it is exactly an array of string arrays.
-Mapping/object forms and malformed members fail selected-YAML validation as a complete input and are neither rewritten nor omitted.
-
-The shipped bundled defaults are the two registered system templates `classic` and `classic-typed`; `classic` is the bundled default (the omission `card_types` source and the bundled prompt root), and each template is materialized whole by `saivage init --profile <name>`.
-Both are complete definitions containing `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`, in that declaration order.
-Classic `project` and `goal` use `plan -> optional review -> plan`, `recover` for STOPPED, and a conditional Planner `handle-notifications` node after an accepted Reviewer result when designated-recipient context is pending. The other seven types each use one `execute` node. Planner is the planning-card recipient and Executor is each leaf recipient.
-A template is one complete TypeScript-owned config plus its exact prompt closure; its config contains the card types, workflows, and record declarations and does not own or override global agents, `analyst_agent`, model routes, providers, compaction, server, or MCP configuration beyond publishing the template's complete values for them at init.
-The resolved effective configuration owns the actual complete map.
-A card-type name matches `[a-z][a-z0-9-]{0,63}`; `project` is the sole reserved name, is required as the fixed root entry, and cannot be a child.
-Every child reference is unique and names a key in the same map.
-Compilation preserves declaration order in one immutable map and one ordered all-key vocabulary.
-There is no planning/terminal family or autonomous role classifier.
-Nodes reference card-scoped named agents; the configured global Analyst uses one global named session plus explicit parent/card targets.
-Creation authority is the named agent's global `can_create_children` and `create_card` ceiling intersected with the selected parent's compiled `permitted_child_types`; activation separately requires `activate_card`.
-Default Planner has the exact 21-tool inventory, Reviewer the 12-tool inventory without MCP, Executor the 17-tool inventory with unrestricted configured MCP invocation, and Analyst the 43-tool inventory.
-`mcp_tool_call` is the only agent MCP admission; annotations are descriptive only.
-
-In `classic-typed`, `project` and `goal` permit all eight non-root types in declaration order; every other type is a leaf.
-`project`, `goal`, and `architecture` declare `brief.md`, `status.md`, and `review.md`; all other types declare `brief.md` and `status.md`.
-`brief.md` is always the sole bootstrap record.
-The classic-typed configured graphs are:
-
-| Type | Exact configured flow |
-| --- | --- |
-| `project`, `goal` | Recipient Planner. `plan`: `complete_direct` -> DONE, `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED; `review`: `approved` -> DONE when no context is pending, otherwise accepted `approved` -> `handle-notifications`; `revision_required` -> `plan`, `blocked` -> BLOCKED, `failed` -> FAILED. `handle-notifications`: `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED. STOPPED enters `recover`, which has the same outcomes as `plan`. |
-| `code` | `red`: `red_confirmed` -> `green`, `already_green` -> `refactor`; `green`: `green` -> `refactor`, `still_red` -> `green`; `refactor`: `done` -> DONE, `regressed` -> `green`; each node also has configured `blocked` and `failed` terminals. |
-| `test` | `diagnose`: `coverage_ready` -> `verify`, `coverage_gap` -> `add-coverage`, `failing_test` -> `repair`; `add-coverage`: `coverage_passing` -> `verify`, `repair_needed` -> `repair`; `repair`: `tests_passing` -> `verify`, `still_failing` -> `repair`; `verify`: `done` -> DONE, `coverage_gap` -> `add-coverage`, `repair_needed` -> `repair`; each node also has configured `blocked` and `failed` terminals. |
-| `research` | `explore`: `evidence_ready` -> `assess`, `more_exploration` -> `explore`; `assess`: `supported`, `refuted`, or `bounded_inconclusive` -> `report`, and `evidence_gap` -> `explore`; `report`: `done` -> DONE; each node also has configured `blocked` and `failed` terminals. |
-| `data` | `schema`: `schema_ready` -> `validate`; `validate`: `valid` -> `implement`, `schema_invalid` -> `schema`; `implement`: `done` -> DONE, `implementation_retry` -> `implement`, `schema_revision` -> `schema`; each node also has configured `blocked` and `failed` terminals. |
-| `architecture` | Recipient Executor. `draft`: `ready_for_component_review` -> `component-review`; `component-review`: `approved` -> `system-review`, `revision_required` -> `draft`; `system-review`: `approved` -> DONE when no context is pending, otherwise accepted `approved` -> `draft`; `revision_required` -> `draft`; each node also has configured `blocked` and `failed` terminals. A notification return must repeat component and system review. |
-| `doc`, `ops` | One `execute` node: `done` -> DONE, `blocked` -> BLOCKED, `failed` -> FAILED. |
-
-Typed research treats `evidence_ready` as readiness to assess the bounded question, including reasonably exhausted or inconclusive investigation, rather than support or exhaustive coverage. A return to exploration requires concrete obtainable evidence or materially different useful analysis capable of changing the assessment; exhausted uncertainty normally reaches an honest bounded-inconclusive report. Completing that report completes only its bounded research deliverable: unresolved questions, limits, required exhaustive follow-up, and actionable handoffs remain explicit, with no implied evidence promotion, policy approval, parent completeness, or project acceptance. An accepted brief remains authoritative; a required deliverable that cannot proceed without specific scope, input, or a decision uses the existing blocked route rather than being silently narrowed.
-
-Typed data validation distinguishes correct rejection of invalid samples from a schema defect and technical acceptance from owner or policy approval. Only an actually mandatory missing decision or input blocks; ordinary engineering and accepted graph nodes require no new human signoff. Across both templates, shared Executor guidance interprets completed process status together with relevant output, preserves earlier failed or unresolved checks despite a later successful tool call, and reuses still-applicable evidence while rerunning after relevant changes, for current requirements, or to resolve an open verification question. Required validation is never waived; typed refactor may reuse recent valid focused evidence after a reasoned no-change decision unless current criteria require a rerun.
-
-Typed test diagnosis classifies adequate meaningful coverage plus passing focused tests as `coverage_ready`, including on fresh entry or re-entry after interruption. That route requires no manufactured test, source, or metadata change: it reuses `test-to-verify` and enters the existing `verify` node, which owns affected-suite and coverage acceptance and remains the only node that can complete the test card successfully.
-
-All classic-typed non-planning entries begin at the first node shown; STOPPED adds `stopped-recovery`.
-Node IDs use the exact lowercase hyphenated form, notably `handle-notifications`, `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
-
-Classic-typed planning reuses existing immediate children rather than duplicating them.
-Planner may notify and activate BACKLOG, CHANGED, BLOCKED, or STOPPED children through their matching entries.
-`edit_card` is only for a genuine immediate-child metadata change to `title`, `priority`, or `urgency`; it cannot edit a brief, dependency, parent, type, or lifecycle and is not a generic reopen.
-An owning Planner with the configured card-scoped `reopen_card` capability may reopen only its exact DONE or FAILED immediate child through `reopen_card({card_id:"<id>"})`; success changes only that child to CHANGED, after which notification and activation remain separate ordinary operations.
-A BLOCKED child normally needs only Planner notification and activation. CANCELLED never reopens.
-The distinct global Analyst operation retains `reopen_card({cardId:"<id>"})`: while intervention-ready it may target BLOCKED, DONE, or FAILED work and applies the existing target-to-ancestor changed propagation and notifications. The two scoped contracts share a tool name but are not aliases or interchangeable authority.
-
-Both shipped templates use one shared Planner instruction for `project` and `goal`, interpreted against the frozen card-type context supplied at invocation. At `project`, Planner owns the coherent strategy for carrying the owner's complete objective to evidenced acceptance: it maintains coverage, assumptions, risks, dependencies, integration, progress, remaining work, and acceptance evidence through the existing `brief.md` and `status.md` records. The owner's outcome and acceptance remain stable unless the owner changes them. At `goal`, Planner owns local decomposition, ordering, coordination, and repair within the delegated outcome and reports evidence and genuinely cross-scope implications upward; routine local choices do not require root approval.
-
-Goals may add planning value for uncertain or evolving work, several coordinated deliverables, or decisions that should remain outside root context, including serial workstreams; independent review and parallelism are benefits rather than admission requirements. A bounded defect with implementation and regression coverage can remain one terminal assignment, and a small project or isolated bounded crosscutting assignment may use direct root leaves. Planner direct work remains coordination, investigation/evidence assessment, and permitted record work rather than Executor implementation, build, or test work.
-
-With an explicit rationale, Planner may use its existing `cancel_card` tool for an abandoned, superseded, or unproductive direct-child approach only when that makes the work obsolete or explicitly rejected and current tool and lifecycle admission permits cancellation; cancellation is not scheduling deferral. Cancellation is terminal, cannot be reopened, and does not satisfy dependencies requiring DONE, so it must preserve honest status and outstanding acceptance and must never hide failed tests or unfinished obligations.
-
-Planner reflects purposefully when child results, review findings, blockers, or meaningful new evidence arrive: it treats findings as evidence rather than blindly adopting a suggested remedy, retains sound direction and useful evidence, changes tactics or strategy only when facts warrant it, and never replans ceremonially or claims completion against uncovered acceptance. It distinguishes research delivery, implementation, evidence promotion, and project acceptance, compares specification requirements with card- or agent-introduced sequencing, and removes unnecessary local sequencing without lowering acceptance, erasing gaps, or discarding genuine dependencies. Exhaustive obligations remain in planning records and delegated outstanding work; all-goal signoff or exclusion decisions do not block unrelated scoped implementation absent a real dependency. A failed local tactic is not automatically a disproved strategy. A substantively different, evidenced path to the unchanged outcome may use a different goal, but relabeling or cloning failed work and fake metadata edits are forbidden. For ordinary in-scope correction, the owning Planner reopens the same DONE direct child, queues concrete corrective context, and activates it; a FAILED-child retry requires material new diagnosis, input, correction, or a justified different route stated in existing status or notification context. A genuinely distinct bounded follow-up may cite the earlier delivery or review without cloning its whole scope. Root reactivates an actionable BLOCKED goal or reopens its own DONE/FAILED goal so that goal's Planner can repair its children; root has no grandchild reopening authority. Planner exhausts reasonable in-scope tools and strategies before blocking. Real owner decisions, unavailable resources or configured capabilities, and materially exhausted strategies are escalated; ordinary correction and routine engineering judgment are not. Existing tool admission remains authoritative: Planner cannot reparent, cannot edit a child's brief or dependencies, and can choose dependencies only among existing immediate siblings at child creation. Fake metadata, pretend credit, weakened acceptance, cancelling failures to hide progress, and bypass of refusal, cancellation, or security limits remain forbidden.
-
-Architecture uses the unchanged shared Reviewer prompt and one declared `review.md`.
-Both `component-review` and `system-review` start a clean updated cycle of that record.
-Accepted transition context carries immutable `record:///review.md?card=<id>&v=N` evidence with its optional edge prompt; the destination node prompt is supplied separately as the next activation's prepared compiled-node block. Component evidence therefore remains readable after system review opens a newer clean version and revision returns to `draft`.
-A revised draft updates cumulative `status.md` and can cite the accepted review version.
-Final system approval promotes the latest accepted `draft` result while exporting the current system `review.md`.
-
-Card-type wire schemas validate only that identifier syntax.
-Startup resolves every reached active canonical card against the selected compiled map and fails if its type is absent; parent/type admission follows from the reached active parent's compiled workflow. A reached retained tombstone is strictly consumed and terminates traversal before workflow, record, or session admission for that card or any descendant behind it.
-The same ordered compiled vocabulary, always including `project`, supplies the Analyst prompt, Analyst `create_card` schema/preflight, both global-Analyst and card-agent `list_cards` schemas, and Planner execution membership.
-Analyst `create_card` requires one exact existing parent card ID; omission, `null`, and malformed card IDs fail invocation-schema admission.
-Analyst and Planner creation accept type, title, bootstrap content, optional priority/urgency, and optional `depends_on`; Analyst additionally supplies the explicit parent while Planner infers it from the session. Neither creation contract accepts tags or a generic related-card list. Current `get_card` sections are exactly summary, workflow, dependencies, children, and records; immutable `get_card_version` sections are summary, dependencies, and children. `list_cards` filters are exactly status, type, and parent, plus paging controls.
-Vocabulary membership is not creation authority: Analyst `project` calls with an explicit parent still reach the one-root domain denial, Planner retains its explicit root denial, and node/parent admission remains later.
-The fixed project root is published only by bootstrap and cannot be created by an agent tool.
-Planner's wire schema stays a plain string.
-`list_cards` rejects an unconfigured scalar or array filter at invocation-schema admission before its shared executor filters cards.
-The shipped nine-name prompt and tool schemas remain byte-identical.
-
-Changing templates, replacing an explicit map, adding a type, or changing matching prompt/config inputs requires stop, edit or fresh init, and start. Prompt, model-route, tool, host/port, edge, or outcome changes that retain participating identities are not made reset-only by the identity-cutover contract, although separately specified format cutovers still apply.
-After initialization, deliberately renaming, removing, or replacing a participating card agent; changing its scope; changing the selected Analyst; rebinding a reached card workflow node to a different named agent; or renaming, removing, or replacing existing workflow-node/state identities requires an authorized stopped whole-generated-state reset before those new identities are used. This applies to reached active cards, including non-tombstoned DONE or FAILED cards, not merely currently running actors. A wholly new card type, an unused catalog declaration, or another change that does not alter existing participating identities is not prohibited by this rule.
-Startup strictly admits retained generated state against the newly resolved effective map. It requires the exact current selected-Analyst index and every distinct node-agent index derived from each reached active card's compiled workflow. Missing expected indexes reject rather than being created; this catches some identity changes and incomplete or lost first publication, but it is not a comparison with prior configuration and does not certify that every identity was retained. In particular it cannot generally detect same-agent node-ID changes or changes whose newly expected indexes already exist.
-If a reached active card type is absent, a retained active parent/child relationship is no longer admitted, or a required current session index is absent, startup fails before subsequent shared-admission app-log creation, conversation-tail truncation, and record consumption. Lifecycle-lock publication, configuration/template materialization, project-identity work, and any already completed first publication precede this gate and are not rolled back.
-The operator must restore the compatible map or template, or intentionally use the stopped whole-generated-state reset for a fresh history; migration, probing, fallback, aliasing, compatibility reading, normalization, merging, and selective repair do not exist.
-
-The selected Oversight session remains lazy and is not part of this startup required-index gate. Changing a never-used selected Oversight identity that has published no durable conversation does not require reset merely because unrelated card or Analyst history exists. Replacing an Oversight identity that the operator knows has published durable session history is an operator-assessed reset-only identity cutover. Saivage adds no scan, inventory, prior-identity detector, or startup certification for either case.
-
-Bundled prompts live in per-template trees under `src/config/system-templates/<name>/prompts/`.
-Packaging compiles each registered template standalone against its own source prompts root, observes the bundled agent, process, and direct-fragment artifacts actually selected, and requires that template's physical tree to equal its sorted compiled closure exactly.
-Each template's physical prompt tree is locked to its complete compiler-observed source closure. `classic` contains the five shared agent prompts, including both global hosts, six shared project-guidance fragments, and every shared process prompt selected by its planning, review, notification-handler, recovery, and execution graph. `classic-typed` retains its typed card-specific process prompts and additionally selects the shared notification-handler prompts plus the architecture notification-return prompt.
-Startup strictly composes the selected direct hooks and freezes the result. Existing materialized prompt trees remain instance-owned and are not upgraded by `init`; no hook is injected into a custom prompt and no automatic reconciliation occurs.
-
-Prompt scope is a discriminator—global agent, workflow agent with card type, or process with card type—not a pseudo card name.
-Therefore a configured card type literally named `global` receives ordinary card-specific agent, process, and fragment tiers and workflow/process placeholder rules, while the global Analyst remains shared-only.
-A workflow with nonempty `permitted_child_types` is the existing capability used for Analyst record-edit ancestor notifications.
-Analyst creation always uses its required explicit parent card ID.
-Planner creation remains separate: its current parent is inferred from the active Planner session and cannot be supplied.
-
-Records are arbitrary configured safe Markdown names, not three code-owned slots.
-Each configured record owns one strict self-contained format-v1 `authored-record-version` row stream at `record-<stem>.jsonl` beneath the card namespace, with exact record name, format, schema, and named writer carried in every row.
-The card type's one bootstrap record is published closed at version 1 by `runtime:bootstrap` as one nonempty first envelope.
-Opening from a non-open state and every successful edit, close, or discard each append exactly one envelope containing exactly one new row; opening an already-open record is a no-op that returns the current projection after its own strict read and appends nothing.
-Every record mutation directly reads and validates its exact stream call-locally before appending; no head token or other carried write authority exists.
-Every successful close freshly proves its exact active card and derives durable `accepted.card_version_seq` from that close-owned observation.
-Global Analyst record writes resolve the explicit target card and definition, require configured writer plus `write`/`edit`, reject an existing open revision, and synchronously open/edit/close before applying the generic Analyst record lifecycle effect.
-Card detail, Files, REST, live sync, and Cards UI all use the selected card type's ordered descriptors and exact dynamic record names.
-
-Every node edge uses one acceptance algorithm.
-All requirements, descendant freshness, terminal completion, promotion, and exports are validated before mutation.
-A terminal edge alone claims the terminal winner before closes.
-Updated records close exactly once in declaration order; downstream context, accepted URLs, and terminal exports use retained closed projections and the exact close returns without rereading.
-Primitive-classified close uncertainty permits no later close, read, transition, correction, accepted result, lifecycle publication, parent settlement, or Supervisor halt; the first fatal boundary exits.
-Successful terminal routes promote either the current accepted result or an existing graph-reachable latest accepted node result and return ordered exported record references through lifecycle state and `activate_card`; ordinary pre-commit close and execution exceptions produce ordinary node failure.
-
-`reconfigure` has only strict `set_agent_model_route`, `set_model_failover`, and host/port `set_server_setting` variants.
-Every successful replacement reports `applied:true, requires_restart:true`; candidate structural compilation is discarded and the current workflows, installed agent bindings, tools, MCP manager, and listener remain unchanged until restart.
-Role routing, runtime timeout/continuous-improvement mutation, and MCP add/edit/remove actions do not exist.
-All old YAML, role sessions, record rows, and lifecycle results require stop, current-config rewrite, wholesale generated-state reset, and restart.
-
-## Current Activation Ownership Contract
-
-`SupervisorRuntimeApi` owns one private `activationOwners` map and one status field and is the sole coordinator of owner structure, current card, run identity/status, status-derived Analyst intervention admission, Pause state, terminal winners, and runtime halt.
-That status field is internal `uninitialized` until startup succeeds, then contains exactly one public runtime status; there is no separately stored readiness or initialization flag.
-Each map value is a plain `CardActivationOwner`, not an actor, with phase exactly `prepared_root | child_admission | active | settling` and terminal winner `open | result | cancel`.
-The supervisor's one nullable halt record freezes an exact owner snapshot and carries one shared `RuntimeStoppedInterruption` and promise.
-`CardProcessActor` remains a micro-actor; `ConversationLLMActor` is the direct provider/tool phase state machine.
-
-The direct Conversation LLM owner has no `BaseActor`, event queue, or actor lifecycle settlement.
-Concrete `CardService` remains the one card/root reader and the one strict `cardRecordSchema` remains unchanged.
-
-Every live LLM tool call passes the complete frozen context from `ConversationLLMActor.toolInvocationContext(outcome)` to `invokeToolForLlm`.
-It contains exact session/source/call/tool identity, external/process waits, and one mandatory child reservation.
-`invokeToolForLlm` requires that context before its optional abort signal; only lower-level non-LLM `invokeTool` may omit it.
-Analyst parses protocol arguments before passing the parsed object and the same complete context, but has neither `activate_card` nor a planner child-control port.
-
-Planner activation, cancellation, and direct-child reopening delegate through a port bound to the exact parent owner.
-The provider performs only schema and immediate-child ID checks.
-Supervisor ownership is consulted before target I/O.
-Fresh child admission installs owner, relationship, and admitted lease before the one running append; currentness remains at the parent until publication succeeds.
-Exact same-parent/same-lease active or settling calls join without I/O.
-Normal terminal work claims its winner before publication, joins local work, atomically removes structure/restores currentness/releases the lease, invalidates, and only then delivers the outcome.
-
-A lifecycle append failure is outcome-unknown only when the direct primitive has attempted canonical mutation.
-No reread, retry, rollback, replay, compensation, inferred outcome, owner settlement, process termination, or Supervisor halt is permitted; immediate fatal delivery exits and leaves the lifecycle lock abandoned.
-Ordinary Stop, application close, and actor-main containment retain the singular halt: successful containment publishes `stopped`, which admits intervention, while failed containment publishes `error`, which rejects it.
-
-The supervisor directly implements runtime control.
-Its accepted Run preparation installs a `prepared_root` owner, run identity, current root, opaque launch token, and the single `starting` status before recovery or root-running publication; `starting` rejects Analyst intervention.
-Launch consumes that exact authority, opens the gate, and activates execution.
-Global application admission closes permanently only for application shutdown.
-Natural root release is valid from running, pausing, or paused and calls `RuntimeGate.completeRun()` in the same transition that clears owners/run/currentness and publishes the single intervention-admitting `stopped` status.
-Stop, application close, and ordinary actor-main failure start or join the same halt.
-Publication uncertainty exits before that halt or a status transition.
-
-Card stream format v4 keeps the newline envelope at `version: 1`, `type: 'rows'`, and accepts only `card-version` and `card-tombstone` rows with `format_version: 3`.
-Artifact row formats 1 and 2, records with durable `children`, snapshots containing removed `tags` or `related` members, and streams containing more than one artifact format fail strict reads.
-The one strict `cardRecordSchema` defines every current durable `CardRecord`, immutable ordinary version, and tombstone final state.
-Every durable snapshot has exactly `id`, `type`, `child_membership`, `active_child_order`, `title`, `subtype`, `priority`, `urgency`, `created_by`, `created_at`, `updated_at`, `version_seq`, `assigned_to`, `depends_on`, `lifecycle`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text`, `status_text_updated_at`, `status_text_author_session_id`, `latest_self_report`, `metadata`, and `pending_notifications`. It has one status authority at `lifecycle.status` and contains no tags, generic related-card list, top-level `status`, persisted `parent`, persisted `depth`, or `allowedActions`.
-Operator hierarchy and detail are separate strict projections.
-
-Applying the authoritative card/record exact-stream cutover is reset-only: each affected deployment stops the service, preserves configuration, credentials, operator inputs, source, skills, instructions, prompts, and canonical project documentation, runs the current built `saivage reset`, and starts the current binary.
-No card/record index or immutable artifact layout is ever migrated, normalized, rendered, or accepted as current; old and mixed layouts fail reset-required.
-A later same-format binary deployment may retain only the exact current `card.jsonl`/`record-<stem>.jsonl` format.
-
-## Project Oversight
-
-**Status: implemented.** Oversight is an independently scheduled selected global participant. Its shared designated-recipient notification prerequisite in §6 is also current behavior.
-
-### 1. Identity, authority, and configuration
-
-Each project has one independently configured global Oversight agent with its own identity, prompt, conversation, model route, check lifecycle, tools, output limits, and model-aware context budget.
-It is distinct from the operator-driven Analyst and the sole-dispatcher Supervisor; its checks may coexist with both, subject to ordinary provider capacity.
-Planners retain strategy, acceptance, corrective action, and the right to reasoned disagreement.
-Oversight uses the ordinary named-agent catalog, explicit route and configured failover, invocation/capability admission, and conversation-history contracts, with no root-Planner model inheritance or special provider system.
-The required strict configuration is `oversight:{enabled,agent,interval_seconds}` even when disabled. New-project defaults select global `oversight`, enable it, and use `7200` seconds. The selected agent must differ from Analyst, be global, disable skills and child creation, declare no record writes, use a resolvable route, and select only the observation inventory below. Invalid references, intervals, prompt closure, tools, or capabilities fail startup rather than falling back or silently disabling checks.
-Existing projects adopt or disable it only through deliberate complete configuration and prompt work; configuration is epoch-frozen, with no automatic discovery, upgrade, compatibility default, missing-field normalization, or live toggle. Deployment applicability must still be established for every other retained durable-format cutover.
-
-### 2. Schedule and lifecycle
-
-A check is eligible only while Oversight is enabled and authoritative project runtime status is exactly `running`; a live server or any other status is insufficient.
-The first check waits one full continuous eligible interval, and losing eligibility discards that wait. Each later check waits another full interval after the previous check, including continuations, compaction, and settlement, safely settles.
-At most one check is in flight. There is no persistent timer, backlog, catch-up, burst, scheduling SLA, or server-triggered Run.
-A check may run alongside normal card work and Analyst activity, but ordinary provider limits may delay it.
-Leaving `running`, including pausing, completion, shutdown, or effective disablement, disarms the wait and requests cancellation.
-Resume or a new Run begins a fresh full interval only after prior ownership settles, with no missed or pending check accumulated.
-
-### 3. Cancellation and truthful settlement
-
-Cancellation admits no new investigation read, model call or continuation, notification submission, or urgent interruption request, but bounded truthful settlement of obligations already owned by the check remains required.
-
-- A call not durably recorded and not entered is not fabricated.
-- A durably recorded call whose operation has not entered receives its ordinary matching non-executed result.
-- Entered work is joined or cancelled only through its existing owner and is never reported as unexecuted.
-- A safely known completed result is published exactly once unchanged; an already published result is not duplicated.
-- A confirmed notification enqueue remains confirmed and is not retracted, while urgency not yet entered is suppressed after cancellation.
-
-When outcomes are known and every required publication succeeds, ordinary cancellation or safely settled provider, refusal, context, or investigation failure releases check admission with continuable history.
-It requires no final model report or immediate retry and does not fail cards or disrupt Analyst; a later check waits the next full interval.
-An unknown effect or failed/outcome-unknown required result, evidence, or terminal publication retains the exact fatal owner policy: no follow-up effect, read, inspection, retry, repair, invented settlement, or admission release.
-Strict history remains strict, and startup performs no reconstruction or synthetic completion.
-
-### 4. Read-only intervention boundary
-
-Oversight is read-only with respect to project work. Its exact default/maximum inventory is `get_status`, `list_cards`, `get_card`, `get_tree`, `list_card_versions`, `get_card_version`, `diff_card_versions`, `read_record_version`, `read`, `glob`, `grep`, `read_runtime_events`, `read_runtime_errors`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, and `queue_notification`; custom selected Oversight agents may use subsets. Agent, process, runtime-event, runtime-error, card, record, search, and file collections use the ordinary stateless byte-bounded response packing contracts. Its sole project-affecting operation is a shared notification contract bound to the Oversight-specific effect port: compiled capability, exact active-check cancellation signal, current running admission, and planning eligibility are checked by that owner rather than inferred from agent-name spelling or borrowed Analyst/runtime authority. Analyst uses its distinct audited intervention-ready owner, and Planner uses its exact active card owner.
-It cannot edit source, records, briefs, configuration, prompts, or policy; mutate, activate, reopen, cancel, delete, or reorder cards; run shell, build, test, process-kill, or effectful MCP operations; control project or model lifecycle; approve work; or obtain those effects through a broad tool.
-Ordinary publication of its own conversation, provider evidence, and notification result remains allowed.
-It normally selects the nearest responsible planning scope, uses root for strategic or cross-scope concerns, and never broadcasts.
-This is workflow role discipline that simplifies ordinary work and preserves role separation, not containment of a malicious root-capable agent.
-
-### 5. Proportionate observation
-
-Each check performs bounded, proportionate observation of objectives, linked work, records, conversations, process evidence, and source, distinguishing facts, interpretations, uncertainty, and current evidence from historical evidence.
-Reads are non-atomic observations and never authorize a later write; partial or failed reads do not prove absence, and time elapsed, call volume, or a red test alone does not prove waste.
-Project guidance supplies context but cannot waive owner scope or acceptance.
-A short no-intervention response is successful but does not certify the whole project.
-Oversight uses ordinary conversation and compacted history, repeats advice only when new evidence or a stated material reason adds value, and corrects disproved advice.
-It records unavailable recipients and owner-decision needs in its inspectable conversation without promising an operator alert; no intervention ledger, deduplication registry, or guaranteed-attention channel is introduced.
-
-### 6. Shared designated-recipient workflow
-
-Generic designated-recipient notification routing is current behavior and a prerequisite for Oversight. Every card type designates a workflow participant and provides defined opportunities for that participant to handle queued context.
-Oversight targets additionally require that at least one node of the declared recipient has nonempty compiled child-creation and child-activation types. `get_card` exposes this bounded `workflow` policy projection as `planning_target`, together with recipient, permitted child types, and the current process position when available; it exposes no queue state.
-Planner-directed context waits for that designated Planner. A nonrecipient node, especially a same-card Reviewer, must not consume it, skip review, fabricate a result, or jump the workflow graph.
-Successful ordinary completion provides the generic handling opportunity through recipient arbitration or a configured nonrecipient-DONE conditional edge.
-Current routing reconciles pending context with BLOCKED or failure settlement, cancellation, postclaim denial, and every successful completion route.
-It preserves exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
-It promises neither eventual nor exactly-once delivery and adds no second queue, receipt service, transaction, replay, or recovery protocol.
-
-### 7. Urgent notification ordering (implemented shared contract)
-
-Urgency is a property of the shared notification operation, not a new queue, wire protocol, or control port, and requires current evidence of material ongoing harm, avoidable waste, or divergence plus why waiting is materially worse.
-For a target Planner awaiting an active descendant chain, the runtime first performs fresh ordinary target/activation admission and **confirms notification enqueue before requesting interruption**.
-Only then may it interrupt necessary active descendants through existing owners, preserve truthful interrupted outcomes, and permit later ordinary Planner-directed recovery or re-entry.
-It must not permanently cancel work, fake completion, roll back effects, automatically replay a child, terminate the target's own turn or review, or interrupt unrelated work, naturally settled descendants, or replacement owners.
-Without an active awaited descendant chain, urgency queues normally; it never activates/reopens a card, bypasses dependencies, redirects a denial, or creates or resumes a Run.
-Missing, terminal, and postclaim denials stand. Enqueue failure or uncertainty permits no interruption.
-Confirmed enqueue followed by denied or failed interruption is a truthful partial outcome: retain queued context, report known results separately, and do not retract, resend, or claim atomic rollback.
-Pause, Stop, application closure, terminal winners, and ordinary runtime ownership always prevail. Both Analyst and Planner `queue_notification` inputs require exact lowercase `urgency:'normal'|'urgent'`; omitted values and aliases are invalid. Normal submission returns `interruption:{status:'not_requested'}`. Confirmed urgent enqueue returns `not_applicable`, `interrupted` with exact stopped IDs, or `suppressed` with its known reason and exact already-completed `stopped_card_ids`. Every confirmed form retains `queued:true`, card/notification identity, and the interruption result. A known enqueue receipt never waits for its encompassing Stop/application halt and proves neither delivery nor successful containment; later halt cleanup failure remains the halt owner's failure.
-
-### 8. Privacy and failure containment
-
-Pending queue state stays private. Authenticated/redacted sender body/result evidence and context actually appended to the recipient conversation remain normal inspectable transcript facts; they prove neither queue membership, receipt, model consideration, nor action.
-There is no queue browser, count/body projection, delivery inference, or separate report store. Existing file, history, redaction, and fatal-publication policies remain unchanged.
-Expected provider, refusal, context-admission, and investigation failures settle as process-local `failed` attempts and allow a later full interval. Publication uncertainty enters the existing nonreturning publication-fatal boundary. Other impossible owner/protocol, malformed-data, or required-settlement failures synchronously close application admission, run bounded existing cleanup, emit only a fixed safe Oversight owner-failure diagnostic plus safe shutdown warnings, and exit 1. No poisoned-health latch, report store, schedule persistence, retry queue, or feature-specific recovery exists.
+Read this document top-down for the product model, or jump to the numbered
+section that owns the behavior in question. Sections state contracts
+normatively; the appendix collects recent cutover-level contract changes.
 
 ## 1. Product Boundary
 
@@ -1863,3 +1620,271 @@ The runner immediately observes each original terminal-settlement rejection whil
 This fatal exit occurs before Supervisor halt or runtime-status mutation.
 Ordinary Stop, application close, actor-main failure, and containment failure retain the existing `closing -> stopped | error` contract.
 A genuinely new process follows the existing strict canonical startup and explicit Run full-chain recovery procedure: conversation stabilization and append-only `stopped` correction remain best-effort and lossy, complete malformed rows fail, and another publication-unknown failure exits again without retry.
+
+## Appendix: cutovers and recent contract changes
+
+
+## Named-Agent Workflow Cutover
+
+The selected strict YAML chooses card-type definitions through exactly one source form: a complete `card_types` map, or omission of `card_types`, which selects the bundled `classic` definitions.
+The deleted `card_type_set` selector key fails strict source validation as an unknown key; it never defaults, falls back, or merges with an explicit map.
+`saivage init [--profile <classic|classic-typed>]` materializes the complete selected system template on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single configuration-materialization completion commit. This input publication is separate from generated-state admission and does not make retained generated work compatible with the materialized identities.
+An existing `.saivage/saivage.yaml` gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML, and `--profile` is inert.
+After successful init the instance is the single runtime authority; templates are materialization data and are never consulted at runtime. Template provenance is not authority for the effective identities that produced retained generated work.
+`ResolvedConfigAuthority` resolves the source once to a complete effective `card_types` map before structural compilation.
+All compiler, runtime, REST config, `show_config`, and selected-config Files consumers receive only that singular effective map.
+
+The selected strict YAML is structurally compiled before any generated card publication.
+Structural compilation validates every configured card-type workflow, exact named-agent/model/skill/session references, resolves every ordered operational tool through the exact global/card catalog scope, and freezes each route/profile plus array-form equivalence and direct-failover expansion as `orderedModelIds`; it also validates child narrowing, record/bootstrap definitions, local source-node terminal exports, graph reachability, `latest_node` existence/path, and every selected agent/process prompt.
+Prompt roots mirror `agents|process|fragments/<card-type|_shared>/<reference>.md`; project card-specific, project shared, bundled card-specific, then bundled shared is the exact root-major order, and only exact absence advances.
+Agent filenames use the configured prompt reference; the global Analyst uses shared scope only.
+Direct `&#123;&#123;> fragment-id&#125;&#125;` inclusion is one level, uses the host card type, and is validated under the host policy.
+Each shipped Planner, Executor, Reviewer, and Analyst agent prompt directly includes `project-guidance-common` and its matching role fragment. These hooks compose only when that selected prompt contains them: custom prompt references and full overrides are not automatically modified or required to include them, and the Analyst remains shared-scope only.
+Workflow-agent system prompts require `&#123;&#123;contractDescription&#125;&#125;` exactly once after composition; process prompts allow only `&#123;&#123;cardType&#125;&#125;`, render eagerly, and are frozen as final text.
+Startup discovers the selected Analyst and distinct card agents directly from the singular state tables, then installs one immutable `agentBindings` map before actor construction.
+Each installation resolves only its explicit model IDs through the Provider Registry and retains its exact capability request: complete card surfaces include generated `emit_result` last and require tools plus exclusive choice, while Analyst has only its operational surface and may retain no-tools plus exclusive choice.
+Provider admission consumes that retained request unchanged.
+Real turns bind only selected invocation-scope executor/cleanup closures.
+Offline `init`, `reset`, and `start --create-runtime` use only the same structural compiler and never reconcile MCP or require live provider availability.
+Offline `init` additionally materializes the selected template's complete prompt tree and provenance marker before publishing the config YAML last; the copy skips already-existing destination paths, so a crashed config-absent materialization attempt can be completed by re-running `init`, while an existing config preserves the tree, marker, and YAML bytes exactly. If generated work already exists, that retry still undergoes strict current-state admission and is not an identity-changing upgrade or repair.
+`reset` and `start --create-runtime` materialize nothing.
+Actors receive only the bound artifact and perform no source-config, prompt, route, capability, or tool selection.
+
+`models.equivalents` is optional and defaults to `[]`; when present, it is exactly an array of string arrays.
+Mapping/object forms and malformed members fail selected-YAML validation as a complete input and are neither rewritten nor omitted.
+
+The shipped bundled defaults are the two registered system templates `classic` and `classic-typed`; `classic` is the bundled default (the omission `card_types` source and the bundled prompt root), and each template is materialized whole by `saivage init --profile <name>`.
+Both are complete definitions containing `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`, in that declaration order.
+Classic `project` and `goal` use `plan -> optional review -> plan`, `recover` for STOPPED, and a conditional Planner `handle-notifications` node after an accepted Reviewer result when designated-recipient context is pending. The other seven types each use one `execute` node. Planner is the planning-card recipient and Executor is each leaf recipient.
+A template is one complete TypeScript-owned config plus its exact prompt closure; its config contains the card types, workflows, and record declarations and does not own or override global agents, `analyst_agent`, model routes, providers, compaction, server, or MCP configuration beyond publishing the template's complete values for them at init.
+The resolved effective configuration owns the actual complete map.
+A card-type name matches `[a-z][a-z0-9-]{0,63}`; `project` is the sole reserved name, is required as the fixed root entry, and cannot be a child.
+Every child reference is unique and names a key in the same map.
+Compilation preserves declaration order in one immutable map and one ordered all-key vocabulary.
+There is no planning/terminal family or autonomous role classifier.
+Nodes reference card-scoped named agents; the configured global Analyst uses one global named session plus explicit parent/card targets.
+Creation authority is the named agent's global `can_create_children` and `create_card` ceiling intersected with the selected parent's compiled `permitted_child_types`; activation separately requires `activate_card`.
+Default Planner has the exact 21-tool inventory, Reviewer the 12-tool inventory without MCP, Executor the 17-tool inventory with unrestricted configured MCP invocation, and Analyst the 43-tool inventory.
+`mcp_tool_call` is the only agent MCP admission; annotations are descriptive only.
+
+In `classic-typed`, `project` and `goal` permit all eight non-root types in declaration order; every other type is a leaf.
+`project`, `goal`, and `architecture` declare `brief.md`, `status.md`, and `review.md`; all other types declare `brief.md` and `status.md`.
+`brief.md` is always the sole bootstrap record.
+The classic-typed configured graphs are:
+
+| Type | Exact configured flow |
+| --- | --- |
+| `project`, `goal` | Recipient Planner. `plan`: `complete_direct` -> DONE, `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED; `review`: `approved` -> DONE when no context is pending, otherwise accepted `approved` -> `handle-notifications`; `revision_required` -> `plan`, `blocked` -> BLOCKED, `failed` -> FAILED. `handle-notifications`: `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED. STOPPED enters `recover`, which has the same outcomes as `plan`. |
+| `code` | `red`: `red_confirmed` -> `green`, `already_green` -> `refactor`; `green`: `green` -> `refactor`, `still_red` -> `green`; `refactor`: `done` -> DONE, `regressed` -> `green`; each node also has configured `blocked` and `failed` terminals. |
+| `test` | `diagnose`: `coverage_ready` -> `verify`, `coverage_gap` -> `add-coverage`, `failing_test` -> `repair`; `add-coverage`: `coverage_passing` -> `verify`, `repair_needed` -> `repair`; `repair`: `tests_passing` -> `verify`, `still_failing` -> `repair`; `verify`: `done` -> DONE, `coverage_gap` -> `add-coverage`, `repair_needed` -> `repair`; each node also has configured `blocked` and `failed` terminals. |
+| `research` | `explore`: `evidence_ready` -> `assess`, `more_exploration` -> `explore`; `assess`: `supported`, `refuted`, or `bounded_inconclusive` -> `report`, and `evidence_gap` -> `explore`; `report`: `done` -> DONE; each node also has configured `blocked` and `failed` terminals. |
+| `data` | `schema`: `schema_ready` -> `validate`; `validate`: `valid` -> `implement`, `schema_invalid` -> `schema`; `implement`: `done` -> DONE, `implementation_retry` -> `implement`, `schema_revision` -> `schema`; each node also has configured `blocked` and `failed` terminals. |
+| `architecture` | Recipient Executor. `draft`: `ready_for_component_review` -> `component-review`; `component-review`: `approved` -> `system-review`, `revision_required` -> `draft`; `system-review`: `approved` -> DONE when no context is pending, otherwise accepted `approved` -> `draft`; `revision_required` -> `draft`; each node also has configured `blocked` and `failed` terminals. A notification return must repeat component and system review. |
+| `doc`, `ops` | One `execute` node: `done` -> DONE, `blocked` -> BLOCKED, `failed` -> FAILED. |
+
+Typed research treats `evidence_ready` as readiness to assess the bounded question, including reasonably exhausted or inconclusive investigation, rather than support or exhaustive coverage. A return to exploration requires concrete obtainable evidence or materially different useful analysis capable of changing the assessment; exhausted uncertainty normally reaches an honest bounded-inconclusive report. Completing that report completes only its bounded research deliverable: unresolved questions, limits, required exhaustive follow-up, and actionable handoffs remain explicit, with no implied evidence promotion, policy approval, parent completeness, or project acceptance. An accepted brief remains authoritative; a required deliverable that cannot proceed without specific scope, input, or a decision uses the existing blocked route rather than being silently narrowed.
+
+Typed data validation distinguishes correct rejection of invalid samples from a schema defect and technical acceptance from owner or policy approval. Only an actually mandatory missing decision or input blocks; ordinary engineering and accepted graph nodes require no new human signoff. Across both templates, shared Executor guidance interprets completed process status together with relevant output, preserves earlier failed or unresolved checks despite a later successful tool call, and reuses still-applicable evidence while rerunning after relevant changes, for current requirements, or to resolve an open verification question. Required validation is never waived; typed refactor may reuse recent valid focused evidence after a reasoned no-change decision unless current criteria require a rerun.
+
+Typed test diagnosis classifies adequate meaningful coverage plus passing focused tests as `coverage_ready`, including on fresh entry or re-entry after interruption. That route requires no manufactured test, source, or metadata change: it reuses `test-to-verify` and enters the existing `verify` node, which owns affected-suite and coverage acceptance and remains the only node that can complete the test card successfully.
+
+All classic-typed non-planning entries begin at the first node shown; STOPPED adds `stopped-recovery`.
+Node IDs use the exact lowercase hyphenated form, notably `handle-notifications`, `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
+
+Classic-typed planning reuses existing immediate children rather than duplicating them.
+Planner may notify and activate BACKLOG, CHANGED, BLOCKED, or STOPPED children through their matching entries.
+`edit_card` is only for a genuine immediate-child metadata change to `title`, `priority`, or `urgency`; it cannot edit a brief, dependency, parent, type, or lifecycle and is not a generic reopen.
+An owning Planner with the configured card-scoped `reopen_card` capability may reopen only its exact DONE or FAILED immediate child through `reopen_card({card_id:"<id>"})`; success changes only that child to CHANGED, after which notification and activation remain separate ordinary operations.
+A BLOCKED child normally needs only Planner notification and activation. CANCELLED never reopens.
+The distinct global Analyst operation retains `reopen_card({cardId:"<id>"})`: while intervention-ready it may target BLOCKED, DONE, or FAILED work and applies the existing target-to-ancestor changed propagation and notifications. The two scoped contracts share a tool name but are not aliases or interchangeable authority.
+
+Both shipped templates use one shared Planner instruction for `project` and `goal`, interpreted against the frozen card-type context supplied at invocation. At `project`, Planner owns the coherent strategy for carrying the owner's complete objective to evidenced acceptance: it maintains coverage, assumptions, risks, dependencies, integration, progress, remaining work, and acceptance evidence through the existing `brief.md` and `status.md` records. The owner's outcome and acceptance remain stable unless the owner changes them. At `goal`, Planner owns local decomposition, ordering, coordination, and repair within the delegated outcome and reports evidence and genuinely cross-scope implications upward; routine local choices do not require root approval.
+
+Goals may add planning value for uncertain or evolving work, several coordinated deliverables, or decisions that should remain outside root context, including serial workstreams; independent review and parallelism are benefits rather than admission requirements. A bounded defect with implementation and regression coverage can remain one terminal assignment, and a small project or isolated bounded crosscutting assignment may use direct root leaves. Planner direct work remains coordination, investigation/evidence assessment, and permitted record work rather than Executor implementation, build, or test work.
+
+With an explicit rationale, Planner may use its existing `cancel_card` tool for an abandoned, superseded, or unproductive direct-child approach only when that makes the work obsolete or explicitly rejected and current tool and lifecycle admission permits cancellation; cancellation is not scheduling deferral. Cancellation is terminal, cannot be reopened, and does not satisfy dependencies requiring DONE, so it must preserve honest status and outstanding acceptance and must never hide failed tests or unfinished obligations.
+
+Planner reflects purposefully when child results, review findings, blockers, or meaningful new evidence arrive: it treats findings as evidence rather than blindly adopting a suggested remedy, retains sound direction and useful evidence, changes tactics or strategy only when facts warrant it, and never replans ceremonially or claims completion against uncovered acceptance. It distinguishes research delivery, implementation, evidence promotion, and project acceptance, compares specification requirements with card- or agent-introduced sequencing, and removes unnecessary local sequencing without lowering acceptance, erasing gaps, or discarding genuine dependencies. Exhaustive obligations remain in planning records and delegated outstanding work; all-goal signoff or exclusion decisions do not block unrelated scoped implementation absent a real dependency. A failed local tactic is not automatically a disproved strategy. A substantively different, evidenced path to the unchanged outcome may use a different goal, but relabeling or cloning failed work and fake metadata edits are forbidden. For ordinary in-scope correction, the owning Planner reopens the same DONE direct child, queues concrete corrective context, and activates it; a FAILED-child retry requires material new diagnosis, input, correction, or a justified different route stated in existing status or notification context. A genuinely distinct bounded follow-up may cite the earlier delivery or review without cloning its whole scope. Root reactivates an actionable BLOCKED goal or reopens its own DONE/FAILED goal so that goal's Planner can repair its children; root has no grandchild reopening authority. Planner exhausts reasonable in-scope tools and strategies before blocking. Real owner decisions, unavailable resources or configured capabilities, and materially exhausted strategies are escalated; ordinary correction and routine engineering judgment are not. Existing tool admission remains authoritative: Planner cannot reparent, cannot edit a child's brief or dependencies, and can choose dependencies only among existing immediate siblings at child creation. Fake metadata, pretend credit, weakened acceptance, cancelling failures to hide progress, and bypass of refusal, cancellation, or security limits remain forbidden.
+
+Architecture uses the unchanged shared Reviewer prompt and one declared `review.md`.
+Both `component-review` and `system-review` start a clean updated cycle of that record.
+Accepted transition context carries immutable `record:///review.md?card=<id>&v=N` evidence with its optional edge prompt; the destination node prompt is supplied separately as the next activation's prepared compiled-node block. Component evidence therefore remains readable after system review opens a newer clean version and revision returns to `draft`.
+A revised draft updates cumulative `status.md` and can cite the accepted review version.
+Final system approval promotes the latest accepted `draft` result while exporting the current system `review.md`.
+
+Card-type wire schemas validate only that identifier syntax.
+Startup resolves every reached active canonical card against the selected compiled map and fails if its type is absent; parent/type admission follows from the reached active parent's compiled workflow. A reached retained tombstone is strictly consumed and terminates traversal before workflow, record, or session admission for that card or any descendant behind it.
+The same ordered compiled vocabulary, always including `project`, supplies the Analyst prompt, Analyst `create_card` schema/preflight, both global-Analyst and card-agent `list_cards` schemas, and Planner execution membership.
+Analyst `create_card` requires one exact existing parent card ID; omission, `null`, and malformed card IDs fail invocation-schema admission.
+Analyst and Planner creation accept type, title, bootstrap content, optional priority/urgency, and optional `depends_on`; Analyst additionally supplies the explicit parent while Planner infers it from the session. Neither creation contract accepts tags or a generic related-card list. Current `get_card` sections are exactly summary, workflow, dependencies, children, and records; immutable `get_card_version` sections are summary, dependencies, and children. `list_cards` filters are exactly status, type, and parent, plus paging controls.
+Vocabulary membership is not creation authority: Analyst `project` calls with an explicit parent still reach the one-root domain denial, Planner retains its explicit root denial, and node/parent admission remains later.
+The fixed project root is published only by bootstrap and cannot be created by an agent tool.
+Planner's wire schema stays a plain string.
+`list_cards` rejects an unconfigured scalar or array filter at invocation-schema admission before its shared executor filters cards.
+The shipped nine-name prompt and tool schemas remain byte-identical.
+
+Changing templates, replacing an explicit map, adding a type, or changing matching prompt/config inputs requires stop, edit or fresh init, and start. Prompt, model-route, tool, host/port, edge, or outcome changes that retain participating identities are not made reset-only by the identity-cutover contract, although separately specified format cutovers still apply.
+After initialization, deliberately renaming, removing, or replacing a participating card agent; changing its scope; changing the selected Analyst; rebinding a reached card workflow node to a different named agent; or renaming, removing, or replacing existing workflow-node/state identities requires an authorized stopped whole-generated-state reset before those new identities are used. This applies to reached active cards, including non-tombstoned DONE or FAILED cards, not merely currently running actors. A wholly new card type, an unused catalog declaration, or another change that does not alter existing participating identities is not prohibited by this rule.
+Startup strictly admits retained generated state against the newly resolved effective map. It requires the exact current selected-Analyst index and every distinct node-agent index derived from each reached active card's compiled workflow. Missing expected indexes reject rather than being created; this catches some identity changes and incomplete or lost first publication, but it is not a comparison with prior configuration and does not certify that every identity was retained. In particular it cannot generally detect same-agent node-ID changes or changes whose newly expected indexes already exist.
+If a reached active card type is absent, a retained active parent/child relationship is no longer admitted, or a required current session index is absent, startup fails before subsequent shared-admission app-log creation, conversation-tail truncation, and record consumption. Lifecycle-lock publication, configuration/template materialization, project-identity work, and any already completed first publication precede this gate and are not rolled back.
+The operator must restore the compatible map or template, or intentionally use the stopped whole-generated-state reset for a fresh history; migration, probing, fallback, aliasing, compatibility reading, normalization, merging, and selective repair do not exist.
+
+The selected Oversight session remains lazy and is not part of this startup required-index gate. Changing a never-used selected Oversight identity that has published no durable conversation does not require reset merely because unrelated card or Analyst history exists. Replacing an Oversight identity that the operator knows has published durable session history is an operator-assessed reset-only identity cutover. Saivage adds no scan, inventory, prior-identity detector, or startup certification for either case.
+
+Bundled prompts live in per-template trees under `src/config/system-templates/<name>/prompts/`.
+Packaging compiles each registered template standalone against its own source prompts root, observes the bundled agent, process, and direct-fragment artifacts actually selected, and requires that template's physical tree to equal its sorted compiled closure exactly.
+Each template's physical prompt tree is locked to its complete compiler-observed source closure. `classic` contains the five shared agent prompts, including both global hosts, six shared project-guidance fragments, and every shared process prompt selected by its planning, review, notification-handler, recovery, and execution graph. `classic-typed` retains its typed card-specific process prompts and additionally selects the shared notification-handler prompts plus the architecture notification-return prompt.
+Startup strictly composes the selected direct hooks and freezes the result. Existing materialized prompt trees remain instance-owned and are not upgraded by `init`; no hook is injected into a custom prompt and no automatic reconciliation occurs.
+
+Prompt scope is a discriminator—global agent, workflow agent with card type, or process with card type—not a pseudo card name.
+Therefore a configured card type literally named `global` receives ordinary card-specific agent, process, and fragment tiers and workflow/process placeholder rules, while the global Analyst remains shared-only.
+A workflow with nonempty `permitted_child_types` is the existing capability used for Analyst record-edit ancestor notifications.
+Analyst creation always uses its required explicit parent card ID.
+Planner creation remains separate: its current parent is inferred from the active Planner session and cannot be supplied.
+
+Records are arbitrary configured safe Markdown names, not three code-owned slots.
+Each configured record owns one strict self-contained format-v1 `authored-record-version` row stream at `record-<stem>.jsonl` beneath the card namespace, with exact record name, format, schema, and named writer carried in every row.
+The card type's one bootstrap record is published closed at version 1 by `runtime:bootstrap` as one nonempty first envelope.
+Opening from a non-open state and every successful edit, close, or discard each append exactly one envelope containing exactly one new row; opening an already-open record is a no-op that returns the current projection after its own strict read and appends nothing.
+Every record mutation directly reads and validates its exact stream call-locally before appending; no head token or other carried write authority exists.
+Every successful close freshly proves its exact active card and derives durable `accepted.card_version_seq` from that close-owned observation.
+Global Analyst record writes resolve the explicit target card and definition, require configured writer plus `write`/`edit`, reject an existing open revision, and synchronously open/edit/close before applying the generic Analyst record lifecycle effect.
+Card detail, Files, REST, live sync, and Cards UI all use the selected card type's ordered descriptors and exact dynamic record names.
+
+Every node edge uses one acceptance algorithm.
+All requirements, descendant freshness, terminal completion, promotion, and exports are validated before mutation.
+A terminal edge alone claims the terminal winner before closes.
+Updated records close exactly once in declaration order; downstream context, accepted URLs, and terminal exports use retained closed projections and the exact close returns without rereading.
+Primitive-classified close uncertainty permits no later close, read, transition, correction, accepted result, lifecycle publication, parent settlement, or Supervisor halt; the first fatal boundary exits.
+Successful terminal routes promote either the current accepted result or an existing graph-reachable latest accepted node result and return ordered exported record references through lifecycle state and `activate_card`; ordinary pre-commit close and execution exceptions produce ordinary node failure.
+
+`reconfigure` has only strict `set_agent_model_route`, `set_model_failover`, and host/port `set_server_setting` variants.
+Every successful replacement reports `applied:true, requires_restart:true`; candidate structural compilation is discarded and the current workflows, installed agent bindings, tools, MCP manager, and listener remain unchanged until restart.
+Role routing, runtime timeout/continuous-improvement mutation, and MCP add/edit/remove actions do not exist.
+All old YAML, role sessions, record rows, and lifecycle results require stop, current-config rewrite, wholesale generated-state reset, and restart.
+
+## Current Activation Ownership Contract
+
+`SupervisorRuntimeApi` owns one private `activationOwners` map and one status field and is the sole coordinator of owner structure, current card, run identity/status, status-derived Analyst intervention admission, Pause state, terminal winners, and runtime halt.
+That status field is internal `uninitialized` until startup succeeds, then contains exactly one public runtime status; there is no separately stored readiness or initialization flag.
+Each map value is a plain `CardActivationOwner`, not an actor, with phase exactly `prepared_root | child_admission | active | settling` and terminal winner `open | result | cancel`.
+The supervisor's one nullable halt record freezes an exact owner snapshot and carries one shared `RuntimeStoppedInterruption` and promise.
+`CardProcessActor` remains a micro-actor; `ConversationLLMActor` is the direct provider/tool phase state machine.
+
+The direct Conversation LLM owner has no `BaseActor`, event queue, or actor lifecycle settlement.
+Concrete `CardService` remains the one card/root reader and the one strict `cardRecordSchema` remains unchanged.
+
+Every live LLM tool call passes the complete frozen context from `ConversationLLMActor.toolInvocationContext(outcome)` to `invokeToolForLlm`.
+It contains exact session/source/call/tool identity, external/process waits, and one mandatory child reservation.
+`invokeToolForLlm` requires that context before its optional abort signal; only lower-level non-LLM `invokeTool` may omit it.
+Analyst parses protocol arguments before passing the parsed object and the same complete context, but has neither `activate_card` nor a planner child-control port.
+
+Planner activation, cancellation, and direct-child reopening delegate through a port bound to the exact parent owner.
+The provider performs only schema and immediate-child ID checks.
+Supervisor ownership is consulted before target I/O.
+Fresh child admission installs owner, relationship, and admitted lease before the one running append; currentness remains at the parent until publication succeeds.
+Exact same-parent/same-lease active or settling calls join without I/O.
+Normal terminal work claims its winner before publication, joins local work, atomically removes structure/restores currentness/releases the lease, invalidates, and only then delivers the outcome.
+
+A lifecycle append failure is outcome-unknown only when the direct primitive has attempted canonical mutation.
+No reread, retry, rollback, replay, compensation, inferred outcome, owner settlement, process termination, or Supervisor halt is permitted; immediate fatal delivery exits and leaves the lifecycle lock abandoned.
+Ordinary Stop, application close, and actor-main containment retain the singular halt: successful containment publishes `stopped`, which admits intervention, while failed containment publishes `error`, which rejects it.
+
+The supervisor directly implements runtime control.
+Its accepted Run preparation installs a `prepared_root` owner, run identity, current root, opaque launch token, and the single `starting` status before recovery or root-running publication; `starting` rejects Analyst intervention.
+Launch consumes that exact authority, opens the gate, and activates execution.
+Global application admission closes permanently only for application shutdown.
+Natural root release is valid from running, pausing, or paused and calls `RuntimeGate.completeRun()` in the same transition that clears owners/run/currentness and publishes the single intervention-admitting `stopped` status.
+Stop, application close, and ordinary actor-main failure start or join the same halt.
+Publication uncertainty exits before that halt or a status transition.
+
+Card stream format v4 keeps the newline envelope at `version: 1`, `type: 'rows'`, and accepts only `card-version` and `card-tombstone` rows with `format_version: 3`.
+Artifact row formats 1 and 2, records with durable `children`, snapshots containing removed `tags` or `related` members, and streams containing more than one artifact format fail strict reads.
+The one strict `cardRecordSchema` defines every current durable `CardRecord`, immutable ordinary version, and tombstone final state.
+Every durable snapshot has exactly `id`, `type`, `child_membership`, `active_child_order`, `title`, `subtype`, `priority`, `urgency`, `created_by`, `created_at`, `updated_at`, `version_seq`, `assigned_to`, `depends_on`, `lifecycle`, `metrics`, `estimate`, `started_at`, `duration_ms`, `status_text`, `status_text_updated_at`, `status_text_author_session_id`, `latest_self_report`, `metadata`, and `pending_notifications`. It has one status authority at `lifecycle.status` and contains no tags, generic related-card list, top-level `status`, persisted `parent`, persisted `depth`, or `allowedActions`.
+Operator hierarchy and detail are separate strict projections.
+
+Applying the authoritative card/record exact-stream cutover is reset-only: each affected deployment stops the service, preserves configuration, credentials, operator inputs, source, skills, instructions, prompts, and canonical project documentation, runs the current built `saivage reset`, and starts the current binary.
+No card/record index or immutable artifact layout is ever migrated, normalized, rendered, or accepted as current; old and mixed layouts fail reset-required.
+A later same-format binary deployment may retain only the exact current `card.jsonl`/`record-<stem>.jsonl` format.
+
+## Project Oversight
+
+**Status: implemented.** Oversight is an independently scheduled selected global participant. Its shared designated-recipient notification prerequisite in §6 is also current behavior.
+
+### 1. Identity, authority, and configuration
+
+Each project has one independently configured global Oversight agent with its own identity, prompt, conversation, model route, check lifecycle, tools, output limits, and model-aware context budget.
+It is distinct from the operator-driven Analyst and the sole-dispatcher Supervisor; its checks may coexist with both, subject to ordinary provider capacity.
+Planners retain strategy, acceptance, corrective action, and the right to reasoned disagreement.
+Oversight uses the ordinary named-agent catalog, explicit route and configured failover, invocation/capability admission, and conversation-history contracts, with no root-Planner model inheritance or special provider system.
+The required strict configuration is `oversight:{enabled,agent,interval_seconds}` even when disabled. New-project defaults select global `oversight`, enable it, and use `7200` seconds. The selected agent must differ from Analyst, be global, disable skills and child creation, declare no record writes, use a resolvable route, and select only the observation inventory below. Invalid references, intervals, prompt closure, tools, or capabilities fail startup rather than falling back or silently disabling checks.
+Existing projects adopt or disable it only through deliberate complete configuration and prompt work; configuration is epoch-frozen, with no automatic discovery, upgrade, compatibility default, missing-field normalization, or live toggle. Deployment applicability must still be established for every other retained durable-format cutover.
+
+### 2. Schedule and lifecycle
+
+A check is eligible only while Oversight is enabled and authoritative project runtime status is exactly `running`; a live server or any other status is insufficient.
+The first check waits one full continuous eligible interval, and losing eligibility discards that wait. Each later check waits another full interval after the previous check, including continuations, compaction, and settlement, safely settles.
+At most one check is in flight. There is no persistent timer, backlog, catch-up, burst, scheduling SLA, or server-triggered Run.
+A check may run alongside normal card work and Analyst activity, but ordinary provider limits may delay it.
+Leaving `running`, including pausing, completion, shutdown, or effective disablement, disarms the wait and requests cancellation.
+Resume or a new Run begins a fresh full interval only after prior ownership settles, with no missed or pending check accumulated.
+
+### 3. Cancellation and truthful settlement
+
+Cancellation admits no new investigation read, model call or continuation, notification submission, or urgent interruption request, but bounded truthful settlement of obligations already owned by the check remains required.
+
+- A call not durably recorded and not entered is not fabricated.
+- A durably recorded call whose operation has not entered receives its ordinary matching non-executed result.
+- Entered work is joined or cancelled only through its existing owner and is never reported as unexecuted.
+- A safely known completed result is published exactly once unchanged; an already published result is not duplicated.
+- A confirmed notification enqueue remains confirmed and is not retracted, while urgency not yet entered is suppressed after cancellation.
+
+When outcomes are known and every required publication succeeds, ordinary cancellation or safely settled provider, refusal, context, or investigation failure releases check admission with continuable history.
+It requires no final model report or immediate retry and does not fail cards or disrupt Analyst; a later check waits the next full interval.
+An unknown effect or failed/outcome-unknown required result, evidence, or terminal publication retains the exact fatal owner policy: no follow-up effect, read, inspection, retry, repair, invented settlement, or admission release.
+Strict history remains strict, and startup performs no reconstruction or synthetic completion.
+
+### 4. Read-only intervention boundary
+
+Oversight is read-only with respect to project work. Its exact default/maximum inventory is `get_status`, `list_cards`, `get_card`, `get_tree`, `list_card_versions`, `get_card_version`, `diff_card_versions`, `read_record_version`, `read`, `glob`, `grep`, `read_runtime_events`, `read_runtime_errors`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, and `queue_notification`; custom selected Oversight agents may use subsets. Agent, process, runtime-event, runtime-error, card, record, search, and file collections use the ordinary stateless byte-bounded response packing contracts. Its sole project-affecting operation is a shared notification contract bound to the Oversight-specific effect port: compiled capability, exact active-check cancellation signal, current running admission, and planning eligibility are checked by that owner rather than inferred from agent-name spelling or borrowed Analyst/runtime authority. Analyst uses its distinct audited intervention-ready owner, and Planner uses its exact active card owner.
+It cannot edit source, records, briefs, configuration, prompts, or policy; mutate, activate, reopen, cancel, delete, or reorder cards; run shell, build, test, process-kill, or effectful MCP operations; control project or model lifecycle; approve work; or obtain those effects through a broad tool.
+Ordinary publication of its own conversation, provider evidence, and notification result remains allowed.
+It normally selects the nearest responsible planning scope, uses root for strategic or cross-scope concerns, and never broadcasts.
+This is workflow role discipline that simplifies ordinary work and preserves role separation, not containment of a malicious root-capable agent.
+
+### 5. Proportionate observation
+
+Each check performs bounded, proportionate observation of objectives, linked work, records, conversations, process evidence, and source, distinguishing facts, interpretations, uncertainty, and current evidence from historical evidence.
+Reads are non-atomic observations and never authorize a later write; partial or failed reads do not prove absence, and time elapsed, call volume, or a red test alone does not prove waste.
+Project guidance supplies context but cannot waive owner scope or acceptance.
+A short no-intervention response is successful but does not certify the whole project.
+Oversight uses ordinary conversation and compacted history, repeats advice only when new evidence or a stated material reason adds value, and corrects disproved advice.
+It records unavailable recipients and owner-decision needs in its inspectable conversation without promising an operator alert; no intervention ledger, deduplication registry, or guaranteed-attention channel is introduced.
+
+### 6. Shared designated-recipient workflow
+
+Generic designated-recipient notification routing is current behavior and a prerequisite for Oversight. Every card type designates a workflow participant and provides defined opportunities for that participant to handle queued context.
+Oversight targets additionally require that at least one node of the declared recipient has nonempty compiled child-creation and child-activation types. `get_card` exposes this bounded `workflow` policy projection as `planning_target`, together with recipient, permitted child types, and the current process position when available; it exposes no queue state.
+Planner-directed context waits for that designated Planner. A nonrecipient node, especially a same-card Reviewer, must not consume it, skip review, fabricate a result, or jump the workflow graph.
+Successful ordinary completion provides the generic handling opportunity through recipient arbitration or a configured nonrecipient-DONE conditional edge.
+Current routing reconciles pending context with BLOCKED or failure settlement, cancellation, postclaim denial, and every successful completion route.
+It preserves exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
+It promises neither eventual nor exactly-once delivery and adds no second queue, receipt service, transaction, replay, or recovery protocol.
+
+### 7. Urgent notification ordering (implemented shared contract)
+
+Urgency is a property of the shared notification operation, not a new queue, wire protocol, or control port, and requires current evidence of material ongoing harm, avoidable waste, or divergence plus why waiting is materially worse.
+For a target Planner awaiting an active descendant chain, the runtime first performs fresh ordinary target/activation admission and **confirms notification enqueue before requesting interruption**.
+Only then may it interrupt necessary active descendants through existing owners, preserve truthful interrupted outcomes, and permit later ordinary Planner-directed recovery or re-entry.
+It must not permanently cancel work, fake completion, roll back effects, automatically replay a child, terminate the target's own turn or review, or interrupt unrelated work, naturally settled descendants, or replacement owners.
+Without an active awaited descendant chain, urgency queues normally; it never activates/reopens a card, bypasses dependencies, redirects a denial, or creates or resumes a Run.
+Missing, terminal, and postclaim denials stand. Enqueue failure or uncertainty permits no interruption.
+Confirmed enqueue followed by denied or failed interruption is a truthful partial outcome: retain queued context, report known results separately, and do not retract, resend, or claim atomic rollback.
+Pause, Stop, application closure, terminal winners, and ordinary runtime ownership always prevail. Both Analyst and Planner `queue_notification` inputs require exact lowercase `urgency:'normal'|'urgent'`; omitted values and aliases are invalid. Normal submission returns `interruption:{status:'not_requested'}`. Confirmed urgent enqueue returns `not_applicable`, `interrupted` with exact stopped IDs, or `suppressed` with its known reason and exact already-completed `stopped_card_ids`. Every confirmed form retains `queued:true`, card/notification identity, and the interruption result. A known enqueue receipt never waits for its encompassing Stop/application halt and proves neither delivery nor successful containment; later halt cleanup failure remains the halt owner's failure.
+
+### 8. Privacy and failure containment
+
+Pending queue state stays private. Authenticated/redacted sender body/result evidence and context actually appended to the recipient conversation remain normal inspectable transcript facts; they prove neither queue membership, receipt, model consideration, nor action.
+There is no queue browser, count/body projection, delivery inference, or separate report store. Existing file, history, redaction, and fatal-publication policies remain unchanged.
+Expected provider, refusal, context-admission, and investigation failures settle as process-local `failed` attempts and allow a later full interval. Publication uncertainty enters the existing nonreturning publication-fatal boundary. Other impossible owner/protocol, malformed-data, or required-settlement failures synchronously close application admission, run bounded existing cleanup, emit only a fixed safe Oversight owner-failure diagnostic plus safe shutdown warnings, and exit 1. No poisoned-health latch, report store, schedule persistence, retry queue, or feature-specific recovery exists.

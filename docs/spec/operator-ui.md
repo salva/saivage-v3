@@ -1,5 +1,15 @@
 # Operator UI Specification
 
+Status: current functional UI authority.
+
+## 1. Purpose
+
+The operator UI shows Saivage state and hosts the Analyst. It is projection-oriented and Analyst-mediated by default, with the Dashboard's direct **Stop project** and bearer-only, capability-gated, exactly confirmed **Restart server** actions as the two runtime-control exceptions.
+
+The UI must help the user understand what the autonomous runtime is doing, inspect cards, workflow-defined record documents, named-agent sessions, files, and processes, and stay oriented during the configured global Analyst conversation. Ordinary operator-requested mutations still go through that Analyst; autonomous Planner operations remain runtime-owned and gain no direct UI action.
+
+
+
 Conversation views are segment-backed. They render only the current indexed segment; compacted context is separate structured metadata, and immutable older segments are not concatenated into the current transcript.
 
 The Dashboard projects the supervisor's coherent one-owner-map snapshot. `starting` already has prepared root ownership and current root. An admitted child becomes current only after successful running publication, while its exact planner LLM remains waiting until relationship release. Outcome-unknown publication exits before a runtime halt or status projection and never becomes a failed planner tool result. Ordinary Stop and actor-main containment retain `closing -> stopped|error`; **Stop project** is disabled in `closing` and enabled in `error`, where it joins the retained failed halt without retrying cleanup. Natural root completion may atomically win while Pause is pending or settled; the first stopped projection has null runtime/current card, no owners, a closed clean gate, and no later paused projection.
@@ -22,7 +32,6 @@ Analyst UI operations accept no session argument; server contracts use the selec
 
 Direct persistence operations fail at their owning request and do not poison unrelated later mutations through a persistence-health latch. Provider-routing availability is explicitly live process-local state and resets after process restart; the UI must not present it as historical or durable. Auth-profile refresh uses strict direct file reads and optimistic complete replacement, with concurrent last-completed-write-wins risk left to operator retry. Returned `work:///tmp/stash/...` URLs retain their existing presentation but refer to disposable work output with no retention guarantee.
 
-Status: current functional UI authority.
 
 ## Project Oversight
 
@@ -45,12 +54,6 @@ Existing authentication, redaction, transcript, and metadata-only Raw Exchange r
 usage remains unknown rather than zero or estimated. Notification visibility and queue privacy remain exactly
 as specified by the linked system requirement. There is no dashboard, manual-check action, configuration
 editor, enable/disable toggle, operator push alert, queue view, or eager global inventory fan-out.
-
-## 1. Purpose
-
-The operator UI shows Saivage state and hosts the Analyst. It is projection-oriented and Analyst-mediated by default, with the Dashboard's direct **Stop project** and bearer-only, capability-gated, exactly confirmed **Restart server** actions as the two runtime-control exceptions.
-
-The UI must help the user understand what the autonomous runtime is doing, inspect cards, workflow-defined record documents, named-agent sessions, files, and processes, and stay oriented during the configured global Analyst conversation. Ordinary operator-requested mutations still go through that Analyst; autonomous Planner operations remain runtime-owned and gain no direct UI action.
 
 ## 2. Layout
 
