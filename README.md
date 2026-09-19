@@ -77,6 +77,12 @@ Current `glob` and `grep` results are also packed into exact byte-bounded,
 stateless collection pages; this removes one context amplifier but is not a
 guarantee that accumulated conversations will never require compaction. See the
 [search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction).
+Projects may additionally define optional root `.saivage-search-ignore` literal
+directory roots for recursive project discovery. Absence preserves the default;
+the policy changes neither direct reads nor byte limits, infers nothing from Git,
+and remains outside Saivage's four reset-owned generated roots. See the
+[search-scope contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction)
+and [project discovery/reset guidance](docs/runbook/index.md#project-discovery-scope).
 
 Process tools return independently bounded, redacted stdout/stderr heads with
 completeness flags, raw byte counts, and durable log URLs. Primary model context

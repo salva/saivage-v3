@@ -11,6 +11,7 @@ import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
 import { ModelRecordTargetWireSchema, type ModelRecordTargetWire } from '../contracts/record-mutation.js';
+import { isProjectDirectoryExcluded, loadProjectSearchIgnore, type ProjectSearchIgnore } from './project-search-ignore.js';
 
 type VfsMode = 'read' | 'write' | 'search';
 
@@ -98,7 +99,9 @@ export function globToRegExp(pattern: string): RegExp {
   return new RegExp(parts.join(''));
 }
 
-export async function visitFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => Promise<boolean | void>, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): Promise<boolean | void> {
+export async function visitFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => Promise<boolean | void>, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string; projectSearchIgnore?: ProjectSearchIgnore } = { includeHidden: false }): Promise<boolean | void> {
+  const projectRelativeStart = normalizeRel(relative(projectRoot, start)) || '.';
+  if (options.projectSearchIgnore && isProjectDirectoryExcluded(options.projectSearchIgnore, projectRelativeStart)) return;
   const root = options.root ?? projectRoot;
   const entries = (await readdir(start, { withFileTypes: true })).sort((a, b) => compareStrings(a.name, b.name));
   for (const entry of entries) {
@@ -242,9 +245,10 @@ export async function visitScopedFiles(ctx: VfsContext, raw: string, visitor: (e
   }
 
   const base = resolved.absolutePath;
+  const projectSearchIgnore = resolved.kind === 'project' ? loadProjectSearchIgnore(ctx.projectRoot, ctx.fail) : undefined;
   await visitFiles(ctx.projectRoot, resolved.absolutePath, (absolutePath, displayPath) => visitor({
     absolutePath,
     displayPath,
     matchPath: normalizeRel(relative(base, absolutePath)),
-  }), { includeHidden: false, root: resolved.kind === 'system' || resolved.kind === 'tmp' ? resolved.absolutePath : workRootOf(resolved), displayPath: displayPathCallback(ctx.projectRoot, resolved) });
+  }), { includeHidden: false, root: resolved.kind === 'system' || resolved.kind === 'tmp' ? resolved.absolutePath : workRootOf(resolved), displayPath: displayPathCallback(ctx.projectRoot, resolved), projectSearchIgnore });
 }

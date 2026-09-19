@@ -7,7 +7,7 @@ import type { z } from 'zod';
 import type { AgentName } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { assertRecordWrite, displayPathForResolved, globToRegExp, hasParentPathSegment, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, type VfsResolved } from '../workspace/index.js';
+import { assertRecordWrite, displayPathForResolved, globToRegExp, hasParentPathSegment, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, loadProjectSearchIgnore, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, type VfsResolved } from '../workspace/index.js';
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
@@ -370,7 +370,7 @@ export async function globProject(ctx: WorkspaceContext, params: GlobProjectPara
     };
     const st = statSync(absolutePath);
     if (st.isFile()) consider(absolutePath, relativePath);
-    else await visitFiles(ctx.projectRoot, absolutePath, async (abs, rel) => { consider(abs, rel); }, { includeHidden: false });
+    else await visitFiles(ctx.projectRoot, absolutePath, async (abs, rel) => { consider(abs, rel); }, { includeHidden: false, projectSearchIgnore: loadProjectSearchIgnore(ctx.projectRoot, toolInputError) });
   }
   const total = window.total();
   return packCollectionData({ cap, total, position, maxItems: maxResults, item: window.item, render: (matches: CollectionPage) => ({ matches }) }).data;
@@ -411,7 +411,7 @@ export async function grepProject(ctx: WorkspaceContext, params: GrepProjectPara
       await visitFiles(ctx.projectRoot, target.absolutePath, async (abs, rel) => {
         const outcome = await scanFile(abs, rel, regex, include, false, onMatch);
         contentTruncated ||= outcome.contentTruncated;
-      }, { includeHidden: false });
+      }, { includeHidden: false, projectSearchIgnore: loadProjectSearchIgnore(ctx.projectRoot, toolInputError) });
     }
   }
   const total = window.total();

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
@@ -146,5 +146,66 @@ describe('workspace tool settlement', () => {
       if (settlement.kind !== 'executed') throw new Error('Expected executed workspace result.');
       expect(settlement.execution.providerOutcome.kind).toBe('succeeded');
     }
+  });
+
+  it('settles filtered project search through autonomous and Analyst workspace binders', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-search-scope-')); roots.push(root); initProjectTree(root);
+    writeFileSync(join(root, '.saivage-search-ignore'), 'generated\n');
+    mkdirSync(join(root, 'generated'), { recursive: true });
+    writeFileSync(join(root, 'kept.txt'), 'needle kept');
+    writeFileSync(join(root, 'generated', 'stale.txt'), 'needle stale');
+    const cards = new CardService(root);
+    const providers = [
+      { actor: 'planner', provider: bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }) },
+      { actor: 'analyst', provider: bindToolProvider('workspace', analystWorkspaceToolBinders, { projectRoot: root, cardId: 'project', actor: 'analyst', store: cards, runtime: { notifyCard: () => ({ ok: true, notificationId: 'n' }) } } as unknown as ToolContext) },
+    ] as const;
+    for (const { actor, provider } of providers) {
+      const surface = buildInvocationSurfaceFixture(actor, [provider]);
+      for (const [name, args] of [['glob', { directory: 'project:///', pattern: '**/*.txt' }], ['grep', { path: '.', pattern: 'needle' }]] as const) {
+        const settlement = await invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({ toolName: name }));
+        expect(settlement.kind).toBe('executed');
+        if (settlement.kind !== 'executed') throw new Error('Expected executed project search.');
+        expect(settlement.execution.providerOutcome.kind).toBe('succeeded');
+        expect(JSON.stringify(settlement.execution.providerOutcome)).toContain('kept.txt');
+        expect(JSON.stringify(settlement.execution.providerOutcome)).not.toContain('stale.txt');
+      }
+    }
+  });
+
+  it.each([
+    ['malformed UTF-8', Buffer.from([0x61, 0x2f, 0xc3, 0x28]), 'file is not valid UTF-8', false],
+    ['leading BOM', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('generated')]), 'UTF-8 BOM is not allowed', true],
+    ['invalid syntax', Buffer.from('generated/*\n'), 'entry must be a literal project-relative directory path', true],
+  ])('settles invalid search policy bytes as bounded expected failures: %s', async (_label, bytes, reason, hasLine) => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-search-policy-')); roots.push(root); initProjectTree(root);
+    writeFileSync(join(root, '.saivage-search-ignore'), bytes);
+    writeFileSync(join(root, 'visible.txt'), 'needle');
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
+    const settlement = await invokeToolForLlm(surface, 'glob', { directory: '.', pattern: '**/*' }, testLlmToolInvocationContext({ toolName: 'glob' }));
+    const definition = surface.tools.get('glob')!;
+    const facts = settleToolResultForConversation('glob', compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate), settlement);
+    expect(facts.providerResult).toEqual({ success: false, error: expect.stringContaining(`.saivage-search-ignore${hasLine ? ' line 1' : ''}`) });
+    if (facts.providerResult.success) throw new Error('Expected invalid policy failure.');
+    expect(facts.providerResult.error).toContain(reason);
+    expect(facts.providerResult.error).not.toMatch(/TextDecoder|continuation|0xc3|generated/);
+    expect(Buffer.byteLength(facts.settledResultBytes, 'utf8')).toBeLessThan(600);
+
+    const readSettlement = await invokeToolForLlm(surface, 'read', { path: '.saivage-search-ignore', metadata_only: true }, testLlmToolInvocationContext({ toolName: 'read' }));
+    expect(readSettlement.kind).toBe('executed');
+    if (readSettlement.kind !== 'executed') throw new Error('Expected direct policy metadata read.');
+    expect(readSettlement.execution.providerOutcome.kind).toBe('succeeded');
+  });
+
+  it('publishes the singular project search-scope contract in shared tool descriptions', () => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-search-description-')); roots.push(root); initProjectTree(root);
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
+    for (const name of ['glob', 'grep']) {
+      const description = llmToolDefinition(surface.tools.get(name)!).function.description;
+      expect(description).toContain('.saivage-search-ignore');
+      expect(description).toContain('project-root-relative');
+      expect(description).toContain('no Git state is inferred');
+      expect(description).toContain('directly readable');
+    }
+    expect(llmToolDefinition(surface.tools.get('read')!).function.description).toContain('read .saivage-search-ignore by that exact path');
   });
 });
