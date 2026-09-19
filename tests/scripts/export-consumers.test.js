@@ -686,10 +686,10 @@ describe('repository complete export boundary', () => {
     const directHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]));
     const effectiveHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.classification === classification).length]));
     expect(directHistogram).toEqual({
-      'production-consumed': 1730, 'test-only': 199, 'local-only': 2, 'zero-use': 0,
+      'production-consumed': 1734, 'test-only': 200, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.records).toHaveLength(1931);
-    expect(result.totals).toEqual({ 'production-consumed': 1732, 'test-only': 199, 'local-only': 0, 'zero-use': 0 });
+    expect(result.records).toHaveLength(1936);
+    expect(result.totals).toEqual({ 'production-consumed': 1736, 'test-only': 200, 'local-only': 0, 'zero-use': 0 });
     expect(effectiveHistogram).toEqual(result.totals);
     expect(Object.values(directHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
     expect(Object.values(effectiveHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
