@@ -53,8 +53,10 @@ All work is represented as **cards** in one rooted tree:
   one bundled template `architecture`) are owned by an Executor and perform the
   actual work.
 - Each card carries configured **records** — always `brief.md` as the bootstrap
-  record, plus `status.md` and (for reviewed types) `review.md`. Records are
-  strict append-only versioned streams.
+  record, plus `status.md`, and `review.md` for the types that declare it
+  (`project`, `goal`, and `architecture` in the bundled templates). Records
+  are strict append-only versioned streams, and additional names can be
+  configured.
 - Each card runs a configured **workflow graph** whose nodes are agent sessions
   and whose edges are validated outcomes. For example, bundled terminal `code`
   cards use a red/green/refactor loop; `test` cards use
@@ -132,28 +134,45 @@ and the [reset procedures](runbook/index.md#invalid-or-non-continuable-global-an
 
 - **Card** — one node of the work tree; the unit of planning, execution,
   review, and history.
-- **Record** — a versioned Markdown document owned by a card
-  (`brief.md`, `status.md`, `review.md`).
+- **Record** — a versioned Markdown document owned by a card as a strict
+  append-only stream. Names come from the card type's configuration —
+  `brief.md` is always the bootstrap record; `status.md` and `review.md` are
+  the other common defaults, and additional names such as `review-*.md` can
+  be configured.
 - **Analyst** — the global operator-conversation agent; the ordinary operator
   mutation surface.
-- **Notification** — durable context a Planner delivers to a child card when
-  activating it.
-- **Activation** — one live execution of a card's workflow graph, owned
-  exclusively by the supervisor.
-- **Prepared request** — the exact prompt/tool/brief blocks frozen for every
-  provider call of an activation.
-- **Exact admission** — the strict check that a serialized provider request
-  actually fits before anything is sent.
-- **Compaction** — summarizing covered conversation history into a new segment
-  when context grows toward the model window.
-- **Outcome-unknown** — a publication result that cannot be inspected or
-  retried; failure stops at the owning boundary.
+- **Session** — one conversation owned by a named agent: card-scoped agents
+  get one session per card (`agent:<name>:<card-id>`); global agents (the
+  Analyst, Oversight) get one project-wide session.
+- **Notification** — context durably queued for a card (`queue_notification`).
+  Queueing is not delivery: the card type's designated recipient consumes the
+  pending context when it next runs, and a terminal or cancelled card may
+  clear undelivered notifications instead.
+- **Activation** — one live execution of a card's compiled workflow graph,
+  from a lifecycle entry (`BACKLOG`, `CHANGED`, `BLOCKED`, or `STOPPED`) to a
+  terminal outcome or cancellation, coordinated exclusively by the supervisor.
+- **Prepared request** — the frozen request blocks of a card node — static
+  role instruction and tools, the canonical card block (id, type, title,
+  brief), and the compiled current-node prompt. Prepared once per node and
+  reused unchanged across all of that node's continuations; prepared anew
+  for the next node.
+- **Exact admission** — the strict check that a candidate's complete
+  serialized provider request fits that candidate's own usable input capacity
+  before anything is sent.
+- **Compaction** — summarizing covered conversation history into a new
+  immutable segment (with a replaced cumulative index) when a session
+  approaches its model window; only validated coverage omits rows.
+- **Outcome-unknown** — a durable publication whose result cannot be known
+  after a failure or interruption. It is never inspected, retried, or
+  compensated; the process fails at the fatal boundary instead, and strict
+  canonical reads govern any later start.
 - **Tombstone** — a deleted card's retained terminal link; traversal stops
   there, evidence stays readable.
 - **Cutover / reset-only** — an incompatible durable-format change; no
   migration path exists, generated state is reset deliberately.
 - **Lifecycle lock** — the process-exclusion lock owning a project's runtime;
-  CLI control commands delegate only through it.
+  the runtime-control CLI commands (`status`, `pause`, `resume`, `stop`,
+  `restart_server`) delegate only through a verified live lock record.
 - **Service epoch** — one lifetime of a server process; some schedules and
   transient states reset per epoch.
 

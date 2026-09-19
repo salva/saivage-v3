@@ -32,8 +32,9 @@ available only when bearer authentication is enabled.
 
 Cards is the heart of the UI: the work tree. Every node is a card with a
 status (backlog, changed, running, blocked, stopped, done, failed,
-cancelled). Selecting a card opens its detail: the workflow position, records
-(`brief.md`, `status.md`, `review.md`), dependencies, children, and full
+cancelled). Selecting a card opens its detail: the workflow position, the
+configured records (commonly `brief.md`, `status.md`, `review.md`),
+dependencies, children, and full
 history with version diffs. This is where you see the project's shape and
 where every result is traceable to evidence.
 
