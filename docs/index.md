@@ -3,16 +3,15 @@ layout: home
 
 hero:
   name: Saivage v3
-  text: Autonomous multi-agent runtime for software-development work
+  text: Autonomous software delivery
   tagline: >-
-    Saivage turns a software objective into a visible tree of cards. Planners
-    decompose work, executors perform terminal cards, reviewers assess results,
-    and the runtime alone dispatches them. The operator steers everything
-    through one Analyst conversation.
+    State a software objective. Saivage plans, implements, tests, and reviews
+    the work itself — in the open, with evidence for every step, under your
+    control — until you accept the result.
 
 actions:
   - theme: brand
-    text: What is Saivage?
+    text: What can it do?
     link: /overview
   - theme: alt
     text: Operator runbook
@@ -22,41 +21,40 @@ actions:
     link: /spec/system-specification
 
 features:
-  - icon: 🗂️
-    title: Card-centered work
+  - icon: 🎯
+    title: Objectives, not task lists
     details: >-
-      Every objective is a tree of cards with brief, status, and review records.
-      Planners own goal subtrees; executors own terminal cards; every card keeps
-      an exact append-only history.
-  - icon: 🤖
-    title: Named agents with exact authority
+      Describe the outcome you want. Saivage decomposes it, sequences the work,
+      and carries it through implementation and verification without
+      step-by-step instructions.
+  - icon: 🔎
+    title: Evidence, not promises
     details: >-
-      Planner, Executor, Reviewer, Analyst, and Oversight agents each get a
-      compiled prompt, tool inventory, and model route. Creation, activation,
-      and reopening authority is configured per role.
-  - icon: 🧭
-    title: One operator surface
+      Every command, file change, test run, and review verdict is recorded
+      durably. Progress and acceptance rest on inspectable evidence, not on
+      claims.
+  - icon: 🎛️
+    title: You stay in control
     details: >-
-      A web control room shows the card tree, agent sessions, files, processes,
-      and debug state. Ordinary operator mutations go through the global Analyst
-      conversation.
-  - icon: 🔒
-    title: Explicit trust model
+      Watch the work unfold live, steer the project through one conversation,
+      and pause, resume, or stop at any time.
+  - icon: 🛡️
+    title: Runs where it is safe
     details: >-
-      Saivage runs inside an externally isolated container with trusted
-      root-capable agents. External operator authentication and outbound secret
-      non-disclosure remain product boundaries.
+      Designed for an externally isolated container with trusted agents.
+      Operator authentication and secret non-disclosure remain product
+      boundaries.
   - icon: 💾
-    title: Plain-file persistence
+    title: Plain-file durability
     details: >-
-      Durable state is ordinary files: append-only JSONL streams with strict
-      envelopes. No database, no migrations; incompatible format cutovers are
-      reset-only.
-  - icon: 🔍
-    title: Searchable current docs
+      All durable state is ordinary files with exact append-only histories. No
+      database, no migrations; incompatible format changes are explicit
+      reset-only cutovers.
+  - icon: 📚
+    title: Docs built with the product
     details: >-
-      This site is served by every running instance at /docs/ and published on
-      GitHub Pages from the same build.
+      This site is built from the same repository every instance serves at
+      /docs/, with drift guards keeping the published pages current.
 ---
 
 ## Documentation map

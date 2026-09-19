@@ -7,16 +7,33 @@ linked authorities — the [System specification](spec/system-specification.md),
 [System architecture](architecture/system-architecture.md), and
 [Operator runbook](runbook/index.md).
 
-Saivage v3 is an autonomous multi-agent runtime for software-development work.
-It runs continuously against a target project: given an objective, planner
-agents decompose it into a tree of cards, executor agents perform terminal
-work, reviewer agents assess completed work, and the runtime itself is the only
-dispatcher of work between them. A human operator observes everything through a
-web control room and steers the project through a single conversation with the
-global Analyst agent.
+## What it does for you
 
-Saivage is designed to run inside an externally isolated LXC container in which
-trusted agents may have root access; the deployment, not Saivage, supplies that
+Saivage is autonomous software engineering. You give it an objective for a
+software project — fix a defect, add a feature, translate a codebase, answer a
+research question with evidence — and Saivage does the work: it plans the
+change, writes and modifies the code, runs the tests, and verifies the
+results, iterating until the objective is met with evidence you can inspect.
+Completed goals go through independent review before acceptance. Saivage keeps
+working between your visits, records everything it did and decided, and never
+hides progress behind claims: you can watch each step live or audit it
+afterwards.
+
+You stay in charge throughout. You steer the project through a single
+conversation, you can pause, resume, or stop the work at any time, and results
+are accepted only against their stated brief.
+
+## How it works
+
+Under the hood, an objective becomes a visible tree of **cards**: planner
+agents decompose the work, executor agents perform the terminal cards, reviewer
+agents assess results, and the runtime alone dispatches work between them. The
+human operator observes everything through a web control room and steers
+through one conversation with the global Analyst agent. The rest of this page
+introduces that machinery.
+
+Saivage runs inside an externally isolated LXC container in which trusted
+agents may have root access; the deployment, not Saivage, supplies that
 isolation. See the [trust model](architecture/system-architecture.md#deployment-and-trust-model).
 
 ## The card model
