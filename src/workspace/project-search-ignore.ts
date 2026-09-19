@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const PROJECT_SEARCH_IGNORE_FILENAME = '.saivage-search-ignore';
+const PROJECT_SEARCH_IGNORE_FILENAME = '.saivage-search-ignore';
 
 export type ProjectSearchIgnore = ReadonlySet<string>;
 
