@@ -8,7 +8,7 @@ import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-fi
 import { cardArtifactSchema, type CardArtifact } from '../../src/persistence/canonical-card-artifacts.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
-import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
+import { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { readCanonicalLinkedCardHistoryTree, readCard,readCommittedCardArtifactCatalog } from '../../src/persistence/card-files.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
@@ -31,13 +31,13 @@ function childInput(cardId: string, title: string) {
 }
 
 describe('card exact stream', () => {
-  it('publishes row format 3 without removed fields for root, child, update, and tombstone rows', () => {
+  it('publishes row format 4 without removed fields for root, child, update, and tombstone rows', () => {
     const { root, cards } = fixture();
     const child = cards.create(childInput('project', 'before'));
     cards.editCard(child.id, { title: 'after' }, 'planner');
     cards.deleteSubtrees([child.id], () => true, 'analyst');
     const rows = [streamRows(root, 'project')[0]!, ...streamRows(root, child.id)];
-    expect(rows.map(({ format_version }) => format_version)).toEqual([3, 3, 3, 3]);
+    expect(rows.map(({ format_version }) => format_version)).toEqual([4, 4, 4, 4]);
     for (const row of rows) {
       const card = row.kind === 'card-version' ? row.card : row.final_card;
       expect(card).not.toHaveProperty('tags');
@@ -52,8 +52,8 @@ describe('card exact stream', () => {
     const [version, tombstone] = streamRows(root, child.id);
     if (!version || version.kind !== 'card-version' || !tombstone || tombstone.kind !== 'card-tombstone') throw new Error('Expected version and tombstone fixtures.');
 
-    expect(cardArtifactSchema.safeParse({ ...version, format_version: 2 }).success).toBe(false);
-    expect(cardArtifactSchema.safeParse({ ...tombstone, format_version: 2 }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...version, format_version: 3 }).success).toBe(false);
+    expect(cardArtifactSchema.safeParse({ ...tombstone, format_version: 3 }).success).toBe(false);
     expect(cardArtifactSchema.safeParse({ ...version, card: { ...version.card, tags: [] } }).success).toBe(false);
     expect(cardArtifactSchema.safeParse({ ...version, card: { ...version.card, related: [] } }).success).toBe(false);
     expect(cardArtifactSchema.safeParse({ ...tombstone, final_card: { ...tombstone.final_card, tags: [] } }).success).toBe(false);
@@ -67,7 +67,7 @@ describe('card exact stream', () => {
     const path = cardStreamFile(root, child.id);
     const lines = readFileSync(path, 'utf8').trimEnd().split('\n');
     const second = JSON.parse(lines[1]!) as { rows: Array<Record<string, unknown>> };
-    second.rows[0] = { ...second.rows[0], format_version: 2 };
+    second.rows[0] = { ...second.rows[0], format_version: 3 };
     writeFileSync(path, `${lines[0]}\n${JSON.stringify(second)}\n`);
     const mixed = readFileSync(path);
     expect(() => readCard(root, child.id)).toThrow();
@@ -193,5 +193,26 @@ describe('card exact stream', () => {
     const settledAt = '2026-08-12T00:00:00.000Z';
     cards.commitActivationOutcome(child.id, { status: 'blocked', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, result: { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: `agent:executor:${child.id}`, marker_id: 'marker', evidence_url: '/evidence' } }, settledAt);
     expect(buildContentPolicyReadModel(root, { onRead: () => undefined })).toMatchObject({ refusal_high_water: 1, latest: { card_id: child.id, blocked_at: settledAt } });
+  });
+
+  it('persists, reads, histories, and explicitly reopens a format-4 compaction-summary block without content-policy metadata', () => {
+    const { root, cards } = fixture();
+    const child = cards.create(childInput('project', 'summary blocked'));
+    cards.setStatus(child.id, 'running');
+    cards.commitActivationOutcome(child.id, {
+      status: 'blocked',
+      summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY,
+      result: { kind: 'compaction-summary-blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, session_id: `agent:executor:${child.id}`, summary_input_id: '00000000-0000-4000-8000-000000000099' },
+    }, '2026-09-21T00:00:00.000Z');
+
+    expect(cards.read(child.id)).toMatchObject({ lifecycle: { status: 'blocked', completed_at: null, error: COMPACTION_SUMMARY_BLOCKED_SUMMARY, result: { kind: 'compaction-summary-blocked' } } });
+    const blocked = streamRows(root, child.id).at(-1)!;
+    expect(blocked).toMatchObject({ format_version: 4, change: { terminal_summary: { status: 'blocked', result_kind: 'compaction-summary-blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, content_policy: null } } });
+    expect(cards.readCardVersion(child.id, blocked.version)).toMatchObject({ kind: 'found', value: { format_version: 4, card: { lifecycle: { status: 'blocked' } } } });
+    expect(cards.listCardVersions(child.id)).toMatchObject({ kind: 'found', value: expect.arrayContaining([expect.objectContaining({ version: blocked.version, change: expect.objectContaining({ terminal_summary: expect.objectContaining({ result_kind: 'compaction-summary-blocked', content_policy: null }) }) })]) });
+    expect(buildContentPolicyReadModel(root, { onRead: () => undefined })).toEqual({ refusal_high_water: 0, latest: null });
+
+    cards.setStatus(child.id, 'running');
+    expect(cards.read(child.id)).toMatchObject({ lifecycle: { status: 'running', result: null, error: null, completed_at: null } });
   });
 });

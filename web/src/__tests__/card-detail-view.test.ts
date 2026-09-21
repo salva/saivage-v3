@@ -73,6 +73,19 @@ describe('CardDetailView S06 read-only detail contract', () => {
     expect(wrapper.get('.card-entity__reason').classes()).toEqual(['card-entity__reason']);
   });
 
+  it('renders a compaction-summary BLOCKED result through the generic blocked presentation only', async () => {
+    const pinia = createPinia(); setActivePinia(pinia); const store = useCardStore(); vi.spyOn(store, 'fetchCardDetail').mockResolvedValue();
+    const summary = 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.';
+    const wrapper = mount(CardDetailView, { props: { cardId: 'card-a' }, global: { plugins: [pinia], stubs: { CardRecordsSection: true, CardConversationsSection: true } } });
+    store.selectedCardId = 'card-a';
+    store.selectedDetail = { cardId: 'card-a', card: cardView('card-a', { lifecycle: { status: 'blocked', result: { kind: 'compaction-summary-blocked', summary, session_id: 'agent:executor:card-a', summary_input_id: '00000000-0000-4000-8000-000000000099' }, error: summary, completed_at: null } }) };
+    await nextTick();
+    expect(wrapper.text()).toContain('Blocked. Check blockers');
+    expect(wrapper.text()).toContain(`Card error: ${summary}`);
+    expect(wrapper.text()).toContain('Raw result JSON');
+    expect(wrapper.text()).not.toMatch(/refusal badge|policy evidence|evidence browser/i);
+  });
+
   it('surfaces record outputs through the dedicated records section', () => {
     expect(detailSource).toContain('<CardRecordsSection :card-id="currentCard.id" />');
     expect(recordsSource).toContain('DocumentFrame');

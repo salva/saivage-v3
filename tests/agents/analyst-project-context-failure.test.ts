@@ -15,6 +15,9 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { SummaryPromptPolicyBlockedError } from '../../src/runtime/actors/compaction/summarizer.js';
+import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
+import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 
 const roots: string[] = [];
 
@@ -23,6 +26,34 @@ afterEach(() => {
 });
 
 describe('Analyst project-context failure', () => {
+  it('settles a summary prompt-policy block as a safe notice and reuses the retained owner for a new submission', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-summary-policy-block-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'fresh submission succeeded' }, provider_exchanges: [] }));
+    const compact = jest.fn<CompactorPort['compact']>()
+      .mockRejectedValueOnce(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
+      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
+    const surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] };
+    const session = new AnalystSession({
+      cardTypeVocabulary: ['project'], sessionId: 'agent:analyst:global', agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: {},
+      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }], routeUsableInputTokens: 80_000,
+      promptTemplates: { render: () => 'Analyst' }, restartCapability: { available: false }, provider: scriptedAdmissionProvider(completeTurn), conversations: { projectRoot }, compactionPolicy: testCompactionPolicy,
+      compactor: { shouldCompact: () => true, compact }, summarizerProvider: unusedSummarizerProvider, cardStore: new CompiledCardService(projectRoot), runtimeCurrent: () => ({ status: 'stopped' as const, currentCardId: null }), runtimeProjectionChanged() {}, createInvocationSurface: () => surface, shutdownProcesses: async () => {}, fatalPort: testApplicationFatalPort,
+    });
+
+    await expect(session.submit({ userContent: 'first explicit submission' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    expect(completeTurn).not.toHaveBeenCalled();
+    const afterBlock = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
+    expect(afterBlock.some((row) => row.content === `Analyst LLM unavailable: ${COMPACTION_SUMMARY_BLOCKED_SUMMARY}`)).toBe(true);
+    expect(afterBlock.some((row) => row.content.includes('RAW PROVIDER FLAG'))).toBe(false);
+
+    await expect(session.submit({ userContent: 'second new explicit submission' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    expect(compact).toHaveBeenCalledTimes(2);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows.some((row) => row.content === 'fresh submission succeeded')).toBe(true);
+  });
+
   it('rejects with the original error before prompt, ingress, diagnostic, provider, or tool effects and poisons the session', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-project-context-failure-'));
     roots.push(projectRoot);

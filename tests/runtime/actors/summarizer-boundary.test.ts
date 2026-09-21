@@ -8,6 +8,8 @@ import {
   internalCompactionSummarySessionId,
   assertSummarizerCapabilities,
   SummaryResultValidationError,
+  SummaryPromptPolicyBlockedError,
+  SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE,
   SUMMARY_COMPLETION_TOKENS,
   SUMMARY_OUTPUT_TARGET_BYTES,
   type SummaryRequestSerialization,
@@ -85,7 +87,7 @@ describe('compaction summarizer projection boundary', () => {
     const rows = durableRound(SESSION, SOURCE_INPUT_ID);
     const conversation = validateConversation(SESSION, rows);
     const providerFailure = new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('summary-input')], originalFailure: new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 200, message: 'overloaded' }), candidate: CANDIDATE });
-    const projected = jest.fn();
+    const projected = jest.fn<SummarizerProviderPort['projectProviderExchanges']>();
     const emptyCalls = jest.fn(async () => ({ result: { kind: 'message' as const, content: '   ' }, provider_exchanges: [] }));
     await expect(createSequentialRefineAccumulator({
       conversation,
@@ -140,6 +142,37 @@ describe('compaction summarizer projection boundary', () => {
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).resolves.toBe('x'.repeat(12_001));
+  });
+
+  it('converts an exhausted typed prompt-policy failure only after one evidence projection and never corrects it', async () => {
+    const rows = durableRound(SESSION, SOURCE_INPUT_ID);
+    const conversation = validateConversation(SESSION, rows);
+    const providerFailure = promptPolicyFailure('summary-input');
+    const projected = jest.fn<SummarizerProviderPort['projectProviderExchanges']>();
+    const completeTurn = jest.fn(async () => { throw providerFailure; });
+    const accumulator = createSequentialRefineAccumulator({
+      conversation,
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: projected },
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    });
+
+    const failure = await accumulator.materializeThrough(rows.length).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SummaryPromptPolicyBlockedError);
+    expect(failure).toMatchObject({ message: SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE, summaryInputId: expect.any(String), cause: providerFailure.originalFailure });
+    expect((failure as SummaryPromptPolicyBlockedError).summaryInputId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect(projected).toHaveBeenCalledTimes(1);
+    expect(projected.mock.calls[0]![2]).toHaveLength(2);
+    expect(projected.mock.calls[0]![2].map((entry: ProviderExchangeAttempt) => entry.attempt_index)).toEqual([0, 1]);
+    expect(accumulator.invocationCount).toBe(1);
+    expect(accumulator.correctionCount).toBe(0);
+
+    const publicationFailure = new Error('prompt-policy evidence publication failed');
+    const publicationProvider = { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: () => { throw publicationFailure; } };
+    await expect(createSequentialRefineAccumulator({ conversation, inheritedHistory: null, preparedBlocks: [], summarizerProvider: publicationProvider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
   });
 
   it('treats the byte value as a prompt target and accepts complete prose and ordinary phrase use above it', async () => {
@@ -198,6 +231,17 @@ function attempt(source_input_id: string): ProviderExchangeAttempt {
 }
 
 function errorAttempt(source_input_id: string): ProviderExchangeAttempt { return attempt(source_input_id); }
+
+function promptPolicyFailure(sourceInputId: string): ProviderTurnFailure {
+  const first = attempt(sourceInputId);
+  const second = { ...attempt(sourceInputId), attempt_index: 1 };
+  return new ProviderTurnFailure({
+    failure_phase: 'provider_attempt',
+    provider_exchanges: [first, second],
+    originalFailure: new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw provider flag', reason: 'prompt_policy_rejection' }),
+    candidate: CANDIDATE,
+  });
+}
 
 function okAttempt(source_input_id: string, finish_reason?: string | null): ProviderExchangeAttempt {
   return { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model: 'summary', source_input_id, attempt_index: 0, request_params: { endpoint: 'https://example.invalid', method: 'POST', stream: false, offered_tools_count: 0, temperature: 0, max_tokens: 2000 }, started_at: '2026-08-10T00:00:00.000Z', completed_at: '2026-08-10T00:00:01.000Z', status: 'ok', finish_reason, terminal_tool_fired: null };

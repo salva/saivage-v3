@@ -23,7 +23,7 @@ import type { InvocationRoutePass, PreparedCompaction } from '../runtime/actors/
 import type { PreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import { LlmRequestError } from '../contracts/llm-failure.js';
+import { isPromptPolicyRejection, LlmRequestError } from '../contracts/llm-failure.js';
 import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
 import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
 import {
@@ -93,6 +93,7 @@ interface InvocationServiceConfig {
 type MutableAdmittedRecord = { readonly identity: Candidate; readonly routeIndex: number; state: AdmittedCandidateAttemptState };
 
 type AdmittedExecutionRun = {
+  purpose: 'primary' | 'internal-summary';
   authority: OrdinaryAdmittedExecutionAuthority;
   records: MutableAdmittedRecord[];
   plans: Map<number, CandidateRequestPlan>;
@@ -103,6 +104,7 @@ type AdmittedExecutionRun = {
   lastFailure: unknown;
   mandatoryFirst: Candidate | null;
   recoveryMode: boolean;
+  promptPolicyRejections: number;
   signal?: AbortSignal;
 };
 
@@ -189,6 +191,17 @@ export class InvocationService {
   }
 
   async executeAdmittedWithRecovery(admission: OrdinaryAdmittedExecution, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+    return this.executeWithRecovery(admission, 'primary', signal);
+  }
+
+  async executeSummaryWithRecovery(admission: OrdinaryAdmittedExecution, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+    if (admission.kind !== 'admitted') throw new AdmissionIntegrityError('Internal-summary execution requires an admitted admission object.');
+    if (admission.candidates.length !== 1 || admission.candidates[0]?.kind !== 'admitted' || admission.executionAuthority.admittedCandidateIdentities.length !== 1)
+      throw new AdmissionIntegrityError('Internal-summary execution requires exactly one admitted candidate.');
+    return this.executeWithRecovery(admission, 'internal-summary', signal);
+  }
+
+  private async executeWithRecovery(admission: OrdinaryAdmittedExecution, purpose: 'primary' | 'internal-summary', signal?: AbortSignal): Promise<ProviderTurnCompletion> {
     if (admission.kind !== 'admitted') throw new AdmissionIntegrityError('Ordinary admitted execution requires an admitted admission object.');
     const records: MutableAdmittedRecord[] = [];
     const plans = new Map<number, CandidateRequestPlan>();
@@ -200,6 +213,7 @@ export class InvocationService {
     if (records.length !== admission.executionAuthority.admittedCandidateIdentities.length)
       throw new AdmissionIntegrityError('Ordinary admitted records do not match the frozen execution authority membership.');
     return this.runAdmittedExecution({
+      purpose,
       authority: admission.executionAuthority,
       records,
       plans,
@@ -210,6 +224,7 @@ export class InvocationService {
       lastFailure: null,
       mandatoryFirst: null,
       recoveryMode: false,
+      promptPolicyRejections: 0,
       signal,
     });
   }
@@ -272,6 +287,7 @@ export class InvocationService {
     const records: MutableAdmittedRecord[] = preparation.records.map((record) => ({ identity: record.identity, routeIndex: record.routeIndex, state: record.state }));
     const plans = new Map(preparation.plans.map((entry) => [entry.routeIndex, entry.plan]));
     return this.runAdmittedExecution({
+      purpose: 'primary',
       authority: preparation.authority,
       records,
       plans,
@@ -282,6 +298,7 @@ export class InvocationService {
       lastFailure: null,
       mandatoryFirst: preparation.mandatoryFirstIdentity,
       recoveryMode: true,
+      promptPolicyRejections: 0,
       signal,
     });
   }
@@ -474,7 +491,10 @@ export class InvocationService {
     const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
       candidate: record.identity,
       recoveryDelayMs: this.recoveryDelayMs,
+      purpose: run.purpose,
+      promptPolicyRejections: run.promptPolicyRejections,
     });
+    if (isPromptPolicyRejection(originalFailure)) run.promptPolicyRejections++;
     if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
       if (err.provider_exchanges.length === 0)
         return new Error(

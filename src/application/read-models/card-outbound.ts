@@ -107,7 +107,10 @@ function projectLifecycle(value: CardRecord['lifecycle']): CardRecord['lifecycle
       };
   }
 }
-function projectTerminalResult<T extends import('../../schemas/index.js').CardResult>(result:T):T{return {...result,summary:redactTextForOutbound(result.summary)};}
+function projectTerminalResult<T extends import('../../schemas/index.js').CardResult>(result:T):T{
+  if (result.kind === 'content-policy-refusal' || result.kind === 'compaction-summary-blocked') return { ...result };
+  return { ...result, summary: redactTextForOutbound(result.summary) };
+}
 
 function projectDiffValue(field: string, value: unknown): unknown {
   switch (field) {

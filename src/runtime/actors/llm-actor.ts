@@ -12,7 +12,7 @@ import {
   type SuspendedAdmittedExecution,
 } from '../../agents/invocation-admission.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
-import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, contentPolicyEvidenceUrl, conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
+import { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, compactionSummaryBlockedResultSchema, contentPolicyEvidenceUrl, conversationSessionIdentity, parseConversationSessionId, type CompactionSummaryBlockedResult, type ContentPolicyRefusalBlockedResult, type ConversationSessionId, type RuntimeOwnedBlockedResult } from '../../schemas/index.js';
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
 import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
@@ -26,7 +26,7 @@ import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/provider-exchange.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult, type CompactionStrategy } from './compaction/compactor.js';
-import type { SummarizerProviderPort } from './compaction/summarizer.js';
+import { SummaryPromptPolicyBlockedError, type SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ChildInvocationReservation, CompactionProgress, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
 import { ChildInvocationLease } from './child-invocation-wait.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
@@ -35,7 +35,7 @@ import { isCardInterruptedError } from './card-interrupted-error.js';
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
   | { type: 'tool_call'; agentId: string; inputId: string; toolCallId: string; toolName: string; args: unknown }
-  | { type: 'blocked'; agentId: string; result: ContentPolicyRefusalBlockedResult }
+  | { type: 'blocked'; agentId: string; result: RuntimeOwnedBlockedResult }
   | { type: 'error'; agentId: string; error: string };
 
 export class LastChanceSummaryProviderUnavailableError extends Error {
@@ -470,6 +470,20 @@ export class ConversationLLMActor {
       const gracefulCancellation = disposition.kind === 'graceful_cancellation';
       const cancellationFailure = gracefulCancellation && (error === operation.signal.reason || error === disposition.reason);
       if (operation.signal.aborted && !gracefulCancellation) throw error;
+      if (error instanceof SummaryPromptPolicyBlockedError) {
+        const outcome: Extract<LLMActorOutcome, { type: 'blocked' | 'error' }> = this.purpose.kind === 'autonomous-card'
+          ? { type: 'blocked', agentId: this.agentId, result: compactionSummaryBlockedResult(operation.input.sessionId, error.summaryInputId) }
+          : { type: 'error', agentId: this.agentId, error: COMPACTION_SUMMARY_BLOCKED_SUMMARY };
+        if (!gracefulCancellation) operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
+        this.#phase = { kind: 'idle', disposition };
+        if (gracefulCancellation) this.#invocations.settleKnown(operation.lease);
+        else this.#invocations.settle(operation.lease);
+        operation.lease = null;
+        operation.result.resolve(outcome);
+        operation.settlement.resolve();
+        this.runtimeProjectionChanged?.();
+        return;
+      }
       if (gracefulCancellation && !operation.providerBoundaryEntered) {
         if (!cancellationFailure) throw error;
         if (operation.turnStartedPersisted) {
@@ -657,6 +671,13 @@ export class ConversationLLMActor {
     } catch (error) {
       this.#deliverPublicationFatal(error);
       if (signal.aborted && error === signal.reason) throw error;
+      if (error instanceof SummaryPromptPolicyBlockedError) {
+        this.#projectProviderExchanges(input, firstAttempts, {
+          assistantOutputIds: [],
+          terminalConversationOutputId: null,
+        });
+        throw error;
+      }
       if (error instanceof ProviderTurnFailure) {
         this.#projectProviderExchanges(input, firstAttempts, {
           assistantOutputIds: [],
@@ -834,6 +855,7 @@ function strictFailureAttempts(label: 'Context' | 'Content-policy', error: Provi
 function sameCandidate(left: import('../../contracts/provider-candidate.js').Candidate, right: import('../../contracts/provider-candidate.js').Candidate): boolean { return left.provider === right.provider && left.account === right.account && left.model === right.model; }
 function combineProviderAttempts(inputId: string, ...passes: ProviderExchangeAttempt[][]): ProviderExchangeAttempt[] { return passes.flat().map((attempt, attempt_index) => ({ ...attempt, source_input_id: inputId, attempt_index })); }
 function normalContextFailure(message: string, attempts: ProviderExchangeAttempt[], classifiedFailure: LlmRequestError, cause?: unknown): ProviderTurnFailure { const originalFailure = new LlmRequestError({ ...classifiedFailure.failure, message }); if (cause !== undefined) originalFailure.cause = cause; return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: attempts, originalFailure,candidate:null }); }
+function compactionSummaryBlockedResult(sessionId: ConversationSessionId, summaryInputId: string): CompactionSummaryBlockedResult { return compactionSummaryBlockedResultSchema.parse({ kind: 'compaction-summary-blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, session_id: sessionId, summary_input_id: summaryInputId }); }
 function parseToolArguments(raw: string): unknown { try { return JSON.parse(raw) as unknown; } catch { return raw; } }
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error(String(error)); }
 function observe<T>(promise: Promise<T>): void { void promise.catch(() => undefined); }

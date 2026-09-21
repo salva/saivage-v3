@@ -24,8 +24,8 @@ export {
   urgencyValues,
   analystIssueSeverityValues,
 } from './types.js';
-export type { BlockedResult, ContentPolicyRefusalBlockedResult, CardLifecycleState, CardResult, DoneResult, FailedResult } from './lifecycle.js';
-export { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, cardLifecycleStateSchema } from './lifecycle.js';
+export type { BlockedResult, CompactionSummaryBlockedResult, ContentPolicyRefusalBlockedResult, RuntimeOwnedBlockedResult, CardLifecycleState, CardResult, DoneResult, FailedResult } from './lifecycle.js';
+export { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, cardLifecycleStateSchema, compactionSummaryBlockedResultSchema } from './lifecycle.js';
 export type { CardStatus, CardAction, Urgency, CreatedBy, CardNotification, CardRecord, OutboundCardRecord, CardOperatorSummary, CardView, ControlActionAuditEntry, ProjectConfig, AnalystIssue, ProcessStatus, MessageRole, MessageKind, AgentMessage, RuntimeStatus, RuntimeState, SkillIndexEntry, RuntimeActionableErrorEvent, ErrorEvent, LoggedEvent, LoggedEventByKind, EventKind } from './types.js';
 export { cardTypeSchema, cardStatusSchema, cardActionSchema, positiveSafeIntegerSchema, urgencySchema, cardRecordSchema, outboundCardRecordSchema, cardViewSchema, controlActionAuditEntrySchema, projectConfigSchema, processStatusSchema, agentMessageSchema, runtimeStatusSchema, runtimeStateSchema, skillIndexSchema } from './validators.js';
 export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';

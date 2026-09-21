@@ -32,7 +32,7 @@ import { ModelRouter } from '../../src/agents/model-router.js';
 import { bindRuntimeWorkflows, compileProjectWorkflows, runtimeAgentBinding } from '../../src/runtime/card-process/card-process-config.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
-import { executeAdmittedTurn } from '../../src/application/invocation-service-provider.js';
+import { executeInternalSummaryTurn } from '../../src/application/invocation-service-provider.js';
 import type { SummaryRequestSerialization, SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 
@@ -566,7 +566,7 @@ function summaryProvider(args: {
       args.setTransport({ model: args.candidate.model, body: admitted.serializedRequest, hash: admitted.requestSha256, response });
       const ranges = summaryRanges(input);
       const bodies = input.providerConversation.messages.map(summaryMessageBody);
-      const completion = await executeAdmittedTurn(service, input, signal, admitted.requestSha256);
+      const completion = await executeInternalSummaryTurn(service, input, signal, admitted.requestSha256);
       args.records.push(Object.freeze({ input, body: admitted.serializedRequest, hash: admitted.requestSha256, bytes: Buffer.byteLength(admitted.serializedRequest, 'utf8'), estimated: admitted.estimatedInputTokens, sourceBytes: ranges.reduce((sum, range) => sum + Buffer.byteLength(range.content, 'utf8'), 0), inheritedBytes: Buffer.byteLength(inheritedSummary(input) ?? '', 'utf8'), orientationBytes: input.providerConversation.messages.reduce((sum, message, index) => message.content.includes('[kind=prepared_context ') ? sum + Buffer.byteLength(bodies[index]!, 'utf8') : sum, 0), correction, ranges, returnedSummary: response.trim() }));
       return completion;
     },

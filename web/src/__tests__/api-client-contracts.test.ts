@@ -81,6 +81,19 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(AnalystTurnBusyErrorSchema.safeParse({ ...busy, message: 'busy' }).success).toBe(false);
   });
 
+  it('accepts the new blocked lifecycle result only in its strict BLOCKED shape', () => {
+    const summary = 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.';
+    const card = {
+      id: 'card-a', title: 'Blocked summary', type: 'code', version_seq: 2, urgency: 'normal',
+      created_at: '2026-09-21T00:00:00.000Z', updated_at: '2026-09-21T00:01:00.000Z', allowedActions: ['card.start'],
+      lifecycle: { status: 'blocked', result: { kind: 'compaction-summary-blocked', summary, session_id: 'agent:executor:card-a', summary_input_id: '00000000-0000-4000-8000-000000000099' }, error: summary, completed_at: null },
+    };
+    expect(parseOperatorResponse('cards.get', 200, { card })).toEqual({ card });
+    expect(() => parseOperatorResponse('cards.get', 200, { card: { ...card, lifecycle: { ...card.lifecycle, status: 'done', completed_at: '2026-09-21T00:01:00.000Z', error: null } } })).toThrow();
+    expect(() => parseOperatorResponse('cards.get', 200, { card: { ...card, lifecycle: { ...card.lifecycle, result: { ...card.lifecycle.result, summary_input_id: 'not-a-uuid' } } } })).toThrow();
+    expect(() => parseOperatorResponse('cards.get', 200, { card: { ...card, lifecycle: { ...card.lifecycle, result: { ...card.lifecycle.result, legacy: true } } } })).toThrow();
+  });
+
   it('re-exports the strict recursive card diff row contract', () => {
     const nestedRow: CardDiffRow = {
       field: 'metadata',

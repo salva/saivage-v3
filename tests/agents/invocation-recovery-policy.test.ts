@@ -7,7 +7,7 @@ import { parseOpenAIResponsesJson } from '../../src/agents/llm-openai-responses-
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
 const policy = defaultInvocationRecoveryPolicy;
-const baseContext = { candidate, recoveryDelayMs: 25 };
+const baseContext = { candidate, recoveryDelayMs: 25, purpose: 'primary' as const, promptPolicyRejections: 0 };
 
 describe('InvocationRecoveryPolicy', () => {
   it('returns only terminal/retry control and consumed availability state', () => {
@@ -62,6 +62,23 @@ describe('InvocationRecoveryPolicy', () => {
       new LlmRequestError({ kind: 'parse_error', provider: 'openai-compatible', message: 'invalid json', bodyPreview: '{' }),
       baseContext,
     )).toEqual({ kind: 'retry', wait: 'standard', retryDelayMs: 25 });
+  });
+
+  it('permits only the first typed prompt-policy rejection for internal summaries', () => {
+    const failure = new LlmRequestError({
+      kind: 'provider_protocol_error',
+      provider: 'openai-compatible',
+      status: 200,
+      message: 'flagged',
+      reason: 'prompt_policy_rejection',
+    });
+    expect(policy.decideFailure(failure, { ...baseContext, purpose: 'internal-summary' })).toEqual({
+      kind: 'retry',
+      wait: 'standard',
+      retryDelayMs: 0,
+    });
+    expect(policy.decideFailure(failure, { ...baseContext, purpose: 'internal-summary', promptPolicyRejections: 1 })).toEqual({ kind: 'terminal' });
+    expect(policy.decideFailure(failure, baseContext)).toEqual({ kind: 'terminal' });
   });
 
   it('keeps unknown errors transient with cooling availability', () => {

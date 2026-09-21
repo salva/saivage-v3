@@ -1,6 +1,6 @@
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
-import { canonicalJson, cardAgentSessionId, type AgentName, type CardConversationSessionId, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
+import { canonicalJson, cardAgentSessionId, type AgentName, type CardConversationSessionId, type CardRecord, type ConversationSessionId, type RuntimeOwnedBlockedResult } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
 import { agentCanWriteRecord, describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledPromptDeclaration, type CompiledRuntimeWorkflows, type ProcessPromptId } from '../card-process/card-process-config.js';
@@ -33,7 +33,7 @@ export interface AcceptedNodeResult {
   readonly summary: string;
   readonly acceptedRecords: readonly Readonly<{ name: string; url: string; version: number }>[];
 }
-export type NodeExecutionResult = AcceptedNodeResult | ContentPolicyRefusalBlockedResult;
+export type NodeExecutionResult = AcceptedNodeResult | RuntimeOwnedBlockedResult;
 
 export const MAX_NODE_CORRECTIVE_REARMS = 16;
 

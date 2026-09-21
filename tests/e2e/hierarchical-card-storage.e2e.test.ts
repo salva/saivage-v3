@@ -59,7 +59,7 @@ describe('reset-only hierarchical card storage', () => {
     if ('statusCode' in filesResult) throw new Error('Expected Files child directory.');
     expect(filesResult.body.files.map(({ name }) => name)).toEqual([dependent.id.split('-').at(-1), dependency.id.split('-').at(-1)]);
     const parentRows = readFileSync(cardStreamFile(root, goal.id), 'utf8').trimEnd().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ format_version: number; card: { child_membership: string[]; active_child_order: string[] }; change: { kind: string; changed_fields: string[] } | null }> }).rows);
-    expect(parentRows.every((artifact) => artifact.format_version === 3)).toBe(true);
+    expect(parentRows.every((artifact) => artifact.format_version === 4)).toBe(true);
     const linkRows = parentRows.filter((artifact) => artifact.change?.kind === 'child_link');
     expect(linkRows.map((artifact) => artifact.card.child_membership)).toEqual([
       [dependency.id], [dependency.id, dependent.id], [dependency.id, dependent.id, retainedTombstone.id],

@@ -16,6 +16,8 @@ import { z } from 'zod';
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { toolSucceeded } from '../../src/contracts/tool-result.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { SummaryPromptPolicyBlockedError } from '../../src/runtime/actors/compaction/summarizer.js';
+import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -27,7 +29,7 @@ function projectRoot(): string {
   return root;
 }
 
-function session(root: string, provider: LLMProviderPort, runtimeProjectionChanged = () => {}, surface: InvocationSurface = { agentName: 'oversight', tools: new Map(), providers: [] }): OversightSession {
+function session(root: string, provider: LLMProviderPort, runtimeProjectionChanged = () => {}, surface: InvocationSurface = { agentName: 'oversight', tools: new Map(), providers: [] }, compactor: CompactorPort = testCompactor): OversightSession {
   return new OversightSession({
     sessionId: 'agent:oversight:global',
     agentName: 'oversight',
@@ -40,7 +42,7 @@ function session(root: string, provider: LLMProviderPort, runtimeProjectionChang
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     routeUsableInputTokens: 80_000,
     compactionPolicy: testCompactionPolicy,
-    compactor: testCompactor,
+    compactor,
     summarizerProvider: unusedSummarizerProvider,
     runtimeProjectionChanged,
     fatalPort: testApplicationFatalPort,
@@ -78,6 +80,23 @@ describe('OversightSession owned check settlement', () => {
     await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe('succeeded');
     await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe('succeeded');
     expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('settles a prompt-policy summary block as one failed check and lets a fresh check reuse the canonical session', async () => {
+    const root = projectRoot();
+    const complete = jest.fn(async () => finalMessage());
+    const compact = jest.fn<CompactorPort['compact']>()
+      .mockRejectedValueOnce(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
+      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
+    const compactor: CompactorPort = { shouldCompact: () => true, compact };
+
+    await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('failed');
+    expect(complete).not.toHaveBeenCalled();
+    expect(readConversation(root, 'agent:oversight:global').sourceRows.some((row) => row.content.includes('RAW PROVIDER FLAG'))).toBe(false);
+
+    await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('succeeded');
+    expect(compact).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 
   it('invalidates scoped membership after outer check ownership clears', async () => {

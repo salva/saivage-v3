@@ -17,7 +17,7 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js'
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort, type LlmTerminalHandoff } from '../../../src/runtime/actors/llm-actor.js';
 import { compact, CompactionSummaryConstructionError, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
-import { internalCompactionSummarySessionId } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { internalCompactionSummarySessionId, SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { compileInvocationToolContract } from '../../../src/runtime/actors/context/context-blocks.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
@@ -42,6 +42,57 @@ afterEach(() => {
 });
 
 describe('ConversationLLMActor last-chance summary publication ownership', () => {
+  it.each(['preventive', 'local_exact_admission', 'authoritative_context_recovery'] as const)('owns a persistent summary prompt-policy block for %s without a fabricated primary error', async (strategy) => {
+    const fixture = actorFixture();
+    const blocked = new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw flag', reason: 'prompt_policy_rejection' }));
+    fixture.compact.mockRejectedValue(blocked);
+    if (strategy === 'preventive') fixture.shouldCompact.mockReturnValue(true);
+    if (strategy === 'local_exact_admission') fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission());
+    const terminal = jest.fn<LlmTerminalHandoff>();
+
+    const outcome = await fixture.actor.turn(fixture.input, undefined, terminal);
+
+    expect(outcome).toEqual({ type: 'blocked', agentId: fixture.input.sessionId, result: { kind: 'compaction-summary-blocked', summary: 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.', session_id: fixture.input.sessionId, summary_input_id: '00000000-0000-4000-8000-000000000099' } });
+    expect(terminal).toHaveBeenCalledWith({ input: fixture.input, outcome });
+    expect(fixture.compact.mock.calls[0]![0].strategy).toBe(strategy);
+    expect(readConversation(fixture.root, fixture.input.sessionId).sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
+    if (strategy === 'authoritative_context_recovery') expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, fixture.input.inputId, fixture.firstFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
+    else {
+      expect(fixture.execute).not.toHaveBeenCalled();
+      expect(fixture.plannerProjection).not.toHaveBeenCalled();
+    }
+    fixture.actor.suppressContinuation(new Error('test join'));
+    await expect(fixture.actor.join()).resolves.toEqual({ status: 'joined' });
+  });
+
+  it('settles a global summary prompt-policy block as an ordinary safe error outcome', async () => {
+    const input: PreparedLlmInvocationInput = { ...invocation(), inputId: '00000000-0000-4000-8000-000000000011', agentId: 'agent:analyst:global', agentName: 'analyst', sessionId: 'agent:analyst:global', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [] } };
+    const fixture = actorFixture(input, undefined, 'global');
+    fixture.shouldCompact.mockReturnValue(true);
+    fixture.compact.mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('raw provider prose')));
+    const terminal = jest.fn<LlmTerminalHandoff>();
+
+    const outcome = await fixture.actor.turn(input, undefined, terminal);
+
+    expect(outcome).toEqual({ type: 'error', agentId: 'agent:analyst:global', error: 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.' });
+    expect(terminal).toHaveBeenCalledWith({ input, outcome });
+    expect(readConversation(fixture.root, input.sessionId).sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
+    fixture.actor.suppressContinuation(new Error('test join'));
+    await expect(fixture.actor.join()).resolves.toEqual({ status: 'joined' });
+  });
+
+  it('keeps original-primary publication uncertainty fatal before a summary-policy blocked handoff', async () => {
+    const publication = new PublicationOutcomeUnknownError();
+    const fixture = actorFixture(invocation(), publication);
+    fixture.compact.mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('raw provider prose')));
+    const terminal = jest.fn<LlmTerminalHandoff>();
+
+    await expect(fixture.actor.turn(fixture.input, undefined, terminal)).rejects.toBe(publication);
+    expect(fixture.publicationOutcomeUnknown).toHaveBeenCalledWith(publication);
+    expect(terminal).not.toHaveBeenCalled();
+    expect(readConversation(fixture.root, fixture.input.sessionId).sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
+  });
+
   it('publishes summary and triggering attempts once under separate identities and rejects with the fieldless ownership marker', async () => {
     const fixture = actorFixture();
     const summaryFailure = providerFailure('summary-input', 'server_transient');
@@ -416,7 +467,7 @@ function rejectedCompactionAdmission() {
   return { kind: 'local_compaction_required' as const, routePass: { kind: 'ordinary' as const, candidateChain: [CANDIDATE] }, candidates: [], bindings: scriptedBindings() };
 }
 
-function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), plannerPublicationFailure?: Error) {
+function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), plannerPublicationFailure?: Error, purpose: 'card' | 'global' = 'card') {
   const root = mkdtempSync(join(tmpdir(), 'saivage-last-chance-summary-'));
   roots.push(root);
   initProjectTree(root);
@@ -429,6 +480,7 @@ function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), 
   const serializeSummaryRequest = jest.fn(() => { throw new Error('unexpected summary provider serialization'); });
   const summaryCompletion = jest.fn(async () => { throw new Error('unexpected summary provider call'); });
   const compact = jest.fn<CompactorPort['compact']>();
+  const shouldCompactMock = jest.fn(() => false);
   const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError) => undefined);
   const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(() => scriptedOrdinaryAdmission());
   const execute = jest.fn<LLMProviderPort['executeAdmittedWithRecovery']>();
@@ -455,17 +507,18 @@ function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), 
   });
   capturedSuspension = suspension;
   execute.mockImplementation(async () => { throw new AdmittedProviderTurnFailure(firstFailure, suspension); });
-  const actor = new ConversationLLMActor({
-    purpose: { kind: 'autonomous-card', cardId: 'project' },
-    gate: new RuntimeGate(),
+  const common = {
     agentId: input.sessionId,
     provider,
     conversations: { projectRoot: root },
-    compactor: { shouldCompact: () => false, compact },
+    compactor: { shouldCompact: shouldCompactMock, compact },
     summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn: summaryCompletion, projectProviderExchanges: summaryProjection },
     fatalPort: { publicationOutcomeUnknown: publicationOutcomeUnknown as unknown as (error: PublicationOutcomeUnknownError) => never },
-  });
-  return { root, input, actor, compact, prepare, execute, prepareRecovery, resume, pinnedPreflight, plannerProjection, summaryProjection, serializeSummaryRequest, summaryCompletion, publicationOutcomeUnknown, capturedSuspension, firstFailure };
+  };
+  const actor = purpose === 'card'
+    ? new ConversationLLMActor({ ...common, purpose: { kind: 'autonomous-card', cardId: 'project' }, gate: new RuntimeGate() })
+    : new ConversationLLMActor({ ...common, purpose: { kind: 'global-agent' } });
+  return { root, input, actor, compact, shouldCompact: shouldCompactMock, prepare, execute, prepareRecovery, resume, pinnedPreflight, plannerProjection, summaryProjection, serializeSummaryRequest, summaryCompletion, publicationOutcomeUnknown, capturedSuspension, firstFailure };
 }
 
 function withTool(input: PreparedLlmInvocationInput): PreparedLlmInvocationInput {

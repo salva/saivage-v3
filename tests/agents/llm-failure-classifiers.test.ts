@@ -91,6 +91,29 @@ describe('strict HTTP input-context classification', () => {
 });
 
 describe('common HTTP and transport classification', () => {
+  it('adds bounded evidence only to an exact opened HTTP-200 prompt-policy rejection', () => {
+    const incident = {
+      provider: 'openai-codex',
+      source: { kind: 'opened_response_terminal' as const, responseStatus: 200, embeddedStatus: undefined },
+      allowedContextParams: ['input'],
+      message: 'terminal failure',
+      providerResponse: '{"incident":true}',
+    };
+    expect(classifyDirectProviderFailure({
+      ...incident,
+      error: { code: 'invalid_prompt', message: 'Your prompt was flagged as potentially violating our usage policy.' },
+    })).toMatchObject({ kind: 'provider_protocol_error', status: 200, reason: 'prompt_policy_rejection' });
+    expect(classifyDirectProviderFailure({ ...incident, error: { code: 'invalid_prompt', message: 'invalid prompt' } })).toBeUndefined();
+    expect(classifyDirectProviderFailure({ ...incident, error: { metadata: { code: 'invalid_prompt' }, message: 'Your prompt was flagged as potentially violating our usage policy.' } })).toBeUndefined();
+    expect(classifyDirectProviderFailure({ ...incident, source: { kind: 'opened_response_terminal', responseStatus: 201, embeddedStatus: undefined }, error: { code: 'invalid_prompt', message: 'Your prompt was flagged as potentially violating our usage policy.' } })).toBeUndefined();
+    expect(classifyDirectProviderFailure({ ...incident, source: { kind: 'non_ok_http_response', responseStatus: 400 }, error: { code: 'invalid_prompt', message: 'Your prompt was flagged as potentially violating our usage policy.' } })).toBeUndefined();
+    for (const [type, kind] of [['usage_limit_reached', 'rate_limit'], ['unauthorized', 'auth_permanent'], ['server_error', 'server_transient']] as const) {
+      const classified = classifyDirectProviderFailure({ ...incident, error: { code: 'invalid_prompt', type, message: 'Your prompt was flagged as potentially violating our usage policy.' } });
+      expect(classified).toMatchObject({ kind });
+      expect(classified).not.toHaveProperty('reason');
+    }
+  });
+
   it('retains actual opened status and exact evidence when content precedes embedded 403 auth', () => {
     const providerResponse = '{"distinctive":"terminal-content-evidence"}';
     expect(classifyDirectProviderFailure({

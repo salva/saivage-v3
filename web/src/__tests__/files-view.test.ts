@@ -107,6 +107,26 @@ describe('FilesView', () => {
     vi.restoreAllMocks();
   });
 
+  it('renders the strict Files v4 card document as ordinary JSON without a special policy surface', async () => {
+    const path = '.saivage/cards/card-a/card.json';
+    vi.mocked(getFileContent).mockResolvedValue({
+      path, size: 128, contentType: 'application/json', redacted: false, sensitivity: 'normal',
+      content: JSON.stringify({ format_version: 4, kind: 'card-version', entry_id: '00000000-0000-4000-8000-000000000001', card_id: 'card-a', version: 2, published_at: '2026-09-21T00:00:00.000Z', card: { lifecycle: { status: 'blocked' } }, change: { summary: 'lifecycle updated', changed_fields: ['lifecycle'], actor: null } }),
+    });
+    const { wrapper } = await mountFilesView({
+      initialRoute: `/files?root=meta&path=${encodeURIComponent(path)}`,
+      listFilesImpl: async (requested) => {
+        if (requested === path) throw new OperatorApiError('files.list', 400, { error: 'ValidationError', message: 'Path is not a directory', issues: [] });
+        return requested === '.saivage/cards/card-a'
+          ? { path: requested, files: [{ name: 'card.json', path, type: 'file', size: 128, modifiedAt: '2026-09-21T00:00:00.000Z' }] }
+          : { path: requested ?? '', files: [] };
+      },
+    });
+    expect(wrapper.text()).toContain('"format_version": 4');
+    expect(wrapper.text()).not.toMatch(/refusal badge|policy evidence|evidence browser/i);
+    wrapper.unmount();
+  });
+
   it('renders both Metadata and Output panels', async () => {
     const { wrapper } = await mountFilesView();
     expect(wrapper.find('[data-testid="route-files"]').exists()).toBe(true);

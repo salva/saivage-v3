@@ -16,7 +16,7 @@ import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../../src/a
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
-import type { SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPromptPolicyBlockedError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
@@ -268,6 +268,45 @@ describe('ConversationLLMActor compaction ownership', () => {
       expect(foldFailed).toHaveBeenCalledTimes(1);
       expect(readConversationCatalog(root, 'agent:planner:project').versions).toHaveLength(1);
       expect(readCurrentConversationSegment(root, 'agent:planner:project')!.entry.version).toBe(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('propagates a summary prompt-policy block without endpoint fallback, correction, or successor publication', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-summary-policy-owner-'));
+    initProjectTree(root);
+    try {
+      appendCompactionRound(root);
+      const conversation = readConversation(root, 'agent:planner:project');
+      const preparedCompaction = prepareCompaction({ ...compactionConfig, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
+      const invocation = {
+        ...input(),
+        providerConversation: providerConversationProjection(conversation, []),
+        preparedCompaction,
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+      };
+      const providerFailure = new ProviderTurnFailure({
+        failure_phase: 'provider_attempt',
+        provider_exchanges: [],
+        originalFailure: new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw flag', reason: 'prompt_policy_rejection' }),
+        candidate: { provider: 'test', account: null, model: 'test-model' },
+      });
+      const blocked = new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', providerFailure.originalFailure);
+      const completeTurn = jest.fn(async () => { throw blocked; });
+      const serializeSummaryRequest = jest.fn(deterministicSummarySerialization);
+
+      const rejection = await compact({
+        strategy: 'preventive',
+        conversations: { projectRoot: root },
+        input: invocation,
+        summarizerProvider: { candidate: { provider: 'test', account: null, model: 'test-model' }, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges: jest.fn() },
+        signal: new AbortController().signal,
+        progress: { foldStarted: jest.fn(), foldCompleted: jest.fn(), foldFailed: jest.fn() },
+      }).catch((error: unknown) => error);
+
+      expect(rejection).toBe(blocked);
+      expect(completeTurn).toHaveBeenCalledTimes(1);
+      expect(serializeSummaryRequest.mock.calls.filter(([request]) => request.systemPrompt.includes('6000 UTF-8 bytes'))).toHaveLength(0);
+      expect(readConversationCatalog(root, 'agent:planner:project').versions).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -18,7 +18,7 @@ import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
-import { conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult } from '../../schemas/index.js';
+import { conversationSessionIdentity, parseConversationSessionId, type RuntimeOwnedBlockedResult } from '../../schemas/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' | 'stopped' }>;
@@ -46,7 +46,7 @@ export class CardProcessActor extends BaseActor {
   #currentExecutingLlm: ConversationLLMActor | null = null;
   #executionOrdinal: number | null = null;
   #stagedResult: AcceptedNodeResult | null = null;
-  #stagedBlocked: ContentPolicyRefusalBlockedResult | null = null;
+  #stagedBlocked: RuntimeOwnedBlockedResult | null = null;
   #stagedFailure: Error | null = null;
   readonly #acceptedByNode = new Map<string, AcceptedNodeResult>();
   #activationSettled = false;
@@ -285,7 +285,7 @@ export class CardProcessActor extends BaseActor {
 
   #acceptNodeResult(sourceState: string, accepted: NodeExecutionResult): void {
     if (this.state() !== sourceState) throw new Error(`Node result for '${sourceState}' arrived in '${this.state()}'.`);
-    if (isContentPolicyBlocked(accepted)) {
+    if (isRuntimeOwnedBlocked(accepted)) {
       this.#stagedBlocked = accepted;
       this.sendEvent('execution:blocked');
       return;
@@ -330,7 +330,7 @@ export class CardProcessActor extends BaseActor {
       transition.semantic.cause === 'blocked'
     ) {
       if (!blocked || failure || accepted || terminal !== 'BLOCKED')
-        throw new Error(`BLOCKED terminal has invalid staged content-policy state.`);
+        throw new Error(`BLOCKED terminal has invalid staged runtime-owned state.`);
     } else {
       if (
         transition.semantic.kind !== 'configured-outcome' ||
@@ -433,6 +433,6 @@ export class CardProcessActor extends BaseActor {
   }
 }
 
-function isContentPolicyBlocked(result: import('./agent-node-execution.js').NodeExecutionResult): result is ContentPolicyRefusalBlockedResult {
-  return 'kind' in result && result.kind === 'content-policy-refusal';
+function isRuntimeOwnedBlocked(result: import('./agent-node-execution.js').NodeExecutionResult): result is RuntimeOwnedBlockedResult {
+  return 'kind' in result && (result.kind === 'content-policy-refusal' || result.kind === 'compaction-summary-blocked');
 }

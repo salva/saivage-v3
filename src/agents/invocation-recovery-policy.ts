@@ -1,4 +1,4 @@
-import { unwrapFailure } from '../contracts/llm-failure.js';
+import { isPromptPolicyRejection, unwrapFailure } from '../contracts/llm-failure.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
@@ -6,6 +6,8 @@ import type { AvailabilityDecision } from './candidate-availability.js';
 interface InvocationFailureContext {
   candidate: Candidate;
   recoveryDelayMs: number;
+  purpose: 'primary' | 'internal-summary';
+  promptPolicyRejections: number;
 }
 
 type InvocationFailureDecision =
@@ -28,6 +30,9 @@ class InvocationRecoveryPolicy {
 
   decideFailure(error: unknown, context: InvocationFailureContext): InvocationFailureDecision {
     const failure = this.classify(error);
+
+    if (context.purpose === 'internal-summary' && context.promptPolicyRejections === 0 && isPromptPolicyRejection(error))
+      return { kind: 'retry', wait: 'standard', retryDelayMs: 0 };
 
     switch (failure.kind) {
       case 'auth_permanent':

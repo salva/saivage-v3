@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { executeAdmittedTurn } from '../../src/application/invocation-service-provider.js';
+import { executeInternalSummaryTurn } from '../../src/application/invocation-service-provider.js';
 import { AdmissionIntegrityError, LocalExactAdmissionError, ordinaryAdmittedExecutionAuthority } from '../../src/agents/invocation-admission.js';
 import type { InvocationRequest, InvocationService } from '../../src/agents/invocation-service.js';
 import type { OrdinaryAdmittedExecution } from '../../src/agents/invocation-admission.js';
@@ -40,7 +40,7 @@ function admittedExecution(plan: ReturnType<typeof buildCandidateRequest>): Ordi
   });
 }
 
-describe('executeAdmittedTurn summary byte reuse', () => {
+describe('executeInternalSummaryTurn byte reuse', () => {
   it('sends the retained admitted request bytes and fails the integrity check when send-side bytes diverge', async () => {
     const input = summaryInput();
     const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
@@ -62,18 +62,18 @@ describe('executeAdmittedTurn summary byte reuse', () => {
         providerConversation: request.providerConversation,
         options: { inputId: request.inputId, temperature: 0, max_tokens: 2000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] },
       })),
-      executeAdmittedWithRecovery: async (admission: OrdinaryAdmittedExecution) => {
+      executeSummaryWithRecovery: async (admission: OrdinaryAdmittedExecution) => {
         sent.push([...admission.candidates].find((verdict) => verdict.kind === 'admitted')!.plan.request.serializedBody);
         return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
       },
     } as unknown as InvocationService;
 
-    await expect(executeAdmittedTurn(service, input, new AbortController().signal, plan.request.requestHash)).resolves.toMatchObject({ result: { kind: 'message', content: 'summary' } });
+    await expect(executeInternalSummaryTurn(service, input, new AbortController().signal, plan.request.requestHash)).resolves.toMatchObject({ result: { kind: 'message', content: 'summary' } });
     expect(sent).toHaveLength(1);
     expect(createHash('sha256').update(sent[0]!, 'utf8').digest('hex')).toBe(plan.request.requestHash);
 
-    await expect(executeAdmittedTurn(service, input, new AbortController().signal, 'f'.repeat(64))).rejects.toBeInstanceOf(AdmissionIntegrityError);
+    await expect(executeInternalSummaryTurn(service, input, new AbortController().signal, 'f'.repeat(64))).rejects.toBeInstanceOf(AdmissionIntegrityError);
     const rejecting = { ...service, preparePrimaryRequestAdmission: () => Object.freeze({ kind: 'local_admission_failed', routePass: { kind: 'ordinary' as const, candidateChain: [CANDIDATE] }, candidates: Object.freeze([]), bindings: Object.freeze({}) }) } as unknown as InvocationService;
-    await expect(executeAdmittedTurn(rejecting, input, new AbortController().signal)).rejects.toBeInstanceOf(LocalExactAdmissionError);
+    await expect(executeInternalSummaryTurn(rejecting, input, new AbortController().signal, plan.request.requestHash)).rejects.toBeInstanceOf(LocalExactAdmissionError);
   });
 });

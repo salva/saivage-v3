@@ -9,7 +9,7 @@ import { uuidV4Schema } from './version-index.js';
 export { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 
 export const cardVersionArtifactSchema = z.object({
-  format_version: z.literal(3),
+  format_version: z.literal(4),
   kind: z.literal('card-version'),
   entry_id: uuidV4Schema,
   card_id: cardIdSchema,
@@ -24,7 +24,7 @@ export const cardVersionArtifactSchema = z.object({
 });
 
 export const cardTombstoneArtifactSchema = z.object({
-  format_version: z.literal(3),
+  format_version: z.literal(4),
   kind: z.literal('card-tombstone'),
   entry_id: uuidV4Schema,
   card_id: nonRootCardIdSchema,

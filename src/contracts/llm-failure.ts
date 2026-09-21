@@ -24,6 +24,7 @@ export type LlmTransportFailure =
       message: string;
       status: number;
       bodyPreview?: string;
+      reason?: 'prompt_policy_rejection';
     }
   | {
       kind: 'capability_mismatch';
@@ -66,6 +67,14 @@ export class LlmRequestError extends Error {
     this.name = 'LlmRequestError';
     this.failure = failure;
   }
+}
+
+export function isPromptPolicyRejection(error: unknown): error is LlmRequestError & {
+  failure: Extract<LlmTransportFailure, { kind: 'provider_protocol_error' }> & { reason: 'prompt_policy_rejection' };
+} {
+  return error instanceof LlmRequestError &&
+    error.failure.kind === 'provider_protocol_error' &&
+    error.failure.reason === 'prompt_policy_rejection';
 }
 
 export function unwrapFailure(err: unknown): LlmTransportFailure {

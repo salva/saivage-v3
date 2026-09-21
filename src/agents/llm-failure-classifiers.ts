@@ -45,6 +45,8 @@ const CONTENT_POLICY_PHRASES = ['content policy', 'safety policy', 'safety refus
 const RATE_LIMIT_TOKENS = new Set(['rate_limit', 'rate_limit_exceeded', 'usage_limit_reached']);
 const TRANSIENT_TOKENS = new Set(['server_error', 'internal_server_error', 'service_unavailable', 'temporarily_unavailable', 'overloaded', 'server_is_overloaded']);
 const AUTH_TOKENS = new Set(['auth', 'authentication_error', 'unauthorized', 'forbidden', 'permission_denied']);
+const PROMPT_POLICY_REJECTION_TOKEN = 'invalid_prompt';
+const PROMPT_POLICY_REJECTION_PHRASE = 'your prompt was flagged as potentially violating our usage policy';
 
 function directText(error: Record<string, unknown>, key: 'code' | 'type' | 'message'): string | undefined {
   const value = error[key];
@@ -59,6 +61,13 @@ function hasContentPolicyEvidence(error: Record<string, unknown>): boolean {
   if (directToken(error, CONTENT_POLICY_TOKENS)) return true;
   const message = directText(error, 'message')?.toLowerCase();
   return message !== undefined && CONTENT_POLICY_PHRASES.some((phrase) => message.includes(phrase));
+}
+
+function hasPromptPolicyRejectionEvidence(error: Record<string, unknown>): boolean {
+  const marker = [directText(error, 'code'), directText(error, 'type')]
+    .some((value) => value?.toLowerCase() === PROMPT_POLICY_REJECTION_TOKEN);
+  const message = directText(error, 'message')?.toLowerCase();
+  return marker && message !== undefined && message.includes(PROMPT_POLICY_REJECTION_PHRASE);
 }
 
 type DirectProviderFailureSource =
@@ -94,6 +103,8 @@ export function classifyDirectProviderFailure(args: {
   if (context) return { kind: 'input_context_exhausted', provider, status: responseStatus, message: args.message };
   if (content) return { kind: 'content_policy', provider, status: responseStatus, message: args.message, providerResponse: args.providerResponse };
   if (responseStatus === 403 || embeddedStatus === 403 || (error !== undefined && directToken(error, AUTH_TOKENS))) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  if (source.kind === 'opened_response_terminal' && responseStatus === 200 && error !== undefined && hasPromptPolicyRejectionEvidence(error))
+    return { kind: 'provider_protocol_error', provider, status: responseStatus, message: args.message, bodyPreview: args.providerResponse.slice(0, 500), reason: 'prompt_policy_rejection' };
   return undefined;
 }
 

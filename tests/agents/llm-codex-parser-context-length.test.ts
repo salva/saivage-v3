@@ -46,6 +46,27 @@ describe('OpenAI Codex SSE error classification', () => {
     expect(failureFor({ type: 'error', error: { code: 'mystery', message: 'unknown' } })).toMatchObject({ kind: 'provider_protocol_error', status: 200 });
   });
 
+  it.each([
+    { type: 'error', error: { code: 'invalid_prompt', message: 'Your prompt was flagged as potentially violating our usage policy.' } },
+    { type: 'response.failed', response: { status: 'failed', error: { type: 'INVALID_PROMPT', message: 'YOUR PROMPT WAS FLAGGED AS POTENTIALLY VIOLATING OUR USAGE POLICY. Please revise it.' } } },
+  ])('retains typed prompt-policy evidence from the exact HTTP-200 incident signature: %#', (event) => {
+    expect(failureFor(event)).toMatchObject({
+      kind: 'provider_protocol_error',
+      provider: 'openai-codex',
+      status: 200,
+      reason: 'prompt_policy_rejection',
+    });
+  });
+
+  it.each([
+    { type: 'error', error: { code: 'invalid_prompt', message: 'plain invalid prompt' } },
+    { type: 'error', error: { message: 'Your prompt was flagged as potentially violating our usage policy.' } },
+    { type: 'error', error: { code: 'invalid_prompt', metadata: { message: 'Your prompt was flagged as potentially violating our usage policy.' } } },
+    { type: 'error', error: { code: 'invalid_prompt', message: 'Content policy: Your prompt was flagged as potentially violating our usage policy.' } },
+  ])('does not add prompt-policy evidence for incomplete, nested, or ambiguous signatures: %#', (event) => {
+    expect(failureFor(event)).not.toHaveProperty('reason');
+  });
+
   it('declines overflowing retry_after seconds without discarding explicit rate-limit evidence', () => {
     const failure = failureFor({ type: 'error', retry_after: Number.MAX_VALUE, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201);
     expect(failure).toMatchObject({ kind: 'rate_limit', status: 201 });

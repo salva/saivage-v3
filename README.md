@@ -89,12 +89,18 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 - Conversation compaction is model-aware (`context_utilization_fraction` 0.80,
   `trigger_fraction` 0.90, `tail_fraction` 0.25) with one contextual
-  sequential-refine accumulator inside a shared 16-logical-call bound; see the
+  sequential-refine accumulator inside a shared 16-logical-call bound. A narrowly
+  identified internal-summary policy flag gets one immediate identical retry;
+  persistent flagging blocks the owning card safely instead of continuing or
+  exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
   The conversation index/genesis/segment format is version 2 with strict
   protected-prompt declarations
   ([prompt contract](docs/architecture/prompts.md),
   [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
+  Card stream v5, artifact rows and Files wrappers at format 4 are a separate
+  reset-only adoption boundary; this source change does not authorize deployment
+  over retained history, retained-history conversion, reconstruction, or reset.
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)
   check by default; its only project effect is an evidenced notification.

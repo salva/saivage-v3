@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion,
 } from '../../../agents/llm-contracts.js';
-import { LlmRequestError } from '../../../contracts/llm-failure.js';
+import { isPromptPolicyRejection, LlmRequestError } from '../../../contracts/llm-failure.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
 } from '../../../contracts/provider-exchange.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
@@ -11,9 +11,11 @@ import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/provider-candidate.js';
 import type { EffectiveProviderCapabilities } from '../../../agents/provider-capabilities.js';
 import { usableInputTokens } from '../../../agents/context-budget.js';
+import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../schemas/index.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
 export const SUMMARY_OUTPUT_TARGET_BYTES = 12_000;
+export const SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE = COMPACTION_SUMMARY_BLOCKED_SUMMARY;
 
 const INTERNAL_SUMMARY_LABEL = 'internal-compaction-summary';
 
@@ -136,7 +138,19 @@ async function sendAdmittedSummaryRequest(args: {
     throwIfPublicationOutcomeUnknown(error);
     if (!(error instanceof ProviderTurnFailure)) throw error;
     projectSummaryExchanges(args.summarizerProvider, args.input, error.provider_exchanges);
+    if (isPromptPolicyRejection(error.originalFailure))
+      throw new SummaryPromptPolicyBlockedError(args.input.inputId, error.originalFailure);
     throw error;
+  }
+}
+
+export class SummaryPromptPolicyBlockedError extends Error {
+  readonly summaryInputId: string;
+
+  constructor(summaryInputId: string, cause: unknown) {
+    super(SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE, { cause });
+    this.name = 'SummaryPromptPolicyBlockedError';
+    this.summaryInputId = summaryInputId;
   }
 }
 

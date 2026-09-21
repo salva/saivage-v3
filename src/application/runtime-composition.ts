@@ -13,7 +13,7 @@ import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import {
   createInvocationServiceProvider,
-  executeAdmittedTurn,
+  executeInternalSummaryTurn,
 } from './invocation-service-provider.js';
 import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
@@ -143,7 +143,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     contextWindowTokens: summarizerCapabilities.contextWindowTokens,
     maxOutputTokens: summarizerCapabilities.maxOutputTokens,
     serializeSummaryRequest: summarizerSerializeRequest,
-    completeTurn: (input, admitted, signal) => executeAdmittedTurn(invocationService, input, signal, admitted.requestSha256),
+    completeTurn: (input, admitted, signal) => executeInternalSummaryTurn(invocationService, input, signal, admitted.requestSha256),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,

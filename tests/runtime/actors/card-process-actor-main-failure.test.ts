@@ -17,6 +17,9 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
+import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../src/schemas/index.js';
+import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -32,7 +35,7 @@ interface SupervisorInternals {
   launchStartedProject(launch: LaunchPlan): unknown;
 }
 
-function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })))) {
+function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))), compactor?: CompactorPort) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-main-failure-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
@@ -44,6 +47,7 @@ function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_i
   const supervisor = createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
+    ...(compactor ? { compactor } : {}),
     runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: cards,
@@ -96,6 +100,21 @@ function fatalNotificationSpy(supervisor: ReturnType<typeof createSupervisorRunt
 }
 
 describe('real CardProcess actor-main fatal containment', () => {
+  it('owns a summary prompt-policy block through the normal card terminal and cleanup path', async () => {
+    const complete = jest.fn(async () => { throw new Error('primary provider must not run'); });
+    const compact = jest.fn<CompactorPort['compact']>().mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW FLAG')));
+    const h = harness(scriptedAdmissionProvider(complete), { shouldCompact: () => true, compact });
+    const { owner, activation } = await launchCapturingActivation(h);
+
+    await expect(within(activation)).resolves.toEqual({ status: 'blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, result: { kind: 'compaction-summary-blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, session_id: 'agent:planner:project', summary_input_id: '00000000-0000-4000-8000-000000000099' } });
+    await expect(within(owner.settlement.promise)).resolves.toMatchObject({ status: 'blocked', result: { kind: 'compaction-summary-blocked' } });
+    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'blocked', error: COMPACTION_SUMMARY_BLOCKED_SUMMARY, completed_at: null, result: { kind: 'compaction-summary-blocked' } } });
+    expect(complete).not.toHaveBeenCalled();
+    expect(compact).toHaveBeenCalledTimes(1);
+    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.has('project')).toBe(false);
+    expect(h.supervisor.captureAutonomousExecutingLlmSnapshots()).toEqual(new Map());
+  });
+
   it('throws repeated activation synchronously without replacing the first activation', async () => {
     const h = harness();
     const { owner, activation, activationInput, activationSignal } = await launchCapturingActivation(h);
