@@ -10,7 +10,7 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
-import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
@@ -31,6 +31,11 @@ import type { WebSocket } from 'ws';
 import { toolFailed } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { canonicalJson } from '../../src/schemas/index.js';
+import { z } from 'zod';
+import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
+import { defineTool, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -413,6 +418,39 @@ describe('operator chat route request contracts', () => {
     });
     expect(response.body).not.toContain(marker);
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the retained real Analyst owner for HTTP failure followed by fresh-session settlement', async () => {
+    await fastify.close();
+    const failure = new Error('real Analyst invoked-tool failure');
+    const execute = jest.fn(async () => { throw failure; });
+    const tool = defineTool({ name: 'explode', description: 'Throw after one test effect.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: execute });
+    const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [] };
+    let providerCalls = 0;
+    const provider = scriptedAdmissionProvider(jest.fn(async (): Promise<ProviderTurnCompletion> => {
+      providerCalls += 1;
+      if (providerCalls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'http-call', type: 'function', function: { name: 'explode', arguments: '{}' } }] }, provider_exchanges: [] };
+      return { result: { kind: 'message', content: 'fresh response' }, provider_exchanges: [] };
+    }));
+    const session = new AnalystSession({
+      cardTypeVocabulary: ['project'], fatalPort: testApplicationFatalPort, sessionId: 'agent:analyst:global', agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true }, candidateChain: [{ provider: 'test', account: null, model: 'test-model' }], routeUsableInputTokens: 80_000, promptTemplates: { render: () => 'Saivage Analyst' }, restartCapability: { available: false }, provider, conversations: { projectRoot }, compactionPolicy: testCompactionPolicy, compactor: { shouldCompact: () => false, compact: async () => { throw new Error('unexpected compaction'); } }, summarizerProvider: unusedSummarizerProvider, cardStore: new CardService(projectRoot), runtimeCurrent: () => ({ status: 'stopped', currentCardId: null }), runtimeProjectionChanged() {}, createInvocationSurface: () => surface, shutdownProcesses: async () => {},
+    });
+    const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => ['explode'], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
+    fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore: new CardService(projectRoot) } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    await fastify.ready();
+
+    const first = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'first' } });
+    expect(first.statusCode).toBe(500);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(readConversation(projectRoot, 'agent:analyst:global').unmatchedCall?.toolCallId).toBe('http-call');
+
+    const second = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'second' } });
+    expect(second.statusCode).toBe(200);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(providerCalls).toBe(2);
+    const rows = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
+    expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'http-call')).toHaveLength(1);
   });
 
   it('maps only typed Analyst overlap to the exact content-free 409 contract', async () => {

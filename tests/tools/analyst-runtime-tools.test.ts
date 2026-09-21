@@ -48,9 +48,13 @@ describe('analyst runtime tools', () => {
   });
 
   it('delegates Pause, Resume, and Stop without arguments and preserves status results', async () => {
-    const paused = controlContext({ getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })) });
+    const pauseStatus = jest.fn()
+      .mockReturnValueOnce({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })
+      .mockReturnValueOnce({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' });
+    const paused = controlContext({ getStatus: pauseStatus });
     await expect(pause_runtime(paused, {})).resolves.toEqual({ kind: 'succeeded', data: { status: 'paused' } });
     expect(paused.runtime!.pause).toHaveBeenCalledWith();
+    expect(pauseStatus).toHaveBeenCalledTimes(2);
 
     const getStatus = jest.fn()
       .mockReturnValueOnce({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })
@@ -63,6 +67,49 @@ describe('analyst runtime tools', () => {
     const stopped = controlContext();
     await expect(stop_project(stopped, {})).resolves.toEqual({ kind: 'succeeded', data: { status: 'stopped', contained: true } });
     expect(stopped.runtime!.stopProject).toHaveBeenCalledWith();
+  });
+
+  it.each([
+    { label: 'pause', invoke: pause_runtime, status: 'stopped' as const, reason: 'start_project' },
+    { label: 'pause', invoke: pause_runtime, status: 'paused' as const, reason: 'only available while the runtime is running' },
+    { label: 'resume', invoke: resume_runtime, status: 'stopped' as const, reason: 'start_project' },
+    { label: 'resume', invoke: resume_runtime, status: 'running' as const, reason: 'only available for paused execution' },
+  ])('returns an ordinary $label denial from $status', async ({ invoke, status, reason }) => {
+    const context = controlContext({ getStatus: jest.fn(() => ({ status, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })) });
+    await expect(invoke(context, {})).resolves.toEqual({
+      kind: 'failed',
+      error: expect.stringContaining(reason),
+      data: { runtime_status: status },
+    });
+    expect(context.runtime!.pause).not.toHaveBeenCalled();
+    expect(context.runtime!.resume).not.toHaveBeenCalled();
+  });
+
+  it('keeps Supervisor invariant failures strict after successful Pause and Resume admission', async () => {
+    const pauseFailure = new Error('pause invariant');
+    const pausing = controlContext({ pause: jest.fn(() => { throw pauseFailure; }) });
+    await expect(pause_runtime(pausing, {})).rejects.toBe(pauseFailure);
+
+    const resumeFailure = new Error('resume invariant');
+    const resuming = controlContext({
+      getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
+      resume: jest.fn(() => { throw resumeFailure; }),
+    });
+    await expect(resume_runtime(resuming, {})).rejects.toBe(resumeFailure);
+  });
+
+  it('unconditionally delegates Stop and preserves stopped/no-live and retained halt failures', async () => {
+    const noLive = controlContext({
+      getStatus: jest.fn(() => ({ status: 'closing', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
+      stopProject: jest.fn(async () => ({ status: 'stopped', contained: false })),
+    });
+    await expect(stop_project(noLive, {})).resolves.toEqual({ kind: 'succeeded', data: { status: 'stopped', contained: false } });
+    expect(noLive.runtime.stopProject).toHaveBeenCalledTimes(1);
+    expect(noLive.runtime.getStatus).not.toHaveBeenCalled();
+
+    const retained = new Error('retained halt failure');
+    const failed = controlContext({ stopProject: jest.fn(async () => { throw retained; }) });
+    await expect(stop_project(failed, {})).rejects.toBe(retained);
   });
 
   it('does not delegate Resume while runtime status is error', async () => {

@@ -8,6 +8,7 @@ import { appendConversationBatch, initializeMissingConversation, readCurrentConv
 import { globalAgentConversationVersionFile } from '../../src/persistence/layout.js';
 import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 
 const SESSION = 'agent:analyst:global' as const;
 const OVERSIGHT_SESSION = 'agent:oversight:global' as const;
@@ -26,6 +27,25 @@ describe('configured selected-global runtime validation', () => {
     const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'workspace', 'question'));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); const before = readFileSync(path);
     validateConfiguredGlobalConversation(root, SESSION);
+    expect(readFileSync(path)).toEqual(before);
+  });
+
+  it('rejects a strict-valid sole final unmatched global call with bytes unchanged', () => {
+    const root = projectRoot();
+    const inputId = '11111111-1111-4111-8111-111111111111';
+    const ingress = buildAnalystIngressRows(SESSION, inputId, 'workspace', 'question');
+    appendConversationBatch({ projectRoot: root }, ingress);
+    appendConversationBatch({ projectRoot: root }, [{
+      id: `${inputId}:tool-call:call-startup`, session_id: SESSION, role: 'assistant', kind: 'tool_call',
+      tool: 'resume_runtime', tool_call_id: 'call-startup', context_policy: toolCallRowPolicy(),
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-startup', type: 'function', function: { name: 'resume_runtime', arguments: '{}' } }] }),
+      round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[2].timestamp,
+    }]);
+    const segment = readCurrentConversationSegment(root, SESSION)!;
+    const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
+    const before = readFileSync(path);
+
+    expect(() => validateConfiguredGlobalConversation(root, SESSION)).toThrow(/ends in an unmatched tool call/);
     expect(readFileSync(path)).toEqual(before);
   });
 

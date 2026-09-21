@@ -16,14 +16,27 @@ export async function start_project(ctx: ToolContext, _params: Record<string, ne
 }
 
 export async function pause_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
-  ctx.runtime.pause();
   const state = ctx.runtime.getStatus();
-  return toolSucceeded({ status: state.status });
+  if (state.status !== 'running') return toolFailure(
+    state.status === 'stopped'
+      ? 'Runtime is stopped. Use start_project to start it; Pause is only available while the runtime is running.'
+      : `Cannot pause runtime from '${state.status}'. Pause is only available while the runtime is running.`,
+    { runtime_status: state.status },
+  );
+  ctx.runtime.pause();
+  const updated = ctx.runtime.getStatus();
+  return toolSucceeded({ status: updated.status });
 }
 
 export async function resume_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   const state = ctx.runtime.getStatus();
   if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug Errors and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
+  if (state.status !== 'paused') return toolFailure(
+    state.status === 'stopped'
+      ? 'Runtime is stopped. Use start_project to start it; Resume is only available for paused execution.'
+      : `Cannot resume runtime from '${state.status}'. Resume is only available for paused execution.`,
+    { runtime_status: state.status },
+  );
   ctx.runtime.resume();
   const updated = ctx.runtime.getStatus();
   return toolSucceeded({ status: updated.status });

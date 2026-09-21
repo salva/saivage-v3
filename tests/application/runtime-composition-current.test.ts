@@ -177,6 +177,47 @@ describe('current runtime composition', () => {
     ]);
   });
 
+  it('keeps stopped Pause and Resume as settled Analyst failures before Start on the real Supervisor', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-composition-stopped-tools-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const config = TEST_SAIVAGE_CONFIG;
+    const registry = new ProviderRegistry(config);
+    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
+    const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
+    const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
+    const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
+    let analystCalls = 0;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (request, init) => {
+      const body = String(init?.body ?? (request instanceof Request ? await request.clone().text() : ''));
+      if (body.includes('Saivage Analyst')) {
+        analystCalls += 1;
+        if (analystCalls === 1) return toolCalls({ id: 'resume-stopped', name: 'resume_runtime' });
+        if (analystCalls === 2) return toolCalls({ id: 'pause-stopped', name: 'pause_runtime' });
+        if (analystCalls === 3) return toolCalls({ id: 'start-stopped', name: 'start_project' });
+        return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'started' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
+      return await new Promise<Response>((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const app = createRuntimeApplication({ projectRoot, processIdentity: { pid: 42, startedAt: '2026-09-21T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner, runtimeProcessRootScope: runtimeRoot, analystProcessRootScope: analystRoot, mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
+    await app.runtimeApi.start();
+
+    const response = await app.analystRuntime.submit({ userContent: 'recover from stopped state' });
+    expect(response.toolInvocations?.map(({ tool, result }) => ({ tool, result }))).toEqual([
+      { tool: 'resume_runtime', result: expect.objectContaining({ success: false, data: { runtime_status: 'stopped' } }) },
+      { tool: 'pause_runtime', result: expect.objectContaining({ success: false, data: { runtime_status: 'stopped' } }) },
+      { tool: 'start_project', result: expect.objectContaining({ success: true }) },
+    ]);
+    expect(analystCalls).toBe(4);
+    expect(app.runtimeApi.getStatus().status).toBe('running');
+
+    app.closeRuntimeAdmission(); app.closeAnalystAdmission(); app.closeOversightAdmission(); processRunner.closeLaunchAdmission();
+    await Promise.all([app.cleanupRuntimeForApplicationStop(), app.cleanupAnalystForApplicationStop(), app.cleanupOversightForApplicationStop()]);
+  });
+
   it('captures an instantiated Analyst session without constructing Analyst runtime on a read', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-composition-capture-'));
     roots.push(projectRoot);

@@ -11,7 +11,7 @@ import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationP
 } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,
 } from '../runtime/actors/llm-actor.js';
-import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
+import { appendProviderVisibleSyntheticFailedToolResult, buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
 } from '../persistence/conversation-file.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
@@ -102,6 +102,7 @@ type AnalystTurnStep =
   | { kind: 'nested'; input: CanonicalLlmInvocationInput }
   | { kind: 'waiting_tool'; input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>;
     }
+  | { kind: 'fatal_tool_invocation' }
   | { kind: 'confirmed_restart_preparing' }
   | { kind: 'confirmed_restart_publishing'; request: { kind: 'dispose'; reason: unknown } | null;
     }
@@ -129,6 +130,10 @@ type AnalystSessionPhase =
 
 class RecoverablePreparationError extends Error {
   constructor(readonly causeValue: unknown) { super('Analyst pure preparation failed.', { cause: causeValue }); }
+}
+
+class AbandonedToolInvocationError extends Error {
+  constructor(readonly causeValue: unknown) { super('Analyst tool invocation escaped.', { cause: causeValue }); }
 }
 
 export class AnalystTurnBusyError extends Error {
@@ -251,6 +256,7 @@ export class AnalystSession {
     }
     const preparedInput = this.prepareInvocationInput(surface);
     this.assertCurrent(operation, signal);
+    this.settlePriorFinalCallForSubmission();
     operation.step = { kind: 'starting', ingress: 'publishing' };
     appendConversationBatch(
       this.#conversations,
@@ -326,13 +332,22 @@ export class AnalystSession {
       } else {
         params = parsed.args;
         operation.toolInFlight = outcome.toolName;
-        settlement = await invokeToolForLlm(
-          surface,
-          outcome.toolName,
-          parsed.args,
-          this.#llm.toolInvocationContext(outcome),
-          signal,
-        );
+        try {
+          settlement = await invokeToolForLlm(
+            surface,
+            outcome.toolName,
+            parsed.args,
+            this.#llm.toolInvocationContext(outcome),
+            signal,
+          );
+        } catch (error) {
+          if (this.ownedDisposal(operation)?.reason === error) throw error;
+          if (error instanceof PublicationOutcomeUnknownError) {
+            operation.step = { kind: 'fatal_tool_invocation' };
+            throw error;
+          }
+          throw new AbandonedToolInvocationError(error);
+        }
         operation.toolInFlight = null;
         if (signal.aborted || (this.#phase.kind === 'disposed' && this.#phase.settling === operation)) {
           const settled = await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
@@ -388,6 +403,27 @@ export class AnalystSession {
     this.#restartCapability.port.schedule();
     operation.restartConfirmation = null;
     return this.response(operation, { status: 'scheduled' });
+  }
+
+  private settlePriorFinalCallForSubmission(): void {
+    const call = readConversation(this.#conversations.projectRoot, this.#sessionId).unmatchedCall;
+    if (!call) return;
+    const message = call.message;
+    if (message.kind !== 'tool_call' || message.context_policy.kind !== 'tool_call' || !message.tool || !message.tool_call_id || message.tool !== call.toolName || message.tool_call_id !== call.toolCallId)
+      throw new Error(`Unmatched tool call '${message.id}' is missing its tool identity or tool_call context policy.`);
+    appendProviderVisibleSyntheticFailedToolResult(this.#conversations, {
+      sessionId: this.#sessionId,
+      sourceInputId: call.sourceInputId,
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      error: 'Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.',
+      data: { outcome_unknown: true },
+      resultPolicy: Object.freeze({
+        resultPolicyTemplate: message.context_policy.template,
+        resultPolicyTemplateBytes: message.context_policy.template_bytes,
+        resultPolicyTemplateSha256: message.context_policy.template_sha256,
+      }),
+    });
   }
 
   private terminalHandoff(operation: AnalystTurnOperation): LlmTerminalHandoff {
@@ -594,11 +630,11 @@ export class AnalystSession {
       else this.#phase = { kind: 'idle', restartConfirmation: confirmation };
       operation.caller.resolve(response);
     } else if (
-      finalFailure instanceof RecoverablePreparationError &&
+      (finalFailure instanceof RecoverablePreparationError || finalFailure instanceof AbandonedToolInvocationError) &&
       !cleanupFailure &&
       !disposed
     ) {
-      this.#phase = { kind: 'idle', restartConfirmation: operation.restartConfirmation };
+      this.#phase = { kind: 'idle', restartConfirmation: finalFailure instanceof AbandonedToolInvocationError ? null : operation.restartConfirmation };
       operation.caller.reject(asError(finalFailure.causeValue));
     } else {
       if (disposedPhase) disposedPhase.settling = null;
