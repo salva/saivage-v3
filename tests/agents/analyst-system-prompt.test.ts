@@ -5,12 +5,11 @@ import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-reg
 import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
 
 describe('analyst workspace-context prompt contract', () => {
-  it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
+  it('includes the referent-resolution rules in the rendered system prompt', () => {
     const prompt = createTestPromptTemplateRegistry().render({kind:'global-agent'}, 'analyst', {
       vocabularySnippet: formatVocabularySnippet(['project','goal','architecture','code','test','doc','data','research','ops']),
     });
-    expect(prompt).toContain('Resolve deictic phrases');
-    expect(prompt).toContain('workspace context');
+    expect(prompt).toContain('Resolve referents from the immediate conversation and the per-turn [workspace-context] header');
     expect(prompt).toContain('none — no entity is currently in focus');
     expect(prompt).toContain('ask exactly one clarifying question');
     expect(prompt).toContain('reopening done, failed, or blocked cards to changed without editing content');

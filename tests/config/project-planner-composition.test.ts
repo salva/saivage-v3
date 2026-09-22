@@ -61,6 +61,21 @@ function transition(process: CompiledCardTypeWorkflow, source: string, outcome: 
   return rendered.map(({content})=>content).join('');
 }
 
+function pendingNotificationTransition(process: CompiledCardTypeWorkflow): string {
+  const node = requireNode(process, 'review');
+  const cardId = process.cardType === 'project' ? 'project' : 'card-a';
+  const result = Object.freeze({
+    ...accepted(node, 'approved', cardId),
+    event: 'result:approved:pending-notifications',
+  });
+  const rendered = transitionRenderer.transitionContext(process, {
+    context: { source: 'node:review', event: result.event, target: 'node:handle-notifications' },
+    acceptedResult: result,
+  } as NodeTransition);
+  if (!rendered.length) throw new Error(`Missing ${process.cardType} accepted-review notification transition context.`);
+  return rendered.map(({content})=>content).join('');
+}
+
 function stoppedTransition(process: CompiledCardTypeWorkflow): string {
   const rendered = transitionRenderer.transitionContext(process, {
     context: { source: 'entry:STOPPED', event: 'entry:route', target: 'node:recover' },
@@ -72,7 +87,7 @@ function stoppedTransition(process: CompiledCardTypeWorkflow): string {
 
 function routePrompt(process: CompiledCardTypeWorkflow, source: string, event: string): string {
   const route = process.states.get(source)?.on.get(event);
-  if (!route || (route.semantic.kind !== 'entry-route' && route.semantic.kind !== 'configured-outcome') || !route.semantic.prompt)
+  if (!route || (route.semantic.kind !== 'entry-route' && route.semantic.kind !== 'configured-outcome' && route.semantic.kind !== 'configured-pending-notifications') || !route.semantic.prompt)
     throw new Error(`Missing prompt-bearing route ${process.cardType}/${source}/${event}.`);
   return requirePrompt(process, route.semantic.prompt.promptId);
 }
@@ -159,8 +174,9 @@ describe('shipped project Planner semantic composition', () => {
       expect(node.agent.name).toBe('project-planner');
       expect(node.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
       expect(node.agent.tools.map(({ name }) => name)).toContain('reopen_card');
-      const rendered = registry.render({ kind: 'workflow-agent', cardType: 'project' }, node.agent.name, { contractDescription: describeNodeResultContract(project, `node:${nodeId}`) });
-      expect(rendered).toContain('Use `reopen_card` only for a done or failed direct child');
+      const contract = describeNodeResultContract(project, `node:${nodeId}`);
+      const rendered = registry.render({ kind: 'workflow-agent', cardType: 'project' }, node.agent.name, { contractDescription: contract });
+      expect(rendered.split(contract)).toHaveLength(2);
     }
 
     const goal = workflows.cardTypes.get('goal')!;
@@ -212,11 +228,18 @@ describe('shipped project Planner semantic composition', () => {
       expect(reviewRevision).toContain('Previous process node: review\nAccepted outcome: revision_required');
       expect(reviewRevision).toContain(`record:///review.md?card=${cardId}&v=2`);
       expect(reviewRevision.endsWith(routePrompt(process, 'node:review', 'result:revision_required'))).toBe(true);
-      if (templateName === 'classic-typed') {
-        expect(requirePrompt(process, plan.prompt.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
-        expect(requirePrompt(process, recover.node.prompt.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
+      const notificationHandoff = pendingNotificationTransition(process);
+      expect(notificationHandoff).toContain('Previous process node: review\nAccepted outcome: approved');
+      expect(notificationHandoff).toContain('Summary: review evidence retained');
+      expect(notificationHandoff).toContain(`record:///review.md?card=${cardId}&v=2`);
+      expect(notificationHandoff.endsWith(routePrompt(process, 'node:review', 'result:approved:pending-notifications'))).toBe(true);
+      const handler = requireNode(process, 'handle-notifications');
+      const handlerPrompt = process.processPrompts.get(handler.prompt.promptId)!;
+      expect(handlerPrompt.text).toBe(readFileSync(handlerPrompt.path, 'utf8').replaceAll('{{cardType}}', cardType));
+      expect(processNodeOutcomes(process, 'node:handle-notifications')).toEqual(['admit_review', 'blocked', 'failed']);
+      expect(processNodeOutcomes(process, 'node:handle-notifications')).not.toContain('complete_direct');
+      if (templateName === 'classic-typed')
         expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
-      }
       expect(requirePrompt(process, plan.correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(plan.correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
     }
 
