@@ -460,7 +460,7 @@ describe('FilesView', () => {
     });
 
     expect(wrapper.find('[data-testid="files-status-banner"]').text())
-      .toContain('API access is unauthorized');
+      .toContain('this browser is not authorized for the operator API');
     expect(wrapper.text()).toContain('public docs at /docs/ remain available');
   });
 

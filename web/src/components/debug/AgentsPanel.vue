@@ -27,7 +27,7 @@
         v-else-if="sessionsUnauthorized"
         state="unauthorized"
         title="Agent sessions unavailable"
-        message="Provide a valid API token to load agent sessions."
+        message="This browser is not authorized for the operator API, so cross-card agent sessions cannot be loaded."
       />
       <ViewState
         v-else-if="sessionsError"

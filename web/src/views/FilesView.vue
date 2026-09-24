@@ -4,7 +4,7 @@
       v-if="isStale || unauthorized"
       class="files-status-banner"
       :tone="unauthorized ? 'unauthorized' : 'stale'"
-      :message="unauthorized ? 'API access is unauthorized. Re-enter a valid token to browse files; public docs at /docs/ remain available.' : 'File listing may be stale. Refresh to resync with the authoritative REST snapshot.'"
+      :message="unauthorized ? 'Files are unavailable: this browser is not authorized for the operator API. Public docs at /docs/ remain available.' : 'File listing may be stale. Refresh to resync with the authoritative REST snapshot.'"
       data-testid="files-status-banner"
     />
 

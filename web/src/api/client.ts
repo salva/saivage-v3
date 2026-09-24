@@ -2,8 +2,9 @@
  * Saivage v3 API Client
  *
  * Typed fetch wrappers for all REST endpoints documented in docs/spec/system-specification.md.
- * Auth token comes from localStorage ('saivage_api_token'), falling back to
- * VITE_SAIVAGE_API_TOKEN from import.meta.env. URL query tokens are ignored.
+ * The bearer token comes from operator-set browser configuration
+ * (localStorage 'saivage_api_token' or VITE_SAIVAGE_API_TOKEN); there is no
+ * token entry UI. URL query tokens are ignored.
  */
 
 import type {

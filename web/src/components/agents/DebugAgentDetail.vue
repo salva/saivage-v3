@@ -31,10 +31,10 @@
       <StatusBanner v-if="sessionSummaryRefreshError" tone="warning" :message="sessionSummaryRefreshError" />
       <StatusBanner v-if="sessionSummaryRefreshing" tone="stale" message="Refreshing session status…" />
       <StatusBanner v-if="sessionSummaryLoading && !currentSession" tone="stale" message="Loading session status…" />
-      <StatusBanner v-else-if="sessionSummaryUnauthorized && !currentSession" tone="warning" message="Session status unavailable: provide a valid API token." />
+      <StatusBanner v-else-if="sessionSummaryUnauthorized && !currentSession" tone="warning" message="Session status unavailable: this browser is not authorized for the operator API." />
       <StatusBanner v-else-if="sessionSummaryError && !currentSession" tone="warning" :message="sessionSummaryError" />
       <ViewState v-if="conversationLoading" state="loading" title="Loading agent conversation..." />
-      <ViewState v-else-if="conversationUnauthorized && conversationError" state="unauthorized" title="Conversation unavailable" message="Provide a valid API token to load this conversation." />
+      <ViewState v-else-if="conversationUnauthorized && conversationError" state="unauthorized" title="Conversation unavailable" message="This browser is not authorized for the operator API, so the conversation cannot be loaded." />
       <ViewState v-else-if="conversationError" state="error" title="Failed to load" :message="conversationError" />
       <RetainedInstructionContext v-else :context="conversationSegmentContext" />
       <div
