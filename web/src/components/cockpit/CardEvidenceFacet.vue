@@ -73,7 +73,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import type { CardHistoryHeader, CardRecordDescriptor } from '../../api/types';
+import type { CardHistoryHeader } from '../../api/types';
 import type { ConversationSessionId } from '../../api/contracts';
 import { listCardHistory, listRecordHistory, listAgentConversationVersions } from '../../api/client';
 import { useCardStore } from '../../stores/cards';

@@ -1,7 +1,6 @@
 import type {
   RuntimeState,
   RuntimeStatus,
-  RuntimeStatusResponse,
   ServerAvailability,
   WsConnectionState,
 } from '../api/types';

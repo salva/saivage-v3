@@ -3,7 +3,6 @@ export {
   parseOperatorResponse,
   ProcessViewSchema,
   DebugGraphsResponseSchema,
-  AgentSessionSummarySchema,
   AnalystTurnBusyErrorSchema,
   CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';

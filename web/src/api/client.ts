@@ -365,7 +365,7 @@ export function getMcpTools(): Promise<McpToolsResponse> {
   return operatorRequest('mcp.tools');
 }
 
-export interface EventsQueryOptions {
+interface EventsQueryOptions {
   kind?: string;
   cardId?: string;
   selection?: 'oldest_page' | 'newest_tail';

@@ -30,9 +30,7 @@
 </template>
 
 <script setup lang="ts">
-import type { DebugErrorItem } from '../../stores/debug-read-model';
-
-export interface ErrorSourceEntry { source: string; errors: DebugErrorItem[] }
+import type { DebugErrorItem, ErrorSourceEntry } from '../../stores/debug-read-model';
 import { formatRecentTimestamp } from '../../utils/timestamp';
 import CodeBlock from '../content/CodeBlock.vue';
 import ViewState from '../ui/ViewState.vue';

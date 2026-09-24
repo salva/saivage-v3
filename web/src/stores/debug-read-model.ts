@@ -3,6 +3,8 @@ import type { DebugErrorRecord, ProcessView, RuntimeStatus } from '../api/types'
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectRuntimeModeLabel, selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
 
+export interface ErrorSourceEntry { source: string; errors: DebugErrorItem[] }
+
 export interface DebugErrorItem {
   id: string;
   source: string;
