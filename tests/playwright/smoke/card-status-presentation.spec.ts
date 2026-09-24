@@ -100,10 +100,6 @@ function treeRow(page: Page, title: string): Locator {
   return page.locator('.tree-node').filter({ has: page.locator('.node-title').filter({ hasText: new RegExp(`^${title}$`) }) });
 }
 
-function dashboardRow(page: Page, title: string): Locator {
-  return page.getByTestId('child-of-goal-item').filter({ has: page.locator('.title').filter({ hasText: new RegExp(`^${title}$`) }) });
-}
-
 async function resolvedBackground(page: Page, value: string): Promise<string> {
   return page.evaluate((backgroundColor) => {
     const element = document.createElement('span');
@@ -174,7 +170,7 @@ test('stopped card presentation is purple and unringed across tree, detail, and 
 
   await treeRow(page, childTitles[0]!).click();
   await expect(page).toHaveURL(`/cards/${stoppedId}`);
-  const detailBadge = page.getByTestId('card-detail-highlight').locator('.status-badge');
+  const detailBadge = page.locator('.card-flow-header .status-badge');
   const detailDot = detailBadge.locator('.status-badge__dot');
   await expect(detailBadge).toHaveClass(/tone-success/);
   await expect(detailDot).toHaveClass(/status-badge__dot--stopped/);
@@ -184,25 +180,13 @@ test('stopped card presentation is purple and unringed across tree, detail, and 
   await expect(detailDot).toHaveCSS('height', '6px');
   await expectPaintFits(detailDot, detailBadge);
 
-  await page.locator('nav[aria-label="Primary navigation"] .nav-item-link').filter({ has: page.locator('.nav-label').filter({ hasText: /^Dashboard$/ }) }).click();
-  await expect(page).toHaveURL('/dashboard');
-  await expect(page.getByTestId('route-dashboard')).toBeVisible();
+  await page.goBack();
+  await treeRow(page, 'Representative status goal').click();
+  await expect(page).toHaveURL(`/cards/${goalId}`);
+  const overviewList = page.getByTestId('overview-children');
+  await expect(overviewList.locator('a')).toHaveText(childTitles);
+  await expect(overviewList.locator('.overview-card-status')).toHaveText(['stopped', 'running', 'done', 'cancelled']);
+  const stoppedChildStatus = overviewList.locator('li').filter({ has: page.getByRole('link', { name: childTitles[0]!, exact: true }) }).locator('.overview-card-status');
+  await expect(stoppedChildStatus).toHaveText('stopped');
   expect(requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`)).toHaveLength(1);
-
-  const list = page.getByTestId('child-of-goal-list');
-  await expect(list.getByTestId('child-of-goal-item').locator('.title')).toHaveText(childTitles);
-  const stoppedBadge = dashboardRow(page, childTitles[0]!).locator('.status-badge');
-  const stoppedDot = stoppedBadge.locator('.status-badge__dot');
-  await expect(stoppedBadge).toHaveClass(/tone-success/);
-  await expect(stoppedDot).toHaveClass(/status-badge__dot--stopped/);
-  await expect(stoppedDot).toHaveCSS('background-color', expectedStopped);
-  await expect(stoppedDot).toHaveCSS('box-shadow', 'none');
-  for (const title of childTitles.slice(1)) await expect(dashboardRow(page, title).locator('.status-badge__dot')).toHaveCount(0);
-  await expect(dashboardRow(page, childTitles[2]!).locator('.status-badge')).toHaveClass(/tone-success/);
-  await expect(dashboardRow(page, childTitles[3]!).locator('.status-badge')).toHaveClass(/tone-neutral/);
-  await expectPaintFits(stoppedDot, stoppedBadge);
-
-  const badgeHeights = await list.locator('.status-badge').evaluateAll((badges) => badges.map((badge) => badge.getBoundingClientRect().height));
-  expect(Math.max(...badgeHeights) - Math.min(...badgeHeights)).toBeLessThanOrEqual(1);
-  expect(await list.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 });

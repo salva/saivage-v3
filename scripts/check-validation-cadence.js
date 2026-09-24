@@ -49,8 +49,8 @@ const REQUIRED_VALIDATION_SCRIPTS = [
   },
   {
     name: 'web:test:operator-smoke',
-    mustInclude: ['operator-dashboard-smoke.test.ts'],
-    description: 'direct operator-dashboard smoke guard',
+    mustInclude: ['operator-cockpit-smoke.test.ts'],
+    description: 'direct operator-cockpit smoke guard',
   },
   {
     name: 'audit:root',

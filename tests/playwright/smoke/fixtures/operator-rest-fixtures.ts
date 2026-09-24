@@ -214,6 +214,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('runtime.contentPolicy', 200, { refusal_high_water: 0, latest: null }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
+    if (request.method() === 'GET' && url.pathname === '/api/cards/project') return json(route, parseOperatorResponse('cards.get', 200, { card: { ...smokeOperatorCard, id: 'project', type: 'project', title: 'Synthetic Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null } } }));
+    if (request.method() === 'GET' && url.pathname === '/api/cards/project/agent-sessions') {
+      return json(route, parseOperatorResponse('agents.cardSessions', 200, {
+        card_id: 'project',
+        sessions: sessions.filter((session) => session.card_id === 'project'),
+      }));
+    }
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchyCard, children: [] }));
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}`) return json(route, cardDetail);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/records`) return json(route, recordList);

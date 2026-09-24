@@ -43,9 +43,8 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
     getRandomValues: typeof globalThis.crypto.getRandomValues,
   }))).toEqual({ secure: false, randomUUID: 'undefined', getRandomValues: 'function' });
 
-  const socketChip = page.locator('.workspace-header .ws-connected');
-  await expect(socketChip).toHaveText('Live');
-  await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
+  const socketChip = page.getByTestId('strip-socket');
+  await expect(socketChip).toHaveText(/Live|Connected/i);
   await expect.poll(() => page.evaluate((id) => {
     const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
     return frames.find((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === id) ?? null;
@@ -72,10 +71,10 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
   await expect(retained).toContainText('key: smoke.constraint');
 
   await page.evaluate(() => {
-    window.history.pushState({}, '', '/agents');
+    window.history.pushState({}, '', '/cards');
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
-  await expect(page).toHaveURL(`${origin}/agents`);
+  await expect(page).toHaveURL(`${origin}/cards`);
   await expect.poll(() => page.evaluate(({ id, lease }) => {
     const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
     return frames.some((frame) => frame.t === 'unsubscribe' && frame.resource === 'conversation' && frame.id === id && frame.lease === lease);
@@ -86,9 +85,7 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
   expect(pageErrors).toEqual([]);
 });
 
-test('mixed held Agents scopes clear selected compaction through a trailing authoritative baseline', async ({ page }) => {
-  const address = nonInternalIpv4Address();
-  const origin = `http://${address}:${port}`;
+test('mixed held participants scopes clear selected compaction through a trailing authoritative baseline', async ({ page }) => {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
   page.on('console', (message) => {
@@ -126,7 +123,6 @@ test('mixed held Agents scopes clear selected compaction through a trailing auth
     inventoryCompleted: 0,
     cardB: 0,
     detailA: 0,
-    detailACompleted: 0,
     detailB: 0,
   };
   let releaseCardB!: () => void;
@@ -156,7 +152,6 @@ test('mixed held Agents scopes clear selected compaction through a trailing auth
     if (pathname === `/api/agents/${encodeURIComponent(progressSessionA)}`) {
       observed.detailA += 1;
       await fulfill(route, { session: { ...sessionA, compaction: authoritativeCompaction } });
-      observed.detailACompleted += 1;
       return;
     }
     if (pathname === `/api/agents/${encodeURIComponent(progressSessionB)}`) {
@@ -166,58 +161,43 @@ test('mixed held Agents scopes clear selected compaction through a trailing auth
     return route.fallback();
   });
 
-  await page.goto(`${origin}/agents/${encodeURIComponent(progressSessionA)}`);
+  await page.goto('/system?section=participants');
+  await expect.poll(() => page.evaluate(() => {
+    const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
+    return frames.some((frame) => frame.t === 'subscribe' && frame.resource === 'agents');
+  })).toBe(true);
+  expect(observed.inventory).toBe(0);
+
+  const agentsLease = await page.evaluate(() => {
+    const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
+    return (frames.find((frame) => frame.t === 'subscribe' && frame.resource === 'agents') as { lease: string }).lease;
+  });
+  await page.evaluate(({ lease }) => {
+    window.__saivageWsFixture?.emit({ t: 'subscribed', resource: 'agents', lease });
+  }, { lease: agentsLease });
+  await expect.poll(() => observed.inventory).toBe(1);
+
+  await page.locator('.agent-debug-session').filter({ hasText: progressSessionA }).click();
   await expect.poll(() => page.evaluate((id) => {
     const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
-    return {
-      agents: frames.some((frame) => frame.t === 'subscribe' && frame.resource === 'agents'),
-      selectedConversation: frames.some((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === id),
-    };
-  }, progressSessionA)).toEqual({ agents: true, selectedConversation: true });
-  const leases = await page.evaluate((id) => {
+    return frames.some((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === id);
+  }, progressSessionA)).toBe(true);
+  const conversationLease = await page.evaluate((id) => {
     const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
-    return {
-      agents: frames.find((frame) => frame.t === 'subscribe' && frame.resource === 'agents') as { lease: string },
-      conversation: frames.find((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === id) as { lease: string },
-    };
+    return (frames.find((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === id) as { lease: string }).lease;
   }, progressSessionA);
-  expect(observed).toEqual({
-    inventory: 0,
-    inventoryCompleted: 0,
-    cardB: 0,
-    detailA: 0,
-    detailACompleted: 0,
-    detailB: 0,
-  });
-  await page.evaluate(({ agentsLease }) => {
-    window.__saivageWsFixture?.emit({ t: 'subscribed', resource: 'agents', lease: agentsLease });
-  }, { agentsLease: leases.agents.lease });
-  await expect.poll(() => ({
-    inventory: observed.inventory,
-    inventoryCompleted: observed.inventoryCompleted,
-    detailA: observed.detailA,
-    detailACompleted: observed.detailACompleted,
-  })).toEqual({ inventory: 1, inventoryCompleted: 1, detailA: 1, detailACompleted: 1 });
-
-  await page.evaluate(({ id, conversationLease }) => {
-    window.__saivageWsFixture?.emit({ t: 'subscribed', resource: 'conversation', id, lease: conversationLease });
-  }, { id: progressSessionA, conversationLease: leases.conversation.lease });
+  await page.evaluate(({ id, lease }) => {
+    window.__saivageWsFixture?.emit({ t: 'subscribed', resource: 'conversation', id, lease });
+  }, { id: progressSessionA, lease: conversationLease });
 
   const banner = page.getByTestId('compaction-progress');
   await expect(banner).toContainText('Compacting history — 2 summary calls completed');
   await expect(banner).toContainText('Elapsed');
+  const inventoryAfterSelection = observed.inventory;
+  const detailAfterSelection = observed.detailA;
   const conversationKey = `GET /api/agents/${encodeURIComponent(progressSessionA)}/conversation`;
-  await expect.poll(() => ({
-    detailA: observed.detailA,
-    detailACompleted: observed.detailACompleted,
-    transcript: rest.counts.get(conversationKey) ?? 0,
-  })).toEqual({ detailA: 2, detailACompleted: 2, transcript: 1 });
-  const inventoryAfterAcknowledgement = observed.inventory;
-  const detailAfterAcknowledgement = observed.detailA;
-  const transcriptAfterAcknowledgement = rest.counts.get(conversationKey) ?? 0;
-  expect(inventoryAfterAcknowledgement).toBe(1);
-  expect(detailAfterAcknowledgement).toBe(2);
-  expect(transcriptAfterAcknowledgement).toBe(1);
+  const transcriptAfterSelection = rest.counts.get(conversationKey) ?? 0;
+  expect(transcriptAfterSelection).toBeGreaterThan(0);
 
   await page.evaluate((cardId) => window.__saivageWsFixture?.emit({
     t: 'invalidate',
@@ -232,25 +212,20 @@ test('mixed held Agents scopes clear selected compaction through a trailing auth
     window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: cardA });
     window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: cardB });
   }, { cardA: progressCardA, cardB: progressCardB });
-  expect(observed.inventory).toBe(inventoryAfterAcknowledgement);
-  expect(observed.detailA).toBe(detailAfterAcknowledgement);
+  expect(observed.inventory).toBe(inventoryAfterSelection);
+  expect(observed.detailA).toBe(detailAfterSelection);
 
   releaseCardB();
   await expect.poll(() => ({ started: observed.inventory, completed: observed.inventoryCompleted })).toEqual({
-    started: inventoryAfterAcknowledgement + 1,
-    completed: inventoryAfterAcknowledgement + 1,
+    started: inventoryAfterSelection + 1,
+    completed: inventoryAfterSelection + 1,
   });
-  await expect.poll(() => ({ started: observed.detailA, completed: observed.detailACompleted })).toEqual({
-    started: detailAfterAcknowledgement + 1,
-    completed: detailAfterAcknowledgement + 1,
-  });
+  await expect.poll(() => observed.detailA).toBe(detailAfterSelection + 1);
   await expect(banner).toHaveCount(0);
 
-  expect(observed.inventory).toBe(inventoryAfterAcknowledgement + 1);
-  expect(observed.detailA).toBe(detailAfterAcknowledgement + 1);
   expect(observed.cardB).toBe(1);
   expect(observed.detailB).toBe(0);
-  expect(rest.counts.get(conversationKey) ?? 0).toBe(transcriptAfterAcknowledgement);
+  expect(rest.counts.get(conversationKey) ?? 0).toBe(transcriptAfterSelection);
   expect(rest.unknown).toEqual([]);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

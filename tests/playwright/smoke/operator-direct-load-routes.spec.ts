@@ -5,14 +5,17 @@ import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenB
 
 const syntheticToken = 'synthetic-direct-load-token';
 
+const smokeCardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
 const directRouteCases = [
-  { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Status|Restart \/ Recovery Evidence/i },
-  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Synthetic Project|Synthetic dashboard smoke card/i },
-  { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /agent sessions|analyst|planner/i },
+  { path: '/', root: '[data-testid="route-cockpit"]', bodyText: /Inspecting|Synthetic dashboard smoke card/i },
+  { path: '/cards', root: '[data-testid="route-cockpit"]', bodyText: /Select a card to inspect|Synthetic Project/i },
+  { path: `/cards/${smokeCardId}`, root: '[data-testid="route-cockpit"]', bodyText: /Inspecting|Synthetic dashboard smoke card/i },
+  { path: '/agents/agent:analyst:global', root: '[data-testid="route-session"]', bodyText: /Global session|analyst/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata|plan\.json/i },
 ] as const;
 
-const debugTabResources = [
+const systemSectionResources = [
   'GET /api/debug/errors',
   'GET /api/agents',
   'GET /api/mcp/tools',
@@ -78,7 +81,7 @@ test('production browser direct loads initialize router and render route-owned b
   expect(pageErrors).toEqual([]);
 });
 
-test('production browser directly loads Debug and preserves tab-owned resources', async ({ page, baseURL }) => {
+test('production browser directly loads System and preserves section-owned resources', async ({ page, baseURL }) => {
   if (!baseURL) throw new Error('baseURL required'); const failures=observePreviewRequestFailures(page,baseURL);
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
@@ -92,38 +95,41 @@ test('production browser directly loads Debug and preserves tab-owned resources'
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
 
-  const beforeDefaultDebug = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug', { waitUntil: 'networkidle' })));
-  await expect(page.getByTestId('route-debug')).toContainText(/Runtime State|Errors|Processes/i);
+  const beforeDefaultSystem = new Map(systemSectionResources.map((key) => [key, rest.counts.get(key) ?? 0]));
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system', { waitUntil: 'networkidle' })));
+  await expect(page.getByTestId('route-system')).toContainText(/Runtime State|Runtime observation/i);
   await expect(page.getByTestId('debug-oversight-state')).toContainText(/Project Oversight|waiting|agent:oversight:global/i);
-  await expect(page.locator('.debug-tabs > .debug-tab-button')).toHaveText([
+  await expect(page.locator('.system-sections > .system-section-button')).toHaveText([
     'State',
-    'Operator Control',
+    'Operator observation',
+    'Participants',
     'Errors',
-    'Agents',
-    'Graphs',
+    'Events',
     'Processes',
-    'Doctor',
     'MCP',
+    'Provider availability',
+    'Configuration',
+    'Installed workflows',
+    'Actions',
+    'Doctor',
   ]);
-  await expect(page.getByRole('button', { name: 'Timeline', exact: true })).toHaveCount(0);
-  for (const key of debugTabResources) expect(rest.counts.get(key) ?? 0, `${key} hidden on default Debug`).toBe(beforeDefaultDebug.get(key));
+  for (const key of systemSectionResources) expect(rest.counts.get(key) ?? 0, `${key} hidden on default System`).toBe(beforeDefaultSystem.get(key));
 
-  const selectedDebugTabs = [
-    { tab: 'errors', label: 'Errors', resource: 'GET /api/debug/errors', bodyText: 'Synthetic provider failure redacted' },
-    { tab: 'agents', label: 'Agents', resource: 'GET /api/agents', bodyText: 'agent:oversight:global' },
-    { tab: 'mcp', label: 'MCP', resource: 'GET /api/mcp/tools', bodyText: 'filesystem' },
+  const selectedSystemSections = [
+    { section: 'errors', label: 'Errors', resource: 'GET /api/debug/errors', bodyText: 'Synthetic provider failure redacted' },
+    { section: 'participants', label: 'Participants', resource: 'GET /api/agents', bodyText: 'agent:oversight:global' },
+    { section: 'mcp', label: 'MCP', resource: 'GET /api/mcp/tools', bodyText: 'filesystem' },
   ] as const;
-  for (const selected of selectedDebugTabs) {
-    const before = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
-    await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/debug?tab=${selected.tab}`, { waitUntil: 'networkidle' })));
+  for (const selected of selectedSystemSections) {
+    const before = new Map(systemSectionResources.map((key) => [key, rest.counts.get(key) ?? 0]));
+    await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/system?section=${selected.section}`, { waitUntil: 'networkidle' })));
     await expect(page.getByRole('button', { name: selected.label, exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('route-debug')).toContainText(selected.bodyText);
-    for (const key of debugTabResources) {
+    await expect(page.getByTestId('route-system')).toContainText(selected.bodyText);
+    for (const key of systemSectionResources) {
       const expected = (before.get(key) ?? 0) + (key === selected.resource ? 1 : 0);
-      expect(rest.counts.get(key) ?? 0, `${selected.label} tab request ownership for ${key}`).toBe(expected);
+      expect(rest.counts.get(key) ?? 0, `${selected.label} section request ownership for ${key}`).toBe(expected);
     }
-    if (selected.tab === 'errors') {
+    if (selected.section === 'errors') {
       const errorGroup = page.locator('.error-source-group').filter({ has: page.getByRole('heading', { level: 4, name: 'planner-smoke (1)', exact: true }) });
       await expect(errorGroup).toHaveCount(1);
       const errorItem = errorGroup.locator(':scope > .error-item');
@@ -137,7 +143,7 @@ test('production browser directly loads Debug and preserves tab-owned resources'
     }
   }
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug?tab=graphs', { waitUntil: 'networkidle' })));
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system?section=workflows', { waitUntil: 'networkidle' })));
   await expect(page.getByTestId('debug-graphs-tab')).toContainText('Compiled Workflow Graphs');
   await expect(page.getByTestId('debug-graph-svg').locator('svg')).toHaveCount(1);
   await expect(page.getByLabel('Card type')).toHaveValue('code');

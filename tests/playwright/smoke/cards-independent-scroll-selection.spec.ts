@@ -120,6 +120,7 @@ async function install(page: Page): Promise<Fixture> {
 }
 
 function selected(page: Page) { return page.locator('.tree-node[aria-current="true"]'); }
+function flowTitle(page: Page) { return page.getByTestId('card-flow-title'); }
 async function navigateSpa(page: Page, path: string): Promise<void> {
   await page.evaluate((nextPath) => {
     window.history.pushState({}, '', nextPath);
@@ -131,7 +132,7 @@ test('cold deep route requests only represented ancestor slices and separate det
   const fixture = await install(page);
   await page.goto(`/cards/${targetId}`);
   await expect(selected(page)).toContainText('Deep linked target');
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Deep linked target');
+  await expect(flowTitle(page)).toContainText('Deep linked target');
   await expect.poll(() => fixture.requests).toEqual(expect.arrayContaining([
     'GET /api/cards/project/children',
     `GET /api/cards/${goalId}/children`,
@@ -155,7 +156,7 @@ test('collapsed branch is lazy, expands once in committed order, and never refre
   expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`)).toHaveLength(1);
 });
 
-test('retained stale slice can leave current detail visible without row or Path', async ({ page }) => {
+test('retained stale slice can leave current detail visible without a selected row', async ({ page }) => {
   const fixture = await install(page);
   fixture.omitNewEdge = true;
   await page.goto(`/cards/${targetId}`);
@@ -163,40 +164,37 @@ test('retained stale slice can leave current detail visible without row or Path'
   const branchReads = fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`).length;
   await navigateSpa(page, `/cards/${newId}`);
   await expect(page).toHaveURL(`/cards/${newId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Current detail outside retained slice');
+  await expect(flowTitle(page)).toContainText('Current detail outside retained slice');
   await expect(selected(page)).toHaveCount(0);
-  await expect(page.getByText('Path', { exact: true })).toHaveCount(0);
   expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${goalId}/children`)).toHaveLength(branchReads);
   expect(fixture.requests).not.toContain(`GET /api/cards/${newId}/children`);
 });
 
-test('direct obsolete card URL explains terminal absence, retains the tree, and preserves explicit history recovery', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 720 });
+test('direct obsolete card URL explains terminal absence and retains the tree', async ({ page }) => {
   const fixture = await install(page);
   fixture.missingDetails.add(obsoleteId);
-  await page.goto(`/cards/${obsoleteId}`);
+  await page.goto('/cards');
+  const tree = page.locator('.tree-container');
+  await expect(page.locator('.tree-node').filter({ hasText: 'Source card' })).toBeVisible();
+  await tree.evaluate((element) => element.setAttribute('data-identity', 'obsolete-retained'));
+  const rootReads = fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length;
+  await navigateSpa(page, `/cards/${obsoleteId}`);
   await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
   await expect(page.getByText('This card is not available in the current hierarchy. This link may be obsolete after a reset.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
   await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`).length).toBe(1);
-  const tree = page.locator('.tree-container'); await tree.evaluate((element) => element.setAttribute('data-identity', 'obsolete-retained'));
-  const rootReads = fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length;
-  await expect(page.locator('button:visible', { hasText: 'Back to Cards' })).toHaveCount(1);
-  await page.setViewportSize({ width: 700, height: 720 });
-  await expect(page.getByText('This card is not available in the current hierarchy. This link may be obsolete after a reset.', { exact: true })).toBeVisible();
-  await expect(page.locator('button:visible', { hasText: 'Back to Cards' })).toHaveCount(1);
-  await page.locator('button:visible', { hasText: 'Back to Cards' }).click();
-  await expect(page).toHaveURL('/cards'); await expect(tree).toHaveAttribute('data-identity', 'obsolete-retained');
+  await expect(tree).toHaveAttribute('data-identity', 'obsolete-retained');
+  await page.goBack(); await expect(page).toHaveURL('/cards'); await expect(tree).toHaveAttribute('data-identity', 'obsolete-retained');
   expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`)).toHaveLength(1); expect(fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children')).toHaveLength(rootReads);
-  await page.goBack(); await expect(page).toHaveURL(`/cards/${obsoleteId}`); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`).length).toBe(2); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
-  await page.goForward(); await expect(page).toHaveURL('/cards'); expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`)).toHaveLength(2); expect(fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children')).toHaveLength(rootReads);
-  await navigateSpa(page, `/cards/${sourceId}`); await expect(page.getByTestId('card-detail-highlight')).toContainText('Source card'); expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${sourceId}`)).toHaveLength(1);
+  await page.goForward(); await expect(page).toHaveURL(`/cards/${obsoleteId}`); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${obsoleteId}`).length).toBe(2); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
+  expect(fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children')).toHaveLength(rootReads);
+  await navigateSpa(page, `/cards/${sourceId}`); await expect(flowTitle(page)).toContainText('Source card'); expect(fixture.requests.filter((entry) => entry === `GET /api/cards/${sourceId}`)).toHaveLength(1);
 });
 
 test('refresh detail 404 aborts selected resources, blocks healing fan-out, and leaves hierarchy independently refreshable', async ({ page }) => {
-  const fixture = await install(page); await page.goto(`/cards/${targetId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Deep linked target');
-  await page.getByText('Version history', { exact: true }).click(); await expect(page.getByText('title updated', { exact: true }).first()).toBeVisible(); await expect(page.getByText('Changed by planner', { exact: true }).first()).toBeVisible(); await expect(page.getByText('Published at', { exact: true })).toBeVisible(); await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
+  const fixture = await install(page); await page.goto(`/cards/${targetId}?facet=records`);
+  await expect(flowTitle(page)).toContainText('Deep linked target');
+  await expect(page.getByText('title updated', { exact: true }).first()).toBeVisible(); await expect(page.getByText('Changed by planner', { exact: true }).first()).toBeVisible(); await expect(page.getByText('Published at', { exact: true })).toBeVisible(); await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
   const tree = page.locator('.tree-container'); await tree.evaluate((element) => element.setAttribute('data-identity', 'refresh-404-retained'));
   let releaseRecord!: () => void; let releaseHistory!: () => void;
   fixture.recordDelay.set(`${targetId}:brief`, new Promise<void>((resolve) => { releaseRecord = resolve; })); fixture.historyDelay.set(targetId, new Promise<void>((resolve) => { releaseHistory = resolve; }));
@@ -208,7 +206,7 @@ test('refresh detail 404 aborts selected resources, blocks healing fan-out, and 
   ]);
   await expect.poll(() => fixture.requests.filter((entry) => entry === briefPath).length).toBe(briefBefore + 1); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}/history`).length).toBe(historyBefore + 1);
   fixture.missingDetails.add(targetId); await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: targetId });
-  await expect(page.getByText('Card not found', { exact: true })).toBeVisible(); await expect(page.getByTestId('card-detail-highlight')).toHaveCount(0); await expect(page.getByText('title updated', { exact: true })).toHaveCount(0); await expect(page.getByText(/Continue with/)).toHaveCount(0);
+  await expect(page.getByText('Card not found', { exact: true })).toBeVisible(); await expect(flowTitle(page)).toHaveCount(0); await expect(page.getByText('title updated', { exact: true })).toHaveCount(0); await expect(page.getByText(/Continue with/)).toHaveCount(0);
   releaseRecord(); releaseHistory(); await page.evaluate(() => Promise.resolve()); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
   const selectedReads = () => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}` || entry.startsWith(`GET /api/cards/${targetId}/records`) || entry.startsWith(`GET /api/cards/${targetId}/history`) || entry.startsWith(`GET /api/cards/${targetId}/diff`)).length;
   const selectedBaseline = selectedReads();
@@ -230,11 +228,11 @@ test('rapid route navigation supersedes a pending deep reveal without cancelling
   let releaseRoot!: () => void;
   fixture.hierarchyDelay.set('project', new Promise<void>((resolve) => { releaseRoot = resolve; }));
   await page.goto(`/cards/${targetId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Deep linked target');
+  await expect(flowTitle(page)).toContainText('Deep linked target');
   await navigateSpa(page, `/cards/${sourceId}`);
   await expect(page).toHaveURL(`/cards/${sourceId}`);
   releaseRoot();
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Source card');
+  await expect(flowTitle(page)).toContainText('Source card');
   await expect(selected(page)).toContainText('Source card');
   expect(fixture.requests).not.toContain(`GET /api/cards/${goalId}/children`);
   expect(fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children')).toHaveLength(1);
@@ -249,11 +247,11 @@ test('rapid route navigation supersedes a pending deep reveal without cancelling
 
 test('canonical record links navigate to their exact card route', async ({ page }) => {
   await install(page);
-  await page.goto(`/cards/${targetId}`);
+  await page.goto(`/cards/${targetId}?facet=records`);
   await expect(page.getByRole('link', { name: 'Source card' })).toBeVisible();
   await page.getByRole('link', { name: 'Source card' }).click();
   await expect(page).toHaveURL(`/cards/${sourceId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Source card');
+  await expect(flowTitle(page)).toContainText('Source card');
 });
 
 test('hierarchy rows and selected detail retain disjoint authority in both completion orders', async ({ page }) => {
@@ -261,7 +259,7 @@ test('hierarchy rows and selected detail retain disjoint authority in both compl
   let releaseHierarchy!: () => void;
   fixture.hierarchyDelay.set('project', new Promise<void>((resolve) => { releaseHierarchy = resolve; }));
   await page.goto(`/cards/${goalId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Detail authority goal');
+  await expect(flowTitle(page)).toContainText('Detail authority goal');
   releaseHierarchy();
   await expect(page.locator('.tree-node').filter({ hasText: 'Collapsed ancestor goal' })).toBeVisible();
   await expect(page.locator('.tree-node').filter({ hasText: 'Detail authority goal' })).toHaveCount(0);
@@ -273,7 +271,7 @@ test('hierarchy rows and selected detail retain disjoint authority in both compl
   await expect(page.locator('.tree-node').filter({ hasText: 'Collapsed ancestor goal' })).toBeVisible();
   await expect(page.getByText('Loading card', { exact: true })).toBeVisible();
   releaseDetail();
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Detail authority goal');
+  await expect(flowTitle(page)).toContainText('Detail authority goal');
   await expect(page.locator('.tree-node').filter({ hasText: 'Collapsed ancestor goal' })).toBeVisible();
 });
 
@@ -292,14 +290,14 @@ test('tree remains mounted and independently scrollable while detail is delayed'
   await expect(page.getByText('Loading card', { exact: true })).toBeVisible();
   await expect(tree).toHaveAttribute('data-identity', 'retained');
   release();
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Source card');
-  const treePane = page.locator('.cards-md__tree');
-  const detailPane = page.locator('.card-detail-container');
+  await expect(flowTitle(page)).toContainText('Source card');
+  const treePane = page.locator('.cockpit-tree-scroll');
+  const detailPane = page.locator('.cockpit-center .overview-facet');
   await expect.poll(() => treePane.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
   await expect.poll(() => detailPane.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
 });
 
-test('mobile Back returns to the retained lazy tree', async ({ page }) => {
+test('narrow viewport keeps the structural tree beside the inspected card and browser Back returns to the listing', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 720 });
   await install(page);
   await page.goto('/cards');
@@ -307,7 +305,9 @@ test('mobile Back returns to the retained lazy tree', async ({ page }) => {
   await expect(sourceRow).toBeVisible();
   await sourceRow.click();
   await expect(page).toHaveURL(`/cards/${sourceId}`);
-  await page.getByRole('button', { name: 'Back to Cards' }).click();
+  await expect(flowTitle(page)).toContainText('Source card');
+  await expect(sourceRow).toBeVisible();
+  await page.goBack();
   await expect(page).toHaveURL('/cards');
   await expect(page.locator('.tree-node').filter({ hasText: 'Source card' })).toBeVisible();
 });
@@ -320,7 +320,7 @@ test('exact record invalidation retains failed content until one operator Retry'
     { status: 503 },
     { status: 200, content: 'Retried brief replacement.' },
   ]);
-  await page.goto(`/cards/${targetId}`);
+  await page.goto(`/cards/${targetId}?facet=records`);
   await expect(page.getByText('Accepted brief remains visible.')).toBeVisible();
   const briefPath = `GET /api/cards/${targetId}/records/brief.md`;
   await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, record_name: 'brief.md' });
@@ -342,7 +342,7 @@ test('exact record invalidation retains failed content until one operator Retry'
 
 test('reconnect snapshots loaded scopes once and keeps accepted-empty optional records current on 404', async ({ page }) => {
   const fixture = await install(page);
-  await page.goto(`/cards/${targetId}`);
+  await page.goto(`/cards/${targetId}?facet=records`);
   await expect(page.getByText('No review.md record yet.')).toBeVisible();
   const rootBefore = fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length;
   const reviewPath = `GET /api/cards/${targetId}/records/review.md`;
@@ -360,10 +360,10 @@ test('switching cards aborts and excludes a late old-card record completion', as
   let release!: () => void;
   fixture.recordDelay.set(`${targetId}:brief`, new Promise<void>((resolve) => { release = resolve; }));
   fixture.recordReplies.set(`${targetId}:brief`, [{ status: 200, content: 'Late old-card brief.' }]);
-  await page.goto(`/cards/${targetId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Deep linked target');
+  await page.goto(`/cards/${targetId}?facet=records`);
+  await expect(flowTitle(page)).toContainText('Deep linked target');
   await navigateSpa(page, `/cards/${sourceId}`);
-  await expect(page.getByTestId('card-detail-highlight')).toContainText('Source card');
+  await expect(flowTitle(page)).toContainText('Source card');
   release();
   await page.evaluate(() => Promise.resolve());
   await expect(page.getByText('Late old-card brief.')).toHaveCount(0);
@@ -371,8 +371,7 @@ test('switching cards aborts and excludes a late old-card record completion', as
 
 test('unselected card history and diff invalidations do not reload the selected history surface', async ({ page }) => {
   const fixture = await install(page);
-  await page.goto(`/cards/${targetId}`);
-  await page.getByText('Version history', { exact: true }).click();
+  await page.goto(`/cards/${targetId}?facet=records`);
   await expect(page.getByRole('heading', { name: 'Card history', exact: true })).toBeVisible();
   await expect(page.getByText('title updated', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
@@ -388,7 +387,7 @@ test('unselected card history and diff invalidations do not reload the selected 
 test('exact-record close refreshes only that selected record and unselected targets are ignored', async ({ page }) => {
   const fixture = await install(page);
   fixture.recordReplies.set(`${targetId}:status`, [{ status: 404 }, { status: 200, content: 'Closed status replacement.' }]);
-  await page.goto(`/cards/${targetId}`);
+  await page.goto(`/cards/${targetId}?facet=records`);
   await expect(page.getByText('No status.md record yet.')).toBeVisible();
   const before = fixture.requests.length;
   await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: sourceId, record_name: 'review.md' });

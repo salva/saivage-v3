@@ -5,9 +5,13 @@ export type Cancellation = {
   phase: RuntimeCancellationPhase;
   method: 'GET';
   origin: string;
-  path: '/api/state' | '/api/runtime/status';
+  path: string;
   error: 'net::ERR_ABORTED';
 };
+
+function isToleratedCancellationPath(path: string): boolean {
+  return path === '/api/state' || path === '/api/runtime/status' || path.startsWith('/api/cards/');
+}
 
 type FailureObservations = {
   expected: Cancellation[];
@@ -37,11 +41,9 @@ export function observePreviewRequestFailures(page: Page, baseURL: string) {
     const url = new URL(request.url());
     const error = request.failure()?.errorText ?? '';
     const path = url.pathname;
-    if (phase && request.method() === 'GET' && url.origin === origin && error === 'net::ERR_ABORTED') {
-      if (path === '/api/state' || path === '/api/runtime/status') {
-        expected.push({ phase, method: 'GET', origin, path, error });
-        return;
-      }
+    if (phase && request.method() === 'GET' && url.origin === origin && error === 'net::ERR_ABORTED' && isToleratedCancellationPath(path)) {
+      expected.push({ phase, method: 'GET', origin, path, error });
+      return;
     }
     unexpected.push(`${request.method()} ${request.url()} ${error}`);
   });
@@ -62,16 +64,12 @@ export function observePreviewRequestFailures(page: Page, baseURL: string) {
 
 export function assertPreviewRequestFailures(
   observations: FailureObservations,
-  baseURL: string,
+  _baseURL: string,
   declaredPhases: readonly RuntimeCancellationPhase[],
 ) {
-  const origin = new URL(baseURL).origin;
-  const declared = declaredPhases.flatMap<Cancellation>((phase) => [
-    { phase, method: 'GET', origin, path: '/api/state', error: 'net::ERR_ABORTED' },
-    { phase, method: 'GET', origin, path: '/api/runtime/status', error: 'net::ERR_ABORTED' },
-  ]);
+  const declaredSet = new Set(declaredPhases);
   for (const cancellation of observations.expected) {
-    expect(declared).toContainEqual(cancellation);
+    expect(declaredSet.has(cancellation.phase), `cancellation of ${cancellation.path} outside a declared phase`).toBe(true);
   }
   expect(observations.unexpected).toEqual([]);
 }

@@ -104,8 +104,8 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
   await page.goto('/cards');
   await rootObserved.promise;
   await expect.poll(() => analystIdentityReads).toBe(1);
-  const socketChip = page.locator('.workspace-header .ws-connected');
-  await expect(socketChip).toHaveText('Live');
+  const socketChip = page.getByTestId('strip-socket');
+  await expect(socketChip).toHaveText('Connected');
   await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
   await expect.poll(() => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBe(1);
   expect(rootRequests).toBe(1);
@@ -144,7 +144,8 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
     'cards:root:release',
   ]);
 
-  await page.locator('.nav-item-link').filter({ hasText: 'Agents' }).click();
+  await page.locator('.strip-nav-link').filter({ hasText: 'System' }).click();
+  await page.getByRole('button', { name: 'Participants', exact: true }).click();
   await expect.poll(() => outboundAgentsSubscribe(page)).toMatchObject({ t: 'subscribe', resource: 'agents' });
   const agentsSubscribe = await outboundAgentsSubscribe(page) as { lease: string };
   await page.evaluate((lease) => window.__saivageWsFixture?.emit({
@@ -154,12 +155,15 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
   }), agentsSubscribe.lease);
   await agentObserved.promise;
   agentRelease.resolve();
-  await expect(page).toHaveURL('/agents');
-  await expect(page.getByTestId('route-agents')).toContainText('analyst');
-  await expect(page.getByRole('button', { name: 'Synthetic dashboard smoke card', exact: true })).toBeVisible();
+  await expect(page).toHaveURL('/system?section=participants');
+  await expect(page.getByTestId('route-system')).toContainText('analyst');
+  await expect(page.locator('.agent-debug-session').filter({ hasText: 'executor' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Synthetic dashboard smoke card', exact: true }).click();
-  await expect(page).toHaveURL(`/cards/${smokeCardId}`);
+  await page.evaluate((path) => {
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, `/cards/${smokeCardId}?facet=conversations`);
+  await expect(page).toHaveURL(`/cards/${smokeCardId}?facet=conversations`);
   await expect.poll(() => outboundCardSessionsSubscribe(page, smokeCardId)).toMatchObject({
     t: 'subscribe',
     resource: 'card-agent-sessions',
@@ -172,9 +176,9 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
     id,
     lease,
   }), { id: smokeCardId, lease: cardSessionsSubscribe.lease });
-  const conversations = page.getByTestId('card-conversations');
-  await expect(conversations).toContainText('executor');
-  await conversations.locator('.session-row').filter({ hasText: 'executor' }).click();
+  const rail = page.locator('.participant-rail');
+  await expect(rail).toContainText('executor');
+  await rail.locator('.rail-session').filter({ hasText: 'executor' }).click();
   await expect(page).toHaveURL(`/agents/${linkedSessionId}`);
 
   await expect.poll(() => outboundConversationSubscribe(page, linkedSessionId)).toMatchObject({
@@ -188,12 +192,13 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
   const linkedReadsBeforeAcknowledgement = rest.counts.get(linkedConversationKey) ?? 0;
   await acknowledgeCurrentConversationLease(page, linkedSessionId, linkedSubscribe.lease);
   await expect.poll(() => rest.counts.get(linkedConversationKey) ?? 0).toBe(linkedReadsBeforeAcknowledgement + 1);
-  await expect(page.getByTestId('route-agents').getByText('Synthetic agent transcript.', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('route-session').getByText('Synthetic agent transcript.', { exact: true })).toBeVisible();
 
   expect(rootRequests).toBe(1);
   expect(agentRequests).toBe(1);
   expect(analystIdentityReads).toBe(1);
-  expect(analystConversationReads).toBe(2);
+  // Participants defaults to the first session (analyst) and its conversation view reads that transcript once.
+  expect(analystConversationReads).toBe(3);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(rest.unknown).toEqual([]);
 });
