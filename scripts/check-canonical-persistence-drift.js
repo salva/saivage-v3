@@ -51,7 +51,7 @@ const retiredDiscriminators = /card-version-index|authored-record-version-index/
 const recordOwnerModules = new Set(['src/persistence/card-files.ts', 'src/persistence/authored-record-files.ts', 'src/persistence/canonical-card-artifacts.ts', 'src/persistence/canonical-record-artifacts.ts']);
 const pathConstructionFiles = new Set(['src/persistence/layout.ts', 'src/schemas/record-name.ts', 'src/persistence/card-files.ts', 'src/persistence/authored-record-files.ts']);
 
-const cardRecordDocPaths = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md', 'docs/architecture/index.md', 'docs/runbook/index.md']);
+const cardRecordDocPaths = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui-needs.md', 'docs/spec/operator-ui-contracts.md', 'docs/architecture/system-architecture.md', 'docs/architecture/index.md', 'docs/runbook/index.md']);
 function isAllDocPath(path) {
   return path === 'README.md'
     || path === 'README-IF-YOU-ARE-AN-AI.md'
@@ -218,7 +218,7 @@ const requiredDocPhrases = [
   ['docs/spec/system-specification.md', ['card.jsonl', 'record-<stem>.jsonl']],
   ['docs/architecture/system-architecture.md', ['card.jsonl', 'record-<stem>.jsonl']],
   ['docs/runbook/index.md', ['card.jsonl', 'record-<stem>.jsonl']],
-  ['docs/spec/operator-ui.md', ['one strict stream']],
+  ['docs/spec/operator-ui-contracts.md', ['one strict stream']],
 ];
 for (const [doc, phrases] of requiredDocPhrases) {
   if (!existsSync(doc)) { violation(`${doc}: required canonical document missing`); continue; }

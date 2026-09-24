@@ -127,7 +127,7 @@ card_types:
 Switching templates or replacing the map is a stopped configuration change;
 the runbook owns [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers)
 for instances with retained history. After a change, verify what actually
-compiled in the control room's [Debug > Graphs](./operating.md#debug) view.
+compiled in the control room's [System > Installed workflows](./operating.md#system) view.
 
 ## Compaction
 

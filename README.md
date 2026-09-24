@@ -76,7 +76,7 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 | [Configuration](docs/guides/configuration.md) | Guide: every `saivage.yaml` key with annotated examples. |
 | [Operating a project](docs/guides/operating.md) | Guide: the control room, the Analyst conversation, and long-run operation. |
 | [System specification](docs/spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
-| [Operator UI specification](docs/spec/operator-ui.md) | Sole authority for operator web UI behavior and presentation. |
+| [Operator UI needs](docs/spec/operator-ui-needs.md) + [contracts](docs/spec/operator-ui-contracts.md) | Authority for operator web UI requirements and exact presentation contracts. |
 | [System architecture](docs/architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
 | [Operator runbook](docs/runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
 | [Validation internals](docs/validation.md) | Validation toolchain detail: guard contracts, CI job topology, and browser/E2E profiles. |

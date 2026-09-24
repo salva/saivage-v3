@@ -3,7 +3,7 @@
 Status: orientation summary. This page introduces the system and its vocabulary
 for readers. It owns no contract; every statement below is derived from the
 linked authorities — the [System specification](spec/system-specification.md),
-[Operator UI specification](spec/operator-ui.md),
+[Operator UI needs](spec/operator-ui-needs.md) and [contracts](spec/operator-ui-contracts.md),
 [System architecture](architecture/system-architecture.md), and
 [Operator runbook](runbook/index.md).
 
@@ -112,7 +112,7 @@ history into a new segment under exact admission and coverage rules. See the
 
 - **Web control room** — dashboard, card tree and card detail, agent sessions
   and conversations, files, processes, and debug state. See the
-  [Operator UI specification](spec/operator-ui.md).
+  [operator UI needs and contracts](spec/operator-ui-needs.md).
 - **CLI** — `init`, `start`, `status`, `pause`, `resume`, `stop`,
   `restart_server`, `reset`. See
   [Lifecycle Lock and CLI](spec/system-specification.md#8-lifecycle-lock-and-cli)

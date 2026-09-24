@@ -244,7 +244,7 @@ Late completions cannot repopulate cleared state, and selected-card invalidation
 Retry performs one immediate REST request, does not refresh siblings, and schedules no further work.
 There is no Cards polling, timer, automatic retry, trailing refresh, sequence ledger, acknowledgement, replay, persistent cache, or global refetch.
 
-Displayed “Diff vs current” browser requests follow the [exact source-derived request identity and currentness contract](operator-ui.md#exact-displayed-current-diff-request-contract).
+Displayed “Diff vs current” browser requests follow the [exact source-derived request identity and currentness contract](operator-ui-contracts.md#exact-displayed-current-diff-request-contract).
 
 Current authored-record absence handling accepts only the exact strict `{error:'Card record not found',cardId,name}` response for a non-bootstrap definition as empty.
 Card-not-found, definition-not-found, any other 404 body, and every other failure remain errors.
@@ -1078,9 +1078,9 @@ Runtime, card, membership, conversation, and exchange effects remain lossy, non-
 
 One stateless `EventQueryService` owns event/error queries for the authenticated operator API and Analyst tools.
 Every operation performs exactly one complete strict read of the event lane before filtering and slicing.
-`GET /api/events` is the singular non-UI operator event collection: it accepts exact event kind, optional goal/card, nonnegative safe-integer offset, positive safe-integer limit through 1000, and `selection:'oldest_page'|'newest_tail'`; defaults are oldest page, offset 0, limit 50, while newest-tail forbids nonzero offset and preserves chronological physical order.
+`GET /api/events` is the singular operator event collection, consumed by both Analyst tools and the operator UI: it accepts exact event kind, optional goal/card, nonnegative safe-integer offset, positive safe-integer limit through 1000, and `selection:'oldest_page'|'newest_tail'`; defaults are oldest page, offset 0, limit 50, while newest-tail forbids nonzero offset and preserves chronological physical order.
 `total` is the filtered count before slicing.
-`GET /api/debug/errors` returns the complete event-derived error projection and is the Debug UI's only event-derived input.
+`GET /api/debug/errors` returns the complete event-derived error projection and is the System Errors section's only event-derived input; the UI's broader event reading goes through `GET /api/events`.
 There is no Debug Timeline, `/api/debug/timeline`, dedicated error lane, ErrorLog, session filter, or `since` filter.
 Missing app-log state yields empty results.
 Every full read validates the complete stream and globally rejects repeated logical app-log IDs before lane filtering.

@@ -12,7 +12,8 @@ const DEFAULT_CURRENT_DOCS = [
   'AGENTS.md',
   'docs/spec/index.md',
   'docs/spec/system-specification.md',
-  'docs/spec/operator-ui.md',
+  'docs/spec/operator-ui-needs.md',
+  'docs/spec/operator-ui-contracts.md',
   'docs/architecture/index.md',
   'docs/architecture/system-architecture.md',
 ];

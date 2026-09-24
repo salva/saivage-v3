@@ -69,7 +69,7 @@ Each authority owns its subject exactly; nothing on this site overrides them.
 | [Configuration](guides/configuration.md) | Every `saivage.yaml` key explained with annotated examples. |
 | [Operating a project](guides/operating.md) | The control room, the Analyst conversation, and the rhythm of a long run. |
 | [System specification](spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
-| [Operator UI specification](spec/operator-ui.md) | Sole authority for operator web UI behavior and presentation. |
+| [Operator UI needs](spec/operator-ui-needs.md) and [contracts](spec/operator-ui-contracts.md) | Authority for operator web UI requirements and exact presentation contracts. |
 | [System architecture](architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
 | [Operator runbook](runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
 | [Validation internals](validation.md) | Contributor reference: guard contracts, CI topology, and browser/E2E profiles. |
@@ -83,4 +83,4 @@ Each authority owns its subject exactly; nothing on this site overrides them.
   [system architecture](architecture/system-architecture.md).
 - **Exact behavior question** — go straight to the
   [system specification](spec/system-specification.md) or the
-  [operator UI specification](spec/operator-ui.md).
+  [operator UI needs and contracts](spec/operator-ui-needs.md).

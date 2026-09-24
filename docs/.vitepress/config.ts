@@ -43,7 +43,8 @@ export default defineConfig({
         text: 'Specifications',
         items: [
           { text: 'System specification', link: '/spec/system-specification' },
-          { text: 'Operator UI specification', link: '/spec/operator-ui' },
+          { text: 'Operator UI needs', link: '/spec/operator-ui-needs' },
+          { text: 'Operator UI contracts', link: '/spec/operator-ui-contracts' },
         ],
       },
       {

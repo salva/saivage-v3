@@ -2,7 +2,7 @@
 
 Status: non-authoritative guide. Contracts and exact behavior are owned by the
 [System specification](../spec/system-specification.md), the
-[Operator UI specification](../spec/operator-ui.md), and the
+[Operator UI needs](../spec/operator-ui-needs.md) and [contracts](../spec/operator-ui-contracts.md), and the
 [Operator runbook](../runbook/index.md).
 
 This guide takes you from nothing to a running Saivage instance working on

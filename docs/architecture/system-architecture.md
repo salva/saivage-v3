@@ -1143,7 +1143,8 @@ constant.sync-hub-debounce-ms = {"unit":"milliseconds","value":75}
 ```
 <!-- saivage:value-contract:sync-debounce:end -->
 
-In the web dependency direction, SyncStore owns only the connection manager's exact socket state, while RuntimeStore owns acceptance and lifecycle for the combined runtime REST payload.
+In the web dependency direction, SyncStore owns only the connection manager's exact socket state, while RuntimeStore owns acceptance and lifecycle for the combined runtime REST payload pair.
+RuntimeStore preserves the accepted `runtime.status` snapshot: the lifecycle label, `currentCardId`, and `actorRuntime.cards` workflow positions derive only from that observation, while `/api/state` supplies project identity and availability with no cross-field fallback.
 RuntimeStore separates never-loaded loading/error from accepted-state refreshing/refresh error, retains accepted state on refresh failure, and records only the absolute completion instant of its last current-epoch success.
 Accepted null is stopped/no-live rather than absence.
 Socket state, runtime payload, request state, and command errors are not fused; there is no runtime age or callback-provenance model.
@@ -1160,17 +1161,18 @@ Reconnect installs a fresh lease and generation-local dispatcher state, so newly
 There is no cross-generation or global flight gate.
 
 Runtime, Card, and Agent Pinia stores own separate resources.
-Global Agent inventory exists only while Agents or the selected Debug Agents tab holds the acknowledged global lease and is partitioned by global/card scope. Selected Agents/Debug conversation detail additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unrelated known scoped hints remain suppressed, while unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail. A whole-Agents baseline reconciliation also exact-rereads the currently selected summary when one exists, independently of the inventory baseline; it neither writes nor acknowledges the transcript.
+Global Agent inventory exists only while the System Participants section holds the acknowledged global lease and is partitioned by global/card scope. The selected session reader additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unrelated known scoped hints remain suppressed, while unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail. A whole-Agents baseline reconciliation also exact-rereads the currently selected summary when one exists, independently of the inventory baseline; it neither writes nor acknowledges the transcript.
 Card Conversations owns a separate card-keyed store and lease.
 The persistent Analyst store owns a readonly discriminated identity projection and one explicit epoch/AbortController identity resolver; replacement resets identity handoff/transcript exactly once, and stale completions are inert.
 Analyst and selected-Agent stores retain separate identity/send and selection/detail lifetimes, but directly share one browser conversation-tail core for request epochs and abort, baseline-versus-tail acceptance, exact cursor rebase, and retained refresh failures.
 Their acceptance callbacks remain projection-specific: Agent uses the complete accepted aggregate for warning state, while Analyst reconciles optimistic rows only against the newly accepted response entries.
 Exchange ownership remains independent.
-Application bootstrap starts only runtime/project and root Card reads; AppShell separately initiates Analyst identity only.
-`DebugView` owns Debug routing, tab selection, the shared read model, selected-tab requests, and the Agent-membership lease.
-The eight `components/debug/*Panel.vue` components own only the State, Operator Control, Errors, Agents, Graphs, Processes, Doctor, and MCP presentation and report typed events to that route owner; they do not acquire stores, routing, requests, or leases.
+Application bootstrap starts runtime/project, root Card, and Analyst identity reads only.
+`SystemView` owns System routing, section selection, selected-section requests, and the Agent-membership lease.
+The `components/debug/*Panel.vue` and `components/system/*Panel.vue` components own only the State, Operator observation, Errors, Participants, Events, Processes, MCP, Provider availability, Configuration, Installed workflows, Actions, and Doctor presentation and report typed events to that route owner; they do not acquire routing or leases.
 The keyed `DebugAgentDetail` descendant remains the independent selected-detail resource lifetime.
-DebugStore owns only derived Errors among event-backed resources, and tab selection triggers that automatic read only while Errors is selected; Doctor is manual, hidden tabs own nothing, and MCP has no polling.
+DebugStore owns only derived Errors among error-backed resources, and section selection triggers that automatic read only while Errors is selected; Doctor is manual, hidden sections own nothing, and MCP has no polling.
+The events store owns bounded retained-event observations (card-scoped tails for the Evidence facet and the unscoped System Events section) with explicit refresh, retry, and oldest-page browsing; it registers no invalidation resource.
 Generic Files remains independently mounted and uses the ordinary non-Cards registration for authoritative REST refetch on registration/open while mounted. Its route watcher solely owns selection resolution, and directory activation only changes the route. A registration/open callback joins a pending initial or newly opened route resolution; it never replaces that operation with a default-root read. Once selection settles, Refresh and reconnect refetch the represented accepted listing directory—the parent for a selected preview—and that preview, with initiating route/preview identity fencing every continuation from superseded navigation or unmount.
 Files stale age still derives only from completed REST snapshot time; Files owns no WebSocket freshness timestamp or provenance state.
 The Files key is not part of the SyncHub wire vocabulary.
@@ -1212,7 +1214,7 @@ A missing optional record stream is represented as absent current, not missing a
 Current accepted content remains visible on failed refresh; a failed selected-version request is a selection-local error that preserves accepted state.
 Complete malformed, empty, or unreadable record stream state is restart-required and never normalized to optional absence.
 
-The displayed diff follows the [exact source-derived request identity and currentness contract](../spec/operator-ui.md#exact-displayed-current-diff-request-contract).
+The displayed diff follows the [exact source-derived request identity and currentness contract](../spec/operator-ui-contracts.md#exact-displayed-current-diff-request-contract).
 Diff and detail remain independent authorities.
 
 Exact invalidation checks the target against accepted loaded/visible state: children refreshes only an accepted parent slice; other scopes refresh only when the target card is selected and that exact detail/record/mounted-history/visible-diff authority is accepted.

@@ -328,7 +328,7 @@ tokenless service as durable.
 Require one real provider-backed Analyst interaction. Use the
 [operating guide](docs/guides/operating.md) to walk the user through the
 visible Dashboard, Cards, Agents, Files, and Debug surfaces, deferring to the
-[operator UI specification](docs/spec/operator-ui.md) and the
+[operator UI needs](docs/spec/operator-ui-needs.md), [contracts](docs/spec/operator-ui-contracts.md), and the
 [functional specification](docs/spec/system-specification.md) for exact
 record and conversation behavior; do not restate those contracts here. The
 built documentation is served by the running instance at
