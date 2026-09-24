@@ -6,7 +6,6 @@ import {
   selectRuntimeStatusLabel,
   selectSortedProcesses,
 } from '../stores/debug-read-model';
-import { selectCurrentCardId } from '../stores/runtime-read-model';
 
 export interface ErrorSourceEntry { source: string; errors: DebugErrorItem[] }
 type DebugTabId = 'state' | 'operator' | 'errors' | 'agents' | 'graphs' | 'mcp' | 'processes' | 'doctor';
@@ -24,8 +23,8 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     { id: 'mcp' as const, label: 'MCP' },
   ];
 
-  const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(runtimeStore.loaded, runtimeStore.runtime));
-  const currentCardId = computed(() => selectCurrentCardId(runtimeStore.runtime));
+  const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(runtimeStore.loaded, runtimeStore.statusSnapshot));
+  const currentCardId = computed(() => runtimeStore.currentCardId);
   const operatorPanelBusy = computed(() => runtimeStore.loading || runtimeStore.refreshing);
   const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes));
   const errorSourceEntries = computed<ErrorSourceEntry[]>(() => {

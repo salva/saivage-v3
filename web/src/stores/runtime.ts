@@ -10,6 +10,7 @@ import { ref, computed, readonly } from 'vue';
 import type {
   RuntimeState,
   RuntimeStatus,
+  RuntimeStatusResponse,
   ServerAvailability,
 } from '../api/types';
 import type { OperatorApiSuccess } from '../api/contracts';
@@ -26,7 +27,7 @@ import {
   selectRuntimeDetail,
   selectRuntimeModeLabel,
   selectRuntimeStatusLabel,
-  selectCurrentCardId,
+  selectStatusCurrentCardId,
 } from './runtime-read-model';
 
 const log = createLogger('store:runtime');
@@ -38,6 +39,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const runtime = ref<RuntimeState | null>(null);
   const projectId = ref<string | null>(null);
   const serverAvailability = ref<ServerAvailability | null>(null);
+  const statusSnapshot = ref<RuntimeStatusResponse | null>(null);
   const loaded = ref(false);
   const loading = ref(false);
   const refreshing = ref(false);
@@ -50,9 +52,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
   let requestEpoch = 0;
   let requestController: AbortController | null = null;
 
-  const status = computed<RuntimeStatus | null>(() => loaded.value ? runtime.value?.status ?? 'stopped' : null);
-  const currentCardId = computed(() => selectCurrentCardId(runtime.value));
-  const statusLabel = computed<string>(() => selectRuntimeStatusLabel({ loaded: loaded.value, runtime: runtime.value }));
+  const status = computed<RuntimeStatus | null>(() => loaded.value && statusSnapshot.value ? statusSnapshot.value.runtime : null);
+  const currentCardId = computed(() => selectStatusCurrentCardId(statusSnapshot.value));
+  const actorCards = computed<RuntimeStatusResponse['actorRuntime']['cards']>(() => statusSnapshot.value?.actorRuntime.cards ?? []);
+  const statusLabel = computed<string>(() => selectRuntimeStatusLabel({ loaded: loaded.value, statusSnapshot: statusSnapshot.value }));
 
   const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ statusLabel: statusLabel.value }));
   const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
@@ -81,8 +84,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
       runtime.value = response.runtime;
       projectId.value = response.projectId;
       serverAvailability.value = response.serverAvailability;
+      statusSnapshot.value = liveStatus;
       restartServerAvailable.value = liveStatus.restart_server_available;
-      oversight.value=liveStatus.oversight;
+      oversight.value = liveStatus.oversight;
       loaded.value = true;
       markRestSync();
       error.value = null;
@@ -112,10 +116,15 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
   async function restartServer(): Promise<void> { if (!restartServerAvailable.value) throw new Error('restart unavailable: operator authentication disabled'); await restartServerRequest(); }
 
+  function cardWorkflowPosition(cardId: string): RuntimeStatusResponse['actorRuntime']['cards'][number]['processState'] {
+    return statusSnapshot.value?.actorRuntime.cards.find((card) => card.cardId === cardId)?.processState ?? null;
+  }
+
   return {
     runtime: readonly(runtime),
     projectId: readonly(projectId),
     loaded: readonly(loaded),
+    statusSnapshot: readonly(statusSnapshot),
     restartServerAvailable: readonly(restartServerAvailable),
     oversight:readonly(oversight),
     loading: readonly(loading),
@@ -126,9 +135,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
     unauthorized: readonly(unauthorized),
     status,
     currentCardId,
+    actorCards,
     statusLabel,
     runtimeModeLabel,
     runtimeDetail,
+    cardWorkflowPosition,
     fetchState,
     refetch,
     stopProject,

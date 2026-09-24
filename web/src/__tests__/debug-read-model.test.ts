@@ -29,4 +29,9 @@ describe('debug-read-model', () => {
     expect(selectRuntimeStatusLabel(false, null)).toBe('Unknown');
     expect(selectRuntimeStatusLabel(true, null)).toBe('Stopped');
   });
+
+  it('labels lifecycle from the accepted runtime.status snapshot', () => {
+    const snapshot = { runtime: 'paused' as const, currentCardId: null, started_at: timestamp, restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'idle' as const, cards: [] }, oversight: null as never, serverAvailability: null as never };
+    expect(selectRuntimeStatusLabel(true, snapshot)).toBe('Paused');
+  });
 });

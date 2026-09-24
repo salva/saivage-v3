@@ -1,5 +1,5 @@
 import { getEventSeverity } from '@saivage/schemas/event-catalog';
-import type { DebugErrorRecord, ProcessView, RuntimeState } from '../api/types';
+import type { DebugErrorRecord, ProcessView, RuntimeStatus } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectRuntimeModeLabel, selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
 
@@ -51,8 +51,8 @@ export function selectErrorsBySource(errors: DebugErrorItem[]): Map<string, Debu
   return map;
 }
 
-export function selectRuntimeStatusLabel(loaded: boolean, runtime: RuntimeState | null): string {
-  return selectRuntimeModeLabel({ statusLabel: selectSharedRuntimeStatusLabel({ loaded, runtime }) });
+export function selectRuntimeStatusLabel(loaded: boolean, statusSnapshot: { runtime: RuntimeStatus } | null): string {
+  return selectRuntimeModeLabel({ statusLabel: selectSharedRuntimeStatusLabel({ loaded, statusSnapshot }) });
 }
 
 export function selectSortedProcesses(processes: ReadonlyArray<ProcessView>): ProcessView[] {

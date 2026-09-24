@@ -75,6 +75,39 @@ describe('runtime store S06 read-only projection', () => {
     expect(store).not.toHaveProperty('cardIndex');
   });
 
+  it('preserves the accepted runtime.status current-card and actor-card projection', async () => {
+    const runningStatus = {
+      ...stoppedStatus,
+      runtime: 'running' as const,
+      currentCardId: 'card-a-b',
+      actorRuntime: {
+        pauseMode: 'running' as const,
+        cards: [
+          {
+            cardId: 'card-a',
+            actorState: 'running' as const,
+            processState: { cardType: 'goal', stateId: 'await', kind: 'node' as const, nodeId: 'await', executionOrdinal: 3 },
+          },
+          {
+            cardId: 'card-a-b',
+            actorState: 'running' as const,
+            processState: { cardType: 'code', stateId: 'execute', kind: 'node' as const, nodeId: 'execute', executionOrdinal: 12 },
+          },
+        ],
+      },
+    };
+    vi.mocked(getRuntimeStatus).mockResolvedValueOnce(runningStatus);
+    const store = useRuntimeStore();
+
+    await store.fetchState();
+
+    expect(store.statusSnapshot).toEqual(runningStatus);
+    expect(store.currentCardId).toBe('card-a-b');
+    expect(store.actorCards).toEqual(runningStatus.actorRuntime.cards);
+    expect(store.cardWorkflowPosition('card-a-b')).toEqual(runningStatus.actorRuntime.cards[1]!.processState);
+    expect(store.cardWorkflowPosition('card-zzz')).toBe(null);
+  });
+
   it('classifies a request after accepted null as a retained-state refresh', async () => {
     const store = useRuntimeStore();
     await store.fetchState();

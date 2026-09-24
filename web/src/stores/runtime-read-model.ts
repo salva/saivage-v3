@@ -1,17 +1,18 @@
 import type {
   RuntimeState,
   RuntimeStatus,
+  RuntimeStatusResponse,
   ServerAvailability,
   WsConnectionState,
 } from '../api/types';
 
-export function selectRuntimeStatusLabel(options: { loaded: boolean; runtime: RuntimeState | null }): string {
+export function selectRuntimeStatusLabel(options: { loaded: boolean; statusSnapshot: { runtime: RuntimeStatus } | null }): string {
   if (!options.loaded) return 'unknown';
-  return options.runtime?.status ?? 'stopped';
+  return options.statusSnapshot?.runtime ?? 'stopped';
 }
 
-export function selectCurrentCardId(runtime: RuntimeState | null): string | null {
-  return runtime?.current_card_id ?? null;
+export function selectStatusCurrentCardId(statusSnapshot: { currentCardId: string | null } | null): string | null {
+  return statusSnapshot?.currentCardId ?? null;
 }
 
 export function selectRuntimeModeLabel(options: { statusLabel: string }): string {
@@ -39,10 +40,10 @@ export function selectRuntimeDetail(options: {
   status: RuntimeStatus | null;
   availabilityDetail: string | null;
 }): string {
-  if (options.unauthorized) return 'Runtime snapshot unavailable until a valid API token is provided.';
+  if (options.unauthorized) return 'Runtime observations are unavailable: this browser is not authorized for the operator API.';
   if (!options.loaded) return 'Runtime state has not been loaded yet.';
   if (!options.runtime) return 'No live runtime.';
-  if (options.status === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
+  if (options.status === 'error') return 'Runtime reported an error state. Inspect System for recovery evidence.';
   if (options.status === 'paused') return 'Runtime is paused. Ask the Analyst to Run when work should continue.';
   return options.availabilityDetail ?? 'Runtime snapshot comes from the latest accepted REST response.';
 }
