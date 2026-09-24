@@ -461,7 +461,7 @@ describe('FilesView', () => {
 
     expect(wrapper.find('[data-testid="files-status-banner"]').text())
       .toContain('this browser is not authorized for the operator API');
-    expect(wrapper.text()).toContain('public docs at /docs/ remain available');
+    expect(wrapper.text()).toContain('Public docs at /docs/ remain available');
   });
 
   it('shows JSON content viewer rendering on success', async () => {

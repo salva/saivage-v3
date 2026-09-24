@@ -45,7 +45,7 @@ describe('application bootstrap live sync', () => {
     setActivePinia(createPinia());
   });
 
-  it('starts runtime, root hierarchy, and Analyst identity without any hidden Agent inventory', async () => {
+  it('starts runtime and root hierarchy without hidden Agent inventory or Analyst identity', async () => {
     const mocks = installBootstrapMocks();
     const { startAppBootstrap } = await import('../composables/useAppBootstrap');
     startAppBootstrap();
@@ -57,7 +57,7 @@ describe('application bootstrap live sync', () => {
     expect(mocks.ensureRoot).toHaveBeenCalledTimes(1);
     expect(mocks.contentPolicyRefetch).toHaveBeenCalledTimes(1);
     expect(mocks.fetchSessions).not.toHaveBeenCalled();
-    expect(mocks.resolveIdentity).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveIdentity).not.toHaveBeenCalled();
     expect(mocks.reconfigure).not.toHaveBeenCalled();
     expect(
       mocks.registerResource.mock.calls.map(([registration]) => registration.resource),
