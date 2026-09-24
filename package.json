@@ -28,11 +28,7 @@
     "typecheck": "tsc --noEmit",
     "web:typecheck": "cd web && npm run typecheck",
     "web:test": "cd web && npm run test",
-    "web:test:control-room": "npm run web:test:dashboardview && npm run web:test:cardsview && npm run web:test:agentsview && npm run web:test:filesview && npm run web:test:debugview",
-    "web:test:debugview": "cd web && npx vitest run src/__tests__/debug-view",
-    "web:test:cardsview": "cd web && npx vitest run src/__tests__/cards-view",
-    "web:test:agentsview": "cd web && npx vitest run src/__tests__/agents-view",
-    "web:test:dashboardview": "cd web && npx vitest run src/__tests__/dashboard-view",
+    "web:test:control-room": "npm run web:test:cockpit && npm run web:test:filesview && npm run web:test:system",
     "web:test:filesview": "cd web && npx vitest run src/__tests__/files-view",
     "web:test:stores": "cd web && npx vitest run src/__tests__/runtime-store.test.ts src/__tests__/sync-client.test.ts src/__tests__/card-store.test.ts src/__tests__/stores/agents-conversation.test.ts src/__tests__/files-store.test.ts src/__tests__/mcp-store.test.ts",
     "web:test:store:runtime": "cd web && npx vitest run src/__tests__/runtime-store.test.ts",
@@ -65,7 +61,9 @@
     "web:test:e2e:browser-client-smoke": "playwright test -c tests/playwright/browser-client/chat-api-client-browser.config.ts",
     "web:test:e2e:smoke": "npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke",
     "web:test:e2e:install": "playwright install chromium",
-    "test:import-boundaries": "node scripts/check-import-boundaries.cjs --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs"
+    "test:import-boundaries": "node scripts/check-import-boundaries.cjs --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs",
+    "web:test:cockpit": "cd web && npx vitest run src/__tests__/cockpit src/__tests__/operator-cockpit-smoke.test.ts",
+    "web:test:system": "cd web && npx vitest run src/__tests__/system-view"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

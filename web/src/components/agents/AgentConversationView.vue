@@ -1,7 +1,7 @@
 <template>
   <div class="conversation-container">
     <StatusBanner v-if="sessionSummaryLoading && !currentSession" tone="stale" message="Loading session status…" />
-    <StatusBanner v-else-if="sessionSummaryUnauthorized && !currentSession" tone="warning" message="Session status unavailable: provide a valid API token." />
+    <StatusBanner v-else-if="sessionSummaryUnauthorized && !currentSession" tone="warning" message="Session status unavailable: this browser is not authorized for the operator API." />
     <StatusBanner v-else-if="sessionSummaryError && !currentSession" tone="warning" :message="sessionSummaryError" />
     <template v-if="currentSession">
       <div class="conv-header">
@@ -29,7 +29,7 @@
                   :aria-pressed="rawPanelOpen"
                   @click="rawPanelOpen = !rawPanelOpen"
                 >
-                  {{ rawPanelOpen ? 'Hide raw exchange' : 'Raw exchange' }}
+                  {{ rawPanelOpen ? 'Hide provider exchange metadata' : 'Provider exchange metadata' }}
                 </button>
               </div>
             </div></template
@@ -41,7 +41,7 @@
       <StatusBanner v-if="sessionSummaryRefreshing" tone="stale" message="Refreshing session status…" />
     </template>
       <ViewState v-if="loading" state="loading" title="Loading conversation" />
-      <ViewState v-else-if="conversationUnauthorized && errorMsg" state="unauthorized" title="Conversation unavailable" message="Provide a valid API token to load this conversation." />
+      <ViewState v-else-if="conversationUnauthorized && errorMsg" state="unauthorized" title="Conversation unavailable" message="This browser is not authorized for the operator API, so the conversation cannot be loaded." />
       <ViewState v-else-if="errorMsg" state="error" title="Could not load conversation" :message="errorMsg" />
       <ViewState
         v-else-if="!conversationBaselineAccepted"
@@ -162,7 +162,7 @@ const historicalExpandedIds = ref(new Set<string>());
 const historicalTimeline = computed(() => entriesToTimeline(selectedConversationVersion.value?.entries ?? []));
 const socketWaitingMessage = computed(() =>
   liveSync.connectionState === 'unauthorized'
-    ? 'Live connection unauthorized. Open Token and save a valid API token to reconnect.'
+    ? 'Live connection unauthorized. The conversation loads when an authorized browser connection is available.'
     : liveSync.connectionState === 'connected'
     ? 'Waiting for the live conversation subscription acknowledgement.'
     : 'Live sync is not connected. The conversation will load when the live connection is re-established.',

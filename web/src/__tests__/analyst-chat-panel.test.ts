@@ -268,7 +268,7 @@ describe('AnalystChatPanel', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain(
-      'Live connection unauthorized. Open Token and save a valid API token to reconnect.',
+      'Live connection unauthorized. The Analyst history needs an authorized browser connection.',
     );
     expect(wrapper.text()).not.toContain('Waiting for live connection…');
     expect(wrapper.text()).not.toContain('Loading history…');

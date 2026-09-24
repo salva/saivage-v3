@@ -21,19 +21,18 @@ vi.mock('../stores/sync', () => ({
     connectionState: ref('connected'),
   }),
 }));
-vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined) }) }));
+vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined), loadedChildrenFor: vi.fn(() => undefined) }) }));
 
 function createTestRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/dashboard', name: 'dashboard', component: { template: '<div>dashboard</div>' } },
+      { path: '/', name: 'home', component: { template: '<div>home</div>' } },
       { path: '/cards', name: 'cards', component: { template: '<div>cards</div>' } },
       { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
-      { path: '/agents', name: 'agents', component: { template: '<div>agents</div>' } },
       { path: '/agents/:id', name: 'agent-detail', component: { template: '<div>agent detail</div>' } },
       { path: '/files', name: 'files', component: { template: '<div>files</div>' } },
-      { path: '/debug', name: 'debug', component: { template: '<div>debug</div>' } },
+      { path: '/system', name: 'system', component: { template: '<div>system</div>' } },
     ],
   });
 }
@@ -44,17 +43,16 @@ describe('AppShell project name', () => {
     localStorage.clear();
   });
 
-  it('renders the project name in the Analyst pane header outside WorkspaceHeader', async () => {
+  it('renders the project name in the Analyst pane header, not in the global strip identity', async () => {
     const router = createTestRouter();
-    await router.push('/dashboard');
+    await router.push('/');
     await router.isReady();
 
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     await flushPromises();
 
-    expect(wrapper.find('.app-top-bar').exists()).toBe(false);
-    expect(wrapper.get('.analyst-pane-project-name').text()).toContain('saivage-v3');
-    expect(wrapper.get('.workspace-header').text()).not.toContain('saivage-v3');
+    expect(wrapper.get('.analyst-pane-project-name').text()).toBe('saivage');
+    expect(wrapper.get('.strip-project').text()).toBe('saivage');
 
     wrapper.unmount();
   });

@@ -43,7 +43,6 @@ import {
   type OperatorApiResponse,
   type OperatorApiSuccess,
 } from './contracts';
-import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -157,9 +156,6 @@ async function operatorRequest<K extends OperatorApiOperationId>(
     return parsed as OperatorApiSuccess<K>;
   }
 
-  if (response.status === 401) {
-    dispatchApiAuthRequired({ status: response.status, path });
-  }
   throw new OperatorApiError(
     operationId,
     response.status as OperatorApiFailureStatus<K>,

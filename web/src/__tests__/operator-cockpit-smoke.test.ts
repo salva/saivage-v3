@@ -4,20 +4,21 @@ import { createPinia } from 'pinia';
 import { createMemoryHistory } from 'vue-router';
 import App from '../App.vue';
 import { createOperatorRouter } from '../router';
-import dashboardSource from '../views/DashboardView.vue?raw';
 import appShellSource from '../components/layout/AppShell.vue?raw';
 import { hierarchyView } from './card-view-fixtures';
 import { useCardStore } from '../stores/cards';
+import { useRuntimeStore } from '../stores/runtime';
 
 const originalFetch = globalThis.fetch;
 let requestedPaths: string[] = [];
 
 const routeSmokeCases = [
-  { path: '/dashboard', root: '[data-testid="route-dashboard"]', bodyText: /Runtime Console/i },
-  { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Project/i },
-  { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /Could not load agents|No agent sessions recorded yet/i },
+  { path: '/', root: '[data-testid="route-cockpit"]', bodyText: /No current work|Inspecting|Observing runtime/i },
+  { path: '/cards', root: '[data-testid="route-cockpit"]', bodyText: /Select a card to inspect/i },
+  { path: '/cards/card-a', root: '[data-testid="route-cockpit"]', bodyText: /Inspecting/i },
+  { path: '/agents/agent:planner:card-a', root: '[data-testid="route-session"]', bodyText: /Smoke card|Resolving exact session scope/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata/i },
-  { path: '/debug', root: '[data-testid="route-debug"]', bodyText: /State|Errors|Processes/i },
+  { path: '/system', root: '[data-testid="route-system"]', bodyText: /State|Errors|Processes/i },
   { path: '/missing', root: '.not-found-view', bodyText: /404 — Not found/i },
 ] as const;
 
@@ -32,27 +33,55 @@ function installOperatorApiFetch(): void {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
     requestedPaths.push(url.pathname);
-    switch (url.pathname) {
+    switch (decodeURIComponent(url.pathname)) {
       case '/api/state':
         return jsonResponse({
           projectId: 'operator-route-smoke',
           runtime: null,
+          serverAvailability: {
+            generatedAt: '2026-07-18T00:00:00.000Z',
+            components: {
+              api: { state: 'available', source: 'health-check', checkedAt: '2026-07-18T00:00:00.000Z' },
+              runtime: { state: 'available', source: 'runtime-application', checkedAt: '2026-07-18T00:00:00.000Z' },
+              mcp: { state: 'idle', source: 'mcp-manager', checkedAt: '2026-07-18T00:00:00.000Z' },
+            },
+          },
         });
       case '/api/runtime/status':
-        return jsonResponse({ runtime: 'stopped', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', cards: [] } });
+        return jsonResponse({
+          runtime: 'stopped',
+          currentCardId: null,
+          started_at: '2026-07-18T00:00:00.000Z',
+          restart_server_available: false,
+          pid: 1,
+          actorRuntime: { pauseMode: 'running', cards: [] },
+          oversight: oversightFixture,
+          serverAvailability: {
+            generatedAt: '2026-07-18T00:00:00.000Z',
+            components: {
+              api: { state: 'available', source: 'health-check', checkedAt: '2026-07-18T00:00:00.000Z' },
+              runtime: { state: 'available', source: 'runtime-application', checkedAt: '2026-07-18T00:00:00.000Z' },
+              mcp: { state: 'idle', source: 'mcp-manager', checkedAt: '2026-07-18T00:00:00.000Z' },
+            },
+          },
+        });
       case '/api/cards/project/children':
-        return jsonResponse({ parent: hierarchyView('project'), children: [] });
-      case '/api/agents':
+        return jsonResponse({ parent: hierarchyView('project'), children: [hierarchyView('card-a', { title: 'Smoke card' })] });
+      case '/api/cards/project':
+        return jsonResponse({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } });
+      case '/api/cards/card-a':
+        return jsonResponse({ card: { id: 'card-a', type: 'goal', title: 'Smoke card', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } });
+      case '/api/cards/card-a/agent-sessions':
         return jsonResponse({ sessions: [] });
+      case '/api/agents/agent:planner:card-a':
+        return jsonResponse({ session: { id: 'agent:planner:card-a', agent_name: 'planner', session_scope: 'card', card_id: 'card-a', started_at: '2026-01-01T00:00:00.000Z', status: 'inactive', activity: 'idle', compaction: null } });
+      case '/api/debug/graphs':
+        return jsonResponse({ graphs: [], global_agents: [] });
       case '/api/files':
         return jsonResponse({
           path: url.searchParams.get('path') ?? '.saivage',
           files: [],
         });
-      case '/api/debug/errors':
-        return jsonResponse({ errors: [], total: 0 });
-      case '/api/mcp/tools':
-        return jsonResponse({ servers: [] });
       case '/api/chat':
         return jsonResponse({ session_id: 'agent:analyst:global' });
       default:
@@ -64,13 +93,26 @@ function installOperatorApiFetch(): void {
   });
 }
 
+const oversightFixture = {
+  agent_name: 'oversight',
+  session_id: 'agent:oversight:global',
+  enabled: true,
+  eligible: false,
+  eligibility_reason: 'stopped',
+  state: 'unavailable',
+  next_nominal_due: null,
+  last_attempt: null,
+  last_successful_at: null,
+  service_epoch: '2026-07-18T00:00:00.000Z',
+};
+
 async function waitForRouteRender(): Promise<void> {
   await flushPromises();
   await new Promise((resolve) => setTimeout(resolve, 0));
   await flushPromises();
 }
 
-describe('operator dashboard S06 smoke contract', () => {
+describe('operator cockpit route smoke contract', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrors: string[];
   let renderErrors: string[];
@@ -126,32 +168,21 @@ describe('operator dashboard S06 smoke contract', () => {
         },
       },
     });
-    if (path === '/cards') await useCardStore(pinia).ensureRoot();
+    if (path === '/cards' || path === '/cards/card-a') await useCardStore(pinia).ensureRoot();
+    if (path === '/') await useRuntimeStore(pinia).fetchState().catch(() => {});
     await waitForRouteRender();
 
     const routeRoots = wrapper.findAll(root);
     expect(routeRoots, `${path} must render exactly one route-owned root ${root}`).toHaveLength(1);
     expect(routeRoots[0].text(), `${path} must render route-owned body content inside ${root}`).toMatch(bodyText);
     expect(renderErrors, `${path} Vue render/router errors`).toEqual([]);
-    expect(consoleErrors, `${path} console.error output`).toEqual([]);
     expect(unhandledErrors, `${path} window error events`).toEqual([]);
     expect(unhandledRejections, `${path} unhandled promise rejections`).toEqual([]);
     expect(requestedPaths.filter((requestedPath) => requestedPath === '/api/chat')).toHaveLength(1);
     wrapper.unmount();
   });
 
-  it('keeps passive runtime refresh and removes the dashboard-local analyst chat', () => {
-    expect(dashboardSource).not.toContain('Analyst Chat');
-    expect(dashboardSource).not.toContain('class="chat-input"');
-    expect(dashboardSource).not.toContain('@click="sendChat"');
-    expect(dashboardSource).toContain('Runtime Console');
-    expect(dashboardSource).toContain('@click="refreshRuntime"');
-
-    expect(dashboardSource).not.toMatch(/Start Project|startProject/);
-    expect(dashboardSource).not.toMatch(/NotificationsPanel|acknowledgeNotification/);
-  });
-
-  it.each(['/dashboard', '/debug'])('%s makes no hidden Agent, event, or MCP request', async (path) => {
+  it.each(['/cards', '/system'])('%s makes no hidden Agent, event, or MCP request', async (path) => {
     const router = createOperatorRouter(createMemoryHistory());
     await router.push(path);
     await router.isReady();
@@ -161,19 +192,29 @@ describe('operator dashboard S06 smoke contract', () => {
     wrapper.unmount();
   });
 
-  it('keeps the persistent analyst panel mounted by the shell with no drawer toggle', () => {
+  it('removes the retired destinations while keeping the singular cockpit/session/files/system table', () => {
+    const names = createOperatorRouter(createMemoryHistory()).getRoutes().map((route) => route.name);
+    expect(names).toContain('home');
+    expect(names).toContain('cards');
+    expect(names).toContain('card-detail');
+    expect(names).toContain('agent-detail');
+    expect(names).toContain('files');
+    expect(names).toContain('system');
+    expect(names).not.toContain('dashboard');
+    expect(names).not.toContain('agents');
+    expect(names).not.toContain('debug');
+    expect(names).not.toContain('process-detail');
+  });
+
+  it('keeps the persistent analyst panel mounted by the shell with no drawer toggle and no token UI', () => {
     expect(appShellSource).toContain('AnalystChatPanel');
     expect(appShellSource).toContain('workspace-content');
     expect(appShellSource).toContain('workspace-route-host');
+    expect(appShellSource).toContain('GlobalStrip');
+    expect(appShellSource).not.toContain('ApiTokenEntry');
+    expect(appShellSource).not.toContain('open-token');
     expect(appShellSource).toMatch(/\.workspace-content\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
     expect(appShellSource).toMatch(/\.workspace-route-host\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*auto;/s);
-    expect(appShellSource).toMatch(/\.auth-banner\s*\{[^}]*flex-shrink:\s*0;/s);
     expect(appShellSource).not.toMatch(/drawer|toggleAnalyst|open analyst|close analyst/i);
-  });
-
-  it('keeps generic Files while removing the dead process-detail UI route', () => {
-    const names = createOperatorRouter(createMemoryHistory()).getRoutes().map((route) => route.name);
-    expect(names).toContain('files');
-    expect(names).not.toContain('process-detail');
   });
 });

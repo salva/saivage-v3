@@ -44,7 +44,7 @@ describe('AnalystChatPanel on-screen children', () => {
       hierarchyView(CHILD_ZERO_ID, { title: 'Zero' }),
     ] } };
     const workspaceRoute = useWorkspaceRouteStore();
-    workspaceRoute.view = 'cards';
+    workspaceRoute.view = 'cockpit';
     workspaceRoute.entityId = 'project';
     await flushPromises();
     const items = wrapper.findAll('.on-screen-children li').map((item) => item.text());
@@ -62,7 +62,7 @@ describe('AnalystChatPanel on-screen children', () => {
     const cards = useCardStore();
     cards.hierarchySlicesByParentId = { project: { parent: hierarchyView('project'), children: [hierarchyView(CHILD_ZERO_ID, { title: 'Zero' })] } };
     const workspaceRoute = useWorkspaceRouteStore();
-    workspaceRoute.view = 'dashboard';
+    workspaceRoute.view = 'files';
     workspaceRoute.entityId = 'project';
     await flushPromises();
     expect(wrapper.find('.on-screen-children').exists()).toBe(false);

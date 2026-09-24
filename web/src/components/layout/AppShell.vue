@@ -6,73 +6,40 @@
       { 'analyst-pane-suppressed': suppressAnalystPane },
     ]"
   >
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <a href="#analyst-pane" class="skip-link">Skip to Analyst</a>
+
     <div class="workspace-shell">
-      <NavRail :nav-items="navItems" :docs-href="docsHref" @open-token="showTokenDialog = true" />
+      <GlobalStrip />
 
-      <div class="workspace-stack">
-        <WorkspaceHeader
-          :section-title="currentSectionTitle"
-          :connection-state="wsConnectionState"
-          :runtime-status="runtimeStatus"
-          :runtime-status-label="runtimeStatusLabel"
-          :runtime-mode-label="runtimeModeLabel"
-          :runtime-mode-detail="runtimeDetail"
-          :is-unauthorized="runtimeUnauthorized"
-        />
-
-        <main class="workspace-content">
-          <div
-            v-if="showAuthBanner"
-            class="entry-danger auth-banner"
-            role="alert"
-            data-testid="api-auth-banner"
-          >
-            <strong>API token required</strong>
-            <span>Set a valid API token to load secured runtime data.</span>
-            <Button
-              class="auth-banner-action"
-              size="sm"
-              variant="ghost"
-              @click="openTokenFromAuthBanner"
-              >Open Token modal</Button
-            >
-            <Button
-              class="auth-banner-dismiss"
-              size="sm"
-              variant="ghost"
-              aria-label="Dismiss API token banner"
-              @click="dismissAuthBanner"
-              >Dismiss</Button
-            >
-          </div>
-          <div class="workspace-route-host">
-            <router-view v-slot="{ Component }">
-              <transition name="fade" mode="out-in">
-                <component v-if="workspacePresentation === 'component'" :is="Component" />
-                <div
-                  v-else-if="workspacePresentation === 'identity-pending'"
-                  class="workspace-identity-state"
-                  role="status"
-                  data-testid="analyst-identity-pending"
-                >
-                  Loading Analyst identity…
-                </div>
-                <div
-                  v-else-if="workspacePresentation === 'identity-failed'"
-                  class="workspace-identity-state"
-                  role="alert"
-                  data-testid="analyst-identity-failed"
-                >
-                  Analyst identity is unavailable.
-                </div>
-              </transition>
-            </router-view>
-          </div>
-        </main>
-      </div>
+      <main id="main-content" class="workspace-content" tabindex="-1">
+        <div class="workspace-route-host">
+          <router-view v-slot="{ Component }">
+            <transition name="fade" mode="out-in">
+              <component v-if="workspacePresentation === 'component'" :is="Component" />
+              <div
+                v-else-if="workspacePresentation === 'identity-pending'"
+                class="workspace-identity-state"
+                role="status"
+                data-testid="analyst-identity-pending"
+              >
+                Loading Analyst identity…
+              </div>
+              <div
+                v-else-if="workspacePresentation === 'identity-failed'"
+                class="workspace-identity-state"
+                role="alert"
+                data-testid="analyst-identity-failed"
+              >
+                Analyst identity is unavailable.
+              </div>
+            </transition>
+          </router-view>
+        </div>
+      </main>
     </div>
 
-    <div v-if="showAnalystPane" class="analyst-pane">
+    <div v-if="showAnalystPane" id="analyst-pane" class="analyst-pane">
       <header class="analyst-pane-header" aria-label="Project">
         <span class="analyst-pane-project-name">{{ projectName }}</span>
       </header>
@@ -103,13 +70,6 @@
 
     <GlobalToaster />
 
-    <ApiTokenEntry
-      :visible="showTokenDialog"
-      @close="showTokenDialog = false"
-      @saved="handleTokenSaved"
-      @cleared="handleTokenCleared"
-    />
-
     <Dialog
       :visible="showShortcutHelp"
       title-id="shortcut-help-title"
@@ -129,8 +89,8 @@
         </div>
         <dl class="shortcut-list">
           <div class="shortcut-row">
-            <dt><kbd>1</kbd>–<kbd>5</kbd></dt>
-            <dd>Switch workspace section</dd>
+            <dt><kbd>1</kbd>–<kbd>3</kbd></dt>
+            <dd>Switch workspace destination (Cockpit, Files, System)</dd>
           </div>
           <div class="shortcut-row">
             <dt><kbd>/</kbd></dt>
@@ -154,89 +114,21 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
-import NavRail from '../nav/NavRail.vue';
-import type { NavItem } from '../nav/types';
-import WorkspaceHeader from './WorkspaceHeader.vue';
-import ApiTokenEntry from '../auth/ApiTokenEntry.vue';
+import GlobalStrip from './GlobalStrip.vue';
 import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
 import GlobalToaster from '../feedback/GlobalToaster.vue';
-import Button from '../ui/Button.vue';
 import Dialog from '../ui/Dialog.vue';
 import { useRuntimeStore } from '../../stores/runtime';
-import { useSyncStore } from '../../stores/sync';
-import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
-import type { WsConnectionState } from '../../api/types';
-import {
-  API_AUTH_REQUIRED_EVENT,
-  dismissAuthBannerForSession,
-  isAuthBannerDismissedForSession,
-} from '../../utils/auth-events';
 import { parseAgentDetailRouteParam } from '../../router/agent-session-route';
 
 const runtimeStore = useRuntimeStore();
-const syncStore = useSyncStore();
-const authStore = useAuthStore();
 const analystChat = useAnalystChat();
-const {
-  statusLabel: runtimeStatusLabel,
-  status,
-  runtimeModeLabel,
-  runtimeDetail,
-  unauthorized: runtimeUnauthorized,
-} = storeToRefs(runtimeStore);
-const { connectionState: syncConnectionState } = storeToRefs(syncStore);
 
 const route = useRoute();
 const router = useRouter();
 
-const navItems: NavItem[] = [
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    shortcut: '1',
-    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="2" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`,
-    to: { name: 'dashboard' },
-    activePatterns: ['dashboard', '/dashboard'],
-  },
-  {
-    id: 'cards',
-    label: 'Cards',
-    shortcut: '2',
-    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="7" y="2" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="14" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="12" y="14" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v4M5 14v-2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    to: { name: 'cards' },
-    activePatterns: ['cards', 'card-detail', '/cards'],
-  },
-  {
-    id: 'agents',
-    label: 'Agents',
-    shortcut: '3',
-    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M5 16c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="7" cy="6.5" r="1" fill="currentColor"/></svg>`,
-    to: { name: 'agents' },
-    activePatterns: ['agents', 'agent-detail', '/agents'],
-  },
-  {
-    id: 'files',
-    label: 'Files',
-    shortcut: '4',
-    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 3h5l2 2h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.5"/></svg>`,
-    to: { name: 'files' },
-    activePatterns: ['files', '/files'],
-  },
-  {
-    id: 'debug',
-    label: 'Debug',
-    shortcut: '5',
-    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="10" y1="6" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="14" x2="10.01" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-    to: { name: 'debug' },
-    activePatterns: ['debug', '/debug'],
-  },
-];
-
-const docsHref = computed<string>(() => '/docs/');
-const showTokenDialog = ref(false);
-const projectName = computed(() => runtimeStore.projectId ?? 'saivage-v3');
-const showAuthBanner = ref(false);
+const projectName = computed(() => runtimeStore.projectId ?? 'saivage');
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
 const analystActivityDot = computed(() => analystChat.sending);
@@ -253,24 +145,6 @@ const suppressAnalystPane = computed(() => !showAnalystPane.value);
 const effectiveMobileActivePane = computed(() =>
   suppressAnalystPane.value ? 'workspace' : mobileActivePane.value,
 );
-
-const sectionLabels: Record<string, string> = {
-  dashboard: 'Dashboard',
-  cards: 'Cards',
-  'card-detail': 'Card Detail',
-  agents: 'Agents',
-  'agent-detail': 'Agent Detail',
-  files: 'Files',
-  debug: 'Debug',
-};
-
-const currentSectionTitle = computed(() => {
-  const name = route.name as string;
-  return sectionLabels[name] ?? name ?? 'Saivage';
-});
-
-const wsConnectionState = computed<WsConnectionState>(() => syncConnectionState.value ?? 'offline');
-const runtimeStatus = computed<string | null>(() => status.value ?? null);
 
 async function reconcileConversationMounts(): Promise<void> {
   const token = ++presentationToken;
@@ -316,16 +190,13 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   const key = event.key;
   const map: Record<string, string> = {
-    '1': 'dashboard',
-    '2': 'cards',
-    '3': 'agents',
-    '4': 'files',
-    '5': 'debug',
+    '1': 'home',
+    '2': 'files',
+    '3': 'system',
   };
   if (map[key] && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
-    const item = navItems.find((n) => n.id === map[key]);
-    if (item) router.push(item.to);
+    void router.push({ name: map[key] });
   }
   if (key === '/' && !event.ctrlKey && !event.metaKey) {
     event.preventDefault();
@@ -339,46 +210,20 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 }
 
-function handleApiAuthRequired(): void {
-  if (!isAuthBannerDismissedForSession()) {
-    showAuthBanner.value = true;
-  }
-}
-
-function openTokenFromAuthBanner(): void {
-  showTokenDialog.value = true;
-}
-
-function dismissAuthBanner(): void {
-  showAuthBanner.value = false;
-  dismissAuthBannerForSession();
-}
-
-function handleTokenSaved(): void {
-  showTokenDialog.value = false;
-  showAuthBanner.value = false;
-}
-
-function handleTokenCleared(): void {
-  authStore.refresh();
-}
-
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown);
-  window.addEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
   void analystChat.resolveIdentity().catch(() => {});
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
-  window.removeEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });
 </script>
 
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(20rem, 25vw, 30vw);
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
   grid-template-rows: 1fr;
   height: 100%;
   width: 100%;
@@ -389,25 +234,31 @@ onUnmounted(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.workspace-shell {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: 1fr;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 200;
+  background: var(--surface-2);
+  color: var(--accent-2);
+  padding: 8px 14px;
+  border-radius: 0 0 8px 0;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.skip-link:focus {
+  left: 0;
 }
 
-.workspace-stack {
-  display: flex;
-  flex-direction: column;
+.workspace-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
 .workspace-content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -536,29 +387,6 @@ onUnmounted(() => {
       opacity: 1;
     }
   }
-}
-
-.auth-banner {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-left: 0;
-  border-right: 0;
-  border-top: 0;
-  border-radius: 0;
-  color: var(--text);
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.auth-banner strong {
-  color: var(--danger);
-}
-.auth-banner-dismiss {
-  margin-left: auto;
 }
 
 .shortcut-help {

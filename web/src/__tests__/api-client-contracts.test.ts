@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as client from '../api/client';
 import { AnalystTurnBusyErrorSchema, CardDiffRowSchema, parseOperatorResponse, type CardDiffRow, type ConversationSessionId, type OperatorApiSuccess } from '../api/contracts';
 import type { CardChildrenResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
-import { API_AUTH_REQUIRED_EVENT } from '../utils/auth-events';
 
 const validCardDiffRow: CardDiffRow = { field: 'title', before: null, after: 'new' };
 // @ts-expect-error CardDiffRow requires before through the web contract boundary.
@@ -169,23 +168,14 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect((failure as Error).message).toContain('does not declare response status 204');
   });
 
-  it('dispatches auth-required only for a validated declared 401', async () => {
-    window.sessionStorage.clear();
-    const listener = vi.fn();
-    window.addEventListener(API_AUTH_REQUIRED_EVENT, listener);
-    try {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Unauthorized', statusCode: 401 }), { status: 401 })));
-      const validated = await client.getRuntimeState().catch((error: unknown) => error);
-      expect(client.isOperatorApiError(validated, 'runtime.getState', 401)).toBe(true);
-      expect(listener).toHaveBeenCalledTimes(1);
+  it('classifies a validated declared 401 without any browser event side channel', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Unauthorized', statusCode: 401 }), { status: 401 })));
+    const validated = await client.getRuntimeState().catch((error: unknown) => error);
+    expect(client.isOperatorApiError(validated, 'runtime.getState', 401)).toBe(true);
 
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })));
-      const malformed = await client.getRuntimeState().catch((error: unknown) => error);
-      expect(malformed).not.toBeInstanceOf(client.OperatorApiError);
-      expect(listener).toHaveBeenCalledTimes(1);
-    } finally {
-      window.removeEventListener(API_AUTH_REQUIRED_EVENT, listener);
-    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })));
+    const malformed = await client.getRuntimeState().catch((error: unknown) => error);
+    expect(malformed).not.toBeInstanceOf(client.OperatorApiError);
   });
 
   it('does not narrow a valid same-status error from the wrong operation', () => {

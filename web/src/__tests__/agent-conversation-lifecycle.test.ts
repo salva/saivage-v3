@@ -5,9 +5,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { nextTick, type Ref } from 'vue';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
-import AgentsView from '../views/AgentsView.vue';
+import SessionView from '../views/SessionView.vue';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
-import agentsViewSource from '../views/AgentsView.vue?raw';
+import sessionViewSource from '../views/SessionView.vue?raw';
 import rawPanelSource from '../components/agents/RawLlmExchangePanel.vue?raw';
 import { OperatorApiError } from '../api/client';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
@@ -35,6 +35,7 @@ vi.mock('../stores/sync', async () => {
         return live.connectionState!.value;
       },
       openAgents: () => () => {},
+      openCardAgentSessions: () => () => {},
       openConversation: (sessionId: string, callback: (frame: ConversationInvalidation) => Promise<void>) => {
         lifecycle.events.push(`subscribe:${sessionId}`);
         lifecycle.callbacks.set(sessionId, callback);
@@ -50,6 +51,9 @@ vi.mock('../api/client', async (importOriginal) => ({
   getAgentConversation: api.getAgentConversation,
   getAgentSession: api.getAgentSession,
   getAgentLlmExchange: vi.fn(),
+  getCard: vi.fn(async () => ({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
+  getCardAgentSessions: vi.fn(async () => ({ sessions: [] })),
+  getDebugGraphs: vi.fn(async () => ({ graphs: [], global_agents: [] })),
 }));
 
 function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
@@ -145,8 +149,7 @@ function makeRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/agents', name: 'agents', component: AgentsView },
-      { path: '/agents/:id', name: 'agent-detail', component: AgentsView },
+      { path: '/agents/:id', name: 'agent-detail', component: SessionView },
       { path: '/cards/:id', name: 'card-detail', component: { template: '<div />' } },
     ],
   });
@@ -178,12 +181,12 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
   });
 
   it('has keyed children, view-local evidence targeting, and no eager exchange fetch', () => {
-    expect(agentsViewSource).toContain(':key="selectedSessionId"');
+    expect(sessionViewSource).toContain(':key="sessionId"');
     expect(agentConversationSource).toContain(':key="props.sessionId"');
     expect(agentConversationSource).toContain('[entries, loading, conversationRefreshing]');
     expect(rawPanelSource).not.toContain('watch(');
     expect(rawPanelSource).not.toContain('maybeFetch');
-    expect(agentsViewSource).toContain(':entry-id="selectedEntryId"');
+    expect(sessionViewSource).toContain(':entry-id="entryId"');
     expect(agentConversationSource).toContain('[data-entry-id=');
   });
 
@@ -208,13 +211,13 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(wrapper.find('[data-entry-id="first"]').exists()).toBe(true);
   });
 
-  it('directs an unauthorized initial transcript to Token without requesting it prematurely', async () => {
+  it('reports an unauthorized live connection honestly without requesting the transcript prematurely', async () => {
     live.connectionState!.value = 'unauthorized';
     const { wrapper } = await mountConversation('');
     await flushPromises();
 
     expect(wrapper.text()).toContain(
-      'Live connection unauthorized. Open Token and save a valid API token to reconnect.',
+      'Live connection unauthorized. The conversation loads when an authorized browser connection is available.',
     );
     expect(wrapper.text()).not.toContain('The conversation will load when the live connection is re-established.');
     expect(wrapper.text()).not.toContain('subscription acknowledgement');
@@ -442,7 +445,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       lifecycle.events.push(`clear:${store.selectedConversationSessionId}`);
       originalClear(token);
     });
-    const wrapper = mount(AgentsView, { global: { plugins: [pinia, router] } });
+    const wrapper = mount(SessionView, { global: { plugins: [pinia, router] } });
     await flushPromises();
     lifecycle.events.length = 0;
 
@@ -451,7 +454,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(lifecycle.events).toEqual(['unsubscribe:agent:planner:project', 'clear:agent:planner:project', 'subscribe:agent:reviewer:project']);
     expect(store.selectedConversationSessionId).toBe('agent:reviewer:project');
 
-    await router.push('/agents');
+    await router.push('/cards/11111111-1111-4111-8111-111111111111');
     await flushPromises();
     expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:agent:reviewer:project', 'clear:agent:reviewer:project']);
     expect(store.selectedConversationSessionId).toBeNull();

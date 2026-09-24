@@ -11,6 +11,7 @@ export type { CardDiffRow };
 export type {
   AgentConversationEntry,
   ChatWorkspaceContext,
+  CardHierarchyParent,
   CardStatus,
   CardType,
   LiveSyncCardInvalidateTarget,

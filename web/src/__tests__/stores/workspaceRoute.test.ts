@@ -18,7 +18,7 @@ function route(name: string, params: Record<string, unknown> = {}, query: Record
   } as unknown as RouteLocationNormalizedLoaded;
 }
 
-function makeRouter(initial = route('dashboard')): Router & { pushMock: ReturnType<typeof vi.fn>; replaceMock: ReturnType<typeof vi.fn>; triggerAfterEach: (to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void } {
+function makeRouter(initial = route('home')): Router & { pushMock: ReturnType<typeof vi.fn>; replaceMock: ReturnType<typeof vi.fn>; triggerAfterEach: (to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void } {
   let afterEachHook: ((to: RouteLocationNormalizedLoaded, from: RouteLocationNormalizedLoaded) => void) | null = null;
   const pushMock = vi.fn();
   const replaceMock = vi.fn();
@@ -44,17 +44,17 @@ describe('workspaceRoute store', () => {
     const router = makeRouter(route('card-detail', { id: '11111111-1111-4111-8111-111111111111' }, { tab: 'history' }));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
-    expect(store.current).toEqual({ view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
+    expect(store.current).toEqual({ view: 'cockpit', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' }, routeName: 'card-detail' });
   });
 
   it('updates current and stores the previous route after router.afterEach', () => {
-    const router = makeRouter(route('dashboard'));
+    const router = makeRouter(route('home'));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
-    router.triggerAfterEach(route('agent-detail', { id: 'agent:planner:project' }), route('dashboard'));
-    expect(store.current).toEqual({ view: 'agents', entityId: 'agent:planner:project', refinement: null });
+    router.triggerAfterEach(route('agent-detail', { id: 'agent:planner:project' }), route('home'));
+    expect(store.current).toEqual({ view: 'cockpit', entityId: 'agent:planner:project', refinement: null, routeName: 'agent-detail' });
     store.apply({ intent: 'navigate_back' });
-    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'dashboard', query: undefined });
+    expect(router.replaceMock).toHaveBeenCalledWith({ name: 'home', query: undefined });
   });
 
   it('maps every navigate_workspace target kind to its exact router.push argument', () => {
@@ -64,9 +64,9 @@ describe('workspaceRoute store', () => {
     const rows: Array<{ target: WorkspaceNavigationTarget; expected: RouteLocationRaw }> = [
       { target: { kind: 'card', id: '11111111-1111-4111-8111-111111111111' }, expected: { name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' }, query: undefined } },
       { target: { kind: 'transcript', id: 'agent:planner:project' }, expected: { name: 'agent-detail', params: { id: 'agent:planner:project' }, query: undefined } },
-      { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'debug', query: { tab: 'processes', process: 'pid-1' } } },
-      { target: { kind: 'process_list' }, expected: { name: 'debug', query: { tab: 'processes' } } },
-      { target: { kind: 'agent_session_list' }, expected: { name: 'agents', query: undefined } },
+      { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'system', query: { section: 'processes', process: 'pid-1' } } },
+      { target: { kind: 'process_list' }, expected: { name: 'system', query: { section: 'processes' } } },
+      { target: { kind: 'agent_session_list' }, expected: { name: 'system', query: { section: 'participants' } } },
     ];
     for (const row of rows) {
       store.apply({ intent: 'navigate_workspace', target: row.target });
@@ -98,7 +98,7 @@ describe('workspaceRoute store', () => {
   });
 
   it('bounds the back-stack to 16 entries', () => {
-    const router = makeRouter(route('dashboard'));
+    const router = makeRouter(route('home'));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
     for (let index = 0; index < 17; index += 1) {

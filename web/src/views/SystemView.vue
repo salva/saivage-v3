@@ -1,20 +1,20 @@
 <template>
-  <div class="debug-layout" data-testid="route-debug">
-    <div class="tablist debug-tabs">
+  <div class="system-route" data-testid="route-system">
+    <div class="tablist system-sections" role="tablist" aria-label="System sections">
       <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        class="pill debug-tab-button"
-        :aria-pressed="localActiveTab === tab.id"
-        @click="setTab(tab.id)"
+        v-for="section in sections"
+        :key="section.id"
+        class="pill system-section-button"
+        :aria-pressed="activeSection === section.id"
+        @click="setSection(section.id)"
       >
-        {{ tab.label }}
+        {{ section.label }}
       </button>
     </div>
 
-    <div class="debug-content">
+    <div class="system-content">
       <StatePanel
-        v-if="localActiveTab === 'state'"
+        v-if="activeSection === 'state'"
         :runtime="runtime"
         :runtime-loaded="runtimeLoaded"
         :runtime-loading="runtimeLoading"
@@ -25,7 +25,7 @@
         :oversight="oversight"
       />
       <OperatorControlPanel
-        v-if="localActiveTab === 'operator'"
+        v-if="activeSection === 'operator'"
         :runtime="runtime"
         :runtime-loaded="runtimeLoaded"
         :runtime-loading="runtimeLoading"
@@ -37,16 +37,8 @@
         :operator-panel-busy="operatorPanelBusy"
         @refresh="refreshOperatorControl"
       />
-      <ErrorsPanel
-        v-if="localActiveTab === 'errors'"
-        :errors-loading="errorsLoading"
-        :errors-error="errorsError"
-        :errors-total="errorsTotal"
-        :errors="errors"
-        :error-source-entries="errorSourceEntries"
-      />
       <AgentsPanel
-        v-if="localActiveTab === 'agents'"
+        v-if="activeSection === 'participants'"
         :sessions="sessions"
         :sessions-loaded="sessionsLoaded"
         :sessions-loading="sessionsLoading"
@@ -61,8 +53,36 @@
         @select-session="selectAgentSession"
         @select-kind="selectAgentDebugKind"
       />
+      <ErrorsPanel
+        v-if="activeSection === 'errors'"
+        :errors-loading="errorsLoading"
+        :errors-error="errorsError"
+        :errors-total="errorsTotal"
+        :errors="errors"
+        :error-source-entries="errorSourceEntries"
+      />
+      <ProcessesPanel
+        v-if="activeSection === 'processes'"
+        :processes-loading="processesLoading"
+        :processes-error="processesError"
+        :sorted-processes="sortedProcesses"
+        :selected-process-id="selectedProcessId"
+        @refresh="refreshProcesses"
+        @browse-log="browseProcessLog"
+      />
+      <McpPanel
+        v-if="activeSection === 'mcp'"
+        :servers="mcpServers"
+        :loading="mcpLoading"
+        :error="mcpError"
+        :server-count="mcpServerCount"
+        :tool-count="mcpToolCount"
+        :total-invocations="mcpTotalInvocations"
+        :total-errors="mcpTotalErrors"
+        :last-refreshed="mcpLastRefreshed"
+      />
       <GraphsPanel
-        v-if="localActiveTab === 'graphs'"
+        v-if="activeSection === 'workflows'"
         :graphs="graphs"
         :global-agents="globalAgents"
         :graphs-loading="graphsLoading"
@@ -74,34 +94,14 @@
         @refresh="refreshGraphs"
         @select-graph="selectGraph"
       />
-      <ProcessesPanel
-        v-if="localActiveTab === 'processes'"
-        :processes-loading="processesLoading"
-        :processes-error="processesError"
-        :sorted-processes="sortedProcesses"
-        :selected-process-id="selectedProcessId"
-        @refresh="refreshProcesses"
-        @browse-log="browseProcessLog"
-      />
       <DoctorPanel
-        v-if="localActiveTab === 'doctor'"
+        v-if="activeSection === 'doctor'"
         :doctor-status="doctorStatus"
         :doctor-checks="doctorChecks"
         :doctor-issues="doctorIssues"
         :doctor-loading="doctorLoading"
         :doctor-error="doctorError"
         @fetch="fetchDoctor"
-      />
-      <McpPanel
-        v-if="localActiveTab === 'mcp'"
-        :servers="mcpServers"
-        :loading="mcpLoading"
-        :error="mcpError"
-        :server-count="mcpServerCount"
-        :tool-count="mcpToolCount"
-        :total-invocations="mcpTotalInvocations"
-        :total-errors="mcpTotalErrors"
-        :last-refreshed="mcpLastRefreshed"
       />
     </div>
   </div>
@@ -114,19 +114,21 @@ import { storeToRefs } from 'pinia';
 import type { ConversationSessionId } from '../api/contracts';
 import AgentsPanel, { type AgentDebugKind } from '../components/debug/AgentsPanel.vue';
 import DoctorPanel from '../components/debug/DoctorPanel.vue';
-import ErrorsPanel from '../components/debug/ErrorsPanel.vue';
+import ErrorsPanel, { type ErrorSourceEntry } from '../components/debug/ErrorsPanel.vue';
 import GraphsPanel from '../components/debug/GraphsPanel.vue';
 import McpPanel from '../components/debug/McpPanel.vue';
 import OperatorControlPanel from '../components/debug/OperatorControlPanel.vue';
 import ProcessesPanel from '../components/debug/ProcessesPanel.vue';
 import StatePanel from '../components/debug/StatePanel.vue';
 import '../components/debug/debug-panels.css';
-import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { useAgentStore } from '../stores/agents';
 import { useDebugStore } from '../stores/debug';
+import { selectSortedProcesses } from '../stores/debug-read-model';
 import { useMcpStore } from '../stores/mcp';
 import { useRuntimeStore } from '../stores/runtime';
 import { useSyncStore } from '../stores/sync';
+
+type SystemSectionId = 'state' | 'operator' | 'participants' | 'errors' | 'processes' | 'mcp' | 'workflows' | 'doctor';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useSyncStore();
@@ -135,6 +137,17 @@ const agentStore = useAgentStore();
 const mcpStore = useMcpStore();
 const route = useRoute();
 const router = useRouter();
+
+const sections: readonly { id: SystemSectionId; label: string }[] = [
+  { id: 'state', label: 'State' },
+  { id: 'operator', label: 'Operator observation' },
+  { id: 'participants', label: 'Participants' },
+  { id: 'errors', label: 'Errors' },
+  { id: 'processes', label: 'Processes' },
+  { id: 'mcp', label: 'MCP' },
+  { id: 'workflows', label: 'Installed workflows' },
+  { id: 'doctor', label: 'Doctor' },
+];
 
 const {
   errors,
@@ -164,6 +177,7 @@ const {
   refreshError: runtimeRefreshError,
   lastFetchedAt: runtimeLastFetchedAt,
   oversight,
+  currentCardId,
 } = storeToRefs(runtimeStore);
 const {
   sessions,
@@ -185,19 +199,18 @@ const {
   lastRefreshed: mcpLastRefreshed,
 } = storeToRefs(mcpStore);
 
-const {
-  tabs,
-  localActiveTab,
-  runtimeStatusLabel,
-  currentCardId,
-  operatorPanelBusy,
-  sortedProcesses,
-  errorSourceEntries,
-} = useDebugReadModel(debugStore, runtimeStore);
+const runtimeStatusLabel = computed(() => runtimeStore.statusLabel);
+const operatorPanelBusy = computed(() => runtimeLoading.value || runtimeRefreshing.value);
+const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes ?? []));
+const errorSourceEntries = computed<ErrorSourceEntry[]>(() => {
+  const entries: ErrorSourceEntry[] = [];
+  for (const [source, list] of debugStore.errorsBySource) entries.push({ source, errors: list });
+  return entries;
+});
 
 const agentDebugKinds: readonly { id: AgentDebugKind; label: string }[] = [
   { id: 'conversation', label: 'Conversation' },
-  { id: 'llmExchange', label: 'Raw LLM Exchange' },
+  { id: 'llmExchange', label: 'Provider exchange metadata' },
 ];
 const explicitAgentSessionId = ref<ConversationSessionId | null>(null);
 const selectedAgentDebugKind = ref<AgentDebugKind>('conversation');
@@ -226,78 +239,67 @@ const selectedProcessId = computed(() =>
   typeof route.query.process === 'string' ? route.query.process : null,
 );
 
+const activeSection = ref<SystemSectionId>('state');
 watch(
-  () => [route.name, route.query.tab, route.params.id] as const,
+  () => [route.name, route.query.section] as const,
   () => {
-    const tabFromRoute = typeof route.query.tab === 'string' ? route.query.tab : 'state';
-    if (tabs.some((tab) => tab.id === tabFromRoute))
-      setTabLocal(tabFromRoute as typeof localActiveTab.value);
+    const sectionFromRoute = typeof route.query.section === 'string' ? route.query.section : 'state';
+    if (sections.some((section) => section.id === sectionFromRoute))
+      activeSection.value = sectionFromRoute as SystemSectionId;
   },
   { immediate: true },
 );
 
-function setTabLocal(tab: typeof localActiveTab.value): void {
-  localActiveTab.value = tab;
-}
-
-function setTab(tab: typeof localActiveTab.value): void {
-  setTabLocal(tab);
-  void router.push({ name: 'debug', query: tab === 'state' ? {} : { tab } });
+function setSection(section: SystemSectionId): void {
+  activeSection.value = section;
+  void router.push({ name: 'system', query: section === 'state' ? {} : { section } });
 }
 
 async function refreshOperatorControl(): Promise<void> {
   await runtimeStore.fetchState().catch(() => {});
 }
-
 async function refreshAgents(): Promise<void> {
   await agentStore.fetchSessions();
 }
-
 function selectAgentSession(sessionId: ConversationSessionId): void {
   explicitAgentSessionId.value = sessionId;
 }
-
 function selectAgentDebugKind(kind: AgentDebugKind): void {
   selectedAgentDebugKind.value = kind;
 }
-
 function refreshGraphs(): void {
   void debugStore.fetchGraphs();
 }
-
 function selectGraph(cardType: string): void {
   selectedGraphCardType.value = cardType;
 }
-
 function refreshProcesses(): void {
   void debugStore.fetchProcesses();
 }
-
 function browseProcessLog(path: string): void {
   void router.push({ name: 'files', query: { path } });
 }
-
 function fetchDoctor(): void {
   void debugStore.fetchDoctor();
 }
 
-let unregisterAgents: (() => void) | null = null;
 watch(
-  localActiveTab,
-  (tab) => {
-    if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
-    else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
-    else if (tab === 'graphs' && graphs.value === null) debugStore.fetchGraphs().catch(() => {});
-    else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
+  activeSection,
+  (section) => {
+    if (section === 'errors') debugStore.fetchErrors().catch(() => {});
+    else if (section === 'processes') debugStore.fetchProcesses().catch(() => {});
+    else if (section === 'workflows' && graphs.value === null) debugStore.fetchGraphs().catch(() => {});
+    else if (section === 'mcp') mcpStore.fetchMcpData().catch(() => {});
   },
   { immediate: true },
 );
+let unregisterAgents: (() => void) | null = null;
 watch(
-  localActiveTab,
-  (tab) => {
-    if (tab === 'agents' && !unregisterAgents)
+  activeSection,
+  (section) => {
+    if (section === 'participants' && !unregisterAgents)
       unregisterAgents = liveSyncStore.openAgents((frame) => agentStore.reconcileMembership(frame));
-    else if (tab !== 'agents' && unregisterAgents) {
+    else if (section !== 'participants' && unregisterAgents) {
       unregisterAgents();
       unregisterAgents = null;
       agentStore.releaseSessions();
@@ -311,13 +313,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.debug-layout {
+.system-route {
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.debug-tabs {
+.system-sections {
   display: flex;
   gap: 2px;
   padding: 8px 12px;
@@ -326,7 +328,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   flex-wrap: wrap;
 }
-.debug-content {
+.system-content {
   flex: 1;
   overflow-y: auto;
 }

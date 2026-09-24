@@ -1,10 +1,9 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import cardsViewSource from '../views/CardsView.vue?raw';
-import dashboardViewSource from '../views/DashboardView.vue?raw';
+import cockpitViewSource from '../views/CockpitView.vue?raw';
+import sessionViewSource from '../views/SessionView.vue?raw';
+import systemViewSource from '../views/SystemView.vue?raw';
 import filesViewSource from '../views/FilesView.vue?raw';
-import agentsViewSource from '../views/AgentsView.vue?raw';
-import debugViewSource from '../views/DebugView.vue?raw';
 import agentsPanelSource from '../components/debug/AgentsPanel.vue?raw';
 import doctorPanelSource from '../components/debug/DoctorPanel.vue?raw';
 import errorsPanelSource from '../components/debug/ErrorsPanel.vue?raw';
@@ -13,8 +12,11 @@ import mcpPanelSource from '../components/debug/McpPanel.vue?raw';
 import operatorControlPanelSource from '../components/debug/OperatorControlPanel.vue?raw';
 import processesPanelSource from '../components/debug/ProcessesPanel.vue?raw';
 import statePanelSource from '../components/debug/StatePanel.vue?raw';
-import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
+import cardFlowHeaderSource from '../components/cockpit/CardFlowHeader.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
+import cardOverviewFacetSource from '../components/cockpit/CardOverviewFacet.vue?raw';
+import participantRailSource from '../components/cockpit/ParticipantRail.vue?raw';
+import restartDialogSource from '../components/cockpit/RestartServerDialog.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
 import debugAgentDetailSource from '../components/agents/DebugAgentDetail.vue?raw';
 import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
@@ -46,13 +48,12 @@ const removedMutationTokens = new RegExp([
 ].join('|'));
 
 describe('read-only positive checklist', () => {
-  it('keeps representative passive controls on each operator view', () => {
+  it('keeps representative passive controls on each operator surface', () => {
     const surfaces = [
-      cardsViewSource,
-      dashboardViewSource,
+      cockpitViewSource,
+      sessionViewSource,
+      systemViewSource,
       filesViewSource,
-      agentsViewSource,
-      debugViewSource,
       agentsPanelSource,
       doctorPanelSource,
       errorsPanelSource,
@@ -63,12 +64,12 @@ describe('read-only positive checklist', () => {
       statePanelSource,
     ].join('\n');
 
-    // CardsView: tree expand/collapse and navigation remain; filters, presentation tabs, and duplicate page chrome are intentionally gone.
-    expect(cardsViewSource).toContain('@toggle="toggleTreeNode"');
-    expect(cardsViewSource).toContain('@select="selectCard"');
-    expect(cardsViewSource).not.toContain('Card Tree');
-    expect(cardsViewSource).not.toContain('Open Timeline');
-    expect(cardsViewSource).not.toContain('view-tab');
+    // CockpitView: tree expand/collapse, exact selection, and facet navigation remain.
+    expect(cockpitViewSource).toContain('@toggle="toggleTreeNode"');
+    expect(cockpitViewSource).toContain('@select="selectCard"');
+    expect(cockpitViewSource).toContain('facetLink(\'conversations\')');
+    expect(cockpitViewSource).not.toContain('view-tab');
+    expect(cockpitViewSource).not.toContain('Card Tree');
     const removedCardsFilters = new RegExp([
       ['Search', ' cards'].join(''),
       ['Filter by ', 'status'].join(''),
@@ -77,14 +78,29 @@ describe('read-only positive checklist', () => {
       ['Any ', 'type'].join(''),
       ['cards', '-filters'].join(''),
     ].join('|'));
-    expect(cardsViewSource).not.toMatch(removedCardsFilters);
-    expect(routerSource).not.toContain('/timeline');
+    expect(cockpitViewSource).not.toMatch(removedCardsFilters);
+    expect(cockpitViewSource).toContain('Loaded branches');
+
+    // The singular route table has no legacy destinations or redirects.
+    expect(routerSource).not.toContain('/dashboard');
+    expect(routerSource).not.toContain("'debug'");
+    expect(routerSource).not.toContain("redirect");
     expect(appShellSource).not.toContain("id: 'timeline'");
 
-    // DashboardView: runtime refresh and passive navigation links remain while start/stop controls are gone.
-    expect(dashboardViewSource).toContain('@click="refreshRuntime"');
-    expect(dashboardViewSource).toContain('@click="goToCard(currentCardId)"');
-    expect(dashboardViewSource).not.toMatch(/runtime-command start-project|runtime-command stop-project/);
+    // SessionView: passive scope resolution, back-to-card, and exact reader mount remain.
+    expect(sessionViewSource).toContain('getAgentSession');
+    expect(sessionViewSource).toContain('Back to card');
+    expect(sessionViewSource).toContain(':flow-unavailable="cardContext.unavailable.value"');
+    expect(cardFlowHeaderSource).toContain('Card flow unavailable');
+
+    // SystemView: passive section switching, refresh/fetch, and file-browse navigation remain.
+    expect(systemViewSource).toContain('@click="setSection(section.id)"');
+    expect(systemViewSource).toContain('@refresh="refreshOperatorControl"');
+    expect(systemViewSource).not.toContain('timeline-kind-filter');
+    expect(systemViewSource).toContain('debugStore.fetchProcesses()');
+    expect(processesPanelSource).toContain("emit('browse-log', logEntry.value)");
+    expect(operatorControlPanelSource).toContain("emit('refresh')");
+    expect(systemViewSource).not.toContain('browseQuarantineItem');
 
     // FilesView: read-only file refresh, breadcrumb/directory navigation, safe preview, and close remain.
     expect(filesViewSource).toContain('@click="refreshActiveRoot"');
@@ -94,12 +110,11 @@ describe('read-only positive checklist', () => {
     expect(filesViewSource).toContain('fileStore.fetchFileContent(entry.path)');
     expect(filesViewSource).toContain('fileStore.clearViewedFile()');
 
-    // AgentsView/AgentConversationView: passive session navigation, expand/collapse, raw toggle, and linked navigation remain.
-    expect(agentsViewSource).toContain('@select="selectSession(session.id)"');
-    expect(agentsViewSource).toContain('Back to Agents');
+    // Conversation readers keep passive navigation, expand/collapse, provider metadata toggle.
     expect(agentConversationSource).toContain('timelineControls.expandAll()');
     expect(agentConversationSource).toContain('timelineControls.collapseAll()');
     expect(agentConversationSource).toContain('rawPanelOpen = !rawPanelOpen');
+    expect(agentConversationSource).toContain('Provider exchange metadata');
     expect(agentConversationSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('useAgentTimeline');
@@ -118,23 +133,16 @@ describe('read-only positive checklist', () => {
     expect(debugAgentDetailSource).toContain('useAgentTimeline(entries)');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
-    // DebugView: passive tab switching, refresh/fetch, and file-browse navigation remain.
-    expect(debugViewSource).toContain('@click="setTab(tab.id)"');
-    expect(debugViewSource).toContain('@refresh="refreshOperatorControl"');
-    expect(debugViewSource).not.toContain('timeline-kind-filter');
-    expect(debugViewSource).not.toContain('selectedTimelineKinds = []');
-    expect(debugViewSource).toContain('debugStore.fetchProcesses()');
-    expect(processesPanelSource).toContain("emit('browse-log', logEntry.value)");
-    expect(operatorControlPanelSource).toContain("emit('refresh')");
-    expect(debugViewSource).not.toContain('browseQuarantineItem');
-
-    // Card detail and tree navigation remain read-only positive paths.
-    expect(cardDetailSource).toContain('CardRecordsSection');
-    expect(cardDetailSource).toContain('CardConversationsSection');
-    expect(cardDetailSource).toContain('Version history');
-    expect(cardDetailSource).toContain('hierarchyPathFor');
+    // Card flow header, facets, and tree navigation remain read-only positive paths.
+    expect(cardFlowHeaderSource).toContain('Possible outcomes');
+    expect(cardFlowHeaderSource).not.toContain('@click="activate');
+    expect(cardOverviewFacetSource).toContain('Declared records');
+    expect(participantRailSource).toContain('Configured node/role');
+    expect(restartDialogSource).toContain('RESTART SERVER');
+    expect(restartDialogSource).not.toContain('window.prompt');
     expect(cardsTreeSource).toContain("emit('toggle', node.card.id)");
     expect(cardsTreeSource).toContain("emit('select', node.card.id)");
+    expect(cardsTreeSource).toContain('node-status');
 
     expect(surfaces).not.toMatch(removedMutationTokens);
   });

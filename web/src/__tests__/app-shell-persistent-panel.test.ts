@@ -50,13 +50,12 @@ const AgentDetail = {
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
-    { path: '/dashboard', name: 'dashboard', component: { template: '<div>dashboard</div>' } },
+    { path: '/', name: 'home', component: { template: '<div>home</div>' } },
     { path: '/cards', name: 'cards', component: { template: '<div>cards</div>' } },
     { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
-    { path: '/agents', name: 'agents', component: { template: '<div>agents</div>' } },
     { path: '/agents/:id', name: 'agent-detail', component: AgentDetail },
     { path: '/files', name: 'files', component: { template: '<div>files</div>' } },
-    { path: '/debug', name: 'debug', component: { template: '<div>debug</div>' } },
+    { path: '/system', name: 'system', component: { template: '<div>system</div>' } },
   ],
 });
 
@@ -78,7 +77,7 @@ describe('AppShell persistent analyst panel', () => {
       live.events.push('analyst-open');
       return () => live.events.push('analyst-close');
     });
-    await router.push('/dashboard');
+    await router.push('/');
     await router.isReady();
   });
 
@@ -86,7 +85,7 @@ describe('AppShell persistent analyst panel', () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     await flushPromises();
 
-    expect(wrapper.find('.nav-rail').exists()).toBe(true);
+    expect(wrapper.find('.global-strip').exists()).toBe(true);
     expect(wrapper.find('.workspace-content').exists()).toBe(true);
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
     expect(wrapper.find('.analyst' + '-chip').exists()).toBe(false);
@@ -123,7 +122,7 @@ describe('AppShell persistent analyst panel', () => {
     await flushPromises();
 
     expect(push).toHaveBeenCalledOnce();
-    expect(push).toHaveBeenCalledWith({ name: 'cards' });
+    expect(push).toHaveBeenCalledWith({ name: 'files' });
     wrapper.unmount();
     push.mockRestore();
   });
@@ -142,7 +141,7 @@ describe('AppShell persistent analyst panel', () => {
     await router.push('/cards/11111111-1111-4111-8111-111111111111');
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/cards/11111111-1111-4111-8111-111111111111');
-    expect(wrapper.text()).toContain('Card Detail');
+    expect(wrapper.text()).toContain('card');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
     wrapper.unmount();
   });
@@ -153,18 +152,18 @@ describe('AppShell persistent analyst panel', () => {
 
     await router.push('/agents/agent%3Aplanner%3Aproject');
     await flushPromises();
-    expect(wrapper.text()).toContain('Agent Detail');
+    expect(wrapper.text()).toContain('agent detail');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
 
     live.events.length = 0;
     await router.push('/agents/agent%3Aanalyst%3Aglobal');
     await flushPromises();
-    expect(wrapper.text()).toContain('Agent Detail');
+    expect(wrapper.text()).toContain('agent detail');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
     expect(live.events.indexOf('analyst-close')).toBeLessThan(live.events.indexOf('agent-mounted'));
 
     live.events.length = 0;
-    await router.push('/dashboard');
+    await router.push('/');
     await flushPromises();
     expect(live.events.indexOf('agent-unmounted')).toBeLessThan(
       live.events.indexOf('analyst-open'),

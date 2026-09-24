@@ -1,4 +1,3 @@
-import { AUTH_TOKEN_CHANGED_EVENT, useAuthStore } from '../stores/auth';
 import { useCardStore } from '../stores/cards';
 import { useRuntimeStore } from '../stores/runtime';
 import { useSyncStore } from '../stores/sync';
@@ -14,7 +13,6 @@ export function startAppBootstrap(): void {
   const syncStore = useSyncStore();
   const runtimeStore = useRuntimeStore();
   const cardStore = useCardStore();
-  const authStore = useAuthStore();
   const contentPolicyStore = useContentPolicyStore();
   const analystChat = useAnalystChat();
 
@@ -31,15 +29,5 @@ export function startAppBootstrap(): void {
   runtimeStore.refetch().catch(() => {});
   void cardStore.ensureRoot();
   void contentPolicyStore.refetch().catch(() => {});
-
-  window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, () => {
-    authStore.refresh();
-    syncStore.reconfigure();
-    runtimeStore.refetch().catch(() => {});
-    cardStore.reset();
-    contentPolicyStore.reset();
-    void cardStore.ensureRoot();
-    void contentPolicyStore.refetch().catch(() => {});
-    void analystChat.resolveIdentity().catch(() => {});
-  });
+  void analystChat.resolveIdentity().catch(() => {});
 }

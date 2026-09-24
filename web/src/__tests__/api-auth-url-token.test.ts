@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearAuthToken, getAuthToken, setAuthToken } from '../api/auth';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getAuthToken } from '../api/auth';
 
 describe('API auth URL token handling', () => {
   beforeEach(() => {
@@ -9,7 +9,6 @@ describe('API auth URL token handling', () => {
 
   afterEach(() => {
     localStorage.clear();
-    vi.unstubAllGlobals();
   });
 
   it('ignores URL query tokens and never persists them', () => {
@@ -18,10 +17,8 @@ describe('API auth URL token handling', () => {
     expect(localStorage.getItem('saivage_api_token')).toBeNull();
   });
 
-  it('still returns manually stored localStorage tokens', () => {
-    setAuthToken('arch004-stored-token');
+  it('still returns operator-set localStorage tokens for bearer deployments', () => {
+    localStorage.setItem('saivage_api_token', 'arch004-stored-token');
     expect(getAuthToken()).toBe('arch004-stored-token');
-    clearAuthToken();
-    expect(getAuthToken()).toBeNull();
   });
 });

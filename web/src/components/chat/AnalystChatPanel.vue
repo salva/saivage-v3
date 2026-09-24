@@ -25,7 +25,7 @@
         role="status"
       >
         {{ liveSync.connectionState === 'unauthorized'
-          ? 'Live connection unauthorized. Open Token and save a valid API token to reconnect.'
+          ? 'Live connection unauthorized. The Analyst history needs an authorized browser connection.'
           : 'Waiting for live connection…' }}
       </div>
       <div v-else-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">
@@ -141,14 +141,14 @@ const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const timelineControls = useAgentTimeline(timelineEntries);
 const childrenOnScreen = computed(() =>
-  workspaceRoute.view === 'cards' && workspaceRoute.entityId
+  workspaceRoute.view === 'cockpit' && workspaceRoute.entityId
     ? (cards.loadedChildrenFor(workspaceRoute.entityId) ?? [])
     : [],
 );
 const messagesErrorLabel = computed(() => {
   if (!messagesError.value) return '';
   if (messagesError.value.kind === 'unauthorized') {
-    return 'Unauthorized. Provide a valid Saivage API token and retry.';
+    return 'Unauthorized: the operator API rejected this browser, so the shared Analyst conversation is unavailable.';
   }
   return messagesError.value.message;
 });

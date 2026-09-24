@@ -270,10 +270,16 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     let sendAccepted = false;
     try {
       const workspaceRoute = useWorkspaceRouteStore();
-      const workspaceContext = workspaceRoute.current ?? {
+      const currentRoute = workspaceRoute.current ?? {
         view: null,
         entityId: null,
         refinement: null,
+        routeName: null,
+      };
+      const workspaceContext = {
+        view: currentRoute.view,
+        entityId: currentRoute.entityId,
+        refinement: currentRoute.refinement,
       };
       draft.value = '';
       const optimisticMessage = optimisticUserMessage(

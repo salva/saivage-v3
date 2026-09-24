@@ -31,13 +31,13 @@ describe('analyst chat workspace context', () => {
 
   it('sends workspace context beside content without an Analyst identity argument', async () => {
     const workspaceRoute = useWorkspaceRouteStore();
-    workspaceRoute.view = 'cards';
+    workspaceRoute.view = 'cockpit';
     workspaceRoute.entityId = '11111111-1111-4111-8111-111111111111';
     workspaceRoute.refinement = { tab: 'history' };
     const chat = useAnalystChat();
     chat.setDraft('what is this?');
     await chat.sendMessage();
-    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('what is this?', { view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
+    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('what is this?', { view: 'cockpit', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
   });
 
   it('sends the deterministic null workspace context at the default route state', async () => {
