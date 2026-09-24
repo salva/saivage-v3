@@ -3,7 +3,7 @@
     <CardRecordsSection :card-id="cardId" />
     <details class="records-history" open>
       <summary class="records-history-summary">Card versions &amp; publication history</summary>
-      <CardHistoryPanel :card-id="cardId" />
+      <CardHistoryPanel :card-id="cardId" :initial-version="recordRefinement?.version ?? null" />
     </details>
   </div>
 </template>
@@ -12,7 +12,7 @@
 import CardRecordsSection from '../cards/CardRecordsSection.vue';
 import CardHistoryPanel from '../cards/CardHistoryPanel.vue';
 
-defineProps<{ cardId: string }>();
+defineProps<{ cardId: string; recordRefinement?: { record: string | null; version: number | null } }>();
 </script>
 
 <style scoped>

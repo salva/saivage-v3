@@ -37,6 +37,7 @@
         <router-link class="cockpit-facet-link" :class="{ active: facet === 'overview' }" :to="facetLink('overview')">Overview</router-link>
         <router-link class="cockpit-facet-link" :class="{ active: facet === 'conversations' }" :to="facetLink('conversations')">Conversations</router-link>
         <router-link class="cockpit-facet-link" :class="{ active: facet === 'records' }" :to="facetLink('records')">Records &amp; History</router-link>
+        <router-link class="cockpit-facet-link" :class="{ active: facet === 'evidence' }" :to="facetLink('evidence')">Evidence</router-link>
       </nav>
 
       <template v-if="routeMode === 'home'">
@@ -51,7 +52,8 @@
           <CardFlowHeader :card-id="homeSubject" :detail="subjectDetail" :position="subjectPosition" />
           <CardOverviewFacet v-if="facet === 'overview'" :card-id="homeSubject" :detail="subjectDetail" />
           <CardConversationsFacet v-else-if="facet === 'conversations'" :card-id="homeSubject" :detail="subjectDetail" :selected-session-id="null" />
-          <CardRecordsFacet v-else :card-id="homeSubject" />
+          <CardRecordsFacet v-else-if="facet === 'records'" :card-id="homeSubject" :record-refinement="recordRefinement" />
+          <CardEvidenceFacet v-else :card-id="homeSubject" />
         </template>
       </template>
 
@@ -72,7 +74,8 @@
           <CardFlowHeader :card-id="subjectCardId" :detail="subjectDetail" :position="subjectPosition" />
           <CardOverviewFacet v-if="facet === 'overview'" :card-id="subjectCardId" :detail="subjectDetail" />
           <CardConversationsFacet v-else-if="facet === 'conversations'" :card-id="subjectCardId" :detail="subjectDetail" :selected-session-id="null" />
-          <CardRecordsFacet v-else :card-id="subjectCardId" />
+          <CardRecordsFacet v-else-if="facet === 'records'" :card-id="subjectCardId" :record-refinement="recordRefinement" />
+          <CardEvidenceFacet v-else :card-id="subjectCardId" />
         </template>
       </template>
     </section>
@@ -91,6 +94,7 @@ import CardFlowHeader from '../components/cockpit/CardFlowHeader.vue';
 import CardOverviewFacet from '../components/cockpit/CardOverviewFacet.vue';
 import CardConversationsFacet from '../components/cockpit/CardConversationsFacet.vue';
 import CardRecordsFacet from '../components/cockpit/CardRecordsFacet.vue';
+import CardEvidenceFacet from '../components/cockpit/CardEvidenceFacet.vue';
 import ViewState from '../components/ui/ViewState.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import type { DetailErrorState } from '../api/types';
@@ -121,9 +125,15 @@ const subjectCardId = computed<string | null>(() => {
 });
 const homeSubject = computed(() => (routeMode.value === 'home' ? subjectCardId.value : null));
 
-const facet = computed<'overview' | 'conversations' | 'records'>(() => {
+const facet = computed<'overview' | 'conversations' | 'records' | 'evidence'>(() => {
   const value = route.query.facet;
-  return value === 'conversations' || value === 'records' ? value : 'overview';
+  return value === 'conversations' || value === 'records' || value === 'evidence' ? value : 'overview';
+});
+
+const recordRefinement = computed<{ record: string | null; version: number | null }>(() => {
+  const record = typeof route.query.record === 'string' ? route.query.record : null;
+  const rawVersion = typeof route.query.version === 'string' && /^[1-9][0-9]*$/.test(route.query.version) ? Number(route.query.version) : null;
+  return { record, version: rawVersion };
 });
 
 const treeFilter = ref('');
@@ -190,7 +200,7 @@ watch(() => cardStore.hierarchySlicesByParentId, (current, previous) => {
 function retryRoot(): void { void cardStore.retryChildren('project').catch(() => {}); }
 function retryChildren(id: string): void { void cardStore.retryChildren(id).catch(() => {}); }
 function selectCard(id: string): void { router.push({ name: 'card-detail', params: { id } }); }
-function facetLink(facetName: 'overview' | 'conversations' | 'records'): { name: string; params: { id: string }; query: Record<string, string> } {
+function facetLink(facetName: 'overview' | 'conversations' | 'records' | 'evidence'): { name: string; params: { id: string }; query: Record<string, string> } {
   return { name: 'card-detail', params: { id: subjectCardId.value ?? '' }, query: facetName === 'overview' ? {} : { facet: facetName } };
 }
 function goToCurrentWork(): void {

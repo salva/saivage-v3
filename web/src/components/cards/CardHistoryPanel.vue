@@ -97,7 +97,7 @@ import { formatJson } from '../../utils/format-json';
 import { sanitizeCardHistoryValue } from '../../utils/sanitize-card-history';
 import CodeBlock from '../content/CodeBlock.vue';
 
-const props = defineProps<{ cardId: string }>();
+const props = defineProps<{ cardId: string; initialVersion?: number | null }>();
 const cardStore = useCardStore();
 const {
   cardHistory,
@@ -123,9 +123,11 @@ function fmtDate(ts: string): string {
 
 async function loadHistory(): Promise<void> {
   await cardStore.openCardHistory(props.cardId);
-  const firstSeq = cardHistory.value[0]?.version;
-  if (firstSeq && cardStore.cardHistorySelectedVersion !== firstSeq) {
-    await cardStore.selectCardHistoryVersion(props.cardId, firstSeq);
+  const requested = props.initialVersion != null && cardHistory.value.some((entry) => entry.version === props.initialVersion)
+    ? props.initialVersion
+    : cardHistory.value[0]?.version;
+  if (requested && cardStore.cardHistorySelectedVersion !== requested) {
+    await cardStore.selectCardHistoryVersion(props.cardId, requested);
   }
 }
 

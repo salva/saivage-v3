@@ -363,3 +363,37 @@ export function getDoctor(): Promise<DoctorResponse> {
 export function getMcpTools(): Promise<McpToolsResponse> {
   return operatorRequest('mcp.tools');
 }
+
+export interface EventsQueryOptions {
+  kind?: string;
+  cardId?: string;
+  selection?: 'oldest_page' | 'newest_tail';
+  limit?: number;
+  offset?: number;
+  signal?: AbortSignal;
+}
+
+export function listEvents(options: EventsQueryOptions = {}): Promise<import('./types').EventsListResponse> {
+  return operatorRequest('events.list', {
+    query: {
+      kind: options.kind,
+      card_id: options.cardId,
+      selection: options.selection,
+      limit: options.limit === undefined ? undefined : String(options.limit),
+      offset: options.offset === undefined || options.offset === 0 ? undefined : String(options.offset),
+    },
+    signal: options.signal,
+  });
+}
+
+export function getConfig(): Promise<import('./types').ConfigGetResponse> {
+  return operatorRequest('config.get');
+}
+
+export function listProviders(): Promise<import('./types').ProvidersListResponse> {
+  return operatorRequest('providers.list');
+}
+
+export function listControlActions(query: { cardId?: string } = {}): Promise<import('./types').ControlActionsListResponse> {
+  return operatorRequest('controlActions.list', { query: { card_id: query.cardId } });
+}

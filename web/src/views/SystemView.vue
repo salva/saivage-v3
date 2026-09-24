@@ -81,6 +81,20 @@
         :total-errors="mcpTotalErrors"
         :last-refreshed="mcpLastRefreshed"
       />
+      <EventsPanel
+        v-if="activeSection === 'events'"
+        :scope="{ cardId: null }"
+        test-id="system-events"
+      />
+      <ProvidersPanel
+        v-if="activeSection === 'providers'"
+      />
+      <ConfigurationPanel
+        v-if="activeSection === 'configuration'"
+      />
+      <ActionsPanel
+        v-if="activeSection === 'actions'"
+      />
       <GraphsPanel
         v-if="activeSection === 'workflows'"
         :graphs="graphs"
@@ -113,6 +127,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import type { ConversationSessionId } from '../api/contracts';
 import AgentsPanel, { type AgentDebugKind } from '../components/debug/AgentsPanel.vue';
+import EventsPanel from '../components/system/EventsPanel.vue';
+import ProvidersPanel from '../components/system/ProvidersPanel.vue';
+import ConfigurationPanel from '../components/system/ConfigurationPanel.vue';
+import ActionsPanel from '../components/system/ActionsPanel.vue';
 import DoctorPanel from '../components/debug/DoctorPanel.vue';
 import ErrorsPanel, { type ErrorSourceEntry } from '../components/debug/ErrorsPanel.vue';
 import GraphsPanel from '../components/debug/GraphsPanel.vue';
@@ -128,7 +146,7 @@ import { useMcpStore } from '../stores/mcp';
 import { useRuntimeStore } from '../stores/runtime';
 import { useSyncStore } from '../stores/sync';
 
-type SystemSectionId = 'state' | 'operator' | 'participants' | 'errors' | 'processes' | 'mcp' | 'workflows' | 'doctor';
+type SystemSectionId = 'state' | 'operator' | 'participants' | 'errors' | 'events' | 'processes' | 'mcp' | 'providers' | 'configuration' | 'workflows' | 'actions' | 'doctor';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useSyncStore();
@@ -143,9 +161,13 @@ const sections: readonly { id: SystemSectionId; label: string }[] = [
   { id: 'operator', label: 'Operator observation' },
   { id: 'participants', label: 'Participants' },
   { id: 'errors', label: 'Errors' },
+  { id: 'events', label: 'Events' },
   { id: 'processes', label: 'Processes' },
   { id: 'mcp', label: 'MCP' },
+  { id: 'providers', label: 'Provider availability' },
+  { id: 'configuration', label: 'Configuration' },
   { id: 'workflows', label: 'Installed workflows' },
+  { id: 'actions', label: 'Actions' },
   { id: 'doctor', label: 'Doctor' },
 ];
 
