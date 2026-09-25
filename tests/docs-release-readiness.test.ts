@@ -22,7 +22,8 @@ describe('release-readiness documentation', () => {
     const readme = readDoc('README.md');
 
     expect(readme).toContain('docs/spec/system-specification.md');
-    expect(readme).toContain('docs/spec/operator-ui.md');
+    expect(readme).toContain('docs/spec/operator-ui-needs.md');
+    expect(readme).toContain('docs/spec/operator-ui-contracts.md');
     expect(readme).toContain('docs/architecture/system-architecture.md');
     expect(readme).toContain('docs/runbook/index.md');
     expect(readme).toContain('README.md');

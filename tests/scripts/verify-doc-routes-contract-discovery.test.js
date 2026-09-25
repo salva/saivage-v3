@@ -26,10 +26,11 @@ function withFixture(files, testFn) {
 }
 
 describe('verify-doc-routes operator contract discovery', () => {
-  it('scans exactly the four canonical operator authorities by default', () => {
+  it('scans exactly the five canonical operator authorities by default', () => {
     expect(activeOperatorDocPaths(process.cwd())).toEqual([
       'docs/spec/system-specification.md',
-      'docs/spec/operator-ui.md',
+      'docs/spec/operator-ui-needs.md',
+      'docs/spec/operator-ui-contracts.md',
       'docs/architecture/system-architecture.md',
       'docs/runbook/index.md',
     ]);

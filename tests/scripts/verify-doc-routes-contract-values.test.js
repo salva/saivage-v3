@@ -71,7 +71,7 @@ const EXPECTED_MANIFEST = [
   ['operator-error-contracts', ['errors'], 'docs/spec/system-specification.md', '### Exact shared operator error contracts', ['error.analyst-turn-busy', 'error.unauthorized', 'error.unexpected-internal']],
   ['backend-card-history-diff', ['errors', 'pivots'], 'docs/spec/system-specification.md', '### Exact backend card history and diff contract', ['error.cards-history-404', 'error.cards-diff-404', 'pivot.cards-diff-from', 'pivot.cards-diff-to']],
   ['sync-debounce', ['constants'], 'docs/architecture/system-architecture.md', '### Exact SyncHub debounce policy', ['constant.sync-hub-debounce-ms']],
-  ['displayed-current-diff', ['pivots'], 'docs/spec/operator-ui.md', '### Exact displayed-current-diff request contract', ['pivot.ui-cards-diff-current-request']],
+  ['displayed-current-diff', ['pivots'], 'docs/spec/operator-ui-contracts.md', '### Exact displayed-current-diff request contract', ['pivot.ui-cards-diff-current-request']],
 ];
 const families = [
   ['errors', verifyErrorShapeDocs, 'error.analyst-turn-busy'],
@@ -455,9 +455,9 @@ describe('documentation value contracts', () => {
     });
   });
 
-  it('applies exactly the fourteen focused before/after cutovers and preserves the reviewed clauses', () => {
-    expect(CUTOVERS).toHaveLength(14);
-    expect(new Set(CUTOVERS.map((cutover) => cutover.id)).size).toBe(14);
+  it('applies exactly the twelve focused before/after cutovers and preserves the reviewed clauses', () => {
+    expect(CUTOVERS).toHaveLength(12);
+    expect(new Set(CUTOVERS.map((cutover) => cutover.id)).size).toBe(12);
     for (const cutover of CUTOVERS) {
       expect(cutover.before).toHaveLength(cutover.after.length);
       let local = cutover.before.join('\nfixture-separator\n');
@@ -479,7 +479,7 @@ describe('documentation value contracts', () => {
     expect(runbook).toContain('For explicit event inspection, use the authenticated `/api/events` query or the Analyst `read_runtime_events` tool.');
     expect(runbook).toContain('Debug has no Timeline.');
     for (const responseClaim of ['numeric response `to`', 'numeric response `to` is evidence', 'response `to` records']) {
-      expect(`${system}\n${architecture}\n${readFileSync(join(process.cwd(), 'docs/spec/operator-ui.md'), 'utf8')}`).not.toContain(responseClaim);
+      expect(`${system}\n${architecture}\n${readFileSync(join(process.cwd(), 'docs/spec/operator-ui-contracts.md'), 'utf8')}`).not.toContain(responseClaim);
     }
   });
 
@@ -522,7 +522,7 @@ describe('documentation value contracts', () => {
   it('rejects a canonical block moved to a different manifest file', () => {
     withProject((root) => {
       const sourceFile = join(root, 'docs/spec/system-specification.md');
-      const targetFile = join(root, 'docs/spec/operator-ui.md');
+      const targetFile = join(root, 'docs/spec/operator-ui-contracts.md');
       const source = readFileSync(sourceFile, 'utf8');
       const start = '<!-- saivage:value-contract:emit-result-limit:start -->';
       const end = '<!-- saivage:value-contract:emit-result-limit:end -->';
@@ -577,7 +577,7 @@ describe('documentation value contracts', () => {
     }
   });
 
-  it.each(['README.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md'])('rejects an unknown marker in %s', (file) => {
+  it.each(['README.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui-contracts.md', 'docs/architecture/system-architecture.md'])('rejects an unknown marker in %s', (file) => {
     withProject((root) => {
       const target = join(root, file);
       writeFileSync(target, `${readFileSync(target, 'utf8')}\n<!-- saivage:value-contract:invented:start -->\n`);

@@ -9,7 +9,8 @@ const CARD_RECORD_DOCS = [
   'README.md',
   'README-IF-YOU-ARE-AN-AI.md',
   'docs/spec/system-specification.md',
-  'docs/spec/operator-ui.md',
+  'docs/spec/operator-ui-needs.md',
+  'docs/spec/operator-ui-contracts.md',
   'docs/architecture/system-architecture.md',
   'docs/architecture/index.md',
   'docs/runbook/index.md',
@@ -26,7 +27,7 @@ const POSITIVE_OWNERS = [
   ['docs/architecture/system-architecture.md', 'record-<stem>.jsonl'],
   ['docs/runbook/index.md', 'card.jsonl'],
   ['docs/runbook/index.md', 'record-<stem>.jsonl'],
-  ['docs/spec/operator-ui.md', 'one strict stream'],
+  ['docs/spec/operator-ui-contracts.md', 'one strict stream'],
 ];
 const GUIDE_REQUIREMENTS = [
   '## Stage 4 — Initialize and configure',
@@ -80,7 +81,8 @@ function withRepository(testFn) {
     write(root, 'README.md', '# Fixture\n');
     write(root, 'README-IF-YOU-ARE-AN-AI.md', `${GUIDE_REQUIREMENTS.join('\n')}\n`);
     write(root, 'docs/spec/system-specification.md', 'card.jsonl\nrecord-<stem>.jsonl\n');
-    write(root, 'docs/spec/operator-ui.md', 'one strict stream\n');
+    write(root, 'docs/spec/operator-ui-needs.md', '# Operator UI needs\n');
+    write(root, 'docs/spec/operator-ui-contracts.md', 'one strict stream\n');
     write(root, 'docs/architecture/system-architecture.md', 'card.jsonl\nrecord-<stem>.jsonl\n');
     write(root, 'docs/architecture/index.md', '# Architecture\n');
     write(root, 'docs/runbook/index.md', 'card.jsonl\nrecord-<stem>.jsonl\n');

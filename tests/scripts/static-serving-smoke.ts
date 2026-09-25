@@ -43,7 +43,8 @@ const docsHrefs = [...docsLandingHtml.matchAll(/\bhref="([^"]+)"/g)].map((match)
 const docsNavigation = [
   { url: '/docs/overview.html', artifact: 'overview.html' },
   { url: '/docs/spec/system-specification.html', artifact: 'spec/system-specification.html' },
-  { url: '/docs/spec/operator-ui.html', artifact: 'spec/operator-ui.html' },
+  { url: '/docs/spec/operator-ui-needs.html', artifact: 'spec/operator-ui-needs.html' },
+  { url: '/docs/spec/operator-ui-contracts.html', artifact: 'spec/operator-ui-contracts.html' },
   { url: '/docs/architecture/system-architecture.html', artifact: 'architecture/system-architecture.html' },
   { url: '/docs/runbook/', artifact: 'runbook/index.html' },
 ] as const;

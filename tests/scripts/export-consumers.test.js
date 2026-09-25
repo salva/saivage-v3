@@ -686,10 +686,10 @@ describe('repository complete export boundary', () => {
     const directHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]));
     const effectiveHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.classification === classification).length]));
     expect(directHistogram).toEqual({
-      'production-consumed': 1744, 'test-only': 201, 'local-only': 2, 'zero-use': 0,
+      'production-consumed': 1751, 'test-only': 202, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.records).toHaveLength(1947);
-    expect(result.totals).toEqual({ 'production-consumed': 1746, 'test-only': 201, 'local-only': 0, 'zero-use': 0 });
+    expect(result.records).toHaveLength(1955);
+    expect(result.totals).toEqual({ 'production-consumed': 1753, 'test-only': 202, 'local-only': 0, 'zero-use': 0 });
     expect(effectiveHistogram).toEqual(result.totals);
     expect(Object.values(directHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
     expect(Object.values(effectiveHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
@@ -730,10 +730,8 @@ describe('repository complete export boundary', () => {
     expect(result.records.filter((item) => item.directClassification === 'test-only' && item.classification === 'production-consumed')).toEqual([]);
 
     const sfcReclassified = [
-      'web/src/components/nav/types.ts::NavItem',
       'web/src/composables/useAgentTimeline.ts::useAgentTimeline',
       'web/src/composables/useCardBrowserReadModel.ts::useCardBrowserReadModel',
-      'web/src/composables/useDashboardReadModel.ts::useDashboardReadModel',
       'web/src/composables/useSelectedConversation.ts::useSelectedConversation',
       'web/src/stores/cards.ts::cardRouteChain',
       'web/src/stores/cards.ts::CardTreeNode',
@@ -743,7 +741,6 @@ describe('repository complete export boundary', () => {
       'web/src/stores/runtime-read-model.ts::selectSocketDetail',
       'web/src/stores/runtime-read-model.ts::selectSocketLabel',
       'web/src/utils/agent-timeline/index.ts::AgentTimeline',
-      'web/src/utils/auth-events.ts::API_AUTH_REQUIRED_EVENT',
       'web/src/utils/format-json.ts::formatJson',
       'web/src/utils/highlight.ts::highlight',
       'web/src/utils/sanitize-card-history.ts::sanitizeCardHistoryValue',
@@ -757,7 +754,7 @@ describe('repository complete export boundary', () => {
       'web/src/utils/agent-timeline/index.ts::ToolGroup',
       'web/src/utils/agent-timeline/index.ts::ToolListItem',
     ];
-    expect(sfcReclassified).toHaveLength(26);
+    expect(sfcReclassified).toHaveLength(23);
     for (const key of sfcReclassified) {
       const separator = key.lastIndexOf('::');
       const item = record(result, key.slice(0, separator), key.slice(separator + 2));
@@ -765,7 +762,7 @@ describe('repository complete export boundary', () => {
       expect(item.classification).toBe('production-consumed');
       expect(item.productionLocations.some((location) => location.startsWith('web/src/') && location.includes('.vue:'))).toBe(true);
     }
-    for (const view of ['DashboardView.vue', 'CardsView.vue', 'AgentsView.vue', 'FilesView.vue', 'DebugView.vue', 'NotFound.vue']) {
+    for (const view of ['CockpitView.vue', 'SessionView.vue', 'FilesView.vue', 'SystemView.vue', 'NotFound.vue']) {
       expect(record(result, `web/src/views/${view}`, 'default').classification).toBe('production-consumed');
     }
     expect(record(result, 'web/src/components/debug/AgentsPanel.vue', 'AgentDebugKind').classification).toBe('production-consumed');

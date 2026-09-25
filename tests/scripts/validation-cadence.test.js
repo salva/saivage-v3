@@ -49,7 +49,7 @@ const PACKAGE_SCRIPTS = {
   'web:typecheck': 'cd web && npm run typecheck',
   'web:test': 'cd web && npm run test',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
-  'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
+  'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-cockpit-smoke.test.ts',
   'web:test:analyst-ui': 'cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts',
   'validate:docs': 'npm run docs:verify',
   'validate:routine': 'npm run typecheck && npm run check:export-consumers && npm run check:canonical-persistence-drift && npm run docs:verify',
@@ -600,7 +600,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ 'package.json': packageWithDriftedSmoke }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('package.json script "web:test:operator-smoke" must run operator-dashboard-smoke.test.ts, but is currently: cd web && npx vitest run src/__tests__/dashboard-view.test.ts');
+      expect(result.failures).toContain('package.json script "web:test:operator-smoke" must run operator-cockpit-smoke.test.ts, but is currently: cd web && npx vitest run src/__tests__/dashboard-view.test.ts');
     });
   });
 });
