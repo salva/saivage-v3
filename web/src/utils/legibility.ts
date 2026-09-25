@@ -9,12 +9,12 @@ export function livenessPhrase(status: string, activity: string): string {
   return livenessPhrases.get(`${status}·${activity}`) ?? `${status} · ${activity}`;
 }
 
-export interface CompiledWorkflowNode {
+interface CompiledWorkflowNode {
   node_id: string;
   agent_name: string;
 }
 
-export interface CompiledWorkflowGraphLike {
+interface CompiledWorkflowGraphLike {
   nodes?: readonly CompiledWorkflowNode[];
 }
 
