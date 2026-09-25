@@ -20,7 +20,6 @@
           >{{ loadStateFor(node.card.id).status === 'loading' ? '…' : isEffectivelyExpanded(node.card.id) ? '▾' : '▸' }}</button>
           <span v-else class="node-toggle placeholder"></span>
            <span class="state-ball" :class="`card-status-${node.card.status}`" aria-hidden="true"></span>
-           <span class="node-status" :data-card-status="node.card.status">{{ node.card.status }}</span>
            <span v-if="node.logicalPath" class="node-path">{{ node.logicalPath }}</span>
           <span class="node-title">{{ node.card.title }}</span>
           <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>
@@ -81,9 +80,6 @@ const renderedTree = computed<RenderedNode[]>(() => {
 .node-toggle:hover { color:var(--text); background:var(--surface-3); }
 .node-toggle.placeholder { visibility:hidden; }
 .state-ball { width:8px; height:8px; border-radius:999px; flex-shrink:0; }
-.node-status { font-size:10px; color:var(--text-muted); font-family:var(--font-mono); flex-shrink:0; }
-.node-status[data-card-status='failed'], .node-status[data-card-status='blocked'] { color:var(--danger); }
-.node-status[data-card-status='running'] { color:var(--accent); }
 .state-ball.card-status-backlog { background:var(--card-status-backlog); border:1px solid var(--border-strong); }
 .state-ball.card-status-running { background:var(--card-status-running); }
 .state-ball.card-status-blocked { background:var(--card-status-blocked); }

@@ -142,7 +142,6 @@ describe('read-only positive checklist', () => {
     expect(restartDialogSource).not.toContain('window.prompt');
     expect(cardsTreeSource).toContain("emit('toggle', node.card.id)");
     expect(cardsTreeSource).toContain("emit('select', node.card.id)");
-    expect(cardsTreeSource).toContain('node-status');
 
     expect(surfaces).not.toMatch(removedMutationTokens);
   });

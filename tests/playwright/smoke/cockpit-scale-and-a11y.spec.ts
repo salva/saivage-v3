@@ -175,8 +175,7 @@ test('cockpit core journeys stay keyboard-reachable, named, non-color, and legib
 
   const selectedRow = page.locator('.tree-node[aria-current="true"]');
   await expect(selectedRow).toContainText('Deep leaf current work');
-  const selectedStatus = selectedRow.locator('.node-status');
-  await expect(selectedStatus).toHaveText('running');
+  await expect(page.locator('.card-flow-header .status-badge')).toContainText('running');
 
   const composer = page.getByRole('textbox', { name: 'Analyst chat composer' });
   await page.keyboard.press('/');
