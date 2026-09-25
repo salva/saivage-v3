@@ -22,7 +22,11 @@
           <span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(runtime.started_at) }}</span>
         </div>
         <div class="debug-grid-item">
-          <span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span>
+          <span class="dg-key">Current Card:</span><span class="dg-value">
+            <router-link v-if="currentCardId" :to="{ name: 'card-detail', params: { id: currentCardId } }">{{ currentCardTitle ?? currentCardId }}</router-link>
+            <span v-else>none</span>
+            <span v-if="currentCardId" class="dg-value mono" :title="currentCardId">{{ currentCardId }}</span>
+          </span>
         </div>
       </div>
       <ViewState v-else-if="runtimeLoaded" state="empty" title="No live runtime." />
@@ -32,7 +36,7 @@
         <div class="debug-grid">
           <div class="debug-grid-item"><span class="dg-key">State:</span><span class="dg-value">{{ oversight.state }}</span></div>
           <div class="debug-grid-item"><span class="dg-key">Agent:</span><span class="dg-value mono">{{ oversight.agent_name }}</span></div>
-          <div class="debug-grid-item"><span class="dg-key">Session:</span><span class="dg-value mono">{{ oversight.session_id }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Session:</span><span class="dg-value"><ExactValue :value="oversight.session_id" label="Oversight session ID" truncate /></span></div>
           <div class="debug-grid-item"><span class="dg-key">Enabled:</span><span class="dg-value">{{ oversight.enabled ? 'yes' : 'no' }}</span></div>
           <div class="debug-grid-item"><span class="dg-key">Eligibility:</span><span class="dg-value">{{ oversight.eligible ? 'eligible' : oversight.eligibility_reason }}</span></div>
           <div class="debug-grid-item"><span class="dg-key">Service epoch:</span><span class="dg-value">{{ fmtDate(oversight.service_epoch) }}</span></div>
@@ -46,13 +50,16 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+import ExactValue from '../ui/ExactValue.vue';
 import type { RuntimeState } from '../../api/types';
 import type { OperatorApiSuccess } from '../../api/contracts';
 import { formatRecentTimestamp } from '../../utils/timestamp';
+import { useCardStore } from '../../stores/cards';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 
-defineProps<{
+const props = defineProps<{
   runtime: RuntimeState | null;
   runtimeLoaded: boolean;
   runtimeLoading: boolean;
@@ -62,6 +69,9 @@ defineProps<{
   currentCardId: string | null;
   oversight:OperatorApiSuccess<'runtime.status'>['oversight']|null;
 }>();
+
+const cardStore = useCardStore();
+const currentCardTitle = computed(() => (props.currentCardId ? cardStore.hierarchyCardById(props.currentCardId)?.title ?? null : null));
 
 function fmtDate(timestamp: string): string {
   return formatRecentTimestamp(timestamp);

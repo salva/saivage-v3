@@ -206,8 +206,8 @@ describe('cockpit acceptance fixtures', () => {
 
     const graphText = wrapper.get('.flow-graph-details').text();
     expect(graphText).toContain('repair —needs-repair→ node execute');
-    expect(graphText).toContain('execute (executor)');
-    expect(graphText).toContain('repair (executor)');
+    expect(graphText).toContain('executor — node execute');
+    expect(graphText).toContain('executor — node repair');
     wrapper.unmount();
   });
 

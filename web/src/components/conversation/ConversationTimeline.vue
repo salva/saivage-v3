@@ -10,7 +10,7 @@
       <CompactedCluster v-if="round.kind === 'compacted'" :entries="round.entries" />
       <template v-else>
         <header v-if="isAuthorBoundary(index)" class="round-head">
-          {{ round.kind }}<span class="round-position"> · {{ round.position }}</span>
+          {{ round.kind }}<span class="round-position"> — turn {{ round.position }}</span>
         </header>
         <ContextBlock v-for="entry in round.texts" :key="entry.id" :entry="entry" />
         <DiagnosticRow v-for="entry in round.diagnostics" :key="entry.id" :entry="entry" />

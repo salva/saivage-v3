@@ -227,3 +227,35 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   audit completeness. Oversight appears as an ordinary global participant
   conversation with epoch diagnostics (waiting/checking/unavailable) and no
   manual check, configuration editor, or trigger.
+
+## 10. Legibility presentation register (2026-09-25)
+
+Presentation-only layer over the surfaces above; no request, contract, or
+honesty-rule changes. Owners: `web/src/utils/legibility.ts` and
+`web/src/components/ui/ExactValue.vue`.
+
+- **Tiers**: Primary plain-language facts (state, trajectory, participants,
+  problems, outcome) lead at reading size; Secondary support (titles,
+  humanized times, counts, exact liveness pairs) stays visible muted;
+  Tertiary exact identities (IDs, UUIDs, hashes, raw payloads) remain exact
+  and copyable but never lead.
+- `livenessPhrase` maps exactly the two contract-enforced pairs
+  (`active · busy`, `inactive · idle`); any other pair renders the exact
+  backend words unchanged.
+- `positionGloss` appends a gloss only from the compiled graph (node →
+  owning agent's step; terminal → configured end states); no graph, no
+  gloss.
+- The accepted-result one-liner quotes the backend-recorded `summary`
+  verbatim (120-char truncation; full JSON one disclosure away); key
+  listing exists only for future summary-less shapes.
+- Card-tree rows are color-only (owner decision 2026-09-25); non-color
+  status meaning lives on the selected surfaces (flow-header badge,
+  Overview situation and lists).
+- The provider-exchange surface is named **Provider exchange metadata**
+  everywhere; segment-context and retained-instruction IDs render compact
+  with full values in `title` and copy.
+- Record diffs carry a "Changes from previous version" label; card-version
+  diffs carry explicit Before/After columns; EventsPanel coverage counts
+  derive from returned data, never the request limit.
+- `ExactValue` is the exact-identity carrier: mono, full value in `title`,
+  copy button with accessible name and transient Copied feedback.

@@ -6,7 +6,7 @@
         <StatusBadge v-if="detail" :status="statusForCard(detail.lifecycle.status)" />
         <span class="overview-situation-text">{{ situationText }}</span>
       </p>
-      <StatusBanner v-if="detail?.lifecycle.error" tone="danger" :message="`Card error: ${detail.lifecycle.error}`" />
+      <StatusBanner v-if="detail?.lifecycle.error" tone="danger" title="Card error" :message="detail.lifecycle.error" />
       <p v-if="detail?.lifecycle.completed_at" class="overview-muted">Completed {{ fmtDate(detail.lifecycle.completed_at) }}. Done means accepted work, not independently verified correctness.</p>
     </section>
 
@@ -20,7 +20,8 @@
       <ul v-else class="overview-sessions" data-testid="overview-participants">
         <li v-for="session in sessionsState.sessions" :key="session.id">
           <router-link :to="{ name: 'agent-detail', params: { id: session.id } }">{{ session.agent_name }}</router-link>
-          <span class="overview-session-liveness" :data-liveness="`${session.status}-${session.activity}`">{{ session.status }} · {{ session.activity }}</span>
+          <span class="overview-session-liveness" :data-liveness="`${session.status}-${session.activity}`">{{ livenessPhrase(session.status, session.activity) }}</span>
+          <span class="overview-session-pair">{{ session.status }} · {{ session.activity }}</span>
         </li>
       </ul>
       <p class="overview-muted">Liveness meaning comes only from the backend-decorated session summary.</p>
@@ -29,10 +30,14 @@
 
     <section class="overview-section">
       <h3 class="overview-label">Latest result</h3>
-      <details v-if="detail?.lifecycle?.result" class="overview-result">
-        <summary>Accepted result ({{ resultSize }})</summary>
-        <CodeBlock :code="formatJson(detail.lifecycle.result)" language="json" copyable />
-      </details>
+      <template v-if="detail?.lifecycle?.result">
+        <p class="overview-result-line" data-testid="overview-result-line">Accepted result — {{ resultOneLiner(detail.lifecycle.result) }}</p>
+        <p class="overview-result-context">kind {{ detail.lifecycle.result.kind }}<template v-if="detail.lifecycle.result.terminal"> · terminal {{ detail.lifecycle.result.terminal }}</template></p>
+        <details class="overview-result">
+          <summary>Full recorded result (JSON)</summary>
+          <CodeBlock :code="formatJson(detail.lifecycle.result)" language="json" copyable />
+        </details>
+      </template>
       <p v-else class="overview-muted" data-testid="overview-no-result">No accepted result is recorded for this card.</p>
       <p class="overview-action"><router-link :to="{ name: 'card-detail', params: { id: cardId }, query: { facet: 'conversations' } }">Open latest activity in Conversations…</router-link></p>
     </section>
@@ -88,6 +93,7 @@ import { useSyncStore } from '../../stores/sync';
 import { formatRecentTimestamp } from '../../utils/timestamp';
 import { statusForCard } from '../../utils/status';
 import { formatJson } from '../../utils/format-json';
+import { livenessPhrase, resultOneLiner } from '../../utils/legibility';
 import CodeBlock from '../content/CodeBlock.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
@@ -150,12 +156,6 @@ function recordStateLabel(descriptor: CardRecordDescriptor): string {
   return `v${descriptor.current.head_version}`;
 }
 
-const resultSize = computed(() => {
-  const result = props.detail?.lifecycle?.result;
-  if (!result) return '';
-  try { return `${new Blob([JSON.stringify(result)]).size} B`; } catch { return ''; }
-});
-
 const children = computed<readonly CardHierarchyRecord[]>(() => cardStore.loadedChildrenFor(props.cardId) ?? []);
 const siblings = computed<readonly CardHierarchyRecord[]>(() => {
   const chain = cardRouteChain(props.cardId);
@@ -177,13 +177,16 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
 .overview-sessions, .overview-records, .overview-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .overview-sessions li, .overview-records li, .overview-cards li { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .overview-sessions a, .overview-cards a { color: var(--accent-2); text-decoration: underline; }
-.overview-session-liveness { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+.overview-session-liveness { font-size: 12px; color: var(--text); font-weight: 600; }
 .overview-session-liveness[data-liveness='active-busy'] { color: var(--accent); }
+.overview-session-pair { font-size: 11px; color: var(--text-muted); }
 .overview-record-state { font-size: 11px; color: var(--text-muted); }
 .overview-card-status { font-size: 11px; color: var(--text-muted); }
 .overview-cards li[data-selected] { font-weight: 700; }
 .overview-action { margin: 8px 0 0; font-size: 12px; }
 .overview-action a { color: var(--accent-2); text-decoration: underline; }
+.overview-result-line { margin: 0; font-size: 12px; font-weight: 600; color: var(--text); }
+.overview-result-context { margin: 2px 0 4px; font-size: 11px; color: var(--text-muted); }
 .overview-result > summary { cursor: pointer; font-size: 12px; color: var(--text-muted); }
 .overview-result { margin-top: 4px; }
 .overview-section > :deep(.view-state) { padding: 8px 0; }

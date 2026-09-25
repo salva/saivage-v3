@@ -50,8 +50,8 @@
             :class="{ selected: effectiveAgentSessionId === session.id }"
             @click="emit('select-session', session.id)"
           >
-            <span class="agent-debug-session-id mono">{{ session.id }}</span>
-            <span class="agent-debug-session-meta">{{ session.agent_name }} · {{ session.session_scope }}</span>
+            <span class="agent-debug-session-meta">{{ session.agent_name }} · {{ scopeWord(session.session_scope) }}</span>
+            <span class="agent-debug-session-id"><ExactValue :value="session.id" label="session ID" truncate /></span>
           </button>
         </aside>
         <div>
@@ -84,6 +84,8 @@ export type AgentDebugKind = 'conversation' | 'llmExchange';
 </script>
 
 <script setup lang="ts">
+import ExactValue from '../ui/ExactValue.vue';
+import { scopeWord } from '../../utils/legibility';
 import type { ConversationSessionId } from '../../api/contracts';
 import type { AgentSession } from '../../api/types';
 import DebugAgentDetail from '../agents/DebugAgentDetail.vue';

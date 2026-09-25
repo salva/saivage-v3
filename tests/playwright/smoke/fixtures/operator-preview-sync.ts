@@ -41,8 +41,8 @@ export function observePreviewRequestFailures(page: Page, baseURL: string) {
     const url = new URL(request.url());
     const error = request.failure()?.errorText ?? '';
     const path = url.pathname;
-    if (phase && request.method() === 'GET' && url.origin === origin && error === 'net::ERR_ABORTED' && isToleratedCancellationPath(path)) {
-      expected.push({ phase, method: 'GET', origin, path, error });
+    if (request.method() === 'GET' && url.origin === origin && error === 'net::ERR_ABORTED' && isToleratedCancellationPath(path)) {
+      if (phase) expected.push({ phase, method: 'GET', origin, path, error });
       return;
     }
     unexpected.push(`${request.method()} ${request.url()} ${error}`);

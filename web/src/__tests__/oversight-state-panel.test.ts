@@ -1,6 +1,9 @@
 import { mount } from '@vue/test-utils';
-import { describe,expect,it } from 'vitest';
+import { beforeEach, describe,expect,it } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import StatePanel from '../components/debug/StatePanel.vue';
+
+beforeEach(() => { setActivePinia(createPinia()); });
 
 const props={runtime:null,runtimeLoaded:true,runtimeLoading:false,runtimeError:null,runtimeRefreshing:false,runtimeRefreshError:null,currentCardId:null};
 const base={agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped' as const,state:'unavailable' as const,next_nominal_due:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-09-14T00:00:00.000Z'};

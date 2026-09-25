@@ -30,7 +30,10 @@
             <strong>Selected v{{ value(record.name).selected?.version }}</strong>
             <MarkdownText v-if="selectedContent(record.name) !== null" :source="selectedContent(record.name) ?? ''" />
             <ViewState v-else state="empty" title="Selected view has no effective content." />
-            <pre v-if="value(record.name).diff">{{ value(record.name).diff?.hunks }}</pre>
+            <div v-if="value(record.name).diff" class="record-diff">
+              <div class="record-diff-label">Changes from previous version</div>
+              <CodeBlock :code="hunksText(record.name)" language="text" copyable />
+            </div>
             <div v-if="value(record.name).diffError" class="record-history-error" role="alert">{{ value(record.name).diffError }} <button type="button" @click="retrySelected(record.name)">Retry diff</button></div>
           </div>
         </div>
@@ -46,6 +49,7 @@ import { useCardStore, type RecordSlotState } from '../../stores/cards';
 import Section from '../ui/Section.vue';
 import ViewState from '../ui/ViewState.vue';
 import MarkdownText from '../content/MarkdownText.vue';
+import CodeBlock from '../content/CodeBlock.vue';
 import DocumentFrame from '../content/DocumentFrame.vue';
 
 const props = defineProps<{ cardId: string }>();
@@ -56,6 +60,11 @@ function contentValue(name: RecordName) { const accepted = value(name).accepted;
 function load(): void { void store.loadCardRecords(props.cardId); }
 function retry(name: RecordName): void { void store.retryRecord(name); }
 function history(name:RecordName):void{void store.openRecordHistory(name);}
+function hunksText(name: RecordName): string {
+  const hunks = value(name).diff?.hunks;
+  return hunks ? String(hunks) : '';
+}
+
 function select(name:RecordName,version:number):void{void store.selectRecordVersion(name,version);}
 function retrySelected(name:RecordName):void{const version=value(name).selected?.version??value(name).history?.versions.at(-1)?.version;if(version!==undefined)select(name,version);}
 function selectedContent(name:RecordName):string|null{const artifact=value(name).selected?.artifact;if(!artifact)return null;return artifact.state==='open'?artifact.draft?.content??null:artifact.accepted?.content??null;}
@@ -64,6 +73,7 @@ watch(() => props.cardId, load);
 </script>
 
 <style scoped>
+.record-diff-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
 .records-list { display:flex; flex-direction:column; gap:12px; }
 .record-stale { display:flex; justify-content:space-between; gap:8px; margin-bottom:8px; color:var(--warn); font-size:12px; }
 .record-metadata { margin-bottom:8px;color:var(--text-muted);font-size:11px; }

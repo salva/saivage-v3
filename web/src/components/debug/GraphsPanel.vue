@@ -30,7 +30,14 @@
       <template v-else-if="graphs && selectedGraph">
         <section class="global-agents" data-testid="debug-global-agents">
           <h5>Selected global agents</h5>
+          <div v-for="agent in globalAgents" :key="agent.agent_name" class="global-agent-row">
+          <span class="global-agent-name">{{ agent.agent_name }}</span>
+          <span class="global-agent-session mono" :title="agent.session.identity">{{ agent.session.identity }}</span>
+        </div>
+        <details class="global-agents-raw">
+          <summary>Raw global agent data (JSON)</summary>
           <pre v-for="agent in globalAgents" :key="agent.agent_name">{{ JSON.stringify(agent, null, 2) }}</pre>
+        </details>
         </section>
         <label class="graph-selector-label" for="debug-graph-card-type">Card type</label>
         <select
@@ -97,4 +104,8 @@ function selectGraph(event: Event): void {
 .global-agents { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); }
 .global-agents h5 { margin: 0 0 8px; color: var(--text-muted); text-transform: uppercase; font-size: 11px; }
 .global-agents pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.global-agent-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.global-agent-name { font-weight: 600; }
+.global-agent-session { font-size: 10px; color: var(--text-muted); }
+.global-agents-raw > summary { cursor: pointer; font-size: 11px; color: var(--text-muted); margin-top: 6px; }
 </style>

@@ -9,7 +9,7 @@
     <template v-else>
       <div v-for="group in railGroups" :key="group.agentName" class="rail-group">
         <h4 class="rail-group-label">{{ group.agentName }}</h4>
-        <p v-for="nodeId in group.configuredNodes" :key="nodeId" class="rail-node-label">Configured node/role: {{ nodeId }}</p>
+        <p v-for="nodeId in group.configuredNodes" :key="nodeId" class="rail-node-label">Configured node/role: <span class="mono">{{ nodeId }}</span></p>
         <button
           v-for="session in group.sessions"
           :key="session.id"
@@ -17,11 +17,15 @@
           class="rail-session"
           :class="{ selected: session.id === selectedSessionId }"
           :aria-pressed="session.id === selectedSessionId"
+          :title="session.id"
           @click="emit('select', session.id)"
         >
+          <span class="rail-session-head">
+            <span class="rail-session-liveness" :data-liveness="`${session.status}-${session.activity}`">{{ livenessPhrase(session.status, session.activity) }}</span>
+            <span class="rail-session-started">started {{ fmtDate(session.started_at) }}</span>
+          </span>
+          <span class="rail-session-pair">{{ session.status }} · {{ session.activity }}</span>
           <span class="rail-session-identity mono">{{ session.id }}</span>
-          <span class="rail-session-liveness" :data-liveness="`${session.status}-${session.activity}`">{{ session.status }} · {{ session.activity }}</span>
-          <span class="rail-session-started">started {{ fmtDate(session.started_at) }}</span>
         </button>
       </div>
       <p v-if="hasUnassociatedMetadata" class="rail-note">Sessions without a configured node assignment in the current compiled graph remain listed under their exact agent identity, unassociated.</p>
@@ -39,6 +43,7 @@ import { useCardAgentSessionsStore } from '../../stores/cardAgentSessions';
 import { useSyncStore } from '../../stores/sync';
 import { useDebugStore } from '../../stores/debug';
 import { formatRecentTimestamp } from '../../utils/timestamp';
+import { livenessPhrase } from '../../utils/legibility';
 import ViewState from '../ui/ViewState.vue';
 
 const props = defineProps<{ cardId: string; detail: CardDetail | null; selectedSessionId: ConversationSessionId | null }>();
@@ -120,7 +125,8 @@ onUnmounted(() => {
 .rail-label { margin: 0 0 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .rail-group { margin-bottom: 14px; }
 .rail-group-label { margin: 0 0 4px; font-size: 12px; font-weight: 700; color: var(--text); text-transform: capitalize; }
-.rail-node-label { margin: 0 0 4px; font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+.rail-node-label { margin: 0 0 4px; font-size: 10px; color: var(--text-muted); }
+.rail-node-label .mono { font-family: var(--font-mono); }
 .rail-session {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; box-sizing: border-box;
   padding: 6px 8px; margin-bottom: 4px; border: 1px solid var(--surface-3); border-left: 3px solid transparent;
@@ -128,10 +134,12 @@ onUnmounted(() => {
 }
 .rail-session:hover { border-color: var(--border); }
 .rail-session.selected { border-left-color: var(--accent-2); background: var(--entry-user-bg); }
+.rail-session-head { display: flex; align-items: baseline; gap: 8px; width: 100%; }
+.rail-session-liveness { font-size: 12px; color: var(--text); font-weight: 600; }
+.rail-session-liveness[data-liveness='active-busy'] { color: var(--accent); }
+.rail-session-started { font-size: 10px; color: var(--border-strong); margin-left: auto; }
+.rail-session-pair { font-size: 10px; color: var(--text-muted); }
 .rail-session-identity { font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.rail-session-liveness { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
-.rail-session-liveness[data-liveness='active-busy'] { color: var(--accent); font-weight: 700; }
-.rail-session-started { font-size: 10px; color: var(--border-strong); }
 .rail-note { margin: 8px 0 0; font-size: 10px; color: var(--text-muted); line-height: 1.4; }
 .participant-rail > :deep(.view-state) { padding: 12px 4px; }
 .mono { font-family: var(--font-mono); }

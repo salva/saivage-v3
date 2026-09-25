@@ -46,7 +46,7 @@
       <ViewState v-else-if="sessionsState.error" state="error" title="Card sessions unavailable" :message="sessionsState.error" />
       <template v-else>
         <div v-for="session in sessionsState.sessions" :key="session.id" class="evidence-record">
-          <h4 class="evidence-record-name">{{ session.agent_name }} · {{ session.id }}</h4>
+          <h4 class="evidence-record-name">{{ session.agent_name }} <ExactValue :value="session.id" label="session ID" truncate /></h4>
           <button v-if="!(segmentCatalogs[session.id]?.loaded)" type="button" class="evidence-command" @click="loadSegmentCatalog(session.id)">Load segment catalog</button>
           <template v-else-if="segmentCatalogs[session.id]?.error">
             <span class="evidence-meta error">{{ segmentCatalogs[session.id]?.error }}</span>
@@ -54,7 +54,7 @@
           </template>
           <ol v-else class="evidence-list">
             <li v-for="version in segmentCatalogs[session.id]?.versions ?? []" :key="version.entry_id">
-              <router-link :to="{ name: 'agent-detail', params: { id: session.id } }">Segment {{ version.version }} · {{ version.genesis_kind }}</router-link>
+              <router-link :to="{ name: 'agent-detail', params: { id: session.id } }">Segment {{ version.version }}<span class="evidence-genesis mono"> · {{ version.genesis_kind }}</span></router-link>
             </li>
           </ol>
         </div>
@@ -71,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import ExactValue from '../ui/ExactValue.vue';
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { CardHistoryHeader } from '../../api/types';
@@ -161,6 +162,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.evidence-genesis { font-size: 10px; color: var(--text-muted); }
 .evidence-facet { flex: 1; min-height: 0; overflow-y: auto; }
 .evidence-section { padding: 14px 16px; border-bottom: 1px solid var(--surface-3); }
 .evidence-label { margin: 0 0 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }

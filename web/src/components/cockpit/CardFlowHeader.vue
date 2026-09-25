@@ -2,14 +2,14 @@
   <header class="card-flow-header" :data-flow-unavailable="flowUnavailable ? 'true' : undefined">
     <div class="flow-title-row">
       <h2 class="flow-title" data-testid="card-flow-title">{{ detail?.title ?? cardId }}</h2>
-      <span class="flow-id mono" data-testid="card-flow-id">{{ cardId }}</span>
+      <span class="flow-id mono" :title="cardId" data-testid="card-flow-id">{{ cardId }}</span>
       <span v-if="detail" class="flow-kind">{{ labelForCardType(detail.type) }}</span>
       <StatusBadge v-if="detail" :status="statusForCard(detail.lifecycle.status)" />
       <span v-if="detail" class="flow-meta">v{{ detail.version_seq }} · updated {{ fmtDate(detail.updated_at) }}</span>
       <span v-if="flowUnavailable" class="flow-unavailable" data-testid="card-flow-unavailable">Card flow unavailable</span>
     </div>
 
-    <StatusBanner v-if="detail?.lifecycle.error" tone="danger" :message="`Card error: ${detail.lifecycle.error}`" />
+    <StatusBanner v-if="detail?.lifecycle.error" tone="danger" title="Card error" :message="detail.lifecycle.error" />
 
     <div class="flow-questions">
       <section class="flow-question" aria-label="Context">
@@ -40,7 +40,9 @@
       <section class="flow-question" aria-label="Observed now">
         <h3 class="flow-question-label">Observed now</h3>
         <p v-if="positionLabel" class="flow-position" data-testid="card-flow-position">{{ positionLabel }}</p>
-        <p v-else class="flow-muted" data-testid="card-flow-position-unavailable">No projected workflow position for this card. Unavailable is not “finished” or “idle”.</p>
+        <p v-if="positionGlossText" class="flow-muted flow-position-gloss" data-testid="card-flow-position-gloss">{{ positionGlossText }}</p>
+        <p v-else-if="positionLabel" class="flow-muted flow-position-gloss"></p>
+        <p v-if="!positionLabel" class="flow-muted" data-testid="card-flow-position-unavailable">No projected workflow position for this card. Unavailable is not “finished” or “idle”.</p>
         <p class="flow-muted">Position comes from the runtime projection only; card lifecycle and transcript history are separate facts.</p>
       </section>
 
@@ -57,11 +59,21 @@
           <details class="flow-graph-details">
             <summary>Configured workflow ({{ graph.card_type }})</summary>
             <div class="flow-graph-text">
-              <p><strong>Entries:</strong> <span v-for="entry in graph.entries" :key="entry.entry" class="flow-graph-item">{{ entry.entry }} → node {{ entry.node_id }}</span></p>
-              <p><strong>Nodes:</strong> <span v-for="node in graph.nodes" :key="node.node_id" class="flow-graph-item">{{ node.node_id }} ({{ node.agent_name }})</span></p>
-              <p><strong>Edges:</strong> <span v-for="edge in graph.edges" :key="`${edge.source_node_id}:${edge.outcome}`" class="flow-graph-item">{{ edge.source_node_id }} —{{ edge.outcome }}→ {{ edge.target.kind === 'node' ? `node ${edge.target.node_id}` : `terminal ${edge.target.terminal}` }}</span></p>
-              <p><strong>Terminals:</strong> <span v-for="terminal in graph.terminals" :key="terminal.terminal" class="flow-graph-item">{{ terminal.terminal }}</span></p>
-              <p><strong>Records:</strong> <span v-for="record in graph.records" :key="record.name" class="flow-graph-item">{{ record.name }}{{ record.bootstrap ? ' (bootstrap)' : '' }}</span></p>
+              <p class="flow-graph-row"><span class="flow-graph-label">Nodes:</span>
+                <span v-for="node in graph.nodes" :key="node.node_id" class="flow-graph-item">{{ node.agent_name }} — node <span class="mono">{{ node.node_id }}</span></span>
+              </p>
+              <p class="flow-graph-row"><span class="flow-graph-label">Entries:</span>
+                <span v-for="entry in graph.entries" :key="entry.entry" class="flow-graph-item"><span class="mono">{{ entry.entry }}</span> → node <span class="mono">{{ entry.node_id }}</span></span>
+              </p>
+              <p class="flow-graph-row"><span class="flow-graph-label">Edges:</span>
+                <span v-for="edge in graph.edges" :key="`${edge.source_node_id}:${edge.outcome}`" class="flow-graph-item"><span class="mono">{{ edge.source_node_id }}</span> —{{ edge.outcome }}→ {{ edge.target.kind === 'node' ? `node ${edge.target.node_id}` : `terminal ${edge.target.terminal}` }}</span>
+              </p>
+              <p class="flow-graph-row"><span class="flow-graph-label">Terminals:</span>
+                <span v-for="terminal in graph.terminals" :key="terminal.terminal" class="flow-graph-item">{{ terminal.terminal }}</span>
+              </p>
+              <p class="flow-graph-row"><span class="flow-graph-label">Records:</span>
+                <span v-for="record in graph.records" :key="record.name" class="flow-graph-item">{{ record.name }}{{ record.bootstrap ? ' (bootstrap)' : '' }}</span>
+              </p>
             </div>
           </details>
         </template>
@@ -83,6 +95,7 @@ import { cardRouteChain, useCardStore } from '../../stores/cards';
 import { useDebugStore } from '../../stores/debug';
 import { formatRecentTimestamp } from '../../utils/timestamp';
 import { labelForCardType, statusForCard } from '../../utils/status';
+import { positionGloss } from '../../utils/legibility';
 import StatusBadge from '../ui/StatusBadge.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
@@ -128,6 +141,12 @@ const positionLabel = computed<string | null>(() => {
 });
 
 const graph = computed(() => graphs.value?.find((candidate) => candidate.card_type === props.detail?.type) ?? null);
+
+const positionGlossText = computed<string | null>(() => {
+  const position = props.position;
+  if (!position) return null;
+  return positionGloss(position, graph.value);
+});
 
 const positionOutcomes = computed<{ label: string }[]>(() => {
   const position = props.position;
@@ -179,7 +198,10 @@ const positionOutcomes = computed<{ label: string }[]>(() => {
 .flow-graph-details > summary { cursor: pointer; font-size: 11px; color: var(--text-muted); }
 .flow-graph-text { font-size: 11px; color: var(--text); margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
 .flow-graph-text p { margin: 0; }
-.flow-graph-item { display: inline-block; margin-right: 10px; font-family: var(--font-mono); font-size: 10px; background: var(--surface-3); border-radius: 4px; padding: 1px 6px; }
+.flow-graph-label { font-weight: 700; margin-right: 6px; }
+.flow-graph-item { display: inline-block; margin-right: 10px; font-size: 11px; }
+.flow-graph-item .mono { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.flow-position-gloss { margin: -2px 0 4px; }
 .flow-header :deep(.view-state) { padding: 8px; }
 .mono { font-family: var(--font-mono); }
 </style>

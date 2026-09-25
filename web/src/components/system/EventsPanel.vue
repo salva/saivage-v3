@@ -54,9 +54,9 @@ function browse(offset: number): void { void eventsStore.browseOldest(props.scop
 
 const coverageLabel = computed(() => {
   if (!state.value.loaded) return '';
-  const mode = state.value.mode === 'newest_tail' ? `newest tail (limit ${tailLimit})` : `oldest page (offset ${state.value.offset}, limit ${tailLimit})`;
+  const mode = state.value.mode === 'newest_tail' ? 'the newest events' : `the oldest retained events (page at offset ${state.value.offset})`;
   const filter = props.scope.cardId ? ` · card ${props.scope.cardId}` : ' · no card filter';
-  return `${state.value.events.length} of ${state.value.total ?? 'unknown'} retained events · ${mode}${filter}`;
+  return `Showing ${mode}: ${state.value.events.length} of ${state.value.total ?? 'unknown'} retained events${filter}`;
 });
 
 function fmtTime(ts: string): string { return formatRecentTimestamp(ts); }

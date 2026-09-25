@@ -57,9 +57,10 @@
       />
       <section v-if="conversationSegmentContext" class="segment-context" data-testid="conversation-segment-context">
         <strong>Compacted segment {{ conversationSegmentContext.source_version + 1 }}</strong>
-        <span>History covered through {{ conversationSegmentContext.covered_through_message_id }}</span>
+        <span>Earlier history was compacted; this segment begins after message <span class="mono" :title="conversationSegmentContext.covered_through_message_id">{{ compactUuid(conversationSegmentContext.covered_through_message_id) }}</span>.</span>
         <span v-if="conversationSegmentContext.continuation.kind === 'inherited_open_round'">
-          Inherited open activation {{ conversationSegmentContext.continuation.activation.marker_id }} · input {{ conversationSegmentContext.continuation.activation.input_id }} · {{ conversationSegmentContext.continuation.active_segment_kind }}
+          An open activation from the previous segment continues here.
+          <span class="segment-context-ids">Marker <span class="mono" :title="conversationSegmentContext.continuation.activation.marker_id">{{ compactUuid(conversationSegmentContext.continuation.activation.marker_id) }}</span> · input <span class="mono" :title="conversationSegmentContext.continuation.activation.input_id">{{ compactUuid(conversationSegmentContext.continuation.activation.input_id) }}</span> · active segment kind {{ conversationSegmentContext.continuation.active_segment_kind }}</span>
         </span>
         <span v-else>Compacted between rounds</span>
       </section>
@@ -69,7 +70,7 @@
         <ViewState v-if="conversationVersionsLoading" state="loading" title="Loading segment history" />
         <StatusBanner v-else-if="conversationVersionsError" tone="warning" :message="conversationVersionsError" />
         <div v-else class="version-list">
-          <button v-for="version in conversationVersions" :key="version.entry_id" class="conv-tb-btn" @click="selectVersion(version.version)">Segment {{ version.version }} · {{ version.genesis_kind }}</button>
+          <button v-for="version in conversationVersions" :key="version.entry_id" class="conv-tb-btn" @click="selectVersion(version.version)">Segment {{ version.version }}<span class="segment-genesis mono"> · {{ version.genesis_kind }}</span></button>
         </div>
         <ViewState v-if="selectedConversationVersionLoading" state="loading" title="Loading selected segment" />
         <StatusBanner v-else-if="selectedConversationVersionError" tone="warning" :message="selectedConversationVersionError" />
@@ -119,6 +120,7 @@ import { useSelectedConversation } from '../../composables/useSelectedConversati
 import { useAgentStore } from '../../stores/agents';
 import { useSyncStore } from '../../stores/sync';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
+import { compactUuid } from '../../utils/legibility';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
@@ -271,6 +273,8 @@ watch(
 }
 .segment-context, .version-history { margin:10px 16px 0; padding:10px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2); }
 .segment-context { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+.segment-context-ids { color:var(--text-muted); font-size:11px; }
+.segment-genesis { font-size:10px; color:var(--text-muted); }
 .version-list { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
 .selected-version { margin-top:10px; }
 .conv-rounds :deep(.targeted-conversation-entry) { outline:2px solid var(--warn); outline-offset:2px; }

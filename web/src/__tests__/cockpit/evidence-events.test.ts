@@ -134,7 +134,7 @@ describe('evidence facet and system sections', () => {
     api.listEvents.mockResolvedValue({ events: [diagnosticEvent('a1', null)], total: 200 });
     const wrapper = mount(EventsPanel, { props: { scope: { cardId: null } }, global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>', props: ['to'] } } } });
     await flushPromises();
-    expect(wrapper.text()).toContain('1 of 200 retained events');
+    expect(wrapper.text()).toContain('Showing the newest events: 1 of 200 retained events');
     expect(wrapper.text()).toContain('no card filter');
 
     await wrapper.get('[data-testid="events-refresh"]').trigger('click');

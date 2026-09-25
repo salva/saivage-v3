@@ -1,6 +1,7 @@
 <template>
   <details class="compacted-cluster">
     <summary class="compacted-summary"><span class="compacted-label">Compacted context</span><span class="compacted-count">{{ entries.length }} entries</span><span class="compacted-breakdown">{{ breakdown }}</span></summary>
+    <p class="compacted-lead">Earlier exchanges were compacted into this context block.</p>
     <ul class="compacted-list">
       <li v-for="entry in visibleEntries" :key="entry.id" class="compacted-item">
         <span class="compacted-role" :class="`role-${entry.role}`">{{ entry.role }}</span>
@@ -33,6 +34,7 @@ function preview(content: string): string {
 }
 </script>
 <style scoped>
+.compacted-lead { margin: 0 0 6px; font-size: 11px; color: var(--text-muted); }
 .compacted-cluster { border:1px solid var(--surface-3); border-radius:8px; padding:6px 10px; color:var(--text-muted); font-size:12px; }
 .compacted-summary { list-style:none; cursor:pointer; display:flex; gap:8px; align-items:baseline; }
 .compacted-summary::-webkit-details-marker { display:none; }

@@ -71,8 +71,10 @@
               <div v-else class="diff-list">
                 <div v-for="row in cardHistoryDiff" :key="row.field" class="diff-row">
                   <div class="diff-field">{{ row.field }}</div>
-                  <CodeBlock :code="formatJson(row.before, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
-                  <CodeBlock :code="formatJson(row.after, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
+                  <div class="diff-pair">
+                    <div class="diff-side"><span class="diff-side-label">Before</span><CodeBlock :code="formatJson(row.before, { redactor: sanitizeCardHistoryValue })" language="json" copyable /></div>
+                    <div class="diff-side"><span class="diff-side-label">After</span><CodeBlock :code="formatJson(row.after, { redactor: sanitizeCardHistoryValue })" language="json" copyable /></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -151,6 +153,9 @@ onBeforeUnmount(() => cardStore.closeCardHistory());
 </script>
 
 <style scoped>
+.diff-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+.diff-side { min-width: 0; }
+.diff-side-label { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 2px; }
 .panel-header-row { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }
 .panel-header-actions { display:flex; gap:8px; align-items:center; }
 .panel-copy { margin:4px 0 0; color:var(--text-muted); font-size:12px; }

@@ -27,13 +27,14 @@
         :class="{ selected: selectedProcessId === proc.id }"
       >
         <div class="process-header">
-          <span class="process-id mono">{{ proc.id }}</span>
           <span class="process-status-badge" :class="'ps-' + proc.status">{{ proc.status }}</span>
+          <span v-if="proc.started_at" class="pd-lead-time">started {{ fmtDate(proc.started_at) }}<template v-if="proc.ended_at"> · ended {{ fmtDate(proc.ended_at) }}</template></span>
+          <span class="process-id mono" :title="proc.id">{{ proc.id }}</span>
           <span class="process-time">Started {{ fmtDate(proc.started_at) }}</span>
         </div>
         <div class="process-details">
           <div class="pd-row"><span class="pd-key">Command:</span><span class="pd-value mono wrap">{{ proc.command }}</span></div>
-          <div class="pd-row"><span class="pd-key">Card:</span><span class="pd-value mono">{{ proc.card_id }}</span></div>
+          <div class="pd-row"><span class="pd-key">Card:</span><span class="pd-value"><router-link v-if="proc.card_id" :to="{ name: 'card-detail', params: { id: proc.card_id } }">{{ proc.card_id }}</router-link><span v-else>none</span></span></div>
           <div class="pd-row"><span class="pd-key">Session:</span><span class="pd-value mono">{{ proc.session_id || 'none' }}</span></div>
           <div class="pd-row"><span class="pd-key">Owner kind:</span><span class="pd-value mono">{{ proc.owner_kind || 'unknown' }}</span></div>
           <div class="pd-row"><span class="pd-key">Owner id:</span><span class="pd-value mono">{{ proc.owner_id || 'unknown' }}</span></div>
@@ -101,6 +102,7 @@ function fmtDate(timestamp: string): string {
 </script>
 
 <style scoped>
+.pd-lead-time { font-size: 11px; color: var(--text-muted); }
 .mono {
   font-family: 'SF Mono', monospace;
   font-size: 11px;

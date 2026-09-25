@@ -1,8 +1,8 @@
 <template>
-  <section class="raw-llm-panel" aria-label="Last raw LLM exchange">
+  <section class="raw-llm-panel" aria-label="Provider exchange metadata">
     <header class="rlp-header">
       <div class="rlp-title">
-        <span class="rlp-title-text">Last raw LLM exchange</span>
+        <span class="rlp-title-text">Provider exchange metadata</span>
         <button
           type="button"
           class="rlp-refresh"
@@ -14,7 +14,7 @@
       </div>
       <div v-if="exchange" class="rlp-meta">
         <span class="rlp-meta-item"
-          >Completed: <span class="rlp-meta-value">{{ exchange.completed_at }}</span></span
+          >Completed: <span class="rlp-meta-value" :title="timestampTitle(exchange.completed_at)">{{ fmtDate(exchange.completed_at) }}</span></span
         >
         <span class="rlp-meta-sep">·</span>
         <span class="rlp-meta-item"
@@ -35,14 +35,14 @@
     </header>
 
     <div v-if="llmExchangeRefreshing" class="rlp-status rlp-status--loading">
-      Refreshing raw LLM exchange…
+      Refreshing provider exchange metadata…
     </div>
     <div v-if="llmExchangeRefreshError" class="rlp-status rlp-status--error" role="alert">
       {{ llmExchangeRefreshError }}
     </div>
 
     <div v-if="llmExchangeLoading" class="rlp-status rlp-status--loading">
-      Loading raw LLM exchange…
+      Loading provider exchange metadata…
     </div>
 
     <div v-else-if="llmExchangeError" class="rlp-status rlp-status--error" role="alert">
@@ -117,6 +117,7 @@ import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import { useSyncStore } from '../../stores/sync';
 import { formatJson } from '../../utils/format-json';
+import { formatRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CodeBlock from '../content/CodeBlock.vue';
 
 import type { ConversationSessionId } from '../../api/contracts';
@@ -153,6 +154,8 @@ onUnmounted(() => {
   closeExchange?.();
   if (exchangeToken) agentStore.clearLlmExchange(exchangeToken);
 });
+
+function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : ''; }
 </script>
 
 <style scoped>

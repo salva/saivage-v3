@@ -24,8 +24,8 @@
           :position="cardPosition"
         />
         <header v-else class="session-global-header" data-testid="session-global-header">
-          <h2 class="session-global-title">{{ scopeSummary.agent_name }}</h2>
-          <span class="session-global-scope">Global session · {{ scopeSummary.id }}</span>
+          <h2 class="session-global-title">{{ scopeSummary.agent_name }} — Global session</h2>
+          <span class="session-global-scope"><ExactValue :value="scopeSummary.id" label="session ID" truncate /></span>
           <p class="session-global-note">This session is global: it is not owned by a card flow.</p>
         </header>
 
@@ -48,8 +48,9 @@
               class="session-back-to-card"
               :disabled="cardContext.unavailable.value"
               data-testid="back-to-card"
+              :title="`Back to card ${scopeSummary.card_id}`"
               @click="backToCard(scopeSummary.card_id)"
-            >Back to card {{ scopeSummary.card_id }}</button>
+            >Back to {{ backToCardLabel }}</button>
             <AgentConversationView :key="sessionId" :session-id="sessionId" :entry-id="entryId" />
           </div>
         </div>
@@ -68,6 +69,7 @@ import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import { useRuntimeStore } from '../stores/runtime';
 import { useSessionCardContext } from '../composables/useSessionCardContext';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
+import ExactValue from '../components/ui/ExactValue.vue';
 import CardFlowHeader from '../components/cockpit/CardFlowHeader.vue';
 import ParticipantRail from '../components/cockpit/ParticipantRail.vue';
 import ViewState from '../components/ui/ViewState.vue';
@@ -130,6 +132,10 @@ function backToCard(cardId: string): void {
   if (cardContext.unavailable.value) return;
   void router.push({ name: 'card-detail', params: { id: cardId } });
 }
+const backToCardLabel = computed(() => {
+  const title = cardContext.detail.value?.title;
+  return title ? title : `card ${scopeSummary.value?.card_id ?? ''}`;
+});
 function openSession(id: ConversationSessionId): void {
   void router.push({ name: 'agent-detail', params: { id } });
 }
