@@ -42,10 +42,10 @@
 
       <template v-if="routeMode === 'home'">
         <ViewState v-if="!runtimeLoaded && runtimeLoading" state="loading" title="Observing runtime" message="The current work selection appears once the runtime observation is accepted." />
+        <ViewState v-else-if="runtimeUnauthorized" state="unauthorized" title="Runtime observation unauthorized" message="The operator API rejected this browser. Runtime-controlled selection is unavailable." />
         <ViewState v-else-if="!runtimeLoaded && runtimeError" state="error" title="Runtime observation failed" :message="runtimeError">
           <template #action><button type="button" @click="retryRuntime">Retry</button></template>
         </ViewState>
-        <ViewState v-else-if="runtimeUnauthorized" state="unauthorized" title="Runtime observation unauthorized" message="The operator API rejected this browser. Runtime-controlled selection is unavailable." />
         <ViewState v-else-if="!runtimeLoaded" state="loading" title="Runtime observation not yet accepted" message="Current work is unknown until the runtime observation is accepted; absence is not guessed." />
         <ViewState v-else-if="!currentCardId" state="empty" title="No current work" message="The project is not executing a current card. This is accepted absence, not an executing root." data-testid="home-no-current" />
         <template v-else-if="homeSubject">
