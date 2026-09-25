@@ -6,7 +6,7 @@ import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim
 
 const syntheticToken = 'synthetic-playwright-token';
 
-test('desktop card detail keeps all content reachable inside the bounded detail scroller', async ({ page, baseURL }) => {
+test('desktop card records facet keeps all content reachable inside the bounded cockpit scroller', async ({ page, baseURL }) => {
   if (!baseURL) throw new Error('baseURL required');
   const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
@@ -24,14 +24,43 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
        })),
     });
   });
+  const longBrief = Array.from({ length: 40 }, (_, index) => `Synthetic brief paragraph ${index + 1} with enough prose to require the bounded records scroller to scroll for the version history below.`).join('\n\n');
+  await page.route(`**/api/cards/${smokeCardId}/records/**`, async (route) => {
+    const name = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) ?? 'brief.md');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(parseOperatorResponse('cards.records.get', 200, {
+        card_id: smokeCardId,
+        record: {
+          name,
+          head_version: 1,
+          head_entry_id: '11111111-1111-4111-8111-111111111111',
+          state: 'closed',
+          accepted: {
+            source_version: 1,
+            source_entry_id: '11111111-1111-4111-8111-111111111111',
+            committed_at: '2026-05-19T12:00:00.000Z',
+            writer_agent: 'runtime:bootstrap',
+            card_version_seq: 1,
+            content: longBrief,
+            content_sha256: 'a'.repeat(64),
+            size_bytes: longBrief.length,
+          },
+          draft: null,
+          discarded: null,
+          effective_content_source: 'accepted',
+        },
+      })),
+    });
+  });
 
   await seedTokenBeforeNavigation(page, syntheticToken);
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`)));
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`)));
 
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
-  await page.getByText('Metadata', { exact: true }).click();
 
-  const container = page.locator('.card-detail-container');
+  const container = page.locator('.records-facet');
   await expect(container).toHaveJSProperty('isConnected', true);
   await expect.poll(async () => container.evaluate((el, viewportHeight) => el.getBoundingClientRect().height <= viewportHeight, 720)).toBe(true);
   await expect.poll(async () => container.evaluate((el) => {
@@ -43,14 +72,14 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
   });
   await expect.poll(async () => container.evaluate((el) => {
     const summaries = Array.from(el.querySelectorAll('summary'));
-    const marker = summaries.find((summary) => (summary.textContent ?? '').includes('Version history'));
+    const marker = summaries.find((summary) => (summary.textContent ?? '').includes('Card versions'));
     if (!marker) return null;
+    marker.scrollIntoView({ block: 'nearest' });
     const box = el.getBoundingClientRect();
     const markerBox = marker.getBoundingClientRect();
     const tolerance = 1;
     return markerBox.bottom <= box.bottom + tolerance && markerBox.top >= box.top - tolerance;
   })).toBe(true);
-  await page.getByText('Version history', { exact: true }).click();
   const versionTwo = page.locator('.history-item').filter({ hasText: 'v2' });
   await expect(versionTwo).toContainText('status -> running');
   await expect(versionTwo.locator('.history-change-fields')).toHaveText('lifecycle');

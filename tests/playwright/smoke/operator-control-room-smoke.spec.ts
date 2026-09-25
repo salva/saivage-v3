@@ -5,58 +5,39 @@ import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenB
 
 const syntheticToken = 'synthetic-playwright-token';
 
-test('operator control room smoke walks browser routes with REST fixtures and WebSocket shim', async ({ page, baseURL }) => {
+test('operator control room smoke walks cockpit routes with REST fixtures and WebSocket shim', async ({ page, baseURL }) => {
   if (!baseURL) throw new Error('baseURL required'); const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-  await seedTokenBeforeNavigation(page, syntheticToken); await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard')));
+  await seedTokenBeforeNavigation(page, syntheticToken); await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/')));
 
-  await expect(page.getByText('Dashboard').first()).toBeVisible();
+  await expect(page.getByTestId('route-cockpit')).toBeVisible();
+  await expect(page.getByTestId('strip-project')).toHaveText('project');
   await expect(page.locator('.analyst-pane-project-name')).toHaveText('project');
-  await expect(page.getByRole('region', { name: 'Runtime Console' })).toBeVisible();
-  await expect(page.locator('.status-section').filter({hasText:'Runtime Status'}).locator('.status-item').filter({hasText:'Status'}).locator('.status-value')).toHaveText('running'); await expect(page.locator('.mission-active-link')).toHaveText('Synthetic dashboard smoke card'); await expect(page.getByTestId('dashboard-child-of-goal-panel').locator('.list-empty')).toHaveText('none');
+  await expect(page.getByTestId('cockpit-inspecting')).toContainText('Inspecting Synthetic dashboard smoke card');
+  await expect(page.getByTestId('card-flow-title')).toHaveText('Synthetic dashboard smoke card');
+  await expect(page.getByTestId('cockpit-facet-nav')).toContainText('Overview');
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
 
   await expect.poll(async () => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBeGreaterThan(0);
-  const socketChip = page.locator('.workspace-header .ws-connected');
-  await expect(socketChip).toHaveText('Live');
+  const socketChip = page.getByTestId('strip-socket');
+  await expect(socketChip).toHaveText('Connected');
   await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
 
-  await expect(page.locator('.pause-chip')).toHaveCount(0);
-
-  await page.getByText('Cards').first().click();
-  await expect(page).toHaveURL(/\/cards$/);
-  await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`)));
-  await expect(page.getByText('Card Detail').first()).toBeVisible();
-  const detail=page.getByRole('region',{name:'Card detail'}); const hi=detail.getByTestId('card-detail-highlight'); await expect(hi.locator('.card-entity__name')).toHaveText('Synthetic dashboard smoke card'); await expect(hi.locator('.card-entity__type')).toHaveText('Code'); await expect(hi.locator('.status-badge')).toContainText('done'); await expect(hi.locator('.ori-key').first()).toHaveText('v3'); const result=detail.locator('.section').filter({has:page.getByRole('heading',{name:'Result',exact:true})}); const details=result.locator('details'); await expect(details).not.toHaveAttribute('open',''); await result.locator('summary').click(); await expect(details).toHaveAttribute('open',''); await expect(result.locator('pre')).toContainText('"kind": "workflow-result"'); await expect(result.locator('pre')).toContainText('"summary": "synthetic result"');
-
-  await page.getByText('Agents').first().click();
-  await expect(page).toHaveURL(/\/agents$/);
-  await expect(page.getByText('analyst').first()).toBeVisible();
-  await expect(page.getByText('planner').first()).toBeVisible();
-  await page.locator('.session-card').first().click();
-  await expect(page.locator('.detail-header-bar')).toContainText('agent:analyst:global');
-  await expect(page.locator('[data-testid="round-card"]').first()).toBeVisible();
-  await expect(page.locator('[data-testid="round-card"]').first()).toContainText('Synthetic agent transcript.');
-  const ps=page.locator('.role-section').filter({has:page.locator('.role-heading',{hasText:'planner'})}); const pc=ps.locator('.session-card'); await expect(pc).toHaveCount(1); await expect(pc.locator('.session-scope')).toHaveText('card'); await expect(pc.locator('.status-badge')).toHaveCount(0); await expect(pc.getByRole('button',{name:'Synthetic Project'})).toBeVisible(); await pc.click(); await expect(page).toHaveURL(/\/agents\/agent:planner:project$/); await expect(page.locator('.detail-header-bar')).toContainText('agent:planner:project');
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/agents/agent:planner:project`)));
+  await expect(page.getByTestId('route-session')).toBeVisible();
   const pagedTool=page.locator('.tool-chip').filter({hasText:'partial message slice'}); await expect(pagedTool).toContainText('1 partial message slice of 5 selected messages'); await expect(pagedTool).toContainText('12 total visible messages'); await pagedTool.getByRole('button',{name:/Expand tool read_agent_session details/}).click(); await pagedTool.getByRole('button',{name:'Show raw response'}).click(); await expect(pagedTool.getByLabel('Raw tool response')).toContainText('"total_visible_entries":12');
 
-  await page.getByText('Files').first().click();
-  await expect(page).toHaveURL(/\/files$/);
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/files')));
   await expect(page.getByText('plan.json')).toBeVisible();
   await page.getByText('plan.json').click();
   await expect(page.getByText('operator-playwright-smoke')).toBeVisible();
 
-  await page.getByText('Debug').first().click();
-  await expect(page).toHaveURL(/\/debug$/);
-  await expect(page.getByRole('button', { name: 'Timeline', exact: true })).toHaveCount(0);
-  await page.getByText('Errors').first().click();
-
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard'))); await waitForRuntimePair(page, async()=>page.evaluate(()=>window.__saivageWsFixture?.emitRuntimeUpdate())); await expect(page.getByTestId('dashboard-child-of-goal-panel').locator('.list-empty')).toHaveText('none');
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system?section=errors')));
+  await expect(page.getByTestId('route-system')).toContainText('Synthetic provider failure redacted');
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/route-that-does-not-exist')));
   await expect(page.getByRole('heading', { name: /404 — Not found/i })).toBeVisible();

@@ -14,7 +14,7 @@ test('operator control room supports analyst chat send and migrated debug panels
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
   await seedTokenBeforeNavigation(page, syntheticToken);
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard')));
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/')));
 
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
   await expect(page.getByText('Synthetic agent transcript.').first()).toBeVisible();
@@ -32,20 +32,18 @@ test('operator control room supports analyst chat send and migrated debug panels
   expect(rest.chatPosts[0]?.sessionId).toBe('agent:analyst:global');
   expect(rest.chatPosts[0]?.body).toMatchObject({
     content: 'Summarize the synthetic runtime',
-    workspaceContext: { view: 'dashboard', entityId: null, refinement: null },
+    workspaceContext: { view: 'cockpit', entityId: null, refinement: null },
   });
 
-  await page.getByText('Debug').first().click();
-  await expect(page).toHaveURL(/\/debug$/);
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system?section=processes')));
 
-  await page.getByRole('button', { name: 'Processes' }).click();
   expect(processListResponse).toEqual(expectedProcessList);
   const processCard = page.locator('.process-card').filter({ hasText: processId });
   await expect(processCard).toHaveCount(1); await expect(processCard.locator('.process-id')).toHaveText(processId); await expect(processCard.locator('.process-status-badge')).toHaveText('exited'); await expect(processCard).toContainText('Command:npm run synthetic-smoke'); await expect(processCard).toContainText(`Session:${processOwnerId}`); await expect(processCard).toContainText(`Owner id:${processOwnerId}`); await expect(processCard).toContainText('Owner kind:agent'); await expect(processCard).toContainText('Working directory:.'); await expect(processCard).toContainText(`Card:${smokeCardId}`); await expect(processCard).toContainText(`work:///cards/${smokeCardId}/processes/${processId}/stdout.log`); await expect(processCard).toContainText(`work:///cards/${smokeCardId}/processes/${processId}/stderr.log`);
   const endedAt = await page.evaluate((v) => new Date(v).toLocaleString([], { year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit' }), '2026-05-19T12:00:00.000Z'); await expect(processCard.locator('.pd-row').filter({hasText:'Ended:'}).locator('.pd-value')).toHaveText(endedAt);
   expect(rest.counts.get('GET /api/processes')).toBeGreaterThanOrEqual(1);
 
-  await page.getByRole('button', { name: 'MCP' }).click();
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system?section=mcp')));
   const mcpSummary = page.locator('.debug-section').filter({ has: page.getByRole('heading', { name: 'Summary', exact: true }) });
   await expect(mcpSummary).toContainText('Servers:1');
   await expect(mcpSummary).toContainText('Tools:1');
@@ -92,7 +90,7 @@ test('card detail view forwards workspace context to analyst chat on send', asyn
   expect(rest.chatPosts).toHaveLength(1);
   const post = rest.chatPosts[0];
   expect(post?.sessionId).toBe('agent:analyst:global');
-  expect(post?.body.workspaceContext).toEqual({ view: 'cards', entityId: smokeCardId, refinement: null });
+  expect(post?.body.workspaceContext).toEqual({ view: 'cockpit', entityId: smokeCardId, refinement: null });
   expect(post?.body.content).toBe(visiblePrompt);
   expect(post?.body.content).not.toContain(syntheticToken);
 

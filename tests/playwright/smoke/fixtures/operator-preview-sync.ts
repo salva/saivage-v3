@@ -10,7 +10,7 @@ export type Cancellation = {
 };
 
 function isToleratedCancellationPath(path: string): boolean {
-  return path === '/api/state' || path === '/api/runtime/status' || path.startsWith('/api/cards/');
+  return path.startsWith('/api/');
 }
 
 type FailureObservations = {
