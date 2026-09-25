@@ -1,7 +1,5 @@
 import type { CardWorkflowPosition } from '../api/types';
 
-export type LivenessPair = { status: string; activity: string };
-
 const livenessPhrases: ReadonlyMap<string, string> = new Map([
   ['active·busy', 'Active — working now'],
   ['inactive·idle', 'Idle — no current work'],
@@ -33,7 +31,7 @@ export function positionGloss(position: CardWorkflowPosition, graph: CompiledWor
   return null;
 }
 
-export interface ResultLike {
+interface ResultLike {
   summary?: string | null;
   [key: string]: unknown;
 }
