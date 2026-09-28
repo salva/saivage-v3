@@ -16,7 +16,7 @@ const routeSmokeCases = [
   { path: '/', root: '[data-testid="route-cockpit"]', bodyText: /No current work|Inspecting|Observing runtime/i },
   { path: '/cards', root: '[data-testid="route-cockpit"]', bodyText: /Select a card to inspect/i },
   { path: '/cards/card-a', root: '[data-testid="route-cockpit"]', bodyText: /Inspecting/i },
-  { path: '/agents/agent:planner:card-a', root: '[data-testid="route-session"]', bodyText: /Smoke card|Resolving exact session scope/i },
+  { path: '/agents/agent:planner:card-a', root: '[data-testid="route-cockpit"]', bodyText: /Smoke card|Resolving exact session scope/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata/i },
   { path: '/system', root: '[data-testid="route-system"]', bodyText: /State|Errors|Processes/i },
   { path: '/missing', root: '.not-found-view', bodyText: /404 — Not found/i },

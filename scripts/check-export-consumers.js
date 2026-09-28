@@ -953,9 +953,21 @@ function discoverOwnership(trackedFiles) {
   };
 }
 
+function currentRepositoryFiles(root) {
+  const files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root })
+    .toString()
+    .split('\0')
+    .filter(Boolean);
+  const deleted = new Set(execFileSync('git', ['ls-files', '-z', '--deleted'], { cwd: root })
+    .toString()
+    .split('\0')
+    .filter(Boolean));
+  return files.filter((file) => !deleted.has(file));
+}
+
 export function checkExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json' } = {}) {
   const repositoryRoot = path.resolve(root);
-  const tracked = new Set(trackedFiles ?? execFileSync('git', ['ls-files', '-z'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean));
+  const tracked = new Set(trackedFiles ?? currentRepositoryFiles(repositoryRoot));
   const discovery = discoverOwnership([...tracked]);
   const candidates = new Set(discovery.files);
   const surfaces = new Map();

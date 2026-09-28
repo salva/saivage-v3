@@ -1418,6 +1418,12 @@ The persistent Analyst panel owns its exact mounted chat resources independently
 Token identity change resets CardStore, aborts its hierarchy/detail/history requests, and performs the ordinary root load under the new identity.
 `/api/state` contains no card inventory, `cardIndex`, status/type totals, or hidden card traversal.
 Operator projections and disposable reader-local indexes never authorize writes or persist beyond their owning read.
+The operator presents exact card sessions as the Conversations selection of the
+shared owning-card cockpit, preserving card/tree/facet context while keeping
+`/agents/:id?entry=…` as the sole exact-session address. Exact scope resolves
+before card context, global scope fabricates none, and transcript availability is
+independent of owning-card admission. The complete presentation and navigation
+rules are owned by the [Operator UI contracts](operator-ui-contracts.md#3-identity-routes-and-navigation).
 
 ### Exact shared operator error contracts
 

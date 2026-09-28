@@ -52,7 +52,9 @@ const projectCard = {
 };
 
 const hierarchyCard={id:smokeCardId,type:'code',title:card.title,status:'done',permitted_child_types:[]} as const;
-const rootChildren = parseOperatorResponse('cards.children', 200, { parent: projectCard, children: [hierarchyCard] });
+const siblingGoal = { id: 'card-b', type: 'goal', title: 'Synthetic sibling goal', status: 'running', permitted_child_types: ['code'] } as const;
+const siblingChild = { id: 'card-b-a', type: 'code', title: 'Expanded sibling child', status: 'backlog', permitted_child_types: [] } as const;
+const rootChildren = parseOperatorResponse('cards.children', 200, { parent: projectCard, children: [hierarchyCard, siblingGoal] });
 export const cardRecords = [
   { name: 'brief.md', format: 'markdown' as const, schema: 'card-brief.v1', bootstrap: true, current: null },
   { name: 'status.md', format: 'markdown' as const, schema: 'work-status.v1', bootstrap: false, current: null },
@@ -92,6 +94,7 @@ const sessions = [
   { id: `agent:executor:${smokeCardId}`, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null },
   { id: 'agent:oversight:global', agent_name: 'oversight', session_scope: 'global', card_id: null, started_at: now, status: 'inactive', activity: 'idle', compaction: null },
   { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle', compaction: null },
+  { id: `agent:reviewer:${smokeCardId}`, agent_name: 'reviewer', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'inactive', activity: 'idle', compaction: null },
   { id: 'agent:reviewer:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle', compaction: null },
 ];
 
@@ -161,6 +164,7 @@ function pagedObservationToolPair(sessionId: string) {
 
 export type OperatorRestOptions = {
   unauthorized?: boolean | ((method: string, pathname: string) => boolean);
+  chatToolInvocations?: unknown[];
 };
 
 export type OperatorRestObservations = {
@@ -214,7 +218,11 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('runtime.contentPolicy', 200, { refusal_high_water: 0, latest: null }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
+    if (request.method() === 'GET' && url.pathname === '/api/cards/card-b/children') {
+      return json(route, parseOperatorResponse('cards.children', 200, { parent: siblingGoal, children: [siblingChild] }));
+    }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project') return json(route, parseOperatorResponse('cards.get', 200, { card: { ...smokeOperatorCard, id: 'project', type: 'project', title: 'Synthetic Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null } } }));
+    if (request.method() === 'GET' && url.pathname === '/api/cards/project/records') return json(route, parseOperatorResponse('cards.records.list', 200, { card_id: 'project', records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null }] }));
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/agent-sessions') {
       return json(route, parseOperatorResponse('agents.cardSessions', 200, {
         card_id: 'project',
@@ -254,6 +262,14 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         segment_context: retainedContext,
         entries,
         cursor: { segment_version: retainedContext ? 2 : 1, message_id: allEntries.at(-1)?.id ?? since },
+      }));
+    }
+    if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation/versions')) {
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'agent:analyst:global');
+      return json(route, parseOperatorResponse('agents.conversationVersions.list', 200, {
+        session_id: sessionId,
+        versions: [{ entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', version: 1, published_at: now, genesis_kind: 'ordinary', source_version: null }],
+        total: 1,
       }));
     }
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.split('/').length === 4) {
@@ -341,6 +357,9 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/debug/errors') {
       return json(route, debugErrors);
     }
+    if (request.method() === 'GET' && url.pathname === '/api/events') {
+      return json(route, parseOperatorResponse('events.list', 200, { events: [], total: 0 }));
+    }
     if (request.method() === 'GET' && url.pathname === '/api/debug/graphs') return json(route, debugGraphs);
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
@@ -381,7 +400,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       };
       chatEntries.set(sessionId, [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.'), message]);
       return json(route, parseOperatorResponse('chats.send', 200, {
-        toolInvocations: [],
+        toolInvocations: options.chatToolInvocations ?? [],
         restart: null,
       }));
     }

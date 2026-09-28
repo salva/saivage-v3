@@ -11,7 +11,7 @@ const directRouteCases = [
   { path: '/', root: '[data-testid="route-cockpit"]', bodyText: /Inspecting|Synthetic dashboard smoke card/i },
   { path: '/cards', root: '[data-testid="route-cockpit"]', bodyText: /Select a card to inspect|Synthetic Project/i },
   { path: `/cards/${smokeCardId}`, root: '[data-testid="route-cockpit"]', bodyText: /Inspecting|Synthetic dashboard smoke card/i },
-  { path: '/agents/agent:analyst:global', root: '[data-testid="route-session"]', bodyText: /Global session|analyst/i },
+  { path: '/agents/agent:analyst:global', root: '[data-testid="route-cockpit"]', bodyText: /Global session|analyst/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata|plan\.json/i },
 ] as const;
 

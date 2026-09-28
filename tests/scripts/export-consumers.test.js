@@ -68,6 +68,25 @@ describe('export consumer checker', () => {
     current.close();
   });
 
+  it('uses the current worktree inventory by excluding tracked deletions and including untracked source', () => {
+    const current = fixture({
+      'src/contracts/a.ts': 'export const contract = 1;\n',
+      'web/src/obsolete.ts': 'export const obsolete = 1;\n',
+    });
+    try {
+      execFileSync('git', ['init'], { cwd: current.root, stdio: 'ignore' });
+      execFileSync('git', ['add', '.'], { cwd: current.root });
+      rmSync(path.join(current.root, 'web/src/obsolete.ts'));
+      write(current.root, 'web/src/current.ts', 'export const current = 1;\n');
+
+      const result = checkExportConsumers({ root: current.root });
+      expect(result.ownership.candidateFiles).toContain('web/src/current.ts');
+      expect(result.ownership.candidateFiles).not.toContain('web/src/obsolete.ts');
+    } finally {
+      current.close();
+    }
+  });
+
   it('classifies compiler-semantic named, default, type, alias, routed, dynamic, namespace, local, zero, and test-only use', () => {
     const result = runFixture({
       'src/contracts/a.ts': [
@@ -660,7 +679,8 @@ describe('complete export analysis', () => {
 describe('repository complete export boundary', () => {
   it('reproduces complete candidate/consumer parity and the cleanup-complete inventory', () => {
     const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean);
+    const deleted = new Set(execFileSync('git', ['ls-files', '-z', '--deleted'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean));
+    const tracked = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: repositoryRoot }).toString().split('\0').filter((file) => file && !deleted.has(file));
     const result = checkExportConsumers({ root: repositoryRoot, trackedFiles: tracked });
     const testPath = (file) => file.startsWith('tests/') || file.includes('/__tests__/') || /\.(?:test|spec)\.(?:ts|tsx|mts|cts|js|mjs|cjs|vue)$/.test(file) || /(?:^|\/)vitest\.config\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/.test(file);
     const tsFamily = tracked.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).sort();
@@ -686,10 +706,10 @@ describe('repository complete export boundary', () => {
     const directHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]));
     const effectiveHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.classification === classification).length]));
     expect(directHistogram).toEqual({
-      'production-consumed': 1751, 'test-only': 202, 'local-only': 2, 'zero-use': 0,
+      'production-consumed': 1757, 'test-only': 203, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.records).toHaveLength(1955);
-    expect(result.totals).toEqual({ 'production-consumed': 1753, 'test-only': 202, 'local-only': 0, 'zero-use': 0 });
+    expect(result.records).toHaveLength(1962);
+    expect(result.totals).toEqual({ 'production-consumed': 1759, 'test-only': 203, 'local-only': 0, 'zero-use': 0 });
     expect(effectiveHistogram).toEqual(result.totals);
     expect(Object.values(directHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
     expect(Object.values(effectiveHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
@@ -762,7 +782,7 @@ describe('repository complete export boundary', () => {
       expect(item.classification).toBe('production-consumed');
       expect(item.productionLocations.some((location) => location.startsWith('web/src/') && location.includes('.vue:'))).toBe(true);
     }
-    for (const view of ['CockpitView.vue', 'SessionView.vue', 'FilesView.vue', 'SystemView.vue', 'NotFound.vue']) {
+    for (const view of ['CockpitView.vue', 'FilesView.vue', 'SystemView.vue', 'NotFound.vue']) {
       expect(record(result, `web/src/views/${view}`, 'default').classification).toBe('production-consumed');
     }
     expect(record(result, 'web/src/components/debug/AgentsPanel.vue', 'AgentDebugKind').classification).toBe('production-consumed');

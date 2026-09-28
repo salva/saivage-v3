@@ -55,6 +55,11 @@ reset, including its [command-environment guidance](docs/runbook/index.md#comman
 Open the UI at `http://localhost:8080/` and the built documentation at
 `http://localhost:8080/docs/`, or check the public probes:
 
+The card cockpit keeps its tree and **Overview**, **Conversations**, **Records &
+History**, and **Evidence** facets together; exact card-session links open the
+selected conversation in that same context. See the authoritative
+[operator UI contracts](docs/spec/operator-ui-contracts.md).
+
 ```bash
 curl http://localhost:8080/health
 curl http://localhost:8080/health/ready

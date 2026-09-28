@@ -51,8 +51,9 @@ usable space. The workspace has four facets:
   stays unknown, and `done` means accepted as done rather than independently
   verified correctness.
 - **Conversations** — a participant rail of the card's exact named-agent
-  sessions; choosing one opens the exact session reader with the card header
-  and rail still in view.
+  sessions; choosing one opens the single exact reader while the selected tree,
+  four tabs, card header, and rail stay in view. Direct links to an admitted
+  card session open that same contextual cockpit.
 - **Records & History** — every declared record in declaration order plus
   card versions, snapshots, and diffs.
 - **Evidence** — source-labeled catalogs (card versions, record revisions,
@@ -129,8 +130,12 @@ full-chain recovery and continues. See
 
 - **Card > Records & History**: the accepted briefs, statuses, and reviews,
   plus every card version with diffs.
-- **Card > Conversations** (or any session link): full redacted transcripts
-  including every command run and its bounded output, with durable log URLs.
+- **Card > Conversations** (or an admitted card-session link): full redacted
+  transcripts including every command run and its bounded output, with durable
+  log URLs, inside the persistent card cockpit. A global session instead shows
+  global purpose with no invented card context. If a retained exact session's
+  card flow is unavailable, its exact ID and transcript remain while unavailable
+  card facets are disabled and no hierarchy is invented.
 - **Card > Evidence**: bounded event tails and source-labeled version,
   revision, and segment catalogs.
 - **Files**: canonical documents behind the projections.

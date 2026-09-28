@@ -113,7 +113,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSelectedConversation } from '../../composables/useSelectedConversation';
@@ -129,6 +129,7 @@ import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 import CompactionProgressBanner from './CompactionProgressBanner.vue';
 import RetainedInstructionContext from './RetainedInstructionContext.vue';
 import type { ConversationSessionId } from '../../api/contracts';
+import type { AgentConversationEntry } from '../../api/types';
 import { entriesToTimeline } from '../../utils/agent-timeline/timeline';
 const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();
 const agentStore = useAgentStore();
@@ -160,6 +161,8 @@ const selectedConversation = useSelectedConversation(props.sessionId);
 const rawPanelOpen = ref(false);
 const timelineControls = useAgentTimeline(entries);
 const entryTargetState = ref<'idle' | 'found' | 'missing'>('idle');
+let entryTargetPendingForSummary = false;
+let lastTargetedEntries: readonly AgentConversationEntry[] | null = null;
 const historicalExpandedIds = ref(new Set<string>());
 const historicalTimeline = computed(() => entriesToTimeline(selectedConversationVersion.value?.entries ?? []));
 const socketWaitingMessage = computed(() =>
@@ -175,29 +178,49 @@ function selectVersion(version: number): void { void selectedConversation.select
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
 }
+function focusEntryTarget(): void {
+  if (!props.entryId || lastTargetedEntries === entries.value) return;
+  lastTargetedEntries = entries.value;
+  const row = timelineControls.scrollAreaRef.value?.querySelector<HTMLElement>(
+    `[data-entry-id="${props.entryId}"]`,
+  ) ?? null;
+  entryTargetState.value = row ? 'found' : 'missing';
+  if (row) {
+    row.classList.add('targeted-conversation-entry');
+    row.scrollIntoView({ block: 'center' });
+  }
+}
 watch(
   [entries, loading, conversationRefreshing],
   (current, previous) => {
+    const acceptedSettled = current[0] !== previous[0]
+      || (previous[1] && !current[1]);
     if (
-      current[0] === previous[0] ||
+      !acceptedSettled ||
       current[1] ||
       current[2] ||
-      currentSession.value?.id !== props.sessionId ||
       !props.entryId
     )
       return;
-    const row =
-      timelineControls.scrollAreaRef.value?.querySelector<HTMLElement>(
-        `[data-entry-id="${props.entryId}"]`,
-      ) ?? null;
-    entryTargetState.value = row ? 'found' : 'missing';
-    if (row) {
-      row.classList.add('targeted-conversation-entry');
-      row.scrollIntoView({ block: 'center' });
+    if (currentSession.value?.id !== props.sessionId) {
+      entryTargetPendingForSummary = true;
+      return;
     }
+    entryTargetPendingForSummary = false;
+    void nextTick(focusEntryTarget);
   },
   { flush: 'post' },
 );
+watch(currentSession, (session) => {
+  if (
+    !entryTargetPendingForSummary
+    || session?.id !== props.sessionId
+    || loading.value
+    || conversationRefreshing.value
+  ) return;
+  entryTargetPendingForSummary = false;
+  void nextTick(focusEntryTarget);
+}, { flush: 'post' });
 </script>
 <style scoped>
 .conversation-container {
@@ -222,6 +245,7 @@ watch(
 }
 .conv-header :deep(.ui-panel-header) {
   margin-bottom: 0;
+  flex-wrap: wrap;
 }
 .conv-header :deep(.ui-panel-header__title) {
   text-transform: capitalize;
@@ -231,16 +255,21 @@ watch(
   align-items: center;
   gap: 8px;
 }
+.conv-header :deep(.ui-panel-header__actions) { min-width: 0; max-width: 100%; }
 .conv-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .conv-toolbar-group {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .auto-scroll-pause-toggle {
   display: inline-flex;

@@ -11,6 +11,7 @@ const extraNames = ['constraints.md', 'source-notes.md', 'review-custom.md'] as 
 const longTailMarker = 'OBJECTIVE-FULL-CONTENT-LAST-MARKER';
 const transcriptLastMarker = 'TRANSCRIPT-LAST-MESSAGE-MARKER';
 const graphLastMarker = 'final-custom-record-with-a-very-long-name.md';
+const longCardTitle = `Clarify the cockpit overview while preserving an unusually long selected-card title ${'across constrained contextual conversation navigation '.repeat(7)}`.trim();
 
 const objective = [
   '# Custom objective',
@@ -38,7 +39,7 @@ const descriptors = [
 const card = {
   id: smokeCardId,
   type: 'code',
-  title: 'Clarify the cockpit overview with unusually long wrapping text',
+  title: longCardTitle,
   lifecycle: {
     status: 'failed',
     result: { kind: 'workflow-result', terminal: 'FAILED', agent_name: 'executor', node_id: 'node-01', outcome: 'execution:failed', summary: 'The source refresh failed after retaining the last useful observation.', records: [{ name: 'constraints.md', url: `record:///constraints.md?card=${smokeCardId}&v=2`, version: 2 }] },
@@ -47,6 +48,15 @@ const card = {
   },
   urgency: 'normal', created_at: now, updated_at: now, allowedActions: [], version_seq: 9,
 };
+
+const railSessions = [
+  { id: sessionId, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null },
+  ...Array.from({ length: 18 }, (_, index) => {
+    const suffix = String(index + 1).padStart(2, '0');
+    const agentName = `fixture-worker-${suffix}`;
+    return { id: `agent:${agentName}:${smokeCardId}`, agent_name: agentName, session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'inactive', activity: 'idle', compaction: null };
+  }),
+] as const;
 
 function acceptedRecord(name: string, content: string, version: number) {
   return parseOperatorResponse('cards.records.get', 200, {
@@ -146,6 +156,19 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
       actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:node-01', kind: 'node', nodeId: 'node-01', executionOrdinal: 37 } }] },
       oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', next_nominal_due: null, last_attempt: null, last_successful_at: null, service_epoch: now }, restart_server_available: false, serverAvailability: smokeServerAvailability,
     }));
+    if (path === '/api/cards/project/children') return json(route, parseOperatorResponse('cards.children', 200, {
+      parent: { id: 'project', type: 'project', title: 'Synthetic Project', status: 'running', permitted_child_types: ['goal', 'code'] },
+      children: [
+        { id: smokeCardId, type: 'code', title: longCardTitle, status: 'failed', permitted_child_types: [] },
+        ...Array.from({ length: 24 }, (_, index) => ({
+          id: `card-${String.fromCharCode(98 + index)}`,
+          type: 'code',
+          title: `Independent scrolling tree row ${String(index + 1).padStart(2, '0')}`,
+          status: 'backlog',
+          permitted_child_types: [],
+        })),
+      ],
+    }));
     if (path === `/api/cards/${smokeCardId}`) return json(route, parseOperatorResponse('cards.get', 200, { card }));
     if (path === `/api/cards/${smokeCardId}/records`) {
       await json(route, parseOperatorResponse('cards.records.list', 200, { card_id: smokeCardId, records: descriptors }));
@@ -165,7 +188,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
       }
       return json(route, name === objectiveName ? objectiveRecord() : acceptedRecord(name, contents[name]!, descriptors.findIndex((descriptor) => descriptor.name === name) + 1));
     }
-    if (path === `/api/cards/${smokeCardId}/agent-sessions`) return json(route, parseOperatorResponse('agents.cardSessions', 200, { card_id: smokeCardId, sessions: [{ id: sessionId, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null }] }));
+    if (path === `/api/cards/${smokeCardId}/agent-sessions`) return json(route, parseOperatorResponse('agents.cardSessions', 200, { card_id: smokeCardId, sessions: railSessions }));
     if (path === `/api/agents/${encodeURIComponent(sessionId)}`) return json(route, parseOperatorResponse('agents.detail', 200, { session: { id: sessionId, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null } }));
     if (path === `/api/agents/${encodeURIComponent(sessionId)}/conversation`) {
       const entries = transcriptEntries();
@@ -259,7 +282,7 @@ test('work-first Overview uses custom current sources without request fan-out at
   expect(base.unknown).toEqual([]);
 });
 
-test('constrained Cockpit and exact SessionView cap and independently scroll a 42-node cyclic workflow', async ({ page }, testInfo) => {
+test('constrained shared Cockpit keeps exact conversation context and independent scrolling', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 900, height: 700 });
   const { base } = await setup(page);
   await page.goto(`/cards/${smokeCardId}`);
@@ -313,14 +336,24 @@ test('constrained Cockpit and exact SessionView cap and independently scroll a 4
   await screenshot(page, testInfo, 'cockpit-overview-expanded-900x700.png');
 
   await page.goto(`/agents/${encodeURIComponent(sessionId)}`);
-  const session = page.getByTestId('route-session');
+  const session = page.getByTestId('route-cockpit');
+  await expect(page.getByLabel('Analyst chat composer')).toBeVisible();
+  await expect(session.getByTestId('card-flow-title')).toHaveText(longCardTitle);
+  await expect(session.getByTestId('cockpit-facet-nav')).toContainText('Records & History');
+  const conversationsTab = session.getByTestId('cockpit-facet-nav').getByRole('link', { name: 'Conversations', exact: true });
+  await expect(conversationsTab).toHaveClass(/active/);
+  await conversationsTab.focus();
+  await expect(conversationsTab).toBeFocused();
+  const selectedParticipant = session.getByRole('button', { name: new RegExp(sessionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
+  await selectedParticipant.focus();
+  await expect(selectedParticipant).toBeFocused();
   const firstTranscriptMessage = session.getByText(/^Real synthetic fixture transcript message 1:/);
   await expect(firstTranscriptMessage).toBeAttached();
   const sessionHeader = session.locator('.card-flow-header');
   await openDetailsByKeyboard(page, sessionHeader.locator('summary', { hasText: 'Workflow & technical details' }));
   const rounds = session.locator('.conv-rounds');
   const sessionMetrics = await page.evaluate(() => {
-    const route = document.querySelector<HTMLElement>('[data-testid="route-session"]')!;
+    const route = document.querySelector<HTMLElement>('[data-testid="route-cockpit"]')!;
     const head = route.querySelector<HTMLElement>('.card-flow-header')!;
     const transcript = route.querySelector<HTMLElement>('.conv-rounds')!;
     const rect = (element: HTMLElement) => { const value = element.getBoundingClientRect(); return { top: value.top, bottom: value.bottom, left: value.left, right: value.right, width: value.width, height: value.height }; };
@@ -336,6 +369,36 @@ test('constrained Cockpit and exact SessionView cap and independently scroll a 4
   expect(sessionMetrics.route.bottom).toBeLessThanOrEqual(sessionMetrics.viewport.height + 1);
   expect(sessionMetrics.transcript.right).toBeLessThanOrEqual(sessionMetrics.viewport.width + 1);
 
+  const treeScroll = session.locator('.cockpit-tree-scroll');
+  const participantRail = session.locator('.participant-rail');
+  const independentScrollMetrics = await Promise.all([
+    treeScroll.evaluate((element) => ({ client: element.clientHeight, scroll: element.scrollHeight })),
+    participantRail.evaluate((element) => ({ client: element.clientHeight, scroll: element.scrollHeight })),
+    rounds.evaluate((element) => ({ client: element.clientHeight, scroll: element.scrollHeight })),
+  ]);
+  for (const metrics of independentScrollMetrics) expect(metrics.scroll).toBeGreaterThan(metrics.client);
+  await treeScroll.evaluate((element) => { element.scrollTop = 0; });
+  await participantRail.evaluate((element) => { element.scrollTop = 0; });
+  await rounds.evaluate((element) => { element.scrollTop = 0; });
+  await treeScroll.evaluate((element) => { element.scrollTop = 120; });
+  const treePosition = await treeScroll.evaluate((element) => element.scrollTop);
+  expect(treePosition).toBeGreaterThan(0);
+  expect(await participantRail.evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await rounds.evaluate((element) => element.scrollTop)).toBe(0);
+  await participantRail.evaluate((element) => { element.scrollTop = 120; });
+  const railPosition = await participantRail.evaluate((element) => element.scrollTop);
+  expect(railPosition).toBeGreaterThan(0);
+  expect(await treeScroll.evaluate((element) => element.scrollTop)).toBe(treePosition);
+  expect(await rounds.evaluate((element) => element.scrollTop)).toBe(0);
+  await rounds.evaluate((element) => { element.scrollTop = 120; });
+  expect(await rounds.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  expect(await treeScroll.evaluate((element) => element.scrollTop)).toBe(treePosition);
+  expect(await participantRail.evaluate((element) => element.scrollTop)).toBe(railPosition);
+
+  const analystComposer = page.getByLabel('Analyst chat composer');
+  await analystComposer.focus();
+  await expect(analystComposer).toBeFocused();
+
   await sessionHeader.focus();
   const sessionHeaderBefore = await sessionHeader.evaluate((element) => element.scrollTop);
   await page.keyboard.press('PageDown');
@@ -346,7 +409,7 @@ test('constrained Cockpit and exact SessionView cap and independently scroll a 4
   await expect(firstTranscriptMessage).toBeVisible();
   await rounds.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(session.getByText(transcriptLastMarker)).toBeVisible();
-  await screenshot(page, testInfo, 'session-view-expanded-900x700.png');
+  await screenshot(page, testInfo, 'cockpit-conversation-expanded-900x700.png');
 
   expect(base.unknown).toEqual([]);
 });

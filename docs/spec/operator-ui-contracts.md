@@ -80,13 +80,27 @@ contracts the current Card Cockpit implements.
   accepted **No current work**, or honest unknown/loading/error before
   acceptance), `/cards` (explicit tree/selection surface),
   `/cards/:id?facet=overview|conversations|records|evidence` (card cockpit),
-  `/agents/:id?entry=…` (the sole session reader route), `/files`, and
+  `/agents/:id?entry=…` (the sole exact-session address, presented by the
+  shared cockpit owner), `/files`, and
   `/system?section=…&process=…`. Retired destinations
   (`/dashboard`, `/agents` list, `/debug`) are removed with ordinary
   route-not-found and no redirects or aliases.
 - Evidence-link grammar `/agents/<session>?entry=<marker>` is retained.
   `entry` targeting is validated separately, located only in the addressed
   source, and reported missing without searching elsewhere.
+- A resolved card-session address selects Conversations in its exact owning
+  card cockpit. The represented tree, selected card, compact header, participant
+  rail, and four tabs persist across exact participant selection. Conversations
+  points to the current exact session (including a valid `entry`); another facet
+  points to its exact card and drops session/entry refinements. Returning to
+  Conversations opens the unselected card facet rather than retaining visit state.
+- After the first successful scoped membership observation, an unselected card
+  Conversations facet with exactly one active session replaces itself with that
+  canonical exact-session address. `workspaceRoute` owns this single-flight
+  replacement and omits the synthetic empty source from browser and Analyst
+  logical history; duplicate pending requests are inert. Explicit participant
+  choices use ordinary push and remain in both histories. Failed replacement
+  leaves the real empty facet in history and projects no uncommitted destination.
 - Workspace navigation intents keep singular target kinds: `card` → card
   cockpit; `transcript` → exact session reader; `process`/`process_list` →
   System Processes; `agent_session_list` → System Participants. Failed or
@@ -196,8 +210,9 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 - One focused exact session reader exists (shared store selection with
   owner-local request lifetimes and teardown before a newer selection).
-  System session opening and card session opening mount the same exclusive
-  reader, never two instances. Reading offsets and arrival counters are
+  System session opening, evidence links, and card participant selection all
+  reach the canonical address and mount the same exclusive reader inside the
+  shared cockpit owner, never two instances. Reading offsets and arrival counters are
   discarded on leaving the inspector.
 - The transcript preserves physical source order including corrections,
   recovery rows, and tool rows. Tool call, successful result, failed result,
@@ -217,12 +232,17 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   agent/session liveness or ownership from them. Configured node/role labels
   are workflow facts; one agent on several nodes shows every association
   with one exact session selection.
-- For a direct session entry, the exact session scope resolves first, then
-  the admitted card context is requested independently; context failure does
-  not erase a usable retained transcript. An unavailable card flow keeps the
+- For a direct session entry, the exact session scope resolves first. Card scope
+  then claims the existing CardStore selection/detail owner; no detached card
+  context reader exists, while the transcript remains independently usable.
+  Loading or initial card failure leaves Conversations active and disables the
+  other three facet labels. An unavailable card flow keeps the
   exact card identity and says **Card flow unavailable**; it does not
-  identify tombstone state, search for a replacement, or infer hierarchy.
-  Global scope shows global purpose, not a card header.
+  identify tombstone state, search for a replacement, infer hierarchy, or mount
+  card membership reads. A retained admitted detail stays visibly stale on
+  refresh failure; a later authoritative 404 removes card-owned subordinates but
+  retains the exact reader. Global scope shows global purpose and the same exact
+  reader, not a card header, selected card, participant rail, or card tabs.
 - The identity-resolved, read-only Analyst-session inspection exception
   (via `GET /api/chat`) is retained; its inspector and the ordinary Analyst
   conversation consumer are never mounted together.

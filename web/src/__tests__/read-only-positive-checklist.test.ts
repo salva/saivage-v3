@@ -1,7 +1,8 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import cockpitViewSource from '../views/CockpitView.vue?raw';
-import sessionViewSource from '../views/SessionView.vue?raw';
+import conversationsFacetSource from '../components/cockpit/CardConversationsFacet.vue?raw';
+import exactSessionRouteSource from '../composables/useExactSessionRoute.ts?raw';
 import systemViewSource from '../views/SystemView.vue?raw';
 import filesViewSource from '../views/FilesView.vue?raw';
 import agentsPanelSource from '../components/debug/AgentsPanel.vue?raw';
@@ -51,7 +52,8 @@ describe('read-only positive checklist', () => {
   it('keeps representative passive controls on each operator surface', () => {
     const surfaces = [
       cockpitViewSource,
-      sessionViewSource,
+      conversationsFacetSource,
+      exactSessionRouteSource,
       systemViewSource,
       filesViewSource,
       agentsPanelSource,
@@ -67,7 +69,7 @@ describe('read-only positive checklist', () => {
     // CockpitView: tree expand/collapse, exact selection, and facet navigation remain.
     expect(cockpitViewSource).toContain('@toggle="toggleTreeNode"');
     expect(cockpitViewSource).toContain('@select="selectCard"');
-    expect(cockpitViewSource).toContain('facetLink(\'conversations\')');
+    expect(cockpitViewSource).toContain(':to="facetLink(item.id)"');
     expect(cockpitViewSource).not.toContain('view-tab');
     expect(cockpitViewSource).not.toContain('Card Tree');
 
@@ -77,10 +79,12 @@ describe('read-only positive checklist', () => {
     expect(routerSource).not.toContain("redirect");
     expect(appShellSource).not.toContain("id: 'timeline'");
 
-    // SessionView: passive scope resolution, back-to-card, and exact reader mount remain.
-    expect(sessionViewSource).toContain('getAgentSession');
-    expect(sessionViewSource).toContain('Back to card');
-    expect(sessionViewSource).toContain(':flow-unavailable="cardContext.unavailable.value"');
+    // Exact routes resolve scope before the shared cockpit mounts one exact reader.
+    expect(exactSessionRouteSource).toContain('getAgentSession');
+    expect(cockpitViewSource).toContain('CardConversationsFacet');
+    expect(conversationsFacetSource).toContain('AgentConversationView');
+    expect(cockpitViewSource).toContain(':flow-unavailable="cardUnavailable"');
+    expect(cockpitViewSource).not.toContain('Back to card');
     expect(cardFlowHeaderSource).toContain('Card flow unavailable');
 
     // SystemView: passive section switching, refresh/fetch, and file-browse navigation remain.

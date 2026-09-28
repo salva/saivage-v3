@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { RouteLocationNormalizedLoaded, RouteLocationRaw, Router } from 'vue-router';
+import type { RouteLocationNormalizedLoaded, RouteLocationRaw, RouteLocationResolved, Router } from 'vue-router';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import type { WorkspaceNavigationIntent, WorkspaceNavigationTarget } from '../api/contracts';
 
@@ -118,9 +118,14 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
   const refinement = ref<Record<string, string> | null>(null);
   const routeName = ref<string | null>(null);
   const backStack = ref<WorkspaceContext[]>([]);
-  const currentRouter = ref<Router | null>(null);
+  let currentRouter: Router | null = null;
   const registered = ref(false);
   let restoring = false;
+  let automaticReplacement: {
+    source: RouteLocationNormalizedLoaded;
+    target: RouteLocationResolved;
+    eligible: boolean;
+  } | null = null;
 
   const current = computed<WorkspaceContext>(() => ({
     view: view.value,
@@ -146,19 +151,53 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
   }
 
   function registerRouterListener(router: Router): void {
-    currentRouter.value = router;
+    currentRouter = router;
     setFromSnapshot(snapshotFromRoute(router.currentRoute.value));
     if (registered.value) return;
     registered.value = true;
-    router.afterEach((to, from) => {
-      if (!restoring) pushBackStack(snapshotFromRoute(from));
+    router.afterEach((to, from, failure) => {
+      const automaticMatch = automaticReplacement !== null
+        && automaticReplacement.eligible
+        && from === automaticReplacement.source
+        && to.fullPath === automaticReplacement.target.fullPath;
+      if (automaticMatch) automaticReplacement!.eligible = false;
+      if (failure) {
+        restoring = false;
+        return;
+      }
+      const suppressAutomaticSource = automaticMatch;
+      if (!restoring && !suppressAutomaticSource) pushBackStack(snapshotFromRoute(from));
       restoring = false;
       setFromSnapshot(snapshotFromRoute(to));
     });
   }
 
+  async function replaceWithAutomaticSession(
+    observedRoute: RouteLocationNormalizedLoaded,
+    sessionId: string,
+  ): Promise<void> {
+    const router = currentRouter;
+    if (!router || automaticReplacement) return;
+    const current = router.currentRoute.value;
+    const unselectedConversations = current.fullPath === observedRoute.fullPath
+      && current.name === observedRoute.name
+      && (current.name === 'card-detail' || current.name === 'home')
+      && current.query.facet === 'conversations';
+    if (!unselectedConversations) return;
+    const parsed = parseAgentDetailRouteParam(sessionId);
+    if (parsed.kind !== 'valid') return;
+
+    const target = router.resolve({ name: 'agent-detail', params: { id: parsed.sessionId } });
+    automaticReplacement = { source: current, target, eligible: true };
+    try {
+      await router.replace(target);
+    } finally {
+      automaticReplacement = null;
+    }
+  }
+
   function apply(intent: WorkspaceNavigationIntent): void {
-    const router = currentRouter.value;
+    const router = currentRouter;
     if (!router) return;
     if (intent.intent === 'navigate_workspace') {
       const target = routeForTarget(intent.target);
@@ -179,6 +218,7 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
     routeName,
     current,
     registerRouterListener,
+    replaceWithAutomaticSession,
     apply,
   };
 });

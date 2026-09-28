@@ -176,10 +176,18 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
     id,
     lease,
   }), { id: smokeCardId, lease: cardSessionsSubscribe.lease });
+  await expect(page).toHaveURL(`/agents/${linkedSessionId}`);
+  await expect.poll(() => outboundCardSessionsSubscribe(page, smokeCardId)).not.toEqual(cardSessionsSubscribe);
+  const selectedCardSessionsSubscribe = await outboundCardSessionsSubscribe(page, smokeCardId) as { lease: string };
+  await page.evaluate(({ id, lease }) => window.__saivageWsFixture?.emit({
+    t: 'subscribed',
+    resource: 'card-agent-sessions',
+    id,
+    lease,
+  }), { id: smokeCardId, lease: selectedCardSessionsSubscribe.lease });
   const rail = page.locator('.participant-rail');
   await expect(rail).toContainText('executor');
-  await rail.locator('.rail-session').filter({ hasText: 'executor' }).click();
-  await expect(page).toHaveURL(`/agents/${linkedSessionId}`);
+  await expect(rail.locator('.rail-session').filter({ hasText: 'executor' })).toHaveAttribute('aria-pressed', 'true');
 
   await expect.poll(() => outboundConversationSubscribe(page, linkedSessionId)).toMatchObject({
     t: 'subscribe',
@@ -192,7 +200,7 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
   const linkedReadsBeforeAcknowledgement = rest.counts.get(linkedConversationKey) ?? 0;
   await acknowledgeCurrentConversationLease(page, linkedSessionId, linkedSubscribe.lease);
   await expect.poll(() => rest.counts.get(linkedConversationKey) ?? 0).toBe(linkedReadsBeforeAcknowledgement + 1);
-  await expect(page.getByTestId('route-session').getByText('Synthetic agent transcript.', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('route-cockpit').getByText('Synthetic agent transcript.', { exact: true })).toBeVisible();
 
   expect(rootRequests).toBe(1);
   expect(agentRequests).toBe(1);

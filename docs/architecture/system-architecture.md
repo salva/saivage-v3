@@ -1106,6 +1106,12 @@ Its declaration-level states and component sources are the [exact availability v
 The browser's availability null exists only before its first accepted response and never normalizes response omission.
 Provider views label availability as process-local.
 Card routes and links preserve immutable hierarchical card identity; the browser derives mutable display paths only from loaded hierarchy-slice order.
+`CockpitView` is the singular route-presentation owner for home, card, and exact
+Agent-session addresses. Exact session metadata resolves before card/global scope
+is adopted. Card scope reuses CardStore's selected detail and hierarchy-slice
+owners while the keyed conversation reader retains its independent lifetime;
+global scope clears card selection and fabricates no card context. There is no
+detached session layout or second card-detail reader.
 
 Runtime freshness publication follows direct synchronous mutation ownership.
 `CardService` invokes the singular typed `cardProjectionChanged(target)` boundary only after successful canonical publication, and invokes separately ordered runtime changes where applicable.
@@ -1163,6 +1169,12 @@ There is no cross-generation or global flight gate.
 Runtime, Card, and Agent Pinia stores own separate resources.
 Global Agent inventory exists only while the System Participants section holds the acknowledged global lease and is partitioned by global/card scope. The selected session reader additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unrelated known scoped hints remain suppressed, while unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail. A whole-Agents baseline reconciliation also exact-rereads the currently selected summary when one exists, independently of the inventory baseline; it neither writes nor acknowledges the transcript.
 Card Conversations owns a separate card-keyed store and lease.
+`workspaceRoute` remains the sole bounded logical-navigation-history owner. Its
+one owner-local single-flight automatic selection replaces an unselected
+Conversations address with the canonical exact session and suppresses only the
+matching successful synthetic source. Concurrent duplicates are inert; failures
+project and suppress nothing, and ordinary pushes retain normal recording. This
+call-local exception is not a second history, selection cache, or retry protocol.
 The persistent Analyst store owns a readonly discriminated identity projection and one explicit epoch/AbortController identity resolver; replacement resets identity handoff/transcript exactly once, and stale completions are inert.
 Analyst and selected-Agent stores retain separate identity/send and selection/detail lifetimes, but directly share one browser conversation-tail core for request epochs and abort, baseline-versus-tail acceptance, exact cursor rebase, and retained refresh failures.
 Their acceptance callbacks remain projection-specific: Agent uses the complete accepted aggregate for warning state, while Analyst reconciles optimistic rows only against the newly accepted response entries.

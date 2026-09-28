@@ -5,9 +5,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { nextTick, type Ref } from 'vue';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
-import SessionView from '../views/SessionView.vue';
+import CockpitView from '../views/CockpitView.vue';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
-import sessionViewSource from '../views/SessionView.vue?raw';
+import conversationsFacetSource from '../components/cockpit/CardConversationsFacet.vue?raw';
 import rawPanelSource from '../components/agents/RawLlmExchangePanel.vue?raw';
 import { OperatorApiError } from '../api/client';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
@@ -54,6 +54,8 @@ vi.mock('../api/client', async (importOriginal) => ({
   getCard: vi.fn(async () => ({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
   getCardAgentSessions: vi.fn(async () => ({ sessions: [] })),
   getDebugGraphs: vi.fn(async () => ({ graphs: [], global_agents: [] })),
+  getCardChildren: vi.fn(async (id: string) => ({ parent: { id, type: 'project', title: 'Project', status: 'running', permitted_child_types: [] }, children: [] })),
+  listCardRecords: vi.fn(async () => ({ card_id: 'project', records: [] })),
 }));
 
 function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
@@ -149,7 +151,7 @@ function makeRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/agents/:id', name: 'agent-detail', component: SessionView },
+      { path: '/agents/:id', name: 'agent-detail', component: CockpitView },
       { path: '/cards/:id', name: 'card-detail', component: { template: '<div />' } },
     ],
   });
@@ -181,12 +183,12 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
   });
 
   it('has keyed children, view-local evidence targeting, and no eager exchange fetch', () => {
-    expect(sessionViewSource).toContain(':key="sessionId"');
+    expect(conversationsFacetSource).toContain(':key="selectedSessionId"');
     expect(agentConversationSource).toContain(':key="props.sessionId"');
     expect(agentConversationSource).toContain('[entries, loading, conversationRefreshing]');
     expect(rawPanelSource).not.toContain('watch(');
     expect(rawPanelSource).not.toContain('maybeFetch');
-    expect(sessionViewSource).toContain(':entry-id="entryId"');
+    expect(conversationsFacetSource).toContain(':entry-id="entryId"');
     expect(agentConversationSource).toContain('[data-entry-id=');
   });
 
@@ -445,7 +447,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       lifecycle.events.push(`clear:${store.selectedConversationSessionId}`);
       originalClear(token);
     });
-    const wrapper = mount(SessionView, { global: { plugins: [pinia, router] } });
+    const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
     await flushPromises();
     lifecycle.events.length = 0;
 

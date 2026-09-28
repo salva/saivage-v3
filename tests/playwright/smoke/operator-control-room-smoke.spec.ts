@@ -28,7 +28,7 @@ test('operator control room smoke walks cockpit routes with REST fixtures and We
   await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/agents/agent:planner:project`)));
-  await expect(page.getByTestId('route-session')).toBeVisible();
+  await expect(page.getByTestId('route-cockpit')).toBeVisible();
   const pagedTool=page.locator('.tool-chip').filter({hasText:'partial message slice'}); await expect(pagedTool).toContainText('1 partial message slice of 5 selected messages'); await expect(pagedTool).toContainText('12 total visible messages'); await pagedTool.getByRole('button',{name:/Expand tool read_agent_session details/}).click(); await pagedTool.getByRole('button',{name:'Show raw response'}).click(); await expect(pagedTool.getByLabel('Raw tool response')).toContainText('"total_visible_entries":12');
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/files')));

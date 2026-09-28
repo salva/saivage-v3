@@ -138,16 +138,19 @@ metadata: the latter yields no inferred author or cause. Record revisions remain
 ### C. Understand activity in its work context
 
 **F11 — Must — Work-to-agent navigation.** From a selected card, reach its published
-named-agent sessions and return to that card without locating them in a project-wide
-inventory. Wherever a session is inspected, including by direct link, expose its owning
+named-agent sessions without locating them in a project-wide inventory. A card session,
+including one opened by direct link, remains inside the owning card cockpit with the
+selected card, represented tree, header, participant rail, and four facet tabs visible;
+participant selection changes the one exact reader without leaving that context. Wherever
+a session is inspected, expose its owning
 card's exact identity or global scope and the session's named-agent identity. For a card
 session, expose that agent's configured workflow role/node(s) from the current compiled
 graph (which may be plural), the card's observed current workflow position where the
 runtime projection supplies it, and the card's place in its represented chain where
 available. Static configured roles, observed current card state, and transcript history
 remain distinct facts; old node-looking transcript rows are not position authority.
-Navigation back into the owning card flow is required only where that flow is available
-under the exact card contract. If it is unavailable, including for an exact retained
+The other card facets remain available only where that flow is admitted under the exact
+card contract. If it is unavailable, including for an exact retained
 session whose card is absent from active projections, retain the exact card identity/scope
 and present honest unavailability; do not identify tombstone state, search for a replacement,
 or fabricate hierarchy/workflow context (F40).
@@ -324,6 +327,8 @@ not a comprehensive run ledger or a replay of WebSocket invalidations. See N2.
 
 **F40 — Must — Exact navigation.** Open/share exact card, session, evidence-entry, and
 admitted file references and navigate back without selecting another entity accidentally.
+An exact card-session link selects Conversations in the persistent owning-card cockpit;
+global sessions instead show global purpose without fabricated card selection or tabs.
 Preserve the exact supplied identity; never normalize identity, guess, or search elsewhere
 for a replacement. Check cold deep links, rapid selection changes, malformed IDs, and
 missing targets for each resource against its authoritative contract: score whether exact

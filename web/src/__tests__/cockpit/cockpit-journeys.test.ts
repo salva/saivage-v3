@@ -3,7 +3,6 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import CockpitView from '../../views/CockpitView.vue';
-import SessionView from '../../views/SessionView.vue';
 import RestartServerDialog from '../../components/cockpit/RestartServerDialog.vue';
 import CardFlowHeader from '../../components/cockpit/CardFlowHeader.vue';
 import { useRuntimeStore } from '../../stores/runtime';
@@ -289,7 +288,7 @@ describe('cockpit acceptance fixtures', () => {
     const router = createOperatorRouter(createMemoryHistory());
     await router.push('/agents/agent:executor:card-zzz');
     await router.isReady();
-    const wrapper = mount(SessionView, { global: { plugins: [pinia, router] } });
+    const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
     await flushPromises();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await flushPromises();
@@ -298,7 +297,8 @@ describe('cockpit acceptance fixtures', () => {
     expect(wrapper.get('[data-testid="card-flow-unavailable"]').text()).toBe('Card flow unavailable');
     expect(wrapper.text()).toContain('No hierarchy is inferred');
     expect(wrapper.text()).not.toMatch(/deleted|tombstone|removed/i);
-    expect(wrapper.find('[data-testid="back-to-card"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-testid="cockpit-facet-nav"]').findAll('[aria-disabled="true"]')).toHaveLength(3);
+    expect(wrapper.find('[data-testid="back-to-card"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('Waiting for conversation');
     wrapper.unmount();
   });
@@ -310,7 +310,7 @@ describe('cockpit acceptance fixtures', () => {
     const router = createOperatorRouter(createMemoryHistory());
     await router.push('/agents/agent:analyst:global');
     await router.isReady();
-    const wrapper = mount(SessionView, { global: { plugins: [pinia, router] } });
+    const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
     await flushPromises();
 
     expect(wrapper.get('[data-testid="session-global-header"]').text()).toContain('analyst');

@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { CardDetail } from '../../api/types';
 import type { ConversationSessionId } from '../../api/contracts';
@@ -47,7 +47,10 @@ import { livenessPhrase } from '../../utils/legibility';
 import ViewState from '../ui/ViewState.vue';
 
 const props = defineProps<{ cardId: string; detail: CardDetail | null; selectedSessionId: ConversationSessionId | null }>();
-const emit = defineEmits<{ select: [id: ConversationSessionId] }>();
+const emit = defineEmits<{
+  select: [id: ConversationSessionId];
+  'auto-select': [id: ConversationSessionId];
+}>();
 
 const cardSessionsStore = useCardAgentSessionsStore();
 const liveSync = useSyncStore();
@@ -56,7 +59,6 @@ const { graphs } = storeToRefs(debugStore);
 
 const state = computed(() => cardSessionsStore.scope(props.cardId));
 let close: (() => void) | null = null;
-const leaseReady = ref(false);
 let focusedOnce = false;
 
 interface RailGroup {
@@ -85,18 +87,26 @@ const railGroups = computed<RailGroup[]>(() => {
 
 const hasUnassociatedMetadata = computed(() => railGroups.value.some((group) => group.configuredNodes.length === 0));
 
+async function observeScopeAndMaybeFocus(): Promise<void> {
+  const cardId = props.cardId;
+  try {
+    await cardSessionsStore.fetchScope(cardId);
+  } catch {
+    return;
+  }
+  if (props.cardId !== cardId) return;
+  maybeFocusSoleActiveMember();
+}
+
 function refresh(): void {
-  void cardSessionsStore.fetchScope(props.cardId).catch(() => {});
+  void observeScopeAndMaybeFocus();
 }
 
 function openScope(): void {
   focusedOnce = false;
-  leaseReady.value = false;
   close?.();
   close = liveSync.openCardAgentSessions(props.cardId, async () => {
-    leaseReady.value = true;
-    await cardSessionsStore.fetchScope(props.cardId).catch(() => {});
-    maybeFocusSoleActiveMember();
+    await observeScopeAndMaybeFocus();
   });
 }
 
@@ -104,7 +114,7 @@ function maybeFocusSoleActiveMember(): void {
   if (focusedOnce || props.selectedSessionId) return;
   const active = state.value.sessions.filter((session) => session.status === 'active');
   focusedOnce = true;
-  if (active.length === 1 && active[0]) emit('select', active[0].id);
+  if (active.length === 1 && active[0]) emit('auto-select', active[0].id);
 }
 
 function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : ''; }
