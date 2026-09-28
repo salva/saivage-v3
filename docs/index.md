@@ -60,7 +60,9 @@ features:
 
 ## Documentation map
 
-Each authority owns its subject exactly; nothing on this site overrides them.
+Start with the overview and guides to learn the vocabulary and try the control
+room. Exact rules and procedures live in the authority pages below; the guides
+do not replace them, and each authority owns its subject exactly.
 
 | Document | Role |
 | --- | --- |

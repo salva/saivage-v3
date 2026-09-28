@@ -23,7 +23,13 @@ authority.
 Saivage is designed for an externally isolated LXC container in which trusted
 agents may have root access. See the
 [architecture trust model](docs/architecture/system-architecture.md#deployment-and-trust-model)
-before deployment. Local builds and tests outside LXC remain supported.
+before deployment. For a first agent-run trial, use a disposable target (such
+as a controlled copy) inside a trusted, externally isolated VM/container. A
+copy protects the original working tree, not the host; loopback binding limits
+listeners but does not contain agent
+commands or untrusted local/browser origins. Local builds and tests outside LXC
+remain supported. This trial deliberately disables operator authentication;
+follow the [runbook](docs/runbook/index.md) for deployment decisions.
 
 Use Node.js 24. The package engines require `node >=24 <25` and `npm >=10 <12`,
 matching GitHub Actions. Build from a source checkout, then initialize and start
@@ -40,9 +46,10 @@ TARGET_PROJECT="/absolute/path/to/target-project"
 mkdir -p "$TARGET_PROJECT"
 cd "$TARGET_PROJECT"
 "$SAIVAGE_BIN" init
-# At minimum, configure a provider and point the model routes and compaction
-# summarizer at it before starting; the bundled template ships no provider.
-SAIVAGE_API_TOKEN=test "$SAIVAGE_BIN" start
+# Before starting, configure a provider and point the model routes and
+# compaction summarizer at it; the bundled template ships no provider.
+# Follow the getting-started guide for the example configuration.
+env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start --host 127.0.0.1 --port 8080
 ```
 
 The [getting-started guide](docs/guides/getting-started.md) walks through a
@@ -56,27 +63,34 @@ and leaves execution stopped; an explicit Run starts project work. Same-process
 project Stop leaves any durable running chain for the next Run. See the
 [runbook lifecycle guidance](docs/runbook/index.md#activation-ownership-and-runtime-halt).
 
-Open the UI at `http://localhost:8080/` and the built documentation at
-`http://localhost:8080/docs/`, or check the public probes:
+For that auth-disabled trial, open the UI at `http://localhost:8080/` and the
+built documentation at `http://localhost:8080/docs/`, or check the public probes:
 
-The card cockpit keeps its tree and **Overview**, **Conversations**, **Records &
-History**, and **Evidence** facets together; exact card-session links open the
-selected conversation in that same context. See the authoritative
-[operator UI contracts](docs/spec/operator-ui-contracts.md).
+The control room has **Cockpit**, **Files**, and **System**. The card cockpit
+keeps its tree and **Overview**, **Conversations**, **Records & History**, and
+**Evidence** facets together; the Analyst panel stays available for steering.
+See the authoritative [operator UI contracts](docs/spec/operator-ui-contracts.md).
 
 ```bash
 curl http://localhost:8080/health
 curl http://localhost:8080/health/ready
 ```
 
-When authentication is enabled, send the bearer token only in the
-`Authorization` header, never in a URL:
+**Separate bearer-enabled API deployment example (not UI login):** the control
+room has no token-entry screen, so a bearer-enabled deployment presents
+unauthorized views in the browser. For a protected API request, send the bearer
+token only in the `Authorization` header, never in a URL. See the
+[runbook's authentication guidance](docs/runbook/index.md#operator-rest-authentication).
 
 ```bash
 curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/processes
 ```
 
 ## Current documentation
+
+New here? Follow the overview and guides first. Exact rules and procedures live
+in the authority pages below; the guides summarize them rather than replacing
+them.
 
 | Link | Role |
 | --- | --- |

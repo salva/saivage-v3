@@ -112,8 +112,16 @@ history into a new segment under exact admission and coverage rules. See the
 
 ## Operator surfaces
 
-- **Web control room** — dashboard, card tree and card detail, agent sessions
-  and conversations, files, processes, and debug state. See the
+- **Web control room** — the application has a **Cockpit** card-workspace
+  layout (the card cockpit) showing the card tree and selected card's
+  **Overview**, **Conversations**, **Records & History**, and **Evidence**;
+  the Analyst panel stays available for steering. **Files** browses the
+  virtual project files. **System** shows runtime observation, global
+  participants (including Oversight after its first periodic check), provider
+  availability, processes, and errors. Project Run/Pause/Resume/Stop are
+  requested through the Analyst, not buttons on the card; the only direct
+  runtime mutation in the UI is capability-gated confirmed **Restart server**
+  when bearer authentication is enabled. See the
   [operator UI needs and contracts](spec/operator-ui-needs.md).
 - **CLI** — `init`, `start`, `status`, `pause`, `resume`, `stop`,
   `restart_server`, `reset`. See
@@ -140,6 +148,9 @@ and the [reset procedures](runbook/index.md#invalid-or-non-continuable-global-an
 
 - **Card** — one node of the work tree; the unit of planning, execution,
   review, and history.
+- **Brief** — a card's `brief.md` record: the written objective and acceptance
+  context that guides its work and review. The root brief sets the project
+  objective.
 - **Record** — a versioned Markdown document owned by a card as a strict
   append-only stream. Names come from the card type's configuration —
   `brief.md` is always the bootstrap record; `status.md` and `review.md` are
@@ -180,7 +191,9 @@ and the [reset procedures](runbook/index.md#invalid-or-non-continuable-global-an
   the runtime-control CLI commands (`status`, `pause`, `resume`, `stop`,
   `restart_server`) delegate only through a verified live lock record.
 - **Service epoch** — one lifetime of a server process; some schedules and
-  transient states reset per epoch.
+  transient states reset per epoch. Oversight's first check waits a full
+  continuous eligible interval while the project is running; leaving running
+  discards the wait (see [Project Oversight](spec/system-specification.md#project-oversight)).
 
 ## Where to go next
 

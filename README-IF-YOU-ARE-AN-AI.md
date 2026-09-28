@@ -329,15 +329,17 @@ tokenless service as durable.
 
 Require one real provider-backed Analyst interaction. Use the
 [operating guide](docs/guides/operating.md) to walk the user through the
-visible Dashboard, Cards, Agents, Files, and Debug surfaces, deferring to the
+**Cockpit**, **Files**, and **System** surfaces, the card tree and its facets,
+and the persistent Analyst panel, deferring to the
 [operator UI needs](docs/spec/operator-ui-needs.md), [contracts](docs/spec/operator-ui-contracts.md), and the
 [functional specification](docs/spec/system-specification.md) for exact
 record and conversation behavior; do not restate those contracts here. The
 built documentation is served by the running instance at
 `http://<CONTAINER_IP>:8080/docs/`. New projects enable a two-hour
 [Project Oversight](docs/spec/system-specification.md#project-oversight)
-check by default, so an Oversight conversation appears in Agents after its
-first check; its only project effect is an evidenced notification. The
+check by default, so its conversation appears under **System → Participants**
+as an ordinary global participant after its first check; its only project
+effect is an evidenced notification. The
 Analyst is the ordinary mutation surface. Inspect existing project authority
 and ask only the unresolved goal, constraint, and acceptance questions. Have
 the Analyst align the root brief to that accepted authority and obtain user

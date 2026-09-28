@@ -9,7 +9,7 @@ Status: current operator procedures for runtime maintenance.
 | Initialize a project | `saivage init [--profile classic\|classic-typed]` from the target project root |
 | Start the server | `saivage start --host <host> --port <port>` (bearer token via `SAIVAGE_API_TOKEN`) |
 | Runtime status / control | `saivage status` · `saivage pause` · `saivage resume` · `saivage stop` |
-| Confirmed service restart | `saivage restart_server` (bearer mode only; UI/dashboard alternative) |
+| Confirmed service restart | `saivage restart_server` (bearer mode only; capability-gated **Restart server** in the UI global strip, with confirmation) |
 | Health probes | `curl http://<host>:<port>/health` and `/health/ready` (unauthenticated) |
 | Configuration | `.saivage/saivage.yaml` (see the [configuration guide](../guides/configuration.md)) |
 | Web control room / docs | `http://<host>:<port>/` and `http://<host>:<port>/docs/` |

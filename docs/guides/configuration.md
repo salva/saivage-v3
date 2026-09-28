@@ -3,7 +3,8 @@
 Status: non-authoritative guide. The selected configuration's exact contracts
 are owned by the [System specification](../spec/system-specification.md) and
 the [Operator runbook](../runbook/index.md); this page explains how to
-configure a working instance.
+configure a working instance. New to cards, records, or sessions? See the
+[glossary](../overview.md#glossary).
 
 Saivage reads one strict YAML file: `.saivage/saivage.yaml` in the target
 project. `saivage init` materializes it from a bundled template; after that
@@ -14,23 +15,43 @@ obsolete keys fail startup instead of being ignored.
 
 ## Providers
 
+Choose an endpoint **and a specific model**, not just a brand name. OpenAI Chat
+Completions, OpenRouter, and a local vLLM-compatible endpoint are examples of
+the endpoint category, not endorsements or promises that any listed model will
+work. Replace the example's URL, model ID and credential variable with values
+for your selected service. Its actual transport, native tool-call support and
+exclusive tool-choice behavior must match the capabilities you declare. The
+example below assumes a Chat Completions model verified to support native
+tools and native exclusive tool choice; its context/output figures are
+illustrative, not defaults to copy:
+
 ```yaml
 providers:
   my-provider:
     apiKey: ${MY_PROVIDER_API_KEY}
     baseUrl: https://api.example.com/v1
     capabilities:
-      transportProtocol: openai-chat-completions   # or openai-responses, openai-codex-backend
+      transportProtocol: openai-chat-completions
       toolsMode: native
       exclusiveToolChoiceSupport: native
-      contextWindowTokens: 400000
-      maxOutputTokens: 65536
+      contextWindowTokens: 400000 # replace with the selected model's limit
+      maxOutputTokens: 65536     # replace; cover route output and 2000-token summaries
     models: [my-model]
 ```
 
-- `capabilities` must tell the truth about the endpoint; context admission
-  and compaction are computed from `contextWindowTokens`. Per-model overrides
-  go in `modelCapabilities`.
+- `transportProtocol` selects the wire adapter: the example uses
+  `openai-chat-completions`, while `openai-responses` and
+  `openai-codex-backend` are distinct protocols, not interchangeable names
+  for every OpenAI-compatible URL. `toolsMode: native` means the selected
+  service/model can exchange native tool calls. `exclusiveToolChoiceSupport`
+  describes whether it supports the required exclusive choice (`native` or,
+  where actually supported, `parallel_off`); `unsupported` cannot satisfy the
+  bundled tool-using agents. Do not claim native support merely because an
+  endpoint accepts ordinary chat requests. A mismatch may fail startup binding
+  or a real provider call.
+- `capabilities` must tell the truth about the selected service/model; context
+  admission and compaction use `contextWindowTokens`, and route output requests
+  must fit `maxOutputTokens`. Per-model overrides go in `modelCapabilities`.
 - Use `apiKey`, or `authProfile` to reference a stored OAuth-style
   authentication profile instead of a raw key.
 - Providers with several credentials add an `accounts` map; each named
@@ -65,6 +86,14 @@ models:
 - `candidates` is an explicit ordered list; `profile` selects a reusable
   preference set instead (the bundled templates use the `planning` and
   `review` profiles). Route resolution happens once at startup.
+- `equivalents` groups model IDs as additional route choices: for each explicit
+  route candidate (or profile `preferred` then `allowed` model), resolution adds
+  that model, then the other IDs in its first matching equivalence group.
+  `equivalents: []` adds none; it does not remove explicit candidates.
+- `failover` maps each route model to an ordered list of fallback model
+  IDs, added after that model's equivalents. The resulting order keeps only
+  the first occurrence of each ID. `failover: {}` adds no such lists; neither
+  empty setting disables other route candidates or provider/account failover.
 - A model ID resolves to **every** provider that lists it, ordered by
   provider `priority` and then by account `priority` (lower first; defaults
   100 and 50) — that ordering is the failover chain across providers. Named
@@ -158,9 +187,10 @@ oversight:
 ```
 
 Oversight is an independent read-only check by its own global agent. New
-projects enable it by default with a two-hour cadence; an eligible service
-epoch waits one full interval after the runtime starts running. Its only
-project effect is an evidenced notification to a planning-capable card. See
+projects enable it by default with a two-hour cadence. Its first check waits
+one full continuous eligible interval while the project is running; pausing or
+stopping discards that wait. Its only project effect is an evidenced
+notification to a planning-capable card. See
 [Project Oversight](../spec/system-specification.md#project-oversight).
 
 ## MCP servers

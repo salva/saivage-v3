@@ -9,15 +9,24 @@ Status: non-authoritative guide. Exact UI behavior is owned by the
 Saivage works autonomously for long stretches. Your job as operator is to
 launch it, stay oriented, answer the rare question, and accept results. This
 guide shows where everything lives and the small set of interactions you
-actually use.
+actually use. For card, brief, session, and epoch terminology, see the
+[glossary](../overview.md#glossary).
 
 ## The control room
 
-Open `http://<host>:<port>/`. The screen is a card cockpit: a global strip
+Open `http://<host>:<port>/`. The whole application is the **control room**;
+its **card cockpit** is the **Cockpit** destination's layout: a global strip
 across the top, the card tree on the left, the card workspace in the center,
 and the Analyst conversation on the right. Primary navigation is
 **Cockpit | Files | System**; the Analyst panel stays beside every
 destination.
+
+The five views below come from an **illustrative, disposable local fixture**:
+an auth-disabled loopback instance with a synthetic provider and a fictional
+release checklist. The Analyst created a child, the configured card agents
+completed it, and the project settled. **Stopped** and **No current work** in
+these pictures are real observations of that completed run, not simulated live
+activity. Open an image at full size to read its smaller labels.
 
 There is no sign-in screen and no token entry. Deployments are expected to
 run auth-disabled behind deployment-owned isolation; a bearer-configured
@@ -36,6 +45,10 @@ The **Updates** disclosure explains what refreshes from WebSocket hints
 Processes, Events).
 
 ### Cockpit
+
+![A settled project card in the cockpit: global status strip, expanded child in the tree, objective and records in Overview, and persistent Analyst conversation.](/screenshots/cockpit-overview.png)
+
+*Cockpit Overview — a completed fictional checklist, with its source-backed objective, recorded result, card tree and Analyst panel still visible.*
 
 Home opens the Overview of the current card (or says **No current work**
 when the project is settled). The card workspace is the heart of the UI: a
@@ -56,24 +69,42 @@ usable space. The workspace has four facets:
   sessions; choosing one opens the single exact reader while the selected tree,
   four tabs, card header, and rail stay in view. Direct links to an admitted
   card session open that same contextual cockpit.
+
+  ![Conversations facet with the project Planner selected, showing a real synthetic tool transcript beside the card tree and participant rail.](/screenshots/cockpit-conversations.png)
+
+  *Conversations — the Planner's settled session records a status write, child activation and review handoff; idle means the session is not currently executing.*
 - **Records & History** — every declared record in declaration order plus
   card versions, snapshots, and diffs.
+
+  ![Records and History facet showing the fictional review record and a selected prior card version with its diff.](/screenshots/cockpit-records-history.png)
+
+  *Records & History — an accepted review record above the selected first card version and its comparison with current state.*
 - **Evidence** — source-labeled catalogs (card versions, record revisions,
   session segments) with exact links, plus a bounded card-scoped events
-tail.
+  tail. Use it to open the exact version, revision or segment behind an
+  observation; the event tail is scoped to this card rather than a global
+  execution narrative.
 
 The tree is the structural spine: lazy discovery, committed order, and
 color-only lifecycle markers. Select a row for exact lifecycle text and card
-detail. Expand branches manually; ask the Analyst to find work by known
-information or state.
+detail. There is **no tree title/state search or filter**: expand branches
+manually, or ask the Analyst to find work by known information or state.
 
 ### Files
+
+![Files view browsing the virtual project card directory and previewing its fictional brief.md record.](/screenshots/files.png)
+
+*Files — the canonical virtual tree and a selected synthetic brief; the preview is server-redacted even though the example has no credentials.*
 
 Files exposes the canonical generated state as a readable virtual file tree
 — card documents and their versioned records. Physical stream paths are
 never shown; this is the evidence browser behind the cockpit.
 
 ### System
+
+![System Provider availability view showing four locally configured fixture models as healthy routing candidates.](/screenshots/system-provider-availability.png)
+
+*System → Provider availability — process-local routing diagnostics for the fixture provider, not a claim about a commercial service or a durable health guarantee.*
 
 System consolidates the diagnostics — runtime state, operator observation,
 cross-card Participants, Errors, Events, Processes, MCP, Provider
@@ -108,10 +139,15 @@ the lifecycle lock.
 
 ## The rhythm of a long run
 
-1. **Launch**: brief settled, project started. The tree grows as the Planner
-   decomposes the objective and activates children.
-2. **Watch — or don't**: sessions show live work; records accumulate
-   evidence. Saivage keeps working between your visits.
+1. **Launch**: brief settled, project started. The Planner may decompose the
+   objective and activate children; the tree does not necessarily grow on
+   every turn.
+2. **Watch — or don't**: sessions show work; records accumulate evidence.
+   A reply may take seconds to minutes and meaningful project work can take
+   hours or longer. If nothing seems to progress, inspect the selected card's
+   **Conversations** and **Records & History**, then **System → Errors** and
+   **System → Provider availability**; ask the Analyst for an observation.
+   Saivage keeps working between your visits while the project is running.
 3. **Answer when asked**: a card settles `blocked` when a genuine decision,
    resource, or input is missing; its blocked result records what is needed.
    Nothing is pushed at you — you see the blocked status in the tree (and
