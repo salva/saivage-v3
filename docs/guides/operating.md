@@ -27,8 +27,10 @@ deployment shows an honest unauthorized state instead.
 
 The strip answers orientation in one place: project identity, runtime
 lifecycle, the current work link, the independent REST and socket
-observation conditions, and the Oversight epoch status. Its two direct
-runtime controls are **Stop project** and the confirmed **Restart server**.
+observation conditions, and the Oversight epoch status. Its only direct
+runtime control is capability-gated, confirmed **Restart server**; it does
+not start project work. Ask the Analyst to start or stop project work, or
+to pause or resume it.
 The **Updates** disclosure explains what refreshes from WebSocket hints
 (cards, conversations, records) versus what needs explicit Refresh (Files,
 Processes, Events).
@@ -82,24 +84,27 @@ configuration change actually compiled into.
 
 ## Talking to the Analyst
 
-The right-hand conversation is the ordinary operator surface. Everything you
-want changed goes through it in plain language:
+The right-hand conversation is the ordinary surface for changing project work.
+Ask the Analyst in plain language:
 
 - **Start work**: describe the objective (or point at a spec file), settle
   the root brief (the root card's `brief.md` objective record), then ask it
   to start the project. The Analyst calls `start_project` and the runtime
   takes over.
+- **Pause, resume, or stop work**: ask the Analyst in the conversation. A
+  project Stop halts work without shutting down the server.
 - **Steer**: ask for a new card, a reorder, a reopen of finished work, a
   cancellation, or an edit to a brief. The Analyst applies it with the
   proper audit trail.
 - **Ask**: the Analyst has read tools — it can report state, read sessions,
   and summarize progress on request.
 
-Runtime control is split by surface: **Run, Pause, and Resume are Analyst
-panel controls**; **Stop project** and the confirmed **Restart server** are
-the global strip's two direct actions. The CLI (`saivage status`, `pause`,
-`resume`, `stop`, `restart_server`) drives the same operations through the
-lifecycle lock.
+Runtime control is split by surface: request project Run (start), Pause,
+Resume, or Stop in conversation with the Analyst. The global strip offers
+only the capability-gated, confirmed **Restart server** action, which shuts
+down the server rather than starting project work. The CLI (`saivage status`,
+`pause`, `resume`, `stop`, `restart_server`) drives the same operations through
+the lifecycle lock.
 
 ## The rhythm of a long run
 

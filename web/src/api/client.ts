@@ -276,9 +276,6 @@ export function getRuntimeStatus(
 ): Promise<OperatorApiSuccess<'runtime.status'>> {
   return operatorRequest('runtime.status', { signal });
 }
-export function stopProject(): Promise<OperatorApiSuccess<'stop_project'>> {
-  return operatorRequest('stop_project');
-}
 export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> {
   return operatorRequest('restart_server', { body: { confirmation: 'RESTART SERVER' } });
 }

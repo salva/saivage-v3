@@ -24,14 +24,6 @@
 
       <div class="strip-controls">
         <button
-          type="button"
-          class="strip-command"
-          :disabled="!canStopProject"
-          :title="stopTitle"
-          data-testid="strip-stop"
-          @click="stopProject"
-        >Stop project</button>
-        <button
           v-if="restartServerAvailable"
           type="button"
           class="strip-command danger"
@@ -52,9 +44,6 @@
       <span v-for="notice in problemNotices" :key="notice" class="strip-problem">{{ notice }}</span>
     </div>
 
-    <StatusBanner v-if="commandError" tone="danger" :message="commandError" data-testid="strip-command-error" />
-    <StatusBanner v-if="stopAccepted" tone="pending" message="Stop accepted. Observation of the stopped state follows the next successful read." data-testid="strip-stop-accepted" />
-
     <RestartServerDialog
       :visible="restartDialogOpen"
       :sending="restartSending"
@@ -74,7 +63,6 @@ import { useSyncStore } from '../../stores/sync';
 import { selectSocketDetail, selectSocketLabel } from '../../stores/runtime-read-model';
 import { useCurrentCardOrientation } from '../../composables/useCurrentCardOrientation';
 import RestartServerDialog from '../cockpit/RestartServerDialog.vue';
-import StatusBanner from '../ui/StatusBanner.vue';
 
 const runtimeStore = useRuntimeStore();
 const syncStore = useSyncStore();
@@ -109,8 +97,6 @@ function isNavActive(item: (typeof navItems)[number]): boolean {
 const restartDialogOpen = ref(false);
 const restartSending = ref(false);
 const restartError = ref<string | null>(null);
-const commandError = ref<string | null>(null);
-const stopAccepted = ref(false);
 
 const connectionStateLabel = computed(() => connectionState.value ?? 'offline');
 const socketLabel = computed(() => selectSocketLabel(connectionStateLabel.value));
@@ -162,11 +148,6 @@ const oversightTitle = computed(() => {
   return oversightView.value.next_nominal_due ? `${base} Next nominal due ${oversightView.value.next_nominal_due}.` : base;
 });
 
-const canStopProject = computed(() => ['starting', 'running', 'pausing', 'paused', 'error'].includes(status.value ?? ''));
-const stopTitle = computed(() => canStopProject.value
-  ? 'Stop project: halts autonomous work. It does not cancel a card or shut down the server.'
-  : 'Stop requires an observed starting/running/pausing/paused/error lifecycle.');
-
 const problemNotices = computed<string[]>(() => {
   const notices: string[] = [];
   if (loaded.value && status.value === 'error') notices.push('Runtime reported an error state.');
@@ -188,17 +169,6 @@ const currentCardProblem = computed<string | null>(() => {
   }
   return null;
 });
-
-async function stopProject(): Promise<void> {
-  commandError.value = null;
-  stopAccepted.value = false;
-  try {
-    await runtimeStore.stopProject();
-    stopAccepted.value = true;
-  } catch (error) {
-    commandError.value = error instanceof Error ? error.message : String(error);
-  }
-}
 
 async function restartServer(): Promise<void> {
   restartError.value = null;
@@ -262,7 +232,6 @@ async function restartServer(): Promise<void> {
   padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 6px;
   background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
 }
-.strip-command:disabled { opacity: 0.5; cursor: not-allowed; }
 .strip-command.danger { color: var(--danger); border-color: var(--danger); }
 .strip-updates { position: relative; }
 .strip-updates > summary {
@@ -285,5 +254,4 @@ async function restartServer(): Promise<void> {
   background: var(--entry-warn-bg);
 }
 .strip-problem { font-size: 12px; color: var(--text); }
-.global-strip > :deep(.status-banner) { margin: 8px 16px; }
 </style>

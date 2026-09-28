@@ -1365,7 +1365,7 @@ The boundary guarantees fresh ordered ancestor proof and final-component no-foll
 It adds no locks, retries, post-read reconciliation, currentness protocol, `/proc` technique, or native layer.
 The process API remains narrower than Files: stdout/stderr fields require a concrete card-owned or non-card process-log URL and reject the work root.
 
-The UI exposes one **Stop project** action and a distinct confirmed **Restart server** action only when required `restart_server_available` is true.
+The UI offers no direct project start/stop or pause/resume controls; those requests go through the Analyst conversation. Its sole direct runtime mutation is confirmed **Restart server**, shown only when required `restart_server_available` is true.
 It never optimistically writes a running card as cancelled.
 Agent conversation APIs never return raw canonical compaction JSON. They project strict safe segment context; rendered current and selected historical views omit accumulated-summary prose and separately show ordered retained instruction context with source coordinates and redacted declaration/content.
 

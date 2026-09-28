@@ -23,6 +23,7 @@ const removedMutationExports = [
   'terminateProcess',
   'pauseRuntime',
   'resumeRuntime',
+  'stopProject',
 ] as const;
 
 const preservedReadAndBoundedWriteExports = [
@@ -32,7 +33,6 @@ const preservedReadAndBoundedWriteExports = [
   'getCardRecord',
   'getRuntimeState',
   'getRuntimeStatus',
-  'stopProject',
   'restartServer',
   'issueWebSocketTicket',
   'sendChatMessage',

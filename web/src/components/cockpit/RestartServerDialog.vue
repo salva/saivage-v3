@@ -4,8 +4,7 @@
       <h2 id="restart-server-dialog-title" class="restart-title">Restart server</h2>
       <p class="restart-explanation">
         This shuts down the whole Saivage server process after in-flight work is terminal-coordinated.
-        It is a server shutdown, not a project halt: <strong>Stop project</strong> halts autonomous work
-        without restarting anything.
+        To halt project work without shutting down the server, ask the Analyst to stop the project.
       </p>
       <p class="restart-explanation">
         Acceptance means the shutdown is scheduled. It does not promise that a replacement server is

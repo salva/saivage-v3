@@ -1,7 +1,7 @@
 import { setActivePinia, createPinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRuntimeStore } from '../stores/runtime';
-import { getRuntimeState, getRuntimeStatus, stopProject as stopProjectRequest } from '../api/client';
+import { getRuntimeState, getRuntimeStatus } from '../api/client';
 
 const serverAvailability = {
   generatedAt: '2026-08-14T00:00:00.000Z',
@@ -30,7 +30,6 @@ vi.mock('../api/client', async (importOriginal) => ({
     serverAvailability,
   })),
   getRuntimeStatus: vi.fn(async () => stoppedStatus),
-  stopProject: vi.fn(async () => ({ status: 'stopped', contained: false })),
   restartServer: vi.fn(async () => ({ status: 'restart_scheduled' })),
 }));
 describe('runtime store S06 read-only projection', () => {
@@ -38,7 +37,6 @@ describe('runtime store S06 read-only projection', () => {
     setActivePinia(createPinia());
     vi.mocked(getRuntimeState).mockResolvedValue({ projectId: 'fixture-project', runtime: null, serverAvailability });
     vi.mocked(getRuntimeStatus).mockResolvedValue(stoppedStatus);
-    vi.mocked(stopProjectRequest).mockResolvedValue({ status: 'stopped', contained: false });
   });
 
   it('does not expose removed runtime mutation actions', () => {
@@ -53,7 +51,7 @@ describe('runtime store S06 read-only projection', () => {
     expect(store).not.toHaveProperty('resume');
     expect(store).not.toHaveProperty('pauseActionDisabledReason');
     expect(store).not.toHaveProperty('lastActionableError');
-    expect(store).toHaveProperty('stopProject');
+    expect(store).not.toHaveProperty('stopProject');
     expect(store).toHaveProperty('restartServer');
   });
 
@@ -127,24 +125,6 @@ describe('runtime store S06 read-only projection', () => {
     expect(store.refreshError).toBe('Failed to fetch runtime state');
     expect(store.oversight).toEqual(oversight);
     expect(store.lastFetchedAt).toBe(completedAt);
-  });
-
-  it('rejects a Stop command failure without refreshing', async () => {
-    const store = useRuntimeStore();
-    vi.mocked(stopProjectRequest).mockRejectedValueOnce(new Error('stop failed'));
-    vi.mocked(getRuntimeState).mockClear();
-
-    await expect(store.stopProject()).rejects.toThrow('stop failed');
-    expect(getRuntimeState).not.toHaveBeenCalled();
-  });
-
-  it('resolves successful Stop after classifying a failed follow-up read', async () => {
-    const store = useRuntimeStore();
-    await store.fetchState();
-    vi.mocked(getRuntimeState).mockRejectedValueOnce(new Error('refresh failed'));
-
-    await expect(store.stopProject()).resolves.toBeUndefined();
-    expect(store.refreshError).toBe('Failed to fetch runtime state');
   });
 
   it('does not allow a superseded response to replace the current epoch', async () => {

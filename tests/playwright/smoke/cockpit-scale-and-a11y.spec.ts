@@ -216,8 +216,9 @@ test('cockpit core journeys stay keyboard-reachable, named, non-color, and legib
   await page.keyboard.press('/');
   await expect(composer).toBeFocused();
 
-  const stopButton = page.getByTestId('strip-stop');
-  await expect(stopButton).toBeVisible();
+  await expect(page.getByTestId('strip-stop')).toHaveCount(0);
+  const updates = page.getByTestId('strip-updates').locator('summary');
+  await expect(updates).toBeVisible();
   const reached: string[] = [];
   await composer.blur();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -230,7 +231,7 @@ test('cockpit core journeys stay keyboard-reachable, named, non-color, and legib
     });
     reached.push(descriptor);
   }
-  expect(reached.some((entry) => entry.includes('strip-stop'))).toBe(true);
+  expect(reached.some((entry) => entry === 'summary')).toBe(true);
   expect(reached.some((entry) => entry === 'button' || /Expand|Collapse/.test(entry))).toBe(true);
 
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });

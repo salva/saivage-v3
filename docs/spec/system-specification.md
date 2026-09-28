@@ -1589,8 +1589,8 @@ Complete malformed, empty, or unreadable card/record stream state fails the requ
 There is no scan, request-time correction, cache, repository, or physical fallback.
 
 The UI displays title/hierarchy labels and preserves immutable hierarchical card links.
-It exposes Stop project with delegated `contained:true` and no-runtime `contained:false` results; concurrent application close joins the same halt rather than returning a conflict.
-Restart server appears only when required `restart_server_available` is true and requires confirmation.
+Project start/stop and pause/resume are requested through the Analyst conversation, not direct UI controls.
+The sole direct UI runtime mutation, Restart server, appears only when required `restart_server_available` is true and requires confirmation; it does not start project work.
 No UI action optimistically writes a running card cancelled.
 Public conversation reads project compacted genesis separately from entries rather than returning durable compaction JSON verbatim. The strict projection intentionally mixes naming: disposition and coverage commitments use their declared snake_case wire keys, required-model-fact members retain their declared camelCase keys, and inherited-continuation activation uses its declared snake_case keys. Projection is explicit at this owner boundary; no recursive key conversion occurs.
 Files route schemas, authorization, and client presentation remain unchanged; canonical card traversal is the virtual behavior above rather than generic physical browsing.

@@ -10,11 +10,12 @@ contracts the current Card Cockpit implements.
 
 ## 1. Product model
 
-- Projection-oriented inspection with Analyst-mediated mutation. The UI offers
-  exactly two direct runtime mutations: **Stop project** and capability-gated
-  **Restart server**. Neither cancels a card, resumes work, or launches a
-  project. Agent-owned cards, records, notifications, processes, routes, and
-  settings gain no direct mutation affordance; displayed permissions never
+- Projection-oriented inspection with Analyst-mediated mutation. Project start,
+  stop, pause, and resume are requested through the Analyst conversation, not
+  direct UI controls. The sole direct runtime mutation is capability-gated,
+  confirmed **Restart server**; it does not start project work. Agent-owned
+  cards, records, notifications, processes, routes, and settings gain no direct
+  mutation affordance; displayed permissions never
   reserve invocation-time admission.
 - Backend-owned safe projections govern every view, copied value, link, and
   tool payload. Outbound secret non-disclosure and redaction are unchanged.
@@ -50,11 +51,6 @@ contracts the current Card Cockpit implements.
   retain their last successful labels. Age-based staleness is never inferred.
 - Terminal socket **Unauthorized** appears only on a validated ticket-endpoint
   401 or close code 1008; every other failure is an ordinary reconnect.
-- Stop is enabled in starting/running/pausing/paused/error and disabled in
-  closing/stopped or before a usable lifecycle observation. Stop is a
-  bodyless request with no JSON `Content-Type`; a failed Stop starts no
-  compensating read, and an accepted Stop remains accepted if its follow-up
-  observation fails.
 - Restart availability comes solely from the `restart_server_available`
   boolean. The confirmation dialog explains shutdown versus project halt,
   requires exact text `RESTART SERVER`, supports Cancel, traps/restores

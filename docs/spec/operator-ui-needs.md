@@ -247,15 +247,18 @@ ordinary Analyst mutations: settled paused/stopped versus starting/running/pausi
 closing/error. Check transitions and stale observations: readiness is not HTTP health,
 not a reservation, and not a universal gate overriding operation-specific exceptions.
 
-**F27 — Must — Two distinct direct controls.** Offer only Stop project and capability-
-gated Restart server as direct runtime mutations. Check Stop enabled/disabled lifecycle
-states, restart unavailable, rejected confirmation, and exact `RESTART SERVER` confirmation.
-Explain halt versus server shutdown; neither control is card cancellation or project Run.
+**F27 — Must — One direct runtime control.** Offer only capability-gated, confirmed
+Restart server as a direct runtime mutation; project Start, Stop, Pause, and Resume
+have no direct UI controls and are requested through the Analyst conversation.
+Check running and stopped observations with no such controls, restart unavailable,
+rejected confirmation, and exact `RESTART SERVER` confirmation. Explain project
+halt versus server shutdown; Restart neither cancels a card nor starts project work.
 
 **F28 — Must — Truthful action feedback.** Distinguish sending, busy/admission denial,
-returned failure, accepted effect, and subsequent observation failure. Check a successful
-Stop followed by failed refresh and an accepted restart: the former remains a successful
-command; the latter means scheduled shutdown, not replacement readiness. Never auto-replay.
+returned failure, and accepted effect. Check a busy Analyst submission and an
+accepted restart: restart acceptance means scheduled shutdown, not replacement
+readiness. An independent observation failure does not undo an accepted effect;
+no action-specific follow-up observation is required. Never auto-replay.
 
 **F29 — Must — Shared Analyst semantics.** Make clear that the Analyst conversation is
 shared, not a private browser task. Check overlapping submissions: a losing busy request
@@ -423,9 +426,11 @@ Apply `AGENTS.md` and the current authorities, especially the contracts register
 Publication-fatal operator behavior, and system-specification Sections 7–12.
 
 - Projection-oriented inspection and Analyst-mediated mutation remain the product model.
-  Stop project and Restart server are exactly the two direct runtime exceptions. This UI
-  ships no authentication/bootstrap surface: no token entry, sign-out UI, or provider-secret
-  entry. Deployments are expected to run auth-disabled behind deployment-owned isolation
+  Confirmed, capability-gated Restart server is the sole direct runtime exception;
+  project start/stop and pause/resume are Analyst-mediated, with no direct UI
+  controls. This UI ships no authentication/bootstrap surface: no token entry,
+  sign-out UI, or provider-secret entry. Deployments are expected to run
+  auth-disabled behind deployment-owned isolation
   (trusted host-local/LXC access). Backend bearer-auth capability remains unchanged;
   bearer-configured deployments receive the honest unauthorized state without an in-browser
   remedy. Future user authentication is separately scoped; outbound secret non-disclosure

@@ -17,7 +17,6 @@ import type { OperatorApiSuccess } from '../api/contracts';
 import {
   getRuntimeState,
   getRuntimeStatus,
-  stopProject as stopProjectRequest,
   restartServer as restartServerRequest,
   OperatorApiError,
 } from '../api/client';
@@ -110,10 +109,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
   const refetch = fetchState;
 
-  async function stopProject(): Promise<void> {
-    await stopProjectRequest();
-    try { await fetchState(); } catch { /* RuntimeStore already classified the resource failure. */ }
-  }
   async function restartServer(): Promise<void> { if (!restartServerAvailable.value) throw new Error('restart unavailable: operator authentication disabled'); await restartServerRequest(); }
 
   function cardWorkflowPosition(cardId: string): RuntimeStatusResponse['actorRuntime']['cards'][number]['processState'] {
@@ -142,7 +137,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     cardWorkflowPosition,
     fetchState,
     refetch,
-    stopProject,
     restartServer,
   };
 });
