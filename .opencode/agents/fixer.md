@@ -1,7 +1,7 @@
 ---
 description: End-to-end fixer for one Saivage v3 issue. Use when a bug, regression, behavior gap, review finding, or architectural issue requires mandatory design, adversarial review, design-value reassessment, freshness checking, and serialized implementation-manager execution.
 mode: all
-model: openai/gpt-5.6-sol
+model: openai/gpt-6-sol
 temperature: 0.2
 permission:
   read: allow
