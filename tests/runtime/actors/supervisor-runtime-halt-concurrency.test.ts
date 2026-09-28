@@ -16,7 +16,7 @@ import type { ProcessStopReport } from '../../../src/runtime/managed-process-gro
 import { workflowResult } from '../../helpers/workflow-result.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { testApplicationFatalDelivery, testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
-import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
@@ -492,6 +492,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       projectRoot,
       processIdentity: { pid: 1, startedAt: 'now' },
       actorStore: cards,
+      workflows: TEST_RUNTIME_WORKFLOWS,
       provider: scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
       conversations: { projectRoot },
       freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
@@ -499,6 +500,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       runtimeProcessRootScope: processes.runtimeProcessRootScope,
       promptTemplates: createTestPromptTemplateRegistry(),
     });
+    await supervisor.start();
     const original = cards.setStatus.bind(cards);
     const failure = new Error('publication outcome unknown');
     const write = jest.spyOn(cards, 'setStatus').mockImplementationOnce((id, status) => {

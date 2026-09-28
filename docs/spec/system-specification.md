@@ -136,7 +136,7 @@ It moves to running through activation and to cancelled through cancellation.
 
 `running` is the sole active execution state: a card is running only while a live activation owns and executes its compiled workflow.
 It is nonterminal and preserves notifications.
-Terminal completion is owned only by a non-cancelled activation outcome on a running card, producing done, failed, or blocked; cancellation moves it to cancelled. The Supervisor alone may publish running-to-stopped after full-Run recovery stabilization or after safely joining an exact urgently interrupted live descendant.
+Terminal completion is owned only by a non-cancelled activation outcome on a running card, producing done, failed, or blocked; cancellation moves it to cancelled. The Supervisor alone may publish running-to-stopped after full-chain recovery stabilization at startup or explicit Run, or after safely joining an exact urgently interrupted live descendant.
 running-to-changed is not an operation, and an exact parent or sibling `activate_card` may join its retained activation.
 
 `blocked` is an inactive, unresolved activation result.
@@ -543,7 +543,7 @@ A failed halt retains its owner graph and emits no successful-removal freshness.
 
 One canonical durable conversation state machine owns exact session and message identity, source classification, tool call/result settlement and ordering, source rounds/segments, provider bundles, compaction coverage/hashes/static IDs, and the zero-or-one final-source unmatched-call rule.
 Its in-memory adapter returns immutable `ValidatedConversation` physical/source rows and derived durable facts.
-Append admission, `readConversation`, complete Agent transcripts, bounded `read_agent_session`, compaction source selection, ordinary provider source selection, card Run recovery, and exact selected card-session activation settlement consume this grammar or its facts.
+Append admission, `readConversation`, complete Agent transcripts, bounded `read_agent_session`, compaction source selection, ordinary provider source selection, Supervisor card-chain recovery, and exact selected card-session activation settlement consume this grammar or its facts.
 `GET /api/agents/:id/conversation` returns exactly `{session_id,segment_version,segment_context,entries,cursor:{segment_version,message_id}}` only after complete exact validation. Selected conversation history returns exactly `{session_id,version,entry_id,published_at,segment_context,entries}`. An ordinary format-2 segment has `segment_context:null`; each compacted version has a strict separately projected context.
 Optional `since` is an opaque equality token.
 An absent token alone is `400`; later outward rows are selected only after complete validation, and the cursor advances over filtered provider-private rows.
@@ -627,8 +627,8 @@ Reconnect creates fresh lease generations and authoritative REST reloads.
 
 ## 4. Full-Chain Stopped Recovery
 
-Recovery from a dirty shutdown—a process error, kill, crash, or host failure—guarantees exactly one outcome: the reconstructed runtime is internally structurally consistent and runnable.
-Semantic completeness is explicitly best-effort and is not guaranteed.
+After successful strict startup recovery from a dirty shutdown—a process error, kill, crash, or host failure—the stopped card chain is structurally consistent for a later explicit Run; recovery neither executes work nor guarantees semantic completeness.
+Malformed canonical input or failed publication may prevent server availability, and file persistence offers no guarantee against data loss.
 For example, the recovered state may legitimately be stale (a child completed but its parent still reflects waiting), redundant (a done card is reactivated because its completion trace was lost or its parent was not yet updated), or lossy (an invocation whose evidence never reached disk is indistinguishable from one that never happened); a duplicate activation is harmless and a missed activation is recovered by ordinary runtime flow and the named agents.
 The system avoids these situations but does not hard-guarantee against them.
 
@@ -636,20 +636,18 @@ Startup first reads the canonical linked-card projection exactly once and requir
 Traversal admits only active cards through workflow and parent/type admission: a reached retained tombstone terminates startup traversal before workflow lookup, record validation, conversation initialization, or conversation truncation for that card, and its descendants are not read.
 It validates active dependency existence/cycles and checks each non-root active type against its reached active parent's compiled admission.
 It then strictly reads the exact selected global Analyst conversation index and every distinct node-agent index derived from each admitted card's compiled workflow. Valid empty indexes are sufficient; startup creates none of these required indexes. Only after all required indexes are admitted does startup initialize the app log, run the exact conversation-tail owners, require each declared bootstrap record stream, and strictly validate each present record stream; an optional record stream is validated only when present and startup never creates one.
-The selected global Analyst index is required even before its first segment or operator message. The selected Oversight index is not included: actual check use retains its owner-local lazy initialization. These operations complete before Fastify transport services, MCP reconciliation, runtime start, or listening.
+The selected global Analyst index is required even before its first segment or operator message. The selected Oversight index is not included: actual check use retains its owner-local lazy initialization. These operations complete before Fastify transport services, Supervisor startup settlement, MCP reconciliation, or listening.
 Valid settled, final-assistant-text, and other text-ended history remains byte-identical; no text position proves interruption.
 A canonically valid sole final unmatched call is non-continuable by a fresh Analyst owner and fails startup with bytes unchanged.
 Complete malformed or invalid history also fails unchanged.
 Only the startup conversation owner may truncate bytes after the final newline when the retained nonempty complete prefix fully validates against its current index/session; startup appends no failed result, notice, or other Analyst correction.
-On explicit Run without a live owner, the supervisor follows only canonical committed links from project through the sole running child at each level.
-A fork, malformed link, or discontinuous chain fails before mutation.
-It installs no actors or structural waits before reset.
+After required boot admission and bound-workflow/global-conversation validation, Supervisor startup strictly selects the canonical linked running chain and settles it before usable stopped runtime, MCP reconciliation, listener/readiness, or operator admission. Startup creates no activation owner, structural wait, provider request, tool replay, or Run. The selected global Analyst session is strict: a final unmatched call blocks startup unchanged, before card correction; selected Oversight validation is not broadened into global corrective settlement.
 
-Explicit Run traverses all canonical linked membership and proves that every linked `running` card belongs to one unique project-rooted chain; missing links, malformed parent identity, branching, and a running card below a non-running ancestor fail before recovery writes.
+Startup and explicit Run use the same Supervisor selection across all canonical linked membership, proving that every linked `running` card belongs to one unique project-rooted chain; missing links, malformed parent identity, branching, and a running card below a non-running ancestor fail before recovery correction writes. Earlier boot admission may already have initialized the app log or truncated a permitted tail.
 Every selected card is then processed as one leaf-to-root unit.
 Its configured planning-cycle nodes stabilize in graph order—by default the plan node's configured agent, then the review node's—while single-node types stabilize that node's configured executor; immediately after all of that card's sessions stabilize, that same card is published stopped before recovery advances to its ancestor.
 Planner/Reviewer/Executor are the default named agents, not runtime roles.
-This explicit Supervisor Run path is the only broad conversation corrective-recovery owner and accepts only card-scoped sessions; it consumes canonical `ValidatedConversation` call facts before applying its card policy. Separately, the exact consuming card-session activation owner and, in an already-running server, the configured global Analyst owner for a newly admitted explicit submission may settle only the sole strict-valid final unmatched call of the exact session selected for imminent actual use. Each bounded operation performs no chain selection, state classification, notice append, old continuation, or session scan.
+The one Supervisor operation is the only broad conversation corrective-recovery owner, invoked during startup and during explicit Run after same-process Stop; it accepts only configured card-scoped sessions and consumes canonical `ValidatedConversation` call facts before applying its card policy. Separately, the exact consuming card-session activation owner and, in an already-running server, the configured global Analyst owner for a newly admitted explicit submission may settle only the sole strict-valid final unmatched call of the exact session selected for imminent actual use. Each bounded operation performs no chain selection, state classification, notice append, old continuation, or session scan.
 Recovery makes an explicit local visibility decision for every current message kind before classification and rejects an unsupported runtime kind before filtering or state derivation.
 `activity` and `provider_private` are ignored when deriving implicit state; every other current kind is recovery-visible.
 For an OpenAI Responses bundle, the marked visible projection alone controls text, tool, and terminal state, while the private row remains persisted for provider replay.
@@ -667,12 +665,11 @@ A fresh STOPPED activation has a fresh marker and can later receive its own dist
 
 After all configured sessions for one selected card stabilize, `stopRunning` immediately publishes that card `stopped`, regardless of whether stabilization appended `model_recovered` or recognized an exact final existing notice as read-only clean conversation state.
 The notice never waives lifecycle settlement.
-The source must be running. Full-Run recovery and exact joined live-descendant interruption share this singular domain operation and its sole durable reason `recovery stopped lifecycle`; other literals are invalid and are not normalized. Run recovery remains the only conversation-corrective orchestration owner, while interruption does not invoke recovery; exact selected-session settlement at later activation use is owner-local and is not orchestration.
-The first stabilization or publication error ends that attempt with no later effect, read, retry, rollback, or reconciliation.
-Stopped descendants below the remaining unique running ancestor prefix are a valid committed prefix, and a later Run derives that remaining prefix from canonical state.
-If all cards are already stopped, Run directly selects project `STOPPED`.
+The source must be running. Supervisor full-chain recovery and exact joined live-descendant interruption share this singular domain operation and its sole durable reason `recovery stopped lifecycle`; other literals are invalid and are not normalized. The Supervisor's startup/Run operation remains the only conversation-corrective chain orchestration owner, while urgent interruption does not invoke recovery; exact selected-session settlement at later activation use is owner-local and is not orchestration.
+The first stabilization or publication error ends that correction attempt without later card/session read, write, retry, rollback, or reconciliation. Ordinary startup failure may dispose already registered non-persistence resources; publication uncertainty instead reaches the non-returning fatal boundary without halt or cleanup.
+Stopped descendants below the remaining unique running ancestor prefix are a valid committed prefix. After known partial failure, only a genuinely new process may freshly select and settle it on startup; same-process Stop leaves its running chain for a later explicit Run. Neither path retries an uncertain result. If all cards are already stopped, startup writes no corrections and a later Run directly selects project `STOPPED`.
 
-After full reset, `activateStopped` changes only project from stopped to running after the supervisor has installed its prepared owner; launch starts the configured STOPPED entry.
+On explicit Run after full settlement, `activateStopped` changes only project from stopped to running after the supervisor has installed its prepared owner; launch starts the configured STOPPED entry. Startup does not activate project.
 Descendants remain stopped until their exact live parent delegates ordinary activation.
 Generic mutation cannot perform running-to-stopped or stopped-to-running.
 There is no transaction, recovery generation, graph cursor, old-node inference, or atomicity guarantee.
@@ -717,7 +714,7 @@ Invalidation precedes deferred outcome delivery and caller continuation.
 If terminal publication becomes outcome-unknown at its direct primitive, a later genuinely new process may observe either the prior version or the newly canonical terminal version.
 The failing process does not retry, reread, reconcile, write again, report the terminal result, naturally release ownership, or freeze/halt the graph.
 It emits the fixed stderr diagnostic and exits.
-After dead-owner verification and manual lock repair, explicit Run accepts either valid durable prefix through ordinary full-chain recovery.
+After dead-owner verification and manual lock repair, a genuinely new server startup accepts either valid durable prefix through ordinary full-chain settlement before availability; a later explicit Run begins execution.
 
 The installed runtime's exact live-card map is the only resolver for running cancellation.
 If a target or cancellable descendant is live, the request routes to those exact actors.
@@ -744,14 +741,14 @@ Immediate-child Planner `edit_card` is independent: an effective backlog/changed
 ## 7. Run, Pause, Resume, Stop, And Restart
 
 Runtime lifecycle is process-local and is held in one Supervisor status field.
-It begins at internal `uninitialized`; successful Supervisor startup strictly reads and validates the project root, establishes the initial empty ownership/gate state, and only then publishes `stopped`.
+It begins at internal `uninitialized`; successful Supervisor startup establishes the initial empty ownership/gate state, strictly selects the linked running chain, settles configured card sessions and stopped lifecycles leaf-to-root, and only then publishes `stopped`.
 A failed startup attempt leaves the field `uninitialized`, public status reads fail fast, and Analyst intervention rejects.
 `uninitialized` is not a public runtime-status or response value.
 After startup, the field contains exactly `stopped | starting | running | pausing | paused | closing | error`: only `stopped` and settled `paused` admit Analyst intervention, while every other status rejects.
 This process-local mutation-admission rule is distinct from the public server readiness probe at `GET /health/ready`.
 
 The supervisor owns the complete Run sequence.
-Preparation completely validates the linked running set as one project-rooted chain, installs the project owner, run identity, current root, and opaque one-shot launch authority as `starting`, then handles each selected card leaf-to-root by stabilizing all of its configured sessions and immediately publishing that card stopped.
+Preparation completely validates the current linked running set as one project-rooted chain, installs the project owner, run identity, current root, and opaque one-shot launch authority as `starting`, then uses the same Supervisor settlement loop for each selected card leaf-to-root with per-operation prepared-owner authority checks. This remains necessary after same-process Stop, which contains execution but leaves durable running lifecycles.
 Only after the full reset does it activate project through STOPPED.
 Launch consumes that exact authority, rechecks owner and application admissibility, publishes `running`, opens the gate, and activates configured-node execution; only then may Run return the same authoritative runtime-state projection as `/api/state`.
 A preparation or launch failure returns no successful Run result and never manufactures a second launch authority.
@@ -777,7 +774,7 @@ REST Pause, Resume, and `stop_project` are bodyless operations.
 Absence is their only accepted request shape; every supplied payload, including `{}` and `null`, receives that route's local 400 validation response before runtime mutation.
 `restart_server` is the only operation in this group with a request body and accepts exactly the strict JSON object `{confirmation:'RESTART SERVER'}`.
 
-Every recovered Run starts only project through the configured STOPPED entry.
+Startup correction starts no work. Every subsequent Run starts only project through the configured STOPPED entry when recovery has settled interrupted cards.
 It installs no descendant owners or old ancestor waits.
 Any later legitimate activation constructs a fresh plain `CardActivationOwner` and ready `CardProcessActor` rather than reusing settled process-local ownership.
 
@@ -810,8 +807,8 @@ The registry alone owns group/scope truth and exact scope/category authorization
 The runner owns no component roots; its declared public API exposes no registry/root object reference or undeclared broad access and intentionally exposes only narrow registry-mediated launch, lifecycle, and scope operations.
 Exact scope/category admission constrains supported ordinary calls and is not containment of the trusted root-capable agent.
 Each exact root is injected only into its owner.
-Composition registers the runtime and Analyst terminal callbacks, constructs and registers MCP, reconciles the exact startup-selected persisted MCP configuration to convergence, and installs that manager exactly once behind the required narrow invocation port before starting runtime mechanics.
-Rejected or non-converged MCP reconciliation does not install MCP or start runtime; runtime-start failure after installation and all earlier startup failures use the same App terminal coordinator and registered reverse-order component cleanup, without retry or desired-config rollback.
+Composition registers runtime, Analyst, Oversight, process and transport cleanup, including LiveSync disposal, before the fallible Supervisor startup settlement. After generated-state and bound-workflow/global-conversation validation, Supervisor settles the interrupted card chain while uninitialized, then composition reconciles the exact startup-selected persisted MCP configuration to convergence and installs that manager exactly once behind the required narrow invocation port before routes and listening.
+Rejected or non-converged MCP reconciliation does not install MCP or expose transport; it may occur after known committed card correction. Ordinary startup failures use the App terminal coordinator and registered reverse-order component cleanup without retry or desired-config rollback; publication uncertainty reaches the fatal boundary before cleanup.
 
 Application shutdown cleanup terminates and joins current component-owned work without becoming card recovery or graph-position authority.
 
@@ -1644,7 +1641,7 @@ The runner immediately observes each original terminal-settlement rejection whil
 
 This fatal exit occurs before Supervisor halt or runtime-status mutation.
 Ordinary Stop, application close, actor-main failure, and containment failure retain the existing `closing -> stopped | error` contract.
-A genuinely new process follows the existing strict canonical startup and explicit Run full-chain recovery procedure: conversation stabilization and append-only `stopped` correction remain best-effort and lossy, complete malformed rows fail, and another publication-unknown failure exits again without retry.
+A genuinely new process performs strict canonical startup full-chain settlement before availability; a later explicit Run launches only project. Conversation stabilization and append-only `stopped` correction remain best-effort and lossy, complete malformed rows fail, and another publication-unknown failure exits again without retry.
 
 ## Appendix: cutovers and recent contract changes
 

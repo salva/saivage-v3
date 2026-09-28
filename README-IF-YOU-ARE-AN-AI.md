@@ -197,7 +197,9 @@ Before the first `systemctl enable --now`, require either a successfully
 initialized project or an already admitted current-format installation. The
 [startup contract](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
 and runbook [startup inputs](docs/runbook/index.md#startup-command-inputs) own
-admission and input precedence. A startup failure authorizes neither selective
+admission and input precedence. On an interrupted existing project, successful
+startup settles linked running cards before listener/readiness but does not launch
+project work; explicit Run remains necessary. A startup failure authorizes neither selective
 generated-state edits nor a compatibility start; use the Stage 7 decision gate.
 Never guess that address. If firewall state is existing or custom, stop this
 baseline and use the deliberate network-design option in Stage 7; do not merge,

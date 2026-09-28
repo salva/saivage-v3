@@ -18,6 +18,11 @@ import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { specializedCardTypes } from '../helpers/specialized-config.js';
 import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { SyncHub } from '../../src/server/sync-hub.js';
+import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
+import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 
 const roots: string[] = [];
 const apps: App[] = [];
@@ -28,6 +33,75 @@ afterEach(async () => {
 });
 
 describe('application startup generated-state admission', () => {
+  it('settles the interrupted chain before MCP reconciliation and retains correction after a later MCP failure', async () => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows);
+    cards.setStatus('project', 'running');
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig').mockImplementation(async () => {
+      expect(cards.read('project')!.lifecycle.status).toBe('stopped');
+      throw new Error('MCP reconciliation probe failed');
+    });
+    const syncDisposal = jest.spyOn(SyncHub.prototype, 'dispose');
+    const socketDisposal = jest.spyOn(LiveSyncSocket.prototype, 'dispose');
+
+    await expect(start(root, false)).rejects.toThrow('MCP reconciliation probe failed');
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(cards.read('project')!.lifecycle.status).toBe('stopped');
+    expect(syncDisposal).toHaveBeenCalledTimes(1);
+    expect(socketDisposal).toHaveBeenCalledTimes(1);
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
+
+  it('rejects invalid linked topology before MCP reconciliation and disposes inert transports', async () => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows);
+    const left = cards.create({ type: 'code', parent: 'project', title: 'Left', bootstrap_content: 'Left brief.', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const right = cards.create({ type: 'code', parent: 'project', title: 'Right', bootstrap_content: 'Right brief.', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    for (const id of ['project', left.id, right.id]) cards.setStatus(id, 'running');
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig');
+    const syncDisposal = jest.spyOn(SyncHub.prototype, 'dispose');
+    const socketDisposal = jest.spyOn(LiveSyncSocket.prototype, 'dispose');
+
+    await expect(start(root, false)).rejects.toThrow('Startup interrupted-card settlement: linked-chain selection failed.');
+    expect(reconcile).not.toHaveBeenCalled();
+    for (const id of ['project', left.id, right.id]) expect(cards.read(id)!.lifecycle.status).toBe('running');
+    expect(syncDisposal).toHaveBeenCalledTimes(1);
+    expect(socketDisposal).toHaveBeenCalledTimes(1);
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
+
+  it('rejects an unmatched selected global call before correcting an interrupted card', async () => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows);
+    cards.setStatus('project', 'running');
+    const sessionId = 'agent:analyst:global' as const;
+    const inputId = '11111111-1111-4111-8111-111111111111';
+    const ingress = buildAnalystIngressRows(sessionId, inputId, 'workspace', 'question');
+    appendConversationBatch({ projectRoot: root }, ingress);
+    appendConversationBatch({ projectRoot: root }, [{
+      id: `${inputId}:tool-call:call-startup`, session_id: sessionId, role: 'assistant', kind: 'tool_call',
+      tool: 'resume_runtime', tool_call_id: 'call-startup', context_policy: toolCallRowPolicy(),
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-startup', type: 'function', function: { name: 'resume_runtime', arguments: '{}' } }] }),
+      round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[2].timestamp,
+    }]);
+    const segment = readCurrentConversationSegment(root, sessionId)!;
+    const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
+    const before = readFileSync(path);
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig');
+
+    await expect(start(root, false)).rejects.toThrow(/ends in an unmatched tool call/);
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(cards.read('project')!.lifecycle.status).toBe('running');
+    expect(readFileSync(path)).toEqual(before);
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
+
   it('rejects a bare ordinary start before creating runtime layout', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-app-startup-bare-')); roots.push(root);
     await expect(start(root, false)).rejects.toThrow(/Project identity is missing/);

@@ -201,6 +201,12 @@ proof of correctness; failed completion is an ending, not acceptance.
 failed tool mates, later activation, and lifecycle correction as separate facts. Check
 `model_recovered` and a later Run: neither proves the prior effects, resumes the old call,
 or certifies lossless history; stopped remains recoverable, not cancelled or failed.
+After a successful new-server restart, check fresh card detail/tree and cockpit **before Run**:
+interrupted cards show their recorded stopped lifecycle, runtime is stopped with no
+current card or executing owners, and no work launches. Recovery notices, uncertainty-only
+mates, and lifecycle rows remain distinct. Contrast same-process project Stop, which
+contains execution but may leave durable cards running until explicit Run or new startup;
+the UI must not rewrite those observations to stopped.
 
 **F19 — Must — Publication uncertainty.** On abrupt connection loss, preserve the
 distinction between last observed state and unknown current outcome. Check a disconnected

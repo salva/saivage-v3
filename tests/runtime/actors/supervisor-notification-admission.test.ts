@@ -11,7 +11,7 @@ import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { cardStreamFile } from '../../../src/persistence/layout.js';
-import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
@@ -107,6 +107,35 @@ function refusal(inputId: string, raw: string): ProviderTurnFailure {
 }
 
 describe('Supervisor notification admission at terminal ownership', () => {
+  it('settles a same-process Stop chain through prepared Run before launching project again', async () => {
+    const childEntered = deferred();
+    let childId = '';
+    let plannerCalls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner' && ++plannerCalls === 1)
+        return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      if (input.agentName === 'executor') childEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider, undefined, undefined, TEST_RUNTIME_WORKFLOWS);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    await h.supervisor.start();
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    await childEntered.promise;
+    await h.supervisor.stopProject();
+    expect(h.cards.read('project')?.lifecycle.status).toBe('running');
+    expect(h.cards.read(childId)?.lifecycle.status).toBe('running');
+    const calls: string[] = [];
+    const originalStop = h.cards.stopRunning.bind(h.cards);
+    jest.spyOn(h.cards, 'stopRunning').mockImplementation((id) => { calls.push(id); return originalStop(id); });
+
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    expect(calls).toEqual([childId, 'project']);
+    expect(h.cards.read(childId)?.lifecycle.status).toBe('stopped');
+    expect(h.cards.read('project')?.lifecycle.status).toBe('running');
+    await h.supervisor.stopProject();
+  });
+
   it('queues first and interrupts only the exact live child suffix with a truthful stopped result', async () => {
     const childProviderEntered = deferred();
     const rootContinued = deferred();

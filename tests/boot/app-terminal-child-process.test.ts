@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'app-terminal-child.ts');
 const tsx = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -57,6 +59,18 @@ describe('App terminal process adapters', () => {
     for (const child of children) child.kill('SIGKILL');
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
+
+  it('exits on startup stopped-publication uncertainty before the App terminal coordinator releases exclusion', async () => {
+    const root = project(validConfig(await availablePort())); roots.push(root);
+    new CardService(root).setStatus('project', 'running');
+    const result = await collect(runChild('startup-publication-fatal', root));
+    expect(result).toMatchObject({ code: 1, signal: null, stdout: 'STOPPED_APPEND_ATTEMPT\n' });
+    expect(result.stderr).toContain('Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.');
+    expect(result.stderr).not.toContain('STARTUP_ERROR:');
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
+    expect(readRuntimeLockStatus(root).kind).toBe('dead');
+    unlinkSync(runtimeProcessLockFile(root));
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('handles a real SIGTERM through the App coordinator and exits zero', async () => {
     const root = project(validConfig(await availablePort())); roots.push(root);

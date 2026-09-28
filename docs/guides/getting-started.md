@@ -109,6 +109,10 @@ export SAIVAGE_API_TOKEN   # bearer token for the operator UI and API
 
 Check the public probes:
 
+On an existing interrupted project, successful server startup first settles the
+linked running cards to stopped; these probes are available only afterward.
+Startup does not Run the project: ask the Analyst to start work explicitly.
+
 ```bash
 curl http://localhost:8080/health
 curl http://localhost:8080/health/ready

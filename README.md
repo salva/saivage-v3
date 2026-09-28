@@ -51,6 +51,10 @@ complete minimal configuration and first objective, and the
 owns startup options and precedence; the [runbook](docs/runbook/index.md)
 owns deployment, configuration cutovers, lifecycle operations, recovery, and
 reset, including its [command-environment guidance](docs/runbook/index.md#command-environment).
+Successful fresh startup settles interrupted linked cards before listener/readiness
+and leaves execution stopped; an explicit Run starts project work. Same-process
+project Stop leaves any durable running chain for the next Run. See the
+[runbook lifecycle guidance](docs/runbook/index.md#activation-ownership-and-runtime-halt).
 
 Open the UI at `http://localhost:8080/` and the built documentation at
 `http://localhost:8080/docs/`, or check the public probes:

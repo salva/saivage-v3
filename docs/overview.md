@@ -87,7 +87,7 @@ is configured per role and per card type, never inferred from a role label.
 
 ## The run loop
 
-1. An operator (or startup) starts a **Run**; the root planning card activates
+1. An operator explicitly starts a **Run**; the root planning card activates
    and its Planner works its graph.
 2. The Planner creates child cards, notifies them with context, and activates
    them; activation ownership is tracked exactly by the supervisor.
@@ -97,7 +97,9 @@ is configured per role and per card type, never inferred from a role label.
    Planner reacts — accepting, correcting via reopen, replanning, or blocking —
    until the root objective is accepted by review.
 5. The operator can **Pause**, **Resume**, or **Stop** the run at any time;
-   after interruption, an explicit Run owns full-chain stopped recovery. See
+   after a process restart, successful startup settles the interrupted linked
+   card chain before availability but does not start work; after same-process
+   Stop, the next explicit Run settles remaining running cards. See
    [Run, Pause, Resume, Stop, and Restart](spec/system-specification.md#7-run-pause-resume-stop-and-restart).
 
 The [operating guide](guides/operating.md) walks this loop from the

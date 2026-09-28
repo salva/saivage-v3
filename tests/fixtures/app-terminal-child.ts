@@ -1,5 +1,7 @@
 import { createAppTerminalCoordinator, createOversightOwnerFailureHandler, startApp } from '../../src/boot/app.js';
 import { ProjectOversight } from '../../src/application/project-oversight.js';
+import { CardService } from '../../src/cards/card-service.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
 const scenario = process.argv[2];
 const projectRoot = process.argv[3];
@@ -53,6 +55,12 @@ if (scenario === 'coordinator-fast-reject') {
   oversight.runtimeStatusChanged('running');
 } else {
   if (!projectRoot) throw new Error('Child-process App scenario requires a project root.');
+  if (scenario === 'startup-publication-fatal') {
+    CardService.prototype.stopRunning = function (): never {
+      process.stdout.write('STOPPED_APPEND_ATTEMPT\n');
+      throw new PublicationOutcomeUnknownError();
+    };
+  }
   try {
     const app = await startApp({ projectRoot, createRuntime: false, env: process.env });
     if (scenario === 'signal') {

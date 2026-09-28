@@ -44,6 +44,15 @@ contracts the current Card Cockpit implements.
   and its separately qualified facts (availability). There is no fallback
   between these independently sampled fields, and `/api/state`'s
   `runtime.current_card_id` is not a selector rule for the UI.
+- After successful fresh startup settlement, accepted runtime and fresh card
+  detail/tree/cockpit observations show stopped runtime, null current card,
+  no executing autonomous participant, and the interrupted linked cards' actual
+  stopped lifecycles before any Run. No work starts until an explicit Run. Recorded
+  notices, uncertainty-only mates, and lifecycle rows remain separate evidence;
+  the UI adds no synthetic status or inferred explanation. Same-process project
+  Stop may instead leave durable running cards even while runtime is stopped;
+  display their canonical status without rewriting it. A disconnected view retains
+  only its last accepted observation, not a claim about current startup outcome.
 - Socket connection and REST acceptance are independent observations, each
   displayed with its own condition (loading, refreshing, refresh-failed,
   retained error, unauthorized, not loaded). No aggregate green light; the

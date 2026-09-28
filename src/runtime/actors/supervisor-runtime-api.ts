@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cardAgentSessionId, cardRecordSchema, type CardNotification, type CardRecord, type ConversationSessionId, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
+import { cardAgentSessionId, type CardNotification, type CardRecord, type ConversationSessionId, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
 import { CardActivationOwner, type CardCancellationResult, type PlannerChildControlPort, type PlannerChildReopenResult } from './card-activation-owner.js';
@@ -96,13 +96,34 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
 
   async start(): Promise<void> {
     if (this.status !== 'uninitialized') return;
-    const root = this.behavior.actorStore.read(PROJECT_CARD_ID);
-    if (!root) throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
-    cardRecordSchema.parse(root);
     this.runtimeGate.close();
     this.assertOwnershipInvariants();
+    let runningChain: readonly CardRecord[];
+    try { runningChain = selectLinkedRunningChain(this.behavior.actorStore); }
+    catch (error) {
+      if (error instanceof PublicationOutcomeUnknownError) this.behavior.fatalPort.publicationOutcomeUnknown(error);
+      throw new Error('Startup interrupted-card settlement: linked-chain selection failed.', { cause: error });
+    }
+    this.settleInterruptedRunningChain(runningChain, (write, operation) => {
+      try { write(); return true; }
+      catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError) this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        throw new Error(`Startup interrupted-card settlement: ${operation} failed.`, { cause: error });
+      }
+    });
     this.status = 'stopped';
     this.behavior.runtimeStatusChanged?.('stopped');
+  }
+
+  private settleInterruptedRunningChain(chain: readonly CardRecord[], publish: (write: () => void, operation: string) => boolean): boolean {
+    for (const card of [...chain].reverse()) {
+      for (const agentName of eligibleAgents(this.behavior.workflows, card)) {
+        const sessionId = cardAgentSessionId(agentName, card.id);
+        if (!publish(() => { stabilizeAgentSession({ sessionId, conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); }, `configured session '${sessionId}'`)) return false;
+      }
+      if (!publish(() => { this.behavior.actorStore.stopRunning(card.id); }, `card '${card.id}' stopped publication`)) return false;
+    }
+    return true;
   }
 
   assertInterventionReady(): void {
@@ -175,16 +196,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       this.activationOwners.set(PROJECT_CARD_ID, owner);
     });
 
-    if (runningChain.length > 0) {
-      for (const card of [...runningChain].reverse()) {
-        this.requirePreparation(owner, runIdentity);
-        for (const agentName of eligibleAgents(this.behavior.workflows, card)) {
-          if (!this.publish(owner, () => { stabilizeAgentSession({ sessionId: cardAgentSessionId(agentName, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
-        }
-        this.requirePreparation(owner, runIdentity);
-        if (!this.publish(owner, () => this.behavior.actorStore.stopRunning(card.id))) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
-      }
-    }
+    if (!this.settleInterruptedRunningChain(runningChain, (write) => {
+      this.requirePreparation(owner, runIdentity);
+      return this.publish(owner, () => { write(); return true; }) !== null;
+    })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
     this.requirePreparation(owner, runIdentity);
     const running = this.publish(owner, () => root.lifecycle.status === 'stopped' || runningChain.length > 0
        ? this.behavior.actorStore.activateStopped(PROJECT_CARD_ID)

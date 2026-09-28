@@ -110,15 +110,15 @@ export async function createServerServices(input: {
   });
   terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
   terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
+  terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
+  terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
+
+  await runtimeApplication.runtimeApi.start();
+  fastify.log.info('Runtime application started');
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
   if (!mcpReconciliation.converged) throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
   mcpToolInvocationInstallation.installer.install(mcpManager);
-  await runtimeApplication.runtimeApi.start();
-  fastify.log.info('Runtime application started');
-
-  terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
-  terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
   return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy, restartCapability, workflows,
   };

@@ -126,9 +126,12 @@ the lifecycle lock.
 5. **Accept**: completed planning work passes independent review against its
    brief. The root turns `done` when the whole objective is accepted.
 
-After an interruption (Stop, crash, restart), cards retain their state. A
-fresh **Run** — asking the Analyst to start the project again — performs the
-full-chain recovery and continues. See
+After a crash or server restart, successful new-server startup settles the
+interrupted linked running cards to stopped before the control room is available,
+without launching work. After same-process project Stop, durable cards can remain
+running until the next explicit Run. Ask the Analyst to start the project again
+to launch only the root through STOPPED; descendants resume only through ordinary
+parent activation. See
 [Run, Pause, Resume, Stop, and Restart](../spec/system-specification.md#7-run-pause-resume-stop-and-restart).
 
 ## Reading evidence
