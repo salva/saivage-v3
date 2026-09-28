@@ -106,9 +106,9 @@ contracts the current Card Cockpit implements.
   parent's accepted slice. Stable identity is distinct from the mutable
   display path (`logical_path`).
 - Every tree row carries a text lifecycle status alongside any marker.
-  Title/state filtering declares its scope as **Loaded branches**/**These
-  children** and never claims project search. Exact-ID opening is separate;
-  broad discovery is Analyst-mediated.
+  The cockpit provides no card title/state search or filter. Operator card/work
+  discovery by known identity, title, or state is exclusively Analyst-mediated;
+  manual tree browsing and exact card navigation remain available.
 - At scale, load the root and necessary represented ancestor slices, then
   only requested immediate children. No bootstrap global inventory or
   transcript fan-out.

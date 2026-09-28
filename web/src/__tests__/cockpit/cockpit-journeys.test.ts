@@ -156,6 +156,33 @@ describe('cockpit acceptance fixtures', () => {
     wrapper.unmount();
   });
 
+  it('has no card-tree search on shared cockpit routes and preserves exact row selection', async () => {
+    for (const path of ['/', '/cards', '/cards/card-a']) {
+      const pinia = createPinia();
+      setActivePinia(pinia);
+      await useRuntimeStore(pinia).fetchState();
+      await useCardStore(pinia).ensureRoot();
+      const { wrapper } = await mountAt(path, pinia);
+
+      const cardTree = wrapper.get('aside[aria-label="Card tree"]');
+      expect(cardTree.find('input[type="search"]').exists()).toBe(false);
+      wrapper.unmount();
+    }
+
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    await useRuntimeStore(pinia).fetchState();
+    await useCardStore(pinia).ensureRoot();
+    const { wrapper, router } = await mountAt('/cards', pinia);
+    const parentRow = wrapper.findAll('.tree-node').find((row) => row.get('.node-title').text() === 'Waiting parent goal');
+    expect(parentRow).toBeDefined();
+
+    await parentRow!.trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/cards/card-a');
+    wrapper.unmount();
+  });
+
   it('shows accepted absence at home when no current work exists', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);

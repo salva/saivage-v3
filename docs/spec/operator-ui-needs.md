@@ -322,10 +322,10 @@ presentation as typed detail 404s; malformed direct Agent routes instead show a
 distinct invalid-session state without mounting detail. These per-resource
 presentation differences are contract-owned (see the contracts register).
 
-**F41 — Should — Discovery at scale.** Find work by operator-known identity or title and
-refine by relevant state without exhaustive manual expansion. Check a matching card
-outside loaded branches in a 1,500+ card fixture: search must declare its searched scope;
-loaded-only “no matches” cannot mean project-wide absence. See N3.
+**F41 — Should — Discovery at scale.** Ask the Analyst to find work by operator-known
+identity, title, or relevant state without exhaustive manual expansion. Existing exact
+references and manual tree browsing remain available, but the cockpit provides no card
+search or filter. Analyst results carry no new completeness guarantee. See N3.
 
 **F42 — Must — Freshness honesty.** Distinguish accepted REST observations from live
 transport status and failed refresh. Check a connected socket with a failed REST read:
@@ -397,7 +397,9 @@ All other F-numbers remain unchanged.
   Phase 3 must evaluate existing canonical discovery/Analyst paths or request a scope
   decision; it must not silently crawl all namespaces or build a persistence index.
   The broad-discovery scope decision is resolved: Analyst-mediated discovery is the
-  accepted end state; phase 3 commissions no search projection.
+  accepted end state; phase 3 commissions no search projection. The cockpit has no card
+  search or filter, including loaded-only filtering; exact navigation and manual browsing
+  remain available.
 
 ## 4. Constraints any UI must respect
 
@@ -515,7 +517,9 @@ level is claimed; accessibility beyond these core journeys is best-effort.
 that kind of things.” F41 is satisfied through the Analyst conversation: server-side
 card discovery via the Analyst's canonical card tools plus F49 navigation. No backend
 search projection is commissioned; browser namespace crawling and persistent search
-indexes remain prohibited. F41 stays a Should satisfied through that path.
+indexes remain prohibited. F41 stays a Should satisfied through that path. Owner
+clarification (2026-09-28): the cockpit's loaded-only card filter is also removed;
+operators retain exact references and manual tree browsing.
 
 **Q7 — Answered: no authentication/bootstrap UI (2026-09-20).** Owner decision:
 

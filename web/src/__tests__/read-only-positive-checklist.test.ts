@@ -70,16 +70,6 @@ describe('read-only positive checklist', () => {
     expect(cockpitViewSource).toContain('facetLink(\'conversations\')');
     expect(cockpitViewSource).not.toContain('view-tab');
     expect(cockpitViewSource).not.toContain('Card Tree');
-    const removedCardsFilters = new RegExp([
-      ['Search', ' cards'].join(''),
-      ['Filter by ', 'status'].join(''),
-      ['Filter by ', 'type'].join(''),
-      ['Any ', 'status'].join(''),
-      ['Any ', 'type'].join(''),
-      ['cards', '-filters'].join(''),
-    ].join('|'));
-    expect(cockpitViewSource).not.toMatch(removedCardsFilters);
-    expect(cockpitViewSource).toContain('Loaded branches');
 
     // The singular route table has no legacy destinations or redirects.
     expect(routerSource).not.toContain('/dashboard');

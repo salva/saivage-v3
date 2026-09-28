@@ -54,8 +54,9 @@ facets:
 tail.
 
 The tree is the structural spine: lazy discovery, committed order, and a
-text lifecycle status on every row. Its filter searches **Loaded branches**
-only — broad discovery goes through the Analyst.
+text lifecycle status on every row. Expand branches manually and select a row
+to inspect that exact card; ask the Analyst to find work by known information
+or state.
 
 ### Files
 

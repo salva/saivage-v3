@@ -140,6 +140,8 @@ test('cockpit orients and stays bounded on a 1,500+ card fixture with deep chain
   expect(childrenReads).not.toContain(wideId);
 
   const treeRows = page.locator('.tree-node');
+  const cardTree = page.locator('aside[aria-label="Card tree"]');
+  await expect(cardTree.getByRole('searchbox')).toHaveCount(0);
   await expect(treeRows.filter({ hasText: 'Deep leaf current work' })).toBeVisible();
   const treeScroller = page.locator('.cockpit-tree-scroll');
   await expect(treeScroller).toHaveJSProperty('isConnected', true);
@@ -151,10 +153,14 @@ test('cockpit orients and stays bounded on a 1,500+ card fixture with deep chain
   expect(await treeScroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   await expect(page.getByText(/descendants|total cards|1,\d{3}|completion/i)).toHaveCount(0);
 
-  const filter = page.getByLabel('Loaded branches');
-  await filter.fill('Wide child 2');
-  await expect.poll(async () => treeRows.filter({ hasText: /Wide child 2\d+/ }).count()).toBeGreaterThan(0);
-  await expect(treeRows.filter({ hasText: 'Bulk parent 1' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Collapse Wide sibling parent', exact: true }).click();
+  await expect(treeRows.filter({ hasText: /Wide child/ })).toHaveCount(0);
+  await expect(treeRows.filter({ hasText: 'Deep leaf current work' })).toBeVisible();
+  await expect(treeRows.filter({ has: page.locator('.node-title').filter({ hasText: /^Bulk parent 1$/ }) })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Expand Wide sibling parent', exact: true }).click();
+  await expect.poll(async () => treeRows.filter({ hasText: /Wide child/ }).count()).toBeGreaterThanOrEqual(WIDE_CHILDREN);
+  expect(childrenReads.filter((id) => id === wideId)).toHaveLength(1);
 
   expect(rest.unknown).toEqual([]);
 });
