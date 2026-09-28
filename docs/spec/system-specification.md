@@ -168,6 +168,15 @@ It rejects Analyst record mutation and Planner metadata edits and admits no acti
 In the Cards operator view, the opaque ID in `/cards/:id` is the sole selected-card authority.
 CardStore owns disjoint immediate-child slices, route-selected displayed-only detail, separately loaded compiled record descriptors, exact effective current record content, selected version metadata, selected artifact, and current-relative diff.
 Each exact resource remains an independent REST and request-owner authority.
+The work-first Overview reuses those same selected-card descriptor and current-record
+authorities: after admitted selected detail, it reads the configured bootstrap and every
+declared current record independently, without an overview endpoint, aggregate cache, or
+summary read model. Presentation may excerpt and disclose the returned content, but it
+does not infer progress, completion, acceptance, or a wait reason from arbitrary record
+names/content, revision counters, timestamps, workflow position, session activity, or
+child lifecycle. Draft/Accepted presentation comes only from the current record's
+`effective_content_source`; lifecycle `done` remains acceptance rather than independent
+verification. Wire, lifecycle, freshness, and persistence contracts are unchanged.
 
 The current Card REST contract is granular.
 `GET /api/cards/:id/children` proves active root-to-parent linkage and returns exactly one `{id,title,type,status,permitted_child_types}` parent plus ordered active immediate-child summaries of that same shape.

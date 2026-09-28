@@ -27,6 +27,7 @@ const api = vi.hoisted(() => ({
   getAgentSession: vi.fn(),
   getDebugGraphs: vi.fn(),
   listCardRecords: vi.fn(),
+  getCardRecord: vi.fn(),
 }));
 
 vi.mock('../../api/client', async (importOriginal) => ({
@@ -38,6 +39,8 @@ vi.mock('../../api/client', async (importOriginal) => ({
   getCardAgentSessions: api.getCardAgentSessions,
   getAgentSession: api.getAgentSession,
   getDebugGraphs: api.getDebugGraphs,
+  listCardRecords: api.listCardRecords,
+  getCardRecord: api.getCardRecord,
 }));
 
 vi.mock('../../stores/sync', () => ({
@@ -86,6 +89,19 @@ function installDefaultFixtureApi(): void {
     card_id: 'card-a-b',
     records: [{ name: 'brief.md', format: 'markdown', schema: 'brief.v1', bootstrap: true, current: null }],
   });
+  api.getCardRecord.mockImplementation(async (cardId: string, name: string) => ({
+    card_id: cardId,
+    record: {
+      name,
+      head_version: 1,
+      head_entry_id: '11111111-1111-4111-8111-111111111111',
+      state: 'closed',
+      accepted: { source_version: 1, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: '2026-09-24T12:00:00.000Z', writer_agent: 'analyst', card_version_seq: 1, content: 'Complete the represented work.', content_sha256: 'a'.repeat(64), size_bytes: 30 },
+      draft: null,
+      discarded: null,
+      effective_content_source: 'accepted',
+    },
+  }));
 }
 
 async function mountAt(path: string, pinia: ReturnType<typeof createPinia>): Promise<{ wrapper: ReturnType<typeof mount>; router: Router }> {
@@ -121,15 +137,17 @@ describe('cockpit acceptance fixtures', () => {
 
     expect(wrapper.get('[data-testid="card-flow-title"]').text()).toBe('Running deep child');
     expect(wrapper.get('[data-testid="card-flow-id"]').text()).toBe('card-a-b');
-    expect(wrapper.get('[data-testid="card-flow-position"]').text()).toBe('Executing node execute (ordinal 12).');
+    expect(wrapper.get('.card-flow-header').findAll('.status-badge')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="card-flow-position"]').text()).toBe("Observed workflow step: executor's step in this workflow.");
     const chain = wrapper.get('[data-testid="card-flow-chain"]').text();
     expect(chain).toContain('Project');
     expect(chain).toContain('Waiting parent goal');
     expect(chain).toContain('Running deep child');
 
     const participants = wrapper.get('[data-testid="overview-participants"]').text();
-    expect(participants).toContain('active · busy');
-    expect(participants).toContain('inactive · idle');
+    expect(participants).toContain('Active — working now');
+    expect(participants).toContain('Idle — no current work');
+    expect(wrapper.findAll('.session-details').every((details) => details.attributes('open') === undefined)).toBe(true);
     expect(participants).not.toContain('is executing');
 
     wrapper.unmount();
@@ -222,20 +240,44 @@ describe('cockpit acceptance fixtures', () => {
         detail: cardDetail('card-a-b'),
         position: { cardType: 'code', stateId: 'execute', kind: 'node', nodeId: 'execute', executionOrdinal: 12 },
       },
-      global: { plugins: [pinia] },
+      global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
     });
     await flushPromises();
 
+    const technical = wrapper.get('[data-testid="card-flow-technical"]');
+    expect(technical.attributes('open')).toBeUndefined();
     const outcomes = wrapper.get('[data-testid="card-flow-outcomes"]').text();
     expect(outcomes).toContain('done (default) → terminal DONE');
     expect(outcomes).toContain('needs-repair (default) → node repair');
     expect(wrapper.text()).not.toContain('will proceed');
 
     const graphText = wrapper.get('.flow-graph-details').text();
-    expect(graphText).toContain('repair —needs-repair→ node execute');
+    expect(graphText).toContain('repair —needs-repair (default)→ node execute');
     expect(graphText).toContain('executor — node execute');
     expect(graphText).toContain('executor — node repair');
     wrapper.unmount();
+  });
+
+  it('uses neutral observed wording for ready, entry, terminal, and absent workflow positions', async () => {
+    const cases = [
+      [{ cardType: 'code', stateId: 'BACKLOG', kind: 'ready' as const }, 'Ready for a configured workflow entry.'],
+      [{ cardType: 'code', stateId: 'BACKLOG', kind: 'entry' as const, entry: 'BACKLOG' }, 'At a configured workflow entry.'],
+      [{ cardType: 'code', stateId: 'DONE', kind: 'terminal' as const, terminal: 'DONE' }, 'At a configured terminal; this is not lifecycle acceptance.'],
+      [null, 'No current workflow position is available.'],
+    ] as const;
+
+    for (const [position, wording] of cases) {
+      const pinia = createPinia();
+      setActivePinia(pinia);
+      const wrapper = mount(CardFlowHeader, {
+        props: { cardId: 'card-a-b', detail: cardDetail('card-a-b'), position },
+        global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+      });
+      await flushPromises();
+      expect(wrapper.get('[data-testid="card-flow-position"]').text()).toContain(wording);
+      expect(wrapper.get('[data-testid="card-flow-technical"]').attributes('open')).toBeUndefined();
+      wrapper.unmount();
+    }
   });
 
   it('keeps an exact retained session inspectable with honest unavailable card flow (F11)', async () => {

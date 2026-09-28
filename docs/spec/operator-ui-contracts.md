@@ -96,6 +96,20 @@ contracts the current Card Cockpit implements.
   resource (cockpit/files/system, exact card/session/file identity, explicit
   facet/entry refinements). Displayed context is not evidence the Analyst
   has read it.
+- The shared card header stays compact on every cockpit facet and on the
+  exact card-session reader: title, type, one lifecycle badge, exact identity,
+  represented path, and one plain-language **Observed workflow step** lead.
+  Exact position/state/node/ordinal, configured outcomes and conditions, the
+  complete configured workflow, and publication facts live in the initially
+  closed **Workflow & technical details** disclosure. The header is a named,
+  keyboard-focusable scrollport bounded to at most 45% of the available
+  center/session height; expanding it preserves an independently usable body
+  scrollport. An unavailable card flow retains exact identity and its explicit
+  warning rather than fabricating hierarchy or workflow context.
+- Overview is work-first, in this order: **Objective**, **Activity and
+  participants**, **Recorded result and records**, **Problems and waiting**,
+  then **Parent and related work**. Detailed workflow mechanics remain
+  available from the shared header rather than leading the reading order.
 
 ## 4. Card tree and hierarchy
 
@@ -105,8 +119,9 @@ contracts the current Card Cockpit implements.
   children", not "has children". Committed sibling order comes only from the
   parent's accepted slice. Stable identity is distinct from the mutable
   display path (`logical_path`).
-- Every tree row carries a text lifecycle status alongside any marker.
-  The cockpit provides no card title/state search or filter. Operator card/work
+- Tree rows are color-only (owner decision 2026-09-25); lifecycle text remains
+  available on selected-card surfaces, not repeated on every tree row. The
+  cockpit provides no card title/state search or filter. Operator card/work
   discovery by known identity, title, or state is exclusively Analyst-mediated;
   manual tree browsing and exact card navigation remain available.
 - At scale, load the root and necessary represented ancestor slices, then
@@ -117,22 +132,57 @@ contracts the current Card Cockpit implements.
 
 - Record declarations render in declaration order; descriptor reads precede
   content reads; each record is fetched independently. Exactly one record is
-  the bootstrap record.
+  the bootstrap record. Overview consumes these same selected-card CardStore
+  descriptor and current-record slots; it adds no overview endpoint, cache,
+  summary authority, or persistence contract. Once selected detail is admitted,
+  the descriptor read and each exact current-record read retain independent
+  request ownership and outcomes.
+- Overview labels the configured `bootstrap:true` record as **Objective**
+  regardless of its custom name and presents every other declared record in
+  declaration order under that exact name. A source's `effective_content_source`
+  alone determines **Draft** versus **Accepted**; an accepted HTTP observation
+  is not acceptance of the work. Arbitrary records are not classified as
+  progress, review, constraints, or completion from their names or Markdown.
+  Objective descriptor loading, initial content failure, empty effective
+  content, and retained stale content remain distinct; missing required content
+  is an error, not a fabricated absent objective.
+- Each record shows a deterministic plain-text excerpt of at most 600 source
+  characters and makes its complete content directly readable in a **Full
+  content** disclosure through the existing sanitized Markdown presentation.
+  **Records & History** is additional generic navigation to `facet=records`,
+  with no promised record focus and no record/version query refinement.
 - Record request outcomes follow the fixed table: initial required 404 is an
   initial error with no accepted value; initial optional 404 is accepted
   empty; refresh 404 after accepted content retains it visibly stale with
   exact Retry; refresh 404 after accepted-empty optional retains unchanged
   empty success with no Retry; any non-404 refresh failure retains the
-  accepted state visibly stale with exact Retry. Required `brief` never
-  accepts empty. Unexpected strict HTTP 500 failures are opaque and never
-  reinterpreted as absence. Parent-detail 404 tears down card-owned reads.
+  accepted state visibly stale with exact Retry. The required bootstrap record
+  never accepts absent content. Unexpected strict HTTP 500 failures are opaque and never
+  reinterpreted as absence. Each source owns its loading, current-observation,
+  stale, error, and exact Retry presentation: failure of one optional record
+  does not hide the objective, recorded result, or other usable records, and
+  Retry does not reload unrelated successful records. Parent-detail 404 tears
+  down card-owned reads.
 - Selected card/record history is already a row in one strict stream: a
   failed history or selected-version request is an ordinary selection-local
   error that preserves accepted current and metadata state, never a separate
   availability state.
 - Card versions expose publication facts and current-relative differences.
   Null change metadata means attribution unavailable; no author or cause is
-  inferred. Record revisions keep their own sequences.
+  inferred. Record revisions keep their own sequences. Overview explains that
+  card revision counts card publications while each record has its own revision
+  sequence, and neither measures work completed. When displayed, record head
+  revision and accepted source revision remain distinct.
+- A lifecycle result is neutrally labeled **Recorded result**, with its summary
+  quoted through the existing bounded one-liner and complete JSON/provenance one
+  disclosure away. **No result recorded** makes no progress claim. For `done`,
+  Overview says **Accepted as done; not independently verified correctness**;
+  a failed completion timestamp is **Ended**, never accepted completion.
+  `lifecycle.error` is reported once. When stopped, cancelled, changed, or
+  running detail supplies no reason, Overview says that no reason is supplied
+  by current card detail and points to records and conversations as possible
+  context; it never derives a wait cause from time, graph position, session
+  activity, or child lifecycle.
 
 ### Exact displayed-current-diff request contract
 
@@ -236,16 +286,19 @@ honesty-rule changes. Owners: `web/src/utils/legibility.ts` and
 
 - **Tiers**: Primary plain-language facts (state, trajectory, participants,
   problems, outcome) lead at reading size; Secondary support (titles,
-  humanized times, counts, exact liveness pairs) stays visible muted;
+  humanized times, counts, exact liveness pairs) stays visible muted or, on
+  Overview, in the adjacent **Session details** disclosure;
   Tertiary exact identities (IDs, UUIDs, hashes, raw payloads) remain exact
   and copyable but never lead.
 - `livenessPhrase` maps exactly the two contract-enforced pairs
   (`active · busy`, `inactive · idle`); any other pair renders the exact
   backend words unchanged.
-- `positionGloss` appends a gloss only from the compiled graph (node →
-  owning agent's step; terminal → configured end states); no graph, no
-  gloss.
-- The accepted-result one-liner quotes the backend-recorded `summary`
+- `positionGloss` supplies the primary **Observed workflow step** only from the
+  compiled graph (node → owning agent's step; terminal → configured end
+  states). Exact raw position belongs in **Workflow & technical details**;
+  without a graph the UI states that workflow details are unavailable rather
+  than guessing a role or business milestone.
+- The recorded-result one-liner quotes the backend-recorded `summary`
   verbatim (120-char truncation; full JSON one disclosure away); key
   listing exists only for future summary-less shapes.
 - Card-tree rows are color-only (owner decision 2026-09-25); non-color

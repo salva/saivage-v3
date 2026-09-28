@@ -112,6 +112,35 @@ async function installScaleFixture(page: Page): Promise<{ childrenReads: string[
     if (recordsMatch) {
       return json(route, parseOperatorResponse('cards.records.list', 200, { card_id: decodeURIComponent(recordsMatch[1]!), records: cardRecords }));
     }
+    const recordMatch = url.pathname.match(/^\/api\/cards\/([^/]+)\/records\/([^/]+)$/);
+    if (recordMatch) {
+      const cardId = decodeURIComponent(recordMatch[1]!);
+      const name = decodeURIComponent(recordMatch[2]!);
+      if (!cardRecords.some((descriptor) => descriptor.name === name)) return route.fallback();
+      const content = name === 'brief.md' ? 'Exercise the synthetic scale fixture.' : 'Scale fixture work is in progress.';
+      return json(route, parseOperatorResponse('cards.records.get', 200, {
+        card_id: cardId,
+        record: {
+          name,
+          head_version: 1,
+          head_entry_id: '11111111-1111-4111-8111-111111111111',
+          state: 'closed',
+          accepted: {
+            source_version: 1,
+            source_entry_id: '11111111-1111-4111-8111-111111111111',
+            committed_at: now,
+            writer_agent: name === 'brief.md' ? 'runtime:bootstrap' : 'executor',
+            card_version_seq: 1,
+            content,
+            content_sha256: 'a'.repeat(64),
+            size_bytes: content.length,
+          },
+          draft: null,
+          discarded: null,
+          effective_content_source: 'accepted',
+        },
+      }));
+    }
     const detailMatch = url.pathname.match(/^\/api\/cards\/([^/]+)$/);
     if (detailMatch) {
       const id = decodeURIComponent(detailMatch[1]!);

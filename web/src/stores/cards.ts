@@ -550,6 +550,8 @@ export const useCardStore = defineStore('cards', () => {
     if (selectedCardId.value !== cardId) throw new Error(`Records are not owned by '${cardId}'.`);
     const prior = cardRecords.value[name];
     if (!prior) throw new Error(`Record '${name}' is not configured for '${cardId}'.`);
+    const existing = recordOwners.get(name);
+    if (reason === null && existing) return existing.promise;
     abortRequestOwner(recordOwners, name);
     const accepted = prior.accepted;
     const controller = new AbortController();
@@ -640,7 +642,10 @@ export const useCardStore = defineStore('cards', () => {
   async function loadCardRecords(cardId: string): Promise<void> {
     if (selectedCardId.value !== cardId || selectedDetail.value?.cardId !== cardId)
       throw new Error(`Card detail for '${cardId}' is not loaded.`);
-    if (descriptorOwner) await descriptorOwner.promise;
+    while (descriptorOwner) {
+      await descriptorOwner.promise;
+      if (selectedCardId.value !== cardId || selectedDetail.value?.cardId !== cardId) return;
+    }
     if (recordDescriptorsError.value) return;
     await Promise.all(
       recordDescriptors.value.map((record) => startRecord(cardId, record.name, null)),
@@ -655,9 +660,13 @@ export const useCardStore = defineStore('cards', () => {
     return startRecord(id, name, reason);
   }
   function retryRecord(name: LiveSyncCardRecordName): Promise<void> {
-    if (cardRecords.value[name]?.staleReason !== 'refresh-failed')
-      throw new Error(`${name} is not retryable.`);
-    return refreshRecord(name, 'invalidated');
+    const id = selectedCardId.value;
+    const record = cardRecords.value[name];
+    if (!id || !record) throw new Error(`${name} is not retryable.`);
+    if (record.staleReason === 'refresh-failed') return refreshRecord(name, 'invalidated');
+    if (record.accepted === null && record.error !== null && !record.loading)
+      return startRecord(id, name, null);
+    throw new Error(`${name} is not retryable.`);
   }
   function openRecordHistory(name: LiveSyncCardRecordName): Promise<void> {
     const id = selectedCardId.value;

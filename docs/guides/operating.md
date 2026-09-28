@@ -37,13 +37,19 @@ Processes, Events).
 
 Home opens the Overview of the current card (or says **No current work**
 when the project is settled). The card workspace is the heart of the UI: a
-persistent card-flow header answering *Context* (the represented chain),
-*Observed now* (the runtime-projected workflow position), and *Possible
-outcomes* (configured transitions, clearly not execution history), with four
-facets:
+persistent compact card-flow header gives the represented chain and one
+plain-language **Observed workflow step**. Open **Workflow & technical details**
+for exact position, publication facts, and configured outcomes/workflow; those
+mechanics are bounded and scrollable so the selected facet or transcript keeps
+usable space. The workspace has four facets:
 
-- **Overview** — situation, participants with backend liveness, latest
-  result, declared records, and children/siblings.
+- **Overview** — the source-backed objective first, then activity and
+  participants, the neutral recorded result and independently loaded declared
+  records, problems/waiting, and parent/related work. Record excerpts identify
+  Draft or Accepted effective content and disclose the complete content here;
+  arbitrary record names are not interpreted as progress. A missing wait reason
+  stays unknown, and `done` means accepted as done rather than independently
+  verified correctness.
 - **Conversations** — a participant rail of the card's exact named-agent
   sessions; choosing one opens the exact session reader with the card header
   and rail still in view.
@@ -53,10 +59,10 @@ facets:
   session segments) with exact links, plus a bounded card-scoped events
 tail.
 
-The tree is the structural spine: lazy discovery, committed order, and a
-text lifecycle status on every row. Expand branches manually and select a row
-to inspect that exact card; ask the Analyst to find work by known information
-or state.
+The tree is the structural spine: lazy discovery, committed order, and
+color-only lifecycle markers. Select a row for exact lifecycle text and card
+detail. Expand branches manually; ask the Analyst to find work by known
+information or state.
 
 ### Files
 

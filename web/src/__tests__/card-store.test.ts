@@ -18,6 +18,11 @@ const descriptors=[
   {name:'decision.md',format:'markdown' as const,schema:'decision.v1',bootstrap:false,current:null},
 ];
 const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_version:2,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,discarded:null,effective_content_source:'accepted' as const}});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
 
 describe('CardStore exact card resources',()=>{
   beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();});
@@ -52,6 +57,65 @@ describe('CardStore exact card resources',()=>{
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
     expect(store.cardRecords['brief.md']!.accepted).toBeNull(); expect(store.cardRecords['brief.md']!.error).toBe('Card record not found');
     expect(store.cardRecords['research-findings.md']!.accepted).toBeNull(); expect(store.cardRecords['research-findings.md']!.error).toBe('Card record not found');
+  });
+
+  it('retries only the exact initially failed record while preserving unrelated outcomes',async()=>{
+    vi.mocked(getCard).mockResolvedValue({card:cardView(A)}); vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:descriptors});
+    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{
+      if(name==='brief.md')throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId,name});
+      if(name==='research-findings.md')throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId,name});
+      return content(cardId,name,name);
+    });
+    const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
+    expect(store.cardRecords['brief.md']!.error).toBe('Card record not found');
+    expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'});
+    expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',content:'decision.md'});
+    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>content(cardId,name,'retried objective'));
+
+    await store.retryRecord('brief.md');
+
+    expect(getCardRecord).toHaveBeenCalledTimes(4);
+    expect(getCardRecord).toHaveBeenLastCalledWith(A,'brief.md',expect.any(AbortSignal));
+    expect(store.cardRecords['brief.md']!.accepted).toMatchObject({kind:'content',content:'retried objective'});
+    expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'});
+    expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',content:'decision.md'});
+  });
+
+  it('fences a selected-card load after pending descriptors before reading record content',async()=>{
+    const aDescriptors=deferred<{card_id:string;records:typeof descriptors}>();
+    const bDescriptors=deferred<{card_id:string;records:typeof descriptors}>();
+    vi.mocked(getCard).mockImplementation(async(id)=>({card:cardView(id)}));
+    vi.mocked(listCardRecords).mockImplementation((id)=>id===A?aDescriptors.promise:bDescriptors.promise);
+    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>content(cardId,name));
+    const store=useCardStore();
+    await store.fetchCardDetail(A);
+    const abandonedLoad=store.loadCardRecords(A);
+    await store.fetchCardDetail('card-b');
+    aDescriptors.resolve({card_id:A,records:descriptors});
+
+    await abandonedLoad;
+    expect(getCardRecord).not.toHaveBeenCalled();
+
+    bDescriptors.resolve({card_id:'card-b',records:descriptors});
+    await store.loadCardRecords('card-b');
+    expect(getCardRecord).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(getCardRecord).mock.calls.every(([cardId])=>cardId==='card-b')).toBe(true);
+  });
+
+  it('shares concurrent initial reads for each exact record after descriptor readiness',async()=>{
+    const pendingDescriptors=deferred<{card_id:string;records:typeof descriptors}>();
+    vi.mocked(getCard).mockResolvedValue({card:cardView(A)});
+    vi.mocked(listCardRecords).mockReturnValue(pendingDescriptors.promise);
+    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>content(cardId,name));
+    const store=useCardStore(); await store.fetchCardDetail(A);
+    const first=store.loadCardRecords(A); const second=store.loadCardRecords(A);
+
+    pendingDescriptors.resolve({card_id:A,records:descriptors});
+    await Promise.all([first,second]);
+
+    expect(getCardRecord).toHaveBeenCalledTimes(3);
+    for(const descriptor of descriptors)
+      expect(getCardRecord).toHaveBeenCalledWith(A,descriptor.name,expect.any(AbortSignal));
   });
 
   it('requires exact optional-absence identity and never discards accepted closed content',async()=>{

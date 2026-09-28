@@ -1194,6 +1194,15 @@ DebugStore keeps those canonical REST rows, while the pure exhaustive web read-m
 This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.
 
 For Cards specifically, CardStore owns disjoint `hierarchySlicesByParentId`, selected detail, an ordered map of selected-card record states keyed by exact configured name, mounted selected history, immutable selected history entry, and selected current-relative diff state.
+A single compact `CardFlowHeader` owns shared selected-card orientation in cockpit
+facets and admitted card-session views. It keeps the plain-language observed workflow
+step primary and bounds exact workflow/publication mechanics inside its scrollable
+technical disclosure so the independently scrolling facet or transcript retains space.
+`CardOverviewFacet` owns the work-first composition only. It reacts to admitted selected
+detail and reuses CardStore's descriptor authority and those same ordered per-record
+slots for the custom bootstrap and all declared current records. It creates no aggregate
+overview authority, cache, endpoint, timer, transcript fan-out, semantic record-role
+model, completion projection, or wait-reason projection.
 A successful `cards.children(parentId)` atomically owns only `{ parent, children }` at that parent key; only the containing parent's ordered `children` rows render tree membership, titles, and sibling rank.
 A child's own returned `parent` never overwrites its row in another slice.
 Detail, each record, history, entry, and diff likewise replace only their exact authority, so completion order cannot merge or normalize state.

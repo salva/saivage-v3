@@ -114,9 +114,16 @@ expanding every branch. Check these three tasks on a deep/wide fixture; summarie
 state their coverage and must not imply complete subtree counts or completion rates.
 
 **F8 — Must — Meaningful card detail.** For a selected card, distinguish lifecycle,
-working status, accepted result, error/completion facts, version, and declared record
-content where projected. Check running, blocked, stopped, and done cards: a work-status
-narrative cannot substitute for an accepted outcome, and absent fields are not invented.
+observed workflow position, recorded result, error/completion facts, card publication
+revision, and record revisions. Overview must lead with the effective current content
+of the configured bootstrap record as its source-labeled objective, then expose every
+other declared current record in declaration order with independent loading, failure,
+freshness, and Retry states. Check custom bootstrap and arbitrary record names, Draft
+versus Accepted effective sources, running, blocked, stopped, and done cards: record
+names/content are not automatically categorized as progress, a work-status narrative
+cannot substitute for a recorded outcome, revision numbers do not measure completion,
+and absent fields are not invented. Complete source content remains directly readable
+from Overview, not only through navigation.
 
 **F9 — Should — Workflow explanation.** Let the operator inspect the selected type's
 configured entries, agent responsibilities, outcome transitions, and terminal meanings.
@@ -181,7 +188,11 @@ agents-first destination is neither required nor sufficient to satisfy F3 and F1
 **F17 — Must — Outcome evidence.** From failed, blocked, stopped, cancelled, or done work,
 reach the recorded outcome and relevant available record/conversation/history evidence.
 Check each status, including missing explanation: state “reason not recorded/available”
-instead of supplying causality from time proximity. Done is acceptance, not independent proof.
+instead of supplying causality from time proximity, workflow position, session activity,
+or child lifecycle. Overview neutrally labels the recorded result, reports an available
+card error once, and states when current card detail supplies no reason while pointing to
+records and conversations only as possible context. Done is acceptance, not independent
+proof of correctness; failed completion is an ending, not acceptance.
 
 **F18 — Must — Recovery semantics.** Present recorded recovery notices, uncertainty-only
 failed tool mates, later activation, and lifecycle correction as separate facts. Check

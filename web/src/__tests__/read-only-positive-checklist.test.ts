@@ -124,9 +124,9 @@ describe('read-only positive checklist', () => {
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
     // Card flow header, facets, and tree navigation remain read-only positive paths.
-    expect(cardFlowHeaderSource).toContain('Possible outcomes');
+    expect(cardFlowHeaderSource).toContain('Workflow &amp; technical details');
     expect(cardFlowHeaderSource).not.toContain('@click="activate');
-    expect(cardOverviewFacetSource).toContain('Declared records');
+    expect(cardOverviewFacetSource).toContain('Recorded result and records');
     expect(participantRailSource).toContain('Configured node/role');
     expect(restartDialogSource).toContain('RESTART SERVER');
     expect(restartDialogSource).not.toContain('window.prompt');
