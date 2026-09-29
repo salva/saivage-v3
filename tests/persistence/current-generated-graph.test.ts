@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
-import { appendConversationBatch, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, saivageCardsRoot } from '../../src/persistence/layout.js';
+import { appendConversationBatch, initializeMissingConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, providerExchangeFile, saivageCardsRoot } from '../../src/persistence/layout.js';
 import { compileProjectWorkflows, type CompiledProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { agentMessageSchema, cardAgentSessionId, cardRecordSchema, conversationSessionIdentity, effectiveSaivageConfigSchema, type AgentMessage, type ConversationSessionId, type SaivageConfig } from '../../src/schemas/index.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';
@@ -59,6 +59,29 @@ describe('current generated state startup admission', () => {
     for (const sessionId of ['agent:analyst:global', 'agent:planner:project', 'agent:reviewer:project'] as const) {
       expect(readConversationCatalog(root, sessionId).versions).toEqual([]);
     }
+  });
+
+  it('validates a required complete evidence file before truncating the current conversation tail', () => {
+    const root = fixture();
+    const path = plannerConversationWithSuffix(root);
+    const before = readFileSync(path);
+    const evidence = providerExchangeFile(root, 'agent:planner:project');
+    writeFileSync(evidence, '{malformed}\n');
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(/malformed/);
+    expect(readFileSync(path)).toEqual(before);
+    expect(readFileSync(evidence, 'utf8')).toBe('{malformed}\n');
+  });
+
+  it('ignores unselected evidence and reads selected optional Oversight evidence only with its catalog', () => {
+    const root = fixture();
+    const oversight = `agent:${TEST_WORKFLOWS.oversight.name}:global` as ConversationSessionId;
+    const evidence = providerExchangeFile(root, oversight);
+    mkdirSync(dirname(evidence), { recursive: true });
+    writeFileSync(evidence, '{malformed}\n');
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).not.toThrow();
+    initializeMissingConversation(root, oversight);
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(/malformed/);
+    expect(readFileSync(evidence, 'utf8')).toBe('{malformed}\n');
   });
 
   it('rejects a renamed card participant without creating it or applying earlier admission effects', () => {

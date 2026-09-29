@@ -10,7 +10,8 @@ import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-in
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { ConversationSessionIdSchema, globalAgentSessionId, protectedPromptsSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
-import { internalCompactionSummarySessionId, type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
+import { type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
+import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { validateCompactedHistorySuccessor, type ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { createImmutableVersionFile } from '../../src/persistence/version-file.js';
 import { replaceFile } from '../../src/persistence/replace-file.js';
@@ -385,7 +386,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(new Set(calls.map((call) => call.sessionId))).toEqual(new Set([internalCompactionSummarySessionId(agentSession)]));
       expect(ConversationSessionIdSchema.safeParse(internalCompactionSummarySessionId(agentSession)).success).toBe(false);
       expect(internalCompactionSummarySessionId(agentSession)).not.toBe(agentSession);
-      expect(projectedSessions).toEqual(calls.map((call) => call.sessionId));
+      expect(projectedSessions).toEqual([agentSession]);
       expect(readConversationCatalog(root, agentSession).versions).toHaveLength(2);
       expect(readCurrentConversationSegment(root, agentSession)!.rows.every((row) => row.session_id === agentSession)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }

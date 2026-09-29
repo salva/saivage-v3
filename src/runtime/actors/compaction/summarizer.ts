@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion,
 } from '../../../agents/llm-contracts.js';
@@ -7,6 +7,7 @@ import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
 } from '../../../contracts/provider-exchange.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import type { ConversationSessionId } from '../../../schemas/index.js';
+import { internalCompactionSummarySessionId } from '../../../contracts/provider-exchange-log.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/provider-candidate.js';
 import type { EffectiveProviderCapabilities } from '../../../agents/provider-capabilities.js';
@@ -19,9 +20,6 @@ export const SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE = COMPACTION_SUMMARY_BLOCKED_
 
 const INTERNAL_SUMMARY_LABEL = 'internal-compaction-summary';
 
-export function internalCompactionSummarySessionId(sourceSessionId: string): string {
-  return `internal:compaction-summary:${createHash('sha256').update(sourceSessionId, 'utf8').digest('hex')}`;
-}
 
 export type SummaryRequestSerialization = Readonly<{
   serializedRequest: string;
@@ -35,7 +33,7 @@ export interface SummarizerProviderPort {
   readonly maxOutputTokens: number;
   serializeSummaryRequest(input: LlmInvocationInput): SummaryRequestSerialization;
   completeTurn(input: LlmInvocationInput, admitted: SummaryRequestSerialization, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext,
+  projectProviderExchanges(ownerSessionId: ConversationSessionId, purpose: 'internal-summary', sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext,
   ): void;
 }
 
@@ -159,7 +157,8 @@ function projectSummaryExchanges(
   input: LlmInvocationInput,
   attempts: ProviderExchangeAttempt[],
 ): void {
-  provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, {
+  if (input.providerConversation.sourceSessionId === null) throw new Error('Summary request has no canonical source session.');
+  provider.projectProviderExchanges(input.providerConversation.sourceSessionId, 'internal-summary', input.inputId, attempts, {
     assistantOutputIds: [],
     terminalConversationOutputId: null,
   });

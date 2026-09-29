@@ -1,81 +1,105 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-
+import { internalCompactionSummarySessionId, providerExchangeLogId } from '../../src/contracts/provider-exchange-log.js';
+import { appendAppLogEntry, readAppLogEntries } from '../../src/persistence/app-log.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
-import { appendAppLogEntry } from '../../src/persistence/app-log.js';
-import { appLogFile } from '../../src/persistence/layout.js';
-import {
-  readLatestProviderExchangePayload,
-  readLatestProviderExchangePayloadMap,
-} from '../../src/persistence/provider-exchange-log.js';
+import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
+import { providerExchangeLogEntrySchema } from '../../src/contracts/provider-exchange-log.js';
+import { providerExchangeFile } from '../../src/persistence/layout.js';
+import { appendProviderExchangeEntry, readLatestProviderExchangePayload, readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 
 const roots: string[] = [];
-const firstTimestamp = '2026-07-22T00:00:00.000Z';
-const laterTimestamp = '2026-07-22T00:00:01.000Z';
+const owner = 'agent:planner:project' as const;
+const first = '2026-07-22T00:00:00.000Z';
+const later = '2026-07-22T00:00:01.000Z';
+afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
-
-describe('latest provider-exchange selection', () => {
-  it('returns an empty map for a missing or empty lane', () => {
-    const missing = project();
-    expect([...readLatestProviderExchangePayloadMap(missing)]).toEqual([]);
-
-    const empty = project();
-    appendAppLogEntry(empty, 'event', () => ({
-      type: 'event',
-      data: { kind: 'runtime_diagnostic', id: 'unrelated-event', timestamp: firstTimestamp, error_message: 'unrelated' },
-    }));
-    expect([...readLatestProviderExchangePayloadMap(empty)]).toEqual([]);
-  });
-
-  it('selects independently for every exact key by timestamp and then attempt index', () => {
-    const root = project();
-    publish(root, 'agent:planner:project', 'planner-old', firstTimestamp, 9);
-    publish(root, 'summary:project', 'summary', firstTimestamp, 0);
-    publish(root, 'agent:planner:project', 'planner-later-low-attempt', laterTimestamp, 0);
-    publish(root, 'agent:reviewer:project', 'reviewer-low-attempt', firstTimestamp, 0);
-    publish(root, 'agent:reviewer:project', 'reviewer-high-attempt', firstTimestamp, 2);
-
-    const latest = readLatestProviderExchangePayloadMap(root);
-    expect(latest.get('agent:planner:project')?.model).toBe('planner-later-low-attempt');
-    expect(latest.get('agent:reviewer:project')?.model).toBe('reviewer-high-attempt');
-    expect(latest.get('summary:project')?.model).toBe('summary');
-  });
-
-  it('retains the earlier physical row on an exact comparator tie and singular lookup delegates to it', () => {
-    const root = project();
-    publish(root, 'agent:planner:project', 'physical-first', firstTimestamp, 1, 'source-first');
-    publish(root, 'agent:planner:project', 'physical-second', firstTimestamp, 1, 'source-second');
-
-    expect(readLatestProviderExchangePayloadMap(root).get('agent:planner:project')?.model).toBe('physical-first');
-    expect(readLatestProviderExchangePayload(root, 'agent:planner:project')?.model).toBe('physical-first');
-    expect(readLatestProviderExchangePayload(root, 'agent:reviewer:project')).toBeNull();
-  });
-
-  it('fails the complete read when any canonical app-log envelope is malformed', () => {
-    const root = project();
-    mkdirSync(dirname(appLogFile(root)), { recursive: true });
-    writeFileSync(appLogFile(root), '{"version":1,"type":"rows","rows":[{"invalid":true}]}\n');
-    expect(() => readLatestProviderExchangePayloadMap(root)).toThrow(/malformed/);
-  });
-});
-
-function project(): string {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-provider-exchange-latest-'));
+function project(initialized = true): string {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-evidence-'));
   roots.push(root);
+  if (initialized) mkdirSync(dirname(providerExchangeFile(root, owner)), { recursive: true });
   return root;
 }
-
-function publish(root: string, sessionId: string, model: string, timestamp: string, attemptIndex: number, sourceInputId = `${sessionId}-${model}`): void {
+function row(sessionId: string, model: string, timestamp = first, attemptIndex = 0, sourceInputId = model) {
   const payload: ProviderExchangePayload = {
     contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model,
     source_input_id: sourceInputId, attempt_index: attemptIndex, request_params: {}, started_at: timestamp,
     completed_at: timestamp, status: 'ok', terminal_tool_fired: null, assistant_output_ids: [],
   };
-  appendAppLogEntry(root, 'provider_exchange', () => ({
-    type: 'provider_exchange',
-    data: { session_id: sessionId, source_input_id: sourceInputId, attempt_index: attemptIndex, timestamp, payload },
-  }));
+  return { type: 'provider_exchange' as const, data: { session_id: sessionId, source_input_id: sourceInputId, attempt_index: attemptIndex, timestamp, payload } };
 }
+function publish(root: string, sessionId: string, model: string, timestamp = first, attemptIndex = 0, sourceInputId = model): void {
+  appendProviderExchangeEntry(root, owner, row(sessionId, model, timestamp, attemptIndex, sourceInputId));
+}
+
+describe('strict selected provider evidence', () => {
+  it('treats only missing exact evidence as empty; publication requires an existing owner', () => {
+    const root = project();
+    expect(readLatestProviderExchangePayload(root, owner)).toBeNull();
+    publish(root, owner, 'first');
+    publish(root, owner, 'second', later);
+    expect(readProviderExchangeEntries(root, owner)).toHaveLength(2);
+    const missing = project(false);
+    expect(() => publish(missing, owner, 'failed')).toThrow();
+    expect(existsSync(dirname(providerExchangeFile(missing, owner)))).toBe(false);
+    expect(readLatestProviderExchangePayload(missing, owner)).toBeNull();
+  });
+
+  it('selects greatest timestamp, then attempt; ties retain first physical row and summaries never compete', () => {
+    const root = project();
+    publish(root, owner, 'old-high', first, 9);
+    publish(root, owner, 'latest', later, 1);
+    publish(root, owner, 'tie', later, 1);
+    publish(root, internalCompactionSummarySessionId(owner), 'summary', later, 50);
+    expect(readLatestProviderExchangePayload(root, owner)?.model).toBe('latest');
+  });
+
+  it('returns no ordinary latest for summary-only evidence and ignores unrelated sessions entirely', () => {
+    const root = project();
+    publish(root, internalCompactionSummarySessionId(owner), 'summary', later);
+    expect(readLatestProviderExchangePayload(root, owner)).toBeNull();
+    const unrelated = providerExchangeFile(root, 'agent:reviewer:project');
+    mkdirSync(dirname(unrelated), { recursive: true });
+    writeFileSync(unrelated, '{malformed}\n');
+    publish(root, owner, 'early-target', first);
+    publish(root, internalCompactionSummarySessionId(owner), 'late-summary', later);
+    expect(readLatestProviderExchangePayload(root, owner)?.model).toBe('early-target');
+  });
+
+  it('does not certify logical IDs across distinct physical streams', () => {
+    const root = project();
+    const evidence = row(owner, 'exchange');
+    publish(root, owner, 'exchange');
+    const duplicateAcrossFiles = providerExchangeLogId(evidence.data);
+    appendAppLogEntry(root, 'event', () => ({ type: 'event', data: { id: duplicateAcrossFiles, kind: 'runtime_diagnostic', timestamp: first, error_message: 'separate lane' } }));
+    expect(readAppLogEntries(root, 'event')).toHaveLength(1);
+    expect(readProviderExchangeEntries(root, owner)).toHaveLength(1);
+  });
+
+  it('validates the full selected file including early corruption, wrong owner/hash and duplicate identity without mutation', () => {
+    for (const invalid of [row('agent:reviewer:project', 'wrong'), row(internalCompactionSummarySessionId('agent:reviewer:project'), 'wrong-summary')]) {
+      const root = project();
+      const path = providerExchangeFile(root, owner);
+      writeFileSync(path, serializeGrowingEnvelope([invalid], providerExchangeLogEntrySchema));
+      const before = readFileSync(path);
+      expect(() => readLatestProviderExchangePayload(root, owner)).toThrow();
+      expect(readFileSync(path)).toEqual(before);
+    }
+    const root = project();
+    publish(root, owner, 'duplicate');
+    publish(root, owner, 'duplicate');
+    expect(() => readProviderExchangeEntries(root, owner)).toThrow(/duplicate logical id/);
+    const path = providerExchangeFile(root, owner);
+    writeFileSync(path, Buffer.from('{"version":1,"type":"rows","rows":[{"type":"event","data":{}}]}\n'));
+    expect(() => readProviderExchangeEntries(root, owner)).toThrow(/malformed/);
+    for (const bytes of [Buffer.alloc(0), Buffer.from('partial'), Buffer.from('{"version":2,"type":"rows","rows":[{}]}\n'), Buffer.from([0xff, 0x0a])]) {
+      writeFileSync(path, bytes);
+      expect(() => readProviderExchangeEntries(root, owner)).toThrow();
+      expect(readFileSync(path)).toEqual(bytes);
+    }
+    writeFileSync(path, Buffer.concat([Buffer.from('{broken}\n'), ...Array.from({ length: 40 }, () => serializeGrowingEnvelope([row(owner, 'ok')], providerExchangeLogEntrySchema))]));
+    expect(() => readProviderExchangeEntries(root, owner)).toThrow(/malformed/);
+  });
+});

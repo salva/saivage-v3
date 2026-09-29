@@ -18,7 +18,7 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
     resumeAdmittedExecution: (preparation, signal) => invocationService.resumeAdmittedExecution(preparation, signal),
     preflightPinnedContentPolicyRequest: (input, signal) => invocationService.preflightPinnedContentPolicyRequest(invocationRequest(input, signal)),
     executePinnedContentPolicyRequest: (preflight, signal) => invocationService.executePinnedContentPolicyRequest(preflight, signal),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, context) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, context),
+    projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) => invocationService.projectProviderExchanges(sessionId, purpose, sourceInputId, attempts, context),
   };
 }
 

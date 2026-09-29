@@ -1,3 +1,4 @@
+import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +12,6 @@ import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { RestartPort } from '../../src/contracts/index.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
-import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { toolSucceeded, type ToolActionOutcome } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
@@ -119,7 +119,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
     const rows = readConversation(fixture.projectRoot, sessionId).sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'first-call')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'model_issue')).toHaveLength(1);
-    expect(readAppLogEntries(fixture.projectRoot, 'provider_exchange')).toHaveLength(1);
+    expect(readProviderExchangeEntries(fixture.projectRoot, sessionId)).toHaveLength(1);
     expect(rows.some((row) => row.role === 'system' && row.kind === 'text' && row.content.includes('Analyst LLM unavailable'))).toBe(false);
     expect(handoffs).toBe(0);
     expect(abandon).not.toHaveBeenCalled();
@@ -329,8 +329,8 @@ function createFixture(options: {
     restartCapability: { available: true, port: restartPort },
     provider: {
       ...scriptedAdmissionProvider(completeTurn),
-      projectProviderExchanges: (projectedSessionId, sourceInputId, attempts, context) =>
-        providerExchangeOwner.projectProviderExchanges(projectedSessionId, sourceInputId, attempts, context),
+      projectProviderExchanges: (projectedSessionId, purpose, sourceInputId, attempts, context) =>
+        providerExchangeOwner.projectProviderExchanges(projectedSessionId, purpose, sourceInputId, attempts, context),
     },
     conversations,
     compactionPolicy: testCompactionPolicy,

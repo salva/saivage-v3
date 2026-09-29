@@ -45,6 +45,7 @@ const retiredIdentifiers = [
   'RecordPriorHeadInvariantError',
   'AuthoredRecordHistoricalUnavailableError',
   'HistoricalUnavailableReason',
+  'readLatestProviderExchangePayloadMap',
 ];
 
 const retiredDiscriminators = /card-version-index|authored-record-version-index/u;
@@ -199,6 +200,8 @@ for (const path of paths) {
       if (/zero[- ]byte|\.size\s*===?\s*0|byteLength\s*===?\s*0|isEmpty/u.test(content)) violation(`${path}: empty canonical stream classified as missing`);
       if (!/code\s*===\s*'ENOENT'/u.test(content)) violation(`${path}: missing admission must be keyed only by exact ENOENT`);
     }
+    if (path === 'src/contracts/app-log.ts' && /provider_exchange/u.test(content)) violation(`${path}: provider evidence does not belong to the event/control app log`);
+    if (path === 'src/persistence/provider-exchange-log.ts' && (/\breadAppLogEntries\b|\breaddirSync\b|\bopendir\b/u.test(content))) violation(`${path}: selected provider evidence must use only its exact owner stream`);
     continue;
   }
   const scopedRules = cardRecordDocPaths.has(path) ? cardRecordDocRules : [];

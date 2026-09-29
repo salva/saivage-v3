@@ -13,16 +13,16 @@ import {
   AgentSessionSummarySchema,
 } from '../../src/contracts/operator-api-agents.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
-import { appLogEntrySchema } from '../../src/contracts/app-log.js';
-import { appendAppLogEntry } from '../../src/persistence/app-log.js';
-import { appLogFile } from '../../src/persistence/layout.js';
+import { providerExchangeFile } from '../../src/persistence/layout.js';
+import { providerExchangeLogEntrySchema } from '../../src/contracts/provider-exchange-log.js';
+import { appendProviderExchangeEntry } from '../../src/persistence/provider-exchange-log.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createEventLog } from '../../src/observability/index.js';
-import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';
@@ -223,7 +223,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       initProjectTree(root);
       populatePlannerConversation(root);
       const payload = sensitiveExchange(status);
-      appendAppLogEntry(root, 'provider_exchange', () =>
+      appendProviderExchangeEntry(root, 'agent:planner:project',
         providerExchangeEntry({
           session_id: 'agent:planner:project',
           source_input_id: payload.source_input_id,
@@ -232,7 +232,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
           payload,
         }),
       );
-      const before = readFileSync(appLogFile(root), 'utf8');
+      const before = readFileSync(providerExchangeFile(root, 'agent:planner:project'), 'utf8');
       const request = { log: { error: jest.fn() } };
       const handlers = buildAgentOperatorContractHandlers({
         projectRoot: root,
@@ -281,7 +281,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
         if (response.exchange.status !== 'error') throw new Error('Expected error response.');
         expect(response.exchange.error.status).toBe(401);
       }
-      expect(readFileSync(appLogFile(root), 'utf8')).toBe(before);
+      expect(readFileSync(providerExchangeFile(root, 'agent:planner:project'), 'utf8')).toBe(before);
       expect(request.log.error).not.toHaveBeenCalled();
     },
   );
@@ -304,6 +304,70 @@ describe('operator Agent exact identity contracts and handlers', () => {
       statusCode: 404,
       body: { error: 'No LLM exchange recorded for this session yet.' },
     });
+  });
+
+  it('reads only the admitted exact evidence stream, not another provider stream or the app log', async () => {
+    const root = projectRoot();
+    initProjectTree(root);
+    populatePlannerConversation(root);
+    const selected = providerExchangeFile(root, 'agent:planner:project');
+    const payload = sensitiveExchange('ok');
+    appendProviderExchangeEntry(root, 'agent:planner:project', providerExchangeEntry({
+      session_id: 'agent:planner:project', source_input_id: payload.source_input_id,
+      attempt_index: payload.attempt_index, timestamp: payload.completed_at, payload,
+    }));
+    const unrelated = providerExchangeFile(root, 'agent:analyst:global');
+    writeFileSync(unrelated, '{malformed}\n');
+    const appLog = join(root, '.saivage', 'logs', 'app.jsonl');
+    mkdirSync(dirname(appLog), { recursive: true });
+    writeFileSync(appLog, '{malformed}\n');
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() });
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(
+      fastify, { 'agents.llmExchange': agentOperatorApiContracts['agents.llmExchange'] }, { 'agents.llmExchange': handlers['agents.llmExchange']! },
+    );
+    try {
+      const response = await fastify.inject({ method: 'GET', url: '/api/agents/agent%3Aplanner%3Aproject/llm-exchange' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().exchange.model).toBe(payload.model);
+      expect(readFileSync(unrelated, 'utf8')).toBe('{malformed}\n');
+      expect(readFileSync(appLog, 'utf8')).toBe('{malformed}\n');
+      expect(readFileSync(selected).byteLength).toBeGreaterThan(0);
+    } finally { await fastify.close(); }
+  });
+
+  it('admits exact retained tombstone evidence with strict redaction and distinct missing/corrupt results', async () => {
+    const root = projectRoot();
+    initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Retained child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const session = `agent:executor:${child.id}` as const;
+    appendConversationBatch({ projectRoot: root }, [entry(session) as never]);
+    cards.deleteSubtrees([child.id], () => true);
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() });
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(
+      fastify, { 'agents.llmExchange': agentOperatorApiContracts['agents.llmExchange'] }, { 'agents.llmExchange': handlers['agents.llmExchange']! },
+    );
+    const url = `/api/agents/${encodeURIComponent(session)}/llm-exchange`;
+    const path = providerExchangeFile(root, session);
+    try {
+      const absent = await fastify.inject({ method: 'GET', url });
+      expect(absent.statusCode).toBe(404);
+      expect(absent.json()).toEqual({ error: 'No LLM exchange recorded for this session yet.' });
+      const payload = sensitiveExchange('ok');
+      appendProviderExchangeEntry(root, session, providerExchangeEntry({ session_id: session, source_input_id: payload.source_input_id, attempt_index: payload.attempt_index, timestamp: payload.completed_at, payload }));
+      const published = await fastify.inject({ method: 'GET', url });
+      expect(published.statusCode).toBe(200);
+      expect(published.json()).toMatchObject({ session_id: session, exchange: { status: 'ok', source_input_id: payload.source_input_id } });
+      expect(published.body).not.toContain('operator-endpoint-ok');
+      expect(published.body).toContain('[REDACTED]');
+      writeFileSync(path, '{malformed}\n');
+      const unavailable = await fastify.inject({ method: 'GET', url });
+      expect(unavailable.statusCode).toBe(503);
+      expect(unavailable.json()).toEqual({ error: 'current_state_unavailable', resource: 'provider_exchange_log', owner_id: session, restart_required: true });
+      expect(unavailable.body).not.toContain(root);
+    } finally { await fastify.close(); }
   });
 
   it('returns the exact classified Agent conversation history unavailability body', () => {
@@ -333,9 +397,9 @@ describe('operator Agent exact identity contracts and handlers', () => {
       timestamp: payload.completed_at,
       payload,
     });
-    const line = serializeGrowingEnvelope([entry], appLogEntrySchema);
-    mkdirSync(dirname(appLogFile(root)), { recursive: true });
-    writeFileSync(appLogFile(root), Buffer.concat([line, line]));
+    const line = serializeGrowingEnvelope([entry], providerExchangeLogEntrySchema);
+    mkdirSync(dirname(providerExchangeFile(root, 'agent:planner:project')), { recursive: true });
+    writeFileSync(providerExchangeFile(root, 'agent:planner:project'), Buffer.concat([line, line]));
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot: root,
       workflows: TEST_RUNTIME_WORKFLOWS,

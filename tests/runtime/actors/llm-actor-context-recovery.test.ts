@@ -17,7 +17,7 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js'
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort, type LlmTerminalHandoff } from '../../../src/runtime/actors/llm-actor.js';
 import { compact, CompactionSummaryConstructionError, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
-import { internalCompactionSummarySessionId, SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { compileInvocationToolContract } from '../../../src/runtime/actors/context/context-blocks.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
@@ -26,7 +26,7 @@ import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../../src/tools/in
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { createInvocationServiceProvider } from '../../../src/application/invocation-service-provider.js';
 import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
-import { appLogFile } from '../../../src/persistence/layout.js';
+import { providerExchangeFile } from '../../../src/persistence/layout.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { scriptedBindings, scriptedOrdinaryAdmission } from '../../helpers/llm-test-helpers.js';
@@ -56,7 +56,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     expect(terminal).toHaveBeenCalledWith({ input: fixture.input, outcome });
     expect(fixture.compact.mock.calls[0]![0].strategy).toBe(strategy);
     expect(readConversation(fixture.root, fixture.input.sessionId).sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
-    if (strategy === 'authoritative_context_recovery') expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, fixture.input.inputId, fixture.firstFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
+    if (strategy === 'authoritative_context_recovery') expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, 'primary', fixture.input.inputId, fixture.firstFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
     else {
       expect(fixture.execute).not.toHaveBeenCalled();
       expect(fixture.plannerProjection).not.toHaveBeenCalled();
@@ -96,9 +96,8 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
   it('publishes summary and triggering attempts once under separate identities and rejects with the fieldless ownership marker', async () => {
     const fixture = actorFixture();
     const summaryFailure = providerFailure('summary-input', 'server_transient');
-    const summarySessionId = internalCompactionSummarySessionId(fixture.input.sessionId);
     fixture.compact.mockImplementation(async ({ summarizerProvider }) => {
-      summarizerProvider.projectProviderExchanges(summarySessionId, 'summary-input', summaryFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
+      summarizerProvider.projectProviderExchanges(fixture.input.sessionId, 'internal-summary', 'summary-input', summaryFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
       throw summaryFailure;
     });
 
@@ -114,9 +113,9 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     expect(rejection).not.toHaveProperty('failure_phase');
     expect(rejection).not.toHaveProperty('candidate');
     expect(fixture.summaryProjection).toHaveBeenCalledTimes(1);
-    expect(fixture.summaryProjection).toHaveBeenCalledWith(summarySessionId, 'summary-input', expect.any(Array), { assistantOutputIds: [], terminalConversationOutputId: null });
+    expect(fixture.summaryProjection).toHaveBeenCalledWith(fixture.input.sessionId, 'internal-summary', 'summary-input', expect.any(Array), { assistantOutputIds: [], terminalConversationOutputId: null });
     expect(fixture.plannerProjection).toHaveBeenCalledTimes(1);
-    expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, fixture.input.inputId, expect.arrayContaining([expect.objectContaining({ source_input_id: fixture.input.inputId, attempt_index: 0 })]), { assistantOutputIds: [], terminalConversationOutputId: null });
+    expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, 'primary', fixture.input.inputId, expect.arrayContaining([expect.objectContaining({ source_input_id: fixture.input.inputId, attempt_index: 0 })]), { assistantOutputIds: [], terminalConversationOutputId: null });
     const conversation = readConversation(fixture.root, fixture.input.sessionId);
     expect(conversation.sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
     expect(conversation.effectiveCompactedHistory).toBeNull();
@@ -223,7 +222,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     expect(terminal).toHaveBeenCalledTimes(1);
     expect(terminal.mock.calls[0]![0].input).toBe(p1);
     expect(readConversation(root, input.sessionId).sourceRows.filter((row) => row.kind === 'model_issue')).toHaveLength(1);
-    const providerRows = readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: string; data: { source_input_id?: string } }> }).rows).filter((row) => row.type === 'provider_exchange' && row.data.source_input_id === input.inputId);
+    const providerRows = readFileSync(providerExchangeFile(root, input.sessionId), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: string; data: { source_input_id?: string } }> }).rows).filter((row) => row.type === 'provider_exchange' && row.data.source_input_id === input.inputId);
     expect(providerRows).toHaveLength(1);
   });
 
@@ -371,6 +370,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
     expect(fixture.plannerProjection).toHaveBeenCalledTimes(1);
     expect(fixture.plannerProjection).toHaveBeenCalledWith(
       fixture.input.sessionId,
+      'primary',
       fixture.input.inputId,
       fixture.firstFailure.provider_exchanges,
       { assistantOutputIds: [], terminalConversationOutputId: issues[0]!.id },
@@ -400,8 +400,8 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
     expect(fixture.resume).toHaveBeenCalledTimes(1);
     expect(terminal).not.toHaveBeenCalled();
     expect(fixture.plannerProjection).toHaveBeenCalledTimes(1);
-    expect(fixture.plannerProjection.mock.calls[0]![2]).toEqual(attempts);
-    expect(fixture.plannerProjection.mock.calls[0]![2].map((entry: ProviderExchangeAttempt) => [entry.source_input_id, entry.attempt_index])).toEqual([[fixture.input.inputId, 0], [fixture.input.inputId, 1]]);
+    expect(fixture.plannerProjection.mock.calls[0]![3]).toEqual(attempts);
+    expect(fixture.plannerProjection.mock.calls[0]![3].map((entry: ProviderExchangeAttempt) => [entry.source_input_id, entry.attempt_index])).toEqual([[fixture.input.inputId, 0], [fixture.input.inputId, 1]]);
     expect(readConversation(fixture.root, fixture.input.sessionId).sourceRows.filter((row) => row.kind === 'tool_call')).toHaveLength(1);
   });
 

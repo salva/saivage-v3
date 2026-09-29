@@ -57,7 +57,7 @@ export interface LLMProviderPort {
   resumeAdmittedExecution(preparation: AdmittedRecoveryPreparation, signal: AbortSignal): Promise<ProviderTurnCompletion>;
   preflightPinnedContentPolicyRequest(input: LlmInvocationInput, signal: AbortSignal): PinnedContentPolicyPreflight;
   executePinnedContentPolicyRequest(preflight: PinnedAdmittedContentPolicyRequest, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void;
+  projectProviderExchanges?(ownerSessionId: ConversationSessionId, purpose: 'primary', sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void;
 }
 
 export interface CompactorPort {
@@ -771,7 +771,7 @@ export class ConversationLLMActor {
     const call = result.tool_calls[0]!; const resultPolicy = selectInvocationResultPolicy(input, call.function.name); const appended = appendLlmTurnToolCallBatch(this.conversations, input, call, resultPolicy, completion.provider_private_context); this.#projectProviderExchanges(input, completion.provider_exchanges, { assistantOutputIds: [appended.id], terminalConversationOutputId: null });
     return { kind: 'tool_call', input, result, toolCallArguments: call.function.arguments, resultPolicy };
   }
-  #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, context); }
+  #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, 'primary', input.inputId, attempts, context); }
   async #compact(operation: InvocationOperation, strategy: CompactionStrategy, input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<CompactionResult> {
     if (this.#phase.kind !== 'invoking' || this.#phase.operation !== operation || operation.lease === null) throw new Error(`LLMActor '${this.agentId}' cannot start compaction without current invocation ownership.`);
     if (this.#compactionOwner !== null || this.#compactionProgress !== null) throw new Error(`LLMActor '${this.agentId}' already owns compaction progress.`);

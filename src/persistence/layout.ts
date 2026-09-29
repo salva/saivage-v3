@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { cardIdSegments } from '../schemas/card-id.js';
 import { recordStreamFilename, type RecordName } from '../schemas/record-name.js';
+import { conversationSessionIdentity, type ConversationSessionId } from '../schemas/conversation-session-id.js';
 
 const SAIVAGE_RELATIVE_DIR = '.saivage';
 export const SAIVAGE_CARDS_RELATIVE_DIR = '.saivage/cards';
@@ -45,6 +46,11 @@ export function globalAgentConversationRoot(projectRoot: string, agentName:strin
 export function globalAgentConversationVersionIndexFile(projectRoot: string, agentName:string): string { return join(globalAgentConversationRoot(projectRoot, agentName), 'index.json'); }
 export function globalAgentConversationVersionsRoot(projectRoot: string, agentName:string): string { return join(globalAgentConversationRoot(projectRoot, agentName), 'versions'); }
 export function globalAgentConversationVersionFile(projectRoot: string, agentName:string, filename:string): string { return join(globalAgentConversationVersionsRoot(projectRoot, agentName), filename); }
+
+export function providerExchangeFile(projectRoot: string, sessionId: ConversationSessionId): string {
+  const { agentName, cardId } = conversationSessionIdentity(sessionId);
+  return join(cardId === null ? globalAgentConversationRoot(projectRoot, agentName) : cardConversationRoot(projectRoot, cardId, agentName), 'provider-exchange.jsonl');
+}
 
 export function saivageLogsRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'logs');

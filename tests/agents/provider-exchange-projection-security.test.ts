@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log.js';
-import { readAppLogEntries } from '../../src/persistence/app-log.js';
-import { appLogFile } from '../../src/persistence/layout.js';
+import { providerExchangeFile } from '../../src/persistence/layout.js';
+import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
+import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
+import { dirname } from 'node:path';
+import type { ConversationSessionId } from '../../src/schemas/index.js';
 import type { FreshnessEffects } from '../../src/application/freshness-effects.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
@@ -38,50 +41,50 @@ describe('provider exchange publication security projection', () => {
     const root = projectRoot();
     const readableCounts: number[] = [];
     const freshness: Pick<FreshnessEffects, 'llmExchangeChanged'> = {
-      llmExchangeChanged: jest.fn(() => {
-        readableCounts.push(readAppLogEntries(root, 'provider_exchange').length);
+      llmExchangeChanged: jest.fn((owner: ConversationSessionId) => {
+        readableCounts.push(readProviderExchangeEntries(root, owner).length);
       }),
     };
     const service = invocationService(root, freshness);
 
-    service.projectProviderExchanges('agent:planner:project', sourceInputId, providerAttempts(), noOutputs);
+    service.projectProviderExchanges('agent:planner:project', 'primary', sourceInputId, providerAttempts(), noOutputs);
     expect(readableCounts).toEqual([1, 2]);
-    expect(readAppLogEntries(root, 'provider_exchange').map((row) => row.data.attempt_index)).toEqual([0, 1]);
+    expect(readProviderExchangeEntries(root, sessionId).map((row) => row.data.attempt_index)).toEqual([0, 1]);
 
-    for (const [ordinal, session] of ['agent:analyst:global', 'agent:reviewer:project', 'agent:executor:project'].entries()) {
+    for (const [ordinal, session] of (['agent:analyst:global', 'agent:reviewer:project', 'agent:executor:project'] as const).entries()) {
       const input = `canonical-${ordinal}`;
-      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], noOutputs);
+      service.projectProviderExchanges(session, 'primary', input, [attemptFor(input, ordinal)], noOutputs);
     }
-    expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
+    expect(readableCounts).toEqual([1, 2, 1, 1, 1]);
 
-    for (const [ordinal, session] of ['summary:round-1', 'summary:merge', 'provider:other'].entries()) {
-      const input = `non-agent-${ordinal}`;
-      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], noOutputs);
+    for (const ordinal of [0, 1, 2]) {
+      const input = `summary-${ordinal}`;
+      service.projectProviderExchanges(sessionId, 'internal-summary', input, [attemptFor(input, ordinal)], noOutputs);
     }
-    expect(readAppLogEntries(root, 'provider_exchange')).toHaveLength(8);
-    expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
+    expect(readProviderExchangeEntries(root, sessionId)).toHaveLength(5);
+    expect(readableCounts).toEqual([1, 2, 1, 1, 1]);
 
-    service.projectProviderExchanges('agent:planner:project', 'empty', [], noOutputs);
+    service.projectProviderExchanges('agent:planner:project', 'primary', 'empty', [], noOutputs);
     expect(readableCounts).toHaveLength(5);
   });
 
   it('publishes a duplicate canonical exchange and then fails its post-commit complete read before later attempts', () => {
     const root = projectRoot();
     const llmExchangeChanged = jest.fn(() => {
-      readAppLogEntries(root, 'provider_exchange');
+      readProviderExchangeEntries(root, sessionId);
     });
     const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
-    service.projectProviderExchanges(sessionId, sourceInputId, [providerAttempts()[0]!], noOutputs);
+    service.projectProviderExchanges(sessionId, 'primary', sourceInputId, [providerAttempts()[0]!], noOutputs);
 
-    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, providerAttempts(), noOutputs)).toThrow(/duplicate logical id/);
+    expect(() => service.projectProviderExchanges(sessionId, 'primary', sourceInputId, providerAttempts(), noOutputs)).toThrow(/duplicate logical id/);
     const rows = rawProviderRows(root);
     expect(rows.map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
     ]);
     expect(llmExchangeChanged).toHaveBeenCalledTimes(2);
-    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
+    expect(() => readProviderExchangeEntries(root, sessionId)).toThrow(/duplicate logical id/);
   });
 
   it('publishes a duplicate summary exchange without an Agent hint and rejects the complete read', () => {
@@ -90,14 +93,14 @@ describe('provider exchange publication security projection', () => {
     const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
     const attempt = attemptFor('summary-input', 0);
-    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs);
-    expect(() => service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs)).not.toThrow();
+    service.projectProviderExchanges(sessionId, 'internal-summary', 'summary-input', [attempt], noOutputs);
+    expect(() => service.projectProviderExchanges(sessionId, 'internal-summary', 'summary-input', [attempt], noOutputs)).not.toThrow();
     expect(rawProviderRows(root).map((row) => providerExchangeLogId(row.data))).toEqual([
-      providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
-      providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
+      providerExchangeLogId({ session_id: internalCompactionSummarySessionId(sessionId), source_input_id: 'summary-input', attempt_index: 0 }),
+      providerExchangeLogId({ session_id: internalCompactionSummarySessionId(sessionId), source_input_id: 'summary-input', attempt_index: 0 }),
     ]);
     expect(llmExchangeChanged).not.toHaveBeenCalled();
-    expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
+    expect(() => readProviderExchangeEntries(root, sessionId)).toThrow(/duplicate logical id/);
   });
 
   it('redacts classified diagnostic fields before durable append without changing identity or source attempts', () => {
@@ -107,10 +110,10 @@ describe('provider exchange publication security projection', () => {
     const originalAttempts = structuredClone(attempts);
     const assistantOutputIds = ['assistant-output-identity'];
 
-    service.projectProviderExchanges(sessionId, sourceInputId, attempts, { assistantOutputIds, terminalConversationOutputId: null });
+    service.projectProviderExchanges(sessionId, 'primary', sourceInputId, attempts, { assistantOutputIds, terminalConversationOutputId: null });
 
     expect(attempts).toEqual(originalAttempts);
-    const rows = readAppLogEntries(root, 'provider_exchange');
+    const rows = readProviderExchangeEntries(root, sessionId);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.data.attempt_index)).toEqual([0, 1]);
     expect(rows.map((row) => providerExchangeLogId(row.data))).toEqual([
@@ -166,7 +169,7 @@ describe('provider exchange publication security projection', () => {
     expect(successPayload.finish_reason).toBe('safe-finish tok_finish_secret');
     expect(successPayload.terminal_tool_fired).toBe('safe-tool tok_tool_secret');
 
-    const bytes = readFileSync(appLogFile(root), 'utf8');
+    const bytes = readFileSync(providerExchangeFile(root, sessionId), 'utf8');
     for (const secret of classifiedSecrets) expect(bytes).not.toContain(secret);
     expect(bytes).toContain('[REDACTED]');
     for (const identity of structuralIdentities) expect(bytes).toContain(identity);
@@ -226,9 +229,9 @@ describe('provider exchange publication security projection', () => {
     const attempt = { ...providerAttempts()[0]!, source_input_id: 'different-source-input' };
 
     let thrown: unknown;
-    try { service.projectProviderExchanges(sessionId, sourceInputId, [attempt], noOutputs); } catch (error) { thrown = error; }
+    try { service.projectProviderExchanges(sessionId, 'primary', sourceInputId, [attempt], noOutputs); } catch (error) { thrown = error; }
     expect(thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/does not match/) }));
-    expect(readAppLogEntries(root)).toEqual([]);
+    expect(readProviderExchangeEntries(root, sessionId)).toEqual([]);
   });
 });
 
@@ -298,11 +301,13 @@ function attemptFor(input: string, attemptIndex: number): ProviderExchangeAttemp
 function projectRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-provider-exchange-security-'));
   roots.push(root);
+  mkdirSync(dirname(providerExchangeFile(root, sessionId)), { recursive: true });
+  for (const agent of ['analyst', 'reviewer', 'executor']) mkdirSync(dirname(providerExchangeFile(root, `agent:${agent}:${agent === 'analyst' ? 'global' : 'project'}`)), { recursive: true });
   return root;
 }
 
 function rawProviderRows(root: string): Array<{ type: 'provider_exchange'; data: Parameters<typeof providerExchangeLogId>[0] }> {
-  return readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: 'provider_exchange'; data: Parameters<typeof providerExchangeLogId>[0] }> }).rows);
+  return readFileSync(providerExchangeFile(root, sessionId), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: 'provider_exchange'; data: Parameters<typeof providerExchangeLogId>[0] }> }).rows);
 }
 
 function invocationService(

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ConversationSessionIdSchema, canonicalJson, type AgentName } from '../schemas/index.js';
+import { canonicalJson, type AgentName, type ConversationSessionId } from '../schemas/index.js';
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
@@ -17,7 +17,8 @@ import {
   type ToolDefinition,
 } from './llm-contracts.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../contracts/provider-exchange.js';
-import { appendAppLogEntry } from '../persistence/app-log.js';
+import { appendProviderExchangeEntry } from '../persistence/provider-exchange-log.js';
+import { internalCompactionSummarySessionId } from '../contracts/provider-exchange-log.js';
 import { buildCandidateRequest, CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from './candidate-request.js';
 import type { InvocationRoutePass, PreparedCompaction } from '../runtime/actors/llm-invocation.js';
 import type { PreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
@@ -341,7 +342,8 @@ export class InvocationService {
   }
 
   projectProviderExchanges(
-    sessionId: string,
+    ownerSessionId: ConversationSessionId,
+    purpose: 'primary' | 'internal-summary',
     sourceInputId: string,
     attempts: ProviderExchangeAttempt[],
     context: ProviderExchangePublicationContext,
@@ -349,33 +351,23 @@ export class InvocationService {
     const hasOk = attempts.some((attempt) => attempt.status === 'ok');
     if (context.terminalConversationOutputId !== null && hasOk) throw new Error('A terminal conversation output id cannot be published with a successful provider attempt.');
     if (context.assistantOutputIds.length > 0 && !hasOk) throw new Error('Assistant output ids require a successful provider attempt.');
-    const parsedSessionId = ConversationSessionIdSchema.safeParse(sessionId);
+    const sessionId = purpose === 'primary' ? ownerSessionId : internalCompactionSummarySessionId(ownerSessionId);
     for (const attempt of attempts) {
-      appendAppLogEntry(this.projectRoot, 'provider_exchange', () => {
-        if (attempt.attempt_index === undefined)
-          throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
-        if (attempt.source_input_id !== sourceInputId)
-          throw new Error(
-            `Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`,
-          );
-        const payload = projectProviderExchangeForPublication(
-          attempt as ProviderExchangeAttempt & { attempt_index: number },
-          attempt.status === 'ok'
-            ? { assistantOutputIds: context.assistantOutputIds, terminalConversationOutputId: null }
-            : { assistantOutputIds: [], terminalConversationOutputId: hasOk ? null : context.terminalConversationOutputId },
-        );
-        return {
-          type: 'provider_exchange',
-          data: {
-            session_id: sessionId,
-            source_input_id: sourceInputId,
-            attempt_index: attempt.attempt_index,
-            timestamp: attempt.completed_at,
-            payload,
-          },
-        };
+      if (attempt.attempt_index === undefined)
+        throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
+      if (attempt.source_input_id !== sourceInputId)
+        throw new Error(`Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`);
+      const payload = projectProviderExchangeForPublication(
+        attempt as ProviderExchangeAttempt & { attempt_index: number },
+        attempt.status === 'ok'
+          ? { assistantOutputIds: context.assistantOutputIds, terminalConversationOutputId: null }
+          : { assistantOutputIds: [], terminalConversationOutputId: hasOk ? null : context.terminalConversationOutputId },
+      );
+      appendProviderExchangeEntry(this.projectRoot, ownerSessionId, {
+        type: 'provider_exchange' as const,
+        data: { session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload },
       });
-      if (parsedSessionId.success) this.freshness.llmExchangeChanged(parsedSessionId.data);
+      if (purpose === 'primary') this.freshness.llmExchangeChanged(ownerSessionId);
     }
   }
 

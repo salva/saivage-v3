@@ -122,9 +122,10 @@ describe('current runtime composition', () => {
     await provider.executeAdmittedWithRecovery(admission as never, signal);
     expect(admittedExecution).toHaveBeenCalledWith(admission, signal);
     const context = { assistantOutputIds: [], terminalConversationOutputId: null };
-    provider.projectProviderExchanges!('agent:planner:project', 'turn', [], context);
+    provider.projectProviderExchanges!('agent:planner:project', 'primary', 'turn', [], context);
     expect(projectProviderExchanges).toHaveBeenCalledWith(
       'agent:planner:project',
+      'primary',
       'turn',
       [],
       context,

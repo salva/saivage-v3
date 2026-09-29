@@ -10,7 +10,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/regist
 import { startApp, type App } from '../../src/boot/app.js';
 import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import { appLogFile } from '../../src/persistence/layout.js';
+import { providerExchangeFile } from '../../src/persistence/layout.js';
 
 const CLI = join(process.cwd(), 'src', 'cli.ts');
 const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -398,8 +398,17 @@ describe('disposable production-composition smoke', () => {
       expect(summaryRequests[2]!.messages.some((message) => message.content.includes('Later refreshed history after two distinct reads'))).toBe(true);
       const executorConversation = readConversation(root, 'agent:executor:card-a');
       expect(executorConversation.effectiveCompactedHistory?.summaryText).toContain('Refreshed history');
-      const internalExchanges = readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: string; data: { session_id?: string } }> }).rows).filter((row) => row.type === 'provider_exchange' && row.data.session_id?.startsWith('internal:compaction-summary:'));
+      const internalExchanges = readFileSync(providerExchangeFile(root, 'agent:executor:card-a'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: string; data: { session_id?: string } }> }).rows).filter((row) => row.type === 'provider_exchange' && row.data.session_id?.startsWith('internal:compaction-summary:'));
       expect(internalExchanges).toHaveLength(3);
+      const beforeRestart = await api(app, '/api/agents/agent%3Aexecutor%3Acard-a/llm-exchange');
+      expect(beforeRestart.status).toBe(200);
+      expect(beforeRestart.body.session_id).toBe('agent:executor:card-a');
+      expect(beforeRestart.body.exchange.status).toBe('ok');
+      expect(beforeRestart.body.exchange.model).toBe('executor-model');
+      await stop(app);
+      app = await start(root);
+      const afterRestart = await api(app, '/api/agents/agent%3Aexecutor%3Acard-a/llm-exchange');
+      expect(afterRestart).toEqual(beforeRestart);
 
       expect(offeredTools.get('analyst')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.analyst.tools);
       expect(offeredTools.get('planner')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.planner.tools.concat('emit_result'));

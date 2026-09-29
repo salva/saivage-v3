@@ -121,8 +121,18 @@ describe('strict app-log publication', () => {
     expect(log.appendEvent(event('distinct', '2026-07-20T00:00:02.000Z').data)).toEqual(event('distinct', '2026-07-20T00:00:02.000Z').data);
     expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(2);
     expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
-    expect(() => readAppLogEntries(projectRoot, 'provider_exchange')).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
+    expect(() => readAppLogEntries(projectRoot, 'event')).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
     expect(() => initializeAppLog(projectRoot)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
+  });
+
+  it('rejects a provider lane row in the two-lane app file instead of filtering it', () => {
+    const projectRoot = root();
+    const path = appLogFile(projectRoot);
+    mkdirSync(join(projectRoot, '.saivage'));
+    mkdirSync(join(projectRoot, '.saivage', 'logs'));
+    writeFileSync(path, '{"version":1,"type":"rows","rows":[{"type":"provider_exchange","data":{}}]}\n');
+    expect(() => readAppLogEntries(projectRoot, 'event')).toThrow(/malformed/);
+    expect(() => initializeAppLog(projectRoot)).toThrow(/malformed/);
   });
 
   it('keeps ordinary reads correction-free for an unterminated final suffix', () => {

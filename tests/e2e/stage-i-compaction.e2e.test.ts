@@ -570,7 +570,7 @@ function summaryProvider(args: {
       args.records.push(Object.freeze({ input, body: admitted.serializedRequest, hash: admitted.requestSha256, bytes: Buffer.byteLength(admitted.serializedRequest, 'utf8'), estimated: admitted.estimatedInputTokens, sourceBytes: ranges.reduce((sum, range) => sum + Buffer.byteLength(range.content, 'utf8'), 0), inheritedBytes: Buffer.byteLength(inheritedSummary(input) ?? '', 'utf8'), orientationBytes: input.providerConversation.messages.reduce((sum, message, index) => message.content.includes('[kind=prepared_context ') ? sum + Buffer.byteLength(bodies[index]!, 'utf8') : sum, 0), correction, ranges, returnedSummary: response.trim() }));
       return completion;
     },
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, context) => service.projectProviderExchanges(sessionId, sourceInputId, attempts, context),
+    projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) => service.projectProviderExchanges(sessionId, purpose, sourceInputId, attempts, context),
   };
 }
 

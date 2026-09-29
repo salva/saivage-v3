@@ -161,7 +161,7 @@ describe('ConversationLLMActor purpose authority',()=>{
     await expect(actor.turn(input,undefined,handoff)).resolves.toMatchObject({type:'result',result:{content:'safe answer'}});
     expect(completeTurn).toHaveBeenCalledTimes(2);
     expect(projectProviderExchanges).toHaveBeenCalledTimes(1);
-    expect(projectProviderExchanges.mock.calls[0]![2]).toMatchObject([{attempt_index:0,status:'error'},{attempt_index:1,status:'ok'}]);
+    expect(projectProviderExchanges.mock.calls[0]![3]).toMatchObject([{attempt_index:0,status:'error'},{attempt_index:1,status:'ok'}]);
     expect(handoff.mock.calls[0]![0].input.routePass).toEqual({kind:'pinned-content-policy-retry',candidate:CANDIDATE});
     expect(handoff.mock.calls[0]![0].input.providerConversation.messages.at(-1)).toMatchObject({kind:'synthetic_context',origin:'retry_notice'});
     expect(readConversation(projectRoot,input.sessionId).sourceRows.filter(row=>row.kind==='content_policy_retry')).toHaveLength(1);
@@ -171,7 +171,7 @@ describe('ConversationLLMActor purpose authority',()=>{
   it('publishes one terminal marker before one combined refusal projection and hands off BLOCKED',async()=>{
     const {projectRoot,input}=cardFixture();
     const effects:string[]=[];
-    const projectProviderExchanges=jest.fn((_session:string,_source:string,attempts:ProviderExchangeAttempt[],context:unknown)=>{effects.push('exchange');expect(attempts).toMatchObject([{attempt_index:0,status:'error'},{attempt_index:1,status:'error'}]);expect(context).toEqual({assistantOutputIds:[],terminalConversationOutputId:expect.any(String)});});
+    const projectProviderExchanges=jest.fn((_session:ConversationSessionId,_purpose:'primary',_source:string,attempts:ProviderExchangeAttempt[],context:unknown)=>{effects.push('exchange');expect(attempts).toMatchObject([{attempt_index:0,status:'error'},{attempt_index:1,status:'error'}]);expect(context).toEqual({assistantOutputIds:[],terminalConversationOutputId:expect.any(String)});});
     const completeTurn=jest.fn(async(value:LlmInvocationInput)=>{if(completeTurn.mock.calls.length===1)throw refusal(input.inputId,'first-raw');expect(value.routePass.kind).toBe('pinned-content-policy-retry');throw refusal(input.inputId,'second-raw');});
     const actor=cardActor(projectRoot,{...scriptedAdmissionProvider(completeTurn),projectProviderExchanges});
     const handoff=jest.fn<LlmTerminalHandoff>(()=>{effects.push('handoff');});

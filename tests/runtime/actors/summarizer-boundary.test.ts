@@ -5,7 +5,6 @@ import { agentMessageSchema, type AgentMessage, type ConversationSessionId } fro
 import { ACTIVITY_ROW_POLICY, toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import {
-  internalCompactionSummarySessionId,
   assertSummarizerCapabilities,
   SummaryResultValidationError,
   SummaryPromptPolicyBlockedError,
@@ -15,6 +14,7 @@ import {
   type SummaryRequestSerialization,
   type SummarizerProviderPort,
 } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { internalCompactionSummarySessionId } from '../../../src/contracts/provider-exchange-log.js';
 import { createSequentialRefineAccumulator as createAccumulatorWithoutProgress } from '../../../src/runtime/actors/compaction/refine-accumulator.js';
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
@@ -98,7 +98,7 @@ describe('compaction summarizer projection boundary', () => {
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBe(providerFailure);
     expect(projected).toHaveBeenCalledTimes(1);
-    expect(projected).toHaveBeenCalledWith(internalCompactionSummarySessionId(SESSION), expect.any(String), [expect.anything()], { assistantOutputIds: [], terminalConversationOutputId: null });
+    expect(projected).toHaveBeenCalledWith(SESSION, 'internal-summary', expect.any(String), [expect.anything()], { assistantOutputIds: [], terminalConversationOutputId: null });
 
     const publicationFailure = new Error('summary evidence publication failed');
     await expect(createSequentialRefineAccumulator({
@@ -165,8 +165,8 @@ describe('compaction summarizer projection boundary', () => {
     expect((failure as SummaryPromptPolicyBlockedError).summaryInputId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(completeTurn).toHaveBeenCalledTimes(1);
     expect(projected).toHaveBeenCalledTimes(1);
-    expect(projected.mock.calls[0]![2]).toHaveLength(2);
-    expect(projected.mock.calls[0]![2].map((entry: ProviderExchangeAttempt) => entry.attempt_index)).toEqual([0, 1]);
+    expect(projected.mock.calls[0]![3]).toHaveLength(2);
+    expect(projected.mock.calls[0]![3].map((entry: ProviderExchangeAttempt) => entry.attempt_index)).toEqual([0, 1]);
     expect(accumulator.invocationCount).toBe(1);
     expect(accumulator.correctionCount).toBe(0);
 

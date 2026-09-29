@@ -1,3 +1,4 @@
+import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -191,7 +192,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
 
       const appLog = readAppLogEntries(projectRoot);
       expect(appLog).toContainEqual(expect.objectContaining({ type: 'event', data: expect.objectContaining({ id: 'seed-current-app-log-event' }) }));
-      const exchanges = readAppLogEntries(projectRoot, 'provider_exchange');
+      const exchanges = readProviderExchangeEntries(projectRoot, app.analystSessionId);
       expect(exchanges).toHaveLength(2);
       const toolCallRow = rows[firstToolCall]!;
       const issueRow = rows[continuationIssue]!;

@@ -110,6 +110,11 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 ## Notable current behaviors
 
+- Provider-exchange evidence now belongs to each exact conversation session rather
+  than the app log; adopting this layout from an existing three-lane app log is a
+  **reset-only, history-losing cutover**, not a same-format upgrade. Source
+  completion is not deployment or loss authorization. See the
+  [stopped-reset procedure](docs/runbook/index.md#storage-and-interruption).
 - Conversation compaction is model-aware (`context_utilization_fraction` 0.80,
   `trigger_fraction` 0.90, `tail_fraction` 0.25) with one contextual
   sequential-refine accumulator inside a shared 16-logical-call bound. A narrowly

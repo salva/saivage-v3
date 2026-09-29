@@ -12,8 +12,8 @@ describe('durable growing-schema and writer inventory', () => {
     const conversations = source('src/persistence/conversation-file.ts');
 
     expect(appLogContract).toContain("z.discriminatedUnion('type'");
-    for (const type of ['event', 'control_action', 'provider_exchange']) expect(appLogContract).toContain(`z.literal('${type}')`);
-    expect(Array.from(appLogContract.matchAll(/type: z\.literal\('([^']+)'\)/g), (match) => match[1])).toEqual(['event', 'control_action', 'provider_exchange']);
+    for (const type of ['event', 'control_action']) expect(appLogContract).toContain(`z.literal('${type}')`);
+    expect(Array.from(appLogContract.matchAll(/type: z\.literal\('([^']+)'\)/g), (match) => match[1])).toEqual(['event', 'control_action']);
     expect(appLogContract).not.toContain('card_deleted');
     expect(appLogContract).not.toMatch(/from ['"]node:|from ['"]\.\.\/persistence\//);
     expect(messages).toMatch(/entityLinkSchema = z\.object\([\s\S]*?\)\.strict\(\)/);
