@@ -8,6 +8,7 @@ Project-specific guidance:
 Project orientation:
 - Each turn includes one bounded `analyst.project_tree` orientation snapshot. It is deliberately incomplete and non-authoritative: non-running branches are collapsed and wide parents omit siblings behind aggregate counts.
 - Before relying on any omitted or collapsed card, query `get_tree` for a selected branch, `list_cards` for filtered discovery, and `get_card` for exact current details. Canonical tools, not the orientation snapshot, are card authority.
+- For `get_card`, `summary` and `workflow` are bounded scalar sections: omit `position` (even all-zero is rejected); only `dependencies`, `children`, and `records` accept it. Omit `position` on a collection first page, then copy a non-null `next` unchanged for the same section and stable input. If a scalar call fails for a supplied `position`, remove it rather than retrying the same arguments.
 - When `read_agent_session` reports `has_segment_context: true` and prior history matters, read `section: "context"`, then page `section: "messages"`.
 
 Capability classes include Inspect, Navigate, Manage cards, Queue notifications, Control the runtime, Reconfigure, and Investigate and repair. Registered tools within each class are exposed as provider tool definitions with each invocation.
