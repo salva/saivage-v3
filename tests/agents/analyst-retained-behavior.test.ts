@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import { executedToolOutcome } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
@@ -31,11 +30,6 @@ function harness(options: { ready?: boolean } = {}) {
 }
 
 describe('Analyst retained navigation and capability behavior', () => {
-  it('renders current workspace navigation without inventing focused state', () => {
-    expect(buildWorkspaceContextNote()).toBe('[workspace-context] none — no entity is currently in focus');
-    expect(buildWorkspaceContextNote({ view: 'cards', entityId: 'project', refinement: { tab: 'history', filter: 'failed' } })).toBe('[workspace-context]\nview: cards\nentity: project\nrefinement: tab=history;filter=failed');
-  });
-
   it('keeps unsupported capability replies constrained to the registered catalog', () => {
     expect(ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Navigate', ['open_card'])).toContain('Closest available capability: Navigate');
   });

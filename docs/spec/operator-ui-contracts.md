@@ -111,10 +111,7 @@ contracts the current Card Cockpit implements.
   System Processes; `agent_session_list` → System Participants. Failed or
   malformed navigation results are inert. Logical Back pops without
   re-recording the restored destination.
-- Analyst chat context is `{view, entityId, refinement}` naming the focused
-  resource (cockpit/files/system, exact card/session/file identity, explicit
-  facet/entry refinements). Displayed context is not evidence the Analyst
-  has read it.
+ - Analyst chat context is a detached `{view, entityId, refinement}` copy captured at Send, not a live route. Views are cockpit/files/system or null; entity identity is opaque and refinements are opaque string metadata (not evidence of reading a facet or entry). The strict serialized context is bounded to 2048 UTF-8 bytes; invalid input preserves the draft and reports the send error, without truncating identity or retrying. Server preparation may add only a bounded linked-card or owning-card snapshot for exact cockpit card/session identity; Files/System identity supplies no content. Displayed context is not evidence the Analyst has read it.
 - The shared card header stays compact on every cockpit facet and on the
   exact card-session reader: title, type, one lifecycle badge, exact identity,
   represented path, and one plain-language **Observed workflow step** lead.
@@ -257,6 +254,7 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 - The Analyst is shared, not a private browser task. Busy denial preserves
   newer draft edits, is not queued or retried, and browser closure is not
   cancellation. Identity comes from `GET /api/chat`.
+- A local UTF-8 context-limit failure or server redaction-budget HTTP 400 keeps the unsent draft and displays the ordinary send error; neither retries nor submits a no-focus substitute. A newly accepted request by another client captures that client's own route independently.
 - Readiness explanations distinguish settled paused/stopped from other
   lifecycles and never act as HTTP health, a reservation, or an
   operation-specific admission gate.

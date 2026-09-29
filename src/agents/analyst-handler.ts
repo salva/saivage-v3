@@ -38,39 +38,10 @@ import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../co
 import { cardParentId } from '../schemas/card-id.js';
 import type { RuntimeStatus } from '../schemas/index.js';
 import { settleReturnedToolCallWithoutEntry } from '../runtime/actors/returned-tool-call-settlement.js';
+import type { ChatWorkspaceContext } from '../contracts/operator-api-chats.js';
+import { buildAnalystWorkspaceFocus, type WorkspaceFocusResult } from '../application/read-models/analyst-workspace-focus.js';
+import { conversationSha256 } from '../persistence/canonical-conversation-artifacts.js';
 
-
-interface WorkspaceContext {
-  view: string | null;
-  entityId: string | null;
-  refinement: Record<string, string> | null;
-}
-
-function isWorkspaceContextEmpty(workspaceContext?: WorkspaceContext): boolean {
-  if (!workspaceContext) return true;
-  const refinement = workspaceContext.refinement;
-  return (
-    workspaceContext.view === null
-    && workspaceContext.entityId === null
-    && (!refinement || Object.keys(refinement).length === 0)
-  );
-}
-
-export function buildWorkspaceContextNote(workspaceContext?: WorkspaceContext): string {
-  if (isWorkspaceContextEmpty(workspaceContext)) return '[workspace-context] none — no entity is currently in focus';
-  const lines = ['[workspace-context]'];
-  if (workspaceContext?.view !== null && workspaceContext?.view !== undefined) lines.push(`view: ${workspaceContext.view}`);
-  if (workspaceContext?.entityId !== null && workspaceContext?.entityId !== undefined)
-    lines.push(`entity: ${workspaceContext.entityId}`);
-  const refinement = workspaceContext?.refinement;
-  if (refinement && Object.keys(refinement).length > 0) {
-    lines.push(
-      `refinement: ${Object.entries(refinement).map(([key, value]) => `${key}=${value}`)
-        .join(';')}`,
-    );
-  }
-  return lines.join('\n');
-}
 
 interface AnalystResponse {
   sessionId: GlobalConversationSessionId;
@@ -86,7 +57,7 @@ interface AnalystResponse {
 
 export interface AnalystTurnInput {
   userContent: string;
-  workspaceContext?: WorkspaceContext;
+  workspaceContext?: ChatWorkspaceContext;
 }
 
 type AnalystTurnResult = AnalystResponse;
@@ -141,6 +112,10 @@ export class AnalystTurnBusyError extends Error {
     super('Another Analyst turn is active. Retry after it finishes.');
     this.name = 'AnalystTurnBusyError';
   }
+}
+
+export class AnalystWorkspaceContextBudgetError extends Error {
+  constructor() { super('Workspace context cannot fit safely after redaction.'); this.name = 'AnalystWorkspaceContextBudgetError'; }
 }
 
 export class AnalystSession {
@@ -254,7 +229,7 @@ export class AnalystSession {
       this.#deliverPublicationFatal(error);
       throw new RecoverablePreparationError(error);
     }
-    const preparedInput = this.prepareInvocationInput(surface);
+    const preparedInput = this.prepareInvocationInput(surface, operation.input.workspaceContext);
     this.assertCurrent(operation, signal);
     this.settlePriorFinalCallForSubmission();
     operation.step = { kind: 'starting', ingress: 'publishing' };
@@ -263,7 +238,6 @@ export class AnalystSession {
       buildAnalystIngressRows(
         this.#sessionId,
         operation.acceptedOperationId,
-        buildWorkspaceContextNote(operation.input.workspaceContext),
         operation.input.userContent,
       ),
     );
@@ -462,10 +436,14 @@ export class AnalystSession {
 
   private prepareInvocationInput(
     surface: InvocationSurface,
+    workspaceContext?: ChatWorkspaceContext,
   ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface);
     const compiledToolContracts = surfaceToolContracts(surface);
-    const orientation = buildAnalystOrientationSnapshot(this.orientationCards(), this.#runtimeCurrent());
+    const cards = this.#cardStore.list();
+    const orientation = buildAnalystOrientationSnapshot(this.orientationCards(cards), this.#runtimeCurrent());
+    const focus = buildAnalystWorkspaceFocus(workspaceContext, cards);
+    if (focus.kind === 'budget_exceeded') throw new RecoverablePreparationError(new AnalystWorkspaceContextBudgetError());
     const systemPrompt = this.#promptTemplates.render({kind:'global-agent'}, this.#agentName, {
       vocabularySnippet: formatVocabularySnippet(this.#cardTypeVocabulary),
     });
@@ -491,7 +469,7 @@ export class AnalystSession {
         instructionText: systemPrompt,
         terminalToolNames: [],
         compiledTools: compiledToolContracts,
-        dynamicBlocks: [this.projectTreeBlock(orientation)],
+        dynamicBlocks: [this.projectTreeBlock(orientation), this.workspaceFocusBlock(focus)],
         preparedCompaction,
       }),
       capabilityRequest: this.#capabilityRequest,
@@ -500,8 +478,7 @@ export class AnalystSession {
     };
   }
 
-  private orientationCards(): readonly AnalystOrientationCard[] {
-    const cards = this.#cardStore.list();
+  private orientationCards(cards: ReturnType<CardService['list']>): readonly AnalystOrientationCard[] {
     const activeIds = new Set(cards.map((card) => card.id));
     return cards.map((card) => ({
       id: card.id,
@@ -512,6 +489,15 @@ export class AnalystSession {
       version_seq: card.version_seq,
       children: card.active_child_order.filter((id) => activeIds.has(id)),
     }));
+  }
+
+  private workspaceFocusBlock(focus: Extract<WorkspaceFocusResult, { kind: 'rendered' }>): ContextBlock {
+    return Object.freeze({
+      id: 'analyst.workspace_focus', role: 'system', content: focus.content,
+      storage: 'activation_local',
+      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.workspace_focus', contentSha256: conversationSha256(focus.content) }),
+      audience: 'primary_and_summarizer', evidence: Object.freeze({ kind: 'none' }),
+    });
   }
 
   private projectTreeBlock(orientation: AnalystOrientationSnapshot): ContextBlock {

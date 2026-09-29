@@ -47,6 +47,36 @@ describe('analyst chat workspace context', () => {
     expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('hello', { view: null, entityId: null, refinement: null });
   });
 
+  it('captures a detached route and does not change the sent focus during an in-flight request', async () => {
+    const route = useWorkspaceRouteStore();
+    route.view = 'cockpit'; route.entityId = 'card-a'; route.refinement = { tab: 'history' };
+    let release!: (value: { toolInvocations: []; restart: null }) => void;
+    apiMocks.sendChatMessage.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const chat = useAnalystChat(); chat.setDraft('this one');
+    const sending = chat.sendMessage();
+    const captured = apiMocks.sendChatMessage.mock.calls[0]![1];
+    route.entityId = 'card-b'; route.refinement!.tab = 'other';
+    expect(captured).toEqual({ view: 'cockpit', entityId: 'card-a', refinement: { tab: 'history' } });
+    release({ toolInvocations: [], restart: null }); await sending;
+  });
+
+  it('retains the draft without sending when the captured UTF-8 route exceeds the limit', async () => {
+    const route = useWorkspaceRouteStore(); route.view = 'files'; route.entityId = '🧭'.repeat(520);
+    const chat = useAnalystChat(); chat.setDraft('inspect this');
+    await expect(chat.sendMessage()).rejects.toThrow();
+    expect(chat.draft).toBe('inspect this');
+    expect(apiMocks.sendChatMessage).not.toHaveBeenCalled();
+    expect(chat.sendError).not.toBeNull();
+  });
+
+  it('retains the draft on a server-side redaction budget rejection without retry', async () => {
+    apiMocks.sendChatMessage.mockRejectedValueOnce(new Error('Workspace context cannot fit safely after redaction.'));
+    const chat = useAnalystChat(); chat.setDraft('inspect this');
+    await expect(chat.sendMessage()).rejects.toThrow('Workspace context cannot fit safely');
+    expect(chat.draft).toBe('inspect this');
+    expect(apiMocks.sendChatMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('dispatches a successful navigate_workspace invocation with the full data payload', async () => {
     const target = { kind: 'card' as const, id: '22222222-2222-4222-8222-222222222222' };
     const payload = { intent: 'navigate_workspace' as const, target };

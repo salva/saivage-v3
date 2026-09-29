@@ -15,7 +15,7 @@ import {
 import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
 import type { ConversationSessionId } from '../api/contracts';
-import { DURABLE_PRIMARY_CONTENT_POLICY, workspaceNavigationIntentSchema } from '../api/contracts';
+import { ChatWorkspaceContextSchema, DURABLE_PRIMARY_CONTENT_POLICY, workspaceNavigationIntentSchema } from '../api/contracts';
 import { createConversationFetch, type ConversationFrame } from './conversation-fetch';
 import { optimisticUserRoundId } from '../utils/round-id';
 
@@ -276,11 +276,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         refinement: null,
         routeName: null,
       };
-      const workspaceContext = {
+      const workspaceContext = ChatWorkspaceContextSchema.parse({
         view: currentRoute.view,
         entityId: currentRoute.entityId,
-        refinement: currentRoute.refinement,
-      };
+        refinement: currentRoute.refinement === null ? null : { ...currentRoute.refinement },
+      });
       draft.value = '';
       const optimisticMessage = optimisticUserMessage(
         activeSessionId.value,

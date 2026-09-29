@@ -300,7 +300,7 @@ describe('operator chat route request contracts', () => {
 
     appendConversationBatch(
       { projectRoot },
-      buildAnalystIngressRows('agent:analyst:global', sourceInputId, 'workspace', 'invoke'),
+      buildAnalystIngressRows('agent:analyst:global', sourceInputId, 'invoke'),
     );
     appendConversationBatch({ projectRoot }, [
       {
@@ -453,6 +453,42 @@ describe('operator chat route request contracts', () => {
     expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'http-call')).toHaveLength(1);
   });
 
+  it('rejects redaction-expanded focus before effects and reuses the same Analyst for no-focus', async () => {
+    await fastify.close();
+    const providerCall = jest.fn(async (): Promise<ProviderTurnCompletion> => ({ result: { kind: 'message', content: 'answered' }, provider_exchanges: [] }));
+    const provider = scriptedAdmissionProvider(providerCall);
+    const cardStore = new CardService(projectRoot);
+    const list = jest.spyOn(cardStore, 'list');
+    const session = new AnalystSession({
+      cardTypeVocabulary: ['project'], fatalPort: testApplicationFatalPort, sessionId: 'agent:analyst:global', agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true }, candidateChain: [{ provider: 'test', account: null, model: 'test-model' }], routeUsableInputTokens: 80_000, promptTemplates: { render: () => 'Saivage Analyst' }, restartCapability: { available: false }, provider, conversations: { projectRoot }, compactionPolicy: testCompactionPolicy, compactor: { shouldCompact: () => false, compact: async () => { throw new Error('unexpected compaction'); } }, summarizerProvider: unusedSummarizerProvider, cardStore, runtimeCurrent: () => ({ status: 'stopped', currentCardId: null }), runtimeProjectionChanged() {}, createInvocationSurface: () => ({ agentName: 'analyst', tools: new Map(), providers: [] }), shutdownProcesses: async () => {},
+    });
+    const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => [], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
+    fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    await fastify.ready();
+    const refinement = Object.fromEntries(Array.from({ length: 105 }, (_, i) => [`k${i}`, 'sk-a']));
+    const bad = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'bad', workspaceContext: { view: 'files', entityId: null, refinement } } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toEqual({ error: 'ValidationError', message: 'Workspace context cannot fit safely after redaction.', issues: [{ path: 'workspaceContext', message: 'Workspace context cannot fit safely after redaction.' }] });
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows).toHaveLength(0);
+    expect(providerCall).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
+    const good = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'good' } });
+    expect(good.statusCode).toBe(200);
+    expect(providerCall).toHaveBeenCalledTimes(1);
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows.map((row) => row.kind)).toEqual(['activity', 'text', 'activity', 'text']);
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows.some((row) => row.content.includes('workspace_focus'))).toBe(false);
+    const strictFailure = new Error('strict card-list read failed');
+    list.mockImplementationOnce(() => { throw strictFailure; });
+    const strict = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'strict failure' } });
+    expect(strict.statusCode).toBe(500);
+    expect(strict.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    const retainedFailure = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'cannot reuse failed owner' } });
+    expect(retainedFailure.statusCode).toBe(500);
+    expect(providerCall).toHaveBeenCalledTimes(1);
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows.filter((row) => row.role === 'user')).toHaveLength(1);
+  });
+
   it('maps only typed Analyst overlap to the exact content-free 409 contract', async () => {
     submit.mockRejectedValueOnce(new AnalystTurnBusyError());
     const response = await fastify.inject({
@@ -591,7 +627,6 @@ describe('operator chat route request contracts', () => {
     const ingress = buildAnalystIngressRows(
       'agent:analyst:global',
       inputId,
-      'workspace',
       'question',
     );
     appendConversationBatch({ projectRoot }, ingress);
@@ -617,7 +652,7 @@ describe('operator chat route request contracts', () => {
         round_id: `r-assistant-${inputId.replaceAll('-', '')}`,
         message_index: 3,
         block_index: 0,
-        timestamp: ingress[2].timestamp,
+        timestamp: ingress[1].timestamp,
       },
     ]);
     const response = await fastify.inject({

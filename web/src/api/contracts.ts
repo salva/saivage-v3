@@ -4,6 +4,7 @@ export {
   ProcessViewSchema,
   DebugGraphsResponseSchema,
   AnalystTurnBusyErrorSchema,
+  ChatWorkspaceContextSchema,
   CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';
 

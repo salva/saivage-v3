@@ -82,13 +82,13 @@ describe('application startup generated-state admission', () => {
     cards.setStatus('project', 'running');
     const sessionId = 'agent:analyst:global' as const;
     const inputId = '11111111-1111-4111-8111-111111111111';
-    const ingress = buildAnalystIngressRows(sessionId, inputId, 'workspace', 'question');
+    const ingress = buildAnalystIngressRows(sessionId, inputId, 'question');
     appendConversationBatch({ projectRoot: root }, ingress);
     appendConversationBatch({ projectRoot: root }, [{
       id: `${inputId}:tool-call:call-startup`, session_id: sessionId, role: 'assistant', kind: 'tool_call',
       tool: 'resume_runtime', tool_call_id: 'call-startup', context_policy: toolCallRowPolicy(),
       content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-startup', type: 'function', function: { name: 'resume_runtime', arguments: '{}' } }] }),
-      round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[2].timestamp,
+      round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[1].timestamp,
     }]);
     const segment = readCurrentConversationSegment(root, sessionId)!;
     const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);

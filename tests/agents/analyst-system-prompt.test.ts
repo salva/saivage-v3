@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
+import { buildAnalystWorkspaceFocus } from '../../src/application/read-models/analyst-workspace-focus.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
 
@@ -9,8 +9,7 @@ describe('analyst workspace-context prompt contract', () => {
     const prompt = createTestPromptTemplateRegistry().render({kind:'global-agent'}, 'analyst', {
       vocabularySnippet: formatVocabularySnippet(['project','goal','architecture','code','test','doc','data','research','ops']),
     });
-    expect(prompt).toContain('Resolve referents from the immediate conversation and the per-turn [workspace-context] header');
-    expect(prompt).toContain('none — no entity is currently in focus');
+    expect(prompt).toContain('analyst.workspace_focus');
     expect(prompt).toContain('ask exactly one clarifying question');
     expect(prompt).toContain('reopening done, failed, or blocked cards to changed without editing content');
     expect(prompt).toContain('Reopenable card status: blocked | done | failed. Reopen target status: changed');
@@ -22,16 +21,11 @@ describe('analyst workspace-context prompt contract', () => {
   });
 
   it('renders the no-entity workspace-context fixture deterministically', () => {
-    expect(buildWorkspaceContextNote()).toBe('[workspace-context] none — no entity is currently in focus');
-    expect(buildWorkspaceContextNote({ view: null, entityId: null, refinement: null })).toBe('[workspace-context] none — no entity is currently in focus');
+    expect(buildAnalystWorkspaceFocus(undefined, [])).toMatchObject({ kind: 'rendered', content: expect.stringContaining('no_focus') });
+    expect(buildAnalystWorkspaceFocus({ view: null, entityId: null, refinement: null }, [])).toMatchObject({ kind: 'rendered', content: expect.stringContaining('no_focus') });
   });
 
   it('renders a populated workspace-context fixture deterministically', () => {
-    expect(buildWorkspaceContextNote({ view: 'cards', entityId: '33333333-3333-4333-8333-333333333333', refinement: { tab: 'plan', filter: 'open' } })).toBe([
-      '[workspace-context]',
-      'view: cards',
-      'entity: 33333333-3333-4333-8333-333333333333',
-      'refinement: tab=plan;filter=open',
-    ].join('\n'));
+    expect(buildAnalystWorkspaceFocus({ view: 'cockpit', entityId: 'card-a', refinement: { tab: 'plan', filter: 'open' } }, [])).toMatchObject({ kind: 'rendered', content: expect.stringContaining('"focus":"unavailable"') });
   });
 });

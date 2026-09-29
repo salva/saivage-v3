@@ -12,7 +12,7 @@ import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.j
 
 export { AgentConversationResponseSchema, AgentListResponseSchema, CardAgentSessionsResponseSchema, AgentSessionSummarySchema } from './operator-api-agents.js';
 export type { AgentConversationEntry, AgentSessionSummary, ConversationSegmentContext } from './operator-api-agents.js';
-export { ChatSendRequestSchema, AnalystTurnBusyErrorSchema } from './operator-api-chats.js';
+export { ChatSendRequestSchema, ChatWorkspaceContextSchema, AnalystTurnBusyErrorSchema } from './operator-api-chats.js';
 export type { ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
 export { DebugGraphsResponseSchema, DoctorResponseSchema, WorkspaceFilesListResponseSchema } from './operator-api-files-debug.js';
 export type { WorkspaceFilesListResponse } from './operator-api-files-debug.js';

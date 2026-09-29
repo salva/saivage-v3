@@ -245,7 +245,7 @@ retirement must not erase the known link or promise log retention.
 **F25 — Must — Analyst access with context.** On ordinary desktop inspection journeys,
 converse with the configured shared Analyst while retaining access to inspected content.
 Check “why did this card stop?” and “summarize this file”: active entity/refinement is
-provided; ambiguity prompts clarification. The dedicated read-only Analyst inspection
+provided as one submitting client's send-time advisory observation, not ongoing screen observation or proof of reading a file. Only matched active cards have a compact card snapshot; ambiguity prompts clarification. The dedicated read-only Analyst inspection
 exception remains as specified by current policy.
 
 **F26 — Must — Intervention readiness.** Explain whether the observed lifecycle admits
@@ -269,7 +269,7 @@ no action-specific follow-up observation is required. Never auto-replay.
 **F29 — Must — Shared Analyst semantics.** Make clear that the Analyst conversation is
 shared, not a private browser task. Check overlapping submissions: a losing busy request
 has understandable feedback, preserves newer draft edits, and is not queued or retried;
-closing the browser is not represented as cancellation of the shared turn.
+closing the browser is not represented as cancellation of the shared turn. Other clients' routes do not overwrite a submitted focus, and historical focus is not replayed as current focus.
 
 **F30 — Should — Evidence of intervention.** Let the operator inspect retained settled
 control-action evidence with its recorded actor, target, time, and ok/denied/error result.

@@ -63,7 +63,10 @@ describe('sequential contextual refine accumulator', () => {
     const accumulator = createSequentialRefineAccumulator({
       conversation: validateConversation(SESSION, rows),
       inheritedHistory: null,
-      preparedBlocks: [{ id: 'card-context', role: 'system', content: 'FULL FROZEN CARD ORIENTATION', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }],
+      preparedBlocks: [
+        { id: 'card-context', role: 'system', content: 'FULL FROZEN CARD ORIENTATION', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
+        { id: 'analyst.workspace_focus', role: 'system', content: '{"focus":"no_focus"}', storage: 'activation_local', replacement: { kind: 'latest_snapshot', key: 'analyst.workspace_focus', contentSha256: '0'.repeat(64) }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
+      ],
       summarizerProvider: provider,
       budget: BUDGET,
       signal: new AbortController().signal,
@@ -78,6 +81,8 @@ describe('sequential contextual refine accumulator', () => {
       const orientation = messages.filter(({ label }) => label === '[kind=prepared_context source=card-context]');
       expect(orientation).toHaveLength(1);
       expect(orientation[0]!.body).toBe('FULL FROZEN CARD ORIENTATION');
+      expect(messages.filter(({ label }) => label === '[kind=prepared_context source=analyst.workspace_focus]').map(({ body }) => body)).toEqual(['{"focus":"no_focus"}']);
+      expect(messages.filter(({ label }) => label.startsWith('[kind=new_source')).every(({ body }) => !body.includes('"focus":"no_focus"'))).toBe(true);
       expect(messages.reduce(
         (count, { body }) => count + body.split('FULL FROZEN CARD ORIENTATION').length - 1,
         0,

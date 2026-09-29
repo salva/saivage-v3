@@ -10,12 +10,18 @@ import { ConversationSessionIdSchema } from '../schemas/index.js';
 import { ToolResultSchema } from './tool-result.js';
 
 export const MAX_INBOUND_ANALYST_TEXT_CHARS = 1_048_576;
+export const MAX_ANALYST_WORKSPACE_CONTEXT_BYTES = 2048;
 
-const ChatWorkspaceContextSchema = z.object({
-  view: z.string().nullable(),
+export const ChatWorkspaceContextSchema = z.object({
+  view: z.enum(['cockpit', 'files', 'system']).nullable(),
   entityId: z.string().nullable(),
   refinement: z.record(z.string(), z.string()).nullable(),
-}).strict();
+}).strict().superRefine((context, refinement) => {
+  if (context.view === null && (context.entityId !== null || context.refinement !== null))
+    refinement.addIssue({ code: 'custom', message: 'No-view context cannot include an entity or refinement.' });
+  if (new TextEncoder().encode(JSON.stringify(context)).byteLength > MAX_ANALYST_WORKSPACE_CONTEXT_BYTES)
+    refinement.addIssue({ code: 'custom', message: 'Workspace context exceeds the 2048-byte limit.' });
+});
 export const ChatSendRequestSchema = z.object({
   content: z.string().min(1).max(MAX_INBOUND_ANALYST_TEXT_CHARS),
   workspaceContext: ChatWorkspaceContextSchema.optional(),

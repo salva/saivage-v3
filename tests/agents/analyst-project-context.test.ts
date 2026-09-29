@@ -11,6 +11,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { contextContentSha256 } from '../../src/runtime/actors/context/context-blocks.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { ANALYST_ORIENTATION_MAX_BYTES } from '../../src/application/read-models/analyst-orientation.js';
+import { readConversation } from '../../src/persistence/conversation-file.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -98,7 +99,10 @@ describe('Analyst project context', () => {
     expect(input.preparedContext.prefix.terminalToolNames).toEqual([]);
     expect(input.preparedContext.prefix.immutablePrefixSha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(input.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
-    expect(input.preparedContext.dynamicBlocks).toHaveLength(1);
+    expect(input.preparedContext.dynamicBlocks).toHaveLength(2);
+    expect(input.preparedContext.dynamicBlocks[1]).toMatchObject({ id: 'analyst.workspace_focus', storage: 'activation_local', audience: 'primary_and_summarizer' });
+    const focus = input.preparedContext.dynamicBlocks[1]!;
+    expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.origin === 'dynamic' && item.block_identity === focus.id && item.content === focus.content)).toHaveLength(1);
     const tree = input.preparedContext.dynamicBlocks[0]!;
     expect(tree.id).toBe('analyst.project_tree');
     expect(tree.storage).toBe('activation_local');
@@ -106,5 +110,31 @@ describe('Analyst project context', () => {
     expect(tree.replacement.key).toBe('analyst.project_tree');
     expect(tree.replacement.contentSha256).toBe(contextContentSha256(tree.content));
     expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.block_identity === tree.id && item.content === tree.content)).toHaveLength(1);
+  });
+
+  it('refreshes focus on the next submission while keeping each prepared snapshot out of canonical source rows', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-focus-refresh-')); roots.push(projectRoot); initProjectTree(projectRoot);
+    const store = new CardService(projectRoot);
+    const listed = store.list();
+    const list = jest.fn(() => listed);
+    const providerInputs: any[] = [];
+    const completeTurn = jest.fn(async (input: unknown) => {
+      providerInputs.push(input);
+      return { result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] };
+    });
+    const session = buildSession(projectRoot, { list } as unknown as CardServiceType, completeTurn, jest.fn(() => 'prompt'));
+    await session.submit({ userContent: 'this card', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: { tab: 'overview' } } });
+    const first = providerInputs[0].preparedContext.dynamicBlocks[1].content;
+    expect(JSON.parse(first).focus).toMatchObject({ card_id: 'project', version_seq: listed[0]!.version_seq });
+    listed[0]!.version_seq += 1;
+    await session.submit({ userContent: 'still this card', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: { tab: 'overview' } } });
+    const second = providerInputs[1].preparedContext.dynamicBlocks[1].content;
+    expect(JSON.parse(second).focus.version_seq).toBe(JSON.parse(first).focus.version_seq + 1);
+    await session.submit({ userContent: 'no focus' });
+    expect(JSON.parse(providerInputs[2].preparedContext.dynamicBlocks[1].content).focus).toBe('no_focus');
+    expect(list).toHaveBeenCalledTimes(3);
+    const rows = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
+    expect(rows.filter((row) => row.role === 'user').map((row) => row.content)).toEqual(['this card', 'still this card', 'no focus']);
+    expect(rows.some((row) => row.content.includes('workspace_focus'))).toBe(false);
   });
 });

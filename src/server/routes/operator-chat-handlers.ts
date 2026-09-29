@@ -6,7 +6,7 @@ import type { RestartCapability } from '../../contracts/index.js';
 import { projectLiveToolInvocation } from '../../tools/tool-invocation-outbound.js';
 import { ChatToolInvocationSchema } from '../../contracts/operator-api-chats.js';
 import { ANALYST_TURN_BUSY_ERROR } from '../../contracts/operator-api-chats.js';
-import { AnalystTurnBusyError } from '../../agents/analyst-api.js';
+import { AnalystTurnBusyError, AnalystWorkspaceContextBudgetError } from '../../agents/analyst-api.js';
 
 type ChatOperatorHandlerOptions = OperatorProjectContext & {
   runtimeApplication: RuntimeApplication;
@@ -27,6 +27,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       } catch (error) {
         if (error instanceof AnalystTurnBusyError)
           return { statusCode: 409, body: ANALYST_TURN_BUSY_ERROR };
+        if (error instanceof AnalystWorkspaceContextBudgetError)
+          return { statusCode: 400, body: { error: 'ValidationError' as const, message: error.message, issues: [{ path: 'workspaceContext', message: error.message }] } };
         throw error;
       }
       const result = {

@@ -57,6 +57,8 @@ function analyst(
     options.beforeContinuation?.(projectRoot);
     return { result: { kind: 'message', content: 'done' }, provider_exchanges: [] };
   });
+  const cardStore = new CardService(projectRoot);
+  const list = jest.spyOn(cardStore, 'list');
   const session = new AnalystSession({
     cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
     fatalPort: options.fatalPort ?? testApplicationFatalPort,
@@ -71,7 +73,7 @@ function analyst(
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },
     summarizerProvider: unusedSummarizerProvider,
-    cardStore: new CardService(projectRoot),
+    cardStore,
     runtimeCurrent: () => ({ status: 'stopped' as const, currentCardId: null }),
     runtimeProjectionChanged() {},
     createInvocationSurface: () => surface,
@@ -79,7 +81,7 @@ function analyst(
   });
   const createSession = jest.fn(() => session);
   const runtime = new AnalystRuntime({ createSession, getAvailableToolNames: () => [definition.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
-  return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot };
+  return { session, runtime, createSession, completeTurn, capabilityRequest, projectRoot, list };
 }
 
 describe('Analyst parsed tool invocation', () => {
@@ -93,8 +95,9 @@ describe('Analyst parsed tool invocation', () => {
     const test = analyst('{"value":"ok"}', executor);
 
     const winner = test.session.submit({ userContent: 'first' });
-    const loser = test.session.submit({ userContent: 'second' });
+    const loser = test.session.submit({ userContent: 'second', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: null } });
     await expect(loser).rejects.toBeInstanceOf(AnalystTurnBusyError);
+    expect(test.list).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setImmediate(resolve));
     expect(test.completeTurn).toHaveBeenCalledTimes(1);
     expect(test.completeTurn.mock.calls[0]![0].capabilityRequest).toBe(test.capabilityRequest);
@@ -102,8 +105,13 @@ describe('Analyst parsed tool invocation', () => {
     release();
     await expect(winner).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
     expect(test.completeTurn).toHaveBeenCalledTimes(2);
+    const initialFocus = test.completeTurn.mock.calls[0]![0].preparedContext!.dynamicBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content;
+    expect(test.completeTurn.mock.calls[1]![0].preparedContext!.dynamicBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content).toBe(initialFocus);
+    expect(JSON.parse(initialFocus).focus).toBe('no_focus');
+    expect(test.list).toHaveBeenCalledTimes(1);
     await expect(test.session.submit({ userContent: 'later' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
     expect(test.completeTurn).toHaveBeenCalledTimes(3);
+    expect(test.list).toHaveBeenCalledTimes(2);
     expect(executor).toHaveBeenCalledTimes(1);
   });
 
@@ -211,6 +219,10 @@ describe('Analyst parsed tool invocation', () => {
     expect(response.restart).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
     expect(response.toolInvocations).toHaveLength(1);
     expect(canonicalJson(response.toolInvocations![0]!.result)).toBe(durable!.content);
+    expect(test.list).toHaveBeenCalledTimes(1);
+    await expect(test.session.submit({ userContent: 'RESTART SERVER', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: null } })).resolves.toMatchObject({ restart: { status: 'scheduled' } });
+    expect(test.list).toHaveBeenCalledTimes(1);
+    expect(test.completeTurn).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -353,13 +365,13 @@ describe('Analyst parsed tool invocation', () => {
   it('settles a seeded selected-session call with its persisted policy before fresh Analyst ingress', async () => {
     const test = analyst('{"value":"new"}', jest.fn(async (args) => executedToolOutcome('none', toolSucceeded(args))));
     const oldInput = '44444444-4444-4444-8444-444444444444';
-    const ingress = buildAnalystIngressRows('agent:analyst:global', oldInput, 'old workspace', 'old request');
+    const ingress = buildAnalystIngressRows('agent:analyst:global', oldInput, 'old request');
     appendConversationBatch({ projectRoot: test.projectRoot }, ingress);
     const oldPolicy = toolCallRowPolicy();
     if (oldPolicy.kind !== 'tool_call') throw new Error('Expected tool-call policy fixture.');
     appendConversationBatch({ projectRoot: test.projectRoot }, [{
       id: `${oldInput}:tool-call:old-policy-call`, session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call', tool: 'old_tool', tool_call_id: 'old-policy-call', context_policy: oldPolicy,
-      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'old-policy-call', type: 'function', function: { name: 'old_tool', arguments: '{}' } }] }), round_id: deterministicRoundId('assistant', oldInput), message_index: 3, block_index: 0, timestamp: ingress[2].timestamp,
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'old-policy-call', type: 'function', function: { name: 'old_tool', arguments: '{}' } }] }), round_id: deterministicRoundId('assistant', oldInput), message_index: 3, block_index: 0, timestamp: ingress[1].timestamp,
     }]);
     const segment = readCurrentConversationSegment(test.projectRoot, 'agent:analyst:global')!;
     const segmentPath = globalAgentConversationVersionFile(test.projectRoot, 'analyst', segment.entry.filename);

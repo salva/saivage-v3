@@ -45,7 +45,7 @@ describe('Analyst chat API client', () => {
 
   it('uses the identity-free POST signature, exact canonical route, and exact body', async () => {
     const workspaceContext: ChatWorkspaceContext = {
-      view: 'cards',
+      view: 'cockpit',
       entityId: 'project',
       refinement: { tab: 'history' },
     };

@@ -68,7 +68,7 @@ built documentation at `http://localhost:8080/docs/`, or check the public probes
 
 The control room has **Cockpit**, **Files**, and **System**. The card cockpit
 keeps its tree and **Overview**, **Conversations**, **Records & History**, and
-**Evidence** facets together; the Analyst panel stays available for steering.
+**Evidence** facets together; the Analyst panel stays available for steering. Submitted [workspace focus](docs/spec/system-specification.md) is advisory context captured at Send, not continuous observation of the screen.
 See the authoritative [operator UI contracts](docs/spec/operator-ui-contracts.md).
 
 ```bash

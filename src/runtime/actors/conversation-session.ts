@@ -85,12 +85,10 @@ export function appendActivationMarker(
 export function buildAnalystIngressRows(
   sessionId: ConversationSessionId,
   inputId: string,
-  workspaceContent: string,
   userContent: string,
-): readonly [AgentMessage, AgentMessage, AgentMessage] {
+): readonly [AgentMessage, AgentMessage] {
   return [
     buildAnalystActivationMarker(sessionId, inputId),
-    buildContextTextMessage(sessionId, 'system', workspaceContent),
     buildContextTextMessage(sessionId, 'user', userContent),
   ];
 }

@@ -173,9 +173,8 @@ describe('production-composed Analyst provider-exchange recording', () => {
 
       const conversation = readConversation(projectRoot, app.analystSessionId);
       const rows = conversation.physicalRows;
-      expect(rows.slice(0, 3)).toMatchObject([
+      expect(rows.slice(0, 2)).toMatchObject([
         { role: 'system', kind: 'activity' },
-        { role: 'system', kind: 'text', content: '[workspace-context] none — no entity is currently in focus' },
         { role: 'user', kind: 'text', content: 'List the project cards.' },
       ]);
       const ingressUser = rows.findIndex((row) => row.role === 'user' && row.content === 'List the project cards.');
