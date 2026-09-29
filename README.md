@@ -62,6 +62,11 @@ Successful fresh startup settles interrupted linked cards before listener/readin
 and leaves execution stopped; an explicit Run starts project work. Same-process
 project Stop leaves any durable running chain for the next Run. See the
 [runbook lifecycle guidance](docs/runbook/index.md#activation-ownership-and-runtime-halt).
+For steering, the Analyst can queue normal context while work runs. Exceptional
+urgent context may stop exact active work and re-enter its recipient workflow;
+enqueue and interruption do not promise delivery or action. Without an eligible
+running owner it only queues until a later explicit Run; Pause still needs
+explicit Resume. See the [notification contract](docs/spec/system-specification.md#7-urgent-notification-ordering-implemented-shared-contract).
 
 For that auth-disabled trial, open the UI at `http://localhost:8080/` and the
 built documentation at `http://localhost:8080/docs/`, or check the public probes:

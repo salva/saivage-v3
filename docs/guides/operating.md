@@ -157,7 +157,11 @@ the lifecycle lock.
 4. **Oversight checks in**: with the default two-hour cadence, the Oversight
    agent periodically reviews state read-only and, when warranted, sends an
    evidenced notification to a planning card — visible as new activity and
-   a notification-driven re-entry in the tree. It never mutates anything
+   possible notification-driven re-entry in the tree. Normal context can queue
+   while running; justified urgent context may stop exact active work and enter
+   recipient-first recovery. A paused run needs Resume; a queue-only result
+   needs explicit Run for later execution, without guaranteeing model action.
+   It never mutates anything
    itself. See [Project Oversight](../spec/system-specification.md#project-oversight).
 5. **Accept**: completed planning work passes independent review against its
    brief. The root turns `done` when the whole objective is accepted.

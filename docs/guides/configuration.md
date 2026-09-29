@@ -153,6 +153,16 @@ card_types:
           edges: { ... }
 ```
 
+Every workflow's `STOPPED` entry must target a node run by its declared
+`notification_recipient` and supply a recovery prompt. The compiler derives an
+interruption transition from every node to that same target, including same-node
+re-entry; it is not a model outcome. The recipient must reconstruct current
+facts rather than resume an old invocation. Child-bearing custom recipients
+need not have activation tools merely to accept the workflow: ancestor notices
+ask for discretionary action, not guaranteed dispatch. Both bundled profiles
+already supply recipient-first STOPPED routes. Materialized instance prompts
+and configuration are instance-owned; reconcile them deliberately while stopped.
+
 Switching templates or replacing the map is a stopped configuration change;
 the runbook owns [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers)
 for instances with retained history. After a change, verify what actually

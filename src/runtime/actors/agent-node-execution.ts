@@ -33,7 +33,7 @@ export interface AcceptedNodeResult {
   readonly summary: string;
   readonly acceptedRecords: readonly Readonly<{ name: string; url: string; version: number }>[];
 }
-export type NodeExecutionResult = AcceptedNodeResult | RuntimeOwnedBlockedResult;
+export type NodeExecutionResult = AcceptedNodeResult | RuntimeOwnedBlockedResult | Readonly<{ kind: 'node-interrupted'; ordinal: number }>;
 
 export const MAX_NODE_CORRECTIVE_REARMS = 16;
 
@@ -63,6 +63,8 @@ interface AgentNodeExecutionHost {
   assertPromotionAvailable(transition: CompiledProcessTransition): void;
   retainNotificationLlm(llm: ConversationLLMActor): void;
   relinquishNotificationLlm(llm: ConversationLLMActor): void;
+  claimResultHandoff(ordinal: number): void;
+  claimedNodeInterruption(ordinal: number): boolean;
 }
 
 export interface AgentNodeExecutionDeps {
@@ -139,6 +141,7 @@ export class AgentNodeExecution {
         }
         if (outcome.type === 'error') throw new Error(outcome.error);
         if (outcome.type === 'blocked') {
+          this.host.claimResultHandoff(args.nodeOrdinal);
           cleanupStatus = 'blocked';
           primaryCompletion = { kind: 'success', value: outcome.result };
           break;
@@ -225,6 +228,7 @@ export class AgentNodeExecution {
               () => input.claimResult(),
             );
           }
+          this.host.claimResultHandoff(args.nodeOrdinal);
           this.host.assertCurrentActivation(input);
           recordFinalizationBegun = true;
           const acceptedRecords = this.closeAcceptedRecords(node, records.candidates, writtenRecords);
@@ -294,6 +298,10 @@ export class AgentNodeExecution {
       cleanupCompletion = { kind: 'failure', reason: error };
     }
     if (cleanupCompletion.kind === 'failure') throw cleanupCompletion.reason;
+    if (this.host.claimedNodeInterruption(args.nodeOrdinal)) {
+      if (primaryCompletion.kind === 'failure' && primaryCompletion.reason !== signal.reason) throw primaryCompletion.reason;
+      return { kind: 'node-interrupted', ordinal: args.nodeOrdinal };
+    }
     if (primaryCompletion.kind === 'failure') throw primaryCompletion.reason;
     return primaryCompletion.value;
   }
@@ -350,6 +358,8 @@ export class AgentNodeExecution {
       }
       return prompt ? [renderedDurablePrompt(process, prompt)] : [];
     }
+    if (route.semantic.kind === 'notification-interrupt')
+      return [{ role: 'user', content: 'The previous process node was interrupted. This activation is preserved; recover from current durable facts and handle the queued context.\n\n' }, renderedDurablePrompt(process, route.semantic.prompt)];
     if (route.semantic.kind !== 'configured-outcome' && route.semantic.kind !== 'configured-pending-notifications')
       throw new Error(
         `Node transition context '${context.source}'/'${context.event}' is not a configured outcome.`,

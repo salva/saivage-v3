@@ -261,6 +261,11 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 - The restart composer acknowledgement keeps the exact
   `confirmation_required`/`scheduled` discrimination and the literal
   `RESTART SERVER` message.
+- Analyst notification results retain ordinary chat/tool-result presentation:
+  `queued` confirms enqueue; `pending_tool_settlement` is not a completed stop,
+  and `interrupted` lists completed stopped cards, not delivery or model action.
+  `not_applicable` does not start a Run; Pause needs explicit Resume. No queue
+  field, new control, receipt refresh, or timeline state is presented.
 
 ## 8. Files, processes, and evidence
 

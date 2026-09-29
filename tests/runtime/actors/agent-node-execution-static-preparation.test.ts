@@ -134,6 +134,8 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
     freshInputId: () => '00000000-0000-4000-8000-000000000001',
     assertCurrentActivation: () => undefined,
     assertPromotionAvailable: () => undefined,
+    claimResultHandoff: () => undefined,
+    claimedNodeInterruption: () => false,
   } as never);
   const surfaceOverride = execution as unknown as { buildSurface: (...args: unknown[]) => InvocationSurface };
   surfaceOverride.buildSurface = () => surface;

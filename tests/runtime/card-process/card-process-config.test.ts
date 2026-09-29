@@ -20,6 +20,32 @@ function compiledDeclaration(value:{reference:string;compactable?:boolean;compac
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 describe('named-agent card-type workflow compilation',()=>{
+  it('requires recipient-first STOPPED across classic, typed architecture and custom child-bearing workflows without enforcing dispatch tools',()=>{
+    for (const profile of ['classic','classic-typed'] as const) {
+      const config=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate(profile).config));
+      const compiled=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot});
+      for (const [type, process] of compiled.cardTypes) {
+        const entry=process.states.get('entry:STOPPED')!.on.get('entry:route')!;
+        const recipient=process.states.get(entry.targetStateId)!;
+        if (recipient.kind!=='node') throw new Error(`Missing STOPPED node for ${type}.`);
+        expect(recipient.agent.name).toBe(process.notificationRecipient);
+        for (const state of process.states.values()) if(state.kind==='node') expect(state.on.get('notification:interrupt')).toMatchObject({targetStateId:entry.targetStateId,semantic:{kind:'notification-interrupt'}});
+      }
+      if (profile==='classic-typed') {
+        const architecture=compiled.cardTypes.get('architecture')!;
+        for (const node of ['draft','component-review','system-review']) expect(architecture.states.get(`node:${node}`)!.on.get('notification:interrupt')?.targetStateId).toBe('node:draft');
+      }
+      const broken=structuredClone(config);
+      broken.card_types.project!.workflow.entries.STOPPED.node='review';
+      expect(()=>compileProjectWorkflows(broken,{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot})).toThrow(/entries\.STOPPED must target a node run by notification recipient/);
+    }
+    const custom=source();
+    custom.agents.advisor={...custom.agents.planner!,tools:custom.agents.planner!.tools.filter((tool)=>tool!=='activate_card'&&tool!=='create_card'),can_create_children:false,model_route:'planner'};
+    const goal=custom.card_types.goal!;
+    goal.workflow.notification_recipient='advisor';
+    for(const node of Object.values(goal.workflow.nodes)) if(node.agent==='planner') node.agent='advisor';
+    expect(compileProjectWorkflows(custom).cardTypes.get('goal')?.planningNotificationTarget).toBe(false);
+  });
   it('uses the terminal-result summary character limit in validation and generated text',()=>{
     const process=compileProjectWorkflows(source()).cardTypes.get('project')!;
     const [stateId]=[...process.states].find(([,candidate])=>candidate.kind==='node')!;
@@ -116,7 +142,7 @@ describe('named-agent card-type workflow compilation',()=>{
           else {expect(route.targetStateId).toBe(`terminal:${expectedEdge.target.terminal}`);if(route.semantic.kind!=='configured-outcome'||!route.semantic.terminalBehavior)throw new Error('missing terminal behavior');expect(route.semantic.terminalBehavior).toEqual({promotion:expectedEdge.target.promote==='current'?{kind:'current'}:{kind:'latest-node',nodeId:expectedEdge.target.promote.latest_node},exportRecords:expectedEdge.target.export_records.map((name)=>workflow.records.get(name)!)});}
           if(expectedEdge.pending_notifications)expect(state.on.get(`result:${outcome}:pending-notifications`)).toEqual({targetStateId:`node:${expectedEdge.pending_notifications.node}`,reenter:expectedEdge.pending_notifications.node===nodeId,semantic:{kind:'configured-pending-notifications',outcome,prompt:compiledDeclaration(expectedEdge.pending_notifications.prompt)}});
         }
-        expect([...state.on.keys()]).toEqual([...Object.entries(expectedNode.edges).flatMap(([outcome,edge])=>[`result:${outcome}`,...(edge.pending_notifications?[`result:${outcome}:pending-notifications`]:[])]),'execution:failed','execution:blocked']);
+        expect([...state.on.keys()]).toEqual(['notification:interrupt',...Object.entries(expectedNode.edges).flatMap(([outcome,edge])=>[`result:${outcome}`,...(edge.pending_notifications?[`result:${outcome}:pending-notifications`]:[])]),'execution:failed','execution:blocked']);
         expect(state.on.get('execution:failed')!.semantic).toEqual({kind:'runtime-terminal',cause:'failed'});
         expect(state.on.get('execution:blocked')!.semantic).toEqual({kind:'runtime-terminal',cause:'blocked'});
       }
@@ -230,6 +256,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(plan.kind).toBe('node');
     if(plan.kind!=='node') throw new Error('missing plan node');
     expect([...plan.on.keys()]).toEqual([
+      'notification:interrupt',
       'result:complete_direct',
       'result:admit_review',
       'result:blocked',
@@ -305,6 +332,8 @@ describe('named-agent card-type workflow compilation',()=>{
           expect(Object.keys(transition.semantic)).toEqual(['kind','cause']);
         } else if (transition.semantic.kind === 'configured-pending-notifications') {
           expect(Object.keys(transition.semantic)).toEqual(['kind','outcome','prompt']);
+        } else if (transition.semantic.kind === 'notification-interrupt') {
+          expect(Object.keys(transition.semantic)).toEqual(['kind','prompt']);
         } else {
           expect(Object.keys(transition.semantic)).toEqual([
             'kind','outcome','prompt','terminalBehavior',
@@ -462,10 +491,10 @@ describe('named-agent card-type workflow compilation',()=>{
 
   it('renders every default process prompt eagerly and preserves corrected agent guidance',()=>{
     const compiled=compileProjectWorkflows(source());
-    const stopped='Execution was stopped and its in-memory process position was discarded. Reconstruct no prior node; continue only from current durable evidence and context, not a guessed prior node.\n';
     for(const[cardType,workflow]of compiled.cardTypes){
       for(const prompt of workflow.processPrompts.values())expect(prompt.text).not.toMatch(/\{\{[^}]+\}\}/u);
-      expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toBe(stopped);
+      expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toContain('or this activation was preserved while its previous node was interrupted');
+      expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toContain('Do not replay an interrupted invocation');
       for(const state of workflow.states.values())if(state.kind==='node'){
         const rendered=renderCompiledPrompt({kind:'workflow-agent',cardType},state.agent.name,state.selectedAgentPrompt.compiled,{contractDescription:'GENERATED CONTRACT'});
         expect(rendered.match(/GENERATED CONTRACT/gu)).toHaveLength(1);

@@ -138,6 +138,10 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             promotion: null,
           };
         }
+        if (route.semantic.kind === 'notification-interrupt') {
+          if (target.kind !== 'node') throw new Error(`Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid interruption target.`);
+          return { source_node_id: node.nodeId, outcome: 'notification:interrupt', runtime_owned: true, condition: 'default' as const, prompt: projectedPrompt(route.semantic.prompt), target: { kind: 'node' as const, node_id: target.nodeId }, export_records: [], promotion: null };
+        }
         if (route.semantic.kind !== 'runtime-terminal' || target.kind !== 'terminal')
           throw new Error(
             `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid runtime target.`,

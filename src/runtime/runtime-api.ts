@@ -23,6 +23,7 @@ export type NotifyCardResult =
 type NotificationInterruptionResult =
   | { status: 'not_requested' }
   | { status: 'not_applicable' }
+  | { status: 'pending_tool_settlement' }
   | { status: 'interrupted'; stopped_card_ids: string[] }
   | { status: 'suppressed'; reason: 'cancelled' | 'runtime_ineligible' | 'stale_owner'; stopped_card_ids: string[] };
 

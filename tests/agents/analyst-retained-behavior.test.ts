@@ -36,15 +36,15 @@ describe('Analyst retained navigation and capability behavior', () => {
 });
 
 describe('audited Analyst mutation settlement', () => {
-  it('returns and audits the readiness-owner denial instead of escaping the tool boundary',async()=>{
+  it('queues and audits notifications without intervention readiness',async()=>{
     const test=harness();
     (test.context as any).interventionReadiness={assertInterventionReady(){throw new AnalystInterventionNotReadyError();}};
-    const queue=jest.fn();
+    const queue=jest.fn(async()=>({kind:'returned' as const,success:true as const,data:{queued:true}}));
     (test.context as any).analystMutations={notifications:{queue}};
     const result=await queue_notification(test.context,{card_id:'project',kind:'finding',body:'context',urgency:'normal'},new AbortController().signal);
-    expect(result.providerOutcome).toEqual({kind:'failed',error:'Analyst mutation requires an intervention-ready stopped or settled paused runtime.',data:{code:'intervention_not_ready'}});
-    expect(queue).not.toHaveBeenCalled();
-    expect(listControlActions(test.root)).toEqual([expect.objectContaining({action:'notification.queue',outcome:'denied',params_summary:expect.not.stringContaining('context')})]);
+    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true}});
+    expect(queue).toHaveBeenCalledTimes(1);
+    expect(listControlActions(test.root)).toEqual([expect.objectContaining({action:'notification.queue',outcome:'ok',params_summary:expect.not.stringContaining('context')})]);
   });
 
   it('uses the production Analyst notification owner and shared snake-case body projection',async()=>{

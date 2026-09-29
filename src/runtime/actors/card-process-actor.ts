@@ -54,6 +54,9 @@ export class CardProcessActor extends BaseActor {
   #interruptionReason: unknown | null = null;
   #retainedNotificationLlm: ConversationLLMActor | null = null;
   #finalLlmDisposalReason: unknown | null = null;
+  #nodeControl: 'open' | 'result' | 'interrupt' | null = null;
+  #retiringNode: { ordinal: number; reason: Error; tracker: ActivationOperationTracker; actors: readonly ConversationLLMActor[]; completion: Promise<void>; join: Promise<readonly InvocationJoinOutcome[]> | null } | null = null;
+  #successorGuard: Promise<void> | null = null;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; workflows:CompiledRuntimeWorkflows; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; submitNotification: import('../runtime-api.js').NotificationSubmissionPort; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.initialStateId, args.process.states);
@@ -107,6 +110,11 @@ export class CardProcessActor extends BaseActor {
           if (this.#retainedNotificationLlm !== llm) throw new Error(`Processor '${this.cardId}' does not retain this notification LLM.`);
           this.#retainedNotificationLlm = null;
         },
+        claimResultHandoff: (ordinal) => {
+          if (this.#executionOrdinal !== ordinal || this.#nodeControl !== 'open') throw new Error(`Node '${this.cardId}' result handoff lost control admission.`);
+          this.#nodeControl = 'result';
+        },
+        claimedNodeInterruption: (ordinal) => this.#retiringNode?.ordinal === ordinal,
       },
     );
   }
@@ -136,7 +144,7 @@ export class CardProcessActor extends BaseActor {
   }
 
   prepareForRuntimeHalt(reason: unknown): void {
-    if (!this.#retainedNotificationLlm && this.#interruptionReason === null) {
+    if (!this.#retiringNode && !this.#retainedNotificationLlm && this.#interruptionReason === null) {
       this.disposeActivation(reason);
       return;
     }
@@ -147,6 +155,39 @@ export class CardProcessActor extends BaseActor {
     this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
     for (const llm of this.#joiningLlmActors) this.#capturePreJoinFailure(() => llm.requestGracefulCancellation(this.#interruptionReason));
     this.#operationTracker?.cancelAndSettle(this.#interruptionReason);
+  }
+
+  canInterruptNode(ordinal: number): boolean {
+    return this.#result !== null && !this.#activationSettled && this.#executionOrdinal === ordinal && this.process.states.get(this.state())?.kind === 'node' && this.#nodeControl === 'open' && this.#retiringNode === null;
+  }
+
+  claimNodeInterruption(ordinal: number, completion: Promise<void>, reason: Error): void {
+    if (!this.canInterruptNode(ordinal) || !this.#operationTracker) throw new Error(`Processor '${this.cardId}' node interruption is no longer claimable.`);
+    this.#nodeControl = 'interrupt';
+    this.#retiringNode = { ordinal, completion, reason, tracker: this.#operationTracker, actors: [...this.#activeLlmActors.values()], join: null };
+  }
+
+  interruptClaimedNodeGracefully(): void {
+    const claim = this.#retiringNode;
+    if (!claim) throw new Error(`Processor '${this.cardId}' has no claimed node interruption.`);
+    for (const llm of claim.actors) llm.requestGracefulCancellation(claim.reason);
+    claim.tracker.cancelAndSettle(claim.reason);
+  }
+
+  joinInterruptedNode(): Promise<readonly InvocationJoinOutcome[]> {
+    const claim = this.#retiringNode;
+    if (!claim) throw new Error(`Processor '${this.cardId}' has no retiring node.`);
+    claim.join ??= (async () => {
+      const trackerOutcome = await claim.tracker.join();
+      for (const llm of claim.actors) llm.dispose(claim.reason);
+      const llmOutcomes = await Promise.all(claim.actors.map((llm) => llm.join()));
+      for (const llm of claim.actors) {
+        if (this.#activeLlmActors.get(llm.agentId) === llm) this.#activeLlmActors.delete(llm.agentId);
+      }
+      this.#runtimeProjectionChanged();
+      return [...llmOutcomes, trackerOutcome];
+    })();
+    return claim.join;
   }
 
   interruptActivationGracefully(reason: unknown): void {
@@ -176,11 +217,12 @@ export class CardProcessActor extends BaseActor {
 
   async #performActivationJoin(actors: readonly ConversationLLMActor[]): Promise<readonly InvocationJoinOutcome[]> {
     const trackerJoin = this.#operationTracker ? (() => { try { return this.#operationTracker!.join(); } catch (error) { return Promise.reject(error); } })() : Promise.resolve<InvocationJoinOutcome | null>(null);
+    const retiringJoin = this.#retiringNode ? this.joinInterruptedNode() : Promise.resolve<readonly InvocationJoinOutcome[]>([]);
     const lifecycleJoin = trackerJoin.then(
       () => this.awaitLifecycleSettlement(),
       () => this.awaitLifecycleSettlement(),
     );
-    const operationSettled = await Promise.allSettled([trackerJoin, lifecycleJoin]);
+    const operationSettled = await Promise.allSettled([trackerJoin, lifecycleJoin, retiringJoin]);
     if (this.#finalLlmDisposalReason !== null && !this.#llmInvocationsDisposed) {
       for (const llm of actors) this.#capturePreJoinFailure(() => llm.dispose(this.#finalLlmDisposalReason));
       this.#llmInvocationsDisposed = true;
@@ -196,6 +238,8 @@ export class CardProcessActor extends BaseActor {
     if (!selectedFailure && trackerResult.status === 'rejected') selectedFailure = { error: trackerResult.reason };
     const lifecycleResult = operationSettled[1]!;
     if (!selectedFailure && lifecycleResult.status === 'rejected') selectedFailure = { error: lifecycleResult.reason };
+    const retiringResult = operationSettled[2]!;
+    if (!selectedFailure && retiringResult.status === 'rejected') selectedFailure = { error: retiringResult.reason };
     const hadActors = this.#activeLlmActors.size > 0;
     this.#activeLlmActors.clear();
     if (hadActors) {
@@ -205,7 +249,7 @@ export class CardProcessActor extends BaseActor {
     if (selectedFailure) throw selectedFailure.error;
     const outcomes = actorSettled.map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
     const trackerOutcome = (trackerResult as PromiseFulfilledResult<InvocationJoinOutcome | null>).value;
-    return trackerOutcome ? [...outcomes, trackerOutcome] : outcomes;
+    return [...outcomes, ...(trackerOutcome ? [trackerOutcome] : []), ...(retiringResult as PromiseFulfilledResult<readonly InvocationJoinOutcome[]>).value];
   }
 
   processPosition(): ProcessPosition {
@@ -239,6 +283,7 @@ export class CardProcessActor extends BaseActor {
       return;
     }
     if (metadata.kind === 'terminal') { this.#settleTerminal(metadata.terminal, context); return; }
+    if (context.event === 'notification:interrupt' && this.#interruptionReason !== null) return;
     if (context.source === null || this.#executionOrdinal === null) throw new Error(`Process node '${context.target}' requires an external transition and ordinal.`);
     const transition: NodeTransition = Object.freeze({ context, acceptedResult: this.#stagedResult });
     this.#stagedResult = null;
@@ -246,7 +291,20 @@ export class CardProcessActor extends BaseActor {
     const activationSignal = this.#activationSignal;
     const tracker = this.#operationTracker;
     const ordinal = this.#executionOrdinal;
-    this.runTask(() => tracker.run(activationSignal, (operationSignal) => this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal })), {
+    const guard = context.event === 'notification:interrupt' ? this.#successorGuard : null;
+    if (context.event === 'notification:interrupt' && !guard) throw new Error('Interrupted node successor has no settlement guard.');
+    this.#nodeControl = guard ? 'interrupt' : 'open';
+    this.runTask(() => tracker.run(activationSignal, async (operationSignal) => {
+      if (guard) {
+        await guard;
+        operationSignal.throwIfAborted();
+        this.#assertCurrentActivation(input);
+        this.#retiringNode = null;
+        this.#successorGuard = null;
+        this.#nodeControl = 'open';
+      }
+      return this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal });
+    }), {
       onDone: (accepted) => { void tracker.trackConsumer(() => this.#acceptNodeResult(context.target, accepted)); },
       onFailed: (error) => { void tracker.trackConsumer(() => this.#acceptNodeFailure(error)); },
     });
@@ -258,7 +316,7 @@ export class CardProcessActor extends BaseActor {
     if (!source || !target) throw new Error(`Process transition '${context.source}' -> '${context.target}' has missing metadata.`);
     if (source.kind === 'entry' && target.kind === 'node') this.#executionOrdinal = 0;
     else if (source.kind === 'node' && target.kind === 'node') {
-      if (!context.event.startsWith('result:') || this.#executionOrdinal === null) throw new Error(`Process node transition '${context.event}' cannot reserve an ordinal.`);
+      if ((!context.event.startsWith('result:') && context.event !== 'notification:interrupt') || this.#executionOrdinal === null) throw new Error(`Process node transition '${context.event}' cannot reserve an ordinal.`);
       this.#executionOrdinal += 1;
     }
     this.#runtimeProjectionChanged();
@@ -285,6 +343,19 @@ export class CardProcessActor extends BaseActor {
 
   #acceptNodeResult(sourceState: string, accepted: NodeExecutionResult): void {
     if (this.state() !== sourceState) throw new Error(`Node result for '${sourceState}' arrived in '${this.state()}'.`);
+    if ('kind' in accepted && accepted.kind === 'node-interrupted') {
+      const claim = this.#retiringNode;
+      if (!claim || claim.ordinal !== accepted.ordinal) throw new Error(`Processor '${this.cardId}' received an unclaimed node interruption.`);
+      this.#retainedNotificationLlm = null;
+      this.#currentExecutingLlm = null;
+      if (this.#interruptionReason === null) {
+        this.#operationTracker = new ActivationOperationTracker();
+        this.#successorGuard = claim.completion;
+        this.sendEvent('notification:interrupt');
+      }
+      this.#runtimeProjectionChanged();
+      return;
+    }
     if (isRuntimeOwnedBlocked(accepted)) {
       this.#stagedBlocked = accepted;
       this.sendEvent('execution:blocked');
@@ -300,6 +371,7 @@ export class CardProcessActor extends BaseActor {
   }
 
   #acceptNodeFailure(error: Error): void {
+    if (this.#retiringNode && this.#nodeControl === 'interrupt' && this.#interruptionReason === null) throw error;
     if (this.#interruptionReason !== null) {
       if (error === this.#interruptionReason) return;
       this.#retainPreJoinFailure(error);

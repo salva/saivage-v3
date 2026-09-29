@@ -215,7 +215,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const publicationIndexes = events.flatMap((event, index) => event === 'publication:open' ? [index] : []);
     expect(publicationIndexes).toHaveLength(2);
     expect(events.slice(publicationIndexes[0]! + 1, publicationIndexes[1]!)).toEqual([
-      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children', 'effect:runtime',
+      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children', 'effect:runtime', 'business:read',
     ]);
     expect(events.slice(publicationIndexes[1]! + 1)).toEqual([
       'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children',
@@ -259,9 +259,44 @@ describe('CardService scoped mutation-to-frame effects', () => {
     expect(events).toEqual([
       'business:read', 'business:setStatus', 'business:read',
       'publication:1:open', 'publication:1:write',
-      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children', 'effect:runtime',
+      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children', 'effect:runtime', 'business:read',
       'publication:2:open', 'publication:2:write',
     ]);
+  });
+
+  it('retains a notification enqueued by status publication effects before a blocked-card edit', () => {
+    const child = cards.create(input());
+    block(cards, child.id);
+    let once = true;
+    const service = new CardService(root, {
+      cardProjectionChanged() {
+        if (!once) return;
+        once = false;
+        cards.enqueueNotification(child.id, { id: 'during-status', content: 'new note', created_at: '2026-09-09T00:00:00.000Z' });
+      },
+      runtimeChanged() {}, agentMembershipChanged() {},
+    });
+    const before = cards.read(child.id)!.version_seq;
+    const edited = service.editCard(child.id, { title: 'revised' }, 'planner');
+    expect(edited.version_seq).toBe(before + 3);
+    expect(edited.pending_notifications.map((note) => note.id)).toEqual(['during-status']);
+    expect(cards.read(child.id)).toMatchObject({ version_seq: before + 3, pending_notifications: [{ id: 'during-status' }] });
+  });
+
+  it('fresh-folds enqueue across activation, reorder and selected-ID removal', () => {
+    const first = cards.create(input());
+    const second = cards.create(input());
+    const initial = cards.read('project')!.version_seq;
+    cards.enqueueNotification('project', { id: 'first', content: 'first', created_at: '2026-09-09T00:00:00.000Z' });
+    cards.setStatus('project', 'running');
+    cards.reorderChildren('project', [second.id, first.id]);
+    cards.enqueueNotification('project', { id: 'second', content: 'second', created_at: '2026-09-09T00:00:01.000Z' });
+    cards.removeNotifications('project', ['first']);
+    const current = cards.read('project')!;
+    expect(current.version_seq).toBe(initial + 5);
+    expect(current.pending_notifications.map((item) => item.id)).toEqual(['second']);
+    expect(current.active_child_order).toEqual([second.id, first.id]);
+    expect(current.lifecycle.status).toBe('running');
   });
 
   it('emits no record hint when close reports an outcome-unknown append failure', () => {

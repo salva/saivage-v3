@@ -100,6 +100,7 @@ describe('planner control provider ownership delegation', () => {
 
   it.each([
     [{ queued: true as const, cardId: CHILD, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'exact-id', body: 'body', interruption: { status: 'not_requested' } } }],
+    [{ queued: true as const, cardId: CHILD, notificationId: 'pending-id', interruption: { status: 'pending_tool_settlement' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'pending-id', body: 'body', interruption: { status: 'pending_tool_settlement' } } }],
     [{ queued: false as const, reason: 'missing_card' as const, cardId: CHILD }, { success: false, error: `Card '${CHILD}' not found.`, data: { queued: false, reason: 'missing_card', card_id: CHILD } }],
     [{ queued: false as const, reason: 'terminal_card' as const, cardId: CHILD, status: 'cancelled' as const }, { success: false, error: `Cannot queue notification for terminal card '${CHILD}' in status 'cancelled'.`, data: { queued: false, reason: 'terminal_card', card_id: CHILD, status: 'cancelled' } }],
     [{ queued: false as const, reason: 'activation_closed' as const, cardId: CHILD }, { success: false, error: `Cannot queue notification for card '${CHILD}': its current activation is closed to new notifications.`, data: { queued: false, reason: 'activation_closed', card_id: CHILD } }],

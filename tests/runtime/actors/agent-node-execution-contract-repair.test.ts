@@ -132,6 +132,8 @@ function harness(args: {
     freshInputId: () => 'input-1',
     assertCurrentActivation: () => { events.push('current'); },
     assertPromotionAvailable: () => { events.push('promotion'); },
+    claimResultHandoff: () => undefined,
+    claimedNodeInterruption: () => false,
   } as never);
   const internals = execution as unknown as {
     prepareNodeEntry: () => void;
@@ -426,6 +428,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const test = harness({ initial: terminal('accepted') });
 
     const accepted = await test.run();
+    if ('kind' in accepted) throw new Error('Expected accepted node result.');
     expect(Object.isFrozen(accepted)).toBe(true);
     expect(Object.isFrozen(accepted.acceptedRecords)).toBe(true);
     expect(test.llmInputArguments[0]?.[3]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');

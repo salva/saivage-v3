@@ -190,6 +190,237 @@ afterEach(async () => {
 });
 
 describe('disposable production-composition smoke', () => {
+  it('settles an in-scope Planner self-notification with a pending matched result before root replacement', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-self-notice-e2e-'));
+    roots.push(root);
+    const appPort = await unusedPort();
+    let app: App | null = null;
+    let plannerCalls = 0;
+    let replacementInput = '';
+    const provider = createServer(async (request, response) => {
+      if (request.url !== '/v1/chat/completions') { response.statusCode = 404; response.end(); return; }
+      const body = await requestBody(request);
+      if (toolNames(body).includes('show_config')) {
+        if (body.messages.at(-1)?.role === 'tool') finalMessage(response);
+        else toolCall(response, 1, 'start_project', {});
+      } else if (body.model === 'planner-model') {
+        plannerCalls++;
+        if (plannerCalls === 1) toolCall(response, 101, 'queue_notification', { card_id: 'project', kind: 'correction', body: 'planner self correction', urgency: 'urgent' });
+        if (plannerCalls === 2) replacementInput = JSON.stringify(body.messages);
+      }
+    });
+    const providerPort = await listen(provider);
+    try {
+      runCli(root, 'init');
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
+      writeCustomPrompts(root);
+      app = await start(root);
+      expect((await chat(app, 'Start project work.')).toolInvocations[0].result).toMatchObject({ success: true });
+      await waitUntil(() => plannerCalls === 2, 'replacement after Planner self-notification');
+      const rows = readConversation(root, 'agent:planner:project').sourceRows;
+      expect(rows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      const results = rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'call-101');
+      expect(results).toHaveLength(1);
+      expect(results[0]!.content).toContain('pending_tool_settlement');
+      expect(results[0]!.content).toContain('"queued":true');
+      expect(replacementInput).toContain('planner self correction');
+      const versions = app.server.runtimeApplication.cardStore.listCardVersions('project');
+      if (versions.kind !== 'found') throw new Error('Missing root versions.');
+      expect(versions.value.map((version) => version.change?.change_reason).filter((reason) => reason === 'recovery stopped lifecycle' || reason === 'STOPPED activation')).toEqual(['recovery stopped lifecycle', 'STOPPED activation']);
+      expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
+    } finally {
+      if (app) await stop(app);
+      await new Promise<void>((resolve) => provider.close(() => resolve()));
+    }
+  }, 60000);
+
+  it.each([true, false])('routes a queued inactive branch by parent judgment (willing=%s)', async (willing) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-inactive-notice-e2e-'));
+    roots.push(root);
+    const appPort = await unusedPort();
+    let app: App | null = null;
+    let analystCalls = 0;
+    let plannerCalls = 0;
+    let executorCalls = 0;
+    let rootInput = '';
+    let goalInput = '';
+    let leafInput = '';
+    const analystTools = [
+      { name: 'create_card', args: { type: 'goal', parent: 'project', title: 'Inactive goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', depends_on: [] } },
+      { name: 'create_card', args: { type: 'code', parent: 'card-a', title: 'Inactive leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', depends_on: [] } },
+      { name: 'queue_notification', args: { card_id: 'card-a-a', kind: 'correction', body: 'queued inactive leaf', urgency: 'urgent' } },
+      { name: 'start_project', args: {} },
+    ];
+    const provider = createServer(async (request, response) => {
+      if (request.url !== '/v1/chat/completions') { response.statusCode = 404; response.end(); return; }
+      const body = await requestBody(request);
+      if (toolNames(body).includes('show_config')) {
+        if (body.messages.at(-1)?.role === 'tool') { finalMessage(response); return; }
+        const action = analystTools[analystCalls++];
+        if (!action) throw new Error('Unexpected Analyst call.');
+        toolCall(response, analystCalls, action.name, action.args);
+      } else if (body.model === 'planner-model') {
+        plannerCalls++;
+        if (plannerCalls === 1) {
+          rootInput = JSON.stringify(body.messages);
+          if (willing) toolCall(response, 101, 'activate_card', { card_id: 'card-a' });
+          else toolCall(response, 101, 'write', { path: 'record:///status.md?card=project', content: 'Decline to activate inactive branch.' });
+        } else if (!willing && plannerCalls === 2) {
+          toolCall(response, 102, 'emit_result', { outcome: 'failed', summary: 'Declined inactive branch.' });
+        } else if (willing && plannerCalls === 2) {
+          goalInput = JSON.stringify(body.messages);
+          toolCall(response, 102, 'activate_card', { card_id: 'card-a-a' });
+        }
+      } else if (body.model === 'executor-model') {
+        executorCalls++;
+        leafInput = JSON.stringify(body.messages);
+      }
+    });
+    const providerPort = await listen(provider);
+    try {
+      runCli(root, 'init');
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
+      writeCustomPrompts(root);
+      app = await start(root);
+      expect((await chat(app, 'Create the goal.')).toolInvocations[0].result).toMatchObject({ success: true });
+      expect((await chat(app, 'Create its leaf.')).toolInvocations[0].result).toMatchObject({ success: true });
+      const queued = await chat(app, 'Urgently notify the inactive leaf.');
+      expect(queued.toolInvocations[0].result).toMatchObject({ success: true, data: { queued: true, interruption: { status: 'not_applicable' } } });
+      expect(plannerCalls).toBe(0);
+      expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
+      expect((await chat(app, 'Start the queued project.')).toolInvocations[0].result).toMatchObject({ success: true });
+      await waitUntil(() => willing ? executorCalls === 1 : app!.server.runtimeApplication.cardStore.read('project')?.lifecycle.status === 'failed', 'parent branch decision');
+      expect(rootInput).toContain("descendant 'card-a-a' needs attention through immediate child 'card-a'");
+      const rootRows = readConversation(root, 'agent:planner:project').sourceRows;
+      expect(rootRows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      expect(rootRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'call-101')).toHaveLength(willing ? 0 : 1);
+      if (willing) {
+        expect(goalInput).toContain("descendant 'card-a-a' needs attention through immediate child 'card-a-a'");
+        expect(leafInput).toContain('queued inactive leaf');
+        const goalRows = readConversation(root, 'agent:planner:card-a').sourceRows;
+        expect(goalRows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'call-102')).toHaveLength(1);
+        expect(goalRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'call-102')).toHaveLength(0);
+        expect(app.server.runtimeApplication.cardStore.read('card-a-a')?.lifecycle.status).toBe('running');
+      } else {
+        expect(goalInput).toBe('');
+        expect(executorCalls).toBe(0);
+        expect(app.server.runtimeApplication.cardStore.read('project')?.lifecycle.status).toBe('failed');
+        expect(app.server.runtimeApplication.cardStore.read('card-a-a')?.lifecycle.status).toBe('backlog');
+        expect(app.server.runtimeApplication.cardStore.read('card-a-a')?.pending_notifications).toHaveLength(1);
+      }
+      expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
+    } finally {
+      if (app) await stop(app);
+      await new Promise<void>((resolve) => provider.close(() => resolve()));
+    }
+  }, 60000);
+
+  it('redispatches an urgently stopped active leaf only when its real parent elects activation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-urgent-leaf-e2e-'));
+    roots.push(root);
+    const appPort = await unusedPort();
+    let app: App | null = null;
+    let analystCalls = 0;
+    let plannerCalls = 0;
+    let executorCalls = 0;
+    let parentInput = '';
+    let resumedInput = '';
+    const analystTools = [
+      { name: 'create_card', args: { type: 'code', parent: 'project', title: 'Active child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', depends_on: [] } },
+      { name: 'start_project', args: {} },
+      { name: 'queue_notification', args: { card_id: 'card-a', kind: 'correction', body: 'urgent leaf correction', urgency: 'urgent' } },
+    ];
+    const provider = createServer(async (request, response) => {
+      if (request.url !== '/v1/chat/completions') { response.statusCode = 404; response.end(); return; }
+      const body = await requestBody(request);
+      if (toolNames(body).includes('show_config')) {
+        if (body.messages.at(-1)?.role === 'tool') { finalMessage(response); return; }
+        const action = analystTools[analystCalls++];
+        if (!action) throw new Error('Unexpected Analyst call.');
+        toolCall(response, analystCalls, action.name, action.args);
+      } else if (body.model === 'planner-model') {
+        plannerCalls++;
+        if (plannerCalls === 2) parentInput = JSON.stringify(body.messages);
+        if (plannerCalls <= 2) toolCall(response, 100 + plannerCalls, 'activate_card', { card_id: 'card-a' });
+      } else if (body.model === 'executor-model') {
+        executorCalls++;
+        if (executorCalls === 2) resumedInput = JSON.stringify(body.messages);
+      }
+    });
+    const providerPort = await listen(provider);
+    try {
+      runCli(root, 'init');
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
+      writeCustomPrompts(root);
+      app = await start(root);
+      expect((await chat(app, 'Create the code child.')).toolInvocations[0].result).toMatchObject({ success: true });
+      expect((await chat(app, 'Start project work.')).toolInvocations[0].result).toMatchObject({ success: true });
+      await waitUntil(() => executorCalls === 1, 'active child provider request');
+      const urgent = await chat(app, 'Urgently notify the child.');
+      expect(urgent.toolInvocations[0].result).toMatchObject({ success: true, data: { queued: true, interruption: { status: 'interrupted', stopped_card_ids: ['card-a'] } } });
+      await waitUntil(() => executorCalls === 2, 'redispatched child recipient');
+      expect(parentInput).toContain("immediate child 'card-a'");
+      expect(resumedInput).toContain('urgent leaf correction');
+      const parentRows = readConversation(root, 'agent:planner:project').sourceRows;
+      expect(parentRows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      expect(parentRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      expect(parentRows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'call-102')).toHaveLength(1);
+      expect(app.server.runtimeApplication.cardStore.read('card-a')?.lifecycle.status).toBe('running');
+      expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
+    } finally {
+      if (app) await stop(app);
+      await new Promise<void>((resolve) => provider.close(() => resolve()));
+    }
+  }, 60000);
+
+  it('queues normal steering while running and replaces an urgent root through real Analyst/server/provider paths', async () => {
+    const root=mkdtempSync(join(tmpdir(),'saivage-notification-server-e2e-'));
+    roots.push(root);
+    const appPort=await unusedPort();
+    let app:App|null=null;
+    let analystCalls=0;
+    let plannerCalls=0;
+    let replacementInput='';
+    const provider=createServer(async(request,response)=>{
+      if(request.url!=='/v1/chat/completions'){response.statusCode=404;response.end();return;}
+      const body=await requestBody(request);
+      if(toolNames(body).includes('show_config')){
+        if(body.messages.at(-1)?.role==='tool'){finalMessage(response);return;}
+        analystCalls++;
+        if(analystCalls===1)toolCall(response,analystCalls,'start_project',{});
+        else toolCall(response,analystCalls,'queue_notification',{card_id:'project',kind:'correction',body:analystCalls===2?'normal steering':'urgent root steering',urgency:analystCalls===2?'normal':'urgent'});
+        return;
+      }
+      plannerCalls++;
+      if(plannerCalls===2){replacementInput=JSON.stringify(body.messages);}
+    });
+    const providerPort=await listen(provider);
+    try{
+      expect(runCli(root,'init')).toContain('Configuration materialized from template classic');
+      writeFileSync(join(root,'.saivage','saivage.yaml'),stringify(testConfig(providerPort,appPort)));
+      writeCustomPrompts(root);
+      app=await start(root);
+      expect((await chat(app,'Start project work.')).toolInvocations[0].result.success).toBe(true);
+      await waitUntil(()=>plannerCalls===1,'initial live root provider request');
+      const normal=await chat(app,'Queue ordinary root context while running.');
+      expect(normal.toolInvocations[0].result).toMatchObject({success:true,data:{queued:true,interruption:{status:'not_requested'}}});
+      expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('running');
+      const urgent=await chat(app,'Urgently interrupt the current root work.');
+      expect(urgent.toolInvocations[0].result).toMatchObject({success:true,data:{queued:true,interruption:{status:'interrupted',stopped_card_ids:['project']}}});
+      await waitUntil(()=>plannerCalls===2,'replacement root provider request');
+      expect(replacementInput).toContain('normal steering');
+      expect(replacementInput).toContain('urgent root steering');
+      expect(app.server.runtimeApplication.cardStore.read('project')?.lifecycle.status).toBe('running');
+      const rows=app.server.runtimeApplication.cardStore.listCardVersions('project');
+      if(rows.kind!=='found')throw new Error('Missing root version history.');
+      const reasons=rows.value.map((version)=>version.change?.change_reason);
+      expect(reasons.filter((reason)=>reason==='recovery stopped lifecycle'||reason==='STOPPED activation')).toEqual(['recovery stopped lifecycle','STOPPED activation']);
+      expect((await api(app,'/api/runtime/stop-project',{method:'POST'})).status).toBe(200);
+    }finally{
+      if(app)await stop(app);
+      await new Promise<void>((resolve)=>provider.close(()=>resolve()));
+    }
+  },60000);
   it('covers configured workflows, restart-only routing, recovery, and offline reset without retained state', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-disposable-production-'));
     roots.push(root);
@@ -322,7 +553,9 @@ describe('disposable production-composition smoke', () => {
       writeFileSync(join(root, 'compaction-source-a.txt'), `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`);
       writeFileSync(join(root, 'compaction-source-b.txt'), `Refreshed unresolved task after first compaction. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`);
       writeFileSync(join(root, 'compaction-source-c.txt'), `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(31_000)}`);
-      writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
+      const config = testConfig(providerPort, appPort);
+      config.providers.fake!.modelCapabilities = { 'analyst-model': { contextWindowTokens: 100_000 } };
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(config));
       writeCustomPrompts(root);
 
       app = await start(root);

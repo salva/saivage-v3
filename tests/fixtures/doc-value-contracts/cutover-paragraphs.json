@@ -88,7 +88,7 @@
       "`contracts/app-log.ts` owns the strict three-lane `{type,data}` union for event, control-action, and provider-exchange rows."
     ],
     "after": [
-      "`contracts/app-log.ts` owns the strict union described by the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies)."
+      "`contracts/app-log.ts` owns the strict event/control union described by the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies)."
     ]
   },
   {

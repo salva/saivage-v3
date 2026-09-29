@@ -462,6 +462,12 @@ Publication-fatal operator behavior, and system-specification Sections 7–12.
   reset control, automatic lock repair, publication retry, or new recovery protocol.
 - Notification queues remain private. Known enqueue/interruption facts prove neither
   delivery nor action; chronology cannot manufacture queue membership or receipts.
+- Analyst may queue normal steering while work runs without Pausing. Urgent results
+  distinguish queued-only, interrupted exact work, suppressed interruption, and
+  self-tool settlement still pending; none certifies delivery or compliance.
+  Pause needs explicit Resume; without an eligible active owner, execution needs
+  explicit Run and may still never reach the target. No new queue panel or
+  receipt-update timeline exists.
 - The UI keeps no operator-visit state (no tracked viewing times, last-looked markers, unread/read state, recorded reading positions retained across views or visits for later resumption, or return-to-reading points); no viewing-derived state may frame catch-up or derive “what's new”; horizons are operator-supplied in conversation. Ephemeral session-local navigation history (including Back and Analyst-driven Back) is navigation mechanics, not operator-visit state; ephemeral in-view stability of the currently mounted presentation (scroll/content stability during loads, refreshes, and live updates, including follow/pause-follow) is presentation behavior, not operator-visit state.
 
 ## 5. Explicit non-goals

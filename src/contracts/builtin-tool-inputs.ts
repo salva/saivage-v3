@@ -42,7 +42,7 @@ export const analystDeleteCardInputSchema = z.object({ ids: z.array(z.string()).
 
 const notificationUrgencySchema = z.enum(['normal', 'urgent']);
 export type NotificationUrgency = z.infer<typeof notificationUrgencySchema>;
-export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.'), urgency: notificationUrgencySchema.describe('Normal queues context only; urgent may interrupt the exact active descendant suffix after enqueue.') }).strict();
+export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.'), urgency: notificationUrgencySchema.describe('Normal queues context only; urgent may stop exact active card machinery and resume the recipient workflow after enqueue. Neither guarantees delivery.') }).strict();
 const readAgentSessionSharedInput = {
   session_id: ConversationSessionIdSchema,
   position: discoveryCollectionPositionSchema.optional(),

@@ -25,7 +25,7 @@ export async function queue_notification(
       safety_class: 'low',
       target_kind: 'card',
       getTargetId: () => params.card_id,
-      lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' },
+      lifecycle: { kind: 'runtime_cancellation' },
       mutate: (_prepared, input, mutation) =>
         mutation.services.notifications.queue(input.card_id, input.kind, input.body, input.urgency, signal),
     },

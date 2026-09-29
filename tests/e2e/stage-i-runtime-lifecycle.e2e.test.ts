@@ -197,7 +197,10 @@ describe('Stage-I runtime lifecycle E2E', () => {
     const provider = scriptedAdmissionProvider(jest.fn(async () => { throw new Error('Recovery must fail before provider dispatch.'); }));
     const runtime = supervisor(projectRoot, cards, provider);
 
-    await expect(runtime.startProject()).rejects.toThrow("Non-clean role session 'agent:planner:project' has no activation marker.");
+    await expect(runtime.startProject()).rejects.toMatchObject({
+      message: "Startup interrupted-card settlement: configured session 'agent:planner:project' failed.",
+      cause: { message: "Non-clean role session 'agent:planner:project' has no activation marker." },
+    });
     expect(stop.mock.calls.map(([cardId]) => cardId)).toEqual([leaf.id]);
     expect(cards.read(leaf.id)?.lifecycle.status).toBe('stopped');
     expect(cards.read('project')?.lifecycle.status).toBe('running');
@@ -220,7 +223,10 @@ describe('Stage-I runtime lifecycle E2E', () => {
     const providerCall = jest.fn(async () => { throw new Error('Invalid Run topology must not dispatch.'); });
     const runtime = supervisor(projectRoot, cards, scriptedAdmissionProvider(providerCall));
 
-    await expect(runtime.startProject()).rejects.toThrow(`Linked running card '${leaf.id}' is outside the unique project-rooted running chain.`);
+    await expect(runtime.startProject()).rejects.toMatchObject({
+      message: 'Startup interrupted-card settlement: linked-chain selection failed.',
+      cause: { message: `Linked running card '${leaf.id}' is outside the unique project-rooted running chain.` },
+    });
     expect(stop).not.toHaveBeenCalled();
     expect(providerCall).not.toHaveBeenCalled();
     expect(new Map(cards.list().map((card) => [card.id, card.version_seq]))).toEqual(versions);
@@ -233,12 +239,12 @@ describe('Stage-I runtime lifecycle E2E', () => {
     const cards = new CardService(projectRoot);
     const goal = cards.create({ type: 'goal', parent: 'project', title: 'Stopped gap', bootstrap_content: 'Plan', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Ownerless running leaf', bootstrap_content: 'Execute', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
+    const runtime = supervisor(projectRoot, cards, scriptedAdmissionProvider(jest.fn(async () => { throw new Error('Provider is unused.'); })));
+    await runtime.start();
     cards.setStatus('project', 'running');
     cards.setStatus(leaf.id, 'running');
     const rootBefore = cards.read('project')!;
     const bytesBefore = readFileSync(cardStreamFile(projectRoot, 'project'));
-    const runtime = supervisor(projectRoot, cards, scriptedAdmissionProvider(jest.fn(async () => { throw new Error('Provider is unused.'); })));
-    await runtime.start();
     const { internals, owner } = installRootSettlementOwner(runtime, rootBefore);
 
     await expect(internals.settleResult(owner, terminalOutcome())).rejects.toThrow(`Linked running card '${leaf.id}' is outside the unique project-rooted running chain.`);
@@ -252,9 +258,9 @@ describe('Stage-I runtime lifecycle E2E', () => {
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
     const initialVersion = cards.read('project')!.version_seq;
-    cards.setStatus('project', 'running');
     const runtime = supervisor(projectRoot, cards, scriptedAdmissionProvider(jest.fn(async () => { throw new Error('Provider is unused.'); })));
     await runtime.start();
+    cards.setStatus('project', 'running');
     const { internals, owner } = installRootSettlementOwner(runtime, cards.read('project')!);
 
     await expect(internals.settleResult(owner, terminalOutcome())).resolves.toBeUndefined();

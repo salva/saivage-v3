@@ -59,12 +59,11 @@ interface RuntimeHalt {
 
 type InterruptedOwnerSettlement = Readonly<{ kind: 'completed' }> | Readonly<{ kind: 'taken_over'; halt: RuntimeHalt }>;
 
-interface UrgentSuffixCapture {
-  readonly target: CardActivationOwner;
-  readonly targetSessionId: ConversationSessionId;
-  readonly targetNodeStateId: string;
-  readonly suffix: readonly CardActivationOwner[];
-  readonly leases: readonly ChildInvocationLease[];
+interface UrgentNodeCapture { readonly boundary: CardActivationOwner; readonly ordinal: number; readonly suffix: readonly CardActivationOwner[]; readonly leases: readonly ChildInvocationLease[]; readonly replaceRoot: boolean }
+interface UrgentSelection {
+  readonly capture: UrgentNodeCapture | null;
+  readonly notices: readonly { readonly cardId: string; readonly childId: string; readonly childStatus: string }[];
+  readonly conflictedOwner: boolean;
 }
 
 type SupervisorStatus = RuntimeStatus | 'uninitialized';
@@ -253,7 +252,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (!card) return { ok: false, reason: 'missing_card', cardId };
     if (!acceptsCardNotifications(card.lifecycle.status)) return { ok: false, reason: 'terminal_card', cardId, status: card.lifecycle.status as 'done' | 'failed' | 'cancelled' };
     const owner = this.activationOwners.get(cardId);
-    if (owner && (owner.terminalWinner !== 'open' || this.halt?.owners.includes(owner) || !this.applicationAdmissionOpen)) return { ok: false, reason: 'activation_closed', cardId };
+    if (owner && owner.terminalWinner !== 'open') return { ok: false, reason: 'activation_closed', cardId };
     this.behavior.actorStore.enqueueNotification(cardId, notification);
     return { ok: true, notificationId: notification.id };
   }
@@ -266,8 +265,9 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const submittingOwner = admitCaller();
     const targetCard = this.behavior.actorStore.read(cardId);
     if (!targetCard) return { queued: false, reason: 'missing_card', cardId };
-    const capture = urgency === 'urgent' ? this.captureUrgentSuffix(cardId) : null;
-    if (admitCaller() !== submittingOwner) throw new Error('Notification caller ownership changed before enqueue.');
+    const selection = urgency === 'urgent' ? this.selectUrgentRoute(cardId) : null;
+    if (submittingOwner && (this.activationOwners.get(submittingOwner.cardId) !== submittingOwner || submittingOwner.phase !== 'active' || submittingOwner.terminalWinner !== 'open'))
+      throw new Error('Notification caller ownership changed before enqueue.');
     let queued: NotifyCardResult;
     try {
       queued = this.notifyCard(cardId, notification);
@@ -280,44 +280,87 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       return { ...denied, queued: false };
     }
     if (urgency === 'normal') return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_requested' } };
-    if (!capture) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_applicable' } };
-    if (submittingOwner && capture.suffix.includes(submittingOwner)) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_applicable' } };
+    if (!selection) throw new Error('Urgent notification selection is missing.');
+    for (const notice of selection.notices) {
+      const parentNote = { id: randomUUID(), content: `Urgent notification '${notification.id}' for descendant '${cardId}' needs attention through immediate child '${notice.childId}' (currently ${notice.childStatus}). Consider ordinary child activation${notice.childStatus === 'done' || notice.childStatus === 'failed' ? ' after discretionary reopening if appropriate' : ''}; the workflow may decline.`, created_at: this.now(), source: 'supervisor' };
+      try { this.notifyCard(notice.cardId, parentNote); }
+      catch (error) { if (error instanceof PublicationOutcomeUnknownError) this.behavior.fatalPort.publicationOutcomeUnknown(error); throw error; }
+    }
+    const capture = selection.capture;
+    if (!capture) return { queued: true, cardId, notificationId: queued.notificationId, interruption: selection.conflictedOwner ? { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } : { status: 'not_applicable' } };
     if (signal?.aborted) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'cancelled', stopped_card_ids: [] } };
     if (this.status !== 'running' || !this.applicationAdmissionOpen || this.halt)
       return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } };
-    if (!this.urgentCaptureIsCurrent(capture))
+    if (!this.urgentNodeIsCurrent(capture))
       return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } };
-
-    const interruption = new CardInterruptedError(`Interrupted active descendant work after urgent notification '${notification.id}' for '${cardId}'.`);
+    const boundary = capture.boundary;
+    const interruption = new CardInterruptedError(`Interrupted current node after urgent notification '${notification.id}' for '${cardId}'.`);
+    const completion = deferred<void>();
+    void completion.promise.catch(() => undefined);
     const completed: string[] = [];
+    let takenOver = false;
     try {
       this.ownershipTransition(false, () => {
-        if (!this.urgentCaptureIsCurrent(capture)) throw new Error('Urgent notification ownership changed during interruption claim.');
+        if (!this.urgentNodeIsCurrent(capture)) throw new Error('Urgent notification ownership changed during interruption claim.');
+        if (capture.replaceRoot) { boundary.terminalWinner = 'interrupt'; boundary.phase = 'settling'; }
+        else boundary.processor.claimNodeInterruption(capture.ordinal, completion.promise, interruption);
+        boundary.urgentSettlement = completion.promise;
         for (const owner of capture.suffix) {
           owner.terminalWinner = 'interrupt';
           owner.phase = 'settling';
-          const lease = owner.parentRelationship!.invocation;
-          lease.markSettling();
+          owner.parentRelationship!.invocation.markSettling();
         }
       });
-      for (const owner of capture.suffix) owner.processor.interruptActivationGracefully(interruption);
-      this.ownershipInvalidated();
     } catch (error) {
       void this.beginHalt('runtime_failure').catch(() => undefined);
       throw error;
     }
-
-    for (const owner of [...capture.suffix].reverse()) {
-      const settlement = this.settleInterruptedOwner(owner, interruption);
-      const result = await settlement;
-      if (result.kind === 'taken_over') {
-        if (result.halt.trigger === 'stop' || result.halt.trigger === 'application_close')
-          return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: completed } };
-        throw result.halt.failure ?? result.halt.interruption;
+    const task = (async () => {
+      try {
+        for (const owner of capture.suffix) owner.processor.interruptActivationGracefully(interruption);
+        if (capture.replaceRoot) boundary.processor.interruptActivationGracefully(interruption);
+        else boundary.processor.interruptClaimedNodeGracefully();
+        this.ownershipInvalidated();
+        for (const owner of [...capture.suffix].reverse()) {
+          const result = await this.settleInterruptedOwner(owner, interruption);
+          if (result.kind === 'taken_over') {
+            if (result.halt.trigger !== 'stop' && result.halt.trigger !== 'application_close') throw result.halt.failure ?? result.halt.interruption;
+            takenOver = true;
+            completion.resolve();
+            return;
+          }
+          completed.push(owner.cardId);
+        }
+        if (capture.replaceRoot) {
+          const rootResult = await this.settleInterruptedOwner(boundary, interruption);
+          if (rootResult.kind === 'taken_over') {
+            if (rootResult.halt.trigger !== 'stop' && rootResult.halt.trigger !== 'application_close') throw rootResult.halt.failure ?? rootResult.halt.interruption;
+            takenOver = true;
+            completion.resolve();
+            return;
+          }
+          completed.push(PROJECT_CARD_ID);
+          if (!this.replaceInterruptedRoot(boundary, completion.promise)) { takenOver = true; completion.resolve(); return; }
+        } else {
+          await boundary.processor.joinInterruptedNode();
+          if (this.haltFor(boundary)) takenOver = true;
+          else this.requireOwnerAuthority(boundary);
+        }
+        completion.resolve();
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError) this.behavior.fatalPort.publicationOutcomeUnknown(error);
+        void this.beginHalt('runtime_failure').catch(() => undefined);
+        completion.reject(error);
+      } finally {
+        boundary.urgentSettlement = null;
+        const currentRoot = this.activationOwners.get(PROJECT_CARD_ID);
+        if (currentRoot?.urgentSettlement === completion.promise) currentRoot.urgentSettlement = null;
       }
-      completed.push(owner.cardId);
-    }
-    return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'interrupted', stopped_card_ids: completed } };
+    })();
+    void task.catch((error) => { completion.reject(error); void this.beginHalt('runtime_failure').catch(() => undefined); });
+    if (submittingOwner === boundary || (submittingOwner && capture.suffix.includes(submittingOwner))) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'pending_tool_settlement' } };
+    await completion.promise;
+    return { queued: true, cardId, notificationId: queued.notificationId, interruption: takenOver ? { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: completed } : { status: 'interrupted', stopped_card_ids: completed } };
   }
 
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> { return this.cancelOwnedOrStored(cardId, reason, null); }
@@ -568,39 +611,48 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const cancelled: string[] = []; await this.cancelNonrunningSubtree(cardId, cancelled); const halt = this.halt as RuntimeHalt | null; if (halt) throw halt.interruption; return { card_id: cardId, status: 'cancelled', cancelled_card_ids: cancelled };
   }
 
-  private captureUrgentSuffix(cardId: string): UrgentSuffixCapture | null {
-    if (this.status !== 'running' || !this.applicationAdmissionOpen || this.halt) return null;
-    const target = this.activationOwners.get(cardId);
-    if (!target || target.phase !== 'active' || target.terminalWinner !== 'open' || target.childCardId === null) return null;
-    const position = target.processor.processPosition();
-    if (position.kind !== 'node') return null;
-    const state = target.processor.process.states.get(position.stateId);
-    if (!state || state.kind !== 'node' || state.agent.name !== target.processor.process.notificationRecipient) return null;
-    const snapshot = target.processor.executingLlmSnapshot();
-    if (!snapshot || snapshot.activity.mode !== 'waiting' || snapshot.activity.barrier?.kind !== 'child') return null;
+  private selectUrgentRoute(cardId: string): UrgentSelection {
+    const notices: { cardId: string; childId: string; childStatus: string }[] = [];
+    let boundary: CardActivationOwner | null = null;
+    let conflictedOwner = false;
+    if (cardId === PROJECT_CARD_ID) {
+      const root = this.activationOwners.get(PROJECT_CARD_ID);
+      if (!root) return { capture: null, notices, conflictedOwner: false };
+      if (root.phase !== 'active' || root.terminalWinner !== 'open') return { capture: null, notices, conflictedOwner: true };
+      boundary = root;
+    }
+    let childId = cardId;
+    for (let parentId = cardParentId(childId); parentId !== null; parentId = cardParentId(childId)) {
+      const child = this.behavior.actorStore.read(childId);
+      const parent = this.behavior.actorStore.read(parentId);
+      if (!child || !parent || !parent.child_membership.includes(childId)) throw new Error(`Urgent notification path '${parentId}' -> '${childId}' is not committed.`);
+      const owner = this.activationOwners.get(parentId);
+      if (owner && (owner.phase !== 'active' || owner.terminalWinner !== 'open')) conflictedOwner = true;
+      if (acceptsCardNotifications(parent.lifecycle.status) && parent.lifecycle.status !== 'blocked' && (!owner || (owner.phase === 'active' && owner.terminalWinner === 'open'))) {
+        notices.push({ cardId: parentId, childId, childStatus: child.lifecycle.status });
+        if (owner && parent.lifecycle.status === 'running') { boundary = owner; break; }
+      }
+      childId = parentId;
+    }
+    if (!boundary) return { capture: null, notices, conflictedOwner };
     const suffix: CardActivationOwner[] = [];
     const leases: ChildInvocationLease[] = [];
-    let childId: string | null = target.childCardId;
-    while (childId !== null) {
-      const child = this.activationOwners.get(childId);
+    let activeChildId = boundary.childCardId;
+    while (activeChildId !== null) {
+      const child = this.activationOwners.get(activeChildId);
       if (!child || !child.parentRelationship) throw new Error('Owned urgent descendant relationship is incomplete.');
       suffix.push(child);
       leases.push(child.parentRelationship.invocation);
-      childId = child.childCardId;
+      activeChildId = child.childCardId;
     }
-    if (leases[0]!.relationship !== snapshot.activity.barrier.relationship)
-      throw new Error('Target child wait barrier does not match its owned descendant relationship.');
-    if (suffix.some((owner) => owner.phase !== 'active' || owner.terminalWinner !== 'open') || leases.some((lease) => lease.phase() !== 'admitted')) return null;
-    return Object.freeze({ target, targetSessionId: snapshot.sessionId, targetNodeStateId: position.stateId, suffix: Object.freeze(suffix), leases: Object.freeze(leases) });
+    const position = boundary.processor.processPosition();
+    if (position.kind !== 'node') return { capture: null, notices, conflictedOwner: true };
+    return { capture: { boundary, ordinal: position.executionOrdinal, suffix, leases, replaceRoot: cardId === PROJECT_CARD_ID }, notices, conflictedOwner };
   }
 
-  private urgentCaptureIsCurrent(capture: UrgentSuffixCapture): boolean {
-    if (this.activationOwners.get(capture.target.cardId) !== capture.target || capture.target.phase !== 'active' || capture.target.terminalWinner !== 'open') return false;
-    const position = capture.target.processor.processPosition();
-    const snapshot = capture.target.processor.executingLlmSnapshot();
-    if (position.kind !== 'node' || position.stateId !== capture.targetNodeStateId || !snapshot || snapshot.sessionId !== capture.targetSessionId || snapshot.activity.mode !== 'waiting' || snapshot.activity.barrier?.kind !== 'child') return false;
-    if (snapshot.activity.barrier.relationship !== capture.leases[0]!.relationship) return false;
-    return capture.suffix.every((owner, index) => this.activationOwners.get(owner.cardId) === owner && owner.phase === 'active' && owner.terminalWinner === 'open' && owner.parentRelationship?.invocation === capture.leases[index] && capture.leases[index]!.phase() === 'admitted' && (index === 0 ? capture.target.childCardId === owner.cardId : capture.suffix[index - 1]!.childCardId === owner.cardId) && owner.childCardId === (capture.suffix[index + 1]?.cardId ?? null));
+  private urgentNodeIsCurrent(capture: UrgentNodeCapture): boolean {
+    const { boundary, ordinal } = capture;
+    return this.activationOwners.get(boundary.cardId) === boundary && boundary.phase === 'active' && boundary.terminalWinner === 'open' && boundary.processor.canInterruptNode(ordinal) && capture.suffix.every((owner, index) => this.activationOwners.get(owner.cardId) === owner && owner.phase === 'active' && owner.terminalWinner === 'open' && owner.parentRelationship?.invocation === capture.leases[index] && capture.leases[index]!.phase() === 'admitted' && (index === 0 ? boundary.childCardId === owner.cardId : capture.suffix[index - 1]!.childCardId === owner.cardId) && owner.childCardId === (capture.suffix[index + 1]?.cardId ?? null));
   }
 
   private async settleInterruptedOwner(owner: CardActivationOwner, interruption: CardInterruptedError): Promise<InterruptedOwnerSettlement> {
@@ -628,7 +680,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     this.requireOwnerAuthority(owner);
     owner.cachedStatus = 'stopped';
     const relationship = owner.parentRelationship;
-    if (!relationship) throw new Error('Urgent interruption cannot release the root activation owner.');
+    if (!relationship) return { kind: 'completed' };
     const outcome = { status: 'stopped' as const, summary: interruption.message };
     this.ownershipTransition(false, () => {
       this.requireOwnerAuthority(owner);
@@ -643,6 +695,29 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     relationship.invocation.deliverOutcome(outcome);
     this.ownershipInvalidated();
     return { kind: 'completed' };
+  }
+
+  private replaceInterruptedRoot(old: CardActivationOwner, settlement: Promise<void>): CardActivationOwner | null {
+    this.requireOwnerAuthority(old);
+    const stopped = this.requireKnownCard(old);
+    const replacement = this.createOwner(stopped, 'STOPPED', 'prepared_root');
+    this.ownershipTransition(false, () => {
+      this.requireOwnerAuthority(old);
+      replacement.urgentSettlement = settlement;
+      this.activationOwners.set(PROJECT_CARD_ID, replacement);
+    });
+    old.settlement.resolve({ status: 'stopped', summary: 'Urgent root interruption.' });
+    const running = this.publish(replacement, () => this.behavior.actorStore.activateStopped(PROJECT_CARD_ID));
+    if (!running) return null;
+    if (this.haltFor(replacement)) return null;
+    this.ownershipTransition(true, () => {
+      this.requireOwnerAuthority(replacement);
+      replacement.phase = 'active';
+      replacement.cachedStatus = 'running';
+    });
+    if (this.haltFor(replacement)) return null;
+    this.activateProcessor(replacement);
+    return replacement;
   }
 
   private settleCancellation(owner: CardActivationOwner): Promise<CardCancellationResult> {
@@ -716,7 +791,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       }).then((report) => { if (report.failed.length !== 0) throw new Error('Runtime process-scope termination failed.'); });
     } catch (error) { processTermination = Promise.reject(error); }
 
-    void Promise.allSettled([...joins, processTermination]).then((results) => {
+    void Promise.allSettled([...joins, ...owners.flatMap((owner) => owner.urgentSettlement ? [owner.urgentSettlement] : []), processTermination]).then((results) => {
       for (const result of results) if (result.status === 'rejected') retainFirst(result.reason);
       if (hasFailure) {
         try {

@@ -42,6 +42,7 @@ type ProcessTransitionSemantic =
   | Readonly<{ kind: 'entry-route'; prompt: CompiledPromptDeclaration | null }>
   | Readonly<{ kind: 'configured-outcome'; outcome: string; prompt: CompiledPromptDeclaration | null; terminalBehavior: CompiledTerminalBehavior | null }>
   | Readonly<{ kind: 'configured-pending-notifications'; outcome: string; prompt: CompiledPromptDeclaration }>
+  | Readonly<{ kind: 'notification-interrupt'; prompt: CompiledPromptDeclaration }>
   | Readonly<{ kind: 'runtime-terminal'; cause: 'failed' | 'blocked' }>;
 export type CompiledProcessTransition = Readonly<{ targetStateId: string; reenter: boolean; semantic: ProcessTransitionSemantic }>;
 type ProcessStateBase = Readonly<{ on: ReadonlyMap<string, CompiledProcessTransition>; isTerminal: boolean; isParked: boolean }>;
@@ -392,6 +393,9 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
       throw new Error(
         `${draft.location}.workflow.entries.${entry} targets missing node '${route.targetNodeId}'.`,
       );
+  const stopped = draft.entries.get('STOPPED')!;
+  if (draft.nodes.get(stopped.targetNodeId)!.agent.name !== draft.notificationRecipient)
+    throw new Error(`${draft.location}.workflow.entries.STOPPED must target a node run by notification recipient '${draft.notificationRecipient}'.`);
   const reachable = new Set<string>();
   const visit = (id: string): void => {
     if (reachable.has(id)) return;
@@ -492,6 +496,9 @@ function buildCardTypeStateTable(
   for (const [nodeId, node] of draft.nodes) {
     const stateId = nodeState(nodeId);
     const on = new Map<string, CompiledProcessTransition>();
+    const recovery = draft.entries.get('STOPPED')!;
+    if (!recovery.prompt) throw new Error(`${draft.location}.workflow.entries.STOPPED requires a recovery prompt for notification interruption.`);
+    on.set('notification:interrupt', compiledProcessTransition(nodeState(recovery.targetNodeId), Object.freeze({ kind: 'notification-interrupt', prompt: recovery.prompt }), recovery.targetNodeId === nodeId));
     for (const edge of node.edges.values())
       {
       on.set(
@@ -573,7 +580,7 @@ function buildCardTypeStateTable(
     }
     for (const route of state.on.values())
       if (
-        (route.semantic.kind === 'entry-route' || route.semantic.kind === 'configured-outcome' || route.semantic.kind === 'configured-pending-notifications') &&
+        (route.semantic.kind === 'entry-route' || route.semantic.kind === 'configured-outcome' || route.semantic.kind === 'configured-pending-notifications' || route.semantic.kind === 'notification-interrupt') &&
         route.semantic.prompt !== null
       )
         ids.add(route.semantic.prompt.promptId);
@@ -639,6 +646,8 @@ function validateProcessStateTable(
         if (state.kind !== 'node' || target.kind !== 'node' || event !== `result:${route.semantic.outcome}:pending-notifications`)
           throw new Error(`${location}.workflow transition '${source}'/'${event}' has invalid pending-notifications semantics.`);
       }
+      if (route.semantic.kind === 'notification-interrupt' && (state.kind !== 'node' || target.kind !== 'node' || event !== 'notification:interrupt'))
+        throw new Error(`${location}.workflow transition '${source}'/'${event}' has invalid notification interruption semantics.`);
     }
 }
 function validateDescendantContextClosure(drafts:ReadonlyMap<CardTypeName,CardTypeCompileDraft>):void{
