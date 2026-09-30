@@ -2,7 +2,7 @@ import { stringify } from 'yaml';
 import { lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { replaceFile, type PublicationTemporaryIdFactory } from '../persistence/replace-file.js';
+import { replaceFile, type PublicationTemporaryIdFactory } from '../persistence/index.js';
 
 export function replaceConfigYaml(selectedPath: string, validatedDocument: unknown, publicationTemporaryId?: PublicationTemporaryIdFactory): void {
   const source = typeof validatedDocument === 'object' && validatedDocument !== null && 'toJS' in validatedDocument

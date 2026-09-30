@@ -8,7 +8,7 @@ import {
 } from '../../contracts/index.js';
 import { hasParentPathSegment, isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
-import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
+import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/index.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
 import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';

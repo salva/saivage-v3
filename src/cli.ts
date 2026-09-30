@@ -5,19 +5,15 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
 import { publishInitialProjectRuntime, startApp, type StartInputs } from './boot/index.js';
-import { findProjectRoot } from './persistence/discovery.js';
+import { findProjectRoot, resetOwnedGeneratedRoots, readProjectIdentity, readProjectCardOrAssertInitialPublicationAllowed, initializeAndValidateCurrentGeneratedState } from './persistence/index.js';
 import { readRuntimeLockStatus } from './runtime/runtime-api.js';
-import { resetOwnedGeneratedRoots } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
-import { readProjectIdentity } from './persistence/project-identity.js';
-import { readProjectCardOrAssertInitialPublicationAllowed } from './persistence/generated-state.js';
 import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-client.js';
 import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from './config/system-templates/registry.js';
 import { SAIVAGE_VERSION } from './version.js';
 import { replaceConfigYaml } from './config/config-file.js';
 import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
-import { initializeAndValidateCurrentGeneratedState } from './persistence/current-generated-graph.js';
 
 const fatalPort = createApplicationFatalPort();
 

@@ -11,7 +11,7 @@ import {
   type OrdinaryCardChangeField,
   type OutboundCardVersionChange,
 } from '../../schemas/index.js';
-import type { CardArtifact } from '../../persistence/canonical-card-artifacts.js';
+import type { CardArtifact } from '../../persistence/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
 
 export function projectCardRecordForOutbound(card: CardRecord): OutboundCardRecord {

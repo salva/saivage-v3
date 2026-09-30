@@ -13,8 +13,7 @@ import {
 } from '../contracts/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
-import type { CardArtifact } from '../persistence/canonical-card-artifacts.js';
-import { recordContentSha256 } from '../persistence/canonical-record-artifacts.js';
+import { recordContentSha256, type CardArtifact } from '../persistence/index.js';
 import {
   boundedToolError,
   DISCOVERY_RESPONSE_MAX_BYTES,

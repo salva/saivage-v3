@@ -1,7 +1,7 @@
 import { relative, resolve } from 'node:path';
 
 import type { AgentName } from '../schemas/index.js';
-import type { RecordProjection } from '../persistence/authored-record-files.js';
+import type { RecordProjection } from '../persistence/index.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import type { CardService } from '../cards/store-api.js';
 type CompleteRecordReader=Pick<CardService,'readRecordCurrent'|'readRecordVersion'>;
@@ -13,7 +13,7 @@ import {
   type ParsedScopedPathUrl,
   type ParsedRecordUrl,
 } from '../contracts/index.js';
-import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
+import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/index.js';
 
 type ScopedPathMode = 'read' | 'write' | 'search';
 type ScopedPathErrorFactory = (message: string) => Error;

@@ -1,4 +1,4 @@
-import { readConversation } from '../persistence/conversation-file.js';
+import { readConversation } from '../persistence/index.js';
 import type { GlobalConversationSessionId } from '../schemas/index.js';
 
 export function validateConfiguredGlobalConversation(

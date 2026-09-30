@@ -1,4 +1,4 @@
-import { readAppLogEntries } from '../persistence/app-log.js';
+import { readAppLogEntries } from '../persistence/index.js';
 import { isErrorEvent, type ErrorEvent, type EventKind, type LoggedEvent } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';

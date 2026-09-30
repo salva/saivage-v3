@@ -26,11 +26,10 @@ import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
-import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
+import { SAIVAGE_WORK_RELATIVE_DIR, replaceFile } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { admitAnalystRecordWebfetch, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
 import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/text.js';
-import { replaceFile } from '../persistence/replace-file.js';
 import { admitRecordMutation } from '../application/record-mutation-service.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 

@@ -3,13 +3,13 @@ import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import { cardIdSchema, type AgentName } from '../schemas/index.js';
-import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
+import { effectiveRecordContent } from '../persistence/index.js';
 import type { CardService } from '../cards/store-api.js';
 type CompleteRecordReader=Pick<CardService,'readRecordCurrent'|'readRecordVersion'|'listDeclaredRecordMetadata'>;
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl, ModelRecordTargetWireSchema, type ModelRecordTargetWire } from '../contracts/index.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
-import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
+import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/index.js';
 import { isProjectDirectoryExcluded, loadProjectSearchIgnore, type ProjectSearchIgnore } from './project-search-ignore.js';
 
 type VfsMode = 'read' | 'write' | 'search';

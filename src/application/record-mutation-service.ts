@@ -1,8 +1,7 @@
 import type { CardService } from '../cards/card-service.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
 import { parseRecordUrl, RecordMutationFailureSchema, RecordMutationSuccessSchema, type AnalystPreNetworkAdmission, type RecordMutationDenialReason, type RecordMutationFailure, type RecordMutationResult, type RecordMutationSuccess } from '../contracts/index.js';
-import { effectiveRecordContent, isEmptyRecordContent } from '../persistence/canonical-record-artifacts.js';
-import type { RecordProjection } from '../persistence/authored-record-files.js';
+import { effectiveRecordContent, isEmptyRecordContent, type RecordProjection } from '../persistence/index.js';
 import type { AgentName } from '../schemas/index.js';
 
 interface RecordMutationRequest {

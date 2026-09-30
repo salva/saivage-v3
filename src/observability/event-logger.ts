@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loggedEventSchema, type LoggedEvent } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { appendAppLogEntry, type AppLogPublicationContext } from '../persistence/app-log.js';
+import { appendAppLogEntry, type AppLogPublicationContext } from '../persistence/index.js';
 
 // ── Constants ─────────────────────────────────────────────────
 

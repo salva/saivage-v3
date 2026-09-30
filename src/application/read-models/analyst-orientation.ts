@@ -1,6 +1,6 @@
 import type { CardStatus, RuntimeStatus } from '../../schemas/index.js';
 import { canonicalJson } from '../../schemas/index.js';
-import { conversationSha256 } from '../../persistence/canonical-conversation-artifacts.js';
+import { conversationSha256 } from '../../persistence/index.js';
 
 const ANALYST_ORIENTATION_KEY = 'analyst.project_tree';
 export const ANALYST_ORIENTATION_MAX_BYTES = 8192;

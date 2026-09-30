@@ -1,4 +1,4 @@
-import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
+import { readLatestProviderExchangePayload } from '../../persistence/index.js';
 import {
   AgentOperatorReadModelService,
   AgentCurrentStateUnavailableError,
@@ -14,7 +14,7 @@ import {
 } from '../../contracts/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
-import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError } from '../../persistence/conversation-file.js';
+import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError } from '../../persistence/index.js';
 import { ConversationCursorNotFoundError, ConversationSegmentChangedError } from '../../application/read-models/agent-conversation-read-model.js';
 import { historicalUnavailableStatus } from '../../application/read-models/historical-unavailable-status.js';
 import type { ConversationSessionId } from '../../schemas/index.js';

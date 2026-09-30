@@ -13,7 +13,7 @@ import type {
 import type { CardDiffEntry } from '../cards/card-service.js';
 import { projectProviderExchange } from '../agents/provider-exchange-outbound.js';
 import { projectLoggedEvent } from '../observability/logged-event-projection.js';
-import { projectControlAction } from '../persistence/control-action-outbound.js';
+import { projectControlAction } from '../persistence/index.js';
 import { projectDynamicForOutbound } from './dynamic.js';
 import { projectCardDiff } from '../application/read-models/card-outbound.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';

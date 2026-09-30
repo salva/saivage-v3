@@ -1,4 +1,4 @@
-import { listControlActions } from '../persistence/control-action-audit.js';
+import { listControlActions } from '../persistence/index.js';
 import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';

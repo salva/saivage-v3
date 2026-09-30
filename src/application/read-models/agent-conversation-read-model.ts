@@ -4,8 +4,8 @@ import {
   ConversationHistoricalVersionNotFoundError,
   readCurrentConversationSegment,
   type ConversationSegment,
-} from '../../persistence/conversation-file.js';
-import type { ConversationSegmentGenesis } from '../../persistence/canonical-conversation-artifacts.js';
+  type ConversationSegmentGenesis,
+} from '../../persistence/index.js';
 import { type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
 import type { ConversationSegmentContext } from '../../contracts/index.js';
 import { projectToolInvocation } from '../../tools/tool-invocation-outbound.js';

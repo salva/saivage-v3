@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { realpathSync } from 'node:fs';
 
-import { createProjectIdentity, projectIdentityDigest } from '../persistence/project-identity.js';
+import { createProjectIdentity, projectIdentityDigest } from '../persistence/index.js';
 import {
   acquireRuntimeLifecycleLock,
   bindRuntimeLifecycleLock,

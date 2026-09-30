@@ -6,7 +6,7 @@ import type {
 import { cardIdSchema, childCardId, MAX_CARD_DEPTH } from '../../schemas/card-id.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import type { WorkspaceFileContentResult, WorkspaceFilesListResult } from './workspace-file-read-model.js';
-import type { CardArtifact } from '../../persistence/canonical-card-artifacts.js';
+import type { CardArtifact } from '../../persistence/index.js';
 import { projectCardArtifactForOutbound } from './card-outbound.js';
 
 const CARDS_ROOT = '.saivage/cards';

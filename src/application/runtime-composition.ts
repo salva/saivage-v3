@@ -23,7 +23,7 @@ import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartCapability } from '../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from './freshness-effects.js';
-import type { ConversationFileContext } from '../persistence/conversation-file.js';
+import type { ConversationFileContext } from '../persistence/index.js';
 import {
   compact,
   shouldCompact,

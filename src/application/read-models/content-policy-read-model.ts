@@ -1,6 +1,5 @@
 import { ContentPolicyRuntimeResponseSchema, type ContentPolicyRuntimeResponse } from '../../contracts/index.js';
-import { readCanonicalLinkedCardHistoryTree } from '../../persistence/card-files.js';
-import type { CanonicalReadInstrumentation } from '../../persistence/growing-file.js';
+import { readCanonicalLinkedCardHistoryTree, type CanonicalReadInstrumentation } from '../../persistence/index.js';
 
 export function buildContentPolicyReadModel(
   projectRoot: string,

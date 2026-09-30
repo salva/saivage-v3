@@ -22,11 +22,7 @@ import {
   listAuthoredRecordVersions,
   type CurrentAuthoredRecordClassification,
   type RecordProjection,
-} from '../persistence/authored-record-files.js';
-import type { RecordDefinition } from '../records/record-definition.js';
-import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
-import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
-import {
+  effectiveRecordContent,
   listActiveCardTraversal,
   publishCardTombstone,
   publishCardVersion,
@@ -42,13 +38,19 @@ import {
   cardDiffValue,
   readLinkedChildren,
   readLinkedChildrenProjection,
+  cardVersionChangeSchema,
   type CardTargetRead,
   type CanonicalCardProjection,
   type CanonicalLinkedChildrenProjection,
   type CanonicalCardFileSlot,
-} from '../persistence/card-files.js';
-import { cardVersionChangeSchema, type CardArtifact, type CardVersionChange, type CardVersionListEntry } from '../persistence/canonical-card-artifacts.js';
-import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
+  type CardArtifact,
+  type CardVersionChange,
+  type CardVersionListEntry,
+  type CanonicalReadInstrumentation,
+  type GrowingFileIo,
+} from '../persistence/index.js';
+import type { RecordDefinition } from '../records/record-definition.js';
+import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/freshness-effects.js';
 import type { LiveSyncCardRecordName } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';

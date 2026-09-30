@@ -20,7 +20,7 @@ import {
   CardRecordContentResponseSchema,
   CardRecordListResponseSchema,
 } from '../../contracts/index.js';
-import type { CanonicalReadInstrumentation } from '../../persistence/growing-file.js';
+import type { AuthoredRecordVersionArtifact, CanonicalReadInstrumentation, RecordProjection } from '../../persistence/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
 import { projectCardArtifactForOutbound, projectCardVersionChangeForOutbound } from './card-outbound.js';
 
@@ -140,6 +140,6 @@ export class CardsReadModelService {
   }
 }
 
-function projectRecordArtifact(artifact: import('../../persistence/canonical-record-artifacts.js').AuthoredRecordVersionArtifact) { return { state: artifact.state, published_at: artifact.published_at, accepted: artifact.accepted ? { ...artifact.accepted, content: redactTextForOutbound(artifact.accepted.content) } : null, draft: artifact.draft ? { ...artifact.draft, content: redactTextForOutbound(artifact.draft.content) } : null, discarded: artifact.discarded ? { ...artifact.discarded, reason: redactTextForOutbound(artifact.discarded.reason) } : null }; }
-function projectRecord(projection: import('../../persistence/authored-record-files.js').RecordProjection) { const artifact = projectRecordArtifact(projection.artifact); return { name: projection.filename, head_version: projection.headVersion, head_entry_id: projection.artifact.entry_id, state: projection.artifact.state, accepted: artifact.accepted, draft: artifact.draft, discarded: artifact.discarded, effective_content_source: projection.artifact.state === 'open' ? 'draft' as const : projection.artifact.accepted ? 'accepted' as const : null }; }
+function projectRecordArtifact(artifact: AuthoredRecordVersionArtifact) { return { state: artifact.state, published_at: artifact.published_at, accepted: artifact.accepted ? { ...artifact.accepted, content: redactTextForOutbound(artifact.accepted.content) } : null, draft: artifact.draft ? { ...artifact.draft, content: redactTextForOutbound(artifact.draft.content) } : null, discarded: artifact.discarded ? { ...artifact.discarded, reason: redactTextForOutbound(artifact.discarded.reason) } : null }; }
+function projectRecord(projection: RecordProjection) { const artifact = projectRecordArtifact(projection.artifact); return { name: projection.filename, head_version: projection.headVersion, head_entry_id: projection.artifact.entry_id, state: projection.artifact.state, accepted: artifact.accepted, draft: artifact.draft, discarded: artifact.discarded, effective_content_source: projection.artifact.state === 'open' ? 'draft' as const : projection.artifact.accepted ? 'accepted' as const : null }; }
 function recordView(artifact: ReturnType<typeof projectRecordArtifact>, view: 'effective' | 'accepted' | 'draft'): string | null { if (view === 'accepted') return artifact.accepted?.content ?? null; if (view === 'draft') return artifact.draft?.content ?? null; return artifact.state === 'open' ? artifact.draft?.content ?? null : artifact.accepted?.content ?? null; }

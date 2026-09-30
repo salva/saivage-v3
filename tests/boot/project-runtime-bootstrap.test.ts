@@ -20,17 +20,13 @@ const mkdirSync = jest.fn((path: realFs.PathLike, options?: realFs.MakeDirectory
 }) as unknown as typeof realFs.mkdirSync;
 
 jest.unstable_mockModule('node:fs', () => ({ ...realFs, mkdirSync }));
-jest.unstable_mockModule('../../src/persistence/card-files.js', () => ({
+jest.unstable_mockModule('../../src/persistence/index.js', () => ({
   publishInitialProjectCard: (projectRoot: string, input: unknown, workflow: unknown) => {
     events.push({ kind: 'publish', projectRoot, input, workflow });
   },
-}));
-jest.unstable_mockModule('../../src/persistence/conversation-file.js', () => ({
   initializeConversation: (projectRoot: string, sessionId: string) => {
     events.push({ kind: 'conversation', projectRoot, sessionId });
   },
-}));
-jest.unstable_mockModule('../../src/persistence/layout.js', () => ({
   saivageCardsRoot: realSaivageCardsRoot,
 }));
 jest.unstable_mockModule('../../src/schemas/index.js', () => ({

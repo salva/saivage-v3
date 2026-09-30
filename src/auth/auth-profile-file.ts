@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { replaceFile, type PublicationTemporaryIdFactory } from '../persistence/replace-file.js';
+import { replaceFile, type PublicationTemporaryIdFactory } from '../persistence/index.js';
 
 export interface AuthProfile {
   type: string;

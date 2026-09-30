@@ -9,9 +9,8 @@ import {
   throwIfPublicationOutcomeUnknown,
   type AgentSessionSummary,
 } from '../../contracts/index.js';
-import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, readConversationCatalog, readHistoricalConversationSegment } from '../../persistence/conversation-file.js';
+import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, readConversationCatalog, readHistoricalConversationSegment, listCards, readCard, readCommittedCardArtifactCatalog } from '../../persistence/index.js';
 import { ConversationCursorNotFoundError, ConversationSegmentChangedError, foldConversation, foldHistoricalConversationRows, segmentContext } from './agent-conversation-read-model.js';
-import { listCards, readCard, readCommittedCardArtifactCatalog } from '../../persistence/card-files.js';
 import {
   cardAgentSessionId,
   conversationSessionIdentity,

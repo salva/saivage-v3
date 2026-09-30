@@ -1,5 +1,5 @@
 import { canonicalJson } from '../schemas/index.js';
-import { canonicalValueSha256 } from '../persistence/canonical-conversation-artifacts.js';
+import { canonicalValueSha256 } from '../persistence/index.js';
 import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,

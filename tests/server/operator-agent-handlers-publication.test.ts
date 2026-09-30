@@ -11,6 +11,8 @@ const admitConversationCatalog = jest.fn(() => ({ currentVersion: 1 }));
 
 jest.unstable_mockModule('../../src/persistence/provider-exchange-log.js', () => ({
   readLatestProviderExchangePayload,
+  readProviderExchangeEntries: jest.fn(),
+  appendProviderExchangeEntry: jest.fn(),
 }));
 jest.unstable_mockModule('../../src/application/read-models/agent-operator-read-model.js', () => ({
   AgentOperatorReadModelService: class {
