@@ -4,13 +4,14 @@ import type { AgentName } from '../schemas/index.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 import type { CapabilitySkipReason } from './provider-capabilities.js';
 import type { CandidateRequestPlan } from './candidate-request.js';
-import type { ProviderTurnFailure } from './llm-contracts.js';
+import type { ProviderTurnFailure } from '../contracts/index.js';
 import type { LlmCompleteOptions } from './llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
-import type { CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities } from './provider-capabilities.js';
-import type { InvocationRoutePass } from '../runtime/actors/llm-invocation.js';
+import type { CapabilityRequest, CapabilityMatch } from './provider-capabilities.js';
+import type { EffectiveProviderCapabilities } from '../contracts/index.js';
+import type { InvocationRoutePass } from '../contracts/index.js';
 import { utf8SafeSlice } from '../tools/response-packer.js';
-import { usableInputTokens } from './context-budget.js';
+import { usableInputTokens } from '../contracts/index.js';
 
 type CandidateIdentity = Candidate;
 

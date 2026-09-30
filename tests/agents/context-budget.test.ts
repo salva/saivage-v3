@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { usableInputTokens } from '../../src/agents/context-budget.js';
+import { usableInputTokens } from '../../src/contracts/index.js';
 
 describe('model-aware usable input arithmetic', () => {
   it('uses the exact configured output request below the utilization window', () => {

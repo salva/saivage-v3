@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
-import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { RestartPort } from '../../src/contracts/index.js';

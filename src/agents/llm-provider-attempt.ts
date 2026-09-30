@@ -6,8 +6,9 @@ import {
   type CandidateRequestPlan,
 } from './candidate-request.js';
 import { AdmissionIntegrityError } from './invocation-admission.js';
-import type { LlmCompleteOptions, ProviderTurnCompletion } from './llm-contracts.js';
-import { ProviderTurnFailure } from './llm-contracts.js';
+import type { LlmCompleteOptions } from './llm-contracts.js';
+import type { ProviderTurnCompletion } from '../contracts/index.js';
+import { ProviderTurnFailure } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';

@@ -1,5 +1,5 @@
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
-import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
+import type { ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
 import { canonicalJson, cardAgentSessionId, type AgentName, type CardConversationSessionId, type CardRecord, type ConversationSessionId, type RuntimeOwnedBlockedResult } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
@@ -13,7 +13,8 @@ import { cardBootstrapForPrompt } from '../records/card-bootstrap.js';
 import { appendActivationMarker, appendUserContextMessage, buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { cleanupInvocationSurface, EMIT_RESULT_POLICY_TEMPLATE, executedNoneSettlement, invokeToolForLlm, syntheticToolSettlement, surfaceToolDefinitions, type InvocationSurface, type ToolSettlementInput } from '../../tools/invocation.js';
-import { buildPreparedInvocationContext, compileInvocationToolContract, type ContextBlock } from './context/context-blocks.js';
+import { buildPreparedInvocationContext, compileInvocationToolContract } from './context/context-blocks.js';
+import { type ContextBlock } from '../../contracts/index.js';
 import { BoundAgentToolSet, effectiveCardNodeToolReferences, surfaceToolContracts } from '../../tools/runtime-tool-catalog.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';

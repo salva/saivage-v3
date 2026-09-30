@@ -8,7 +8,7 @@ import { compact, prepareCompaction, type AutonomousCompactionPolicy } from '../
 import { buildAnalystIngressRows, providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import type { ProviderConversationItem } from '../../src/agents/llm-contracts.js';
+import type { ProviderConversationItem } from '../../src/contracts/index.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';

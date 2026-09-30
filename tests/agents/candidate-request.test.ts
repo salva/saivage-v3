@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { canonicalJson } from '../../src/schemas/index.js';
-import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
+import type { EffectiveProviderCapabilities } from '../../src/contracts/index.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
-import type { LlmCompleteOptions, ProviderConversationProjection, ToolDefinition } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import type { ProviderConversationProjection, ToolDefinition } from '../../src/contracts/index.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 
 const tools: ToolDefinition[] = [

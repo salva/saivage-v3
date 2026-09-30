@@ -1,5 +1,5 @@
-import type { ConversationSessionId } from '../schemas/conversation-session-id.js';
-import { internalCompactionSummarySessionId, providerExchangeLogEntrySchema, providerExchangeLogId, type ProviderExchangeLogEntry } from '../contracts/provider-exchange-log.js';
+import type { ConversationSessionId } from '../schemas/index.js';
+import { internalCompactionSummarySessionId, providerExchangeLogEntrySchema, providerExchangeLogId, type ProviderExchangeLogEntry } from '../contracts/index.js';
 import type { ProviderExchangePayload } from '../contracts/provider-exchange.js';
 import { admitGrowingFileTail, appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
 import { providerExchangeFile } from './layout.js';

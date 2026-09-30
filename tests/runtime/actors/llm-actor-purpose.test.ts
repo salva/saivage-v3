@@ -3,7 +3,7 @@ import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ConversationLLMActor,type LlmTerminalHandoff} from '../../../src/runtime/actors/llm-actor.js';
-import {ProviderTurnFailure} from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../../src/contracts/index.js';
 import {LlmRequestError} from '../../../src/contracts/llm-failure.js';
 import {prepareCompaction} from '../../../src/runtime/actors/compaction/compactor.js';
 import {buildPreparedInvocationContext} from '../../../src/runtime/actors/context/context-blocks.js';

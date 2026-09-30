@@ -1,4 +1,5 @@
-import type { LlmCompleteOptions, LlmCompleteResult, ProviderTurnCompletion, ToolCall } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderTurnCompletion, ToolCall } from '../../src/contracts/index.js';
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import type { CompactorPort, LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';

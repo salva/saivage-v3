@@ -13,7 +13,7 @@ import {
   ordinaryAdmittedExecutionAuthority,
   type SuspendedAdmittedExecution,
 } from '../../src/agents/invocation-admission.js';
-import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';

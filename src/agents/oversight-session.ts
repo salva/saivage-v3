@@ -5,7 +5,7 @@ import type { CapabilityRequest } from './provider-capabilities.js';
 import { buildGlobalAgentIngressRows, providerConversationProjection } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import { LocalExactAdmissionError } from './invocation-admission.js';
-import { ProviderTurnFailure } from './llm-contracts.js';
+import { ProviderTurnFailure } from '../contracts/index.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import { CompactionSummaryConstructionError, prepareCompaction, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';

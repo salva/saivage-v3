@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { ConversationSessionIdSchema, type ConversationSessionId } from '../schemas/conversation-session-id.js';
+import { ConversationSessionIdSchema, type ConversationSessionId } from '../schemas/index.js';
 import { providerExchangePayloadSchema } from './provider-exchange.js';
 
 export function internalCompactionSummarySessionId(sourceSessionId: ConversationSessionId): `internal:compaction-summary:${string}` {

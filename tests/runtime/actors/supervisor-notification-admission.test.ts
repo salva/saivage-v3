@@ -17,7 +17,7 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
-import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../../src/contracts/index.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { readConversation, type ConversationFileContext } from '../../../src/persistence/conversation-file.js';

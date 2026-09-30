@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
-import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/llm-contracts.js';
+import type { ToolDefinition as LlmToolDefinition } from '../../../src/contracts/index.js';
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {

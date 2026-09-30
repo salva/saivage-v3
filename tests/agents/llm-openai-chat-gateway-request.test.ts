@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
-import type {
-  LlmCompleteOptions,
-  ToolDefinition,
-} from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import type { ToolDefinition } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';

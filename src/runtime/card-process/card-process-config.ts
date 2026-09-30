@@ -10,13 +10,13 @@ import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';
 import type { ProviderRegistry } from '../../agents/provider.js';
-import { usableInputTokens } from '../../agents/context-budget.js';
+import { usableInputTokens } from '../../contracts/index.js';
 import { capabilityRequestForTools, type CapabilityRequest } from '../../agents/provider-capabilities.js';
 import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
-import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
+import type { ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
 
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
 type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';

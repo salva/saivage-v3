@@ -20,16 +20,16 @@ import {
   type SourceRound,
   type ValidatedConversation,
 } from '../../../contracts/conversation-validation.js';
-import type { ProviderConversationProjection, ToolDefinition,
-} from '../../../agents/llm-contracts.js';
-import type { PreparedCompaction, PreparedLlmInvocationInput } from '../llm-invocation.js';
+import type { ProviderConversationProjection, ToolDefinition } from '../../../contracts/index.js';
+import type { PreparedLlmInvocationInput } from '../llm-invocation.js';
+import type { PreparedCompaction } from '../../../contracts/index.js';
 import { providerConversationProjection } from '../conversation-session.js';
 import { classifyConversationRounds, estimateMessageTokens,
 } from './round-classifier.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import { createSequentialRefineAccumulator, SummaryConstructionLimitError } from './refine-accumulator.js';
 import { SUMMARY_OUTPUT_TARGET_BYTES, SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
-import { ProviderTurnFailure } from '../../../agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../../contracts/index.js';
 import { LlmRequestError } from '../../../contracts/llm-failure.js';
 import { versionFilename } from '../../../persistence/version-index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';

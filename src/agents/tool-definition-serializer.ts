@@ -1,4 +1,4 @@
-import type { ToolDefinition } from './llm-contracts.js';
+import type { ToolDefinition } from '../contracts/index.js';
 
 type RuntimeToolEntry = ToolDefinition;
 

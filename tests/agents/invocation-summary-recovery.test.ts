@@ -7,7 +7,8 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import type { CandidateRequestPlan } from '../../src/agents/candidate-request.js';
 import type { CapabilityRequest } from '../../src/agents/provider-capabilities.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import { ProviderTurnFailure, type LlmCompleteOptions, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import { type LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';

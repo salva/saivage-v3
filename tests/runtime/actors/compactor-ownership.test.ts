@@ -12,7 +12,7 @@ import { agentMessageSchema } from '../../../src/schemas/index.js';
 import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { scriptedAdmissionProvider } from '../../helpers/llm-test-helpers.js';
-import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../../src/contracts/index.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';

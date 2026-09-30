@@ -10,7 +10,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { type AgentMessage, MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';

@@ -19,7 +19,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
-import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../src/contracts/llm-failure.js';
 
 const compact = (args: Omit<CompactArgs, 'progress'>): Promise<CompactionResult> => compactWithoutProgress({ ...args, progress: noCompactionProgress });

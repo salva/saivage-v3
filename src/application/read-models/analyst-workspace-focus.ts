@@ -1,11 +1,9 @@
-import type { CardService } from '../../cards/card-api.js';
-import type { ChatWorkspaceContext } from '../../contracts/operator-api-chats.js';
-import { ConversationSessionIdSchema, conversationSessionIdentity } from '../../schemas/index.js';
+import type { ChatWorkspaceContext } from '../../contracts/index.js';
+import { ConversationSessionIdSchema, conversationSessionIdentity, type CardRecord } from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 
 export const ANALYST_WORKSPACE_FOCUS_MAX_BYTES = 4096;
 export type WorkspaceFocusResult = { kind: 'rendered'; content: string } | { kind: 'budget_exceeded' };
-type Card = ReturnType<CardService['list']>[number];
 const bytes = (text: string): number => Buffer.byteLength(text, 'utf8');
 const exceeded: WorkspaceFocusResult = { kind: 'budget_exceeded' };
 
@@ -20,7 +18,7 @@ function preview(value: string, limit: number): { text: string; truncated: boole
 
 export function buildAnalystWorkspaceFocus(
   context: ChatWorkspaceContext | undefined,
-  cards: readonly Card[],
+  cards: readonly CardRecord[],
 ): WorkspaceFocusResult {
   const route = context ?? { view: null, entityId: null, refinement: null };
   const entityId = route.entityId === null ? null : redactTextForOutbound(route.entityId);

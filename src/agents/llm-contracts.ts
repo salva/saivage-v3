@@ -1,6 +1,4 @@
-import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
-import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import type { ToolDefinition } from '../contracts/index.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 
 export interface BuiltCandidateRequest {
@@ -8,26 +6,6 @@ export interface BuiltCandidateRequest {
   serializedBody: string;
   estimatedWireInputTokens: number;
   requestHash: string;
-}
-
-interface ToolFunctionDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-export interface ToolDefinition {
-  type: 'function';
-  function: ToolFunctionDefinition;
-}
-
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
 }
 
 export interface LlmModelParams {
@@ -44,87 +22,4 @@ export interface LlmCompleteOptions extends LlmModelParams {
   terminalToolOffered: readonly string[];
   tools: ToolDefinition[];
   tool_choice: 'auto';
-}
-
-export interface LlmUsage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-}
-
-export type LlmCompleteResult =
-  | { kind: 'tool_calls'; tool_calls: ToolCall[]; usage?: LlmUsage }
-  | { kind: 'message'; content: string; usage?: LlmUsage };
-
-export interface OpenAIResponsesPrivateContext {
-  kind: 'openai_responses';
-  source_input_id: string;
-  provider: string;
-  model: string;
-  output: unknown[];
-}
-
-export type ProviderPrivateContext = OpenAIResponsesPrivateContext;
-
-export type SyntheticProviderContextItem = Readonly<{
-  kind: 'synthetic_context';
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-  origin: 'dynamic' | 'context_boundary' | 'history_summary' | 'retained_instruction' | 'recovery_notice' | 'refusal_notice' | 'retry_notice' | 'summary_material';
-  block_identity: string;
-}>;
-
-export type ProviderConversationItem = AgentMessage | SyntheticProviderContextItem;
-
-export type ProviderConversationProjection =
-  | { sourceSessionId: ConversationSessionId; messages: ProviderConversationItem[] }
-  | { sourceSessionId: null; messages: [] };
-
-export function assertProviderConversationSourceRows(
-  providerConversation: ProviderConversationProjection,
-): void {
-  if (providerConversation.sourceSessionId === null) return;
-  const wrongSession = providerConversation.messages.find(
-    (message): message is AgentMessage =>
-      message.kind !== 'synthetic_context' &&
-      message.session_id !== providerConversation.sourceSessionId,
-  );
-  if (wrongSession)
-    throw new Error(
-      `Provider conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${providerConversation.sourceSessionId}'.`,
-    );
-}
-
-export interface ProviderTurnCompletion {
-  result: LlmCompleteResult;
-  provider_exchanges: ProviderExchangeAttempt[];
-  provider_private_context?: ProviderPrivateContext;
-}
-
-export class ProviderTurnFailure extends Error {
-  readonly failure_phase: 'pre_provider' | 'provider_attempt';
-  readonly provider_exchanges: ProviderExchangeAttempt[];
-  readonly originalFailure: unknown;
-  readonly candidate: Candidate | null;
-
-  constructor(args: {
-    failure_phase: 'pre_provider' | 'provider_attempt';
-    provider_exchanges: ProviderExchangeAttempt[];
-    originalFailure: unknown;
-    message?: string;
-    candidate: Candidate | null;
-  }) {
-    super(
-      args.message ??
-        (args.originalFailure instanceof Error
-          ? args.originalFailure.message
-          : String(args.originalFailure)),
-    );
-    this.name = 'ProviderTurnFailure';
-    this.failure_phase = args.failure_phase;
-    this.provider_exchanges = args.provider_exchanges;
-    this.originalFailure = args.originalFailure;
-    this.candidate = args.candidate;
-    this.cause = args.originalFailure;
-  }
 }

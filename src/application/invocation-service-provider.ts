@@ -7,7 +7,7 @@ import {
 } from '../agents/invocation-admission.js';
 import type { LLMProviderPort } from '../runtime/actors/index.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import type { ProviderTurnCompletion } from '../agents/llm-contracts.js';
+import type { ProviderTurnCompletion } from '../contracts/index.js';
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {

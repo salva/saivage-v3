@@ -6,22 +6,17 @@ import { candidatesEqual, type Candidate } from '../contracts/provider-candidate
 import type { ProviderRegistry } from './provider.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
-import { supportsCapabilityRequest, type EffectiveProviderCapabilities } from './provider-capabilities.js';
+import { supportsCapabilityRequest } from './provider-capabilities.js';
+import { type EffectiveProviderCapabilities } from '../contracts/index.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
-import {
-  assertProviderConversationSourceRows,
-  ProviderTurnFailure,
-  type LlmCompleteOptions,
-  type ProviderConversationProjection,
-  type ProviderTurnCompletion,
-  type ToolDefinition,
-} from './llm-contracts.js';
+import { type LlmCompleteOptions } from './llm-contracts.js';
+import { assertProviderConversationSourceRows, ProviderTurnFailure, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from '../contracts/index.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../contracts/provider-exchange.js';
-import { appendProviderExchangeEntry } from '../persistence/provider-exchange-log.js';
-import { internalCompactionSummarySessionId } from '../contracts/provider-exchange-log.js';
+import { appendProviderExchangeEntry } from '../persistence/index.js';
+import { internalCompactionSummarySessionId } from '../contracts/index.js';
 import { buildCandidateRequest, CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from './candidate-request.js';
-import type { InvocationRoutePass, PreparedCompaction } from '../runtime/actors/llm-invocation.js';
-import type { PreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
+import type { InvocationRoutePass, PreparedCompaction } from '../contracts/index.js';
+import type { PreparedInvocationContext } from '../contracts/index.js';
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { isPromptPolicyRejection, LlmRequestError } from '../contracts/llm-failure.js';

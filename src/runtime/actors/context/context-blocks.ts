@@ -1,44 +1,8 @@
-import type { ToolDefinition } from '../../../agents/llm-contracts.js';
+import type { ContextBlock, ProviderToolDefinition, CompiledInvocationToolContract, StaticInvocationPrefix, PreparedInvocationContext, PreparedCompaction } from '../../../contracts/index.js';
 import { canonicalJson } from '../../../schemas/index.js';
 import { conversationSha256 } from '../../../persistence/canonical-conversation-artifacts.js';
-import type { ContextAudience, ContextEvidence, ContextReplacement, ToolResultPolicyTemplate } from '../../../schemas/index.js';
-import type { PreparedCompaction } from '../llm-invocation.js';
-
-type ContextStorage = 'durable' | 'activation_local';
+import type { ToolResultPolicyTemplate } from '../../../schemas/index.js';
 export type { ContextEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
-
-export type ContextBlock = Readonly<{
-  id: string;
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  storage: ContextStorage;
-  replacement: ContextReplacement;
-  audience: ContextAudience;
-  evidence: ContextEvidence;
-}>;
-
-export type ProviderToolDefinition = ToolDefinition;
-export type CompiledInvocationToolContract = Readonly<{
-  providerDefinition: ProviderToolDefinition;
-  providerDefinitionBytes: string;
-  resultPolicyTemplate: ToolResultPolicyTemplate;
-  resultPolicyTemplateBytes: string;
-  resultPolicyTemplateSha256: string;
-}>;
-type StaticInvocationPrefix = Readonly<{
-  instructionText: string;
-  terminalToolNames: readonly string[];
-  immutablePrefixBytes: string;
-  immutablePrefixSha256: string;
-}>;
-export type PreparedInvocationContext = Readonly<{
-  prefix: StaticInvocationPrefix;
-  compiledTools: readonly CompiledInvocationToolContract[];
-  internalToolContractSha256: string;
-  dynamicBlocks: readonly ContextBlock[];
-  dynamicBlocksSha256: string;
-  preparedCompaction: PreparedCompaction;
-}>;
 
 export const contextContentSha256 = (content: string): string => conversationSha256(content);
 

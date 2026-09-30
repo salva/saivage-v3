@@ -1,13 +1,7 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
-import type {
-  LlmCompleteOptions,
-  LlmCompleteResult,
-  LlmUsage,
-  ProviderConversationItem,
-  ProviderConversationProjection,
-  ToolCall,
-} from './llm-contracts.js';
+import type { LlmCompleteOptions } from './llm-contracts.js';
+import type { LlmCompleteResult, LlmUsage, ProviderConversationItem, ProviderConversationProjection, ToolCall } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import {

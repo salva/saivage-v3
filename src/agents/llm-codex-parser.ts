@@ -1,4 +1,4 @@
-import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
+import type { LlmCompleteResult, ToolCall } from '../contracts/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyDirectProviderFailure, parseFiniteRetryAfterMs } from './llm-failure-classifiers.js';

@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { cardIdSegments } from '../schemas/card-id.js';
 import { recordStreamFilename, type RecordName } from '../schemas/record-name.js';
-import { conversationSessionIdentity, type ConversationSessionId } from '../schemas/conversation-session-id.js';
+import { conversationSessionIdentity, type ConversationSessionId } from '../schemas/index.js';
 
 const SAIVAGE_RELATIVE_DIR = '.saivage';
 export const SAIVAGE_CARDS_RELATIVE_DIR = '.saivage/cards';

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { ToolDefinition as LlmToolDefinition } from '../agents/llm-contracts.js';
+import type { ToolDefinition as LlmToolDefinition } from '../contracts/index.js';
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';

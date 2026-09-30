@@ -24,7 +24,7 @@ import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TE
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { EMPTY_COVERAGE_SUMMARY, SUMMARY_REFINE_INSTRUCTION, SummaryConstructionLimitError } from '../../src/runtime/actors/compaction/refine-accumulator.js';
 import { SummaryResultValidationError, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
-import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';

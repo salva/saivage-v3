@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
-import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion,
-} from '../../../agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../contracts/index.js';
 import { isPromptPolicyRejection, LlmRequestError } from '../../../contracts/llm-failure.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
 } from '../../../contracts/provider-exchange.js';
@@ -10,8 +9,8 @@ import type { ConversationSessionId } from '../../../schemas/index.js';
 import { internalCompactionSummarySessionId } from '../../../contracts/provider-exchange-log.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/provider-candidate.js';
-import type { EffectiveProviderCapabilities } from '../../../agents/provider-capabilities.js';
-import { usableInputTokens } from '../../../agents/context-budget.js';
+import type { EffectiveProviderCapabilities } from '../../../contracts/index.js';
+import { usableInputTokens } from '../../../contracts/index.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../schemas/index.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;

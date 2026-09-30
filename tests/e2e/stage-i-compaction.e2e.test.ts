@@ -11,7 +11,7 @@ import { classifyConversationRounds } from '../../src/runtime/actors/compaction/
 import { estimateUtf8Tokens } from '../../src/runtime/actors/compaction/token-estimator.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
-import type { ProviderConversationItem } from '../../src/agents/llm-contracts.js';
+import type { ProviderConversationItem } from '../../src/contracts/index.js';
 import { agentMessageSchema, conversationSessionIdentity, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
@@ -25,8 +25,8 @@ import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
-import type { ContextBlock } from '../../src/runtime/actors/context/context-blocks.js';
-import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
+import type { ContextBlock } from '../../src/contracts/index.js';
+import type { ToolDefinition } from '../../src/contracts/index.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { bindRuntimeWorkflows, compileProjectWorkflows, runtimeAgentBinding } from '../../src/runtime/card-process/card-process-config.js';

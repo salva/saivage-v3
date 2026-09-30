@@ -3,10 +3,10 @@ import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTEN
   type CardConversationSessionId,
 } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/conversation-validation.js';
-import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
+import type { ProviderConversationProjection } from '../../contracts/index.js';
 import { composeContextProjection, providerConversationFromComposedContext } from './context/composition-projector.js';
 import { classifyConversationRowPolicy } from './context/row-policy.js';
-import type { ContextBlock } from './context/context-blocks.js';
+import type { ContextBlock } from '../../contracts/index.js';
 import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';

@@ -4,7 +4,7 @@ import {
   serializeToolsForChat,
   serializeToolsForCodex,
 } from '../../src/agents/tool-definition-serializer.js';
-import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
+import type { ToolDefinition } from '../../src/contracts/index.js';
 
 type RuntimeToolEntry = ToolDefinition;
 

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { CardService } from '../helpers/canonical-project.js';
-import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -13,7 +13,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteResult } from '../../src/contracts/index.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';

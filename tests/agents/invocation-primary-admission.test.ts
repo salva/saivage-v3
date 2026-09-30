@@ -9,11 +9,11 @@ import { LocalExactAdmissionError, projectAdmissionDiagnostics } from '../../src
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
-import type { ContextBlock } from '../../src/runtime/actors/context/context-blocks.js';
+import type { ContextBlock } from '../../src/contracts/index.js';
 import { agentMessageSchema, canonicalJson } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
+import type { ToolDefinition } from '../../src/contracts/index.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
+import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../contracts/index.js';
 import {
   AdmittedProviderTurnFailure,
   LocalExactAdmissionError,
@@ -20,7 +20,8 @@ import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, ap
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolSettlementInput } from '../../tools/invocation.js';
-import { assertPreparedContextContinuity, type ContextBlock } from './context/context-blocks.js';
+import { assertPreparedContextContinuity } from './context/context-blocks.js';
+import { type ContextBlock } from '../../contracts/index.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';

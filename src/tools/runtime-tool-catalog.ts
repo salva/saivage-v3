@@ -6,7 +6,8 @@ import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runn
 import { getAnalystControlToolBinders } from './analyst-tool-registry.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { globalObservationToolBinders, type GlobalObservationToolContext } from './global-observation-tools.js';
-import { compileInvocationToolContract, type CompiledInvocationToolContract } from '../runtime/actors/context/context-blocks.js';
+import { compileInvocationToolContract } from '../runtime/actors/context/context-blocks.js';
+import { type CompiledInvocationToolContract } from '../contracts/index.js';
 import { cardVersionToolBinders, type CardVersionProviderContext } from './card-version-provider.js';
 import { cardInspectionToolBinders, type CardInspectionProviderContext } from './card-inspection-provider.js';
 import { mcpToolBinders, type McpProviderContext } from './mcp-provider.js';

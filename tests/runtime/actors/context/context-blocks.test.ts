@@ -1,21 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { conversationSha256 } from '../../../../src/persistence/canonical-conversation-artifacts.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
-import {
-  assertPreparedContextContinuity,
-  buildPreparedInvocationContext,
-  buildStaticInvocationPrefix,
-  compileInvocationToolContract,
-  contextContentSha256,
-  dynamicBlocksSha256,
-  internalToolContractSha256,
-  selectLatestContextBlocks,
-  type CompiledInvocationToolContract,
-  type ContextBlock,
-  type ProviderToolDefinition,
-  type ToolResultPolicyTemplate,
-} from '../../../../src/runtime/actors/context/context-blocks.js';
-import type { PreparedCompaction } from '../../../../src/runtime/actors/llm-invocation.js';
+import { assertPreparedContextContinuity, buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, contextContentSha256, dynamicBlocksSha256, internalToolContractSha256, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { type CompiledInvocationToolContract, type ContextBlock, type ProviderToolDefinition } from '../../../../src/contracts/index.js';
+import type { PreparedCompaction } from '../../../../src/contracts/index.js';
 
 const block = (id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): ContextBlock => ({
   id,

@@ -12,7 +12,8 @@ import {
 } from '../../../schemas/index.js';
 import type { ValidatedConversation } from '../../../contracts/conversation-validation.js';
 import { composeContextProjection, type SummarizerContextItem } from '../context/composition-projector.js';
-import { selectLatestContextBlocks, type ContextBlock } from '../context/context-blocks.js';
+import { selectLatestContextBlocks } from '../context/context-blocks.js';
+import { type ContextBlock } from '../../../contracts/index.js';
 import {
   admitSummaryRequest,
   buildSummaryRequestInput,
@@ -25,7 +26,7 @@ import {
 } from './summarizer.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { CompactionProgressCallbacks } from './compactor.js';
-import { ProviderTurnFailure } from '../../../agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../../contracts/index.js';
 import { LlmRequestError } from '../../../contracts/llm-failure.js';
 import { PublicationOutcomeUnknownError } from '../../../contracts/index.js';
 

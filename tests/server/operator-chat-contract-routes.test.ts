@@ -35,7 +35,7 @@ import { z } from 'zod';
 import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
 import { defineTool, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
-import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;

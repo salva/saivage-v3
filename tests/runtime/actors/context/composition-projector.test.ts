@@ -21,7 +21,8 @@ import {
   type ComposedContextProjection,
   type EffectiveCompactedHistoryFacts,
 } from '../../../../src/runtime/actors/context/composition-projector.js';
-import { contextContentSha256, type ContextBlock } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { contextContentSha256 } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { type ContextBlock } from '../../../../src/contracts/index.js';
 import { buildContentPolicyRefusalMessage } from '../../../../src/runtime/actors/content-policy-messages.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';

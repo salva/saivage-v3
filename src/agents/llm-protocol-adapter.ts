@@ -1,12 +1,8 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { LlmTransportConfig } from './llm-transport.js';
-import type { EffectiveProviderCapabilities, TransportProtocol } from './provider-capabilities.js';
-import type {
-  LlmCompleteOptions,
-  LlmCompleteResult,
-  ProviderConversationProjection,
-  ProviderPrivateContext,
-} from './llm-contracts.js';
+import type { EffectiveProviderCapabilities, TransportProtocol } from '../contracts/index.js';
+import type { LlmCompleteOptions } from './llm-contracts.js';
+import type { LlmCompleteResult, ProviderConversationProjection, ProviderPrivateContext } from '../contracts/index.js';
 import type { LlmRequestError } from '../contracts/llm-failure.js';
 import { openAIChatAdapter } from './llm-openai-chat-adapter.js';
 import { openAIResponsesAdapter } from './llm-openai-responses-adapter.js';

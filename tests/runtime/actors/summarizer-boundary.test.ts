@@ -16,7 +16,7 @@ import {
 } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { internalCompactionSummarySessionId } from '../../../src/contracts/provider-exchange-log.js';
 import { createSequentialRefineAccumulator as createAccumulatorWithoutProgress } from '../../../src/runtime/actors/compaction/refine-accumulator.js';
-import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../../src/contracts/index.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { noCompactionProgress } from '../../helpers/executing-llm-snapshot.js';

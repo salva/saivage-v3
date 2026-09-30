@@ -29,7 +29,8 @@ import { ActivationOperationTracker, type InvocationJoinOutcome,
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy,
 } from '../runtime/actors/compaction/compactor.js';
-import { buildPreparedInvocationContext, type ContextBlock } from '../runtime/actors/context/context-blocks.js';
+import { buildPreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
+import { type ContextBlock } from '../contracts/index.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
@@ -38,9 +39,9 @@ import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../co
 import { cardParentId } from '../schemas/card-id.js';
 import type { RuntimeStatus } from '../schemas/index.js';
 import { settleReturnedToolCallWithoutEntry } from '../runtime/actors/returned-tool-call-settlement.js';
-import type { ChatWorkspaceContext } from '../contracts/operator-api-chats.js';
-import { buildAnalystWorkspaceFocus, type WorkspaceFocusResult } from '../application/read-models/analyst-workspace-focus.js';
-import { conversationSha256 } from '../persistence/canonical-conversation-artifacts.js';
+import type { ChatWorkspaceContext } from '../contracts/index.js';
+import { buildAnalystWorkspaceFocus, type WorkspaceFocusResult } from '../application/index.js';
+import { conversationSha256 } from '../persistence/index.js';
 
 
 interface AnalystResponse {

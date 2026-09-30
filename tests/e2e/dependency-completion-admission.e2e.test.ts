@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { CardService } from '../helpers/canonical-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';

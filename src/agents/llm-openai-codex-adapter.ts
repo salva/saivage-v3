@@ -4,7 +4,8 @@ import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
 } from '../schemas/message-identity.js';
-import type { LlmCompleteOptions, ProviderConversationItem, ProviderConversationProjection } from './llm-contracts.js';
+import type { LlmCompleteOptions } from './llm-contracts.js';
+import type { ProviderConversationItem, ProviderConversationProjection } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';

@@ -1,26 +1,6 @@
 import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
-import type { ProviderConversationProjection, ToolDefinition } from '../../agents/llm-contracts.js';
+import type { ProviderConversationProjection, ToolDefinition, CompiledInvocationToolContract, PreparedInvocationContext, PreparedCompaction, InvocationRoutePass } from '../../contracts/index.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
-import type { Candidate } from '../../contracts/provider-candidate.js';
-import type { CompiledInvocationToolContract, PreparedInvocationContext } from './context/context-blocks.js';
-
-export type PreparedCompaction = {
-  readonly routeUsableInputTokens: number;
-  readonly requestedCompletionTokens: number;
-  readonly triggerLineTokens: number;
-  readonly estimatedStaticTokens: number;
-  readonly triggerMessageThreshold: number;
-  readonly canonicalMessageHardCeiling: number;
-  readonly tailBudgetTokens: number;
-  readonly triggerFraction: number;
-  readonly contextUtilizationFraction: number;
-  readonly tailFraction: number;
-  readonly snap: 'keep_straddler_verbatim' | 'compact_straddler';
-};
-
-export type InvocationRoutePass =
-  | { kind: 'ordinary'; candidateChain: readonly Candidate[] }
-  | { kind: 'pinned-content-policy-retry'; candidate: Candidate };
 
 interface LlmInvocationInputBase {
   inputId: string;

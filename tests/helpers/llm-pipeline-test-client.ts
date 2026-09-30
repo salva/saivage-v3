@@ -1,8 +1,10 @@
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
-import type { LlmCompleteOptions, ProviderConversationProjection, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import type { ProviderConversationProjection, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt.js';
-import { builtInCapabilitiesForProvider, capabilityRequestForTools, type EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
+import { builtInCapabilitiesForProvider, capabilityRequestForTools } from '../../src/agents/provider-capabilities.js';
+import { type EffectiveProviderCapabilities } from '../../src/contracts/index.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import type { ProviderRegistry } from '../../src/agents/provider.js';
 

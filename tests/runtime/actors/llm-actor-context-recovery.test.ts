@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure } from '../../../src/contracts/index.js';
 import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';

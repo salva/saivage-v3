@@ -1,9 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
-import {
-  BUILT_IN_PROVIDER_CAPABILITIES,
-  capabilityRequestForTools,
-  type EffectiveProviderCapabilities,
-} from '../../src/agents/provider-capabilities.js';
+import { BUILT_IN_PROVIDER_CAPABILITIES, capabilityRequestForTools } from '../../src/agents/provider-capabilities.js';
+import { type EffectiveProviderCapabilities } from '../../src/contracts/index.js';
 import { providerCapabilitySchema } from '../../src/schemas/saivage-config.js';
 
 describe('provider capability axes', () => {

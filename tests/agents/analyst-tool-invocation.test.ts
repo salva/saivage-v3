@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { AnalystRuntime, AnalystSession, AnalystTurnBusyError } from '../../src/agents/analyst-handler.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolExecutionResult } from '../../src/tools/invocation.js';

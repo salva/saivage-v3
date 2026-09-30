@@ -10,13 +10,14 @@ import {
 } from '../../../schemas/index.js';
 import { loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity, type LoggedToolMessageIdentity } from '../../../schemas/message-identity.js';
 import { deterministicRoundId } from '../../../schemas/round-id-server.js';
-import { validateResponsesPairs } from '../../../agents/llm-openai-responses-mapper.js';
-import type { ProviderConversationItem, ProviderConversationProjection, SyntheticProviderContextItem } from '../../../agents/llm-contracts.js';
+import { validateResponsesPairs } from '../../../contracts/index.js';
+import type { ProviderConversationItem, ProviderConversationProjection, SyntheticProviderContextItem } from '../../../contracts/index.js';
 import { parseToolCallMessageForModel } from '../../../contracts/persisted-tool-call.js';
 import { ToolResultSchema } from '../../../contracts/tool-result.js';
 import type { ProcessToolResult } from '../../../contracts/operator-api-processes.js';
 import { validateProcessToolResult } from '../../../tools/process-tool-result.js';
-import { contextContentSha256, selectLatestContextBlocks, type ContextBlock, type ContextEvidence } from './context-blocks.js';
+import { contextContentSha256, selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
+import { type ContextBlock } from '../../../contracts/index.js';
 import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToolBundlePolicy } from './row-policy.js';
 
 const EPOCH_TIMESTAMP = '1970-01-01T00:00:00.000Z';

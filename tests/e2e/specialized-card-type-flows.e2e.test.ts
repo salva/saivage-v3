@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';

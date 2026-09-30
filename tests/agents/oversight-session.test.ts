@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { OversightSession } from '../../src/agents/oversight-session.js';
-import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
+import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { InvocationSurface } from '../../src/tools/invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
