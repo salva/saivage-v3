@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import { loggedEventSchema } from '../schemas/event-catalog.js';
-import { controlActionAuditEntrySchema } from '../schemas/validators.js';
+import { loggedEventSchema, controlActionAuditEntrySchema } from '../schemas/index.js';
 
 const eventEntrySchema = z.object({ type: z.literal('event'), data: loggedEventSchema }).strict();
 const controlEntrySchema = z.object({ type: z.literal('control_action'), data: controlActionAuditEntrySchema }).strict();

@@ -23,7 +23,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ServerAvailabilitySchema } from './operator-api-availability.js';
-import { actorPauseModeSchema, publicCardActorStateSchema } from '../schemas/actor-vocabulary.js';
+import { actorPauseModeSchema, publicCardActorStateSchema } from '../schemas/index.js';
 import { runtimeStatusSchema } from '../schemas/index.js';
 import {
   AuthoredRecordHistoricalVersionNotFoundSchema,

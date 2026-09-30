@@ -1,4 +1,4 @@
-import type { ProviderCapabilities } from '../schemas/saivage-config.js';
+import type { ProviderCapabilities } from '../schemas/index.js';
 import type { EffectiveProviderCapabilities, CapabilityRequest, CapabilitySkipReason, CapabilityMatch } from '../contracts/index.js';
 
 const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {

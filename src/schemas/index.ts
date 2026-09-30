@@ -13,9 +13,11 @@ export {
   type CardConversationSessionId,
   type ConversationSessionId,
 } from './conversation-session-id.js';
-export { agentNameSchema, type AgentName } from './agent-name.js';
+export { agentNameSchema, parseAgentName, type AgentName } from './agent-name.js';
 export { cardTypeNameSchema, parseCardTypeName, type CardTypeName } from './card-type-name.js';
-export { recordNameSchema, parseRecordName, type RecordName } from './record-name.js';
+export { recordNameSchema, parseRecordName, recordStreamFilename, type RecordName } from './record-name.js';
+export { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId, loggedToolCallIdentity, loggedToolResultIdentity } from './message-identity.js';
+export { actorPauseModeSchema, publicCardActorStateSchema, type ActorPauseMode, type PublicCardActorState } from './actor-vocabulary.js';
 export { eventKindValues, errorEventSchema, isErrorEvent, loggedEventSchema } from './event-catalog.js';
 export { actionableErrorEnvelopeSchema } from './actionable-error.js';
 export {
@@ -30,9 +32,9 @@ export { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMM
 export type { CardStatus, CardAction, Urgency, CreatedBy, CardNotification, CardRecord, OutboundCardRecord, CardOperatorSummary, CardView, ControlActionAuditEntry, ProjectConfig, AnalystIssue, ProcessStatus, MessageRole, MessageKind, AgentMessage, RuntimeStatus, RuntimeState, SkillIndexEntry, RuntimeActionableErrorEvent, ErrorEvent, LoggedEvent, LoggedEventByKind, EventKind } from './types.js';
 export { cardTypeSchema, cardStatusSchema, cardActionSchema, positiveSafeIntegerSchema, urgencySchema, cardRecordSchema, outboundCardRecordSchema, cardViewSchema, controlActionAuditEntrySchema, projectConfigSchema, processStatusSchema, agentMessageSchema, runtimeStatusSchema, runtimeStateSchema, skillIndexSchema } from './validators.js';
 export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';
-export { cardIdSegments } from './card-id.js';
+export { cardIdSegments, childCardId, nextCardSegment, cardDepth, MAX_CARD_DEPTH, type CardId } from './card-id.js';
 export { valuesEqual } from './value-equality.js';
 export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';
 export { outboundCardVersionChangeSchema, type OrdinaryCardChangeField, type OutboundCardVersionChange } from './outbound-card-version-change.js';
-export { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema, type SystemTemplateName, type OutboundEffectiveSaivageConfig, type SaivageConfig, type SaivageConfigSource, type ProviderCapabilities } from './saivage-config.js';
+export { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema, type SystemTemplateName, type OutboundEffectiveSaivageConfig, type SaivageConfig, type SaivageConfigSource, type ProviderCapabilities, type ProviderEntry, type ProviderAccount, type CardTypesSource, type McpServerConfig, type StdioMcpServerConfig, type StreamableHttpMcpServerConfig } from './saivage-config.js';
 export { cardParentId } from './card-id.js';

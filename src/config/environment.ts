@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { EnvironmentSource } from './env-interpolation.js';
-import type { SaivageConfig } from '../schemas/saivage-config.js';
+import type { SaivageConfig } from '../schemas/index.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
 import type { CompiledProjectWorkflows } from '../runtime/runtime-api.js';

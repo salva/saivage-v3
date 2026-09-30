@@ -12,7 +12,7 @@ import { agentMessageSchema, canonicalJson, parseCanonicalContentPolicyRefusal, 
 import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
-} from '../../schemas/message-identity.js';
+} from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
 
 export function projectCanonicalConversationRow(

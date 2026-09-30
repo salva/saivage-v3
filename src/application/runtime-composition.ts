@@ -1,4 +1,4 @@
-import type { SaivageConfig } from '../schemas/saivage-config.js';
+import type { SaivageConfig } from '../schemas/index.js';
 import {
   buildProviderRoutingReadModel,
   type ProviderRoutingReadModel,

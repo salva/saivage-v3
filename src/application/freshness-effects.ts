@@ -1,6 +1,6 @@
 import type { LiveSyncCardInvalidateTarget } from '../contracts/index.js';
 import type { ConversationSessionId } from '../schemas/index.js';
-import type { CardId } from '../schemas/card-id.js';
+import type { CardId } from '../schemas/index.js';
 
 export type AgentMembershipFreshnessTarget =
   | { readonly scope: 'card'; readonly cardId: CardId }

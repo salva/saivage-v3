@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import type { CardTypeName } from '../../../schemas/card-type-name.js';
-import type { CardTypesSource, SaivageConfigSource } from '../../../schemas/saivage-config.js';
+import type { CardTypeName, CardTypesSource, SaivageConfigSource } from '../../../schemas/index.js';
 const prompt = (reference: string) => ({ reference, compactable: true });
 
 const CLASSIC_AGENTS = Object.freeze({

@@ -17,7 +17,7 @@ import {
   protectedPromptsSha256,
   type ProtectedPrompt,
 } from '../schemas/index.js';
-import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/message-identity.js';
+import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/index.js';
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
 import { ToolResultSchema } from './tool-result.js';
 

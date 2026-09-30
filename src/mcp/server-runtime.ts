@@ -1,5 +1,5 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
-import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/saivage-config.js';
+import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import { sanitizedCommandEnv } from '../runtime/runtime-api.js';
 import { compileMcpArgumentValidator, fingerprintMcpInputSchema, validateMcpArguments, type CachedMcpArgumentValidator } from './mcp-argument-validator.js';
 import { InvalidArgumentsError, ServerNotRunningError, ToolNotFoundError } from './errors.js';

@@ -1,6 +1,6 @@
 import type { CardRecord } from '../schemas/index.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
-import { cardParentId } from '../schemas/card-id.js';
+import { cardParentId } from '../schemas/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { ToolArgumentValidationError } from './invocation.js';
 import { DISCOVERY_TEXT_PREVIEW_MAX_BYTES, utf8ByteLength, utf8SafePreview } from './response-packer.js';

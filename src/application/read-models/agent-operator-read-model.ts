@@ -17,7 +17,7 @@ import {
   globalAgentSessionId,
   type ConversationSessionId,
 } from '../../schemas/index.js';
-import type { CardId } from '../../schemas/card-id.js';
+import type { CardId } from '../../schemas/index.js';
 import type { CompiledProjectWorkflows } from '../../runtime/runtime-api.js';
 import type { ExecutingLlmSnapshot } from '../../runtime/runtime-api.js';
 

@@ -1,5 +1,5 @@
 import { TimeoutError, TransportError } from './errors.js';
-import type { StreamableHttpMcpServerConfig } from '../schemas/saivage-config.js';
+import type { StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import {
   CLIENT_NAME,
   CLIENT_VERSION,

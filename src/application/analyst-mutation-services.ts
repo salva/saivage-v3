@@ -15,7 +15,7 @@ import { propagateAnalystRecordEdit, propagateChange } from '../runtime/runtime-
 import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { toCardView } from './read-models/card-view.js';
 import { mutateRecord, preflightAnalystRecordWrite } from './record-mutation-service.js';
-import type { CardId } from '../schemas/card-id.js';
+import type { CardId } from '../schemas/index.js';
 
 export type AnalystMutationOutcome =
   | { kind: 'denied'; reason: string }

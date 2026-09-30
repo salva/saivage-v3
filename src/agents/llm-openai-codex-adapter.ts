@@ -10,7 +10,7 @@ import {
 import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
-} from '../schemas/message-identity.js';
+} from '../schemas/index.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';

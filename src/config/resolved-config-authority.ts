@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as YAML from 'yaml';
 
-import { effectiveSaivageConfigSchema, saivageConfigSchema, type SaivageConfig } from '../schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema, saivageConfigSchema, type SaivageConfig } from '../schemas/index.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { replaceConfigYaml } from './config-file.js';
 import { compileProjectWorkflows } from '../runtime/runtime-api.js';

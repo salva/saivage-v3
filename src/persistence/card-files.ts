@@ -4,7 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { validateParsedCards } from '../cards/validator.js';
 import type { NewChildCardInput } from '../cards/lifecycle.js';
-import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/card-id.js';
+import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/index.js';
 import { cardAgentSessionId, cardRecordSchema, type AgentName, type CardRecord, type RecordName } from '../schemas/index.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/runtime-api.js';

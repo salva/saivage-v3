@@ -1,4 +1,4 @@
-import type { ActorPauseMode, PublicCardActorState } from '../../schemas/actor-vocabulary.js';
+import type { ActorPauseMode, PublicCardActorState } from '../../schemas/index.js';
 import type { ProcessPosition } from '../../runtime/runtime-api.js';
 
 interface CardActorProjection {

@@ -70,9 +70,9 @@ import {
   type SetStatusTarget,
 } from './lifecycle.js';
 import { canCreateChildInStatus } from './card-status.js';
-import type { CardNotification } from '../schemas/types.js';
+import type { CardNotification } from '../schemas/index.js';
 import { CardServiceInvariantError } from './errors.js';
-import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
+import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/index.js';
 import type { CardActivationOutcome } from '../contracts/tool-api.js';
 
 type CardActivationAdmissionProjection = {

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../../schemas/saivage-config.js';
+import type { SaivageConfig } from '../../schemas/index.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';

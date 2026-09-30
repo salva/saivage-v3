@@ -1,11 +1,9 @@
 import { z } from 'zod';
 
 import { isSetStatusTransition, summarizeChangedFields } from '../cards/lifecycle.js';
-import { CARD_RECORD_FIELDS, cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, uuidV4Schema, valuesEqual, type CardRecord } from '../schemas/index.js';
-import { cardVersionChangeSchema } from '../schemas/card-version-change.js';
-import type { CardVersionChange } from '../schemas/card-version-change.js';
+import { CARD_RECORD_FIELDS, cardIdSchema, cardRecordSchema, cardVersionChangeSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, uuidV4Schema, valuesEqual, type CardRecord, type CardVersionChange } from '../schemas/index.js';
 
-export { cardVersionChangeSchema } from '../schemas/card-version-change.js';
+export { cardVersionChangeSchema } from '../schemas/index.js';
 
 export const cardVersionArtifactSchema = z.object({
   format_version: z.literal(4),
@@ -39,7 +37,7 @@ export const cardTombstoneArtifactSchema = z.object({
 
 export const cardArtifactSchema = z.union([cardVersionArtifactSchema, cardTombstoneArtifactSchema]);
 
-export type { CardVersionChange } from '../schemas/card-version-change.js';
+export type { CardVersionChange } from '../schemas/index.js';
 export type CardVersionArtifact = z.infer<typeof cardVersionArtifactSchema>;
 export type CardTombstoneArtifact = z.infer<typeof cardTombstoneArtifactSchema>;
 export type CardArtifact = z.infer<typeof cardArtifactSchema>;

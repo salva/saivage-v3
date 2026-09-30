@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agentNameSchema } from '../schemas/agent-name.js';
+import { agentNameSchema } from '../schemas/index.js';
 
 const identifier = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 export const reconfigureParamsSchema = z.union([

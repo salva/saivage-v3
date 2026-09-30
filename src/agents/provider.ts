@@ -3,7 +3,7 @@ import type {
   ProviderAccount as ConfigAccount,
   ProviderCapabilities,
   SaivageConfig,
-} from '../schemas/saivage-config.js';
+} from '../schemas/index.js';
 import { builtInCapabilitiesForProvider, mergeCapabilities } from './provider-capabilities.js';
 import { candidatesEqual, type EffectiveProviderCapabilities, type Candidate } from '../contracts/index.js';
 

@@ -5,7 +5,7 @@ import {
   parseToolCallMessageForModel,
   type ProviderConversationProjection,
 } from '../contracts/index.js';
-import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
+import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/index.js';
 
 type ResponsesInputItem = Record<string, unknown>;
 

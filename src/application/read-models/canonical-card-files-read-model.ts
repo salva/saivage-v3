@@ -3,7 +3,7 @@ import type {
   CardService,
   CanonicalCardFileSlot,
 } from '../../cards/store-api.js';
-import { cardIdSchema, childCardId, MAX_CARD_DEPTH } from '../../schemas/card-id.js';
+import { cardIdSchema, childCardId, MAX_CARD_DEPTH } from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import type { WorkspaceFileContentResult, WorkspaceFilesListResult } from './workspace-file-read-model.js';
 import type { CardArtifact } from '../../persistence/index.js';
