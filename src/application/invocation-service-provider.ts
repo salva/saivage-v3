@@ -5,8 +5,8 @@ import {
   LocalExactAdmissionError,
   projectAdmissionDiagnostics,
 } from '../contracts/index.js';
-import type { LLMProviderPort } from '../runtime/actors/index.js';
-import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import type { LLMProviderPort } from '../runtime/runtime-api.js';
+import type { LlmInvocationInput } from '../runtime/runtime-api.js';
 import type { ProviderTurnCompletion } from '../contracts/index.js';
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {

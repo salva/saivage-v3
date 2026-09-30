@@ -1,5 +1,5 @@
-import type { CardService } from '../cards/card-api.js';
-import { PROJECT_CARD_ID } from '../cards/card-api.js';
+import type { CardService } from '../cards/store-api.js';
+import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
@@ -11,7 +11,7 @@ import {
   type NotificationUrgency,
   type AnalystPreNetworkAdmission,
 } from '../contracts/index.js';
-import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
+import { propagateAnalystRecordEdit, propagateChange } from '../runtime/runtime-api.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { toCardView } from './read-models/card-view.js';
 import { mutateRecord, preflightAnalystRecordWrite } from './record-mutation-service.js';

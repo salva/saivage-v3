@@ -3,7 +3,7 @@ import { relative, resolve } from 'node:path';
 import type { AgentName } from '../schemas/index.js';
 import type { RecordProjection } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-import type { CardService } from '../cards/card-api.js';
+import type { CardService } from '../cards/store-api.js';
 type CompleteRecordReader=Pick<CardService,'readRecordCurrent'|'readRecordVersion'>;
 import { resolveContainedProjectPath } from './file-access-security.js';
 import {

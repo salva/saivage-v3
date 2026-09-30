@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import { AnalystTurnBusyError } from '../agents/analyst-api.js';
+import { AnalystTurnBusyError } from '../runtime/runtime-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import {
   InboundAnalystMessageEnvelopeSchema,

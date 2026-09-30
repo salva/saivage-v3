@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { AnalystSession } from '../../src/agents/analyst-handler.js';
-import type { CardService } from '../../src/cards/card-api.js';
+import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
+import type { CardService } from '../../src/cards/store-api.js';
 import { CardService as CompiledCardService, initProjectTree } from '../helpers/canonical-project.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';

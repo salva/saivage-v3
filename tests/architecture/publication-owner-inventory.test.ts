@@ -34,7 +34,7 @@ describe('source-derived publication owner inventory', () => {
 
   it('closes every detached consumer/observer site under an explicit current owner decision', () => {
     expect(fileCountInventory(/\.trackConsumer\(/gu)).toEqual({
-      'src/agents/analyst-handler.ts': 1,
+      'src/runtime/actors/analyst-session.ts': 1,
       'src/runtime/actors/card-process-actor.ts': 2,
       'src/runtime/actors/llm-actor.ts': 1,
     });
@@ -43,7 +43,7 @@ describe('source-derived publication owner inventory', () => {
       'src/mcp/mcp-manager.ts': 1,
       'src/runtime/actors/contained-operations.ts': 4,
     });
-    for (const owner of ['src/agents/analyst-handler.ts', 'src/runtime/actors/card-process-actor.ts', 'src/runtime/actors/llm-actor.ts']) {
+    for (const owner of ['src/runtime/actors/analyst-session.ts', 'src/runtime/actors/card-process-actor.ts', 'src/runtime/actors/llm-actor.ts']) {
       expect(source(owner)).toMatch(/deliverPublicationFatal|onFatalTaskError/);
     }
   });

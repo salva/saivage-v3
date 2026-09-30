@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 
 import { cardIdSchema, type AgentName } from '../schemas/index.js';
 import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
-import type { CardService } from '../cards/card-api.js';
+import type { CardService } from '../cards/store-api.js';
 type CompleteRecordReader=Pick<CardService,'readRecordCurrent'|'readRecordVersion'|'listDeclaredRecordMetadata'>;
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl, ModelRecordTargetWireSchema, type ModelRecordTargetWire } from '../contracts/index.js';

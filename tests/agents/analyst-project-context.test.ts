@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AnalystSession } from '../../src/agents/analyst-handler.js';
-import type { CardService as CardServiceType } from '../../src/cards/card-api.js';
+import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
+import type { CardService as CardServiceType } from '../../src/cards/store-api.js';
 import type { InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';

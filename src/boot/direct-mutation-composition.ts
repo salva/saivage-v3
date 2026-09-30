@@ -7,7 +7,7 @@ import {
   bindRuntimeLifecycleLock,
   releaseRuntimeLifecycleLock,
   type RuntimeLifecycleLockHandle,
-} from '../runtime/lock.js';
+} from '../runtime/runtime-api.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 interface DirectMutationComposition {

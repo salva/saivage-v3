@@ -38,7 +38,7 @@ interface OperatorContractRouteRegistrationOptions
   mcpManager: McpManager;
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
   saivageConfig: import('../../schemas/saivage-config.js').SaivageConfig;
-  workflows: import('../../runtime/card-process/card-process-config.js').CompiledRuntimeWorkflows;
+  workflows: import('../../runtime/runtime-api.js').CompiledRuntimeWorkflows;
   fatalPort: ApplicationFatalPort;
 }
 

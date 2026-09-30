@@ -8,7 +8,7 @@ import type { AgentName } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globToRegExp, hasParentPathSegment, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, loadProjectSearchIgnore, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, type VfsResolved } from '../workspace/index.js';
-import type { CardService } from '../cards/card-api.js';
+import type { CardService } from '../cards/store-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { mutateRecord } from '../application/record-mutation-service.js';

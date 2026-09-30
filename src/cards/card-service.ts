@@ -25,7 +25,7 @@ import {
 } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
-import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
+import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import {
   listActiveCardTraversal,
   publishCardTombstone,

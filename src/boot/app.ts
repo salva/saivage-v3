@@ -1,7 +1,7 @@
 import { loadEnvironment, resolveStartupProjectRoot, type Environment, type StartInputs } from '../config/index.js';
 import { initializeAndValidateCurrentGeneratedState } from '../persistence/current-generated-graph.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
-import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/lock.js';
+import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/runtime-api.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
 import { publishInitialProjectRuntime } from './project-runtime-bootstrap.js';

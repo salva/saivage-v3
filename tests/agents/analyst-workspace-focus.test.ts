@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildAnalystWorkspaceFocus, ANALYST_WORKSPACE_FOCUS_MAX_BYTES } from '../../src/application/read-models/analyst-workspace-focus.js';
 import { ChatWorkspaceContextSchema, MAX_ANALYST_WORKSPACE_CONTEXT_BYTES } from '../../src/contracts/operator-api-chats.js';
-import type { CardService } from '../../src/cards/card-api.js';
+import type { CardService } from '../../src/cards/store-api.js';
 
 const cards = [{ id: 'card-a', type: 'goal', version_seq: 2, lifecycle: { status: 'backlog' }, title: '多\\"'.repeat(200), status_text: '🧭\\"'.repeat(400), status_text_updated_at: '2026-09-29T00:00:00.000Z' }] as unknown as ReturnType<CardService['list']>;
 function payload(context: Parameters<typeof buildAnalystWorkspaceFocus>[0]): { route: { entityId: string | null }; focus: any } {

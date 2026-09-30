@@ -25,14 +25,14 @@ import {
 } from '../helpers/outbound-identity-fixtures.js';
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 import { globalObservationToolBinders, type GlobalObservationToolContext } from '../../src/tools/global-observation-tools.js';
-import { AnalystTurnBusyError } from '../../src/agents/analyst-api.js';
+import { AnalystTurnBusyError } from '../../src/runtime/runtime-api.js';
 import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
 import type { WebSocket } from 'ws';
 import { toolFailed } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { z } from 'zod';
-import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
+import { AnalystRuntime, AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { defineTool, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import type { ProviderTurnCompletion } from '../../src/contracts/index.js';

@@ -1,9 +1,9 @@
 import { WorkspaceFileReadModelService } from '../../application/read-models/index.js';
 import { EventQueryService } from '../../application/event-query-service.js';
-import type { CardService } from '../../cards/card-api.js';
+import type { CardService } from '../../cards/store-api.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
-import { projectCompiledGraphs } from '../../runtime/card-process/compiled-graphs-projection.js';
-import type { CompiledRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
+import { projectCompiledGraphs } from '../../runtime/runtime-api.js';
+import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import { defineOperatorContractHandlers, type OperatorProjectContext } from './operator-handler-context.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { EventLog } from '../observability/index.js';
-import type { ProcessRunner } from '../runtime/process-runner.js';
-import type { ManagedProcessScope, ProcessStopReport } from '../runtime/managed-process-group-registry.js';
+import type { ProcessRunner } from '../runtime/runtime-api.js';
+import type { ManagedProcessScope, ProcessStopReport } from '../runtime/runtime-api.js';
 import { ServerNotRunningError } from './errors.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { type McpServerStatus, type McpToolDefinition } from './protocol.js';
@@ -77,7 +77,7 @@ export class McpManager implements McpReconciliationPort {
     this.closeAdmission();
     const runtimes = [...this.#runtimes.values()];
     const directContainments = runtimes.map((runtime) => runtime.directContainment());
-    let termination: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    let termination: Promise<import('../runtime/runtime-api.js').ProcessStopReport>;
     try { termination = this.#processRunner.terminateScopeTree({ rootScope: this.#mcpProcessRootScope, categories: ['service_infrastructure'], reason: 'application stopping' }); }
     catch (error) { termination = Promise.reject(error); }
     const reconciliation = this.currentReconciliation ?? Promise.resolve();

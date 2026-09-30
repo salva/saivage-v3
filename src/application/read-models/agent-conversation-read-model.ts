@@ -1,5 +1,5 @@
 import { projectCanonicalConversationRow } from './canonical-conversation-outbound.js';
-import { currentCoveredRequiredFactRows } from '../../runtime/actors/context/composition-projector.js';
+import { currentCoveredRequiredFactRows } from '../../runtime/runtime-api.js';
 import {
   ConversationHistoricalVersionNotFoundError,
   readCurrentConversationSegment,

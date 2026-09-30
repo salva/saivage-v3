@@ -1,5 +1,5 @@
 import type { CardService } from '../cards/card-service.js';
-import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
+import type { CompiledRuntimeWorkflows } from '../runtime/runtime-api.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
 import type { ProjectOversight } from './project-oversight.js';
 

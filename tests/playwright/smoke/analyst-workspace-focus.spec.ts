@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
-import { AnalystRuntime, AnalystSession } from '../../../src/agents/analyst-handler.js';
+import { AnalystRuntime, AnalystSession } from '../../../src/runtime/actors/analyst-session.js';
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../../helpers/llm-test-helpers.js';

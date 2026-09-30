@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import type { CardService } from '../../cards/card-api.js';
+import type { CardService } from '../../cards/store-api.js';
 import { positiveSafeIntegerSchema, type CardLifecycleState, type CardRecord } from '../../schemas/index.js';
 import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';

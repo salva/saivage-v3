@@ -110,8 +110,3 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
   }
   return executedToolOutcome('none', result);
 }
-
-export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, toolNames?: string[]): string {
-  const suffix = capabilityClass && toolNames && toolNames.length > 0 ? ` Closest available capability: ${capabilityClass}. Available tools in that class: ${toolNames.join(', ')}.` : '';
-  return `That action is not supported by the Analyst on this surface.${suffix}`;
-}

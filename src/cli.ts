@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
 import { publishInitialProjectRuntime, startApp, type StartInputs } from './boot/index.js';
 import { findProjectRoot } from './persistence/discovery.js';
-import { readRuntimeLockStatus } from './runtime/lock.js';
+import { readRuntimeLockStatus } from './runtime/runtime-api.js';
 import { resetOwnedGeneratedRoots } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
 import { readProjectIdentity } from './persistence/project-identity.js';

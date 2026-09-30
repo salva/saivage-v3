@@ -35,3 +35,4 @@ export { valuesEqual } from './value-equality.js';
 export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';
 export { outboundCardVersionChangeSchema, type OrdinaryCardChangeField, type OutboundCardVersionChange } from './outbound-card-version-change.js';
 export { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema, type SystemTemplateName, type OutboundEffectiveSaivageConfig, type SaivageConfig, type SaivageConfigSource, type ProviderCapabilities } from './saivage-config.js';
+export { cardParentId } from './card-id.js';

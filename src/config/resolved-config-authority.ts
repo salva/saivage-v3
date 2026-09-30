@@ -4,9 +4,9 @@ import * as YAML from 'yaml';
 import { effectiveSaivageConfigSchema, saivageConfigSchema, type SaivageConfig } from '../schemas/saivage-config.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { replaceConfigYaml } from './config-file.js';
-import { compileProjectWorkflows } from '../runtime/card-process/card-process-config.js';
-import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
-import type { WorkflowCompileOptions } from '../runtime/card-process/card-process-config.js';
+import { compileProjectWorkflows } from '../runtime/runtime-api.js';
+import type { CompiledProjectWorkflows } from '../runtime/runtime-api.js';
+import type { WorkflowCompileOptions } from '../runtime/runtime-api.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from './system-templates/registry.js';
 

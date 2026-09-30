@@ -1,6 +1,6 @@
 import type { ProcessView } from '../../contracts/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import type { ProcessRecord } from '../../runtime/process-runner.js';
+import type { ProcessRecord } from '../../runtime/runtime-api.js';
 import { toContainedRelativePath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 
 export function buildProcessView(projectRoot: string, record: ProcessRecord): ProcessView {

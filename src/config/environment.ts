@@ -4,7 +4,7 @@ import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
-import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
+import type { CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 
 type NodeEnvironment = 'development' | 'production' | 'test';
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';

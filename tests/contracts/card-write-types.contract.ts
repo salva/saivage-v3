@@ -1,4 +1,4 @@
-import type { CardEditPatch, NewChildCardInput, SetStatusTarget } from '../../src/cards/card-api.js';
+import type { CardEditPatch, NewChildCardInput, SetStatusTarget } from '../../src/cards/store-api.js';
 import type { CardService } from '../../src/cards/card-service.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import type { CardRecord } from '../../src/schemas/index.js';

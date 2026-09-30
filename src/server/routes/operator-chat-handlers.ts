@@ -4,7 +4,7 @@ import type { RuntimeApplication } from '../../application/runtime-composition.j
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import { ChatToolInvocationSchema, ANALYST_TURN_BUSY_ERROR, type RestartCapability } from '../../contracts/index.js';
 import { projectLiveToolInvocation } from '../../tools/tool-invocation-outbound.js';
-import { AnalystTurnBusyError, AnalystWorkspaceContextBudgetError } from '../../agents/analyst-api.js';
+import { AnalystTurnBusyError, AnalystWorkspaceContextBudgetError } from '../../runtime/runtime-api.js';
 
 type ChatOperatorHandlerOptions = OperatorProjectContext & {
   runtimeApplication: RuntimeApplication;

@@ -1,4 +1,4 @@
-import { PROJECT_CARD_ID, type CardService } from '../../cards/card-api.js';
+import { PROJECT_CARD_ID, type CardService } from '../../cards/store-api.js';
 import { cardViewSchema, type CardOperatorSummary, type CardRecord, type CardView } from '../../schemas/index.js';
 import { cardParentId } from '../../schemas/card-id.js';
 import { projectCardRecordForOutbound } from './card-outbound.js';

@@ -4,7 +4,7 @@ import type { AppTerminalRegistration } from '../../boot/app.js';
 import type { RestartCapability, RestartPort } from '../../contracts/index.js';
 import { createRuntimeApplication, type RuntimeApplication,
 } from '../../application/runtime-composition.js';
-import { CardService } from '../../cards/card-api.js';
+import { CardService } from '../../cards/store-api.js';
 import type { Environment } from '../../config/index.js';
 import { createMcpToolInvocationInstallation, McpManager } from '../../mcp/manager-api.js';
 import { createEventLog, type EventLog } from '../../observability/index.js';
@@ -12,10 +12,10 @@ import { AuthPolicy } from '../auth-policy.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
 import { createFastifyApp } from './fastify-app.js';
-import type { RuntimeProcessIdentity } from '../../runtime/lock.js';
-import { ManagedProcessGroupRegistry } from '../../runtime/managed-process-group-registry.js';
-import { ProcessRunner } from '../../runtime/process-runner.js';
-import { bindRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
+import type { RuntimeProcessIdentity } from '../../runtime/runtime-api.js';
+import { ManagedProcessGroupRegistry } from '../../runtime/runtime-api.js';
+import { ProcessRunner } from '../../runtime/runtime-api.js';
+import { bindRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import { ProviderRegistry } from '../../agents/provider.js';
 import { ModelRouter } from '../../agents/model-router.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
@@ -34,7 +34,7 @@ interface ServerServices {
   syncHub: SyncHub;
   authPolicy: AuthPolicy;
   restartCapability: RestartCapability;
-  workflows: import('../../runtime/card-process/card-process-config.js').CompiledRuntimeWorkflows;
+  workflows: import('../../runtime/runtime-api.js').CompiledRuntimeWorkflows;
 }
 
 export async function createServerServices(input: {

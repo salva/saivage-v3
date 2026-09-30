@@ -23,7 +23,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { buildRuntimeCardOperatorContractHandlers } from '../../src/server/routes/operator-runtime-card-handlers.js';
 import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
-import type { CardService } from '../../src/cards/card-api.js';
+import type { CardService } from '../../src/cards/store-api.js';
 import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
 import { SAIVAGE_VERSION } from '../../src/version.js';
 

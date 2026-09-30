@@ -20,7 +20,7 @@ import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { AnalystRuntime } from '../../src/agents/analyst-api.js';
+import { AnalystRuntime } from '../../src/runtime/runtime-api.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
 import type { OversightClock } from '../../src/application/project-oversight.js';

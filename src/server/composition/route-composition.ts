@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
-import type { CardService } from '../../cards/card-api.js';
+import type { CardService } from '../../cards/store-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
 import type { RestartCapability } from '../../contracts/index.js';
@@ -11,7 +11,7 @@ import { registerWebSocket } from '../websocket.js';
 import type { AuthPolicy } from '../auth-policy.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 import type { EventLog } from '../../observability/index.js';
-import type { CompiledRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
+import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 
 export function registerServerRoutes(options: {

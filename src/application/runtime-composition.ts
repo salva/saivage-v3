@@ -4,7 +4,7 @@ import {
   type ProviderRoutingReadModel,
 } from '../agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../agents/candidate-availability.js';
-import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../agents/analyst-api.js';
+import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../runtime/runtime-api.js';
 import { ProviderRegistry } from '../agents/provider.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
@@ -15,10 +15,10 @@ import {
   createInvocationServiceProvider,
   executeInternalSummaryTurn,
 } from './invocation-service-provider.js';
-import { createSupervisorRuntimeApi, OversightSession } from '../runtime/actors/index.js';
-import { ProcessRunner } from '../runtime/process-runner.js';
-import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
-import { RuntimeGate } from '../runtime/runtime-gate.js';
+import { createSupervisorRuntimeApi, OversightSession } from '../runtime/runtime-api.js';
+import { ProcessRunner } from '../runtime/runtime-api.js';
+import type { ManagedProcessScope } from '../runtime/runtime-api.js';
+import { RuntimeGate } from '../runtime/runtime-api.js';
 import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartCapability } from '../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
@@ -28,23 +28,23 @@ import {
   compact,
   shouldCompact,
   type AutonomousCompactionPolicy,
-} from '../runtime/actors/compaction/compactor.js';
-import { admitSummaryRequest, assertSummarizerCapabilities, buildSummaryRequestInput, SUMMARY_COMPLETION_TOKENS, type SummarizerProviderPort, type SummaryRequestSerialization } from '../runtime/actors/compaction/summarizer.js';
-import { SUMMARY_REFINE_INSTRUCTION } from '../runtime/actors/compaction/refine-accumulator.js';
-import type { CompactorPort } from '../runtime/actors/llm-actor.js';
+} from '../runtime/runtime-api.js';
+import { admitSummaryRequest, assertSummarizerCapabilities, buildSummaryRequestInput, SUMMARY_COMPLETION_TOKENS, type SummarizerProviderPort, type SummaryRequestSerialization } from '../runtime/runtime-api.js';
+import { SUMMARY_REFINE_INSTRUCTION } from '../runtime/runtime-api.js';
+import type { CompactorPort } from '../runtime/runtime-api.js';
 import { buildCandidateRequest } from '../agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../agents/llm-protocol-adapter.js';
 import { buildLlmOptions } from '../agents/llm-options-factory.js';
-import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import type { RuntimeProcessIdentity } from '../runtime/lock.js';
+import type { LlmInvocationInput } from '../runtime/runtime-api.js';
+import type { RuntimeProcessIdentity } from '../runtime/runtime-api.js';
 import type { ConversationSessionId, GlobalConversationSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
-import { runtimeAgentBinding } from '../runtime/card-process/card-process-config.js';
+import { runtimeAgentBinding } from '../runtime/runtime-api.js';
 import { EventQueryService } from './event-query-service.js';
-import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
+import type { CompiledRuntimeWorkflows } from '../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
-import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
+import type { ExecutingLlmSnapshot } from '../runtime/runtime-api.js';
 import { ProjectOversight, type OversightClock, type OversightStatus } from './project-oversight.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 import { createOversightNotificationPort } from './oversight-notification-port.js';

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { AnalystRuntime, AnalystSession, AnalystTurnBusyError } from '../../src/agents/analyst-handler.js';
+import { AnalystRuntime, AnalystSession, AnalystTurnBusyError } from '../../src/runtime/actors/analyst-session.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
@@ -36,7 +36,7 @@ function toolCall(argumentsJson: string, toolName = 'demo'): ProviderTurnComplet
 function analyst(
   argumentsJson: string,
   executor: (args: { value: string }, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolExecutionResult<'none'>>,
-  options: { toolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void; fatalPort?: ApplicationFatalPort; conversationChanged?: (target: { session_id: string; segment_version: number; visible_message_id: string | null }) => void } = {},
+  options: { toolName?: string; requestedToolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void; fatalPort?: ApplicationFatalPort; conversationChanged?: (target: { session_id: string; segment_version: number; visible_message_id: string | null }) => void } = {},
 ) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-tool-invocation-'));
   roots.push(projectRoot);
@@ -53,7 +53,7 @@ function analyst(
   let turns = 0;
   const completeTurn = jest.fn(async (_input:LlmInvocationInput): Promise<ProviderTurnCompletion> => {
     turns += 1;
-    if (turns === 1) return toolCall(argumentsJson, options.toolName);
+    if (turns === 1) return toolCall(argumentsJson, options.requestedToolName ?? options.toolName);
     options.beforeContinuation?.(projectRoot);
     return { result: { kind: 'message', content: 'done' }, provider_exchanges: [] };
   });
@@ -85,6 +85,14 @@ function analyst(
 }
 
 describe('Analyst parsed tool invocation', () => {
+  it('returns the registered catalog in unsupported-tool responses', async () => {
+    const executor = jest.fn(async () => executedToolOutcome('none', toolSucceeded('unused')));
+    const test = analyst('{}', executor, { requestedToolName: 'unknown' });
+    const response = await test.session.submit({ userContent: 'unsupported action' });
+    expect(executor).not.toHaveBeenCalled();
+    expect(response.toolInvocations?.[0]?.result).toMatchObject({ success: false, error: expect.stringContaining('Closest available capability: Analyst. Available tools in that class: demo.') });
+  });
+
   it('admits one synchronous turn owner, rejects overlap as typed busy, and never queues the loser', async () => {
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => { release = resolve; });

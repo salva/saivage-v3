@@ -30,15 +30,15 @@ describe('runtime ledger contract deletions', () => {
     expect('RuntimeActivationLedgerPort' in contracts).toBe(false);
   });
 
-  it('removes obsolete runtime lock and conversation-barrel exports', async () => {
-    const [lock, actors] = await Promise.all([
+  it('removes obsolete runtime lock and runtime public API exports', async () => {
+    const [lock, runtimeApi] = await Promise.all([
       import('../../src/runtime/lock.js'),
-      import('../../src/runtime/actors/index.js'),
+      import('../../src/runtime/runtime-api.js'),
     ]);
 
     expect('parseRuntimeLockOwnerRecord' in lock).toBe(false);
     expect('isLocked' in lock).toBe(false);
-    expect('parseConversationSessionId' in actors).toBe(false);
+    expect('parseConversationSessionId' in runtimeApi).toBe(false);
   });
 
   it('keeps only consumed delivery-log exports and return members', async () => {

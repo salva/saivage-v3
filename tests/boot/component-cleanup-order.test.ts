@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
+import { AnalystRuntime } from '../../src/runtime/actors/analyst-session.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { ProcessStopReport } from '../../src/runtime/process-runner.js';

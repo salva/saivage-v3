@@ -19,8 +19,8 @@ import {
   type ConversationSessionId,
 } from '../../schemas/index.js';
 import type { CardId } from '../../schemas/card-id.js';
-import type { CompiledProjectWorkflows } from '../../runtime/card-process/card-process-config.js';
-import type { ExecutingLlmSnapshot } from '../../runtime/actors/executing-llm-snapshot.js';
+import type { CompiledProjectWorkflows } from '../../runtime/runtime-api.js';
+import type { ExecutingLlmSnapshot } from '../../runtime/runtime-api.js';
 
 export class AgentSessionNotFoundError extends Error {}
 export class CardAgentScopeNotFoundError extends Error {}

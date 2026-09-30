@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
+import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import { executedToolOutcome } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
@@ -28,12 +28,6 @@ function harness(options: { ready?: boolean } = {}) {
   const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: { kind: 'intervention_ready' as const, timing: 'immediate_before_mutation' as const }, mutate, ...extra });
   return { root, context, spec };
 }
-
-describe('Analyst retained navigation and capability behavior', () => {
-  it('keeps unsupported capability replies constrained to the registered catalog', () => {
-    expect(ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Navigate', ['open_card'])).toContain('Closest available capability: Navigate');
-  });
-});
 
 describe('audited Analyst mutation settlement', () => {
   it('queues and audits notifications without intervention readiness',async()=>{

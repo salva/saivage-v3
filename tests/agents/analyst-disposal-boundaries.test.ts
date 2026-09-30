@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
+import { AnalystRuntime, AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';

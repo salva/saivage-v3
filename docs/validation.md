@@ -50,11 +50,15 @@ digest of normalized file/rule/resolved-target identities in
 genuine removals, and equal-count substitutions; line-only movement and
 equivalent relative, alias, or terminal `.ts`/`.js` spellings of the same
 resolved target do not change identity. After reviewing a genuine removal,
-copy both printed fields into the baseline in the same commit. Admitting any
-new identity, including through an equal or lower count, weakens the guard
-and requires an explicit owner decision. `npm run test:import-boundaries` is
-the canonical focused command: it runs the checker self-test, real-CLI
-ratchet subprocess regressions, and repository admission. The lint profile
+compare the complete before/after identity multisets, including duplicates:
+the after multiset must be a subset, not just smaller. Runtime cross-package
+consumers use only `runtime/runtime-api.ts`; agent sources may not import
+runtime. Copy both printed fields into the baseline in the same commit.
+Admitting any new identity, including through an equal or lower count, weakens
+the guard and requires an explicit owner decision.
+`npm run test:import-boundaries` is the canonical focused command: it runs the
+checker self-test, real-CLI ratchet subprocess regressions, and repository
+admission. The lint profile
 delegates to that command once; direct component invocations are diagnostic
 evidence, not alternative maintained profiles.
 

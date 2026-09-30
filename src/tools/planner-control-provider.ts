@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
+import { isRuntimeStoppedInterruption } from '../runtime/runtime-api.js';
 
-import type { CardEditPatch, CardService, NewChildCardInput } from '../cards/card-api.js';
+import type { CardEditPatch, CardService, NewChildCardInput } from '../cards/store-api.js';
 import {
   activateCardArgumentsSchema,
   formatActivateCardResult,
@@ -23,8 +23,8 @@ import {
   plannerReorderChildInputSchema,
   type ToolActionOutcome,
 } from '../contracts/index.js';
-import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
-import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
+import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
+import type { PlannerChildControlPort } from '../runtime/runtime-api.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { parseAgentName } from '../schemas/agent-name.js';
 import { submitNotificationTool } from './notification-tool.js';

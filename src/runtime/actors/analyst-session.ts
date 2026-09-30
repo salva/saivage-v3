@@ -1,8 +1,7 @@
-import { type CardTypeName, type GlobalConversationSessionId } from '../schemas/index.js';
+import { cardParentId, type CardTypeName, type GlobalConversationSessionId, type RuntimeStatus } from '../../schemas/index.js';
 import {
   formatVocabularySnippet,
-} from '../tools/prompt-api.js';
-import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
+} from '../../tools/prompt-api.js';
 import {
   parseProtocolToolArgs,
   PublicationOutcomeUnknownError,
@@ -14,38 +13,40 @@ import {
   type ContextBlock,
   type ApplicationFatalPort,
   type ChatWorkspaceContext,
-} from '../contracts/index.js';
-import type { CardService } from '../cards/card-api.js';
+} from '../../contracts/index.js';
+import type { CardService } from '../../cards/store-api.js';
 import { buildAgentProtocolViolation } from './agent-protocol-violation.js';
 import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection,
-} from '../runtime/actors/conversation-session.js';
+} from './conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,
-} from '../runtime/actors/llm-actor.js';
-import { appendProviderVisibleSyntheticFailedToolResult, buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
+} from './llm-actor.js';
+import { appendProviderVisibleSyntheticFailedToolResult, buildLlmTurnMessage } from './llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
-} from '../persistence/conversation-file.js';
-import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import { invokeToolForLlm, surfaceToolDefinitions, syntheticToolSettlement, type InvocationSurface, type ToolSettlementInput,
-} from '../tools/invocation.js';
-import { surfaceToolContracts } from '../tools/runtime-tool-catalog.js';
-import { deferred, type Deferred } from '../runtime/actors/deferred.js';
-import { type PromptTemplateRegistry } from '../utils/prompt-api.js';
-import { buildAnalystOrientationSnapshot, type AnalystOrientationCard, type AnalystOrientationSnapshot } from '../application/read-models/analyst-orientation.js';
+} from '../../persistence/session-api.js';
+import type { PreparedLlmInvocationInput } from './llm-invocation.js';
+import { invokeToolForLlm, surfaceToolContracts, surfaceToolDefinitions, syntheticToolSettlement, type InvocationSurface, type ToolSettlementInput,
+} from '../../tools/tool-api.js';
+import { deferred, type Deferred } from './deferred.js';
+import { type PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import { buildAnalystOrientationSnapshot, buildAnalystWorkspaceFocus, type AnalystOrientationCard, type AnalystOrientationSnapshot, type WorkspaceFocusResult } from '../../application/index.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome,
-} from '../runtime/actors/invocation-lifecycle.js';
-import type { CompactorPort } from '../runtime/actors/llm-actor.js';
+} from './invocation-lifecycle.js';
+import type { CompactorPort } from './llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy,
-} from '../runtime/actors/compaction/compactor.js';
-import { buildPreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
-import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
-import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
-import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+} from './compaction/compactor.js';
+import { buildPreparedInvocationContext } from './context/context-blocks.js';
+import type { SummarizerProviderPort } from './compaction/summarizer.js';
+import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
+import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { randomUUID } from 'node:crypto';
-import { cardParentId } from '../schemas/card-id.js';
-import type { RuntimeStatus } from '../schemas/index.js';
-import { settleReturnedToolCallWithoutEntry } from '../runtime/actors/returned-tool-call-settlement.js';
-import { buildAnalystWorkspaceFocus, type WorkspaceFocusResult } from '../application/index.js';
-import { conversationSha256 } from '../persistence/index.js';
+import type { ProcessStopReport } from '../process-runner.js';
+import { settleReturnedToolCallWithoutEntry } from './returned-tool-call-settlement.js';
+import { conversationSha256 } from '../../persistence/index.js';
+
+function unsupportedAnalystAction(capabilityClass: string, toolNames: string[]): string {
+  const suffix = toolNames.length > 0 ? ` Closest available capability: ${capabilityClass}. Available tools in that class: ${toolNames.join(', ')}.` : '';
+  return `That action is not supported by the Analyst on this surface.${suffix}`;
+}
 
 interface AnalystResponse {
   sessionId: GlobalConversationSessionId;
@@ -124,7 +125,7 @@ export class AnalystWorkspaceContextBudgetError extends Error {
 
 export class AnalystSession {
   readonly #sessionId: GlobalConversationSessionId;
-  readonly #agentName: import('../schemas/index.js').AgentName;
+  readonly #agentName: import('../../schemas/index.js').AgentName;
   readonly #modelParams: Readonly<{ temperature: number; maxTokens: number }>;
   readonly #capabilityRequest: CapabilityRequest;
   readonly #candidateChain:readonly Candidate[];
@@ -146,7 +147,7 @@ export class AnalystSession {
 
   constructor(input: {
     sessionId: GlobalConversationSessionId;
-    agentName: import('../schemas/index.js').AgentName;
+    agentName: import('../../schemas/index.js').AgentName;
     modelParams: Readonly<{ temperature: number; maxTokens: number }>;
     capabilityRequest: CapabilityRequest;
     candidateChain:readonly Candidate[];
@@ -295,7 +296,7 @@ export class AnalystSession {
       let settlement: ToolSettlementInput;
       if (!surface.tools.has(outcome.toolName)) {
         params = parsed.kind === 'ok' ? parsed.args : {};
-        settlement = syntheticToolSettlement('unsupported_tool', ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())));
+        settlement = syntheticToolSettlement('unsupported_tool', unsupportedAnalystAction('Analyst', Array.from(surface.tools.keys())));
       } else if (parsed.kind === 'violation') {
         params = {};
         const violation = buildAgentProtocolViolation({
@@ -714,14 +715,14 @@ export class AnalystRuntime {
   readonly #getAvailableToolNames: () => string[];
   readonly #terminateRoot: (
     reason: string,
-  ) => Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+  ) => Promise<ProcessStopReport>;
 
   constructor(input: {
     createSession(input: AnalystTurnInput): AnalystSession;
     getAvailableToolNames(): string[];
     terminateRoot(
       reason: string,
-    ): Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    ): Promise<ProcessStopReport>;
   }) {
     this.#createSession = input.createSession;
     this.#getAvailableToolNames = input.getAvailableToolNames;
@@ -755,7 +756,7 @@ export class AnalystRuntime {
     } catch (error) {
       directContainment = Promise.reject(error);
     }
-    let rootContainment: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    let rootContainment: Promise<ProcessStopReport>;
     try {
       rootContainment = this.#terminateRoot('application stopping');
     } catch (error) {

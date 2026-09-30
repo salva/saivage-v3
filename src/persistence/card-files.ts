@@ -7,7 +7,7 @@ import type { NewChildCardInput } from '../cards/lifecycle.js';
 import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/card-id.js';
 import { cardAgentSessionId, cardRecordSchema, type AgentName, type CardRecord, type RecordName } from '../schemas/index.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-import type { CompiledCardTypeWorkflow } from '../runtime/card-process/card-process-config.js';
+import type { CompiledCardTypeWorkflow } from '../runtime/runtime-api.js';
 import { initializeAuthoredRecord } from './authored-record-files.js';
 import { initializeConversation } from './conversation-file.js';
 import {

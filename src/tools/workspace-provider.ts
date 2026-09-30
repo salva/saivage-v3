@@ -14,7 +14,7 @@ import {
 import { defineToolBinder, executeToolAction, isExpectedToolInputFailure, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { boundedToolError } from './response-packer.js';
 import type { AgentName } from '../schemas/index.js';
-import type { CardService } from '../cards/card-api.js';
+import type { CardService } from '../cards/store-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';

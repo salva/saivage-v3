@@ -22,7 +22,7 @@ import { toolSucceeded } from '../../src/contracts/tool-result.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
-import { AnalystSession } from '../../src/agents/analyst-handler.js';
+import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 

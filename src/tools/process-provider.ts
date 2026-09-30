@@ -13,8 +13,8 @@ import {
   type ToolActionOutcome,
 } from '../contracts/index.js';
 import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
-import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner, ProcessWaitResult } from '../runtime/process-runner.js';
+import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/runtime-api.js';
+import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner, ProcessWaitResult } from '../runtime/runtime-api.js';
 import { cardWorkRoot } from '../persistence/layout.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineToolBinder, executedToolOutcome, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolProviderCleanupReason, type ToolExecutionResult } from './invocation.js';

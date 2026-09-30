@@ -1,6 +1,6 @@
 import { validateParsedCards } from '../cards/validator.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
+import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { cardAgentSessionId, globalAgentSessionId, type AgentName, type ConversationSessionId } from '../schemas/index.js';
 import { initializeAppLog } from './app-log.js';

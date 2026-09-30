@@ -1,6 +1,6 @@
-import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
+import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
 import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/saivage-config.js';
-import { sanitizedCommandEnv } from '../runtime/command-policy.js';
+import { sanitizedCommandEnv } from '../runtime/runtime-api.js';
 import { compileMcpArgumentValidator, fingerprintMcpInputSchema, validateMcpArguments, type CachedMcpArgumentValidator } from './mcp-argument-validator.js';
 import { InvalidArgumentsError, ServerNotRunningError, ToolNotFoundError } from './errors.js';
 import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpStatus, type McpToolDefinition } from './protocol.js';
@@ -82,7 +82,7 @@ export class McpServerRuntime {
     if (this.#directContainment) return;
     this.admissionOpen = false;
     this.generation += 1;
-    let containment: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
+    let containment: Promise<import('../runtime/runtime-api.js').ProcessStopReport>;
     try {
       containment = this.#processRunner.closeAndTerminateDirectScope({
         directScope: this.#processScope,

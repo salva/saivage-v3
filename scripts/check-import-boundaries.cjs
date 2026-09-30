@@ -15,7 +15,6 @@ const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notificat
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/session-persistence.js']);
-const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 'src/agents/analyst-handler.ts']);
 const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/agents/analyst-secret-classifier.ts->workspace/secret-paths.js',
 ]);
@@ -78,7 +77,6 @@ function violationDigest(violations) {
 
 function isAgentRuntimeAllowed(fromPkg, parts, fromRel = '') {
   if (fromPkg !== 'agents' || parts[0] !== 'runtime') return true;
-  if (AGENT_RUNTIME_IMPORT_EXCEPTIONS.has(fromRel)) return true;
   return false;
 }
 
@@ -115,6 +113,9 @@ function runSelfTest() {
     { fromPkg: null, parts: ['agents', 'authz.js'], ok: false, label: 'root entrypoint must not deep-import agents authz' },
   ];
   const failures = [];
+  for (const fromRel of ['src/agents/analyst-handler.ts', 'src/agents/analyst-tools.ts']) {
+    if (isAgentRuntimeAllowed('agents', ['runtime', 'runtime-api.js'], fromRel)) failures.push(`${fromRel}: formerly exempt agent must not import runtime public API`);
+  }
   for (const testCase of cases) {
     const allowed = (isCrossPackageAllowed(testCase.fromPkg, testCase.parts) || (testCase.fromPkg === 'runtime' && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts))) && isAgentRuntimeAllowed(testCase.fromPkg, testCase.parts) && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts) && isSchemaImportAllowed(testCase.fromPkg, testCase.parts);
     if (allowed !== testCase.ok) {

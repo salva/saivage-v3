@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws';
 
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
-import { AnalystTurnBusyError } from '../../src/agents/analyst-api.js';
+import { AnalystTurnBusyError } from '../../src/runtime/runtime-api.js';
 import { testApplicationFatalDelivery, testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { toolFailed } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
