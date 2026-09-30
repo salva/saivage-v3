@@ -12,7 +12,7 @@ import {
   candidateIdentitySha256,
   ordinaryAdmittedExecutionAuthority,
   type SuspendedAdmittedExecution,
-} from '../../src/agents/invocation-admission.js';
+} from '../../src/contracts/index.js';
 import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';

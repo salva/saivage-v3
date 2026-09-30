@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-import { agentMessageSchema, canonicalJson, compactedHistorySchema, ConversationSessionIdSchema, positiveSafeIntegerSchema } from '../schemas/index.js';
-import { jsonlVersionFilenameSchema, uuidV4Schema, validateHeadFields } from './version-index.js';
+import { agentMessageSchema, canonicalJson, compactedHistorySchema, ConversationSessionIdSchema, positiveSafeIntegerSchema, uuidV4Schema } from '../schemas/index.js';
+import { jsonlVersionFilenameSchema, validateHeadFields } from './version-index.js';
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const nonNegativeSafeIntegerSchema = z.number().int().safe().nonnegative();

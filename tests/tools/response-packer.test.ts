@@ -13,8 +13,8 @@ import {
   packTextSliceData,
   utf8ByteLength,
   utf8SafePreview,
-  utf8SafeSlice,
 } from '../../src/tools/response-packer.js';
+import { utf8SafeSlice } from '../../src/utils/index.js';
 import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';

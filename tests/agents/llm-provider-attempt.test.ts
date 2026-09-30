@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from '../../src/agents/candidate-request.js';
-import { AdmissionIntegrityError } from '../../src/agents/invocation-admission.js';
+import { CandidateRequestPlanIntegrityError } from '../../src/agents/candidate-request.js';
+import { type CandidateRequestPlan } from '../../src/contracts/index.js';
+import { AdmissionIntegrityError } from '../../src/contracts/index.js';
 import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt.js';
-import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
-import type { LlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import type { LlmCompleteOptions } from '../../src/contracts/index.js';
+import type { LlmProtocolAdapter } from '../../src/contracts/index.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 

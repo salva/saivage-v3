@@ -1,4 +1,4 @@
-import type { OversightCheckOutcome, OversightSession } from '../agents/oversight-session.js';
+import type { OversightCheckOutcome, OversightSession } from '../runtime/runtime-api.js';
 import type { RuntimeStatus } from '../schemas/index.js';
 
 export interface OversightClock {

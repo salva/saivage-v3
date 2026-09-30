@@ -4,7 +4,7 @@ import {
   AdmissionIntegrityError,
   LocalExactAdmissionError,
   projectAdmissionDiagnostics,
-} from '../agents/invocation-admission.js';
+} from '../contracts/index.js';
 import type { LLMProviderPort } from '../runtime/actors/index.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import type { ProviderTurnCompletion } from '../contracts/index.js';

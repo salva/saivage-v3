@@ -4,13 +4,13 @@ import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
 } from '../schemas/message-identity.js';
-import type { LlmCompleteOptions } from './llm-contracts.js';
+import type { LlmCompleteOptions } from '../contracts/index.js';
 import type { ProviderConversationItem, ProviderConversationProjection } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
-import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
+import type { LlmProtocolAdapter } from '../contracts/index.js';
 
 interface CodexInputText {
   type: 'input_text';

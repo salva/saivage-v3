@@ -1,11 +1,9 @@
 import { z } from 'zod';
 
-import type { ToolDefinition as LlmToolDefinition } from '../contracts/index.js';
-import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
+import { throwIfPublicationOutcomeUnknown, zodToJsonSchemaMini, type ToolDefinition as LlmToolDefinition } from '../contracts/index.js';
 import type { AgentName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { toolFailed, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { boundedToolError, DiscoveryBudgetTooSmallError, DiscoveryCollectionPositionError } from './response-packer.js';
 

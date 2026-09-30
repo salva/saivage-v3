@@ -8,7 +8,13 @@ export { assertProviderConversationSourceRows } from './provider-conversation.js
 export type { SyntheticProviderContextItem, ProviderConversationItem, ProviderConversationProjection } from './provider-conversation.js';
 export { ProviderTurnFailure } from './provider-turn.js';
 export type { ToolDefinition, ToolCall, LlmUsage, LlmCompleteResult, OpenAIResponsesPrivateContext, ProviderPrivateContext, ProviderTurnCompletion } from './provider-turn.js';
-export type { TransportProtocol, EffectiveProviderCapabilities } from './provider-capabilities.js';
+export type { TransportProtocol, EffectiveProviderCapabilities, CapabilityRequest, CapabilitySkipReason, CapabilityMatch } from './provider-capabilities.js';
+export { capabilityRequestForTools } from './provider-capabilities.js';
+export { zodToJsonSchemaMini } from './zod-json-schema.js';
+export type { Candidate } from './provider-candidate.js';
+export type { LlmModelParams, LlmCompleteOptions, LlmTransportConfig, LlmCredentialRequirement, LlmProtocolAdapter, CandidateRequestPlan } from './provider-request.js';
+export { candidateIdentitySha256, capabilityRequestSha256, classifyCandidateLocalAdmission, ordinaryAdmittedExecutionAuthority, projectAdmissionDiagnostics, retainedAdmissionStateDiagnostics, AdmissionIntegrityError, AdmittedRecoveryIntegrityError, AdmittedProviderTurnFailure, LocalExactAdmissionError, verifySuspendedAdmittedExecution } from './invocation-admission.js';
+export type { CandidateLocalAdmissionVerdict, CandidateLocalAdmission, AdmissionSizeLimits, OrdinaryAdmittedExecutionAuthority, OrdinaryPrimaryRequestAdmission, OrdinaryAdmittedExecution, AdmittedExecutionBindings, OrdinaryAdmittedExecutionInputs, PinnedContentPolicyPreflight, PinnedAdmittedContentPolicyRequest, AdmittedCandidateAttemptState, SuspendedAdmittedExecution, AdmittedRecoveryPreparation } from './invocation-admission.js';
 export type { PreparedCompaction, InvocationRoutePass, ContextBlock, ProviderToolDefinition, CompiledInvocationToolContract, StaticInvocationPrefix, PreparedInvocationContext } from './prepared-invocation.js';
 export { parsePrivateContent, validateResponsesPairs } from './responses-conversation.js';
 export { usableInputTokens } from './context-budget.js';
@@ -25,3 +31,4 @@ export type { ApplicationFatalPort } from './publication-outcome.js';
 export type { RestartCapability, RestartPort } from './restart-capability.js';
 
 export type { ServerEgressWsEnvelope, LiveSyncClientFrame, LiveSyncCardInvalidateTarget, LiveSyncCardRecordName, LiveSyncInvalidateFrame, LiveSyncInvalidateTarget } from './operator-events.js';
+export { parseProtocolToolArgs } from './tool-arguments.js';

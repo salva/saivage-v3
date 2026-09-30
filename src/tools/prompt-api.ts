@@ -2,7 +2,7 @@ import {
   ANALYST_ISSUE_SEVERITY_VALUES,
   CARD_STATUS_VALUES,
   URGENCY_VALUES,
-} from '../tools/tool-definition.js';
+} from './tool-definition.js';
 import type { CardTypeName } from '../schemas/index.js';
 
 export function formatVocabularySnippet(cardTypeVocabulary: readonly CardTypeName[]): string {

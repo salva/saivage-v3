@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { ProviderRegistry } from './provider.js';
-import { supportsCapabilityRequest, type CapabilityRequest } from './provider-capabilities.js';
-import {
-  CandidateRequestPlanIntegrityError,
-  type CandidateRequestPlan,
-} from './candidate-request.js';
-import { AdmissionIntegrityError } from './invocation-admission.js';
-import type { LlmCompleteOptions } from './llm-contracts.js';
+import { supportsCapabilityRequest } from './provider-capabilities.js';
+import { type CapabilityRequest } from '../contracts/index.js';
+import { CandidateRequestPlanIntegrityError } from './candidate-request.js';
+import { type CandidateRequestPlan } from '../contracts/index.js';
+import { AdmissionIntegrityError } from '../contracts/index.js';
+import type { LlmCompleteOptions } from '../contracts/index.js';
 import type { ProviderTurnCompletion } from '../contracts/index.js';
 import { ProviderTurnFailure } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';

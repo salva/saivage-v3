@@ -13,3 +13,25 @@ export interface EffectiveProviderCapabilities {
   maxOutputTokens?: number;
   quirks: string[];
 }
+
+export interface CapabilityRequest {
+  transportProtocol?: TransportProtocol;
+  requiresTools?: boolean;
+  requiresExclusiveToolChoice?: boolean;
+}
+
+export type CapabilitySkipReason =
+  | 'unsupported_transport_protocol'
+  | 'unsupported_tools_mode'
+  | 'unsupported_exclusive_tool_choice';
+
+export type CapabilityMatch =
+  | { supported: true }
+  | { supported: false; reasons: CapabilitySkipReason[] };
+
+export function capabilityRequestForTools(tools: readonly unknown[]): CapabilityRequest {
+  return {
+    requiresTools: tools.length > 0,
+    requiresExclusiveToolChoice: true,
+  };
+}

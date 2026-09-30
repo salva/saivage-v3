@@ -11,7 +11,7 @@ import {
   AdmittedProviderTurnFailure,
   ordinaryAdmittedExecutionAuthority,
   type SuspendedAdmittedExecution,
-} from '../../../src/agents/invocation-admission.js';
+} from '../../../src/contracts/index.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';

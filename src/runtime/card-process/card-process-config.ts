@@ -7,16 +7,18 @@ import type { CardTypeSource, DurablePromptDeclaration, SaivageConfig, StaticPro
 import { parseCardTypeName, type CardStatus, type CardTypeName } from '../../schemas/index.js';
 import { validateCompiledActorTable } from '../micro-actor/micro-actor.js';
 import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
-import type { Candidate } from '../../contracts/provider-candidate.js';
-import type { ModelRouter } from '../../agents/model-router.js';
-import type { ProviderRegistry } from '../../agents/provider.js';
-import { usableInputTokens } from '../../contracts/index.js';
-import { capabilityRequestForTools, type CapabilityRequest } from '../../agents/provider-capabilities.js';
+import { capabilityRequestForTools, usableInputTokens, zodToJsonSchemaMini, type Candidate, type CapabilityRequest, type EffectiveProviderCapabilities, type ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
 import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
-import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
-import type { ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
+
+interface WorkflowModelRouting {
+  resolveModels(ids: readonly string[], request: CapabilityRequest): Candidate[];
+}
+
+interface WorkflowProviderCapabilities {
+  getEffectiveCapabilities(candidate: Candidate): EffectiveProviderCapabilities;
+}
 
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
 type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
@@ -711,8 +713,8 @@ export function compileProjectWorkflows(
 }
 export function bindRuntimeWorkflows(
   structural: CompiledProjectWorkflows,
-  router: ModelRouter,
-  registry: ProviderRegistry,
+  router: WorkflowModelRouting,
+  registry: WorkflowProviderCapabilities,
   contextUtilizationFraction: number,
 ): CompiledRuntimeWorkflows {
   const participants = new Map<AgentName, Readonly<{ agent: CompiledAgentContract; toolSet: BoundAgentToolSet; request: CapabilityRequest }>>();

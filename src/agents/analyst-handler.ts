@@ -1,12 +1,13 @@
 import { type CardTypeName, type GlobalConversationSessionId } from '../schemas/index.js';
 import {
   formatVocabularySnippet,
-} from './analyst-prompt.js';
+} from '../tools/prompt-api.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { CardService } from '../cards/card-api.js';
-import type { CapabilityRequest } from './provider-capabilities.js';
-import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
+import type { CapabilityRequest } from '../contracts/index.js';
+import { buildAgentProtocolViolation } from './agent-protocol-violation.js';
+import { parseProtocolToolArgs } from '../contracts/index.js';
 import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection,
 } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,

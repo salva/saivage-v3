@@ -59,3 +59,4 @@ export interface RuntimeApi {
   getRuntimeState(): RuntimeState | null;
   getActorRuntimeReadModel(): ActorRuntimeReadModel;
 }
+export type { OversightSession, OversightCheckOutcome } from './actors/oversight-session.js';

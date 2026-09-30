@@ -10,7 +10,7 @@ import {
   type PinnedAdmittedContentPolicyRequest,
   type PinnedContentPolicyPreflight,
   type SuspendedAdmittedExecution,
-} from '../../agents/invocation-admission.js';
+} from '../../contracts/index.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, compactionSummaryBlockedResultSchema, contentPolicyEvidenceUrl, conversationSessionIdentity, parseConversationSessionId, type CompactionSummaryBlockedResult, type ContentPolicyRefusalBlockedResult, type ConversationSessionId, type RuntimeOwnedBlockedResult } from '../../schemas/index.js';
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';

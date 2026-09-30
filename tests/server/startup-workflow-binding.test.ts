@@ -9,7 +9,7 @@ import {
   nodeResultToolDefinition,
   runtimeAgentBinding,
 } from '../../src/runtime/card-process/card-process-config.js';
-import { capabilityRequestForTools } from '../../src/agents/provider-capabilities.js';
+import { capabilityRequestForTools } from '../../src/contracts/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 

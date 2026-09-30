@@ -1,6 +1,6 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { EffectiveProviderCapabilities } from '../contracts/index.js';
-import type { LlmCompleteOptions } from './llm-contracts.js';
+import type { LlmCompleteOptions } from '../contracts/index.js';
 import type { ProviderConversationProjection } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
@@ -10,7 +10,7 @@ import {
   serializeToolsForCodex,
   type WireToolDefinitionCodex,
 } from './tool-definition-serializer.js';
-import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
+import type { LlmProtocolAdapter } from '../contracts/index.js';
 
 interface OpenAIResponsesRequest {
   model: string;

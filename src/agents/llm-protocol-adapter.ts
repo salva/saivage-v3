@@ -1,58 +1,7 @@
-import type { Candidate } from '../contracts/provider-candidate.js';
-import type { LlmTransportConfig } from './llm-transport.js';
-import type { EffectiveProviderCapabilities, TransportProtocol } from '../contracts/index.js';
-import type { LlmCompleteOptions } from './llm-contracts.js';
-import type { LlmCompleteResult, ProviderConversationProjection, ProviderPrivateContext } from '../contracts/index.js';
-import type { LlmRequestError } from '../contracts/llm-failure.js';
+import type { LlmProtocolAdapter, TransportProtocol } from '../contracts/index.js';
 import { openAIChatAdapter } from './llm-openai-chat-adapter.js';
 import { openAIResponsesAdapter } from './llm-openai-responses-adapter.js';
 import { openAICodexAdapter } from './llm-openai-codex-adapter.js';
-
-export type LlmCredentialRequirement = 'standard' | 'openai_responses_api_key';
-
-interface LlmAdapterRequestInput {
-  candidate: Candidate;
-  systemPrompt: string;
-  providerConversation: ProviderConversationProjection;
-  options: LlmCompleteOptions;
-  capabilities: EffectiveProviderCapabilities;
-}
-
-interface LlmAdapterWire {
-  endpoint: string;
-  headers: Record<string, string>;
-  requestParams: Record<string, unknown>;
-  transport: 'generic' | 'codex' | 'openai-responses';
-}
-
-interface LlmAdapterSuccess {
-  result: LlmCompleteResult;
-  privateContext?: ProviderPrivateContext;
-  finishReason?: string | null;
-}
-
-export interface LlmProtocolAdapter {
-  readonly credentialRequirement: LlmCredentialRequirement;
-  buildRequestBody(input: LlmAdapterRequestInput): Record<string, unknown>;
-  deriveWire(
-    candidate: Candidate,
-    transport: LlmTransportConfig,
-    body: Record<string, unknown>,
-    options: LlmCompleteOptions,
-  ): LlmAdapterWire;
-  classifyHttpFailure(
-    candidate: Candidate,
-    response: Response,
-    bodyText: string,
-    body: Record<string, unknown>,
-    options: LlmCompleteOptions,
-  ): LlmRequestError;
-  parseSuccess(
-    candidate: Candidate,
-    response: Response,
-    options: LlmCompleteOptions,
-  ): Promise<LlmAdapterSuccess>;
-}
 
 export function selectLlmProtocolAdapter(protocol: TransportProtocol): LlmProtocolAdapter {
   switch (protocol) {

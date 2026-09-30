@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-import { agentNameSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, valuesEqual, type AgentName, type RecordName } from '../schemas/index.js';
-import { uuidV4Schema } from './version-index.js';
+import { agentNameSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, uuidV4Schema, valuesEqual, type AgentName, type RecordName } from '../schemas/index.js';
 
 const nonEmptyStringSchema = z.string().min(1);
 const nonNegativeSafeIntegerSchema = z.number().int().safe().nonnegative();

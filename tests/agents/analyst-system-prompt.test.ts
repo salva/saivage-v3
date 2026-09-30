@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { buildAnalystWorkspaceFocus } from '../../src/application/read-models/analyst-workspace-focus.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
-import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
+import { formatVocabularySnippet } from '../../src/tools/prompt-api.js';
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the referent-resolution rules in the rendered system prompt', () => {

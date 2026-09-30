@@ -1,11 +1,11 @@
-import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions } from '../../src/contracts/index.js';
 import type { LlmCompleteResult, ProviderTurnCompletion, ToolCall } from '../../src/contracts/index.js';
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import type { CompactorPort, LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import type { OrdinaryAdmittedExecution, OrdinaryAdmittedExecutionAuthority, PinnedAdmittedContentPolicyRequest } from '../../src/agents/invocation-admission.js';
-import { ordinaryAdmittedExecutionAuthority } from '../../src/agents/invocation-admission.js';
-import type { CandidateRequestPlan } from '../../src/agents/candidate-request.js';
+import type { OrdinaryAdmittedExecution, OrdinaryAdmittedExecutionAuthority, PinnedAdmittedContentPolicyRequest } from '../../src/contracts/index.js';
+import { ordinaryAdmittedExecutionAuthority } from '../../src/contracts/index.js';
+import type { CandidateRequestPlan } from '../../src/contracts/index.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';

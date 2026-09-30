@@ -1,5 +1,5 @@
 import type { AgentName } from '../schemas/index.js';
-import type { LlmCompleteOptions, LlmModelParams } from './llm-contracts.js';
+import type { LlmCompleteOptions, LlmModelParams } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 
 export function buildLlmOptions(

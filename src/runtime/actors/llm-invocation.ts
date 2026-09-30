@@ -1,6 +1,6 @@
 import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
 import type { ProviderConversationProjection, ToolDefinition, CompiledInvocationToolContract, PreparedInvocationContext, PreparedCompaction, InvocationRoutePass } from '../../contracts/index.js';
-import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
+import type { CapabilityRequest } from '../../contracts/index.js';
 
 interface LlmInvocationInputBase {
   inputId: string;

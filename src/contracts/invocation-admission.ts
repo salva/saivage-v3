@@ -1,17 +1,13 @@
 import { createHash } from 'node:crypto';
-import { canonicalJson } from '../schemas/index.js';
-import type { AgentName } from '../schemas/index.js';
-import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
-import type { CapabilitySkipReason } from './provider-capabilities.js';
-import type { CandidateRequestPlan } from './candidate-request.js';
-import type { ProviderTurnFailure } from '../contracts/index.js';
-import type { LlmCompleteOptions } from './llm-contracts.js';
-import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
-import type { CapabilityRequest, CapabilityMatch } from './provider-capabilities.js';
-import type { EffectiveProviderCapabilities } from '../contracts/index.js';
-import type { InvocationRoutePass } from '../contracts/index.js';
-import { utf8SafeSlice } from '../tools/response-packer.js';
-import { usableInputTokens } from '../contracts/index.js';
+import { canonicalJson, type AgentName } from '../schemas/index.js';
+import { candidatesEqual, type Candidate } from './provider-candidate.js';
+import type { CapabilitySkipReason, CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities } from './provider-capabilities.js';
+import type { CandidateRequestPlan, LlmCompleteOptions } from './provider-request.js';
+import type { ProviderTurnFailure } from './provider-turn.js';
+import type { ProviderExchangeAttempt } from './provider-exchange.js';
+import type { InvocationRoutePass } from './prepared-invocation.js';
+import { utf8SafeSlice } from '../utils/index.js';
+import { usableInputTokens } from './context-budget.js';
 
 type CandidateIdentity = Candidate;
 

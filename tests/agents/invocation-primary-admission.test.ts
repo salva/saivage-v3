@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import { LocalExactAdmissionError, projectAdmissionDiagnostics } from '../../src/agents/invocation-admission.js';
+import { LocalExactAdmissionError, projectAdmissionDiagnostics } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';

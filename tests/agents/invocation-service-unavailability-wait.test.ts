@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import type { CandidateRequestPlan } from '../../src/agents/candidate-request.js';
+import type { CandidateRequestPlan } from '../../src/contracts/index.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';

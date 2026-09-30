@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-import { positiveSafeIntegerSchema } from '../schemas/index.js';
-
-export const uuidV4Schema = z.string().regex(
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-);
+import { positiveSafeIntegerSchema, uuidV4Schema } from '../schemas/index.js';
 
 export const jsonlVersionFilenameSchema = z.string().regex(
   /^[1-9][0-9]*-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jsonl$/,

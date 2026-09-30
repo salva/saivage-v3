@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
-import type { CandidateRequestPlan } from '../../src/agents/candidate-request.js';
-import type { CapabilityRequest } from '../../src/agents/provider-capabilities.js';
+import type { CandidateRequestPlan } from '../../src/contracts/index.js';
+import type { CapabilityRequest } from '../../src/contracts/index.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import { type LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import { type LlmCompleteOptions } from '../../src/contracts/index.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';

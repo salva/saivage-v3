@@ -1,10 +1,9 @@
 import { z } from 'zod';
 
 import { isSetStatusTransition, summarizeChangedFields } from '../cards/lifecycle.js';
-import { CARD_RECORD_FIELDS, cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, valuesEqual, type CardRecord } from '../schemas/index.js';
+import { CARD_RECORD_FIELDS, cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, uuidV4Schema, valuesEqual, type CardRecord } from '../schemas/index.js';
 import { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 import type { CardVersionChange } from '../schemas/card-version-change.js';
-import { uuidV4Schema } from './version-index.js';
 
 export { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 

@@ -9,7 +9,7 @@ import { effectiveSaivageConfigSchema,saivageConfigSchema,type SaivageConfig } f
 import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
-import { formatVocabularySnippet } from '../../../src/agents/analyst-prompt.js';
+import { formatVocabularySnippet } from '../../../src/tools/prompt-api.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 import { projectCompiledGraphs } from '../../../src/runtime/card-process/compiled-graphs-projection.js';
 import { specializedCardTypes, specializedConfig } from '../../helpers/specialized-config.js';

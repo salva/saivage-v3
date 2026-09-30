@@ -6,7 +6,7 @@ import { composeContextProjection, providerConversationFromComposedContext } fro
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
+import type { LlmCompleteOptions } from '../../src/contracts/index.js';
 import type { ProviderConversationProjection } from '../../src/contracts/index.js';
 import type { ContextBlock } from '../../src/contracts/index.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';

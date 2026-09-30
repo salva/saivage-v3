@@ -15,7 +15,7 @@ import {
   createInvocationServiceProvider,
   executeInternalSummaryTurn,
 } from './invocation-service-provider.js';
-import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
+import { createSupervisorRuntimeApi, OversightSession } from '../runtime/actors/index.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
@@ -45,7 +45,6 @@ import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
-import { OversightSession } from '../agents/oversight-session.js';
 import { ProjectOversight, type OversightClock, type OversightStatus } from './project-oversight.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 import { createOversightNotificationPort } from './oversight-notification-port.js';

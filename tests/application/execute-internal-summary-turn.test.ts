@@ -1,9 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { executeInternalSummaryTurn } from '../../src/application/invocation-service-provider.js';
-import { AdmissionIntegrityError, LocalExactAdmissionError, ordinaryAdmittedExecutionAuthority } from '../../src/agents/invocation-admission.js';
+import { AdmissionIntegrityError, LocalExactAdmissionError, ordinaryAdmittedExecutionAuthority } from '../../src/contracts/index.js';
 import type { InvocationRequest, InvocationService } from '../../src/agents/invocation-service.js';
-import type { OrdinaryAdmittedExecution } from '../../src/agents/invocation-admission.js';
+import type { OrdinaryAdmittedExecution } from '../../src/contracts/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';

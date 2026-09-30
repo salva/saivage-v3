@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import { cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
-import { uuidV4Schema } from '../persistence/version-index.js';
+import { cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, uuidV4Schema } from '../schemas/index.js';
 
 const operationSchema = z.enum(['write', 'edit']);
 const commonIdentity = { card_id: cardIdSchema, name: recordNameSchema } as const;

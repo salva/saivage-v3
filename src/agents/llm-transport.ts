@@ -4,16 +4,10 @@ import { CredentialSourceResolver } from './credential-source-resolver.js';
 import { LlmRequestError, localSetupFailure } from '../contracts/llm-failure.js';
 import { type AuthProfile, isProfileExpired } from '../auth/index.js';
 import { readAuthProfiles, replaceAuthProfiles } from '../auth/auth-profile-file.js';
-import type { LlmCredentialRequirement } from './llm-protocol-adapter.js';
+import type { LlmCredentialRequirement, LlmTransportConfig } from '../contracts/index.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-
-export interface LlmTransportConfig {
-  baseUrl: string;
-  apiKey?: string;
-  openAICodexAccountId?: string;
-}
 
 export async function resolveLlmTransportConfig(
   projectRoot: string,

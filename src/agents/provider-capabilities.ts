@@ -1,20 +1,5 @@
 import type { ProviderCapabilities } from '../schemas/saivage-config.js';
-import type { EffectiveProviderCapabilities, TransportProtocol } from '../contracts/index.js';
-
-export interface CapabilityRequest {
-  transportProtocol?: TransportProtocol;
-  requiresTools?: boolean;
-  requiresExclusiveToolChoice?: boolean;
-}
-
-export type CapabilitySkipReason =
-  | 'unsupported_transport_protocol'
-  | 'unsupported_tools_mode'
-  | 'unsupported_exclusive_tool_choice';
-
-export type CapabilityMatch =
-  | { supported: true }
-  | { supported: false; reasons: CapabilitySkipReason[] };
+import type { EffectiveProviderCapabilities, CapabilityRequest, CapabilitySkipReason, CapabilityMatch } from '../contracts/index.js';
 
 const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
   transportProtocol: 'openai-chat-completions',
@@ -77,11 +62,4 @@ export function supportsCapabilityRequest(
     reasons.push('unsupported_exclusive_tool_choice');
   }
   return reasons.length === 0 ? { supported: true } : { supported: false, reasons };
-}
-
-export function capabilityRequestForTools(tools: readonly unknown[]): CapabilityRequest {
-  return {
-    requiresTools: tools.length > 0,
-    requiresExclusiveToolChoice: true,
-  };
 }
