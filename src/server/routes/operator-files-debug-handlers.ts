@@ -1,5 +1,4 @@
-import { WorkspaceFileReadModelService } from '../../application/read-models/index.js';
-import { EventQueryService } from '../../application/event-query-service.js';
+import { EventQueryService, WorkspaceFileReadModelService } from '../../application/index.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 import { projectCompiledGraphs } from '../../runtime/runtime-api.js';

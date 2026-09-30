@@ -11,7 +11,7 @@ import {
   type ListCardsInput,
 } from '../contracts/index.js';
 import type { CardDeclaredRecordMetadataResult,CardService } from '../cards/store-api.js';
-import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
+import { projectCardRecordForOutbound } from '../application/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import {
   boundedToolError,

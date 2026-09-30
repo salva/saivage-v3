@@ -1,5 +1,5 @@
 import type { CardRecord } from '../schemas/index.js';
-import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
+import { projectCardRecordForOutbound } from '../application/index.js';
 import { cardParentId } from '../schemas/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { ToolArgumentValidationError } from './invocation.js';

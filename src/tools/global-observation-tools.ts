@@ -1,11 +1,10 @@
 import type { CardService } from '../cards/card-service.js';
-import type { EventQueryService } from '../application/event-query-service.js';
+import type { EventQueryService } from '../application/index.js';
 import type { ProcessRunner } from '../runtime/runtime-api.js';
 import type { ConversationSessionId } from '../schemas/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/runtime-api.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
-import { AgentOperatorReadModelService, AgentCurrentStateUnavailableError, AgentSessionNotFoundError } from '../application/read-models/agent-operator-read-model.js';
-import { buildProcessView } from '../application/read-models/process-view.js';
+import { AgentOperatorReadModelService, AgentCurrentStateUnavailableError, AgentSessionNotFoundError, buildProcessView } from '../application/index.js';
 import { eventKindValues } from '../schemas/index.js';
 import { emptyInput } from './tool-definition.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';

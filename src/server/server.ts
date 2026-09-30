@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../schemas/index.js';
 import type { Environment } from '../config/index.js';
 import { McpManager } from '../mcp/manager-api.js';
-import type { RuntimeApplication } from '../application/runtime-composition.js';
+import type { RuntimeApplication } from '../application/index.js';
 import { registerServerRoutes } from './composition/route-composition.js';
 import { createServerServices } from './composition/server-services.js';
 import type { RestartPort } from '../contracts/index.js';

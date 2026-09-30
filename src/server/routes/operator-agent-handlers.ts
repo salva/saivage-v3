@@ -4,7 +4,10 @@ import {
   AgentCurrentStateUnavailableError,
   AgentSessionNotFoundError,
   CardAgentScopeNotFoundError,
-} from '../../application/read-models/agent-operator-read-model.js';
+  ConversationCursorNotFoundError,
+  ConversationSegmentChangedError,
+  historicalUnavailableStatus,
+} from '../../application/index.js';
 import type { OperatorProjectContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import {
@@ -15,8 +18,6 @@ import {
 import { redactForOutbound } from '../../redaction/index.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError } from '../../persistence/index.js';
-import { ConversationCursorNotFoundError, ConversationSegmentChangedError } from '../../application/read-models/agent-conversation-read-model.js';
-import { historicalUnavailableStatus } from '../../application/read-models/historical-unavailable-status.js';
 import type { ConversationSessionId } from '../../schemas/index.js';
 import type { ExecutingLlmSnapshot } from '../../runtime/runtime-api.js';
 

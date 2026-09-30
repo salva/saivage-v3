@@ -11,7 +11,7 @@ import { assertRecordWrite, displayPathForResolved, globToRegExp, hasParentPathS
 import type { CardService } from '../cards/store-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import { mutateRecord } from '../application/record-mutation-service.js';
+import { mutateRecord } from '../application/index.js';
 import {
   buildScopedPathUrl,
   parseScopedPathUrl,

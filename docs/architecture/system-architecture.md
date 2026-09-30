@@ -109,6 +109,8 @@ Full-chain recovery remains leaf-to-root with valid partial prefixes, but v2 rep
 
 The supported runtime is Node.js 24 with npm `>=10 <12`, matching `package.json` engines and CI.
 
+For diagnosed backend cross-package consumers, `src/application/index.ts` is the application package boundary for composition, read models, mutation services and preparation, and freshness contracts. Their defining modules and application-internal local imports remain unchanged; this backend-only surface does not imply that every runtime caller uses the root.
+
 ## 1. Ownership Model
 
 The runtime is card-centered and alone dispatches work.

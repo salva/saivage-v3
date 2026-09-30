@@ -1,7 +1,6 @@
-import type { FreshnessEffects } from '../application/freshness-effects.js';
+import type { FreshnessEffects, AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from '../application/index.js';
 import type { LiveSyncCardInvalidateTarget, LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { ConversationSessionId } from '../schemas/index.js';
-import type { AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from '../application/freshness-effects.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
 
 export const SYNC_HUB_DEBOUNCE_MS = 75;

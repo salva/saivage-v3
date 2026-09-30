@@ -1,4 +1,4 @@
-import { buildContentPolicyReadModel, buildRuntimeStatusReadModel, CardsReadModelService } from '../../application/read-models/index.js';
+import { buildContentPolicyReadModel, buildRuntimeStatusReadModel, CardsReadModelService } from '../../application/index.js';
 import type { OperatorApiHandlerResult } from '../../contracts/index.js';
 import type {
   OperatorAvailabilityContext,

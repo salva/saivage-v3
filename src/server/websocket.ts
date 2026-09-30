@@ -11,7 +11,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { RuntimeApplication } from '../application/runtime-composition.js';
+import type { RuntimeApplication } from '../application/index.js';
 import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema,
 } from '../contracts/index.js';
 import type { ServerEgressWsEnvelope } from '../contracts/index.js';

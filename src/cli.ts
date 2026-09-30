@@ -8,7 +8,7 @@ import { publishInitialProjectRuntime, startApp, type StartInputs } from './boot
 import { findProjectRoot, resetOwnedGeneratedRoots, readProjectIdentity, readProjectCardOrAssertInitialPublicationAllowed, initializeAndValidateCurrentGeneratedState } from './persistence/index.js';
 import { readRuntimeLockStatus } from './runtime/runtime-api.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
-import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-client.js';
+import { OperatorRuntimeHttpClient } from './application/index.js';
 import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from './config/system-templates/registry.js';
 import { SAIVAGE_VERSION } from './version.js';
 import { replaceConfigYaml } from './config/config-file.js';

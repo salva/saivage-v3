@@ -15,10 +15,8 @@ import { projectProviderExchange } from '../agents/provider-exchange-outbound.js
 import { projectLoggedEvent } from '../observability/logged-event-projection.js';
 import { projectControlAction } from '../persistence/index.js';
 import { projectDynamicForOutbound } from './dynamic.js';
-import { projectCardDiff } from '../application/read-models/card-outbound.js';
+import { projectCardDiff, projectProcessForOutbound, type ProcessOutboundValue } from '../application/index.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
-import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
-import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
 import type { InternalMcpToolsReadModel } from '../mcp/status-projection.js';

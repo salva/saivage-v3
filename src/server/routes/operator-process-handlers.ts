@@ -1,4 +1,4 @@
-import { buildProcessView } from '../../application/read-models/process-view.js';
+import { buildProcessView } from '../../application/index.js';
 import { defineOperatorContractHandlers, type OperatorProjectContext } from './operator-handler-context.js';
 import type { ProcessRunner } from '../../runtime/runtime-api.js';
 

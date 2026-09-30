@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson, type AgentName, type ConversationSessionId } from '../schemas/index.js';
-import type { FreshnessEffects } from '../application/freshness-effects.js';
+import type { FreshnessEffects } from '../application/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import {
   candidatesEqual,

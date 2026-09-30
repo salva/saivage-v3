@@ -2,8 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/index.js';
 import type { AppTerminalRegistration } from '../../boot/app.js';
 import type { RestartCapability, RestartPort } from '../../contracts/index.js';
-import { createRuntimeApplication, type RuntimeApplication,
-} from '../../application/runtime-composition.js';
+import { createRuntimeApplication, validateConfiguredGlobalConversation, type RuntimeApplication } from '../../application/index.js';
 import { CardService } from '../../cards/store-api.js';
 import type { Environment } from '../../config/index.js';
 import { createMcpToolInvocationInstallation, McpManager } from '../../mcp/manager-api.js';
@@ -20,7 +19,6 @@ import { ProviderRegistry } from '../../agents/provider.js';
 import { ModelRouter } from '../../agents/model-router.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
-import { validateConfiguredGlobalConversation } from '../../application/global-agent-startup-validation.js';
 
 interface ServerServices {
   projectRoot: string;

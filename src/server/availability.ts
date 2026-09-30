@@ -1,5 +1,5 @@
 import type { McpStatusProvider } from '../mcp/manager-api.js';
-import type { RuntimeApplication } from '../application/runtime-composition.js';
+import type { RuntimeApplication } from '../application/index.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/index.js';

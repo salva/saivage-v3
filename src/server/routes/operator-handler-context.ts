@@ -4,7 +4,7 @@ import type {
   OperatorApiOperationId,
 } from '../../contracts/index.js';
 import type { McpToolsReadModelProvider } from '../../mcp/manager-api.js';
-import type { RuntimeApplication } from '../../application/runtime-composition.js';
+import type { RuntimeApplication } from '../../application/index.js';
 import type { ProviderRoutingReadModel } from '../../agents/provider-routing-read-model.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { buildServerAvailability } from '../availability.js';

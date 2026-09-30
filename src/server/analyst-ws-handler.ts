@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import { AnalystTurnBusyError } from '../runtime/runtime-api.js';
-import type { RuntimeApplication } from '../application/runtime-composition.js';
+import type { RuntimeApplication } from '../application/index.js';
 import {
   InboundAnalystMessageEnvelopeSchema,
   PublicationOutcomeUnknownError,
