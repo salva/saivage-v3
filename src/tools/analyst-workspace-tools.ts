@@ -1,9 +1,12 @@
 import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
-import { navigateWorkspaceInputSchema, type NavigateWorkspaceInput } from '../contracts/builtin-tool-inputs.js';
-import type { WorkspaceNavigationIntent } from '../contracts/workspace-navigation.js';
-import { toolSucceeded } from '../contracts/tool-result.js';
+import {
+  navigateWorkspaceInputSchema,
+  toolSucceeded,
+  type NavigateWorkspaceInput,
+  type WorkspaceNavigationIntent,
+} from '../contracts/index.js';
 
 async function navigate_workspace(_ctx: ToolContext, params: NavigateWorkspaceInput): Promise<AnalystToolOutcome> {
   const data = { intent: 'navigate_workspace', target: params.target } satisfies WorkspaceNavigationIntent;

@@ -2,9 +2,16 @@ import type { z } from 'zod';
 
 import type { ToolContext } from './analyst-tool-types.js';
 import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCanonicalLocatorToolAction, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
-import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
+import {
+  toolFailed,
+  toolSucceeded,
+  diffCardVersionsInputSchema,
+  getCardVersionInputSchema,
+  listCardVersionsInputSchema,
+  readRecordVersionInputSchema,
+  type ToolActionOutcome,
+} from '../contracts/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema, readRecordVersionInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
 import type { CardArtifact } from '../persistence/canonical-card-artifacts.js';
 import { recordContentSha256 } from '../persistence/canonical-record-artifacts.js';

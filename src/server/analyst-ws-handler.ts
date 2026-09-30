@@ -1,14 +1,17 @@
 import type { WebSocket } from 'ws';
 import { AnalystTurnBusyError } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
-import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
-import type { ServerEgressWsEnvelope } from '../contracts/operator-events.js';
-import type { RestartCapability } from '../contracts/index.js';
+import {
+  InboundAnalystMessageEnvelopeSchema,
+  PublicationOutcomeUnknownError,
+  ANALYST_PROCESSING_FAILED_ERROR,
+  ANALYST_TURN_BUSY_ERROR,
+  type ServerEgressWsEnvelope,
+  type RestartCapability,
+  type ApplicationFatalPort,
+} from '../contracts/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
-import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
-import { ANALYST_PROCESSING_FAILED_ERROR } from '../contracts/operator-events.js';
-import { ANALYST_TURN_BUSY_ERROR } from '../contracts/operator-api-chats.js';
 import type { GlobalConversationSessionId } from '../schemas/index.js';
 
 interface AnalystWsHandlerOptions {

@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import type { AuthProfile, AuthProfilesFile } from '../auth/index.js';
-import { localSetupFailure } from '../contracts/llm-failure.js';
+import { localSetupFailure } from '../contracts/index.js';
 import type { Account, Provider } from './provider.js';
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com';

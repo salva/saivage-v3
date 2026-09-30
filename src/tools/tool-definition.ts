@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { analystIssueSeverityValues, cardStatusValues, urgencyValues } from '../schemas/index.js';
-import { emptyToolInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { emptyToolInputSchema } from '../contracts/index.js';
 
 export const CARD_STATUS_VALUES = cardStatusValues;
 export const URGENCY_VALUES = urgencyValues;

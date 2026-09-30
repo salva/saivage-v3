@@ -7,13 +7,15 @@ import {
 } from '../../application/read-models/agent-operator-read-model.js';
 import type { OperatorProjectContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
-import type { ProviderExchangePayload } from '../../contracts/provider-exchange.js';
-import type { OperatorApiSuccess } from '../../contracts/index.js';
+import {
+  throwIfPublicationOutcomeUnknown,
+  type ProviderExchangePayload,
+  type OperatorApiSuccess,
+} from '../../contracts/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
 import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError } from '../../persistence/conversation-file.js';
 import { ConversationCursorNotFoundError, ConversationSegmentChangedError } from '../../application/read-models/agent-conversation-read-model.js';
-import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { historicalUnavailableStatus } from '../../application/read-models/historical-unavailable-status.js';
 import type { ConversationSessionId } from '../../schemas/index.js';
 import type { ExecutingLlmSnapshot } from '../../runtime/actors/executing-llm-snapshot.js';

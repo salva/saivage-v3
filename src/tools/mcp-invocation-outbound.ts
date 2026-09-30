@@ -1,7 +1,7 @@
 import {
   McpToolCallArgumentsSchema,
   type McpToolCallArguments,
-} from '../contracts/mcp-invocation.js';
+} from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 
 export function projectMcpToolCallArgumentsForOutbound(value: McpToolCallArguments): McpToolCallArguments {

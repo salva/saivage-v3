@@ -1,5 +1,5 @@
 import { canonicalJson } from '../schemas/index.js';
-import { ToolResultSchema, assertToolActionOutcome, toolSucceeded, type ToolActionOutcome, type ToolResult } from '../contracts/tool-result.js';
+import { ToolResultSchema, assertToolActionOutcome, toolSucceeded, type ToolActionOutcome, type ToolResult } from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 
 interface SettledToolResultProjection {

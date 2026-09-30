@@ -1,6 +1,5 @@
 import type { AnalystMutationReadContext } from '../../agents/analyst-tool-runner.js';
-import type { WebfetchMetadata } from '../../contracts/webfetch.js';
-import type { AnalystPreNetworkAdmission } from '../../contracts/record-mutation.js';
+import type { WebfetchMetadata, AnalystPreNetworkAdmission } from '../../contracts/index.js';
 import type { AnalystRecordMutationService } from '../analyst-mutation-services.js';
 
 export interface PreparedFetchedRecord { readonly content: string; readonly metadata: WebfetchMetadata; }

@@ -2,10 +2,8 @@ import type { OperatorProjectContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
-import type { RestartCapability } from '../../contracts/index.js';
+import { ChatToolInvocationSchema, ANALYST_TURN_BUSY_ERROR, type RestartCapability } from '../../contracts/index.js';
 import { projectLiveToolInvocation } from '../../tools/tool-invocation-outbound.js';
-import { ChatToolInvocationSchema } from '../../contracts/operator-api-chats.js';
-import { ANALYST_TURN_BUSY_ERROR } from '../../contracts/operator-api-chats.js';
 import { AnalystTurnBusyError, AnalystWorkspaceContextBudgetError } from '../../agents/analyst-api.js';
 
 type ChatOperatorHandlerOptions = OperatorProjectContext & {

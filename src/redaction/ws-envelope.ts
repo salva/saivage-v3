@@ -1,7 +1,7 @@
 import {
   ServerEgressWsEnvelopeSchema,
   type ServerEgressWsEnvelope,
-} from '../contracts/operator-events.js';
+} from '../contracts/index.js';
 import { redactTextForOutbound } from './text.js';
 
 export function projectWsEnvelopeForOutbound(

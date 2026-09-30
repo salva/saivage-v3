@@ -9,7 +9,7 @@ import {
 } from '../config/reconfigure-contract.js';
 import type { ConfigMutation } from '../config/resolved-config-authority.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
+import { toolFailed, toolSucceeded } from '../contracts/index.js';
 import type { QueueNotificationToolInput } from './notification-tool.js';
 
 export async function queue_notification(

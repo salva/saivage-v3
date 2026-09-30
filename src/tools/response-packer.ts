@@ -3,7 +3,7 @@ import { canonicalValueSha256 } from '../persistence/canonical-conversation-arti
 import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,
-} from '../contracts/builtin-tool-inputs.js';
+} from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 import { utf8SafeSlice } from '../utils/index.js';

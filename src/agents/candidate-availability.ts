@@ -2,9 +2,15 @@
  * Process-local candidate availability for one application lifetime.
  */
 
-import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
-import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
-export type { AvailabilityDecision, CandidateAvailability } from '../contracts/candidate-availability.js';
+import {
+  candidatesEqual,
+  type Candidate,
+  type AvailabilityDecision,
+  type CandidateAvailability,
+  type CandidateAvailabilityEntry,
+} from '../contracts/index.js';
+
+export type { AvailabilityDecision, CandidateAvailability } from '../contracts/index.js';
 
 /** Availability intentionally resets whenever the process restarts. */
 export class MemoryCandidateAvailability implements CandidateAvailability {

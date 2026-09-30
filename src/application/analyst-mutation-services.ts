@@ -5,12 +5,15 @@ import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js
 import { queueNotification } from '../notifications/index.js';
 import { projectNotificationSubmission } from './notification-result-projection.js';
 import type { CardRecord, CardTypeName } from '../schemas/index.js';
-import type { NotificationUrgency } from '../contracts/builtin-tool-inputs.js';
+import {
+  throwIfPublicationOutcomeUnknown,
+  parseRecordUrl as awaitImportParse,
+  type NotificationUrgency,
+  type AnalystPreNetworkAdmission,
+} from '../contracts/index.js';
 import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { toCardView } from './read-models/card-view.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';
 import { mutateRecord, preflightAnalystRecordWrite } from './record-mutation-service.js';
 import type { CardId } from '../schemas/card-id.js';
 
@@ -203,5 +206,3 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
     }
   }
 }
-
-import { parseRecordUrl as awaitImportParse } from '../contracts/record-mutation.js';

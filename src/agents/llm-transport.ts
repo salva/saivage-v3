@@ -1,10 +1,14 @@
-import type { Candidate } from '../contracts/provider-candidate.js';
+import {
+  LlmRequestError,
+  localSetupFailure,
+  type Candidate,
+  type LlmCredentialRequirement,
+  type LlmTransportConfig,
+} from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
-import { LlmRequestError, localSetupFailure } from '../contracts/llm-failure.js';
 import { type AuthProfile, isProfileExpired } from '../auth/index.js';
 import { readAuthProfiles, replaceAuthProfiles } from '../auth/auth-profile-file.js';
-import type { LlmCredentialRequirement, LlmTransportConfig } from '../contracts/index.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';

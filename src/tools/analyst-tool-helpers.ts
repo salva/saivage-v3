@@ -1,6 +1,5 @@
 import type { AnalystToolOutcome, SafeToolData } from './analyst-tool-types.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import { toolFailed } from '../contracts/tool-result.js';
+import { throwIfPublicationOutcomeUnknown, toolFailed } from '../contracts/index.js';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

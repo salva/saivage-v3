@@ -1,10 +1,15 @@
 import { z } from 'zod';
 
-import { throwIfPublicationOutcomeUnknown, zodToJsonSchemaMini, type ToolDefinition as LlmToolDefinition } from '../contracts/index.js';
+import {
+  throwIfPublicationOutcomeUnknown,
+  zodToJsonSchemaMini,
+  toolFailed,
+  type ToolDefinition as LlmToolDefinition,
+  type ToolActionOutcome,
+} from '../contracts/index.js';
 import type { AgentName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
-import { toolFailed, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { boundedToolError, DiscoveryBudgetTooSmallError, DiscoveryCollectionPositionError } from './response-packer.js';
 
 type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];

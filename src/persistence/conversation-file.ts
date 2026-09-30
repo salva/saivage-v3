@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 
-import { validateCompactedHistorySuccessor, validateConversation, type CompactedGenesisSeed, type ValidatedConversation } from '../contracts/conversation-validation.js';
+import {
+  validateCompactedHistorySuccessor,
+  validateConversation,
+  PublicationOutcomeUnknownError,
+  type CompactedGenesisSeed,
+  type ValidatedConversation,
+} from '../contracts/index.js';
 import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../schemas/index.js';
-import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import {
   conversationSegmentEnvelopeSchema,
   conversationVersionIndexSchema,

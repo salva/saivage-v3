@@ -1,9 +1,9 @@
 import { readAppLogEntries } from '../persistence/app-log.js';
 import { isErrorEvent, type ErrorEvent, type EventKind, type LoggedEvent } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { EVENT_QUERY_MAX_LIMIT } from '../contracts/builtin-tool-inputs.js';
+import { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
 
-export { EVENT_QUERY_MAX_LIMIT } from '../contracts/builtin-tool-inputs.js';
+export { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
 type EventSelection = 'oldest_page' | 'newest_tail';
 interface EventQuery {
   kind?: EventKind;

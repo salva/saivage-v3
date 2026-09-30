@@ -1,5 +1,4 @@
-import type { NotificationUrgency } from '../contracts/builtin-tool-inputs.js';
-import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
+import { toolFailed, toolSucceeded, type NotificationUrgency, type ToolActionOutcome } from '../contracts/index.js';
 import { projectNotificationSubmission } from '../application/notification-result-projection.js';
 import { queueNotification } from '../notifications/index.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';

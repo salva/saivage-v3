@@ -1,6 +1,10 @@
 import type { AgentMessage } from '../schemas/index.js';
-import { parsePrivateContent, validateResponsesPairs, type ProviderConversationProjection } from '../contracts/index.js';
-import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
+import {
+  parsePrivateContent,
+  validateResponsesPairs,
+  parseToolCallMessageForModel,
+  type ProviderConversationProjection,
+} from '../contracts/index.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 
 type ResponsesInputItem = Record<string, unknown>;

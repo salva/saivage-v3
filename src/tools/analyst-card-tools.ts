@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { analystCancelCardInputSchema, createAnalystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema, type AnalystCreateCardInput } from '../contracts/builtin-tool-inputs.js';
+import { analystCancelCardInputSchema, createAnalystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema, type AnalystCreateCardInput } from '../contracts/index.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineToolBinder, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 

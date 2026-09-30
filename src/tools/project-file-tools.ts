@@ -12,9 +12,13 @@ import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { mutateRecord } from '../application/record-mutation-service.js';
-import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
+import {
+  buildScopedPathUrl,
+  parseScopedPathUrl,
+  globWorkspaceInputSchema,
+  grepWorkspaceInputSchema,
+} from '../contracts/index.js';
 import { ToolArgumentValidationError } from './invocation.js';
-import { globWorkspaceInputSchema, grepWorkspaceInputSchema } from '../contracts/builtin-tool-inputs.js';
 import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   packCollectionData,

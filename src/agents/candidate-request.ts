@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../schemas/index.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
-import type { LlmCompleteOptions, CandidateRequestPlan, LlmProtocolAdapter } from '../contracts/index.js';
-import { assertProviderConversationSourceRows, type ProviderConversationProjection } from '../contracts/index.js';
-import type { EffectiveProviderCapabilities } from '../contracts/index.js';
+import {
+  assertProviderConversationSourceRows,
+  type Candidate,
+  type LlmCompleteOptions,
+  type CandidateRequestPlan,
+  type LlmProtocolAdapter,
+  type ProviderConversationProjection,
+  type EffectiveProviderCapabilities,
+} from '../contracts/index.js';
 
 export class CandidateRequestPlanIntegrityError extends Error {
   readonly candidate: Candidate;

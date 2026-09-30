@@ -1,18 +1,20 @@
 import { createHash } from 'node:crypto';
 import type { ProviderRegistry } from './provider.js';
 import { supportsCapabilityRequest } from './provider-capabilities.js';
-import { type CapabilityRequest } from '../contracts/index.js';
+import {
+  AdmissionIntegrityError,
+  ProviderTurnFailure,
+  LlmRequestError,
+  throwIfPublicationOutcomeUnknown,
+  type CapabilityRequest,
+  type CandidateRequestPlan,
+  type LlmCompleteOptions,
+  type ProviderTurnCompletion,
+} from '../contracts/index.js';
 import { CandidateRequestPlanIntegrityError } from './candidate-request.js';
-import { type CandidateRequestPlan } from '../contracts/index.js';
-import { AdmissionIntegrityError } from '../contracts/index.js';
-import type { LlmCompleteOptions } from '../contracts/index.js';
-import type { ProviderTurnCompletion } from '../contracts/index.js';
-import { ProviderTurnFailure } from '../contracts/index.js';
-import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;

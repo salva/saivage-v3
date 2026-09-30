@@ -1,7 +1,7 @@
 import type { CardService } from '../cards/card-api.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
-import type { ToolActionOutcome } from '../contracts/tool-result.js';
+import type { ToolActionOutcome, RestartCapability } from '../contracts/index.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
@@ -9,7 +9,6 @@ import type { AnalystMutationServices } from '../application/analyst-mutation-se
 import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
 import type { EventQueryService } from '../application/event-query-service.js';
 import type { CardTypeName, ConversationSessionId } from '../schemas/index.js';
-import type { RestartCapability } from '../contracts/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export type AnalystToolOutcome = ToolActionOutcome;

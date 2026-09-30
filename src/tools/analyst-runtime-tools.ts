@@ -4,8 +4,7 @@ import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
-import { readControlActionsInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { toolSucceeded } from '../contracts/tool-result.js';
+import { readControlActionsInputSchema, toolSucceeded } from '../contracts/index.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 

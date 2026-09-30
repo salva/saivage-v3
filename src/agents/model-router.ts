@@ -1,7 +1,6 @@
-import type { Candidate } from '../contracts/provider-candidate.js';
+import type { Candidate, CapabilityRequest } from '../contracts/index.js';
 import { ProviderRegistry } from './provider.js';
 import { supportsCapabilityRequest } from './provider-capabilities.js';
-import { type CapabilityRequest } from '../contracts/index.js';
 
 // ── Model Router ──────────────────────────────────────────────
 

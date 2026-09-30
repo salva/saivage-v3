@@ -1,8 +1,7 @@
 import type { AgentName } from '../schemas/index.js';
-import { skillInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { skillInputSchema, toolFailed, toolSucceeded } from '../contracts/index.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { SkillCatalog } from './skill-catalog.js';
-import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 
 export interface SkillProviderContext {
   readonly projectRoot: string;

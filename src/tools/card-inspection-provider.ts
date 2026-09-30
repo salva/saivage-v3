@@ -1,11 +1,18 @@
 import type { z } from 'zod';
 import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
-import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
+import {
+  toolFailed,
+  toolSucceeded,
+  createListCardsInputSchema,
+  getCardInputSchema,
+  getTreeInputSchema,
+  type ToolActionOutcome,
+  type ListCardsInput,
+} from '../contracts/index.js';
 import type { CardDeclaredRecordMetadataResult,CardService } from '../cards/card-api.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { createListCardsInputSchema, getCardInputSchema, getTreeInputSchema, type ListCardsInput } from '../contracts/builtin-tool-inputs.js';
 import {
   boundedToolError,
   DISCOVERY_RESPONSE_MAX_BYTES,

@@ -5,8 +5,7 @@ import type {
   SaivageConfig,
 } from '../schemas/saivage-config.js';
 import { builtInCapabilitiesForProvider, mergeCapabilities } from './provider-capabilities.js';
-import { type EffectiveProviderCapabilities } from '../contracts/index.js';
-import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
+import { candidatesEqual, type EffectiveProviderCapabilities, type Candidate } from '../contracts/index.js';
 
 // ── Account ───────────────────────────────────────────────────
 

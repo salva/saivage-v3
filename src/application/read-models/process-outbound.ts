@@ -3,7 +3,7 @@ import {
   ProcessViewSchema,
   type ProcessToolResult,
   type ProcessView,
-} from '../../contracts/operator-api-processes.js';
+} from '../../contracts/index.js';
 import { redactCommandForOperator } from '../../workspace/index.js';
 
 export type ProcessOutboundValue = ProcessView | ProcessToolResult;

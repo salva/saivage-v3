@@ -1,6 +1,9 @@
 import type { ConversationSessionId } from '../schemas/index.js';
-import { ClassifiedToolInvocationActivityContentSchema, type ClassifiedToolInvocationActivityContent } from '../contracts/operator-events.js';
-import type { ToolResult as ToolInvocationResult } from '../contracts/tool-result.js';
+import {
+  ClassifiedToolInvocationActivityContentSchema,
+  type ClassifiedToolInvocationActivityContent,
+  type ToolResult as ToolInvocationResult,
+} from '../contracts/index.js';
 import { projectLiveToolInvocation } from '../tools/tool-invocation-outbound.js';
 
 interface AnalystToolInvocationActivityInput {

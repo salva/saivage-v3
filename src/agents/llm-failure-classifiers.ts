@@ -1,4 +1,4 @@
-import type { LlmTransportFailure } from '../contracts/llm-failure.js';
+import type { LlmTransportFailure } from '../contracts/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
 interface ClassifierContext {

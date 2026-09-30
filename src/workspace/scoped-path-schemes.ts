@@ -6,9 +6,14 @@ import type { RecordDefinition } from '../records/record-definition.js';
 import type { CardService } from '../cards/card-api.js';
 type CompleteRecordReader=Pick<CardService,'readRecordCurrent'|'readRecordVersion'>;
 import { resolveContainedProjectPath } from './file-access-security.js';
-import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
+import {
+  buildScopedPathUrl,
+  parseScopedPathUrl,
+  parseRecordUrl,
+  type ParsedScopedPathUrl,
+  type ParsedRecordUrl,
+} from '../contracts/index.js';
 import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
-import { parseRecordUrl, type ParsedRecordUrl } from '../contracts/record-mutation.js';
 
 type ScopedPathMode = 'read' | 'write' | 'search';
 type ScopedPathErrorFactory = (message: string) => Error;

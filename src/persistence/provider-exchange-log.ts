@@ -1,6 +1,11 @@
 import type { ConversationSessionId } from '../schemas/index.js';
-import { internalCompactionSummarySessionId, providerExchangeLogEntrySchema, providerExchangeLogId, type ProviderExchangeLogEntry } from '../contracts/index.js';
-import type { ProviderExchangePayload } from '../contracts/provider-exchange.js';
+import {
+  internalCompactionSummarySessionId,
+  providerExchangeLogEntrySchema,
+  providerExchangeLogId,
+  type ProviderExchangeLogEntry,
+  type ProviderExchangePayload,
+} from '../contracts/index.js';
 import { admitGrowingFileTail, appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
 import { providerExchangeFile } from './layout.js';
 

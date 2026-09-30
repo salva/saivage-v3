@@ -1,6 +1,9 @@
-import { isPromptPolicyRejection, unwrapFailure } from '../contracts/llm-failure.js';
-import type { LlmTransportFailure } from '../contracts/llm-failure.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import {
+  isPromptPolicyRejection,
+  unwrapFailure,
+  type LlmTransportFailure,
+  type Candidate,
+} from '../contracts/index.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
 
 interface InvocationFailureContext {

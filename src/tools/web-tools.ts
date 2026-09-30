@@ -6,21 +6,31 @@ import net from 'node:net';
 import { z } from 'zod';
 
 import type { AgentName } from '../schemas/index.js';
-import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
+import {
+  buildScopedPathUrl,
+  toolFailed,
+  toolSucceeded,
+  WebfetchDataSchema,
+  WebfetchInvocationSchema,
+  WebfetchTextDataSchema,
+  WorkspaceWriteDataSchema,
+  RecordMutationResultSchema,
+  RecordMutationSuccessSchema,
+  websearchInputSchema,
+  throwIfPublicationOutcomeUnknown,
+  type ToolActionOutcome,
+  type WebfetchInvocation,
+  type WebfetchMetadata,
+} from '../contracts/index.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
-import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { admitAnalystRecordWebfetch, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
 import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/text.js';
-import { WebfetchDataSchema, WebfetchInvocationSchema, WebfetchTextDataSchema, WorkspaceWriteDataSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
-import { RecordMutationResultSchema, RecordMutationSuccessSchema } from '../contracts/record-mutation.js';
-import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { replaceFile } from '../persistence/replace-file.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { admitRecordMutation } from '../application/record-mutation-service.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 

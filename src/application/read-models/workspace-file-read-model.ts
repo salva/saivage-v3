@@ -1,7 +1,11 @@
 import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
-import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
-import type { OperatorApiHandlerResult, WorkspaceFilesListResponse } from '../../contracts/index.js';
+import {
+  buildScopedPathUrl,
+  parseScopedPathUrl,
+  type OperatorApiHandlerResult,
+  type WorkspaceFilesListResponse,
+} from '../../contracts/index.js';
 import { hasParentPathSegment, isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';

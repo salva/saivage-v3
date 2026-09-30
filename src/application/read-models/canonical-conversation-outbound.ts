@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 
-import { parseToolCallMessageForModel } from '../../contracts/persisted-tool-call.js';
 import {
+  parseToolCallMessageForModel,
+  ToolResultSchema,
   type CanonicalCallIdentity,
   type CanonicalResultIdentity,
   type ToolInvocationProjectionInput,
   type ToolInvocationProjector,
-} from '../../contracts/tool-invocation-projection.js';
-import { ToolResultSchema } from '../../contracts/tool-result.js';
+} from '../../contracts/index.js';
 import { agentMessageSchema, canonicalJson, parseCanonicalContentPolicyRefusal, type AgentMessage } from '../../schemas/index.js';
 import {
   sourceInputIdFromToolCallMessageId,

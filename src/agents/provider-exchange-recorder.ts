@@ -1,7 +1,7 @@
 import type {
   ProviderExchangeAttempt,
   ProviderExchangeOkPayload,
-} from '../contracts/provider-exchange.js';
+} from '../contracts/index.js';
 
 interface ProviderExchangeHandle {
   recordResponse(

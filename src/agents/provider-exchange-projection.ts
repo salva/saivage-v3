@@ -3,7 +3,7 @@ import {
   type ProviderExchangeAttempt,
   type ProviderExchangePayload,
   type ProviderExchangePublicationContext,
-} from '../contracts/provider-exchange.js';
+} from '../contracts/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 
 type IndexedProviderExchangeAttempt = ProviderExchangeAttempt & { attempt_index: number };

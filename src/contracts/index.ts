@@ -32,3 +32,127 @@ export type { RestartCapability, RestartPort } from './restart-capability.js';
 
 export type { ServerEgressWsEnvelope, LiveSyncClientFrame, LiveSyncCardInvalidateTarget, LiveSyncCardRecordName, LiveSyncInvalidateFrame, LiveSyncInvalidateTarget } from './operator-events.js';
 export { parseProtocolToolArgs } from './tool-arguments.js';
+
+export { candidatesEqual } from './provider-candidate.js';
+export { toolFailed, toolSucceeded, assertToolActionOutcome } from './tool-result.js';
+export type { ToolResult, ToolActionOutcome } from './tool-result.js';
+export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-api-chats.js';
+export type { RestartChatAcknowledgement } from './operator-api-chats.js';
+export {
+  parseRecordUrl,
+  RecordMutationFailureSchema,
+  RecordMutationSuccessSchema,
+  RecordMutationResultSchema,
+  ModelRecordTargetWireSchema,
+} from './record-mutation.js';
+export type {
+  AnalystPreNetworkAdmission,
+  RecordMutationDenialReason,
+  RecordMutationFailure,
+  RecordMutationResult,
+  RecordMutationSuccess,
+  ParsedRecordUrl,
+  ModelRecordTargetWire,
+} from './record-mutation.js';
+export type {
+  AvailabilityDecision,
+  CandidateAvailability,
+  CandidateAvailabilityEntry,
+} from './candidate-availability.js';
+export { localSetupFailure, isPromptPolicyRejection, unwrapFailure, LlmRequestError } from './llm-failure.js';
+export type { LlmTransportFailure } from './llm-failure.js';
+export { providerExchangePayloadSchema } from './provider-exchange.js';
+export type {
+  ProviderExchangeAttempt,
+  ProviderExchangePublicationContext,
+  ProviderExchangePayload,
+  ProviderExchangeOkPayload,
+} from './provider-exchange.js';
+export { parseToolCallMessageForModel } from './persisted-tool-call.js';
+export {
+  EVENT_QUERY_MAX_LIMIT,
+  analystCancelCardInputSchema,
+  createAnalystCreateCardInputSchema,
+  analystDeleteCardInputSchema,
+  analystReopenCardInputSchema,
+  analystReorderChildInputSchema,
+  readControlActionsInputSchema,
+  navigateWorkspaceInputSchema,
+  createListCardsInputSchema,
+  getCardInputSchema,
+  getTreeInputSchema,
+  diffCardVersionsInputSchema,
+  getCardVersionInputSchema,
+  listCardVersionsInputSchema,
+  readRecordVersionInputSchema,
+  listAgentSessionsInputSchema,
+  listProcessesInputSchema,
+  queueNotificationInputSchema,
+  readAgentSessionInputSchema,
+  readRuntimeErrorsInputSchema,
+  readRuntimeEventsInputSchema,
+  plannerCancelCardInputSchema,
+  plannerCreateCardInputSchema,
+  plannerEditCardInputSchema,
+  plannerQueueNotificationInputSchema,
+  plannerReopenCardInputSchema,
+  plannerReorderChildInputSchema,
+  killProcessInputSchema,
+  runCommandInputSchema,
+  waitProcessInputSchema,
+  globWorkspaceInputSchema,
+  grepWorkspaceInputSchema,
+  DISCOVERY_RESPONSE_MAX_BYTES,
+  DISCOVERY_RESPONSE_MIN_BYTES,
+  skillInputSchema,
+  emptyToolInputSchema,
+  applyPatchInputSchema,
+  editWorkspaceInputSchema,
+  readWorkspaceInputSchema,
+  websearchInputSchema,
+  writeWorkspaceInputSchema,
+} from './builtin-tool-inputs.js';
+export type {
+  NotificationUrgency,
+  AnalystCreateCardInput,
+  NavigateWorkspaceInput,
+  ListCardsInput,
+} from './builtin-tool-inputs.js';
+export { parseOperatorResponse } from './operator-api.js';
+export { appLogEntryLogicalId, appLogEntrySchema } from './app-log.js';
+export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType } from './app-log.js';
+export { validateCompactedHistorySuccessor, validateConversation } from './conversation-validation.js';
+export type { CompactedGenesisSeed, ValidatedConversation } from './conversation-validation.js';
+export type {
+  ToolInvocationProjectionInput,
+  CanonicalCallIdentity,
+  CanonicalResultIdentity,
+  ToolInvocationProjector,
+} from './tool-invocation-projection.js';
+export { ANALYST_PROCESSING_FAILED_ERROR, ClassifiedToolInvocationActivityContentSchema } from './operator-events.js';
+export type { ClassifiedToolInvocationActivityContent } from './operator-events.js';
+export type { WorkspaceNavigationIntent } from './workspace-navigation.js';
+export { McpToolCallArgumentsSchema } from './mcp-invocation.js';
+export type { McpToolCallArguments } from './mcp-invocation.js';
+export { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
+export type { ParsedScopedPathUrl } from './scoped-path-url.js';
+export { ProcessViewSchema } from './operator-api-processes.js';
+export type { ProcessView } from './operator-api-processes.js';
+export { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';
+export {
+  WebfetchInvocationSchema,
+  WebfetchDataSchema,
+  WebfetchTextDataSchema,
+  WorkspaceWriteDataSchema,
+} from './webfetch.js';
+export type { WebfetchInvocation, WebfetchMetadata } from './webfetch.js';
+export {
+  AgentConversationResponseSchema,
+  AgentDetailResponseSchema,
+  AgentListResponseSchema,
+  AgentSessionSummarySchema,
+  CardAgentSessionsResponseSchema,
+  ConversationVersionContentResponseSchema,
+  ConversationVersionListResponseSchema,
+} from './operator-api-agents.js';
+export type { AgentSessionSummary } from './operator-api-agents.js';

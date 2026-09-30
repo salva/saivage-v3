@@ -3,11 +3,20 @@ import {
   formatVocabularySnippet,
 } from '../tools/prompt-api.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import {
+  parseProtocolToolArgs,
+  PublicationOutcomeUnknownError,
+  type Candidate,
+  type CapabilityRequest,
+  type ToolResult,
+  type RestartCapability,
+  type RestartChatAcknowledgement,
+  type ContextBlock,
+  type ApplicationFatalPort,
+  type ChatWorkspaceContext,
+} from '../contracts/index.js';
 import type { CardService } from '../cards/card-api.js';
-import type { CapabilityRequest } from '../contracts/index.js';
 import { buildAgentProtocolViolation } from './agent-protocol-violation.js';
-import { parseProtocolToolArgs } from '../contracts/index.js';
 import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection,
 } from '../runtime/actors/conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,
@@ -18,32 +27,25 @@ import { appendConversationBatch, readConversation, type ConversationFileContext
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { invokeToolForLlm, surfaceToolDefinitions, syntheticToolSettlement, type InvocationSurface, type ToolSettlementInput,
 } from '../tools/invocation.js';
-import type { ToolResult } from '../contracts/tool-result.js';
 import { surfaceToolContracts } from '../tools/runtime-tool-catalog.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import { buildAnalystOrientationSnapshot, type AnalystOrientationCard, type AnalystOrientationSnapshot } from '../application/read-models/analyst-orientation.js';
-import type { RestartCapability } from '../contracts/index.js';
-import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome,
 } from '../runtime/actors/invocation-lifecycle.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy,
 } from '../runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
-import { type ContextBlock } from '../contracts/index.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { randomUUID } from 'node:crypto';
-import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import { cardParentId } from '../schemas/card-id.js';
 import type { RuntimeStatus } from '../schemas/index.js';
 import { settleReturnedToolCallWithoutEntry } from '../runtime/actors/returned-tool-call-settlement.js';
-import type { ChatWorkspaceContext } from '../contracts/index.js';
 import { buildAnalystWorkspaceFocus, type WorkspaceFocusResult } from '../application/index.js';
 import { conversationSha256 } from '../persistence/index.js';
-
 
 interface AnalystResponse {
   sessionId: GlobalConversationSessionId;

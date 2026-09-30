@@ -1,4 +1,4 @@
-import { operatorApiContracts, parseOperatorResponse, type OperatorApiSuccess } from '../contracts/operator-api.js';
+import { operatorApiContracts, parseOperatorResponse, type OperatorApiSuccess } from '../contracts/index.js';
 import type { RuntimeControlEndpoint } from '../runtime/lock.js';
 
 type RuntimeOperation = 'runtime.status' | 'runtime.pause' | 'runtime.resume' | 'stop_project' | 'restart_server';

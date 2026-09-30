@@ -2,28 +2,52 @@ import { z, type ZodTypeAny } from 'zod';
 
 import { reconfigureParamsSchema } from '../config/index.js';
 import {
-  analystCancelCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema,
-  applyPatchInputSchema, diffCardVersionsInputSchema, editWorkspaceInputSchema, emptyToolInputSchema,
-  getCardVersionInputSchema, getCardInputSchema, getTreeInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema,
-  killProcessInputSchema, listAgentSessionsInputSchema,listCardVersionsInputSchema, listProcessesInputSchema,
-  navigateWorkspaceInputSchema, plannerCancelCardInputSchema, plannerEditCardInputSchema,
+  analystCancelCardInputSchema,
+  analystDeleteCardInputSchema,
+  analystReopenCardInputSchema,
+  analystReorderChildInputSchema,
+  applyPatchInputSchema,
+  diffCardVersionsInputSchema,
+  editWorkspaceInputSchema,
+  emptyToolInputSchema,
+  getCardVersionInputSchema,
+  getCardInputSchema,
+  getTreeInputSchema,
+  globWorkspaceInputSchema,
+  grepWorkspaceInputSchema,
+  killProcessInputSchema,
+  listAgentSessionsInputSchema,
+  listCardVersionsInputSchema,
+  listProcessesInputSchema,
+  navigateWorkspaceInputSchema,
+  plannerCancelCardInputSchema,
+  plannerEditCardInputSchema,
   plannerReopenCardInputSchema,
-  plannerQueueNotificationInputSchema, plannerReorderChildInputSchema, queueNotificationInputSchema,
-  readAgentSessionInputSchema, readControlActionsInputSchema, readRecordVersionInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema,
-  readWorkspaceInputSchema, runCommandInputSchema, skillInputSchema, waitProcessInputSchema, websearchInputSchema,
+  plannerQueueNotificationInputSchema,
+  plannerReorderChildInputSchema,
+  queueNotificationInputSchema,
+  readAgentSessionInputSchema,
+  readControlActionsInputSchema,
+  readRecordVersionInputSchema,
+  readRuntimeErrorsInputSchema,
+  readRuntimeEventsInputSchema,
+  readWorkspaceInputSchema,
+  runCommandInputSchema,
+  skillInputSchema,
+  waitProcessInputSchema,
+  websearchInputSchema,
   writeWorkspaceInputSchema,
-} from '../contracts/builtin-tool-inputs.js';
-import { TERMINAL_RESULT_TOOL_NAME } from '../contracts/result-envelope.js';
-import { activateCardArgumentsSchema } from '../contracts/tool-api.js';
-import { WebfetchInvocationSchema } from '../contracts/webfetch.js';
-import {
+  TERMINAL_RESULT_TOOL_NAME,
+  WebfetchInvocationSchema,
+  ToolResultSchema,
+  McpToolCallArgumentsSchema,
   type ToolInvocationProjectionInput,
-} from '../contracts/tool-invocation-projection.js';
-import { ToolResultSchema, type ToolResult } from '../contracts/tool-result.js';
+  type ToolResult,
+} from '../contracts/index.js';
+import { activateCardArgumentsSchema } from '../contracts/tool-api.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 import { redactTextForOutbound, redactUrl } from '../redaction/text.js';
 import { projectMcpToolCallArgumentsForOutbound } from './mcp-invocation-outbound.js';
-import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
 
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();

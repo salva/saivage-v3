@@ -2,28 +2,14 @@ import { createHash } from 'node:crypto';
 import { canonicalJson, type AgentName, type ConversationSessionId } from '../schemas/index.js';
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { buildLlmOptions } from './llm-options-factory.js';
-import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
-import type { ProviderRegistry } from './provider.js';
-import type { CandidateAvailability } from './candidate-availability.js';
-import type { CapabilityRequest } from '../contracts/index.js';
-import { supportsCapabilityRequest } from './provider-capabilities.js';
-import { type EffectiveProviderCapabilities } from '../contracts/index.js';
-import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
-import { type LlmCompleteOptions } from '../contracts/index.js';
-import { assertProviderConversationSourceRows, ProviderTurnFailure, type ProviderConversationProjection, type ProviderTurnCompletion, type ToolDefinition } from '../contracts/index.js';
-import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../contracts/provider-exchange.js';
-import { appendProviderExchangeEntry } from '../persistence/index.js';
-import { internalCompactionSummarySessionId } from '../contracts/index.js';
-import { buildCandidateRequest, CandidateRequestPlanIntegrityError } from './candidate-request.js';
-import { type CandidateRequestPlan } from '../contracts/index.js';
-import type { InvocationRoutePass, PreparedCompaction } from '../contracts/index.js';
-import type { PreparedInvocationContext } from '../contracts/index.js';
-import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import { isPromptPolicyRejection, LlmRequestError } from '../contracts/llm-failure.js';
-import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
-import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
 import {
+  candidatesEqual,
+  assertProviderConversationSourceRows,
+  ProviderTurnFailure,
+  internalCompactionSummarySessionId,
+  throwIfPublicationOutcomeUnknown,
+  isPromptPolicyRejection,
+  LlmRequestError,
   AdmittedProviderTurnFailure,
   AdmittedRecoveryIntegrityError,
   AdmissionIntegrityError,
@@ -32,6 +18,19 @@ import {
   ordinaryAdmittedExecutionAuthority,
   retainedAdmissionStateDiagnostics,
   verifySuspendedAdmittedExecution,
+  type Candidate,
+  type CapabilityRequest,
+  type EffectiveProviderCapabilities,
+  type LlmCompleteOptions,
+  type ProviderConversationProjection,
+  type ProviderTurnCompletion,
+  type ToolDefinition,
+  type ProviderExchangeAttempt,
+  type ProviderExchangePublicationContext,
+  type CandidateRequestPlan,
+  type InvocationRoutePass,
+  type PreparedCompaction,
+  type PreparedInvocationContext,
   type AdmittedCandidateAttemptState,
   type AdmittedExecutionBindings,
   type AdmittedRecoveryPreparation,
@@ -46,6 +45,15 @@ import {
   type PinnedContentPolicyPreflight,
   type SuspendedAdmittedExecution,
 } from '../contracts/index.js';
+import type { ProviderRegistry } from './provider.js';
+import type { CandidateAvailability } from './candidate-availability.js';
+import { supportsCapabilityRequest } from './provider-capabilities.js';
+import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
+import { appendProviderExchangeEntry } from '../persistence/index.js';
+import { buildCandidateRequest, CandidateRequestPlanIntegrityError } from './candidate-request.js';
+import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
+import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
+import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;

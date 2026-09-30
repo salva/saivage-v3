@@ -1,4 +1,9 @@
-import type { ProviderExchangePayload } from '../contracts/provider-exchange.js';
+import type {
+  ProviderExchangePayload,
+  ToolInvocationProjectionInput,
+  ServerEgressWsEnvelope,
+  McpToolsResponse,
+} from '../contracts/index.js';
 import type {
   LoggedEvent,
   ControlActionAuditEntry,
@@ -14,13 +19,10 @@ import { projectCardDiff } from '../application/read-models/card-outbound.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
-import type { ToolInvocationProjectionInput } from '../contracts/tool-invocation-projection.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
-import type { ServerEgressWsEnvelope } from '../contracts/operator-events.js';
 import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
 import type { InternalMcpToolsReadModel } from '../mcp/status-projection.js';
 import { projectMcpToolsForOutbound } from '../mcp/mcp-outbound.js';
-import type { McpToolsResponse } from '../contracts/operator-api-mcp.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,

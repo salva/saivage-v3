@@ -6,7 +6,7 @@ import {
   type AppLogEntry,
   type AppLogEntryOfType,
   type AppLogEntryType,
-} from '../contracts/app-log.js';
+} from '../contracts/index.js';
 import { admitGrowingFileTail, appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
 import { appLogFile, saivageLogsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
