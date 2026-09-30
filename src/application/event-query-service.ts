@@ -1,6 +1,6 @@
 import { readAppLogEntries } from '../persistence/index.js';
 import { isErrorEvent, type ErrorEvent, type EventKind, type LoggedEvent } from '../schemas/index.js';
-import { redactForOutbound } from '../redaction/index.js';
+import { redactForOutbound } from '../redaction/artifact-api.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
 
 export { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';

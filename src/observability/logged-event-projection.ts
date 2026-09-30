@@ -1,6 +1,5 @@
 import { loggedEventSchema, type LoggedEvent } from '../schemas/index.js';
-import { projectDynamicForOutbound } from '../redaction/dynamic.js';
-import { redactTextForOutbound } from '../redaction/text.js';
+import { projectDynamicForOutbound, redactTextForOutbound } from '../redaction/index.js';
 
 export function projectLoggedEvent(event: LoggedEvent): LoggedEvent {
   const parsed = loggedEventSchema.parse(event);

@@ -16,7 +16,7 @@ import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema,
 } from '../contracts/index.js';
 import type { ServerEgressWsEnvelope } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
-import { redactForOutbound } from '../redaction/index.js';
+import { redactForOutbound } from '../redaction/artifact-api.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
 import type { RestartCapability } from '../contracts/index.js';

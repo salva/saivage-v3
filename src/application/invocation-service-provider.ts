@@ -1,4 +1,4 @@
-import type { InvocationRequest, InvocationService } from '../agents/invocation-service.js';
+import type { InvocationRequest, InvocationService } from '../agents/execution-api.js';
 import {
   AdmittedProviderTurnFailure,
   AdmissionIntegrityError,

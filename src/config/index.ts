@@ -3,3 +3,6 @@ export type { Environment, StartInputs } from './environment.js';
 export { createResolvedConfigAuthority } from './resolved-config-authority.js';
 export type { ConfigMutation, ResolvedConfigAuthority } from './resolved-config-authority.js';
 export { reconfigureParamsSchema } from './reconfigure-contract.js';
+export type { ReconfigureParams } from './reconfigure-contract.js';
+export { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from './system-templates/registry.js';
+export { replaceConfigYaml } from './config-file.js';

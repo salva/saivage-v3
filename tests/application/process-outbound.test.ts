@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import type { ProcessToolResult, ProcessView } from '../../src/contracts/operator-api-processes.js';
-import { redactForOutbound } from '../../src/redaction/index.js';
+import { redactForOutbound } from '../../src/redaction/artifact-api.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('process outbound owner', () => {

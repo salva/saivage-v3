@@ -4,7 +4,7 @@ import {
   type ClassifiedToolInvocationActivityContent,
   type ToolResult as ToolInvocationResult,
 } from '../contracts/index.js';
-import { projectLiveToolInvocation } from '../tools/tool-invocation-outbound.js';
+import { projectLiveToolInvocation } from '../tools/artifact-api.js';
 
 interface AnalystToolInvocationActivityInput {
   tool: string;

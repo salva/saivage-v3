@@ -49,7 +49,7 @@ import {
   type CanonicalReadInstrumentation,
   type GrowingFileIo,
 } from '../persistence/index.js';
-import type { RecordDefinition } from '../records/record-definition.js';
+import type { RecordDefinition } from '../records/index.js';
 import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/index.js';
 import type { LiveSyncCardRecordName } from '../contracts/index.js';

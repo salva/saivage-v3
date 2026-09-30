@@ -9,7 +9,7 @@ import {
 } from '../contracts/index.js';
 import type { AgentName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
-import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
+import { McpToolInvocationNotInstalledError } from '../mcp/tool-api.js';
 import { boundedToolError, DiscoveryBudgetTooSmallError, DiscoveryCollectionPositionError } from './response-packer.js';
 
 type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];

@@ -11,7 +11,7 @@ import {
   readRecordVersionInputSchema,
   type ToolActionOutcome,
 } from '../contracts/index.js';
-import { redactForOutbound } from '../redaction/index.js';
+import { redactForOutbound } from '../redaction/artifact-api.js';
 import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/index.js';
 import { recordContentSha256, type CardArtifact } from '../persistence/index.js';
 import {

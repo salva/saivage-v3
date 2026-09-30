@@ -1,4 +1,4 @@
-import type { CardService } from '../cards/card-service.js';
+import type { CardService } from '../cards/store-api.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
 import { parseRecordUrl, RecordMutationFailureSchema, RecordMutationSuccessSchema, type AnalystPreNetworkAdmission, type RecordMutationDenialReason, type RecordMutationFailure, type RecordMutationResult, type RecordMutationSuccess } from '../contracts/index.js';
 import { effectiveRecordContent, isEmptyRecordContent, type RecordProjection } from '../persistence/index.js';

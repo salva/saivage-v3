@@ -2,7 +2,7 @@ import {
   McpToolCallArgumentsSchema,
   type McpToolCallArguments,
 } from '../contracts/index.js';
-import { projectDynamicForOutbound } from '../redaction/dynamic.js';
+import { projectDynamicForOutbound } from '../redaction/index.js';
 
 export function projectMcpToolCallArgumentsForOutbound(value: McpToolCallArguments): McpToolCallArguments {
   const argumentsValue = McpToolCallArgumentsSchema.parse(value);

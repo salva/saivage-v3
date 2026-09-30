@@ -1,11 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   SECRET_REDACTION_PLACEHOLDER,
-  OUTBOUND_REDACTION_SOURCES,
-  redactForOutbound,
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
+import { OUTBOUND_REDACTION_SOURCES, redactForOutbound } from '../../src/redaction/artifact-api.js';
 import { redactTextWithStablePrefixesForOutbound } from '../../src/redaction/text.js';
 
 describe('outbound redaction', () => {

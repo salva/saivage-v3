@@ -13,7 +13,7 @@ import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
 } from '../../schemas/index.js';
-import { redactTextForOutbound } from '../../redaction/text.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 
 export function projectCanonicalConversationRow(
   value: unknown,

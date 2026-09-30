@@ -1,4 +1,4 @@
-import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { runAuditedAnalystTool } from '../agents/tool-api.js';
 import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
@@ -6,9 +6,9 @@ import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_T
 import {
   reconfigureParamsSchema,
   type ReconfigureParams,
-} from '../config/reconfigure-contract.js';
-import type { ConfigMutation } from '../config/resolved-config-authority.js';
-import { redactForOutbound } from '../redaction/index.js';
+  type ConfigMutation,
+} from '../config/index.js';
+import { redactForOutbound } from '../redaction/artifact-api.js';
 import { toolFailed, toolSucceeded } from '../contracts/index.js';
 import type { QueueNotificationToolInput } from './notification-tool.js';
 

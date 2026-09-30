@@ -4,7 +4,7 @@ import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,
 } from '../contracts/index.js';
-import { projectDynamicForOutbound } from '../redaction/dynamic.js';
+import { projectDynamicForOutbound } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 import { utf8SafeSlice } from '../utils/index.js';
 

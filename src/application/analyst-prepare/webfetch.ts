@@ -1,4 +1,4 @@
-import type { AnalystMutationReadContext } from '../../agents/analyst-tool-runner.js';
+import type { AnalystMutationReadContext } from '../../agents/tool-api.js';
 import type { WebfetchMetadata, AnalystPreNetworkAdmission } from '../../contracts/index.js';
 import type { AnalystRecordMutationService } from '../analyst-mutation-services.js';
 

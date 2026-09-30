@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { McpToolsResponseSchema } from '../../src/contracts/index.js';
 import { buildMcpServerStatus, buildMcpToolsReadModel } from '../../src/mcp/status-projection.js';
-import { redactForOutbound } from '../../src/redaction/index.js';
+import { redactForOutbound } from '../../src/redaction/artifact-api.js';
 
 describe('MCP status/read-model projection', () => {
   it('narrows opaque integration fields while preserving exact topology and statistics', () => {

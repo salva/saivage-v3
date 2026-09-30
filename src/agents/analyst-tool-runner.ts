@@ -1,8 +1,6 @@
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
-import type { AnalystToolOutcome, ToolContext } from '../tools/analyst-tool-types.js';
-import { executedToolOutcome, type ToolExecutionResult } from '../tools/invocation.js';
-import { toolFailure } from '../tools/analyst-tool-helpers.js';
+import { executedToolOutcome, toolFailure, type AnalystToolOutcome, type ToolContext, type ToolExecutionResult } from '../tools/execution-api.js';
 import { AnalystInterventionNotReadyError, type AnalystMutationOutcome } from '../application/index.js';
 import {
   throwIfPublicationOutcomeUnknown,

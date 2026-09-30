@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { providerExchangePayloadSchema, type ProviderExchangePayload } from '../contracts/index.js';
-import { redactTextForOutbound, redactUrl } from '../redaction/text.js';
+import { redactTextForOutbound, redactUrl } from '../redaction/index.js';
 
 const commonRequestShape = {
   endpoint: z.string().url(),

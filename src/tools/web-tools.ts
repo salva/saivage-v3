@@ -27,9 +27,9 @@ import type { ToolContext } from './analyst-tool-types.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, replaceFile } from '../persistence/index.js';
-import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { runAuditedAnalystTool } from '../agents/tool-api.js';
 import { admitAnalystRecordWebfetch, admitRecordMutation, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/index.js';
-import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/text.js';
+import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;

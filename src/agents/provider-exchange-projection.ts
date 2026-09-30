@@ -4,7 +4,7 @@ import {
   type ProviderExchangePayload,
   type ProviderExchangePublicationContext,
 } from '../contracts/index.js';
-import { redactForOutbound } from '../redaction/index.js';
+import { redactForOutbound } from '../redaction/artifact-api.js';
 
 type IndexedProviderExchangeAttempt = ProviderExchangeAttempt & { attempt_index: number };
 

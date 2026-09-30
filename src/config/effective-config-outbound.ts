@@ -3,7 +3,7 @@ import {
   type OutboundEffectiveSaivageConfig,
   type SaivageConfig,
 } from '../schemas/index.js';
-import { redactUrl, SECRET_REDACTION_PLACEHOLDER } from '../redaction/text.js';
+import { redactUrl, SECRET_REDACTION_PLACEHOLDER } from '../redaction/index.js';
 
 export function projectEffectiveConfigForOutbound(value: SaivageConfig): OutboundEffectiveSaivageConfig {
   const providers = Object.fromEntries(Object.entries(value.providers).map(([name, provider]) => {

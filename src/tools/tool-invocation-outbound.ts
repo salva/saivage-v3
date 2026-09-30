@@ -45,8 +45,7 @@ import {
   type ToolResult,
 } from '../contracts/index.js';
 import { activateCardArgumentsSchema } from '../contracts/tool-api.js';
-import { projectDynamicForOutbound } from '../redaction/dynamic.js';
-import { redactTextForOutbound, redactUrl } from '../redaction/text.js';
+import { projectDynamicForOutbound, redactTextForOutbound, redactUrl } from '../redaction/index.js';
 import { projectMcpToolCallArgumentsForOutbound } from './mcp-invocation-outbound.js';
 import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
 

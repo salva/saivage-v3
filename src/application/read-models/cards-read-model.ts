@@ -3,7 +3,7 @@ import type { CardService } from '../../cards/store-api.js';
 import { positiveSafeIntegerSchema, type CardLifecycleState, type CardRecord } from '../../schemas/index.js';
 import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
-import { redactForOutbound } from '../../redaction/index.js';
+import { redactForOutbound } from '../../redaction/artifact-api.js';
 import type {
   OperatorApiHandlerResult,
   OperatorApiQuery,
@@ -21,7 +21,7 @@ import {
   CardRecordListResponseSchema,
 } from '../../contracts/index.js';
 import type { AuthoredRecordVersionArtifact, CanonicalReadInstrumentation, RecordProjection } from '../../persistence/index.js';
-import { redactTextForOutbound } from '../../redaction/text.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 import { projectCardArtifactForOutbound, projectCardVersionChangeForOutbound } from './card-outbound.js';
 
 function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {

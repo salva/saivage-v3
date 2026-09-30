@@ -15,7 +15,7 @@ import {
   type ProviderExchangePayload,
   type OperatorApiSuccess,
 } from '../../contracts/index.js';
-import { redactForOutbound } from '../../redaction/index.js';
+import { redactForOutbound } from '../../redaction/artifact-api.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError } from '../../persistence/index.js';
 import type { ConversationSessionId } from '../../schemas/index.js';

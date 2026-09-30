@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isSetStatusTransition, summarizeChangedFields } from '../cards/lifecycle.js';
+import { isSetStatusTransition, summarizeChangedFields } from '../cards/artifact-api.js';
 import { CARD_RECORD_FIELDS, cardIdSchema, cardRecordSchema, cardVersionChangeSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, uuidV4Schema, valuesEqual, type CardRecord, type CardVersionChange } from '../schemas/index.js';
 
 export { cardVersionChangeSchema } from '../schemas/index.js';

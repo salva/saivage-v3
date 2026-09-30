@@ -4,15 +4,12 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
-import { publishInitialProjectRuntime, startApp, type StartInputs } from './boot/index.js';
+import { publishInitialProjectRuntime, startApp, withDirectMutationComposition, type StartInputs } from './boot/index.js';
 import { findProjectRoot, resetOwnedGeneratedRoots, readProjectIdentity, readProjectCardOrAssertInitialPublicationAllowed, initializeAndValidateCurrentGeneratedState } from './persistence/index.js';
 import { readRuntimeLockStatus } from './runtime/runtime-api.js';
-import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
 import { OperatorRuntimeHttpClient } from './application/index.js';
-import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from './config/system-templates/registry.js';
+import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate, replaceConfigYaml, createResolvedConfigAuthority } from './config/index.js';
 import { SAIVAGE_VERSION } from './version.js';
-import { replaceConfigYaml } from './config/config-file.js';
-import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
 
 const fatalPort = createApplicationFatalPort();

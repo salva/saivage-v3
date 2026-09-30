@@ -8,7 +8,7 @@ import {
 } from '../../persistence/index.js';
 import { type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
 import type { ConversationSegmentContext } from '../../contracts/index.js';
-import { projectToolInvocation } from '../../tools/tool-invocation-outbound.js';
+import { projectToolInvocation } from '../../tools/artifact-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 
 export interface FoldedConversation {

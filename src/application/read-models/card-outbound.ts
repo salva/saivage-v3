@@ -1,5 +1,5 @@
-import type { CardDiffEntry } from '../../cards/card-service.js';
-import { summarizeChangedFields } from '../../cards/lifecycle.js';
+import type { CardDiffEntry } from '../../cards/store-api.js';
+import { summarizeChangedFields } from '../../cards/artifact-api.js';
 import {
   cardLifecycleStateSchema,
   cardRecordSchema,
@@ -12,7 +12,7 @@ import {
   type OutboundCardVersionChange,
 } from '../../schemas/index.js';
 import type { CardArtifact } from '../../persistence/index.js';
-import { redactTextForOutbound } from '../../redaction/text.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 
 export function projectCardRecordForOutbound(card: CardRecord): OutboundCardRecord {
   const parsed = cardRecordSchema.parse(card);

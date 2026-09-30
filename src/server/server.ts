@@ -6,7 +6,7 @@ import type { RuntimeApplication } from '../application/index.js';
 import { registerServerRoutes } from './composition/route-composition.js';
 import { createServerServices } from './composition/server-services.js';
 import type { RestartPort } from '../contracts/index.js';
-import type { AppTerminalRegistration } from '../boot/app.js';
+import type { AppTerminalRegistration } from '../boot/index.js';
 import type { RuntimeProcessIdentity } from '../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
 

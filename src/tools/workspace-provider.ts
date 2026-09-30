@@ -18,7 +18,7 @@ import type { CardService } from '../cards/store-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
-import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { runAuditedAnalystTool } from '../agents/tool-api.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;

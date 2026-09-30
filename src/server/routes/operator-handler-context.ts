@@ -5,7 +5,7 @@ import type {
 } from '../../contracts/index.js';
 import type { McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import type { RuntimeApplication } from '../../application/index.js';
-import type { ProviderRoutingReadModel } from '../../agents/provider-routing-read-model.js';
+import type { ProviderRoutingReadModel } from '../../agents/execution-api.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractRequestContext } from '../contract-runtime.js';

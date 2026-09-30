@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { validateParsedCards } from '../cards/validator.js';
-import type { NewChildCardInput } from '../cards/lifecycle.js';
+import { validateParsedCards } from '../cards/artifact-api.js';
+import type { NewChildCardInput } from '../cards/store-api.js';
 import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/index.js';
 import { cardAgentSessionId, cardRecordSchema, type AgentName, type CardRecord, type RecordName } from '../schemas/index.js';
-import type { RecordDefinition } from '../records/record-definition.js';
+import type { RecordDefinition } from '../records/index.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/runtime-api.js';
 import { initializeAuthoredRecord } from './authored-record-files.js';
 import { initializeConversation } from './conversation-file.js';

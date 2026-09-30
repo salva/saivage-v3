@@ -5,7 +5,7 @@ import type {
   OperatorMcpProviderContext,
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
-import { redactForOutbound } from '../../redaction/index.js';
+import { redactForOutbound } from '../../redaction/artifact-api.js';
 
 export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderContext) {
   return defineOperatorContractHandlers({

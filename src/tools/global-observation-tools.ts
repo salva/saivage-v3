@@ -1,4 +1,4 @@
-import type { CardService } from '../cards/card-service.js';
+import type { CardService } from '../cards/store-api.js';
 import type { EventQueryService } from '../application/index.js';
 import type { ProcessRunner } from '../runtime/runtime-api.js';
 import type { ConversationSessionId } from '../schemas/index.js';

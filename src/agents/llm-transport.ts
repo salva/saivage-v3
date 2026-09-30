@@ -7,8 +7,7 @@ import {
 } from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
-import { type AuthProfile, isProfileExpired } from '../auth/index.js';
-import { readAuthProfiles, replaceAuthProfiles } from '../auth/auth-profile-file.js';
+import { isProfileExpired, readAuthProfiles, replaceAuthProfiles, type AuthProfile } from '../auth/index.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';

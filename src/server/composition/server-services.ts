@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/index.js';
-import type { AppTerminalRegistration } from '../../boot/app.js';
+import type { AppTerminalRegistration } from '../../boot/index.js';
 import type { RestartCapability, RestartPort } from '../../contracts/index.js';
 import { createRuntimeApplication, validateConfiguredGlobalConversation, type RuntimeApplication } from '../../application/index.js';
 import { CardService } from '../../cards/store-api.js';
@@ -15,8 +15,7 @@ import type { RuntimeProcessIdentity } from '../../runtime/runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../runtime/runtime-api.js';
 import { ProcessRunner } from '../../runtime/runtime-api.js';
 import { bindRuntimeWorkflows } from '../../runtime/runtime-api.js';
-import { ProviderRegistry } from '../../agents/provider.js';
-import { ModelRouter } from '../../agents/model-router.js';
+import { ProviderRegistry, ModelRouter } from '../../agents/execution-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
 

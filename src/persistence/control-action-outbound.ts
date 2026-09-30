@@ -1,5 +1,5 @@
 import { controlActionAuditEntrySchema, type ControlActionAuditEntry } from '../schemas/index.js';
-import { redactTextForOutbound } from '../redaction/text.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 
 export function projectControlAction(entry: ControlActionAuditEntry): ControlActionAuditEntry {
   const parsed = controlActionAuditEntrySchema.parse(entry);

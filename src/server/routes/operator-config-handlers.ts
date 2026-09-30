@@ -1,6 +1,6 @@
 import type { OperatorApiSuccess } from '../../contracts/index.js';
 import { listControlActions } from '../../persistence/index.js';
-import { redactForOutbound } from '../../redaction/index.js';
+import { redactForOutbound } from '../../redaction/artifact-api.js';
 import { defineOperatorContractHandlers, type OperatorConfigContext, type OperatorProjectContext } from './operator-handler-context.js';
 
 export function buildConfigOperatorContractHandlers(options: OperatorProjectContext & OperatorConfigContext) {

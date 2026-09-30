@@ -1,5 +1,5 @@
-import type { CardService } from '../cards/card-service.js';
-import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
+import type { CardService } from '../cards/store-api.js';
+import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { AgentName, CardNotification, CardTypeName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';

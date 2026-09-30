@@ -1,7 +1,7 @@
 import { loadEnvironment, resolveStartupProjectRoot, type Environment, type StartInputs } from '../config/index.js';
 import { initializeAndValidateCurrentGeneratedState, readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/index.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/runtime-api.js';
-import { startServer, type ServerInstance } from '../server/server.js';
+import { startServer, type ServerInstance } from '../server/server-api.js';
 import { createRestartPort } from './restart-port.js';
 import { publishInitialProjectRuntime } from './project-runtime-bootstrap.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../contracts/index.js';
