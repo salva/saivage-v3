@@ -298,15 +298,20 @@ export class CardProcessActor extends BaseActor {
     this.#nodeControl = guard ? 'interrupt' : 'open';
     // Capture the guard into ordinary tracked work; execute owns all preparation and stays below it.
     this.runTask(() => tracker.run(activationSignal, async (operationSignal) => {
-      if (guard) {
-        await guard;
-        operationSignal.throwIfAborted();
-        this.#assertCurrentActivation(input);
-        this.#retiringNode = null;
-        this.#successorGuard = null;
-        this.#nodeControl = 'open';
+      try {
+        if (guard) {
+          await guard;
+          operationSignal.throwIfAborted();
+          this.#assertCurrentActivation(input);
+          this.#retiringNode = null;
+          this.#successorGuard = null;
+          this.#nodeControl = 'open';
+        }
+        return await this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal });
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError) this.#fatalPort.publicationOutcomeUnknown(error);
+        throw error;
       }
-      return this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal });
     }), {
       onDone: (accepted) => { void tracker.trackConsumer(() => this.#acceptNodeResult(context.target, accepted)); },
       onFailed: (error) => { void tracker.trackConsumer(() => this.#acceptNodeFailure(error)); },

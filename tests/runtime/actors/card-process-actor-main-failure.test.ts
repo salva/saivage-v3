@@ -8,6 +8,7 @@ import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervis
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
+import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { ConversationLLMActor, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { ActivationOperationTracker } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
@@ -54,7 +55,7 @@ function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_i
     actorStore: cards,
     provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() { if (armed && !failureDelivered && new Error().stack?.includes('card-process-actor.')) { failureDelivered = true; throw actorFailure; } }, agentMembershipChanged() {} },
+    freshness: { runtimeChanged() { if (armed && !failureDelivered && new Error().stack?.includes('CardProcessActor.onTransition')) { failureDelivered = true; throw actorFailure; } }, agentMembershipChanged() {} },
     processRunner: processes.processRunner,
     runtimeProcessRootScope: processes.runtimeProcessRootScope,
     promptTemplates: createTestPromptTemplateRegistry(),
@@ -101,6 +102,57 @@ function fatalNotificationSpy(supervisor: ReturnType<typeof createSupervisorRunt
 }
 
 describe('real CardProcess actor-main fatal containment', () => {
+  it('retains a required process cleanup rejection under public Stop after joining the real actor', async () => {
+    let providerEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
+    const h = harness(scriptedAdmissionProvider(async (_input, signal) => {
+      providerEntered();
+      return new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    }));
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { owner, activation } = await launchCapturingActivation(h);
+    const interrupted = expect(activation).rejects.toBeInstanceOf(RuntimeStoppedInterruption);
+    await entered;
+    const failure = new Error('required runtime process cleanup failed');
+    h.terminate.mockRejectedValueOnce(failure);
+    const actorJoin = jest.spyOn(owner.processor, 'joinActivation');
+
+    await expect(h.supervisor.stopProject()).rejects.toBe(failure);
+    await interrupted;
+    expect(h.terminate).toHaveBeenCalledTimes(1);
+    expect(actorJoin).toHaveBeenCalledTimes(1);
+    await expect(actorJoin.mock.results[0]!.value).resolves.toBeDefined();
+    expect(h.supervisor.getStatus().status).toBe('error');
+    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.get('project')).toBe(owner);
+    await expect(h.supervisor.stopProject()).rejects.toBe(failure);
+    expect(h.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains an actual node rejection as a FAILED result rather than a failed containment join', async () => {
+    const failure = new Error('selected Planner provider failed');
+    const complete = jest.fn(async () => { throw failure; });
+    const h = harness(scriptedAdmissionProvider(complete));
+    const notification = fatalNotificationSpy(h.supervisor);
+    const execute = jest.spyOn(AgentNodeExecution.prototype, 'execute');
+    const { owner, activation } = await launchCapturingActivation(h);
+
+    const failed = {
+      status: 'failed', summary: failure.message,
+      result: { kind: 'runtime-failure', summary: failure.message },
+    };
+    await expect(activation).resolves.toEqual(failed);
+    await expect(owner.settlement.promise).resolves.toEqual(failed);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+    await expect(execute.mock.results[0]!.value).rejects.toBe(failure);
+    expect(h.cards.read('project')).toMatchObject({ lifecycle: {
+      status: 'failed', error: failure.message, result: failed.result,
+    } });
+    expect(notification).not.toHaveBeenCalled();
+    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.size).toBe(0);
+    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
+  });
+
   it.each([
     ['create_card', { type: 'code', title: '', bootstrap_content: 'Brief' }],
     ['create_card', { type: 'code', title: ' \t\n', bootstrap_content: 'Brief' }],

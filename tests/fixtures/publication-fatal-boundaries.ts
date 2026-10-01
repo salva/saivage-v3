@@ -10,8 +10,6 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
 import type { Environment } from '../../src/config/environment.js';
-import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } from '../../src/runtime/micro-actor/index.js';
-import { compiledActorState, compiledActorTable } from '../helpers/compiled-actor-table.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
@@ -21,7 +19,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
-import { defineTool, executedToolOutcome, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { toolSucceeded } from '../../src/contracts/tool-result.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
@@ -29,6 +27,13 @@ import { appLogEntrySchema } from '../../src/contracts/app-log.js';
 import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { AgentNodeExecution } from '../../src/runtime/actors/agent-node-execution.js';
+import { ActivationOperationTracker } from '../../src/runtime/actors/invocation-lifecycle.js';
+import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
+import { createTestProcessRunner } from '../helpers/test-process-runner.js';
+import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
+import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const mode = process.argv[2];
 const path = process.argv[3];
@@ -61,17 +66,59 @@ if (mode === 'rest-chat') {
   void submitThroughRest(async () => { submits += 1; appendFileSync(path, String(submits)); throw new PublicationOutcomeUnknownError(); });
 }
 
-if (mode === 'base-actor-task') {
-  class FatalActor extends BaseActor {
-    constructor() { const table = compiledActorTable('run', { run: compiledActorState() }); super(table.initial, table.states); }
-    protected onStateEntered(_context: ActorLifecycleContext): void {
-      this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}), executor: async (): Promise<never> => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
+if (mode === 'card-node-task' || mode === 'card-node-task-late') {
+  if (!path) throw new Error('marker path required');
+  const root = dirname(path);
+  initProjectTree(root);
+  const processes = createTestProcessRunner(root);
+  let failRaw!: (error: unknown) => void;
+  let entered!: () => void;
+  const rawEntered = new Promise<void>((resolve) => { entered = resolve; });
+  let wrapper!: Promise<unknown>;
+  let uncertain = false;
+  const mark = (label: string) => appendFileSync(path, `${label}\n`);
+  const originalRun = ActivationOperationTracker.prototype.run;
+  ActivationOperationTracker.prototype.run = function <T>(signal: AbortSignal, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const result = originalRun.call(this, signal, run) as Promise<T>;
+    wrapper = result;
+    return result;
+  };
+  AgentNodeExecution.prototype.execute = async function () {
+    mark('entered');
+    entered();
+    if (mode === 'card-node-task') {
+      uncertain = true;
+      throw new PublicationOutcomeUnknownError();
     }
-    protected onTransition(_context: ActorTransitionContext): void {}
-    protected onActorMainFailure(): void { process.stdout.write('main-failed'); }
-    protected onFatalTaskError(error: unknown): void { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); }
+    return await new Promise<never>((_resolve, reject) => { failRaw = reject; });
+  };
+  const supervisor = createSupervisorRuntimeApi({
+    fatalPort, ...testAutonomousCompaction, runtimeGate: new RuntimeGate(),
+    projectRoot: root, actorStore: new CardService(root),
+    provider: scriptedAdmissionProvider(async () => { mark('provider'); throw new Error('must not enter provider'); }),
+    conversations: { projectRoot: root },
+    freshness: { runtimeChanged() { if (uncertain) mark('projection-after-uncertainty'); }, agentMembershipChanged() { if (uncertain) mark('membership-after-uncertainty'); } },
+    processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+    promptTemplates: createTestPromptTemplateRegistry(),
+  });
+  await supervisor.start();
+  await supervisor.startProject();
+  await rawEntered;
+  if (mode === 'card-node-task-late') {
+    const stopped = supervisor.stopProject();
+    await wrapper.then(
+      () => { throw new Error('Node wrapper succeeded while raw execution was still held.'); },
+      (error: unknown) => { if (!(error instanceof RuntimeStoppedInterruption)) throw error; },
+    );
+    mark('wrapper-cancelled');
+    // Cancellation delivery/containment may finish normally before the abandoned raw dependency rejects.
+    await stopped;
+    mark('stopped');
+    uncertain = true;
+    failRaw(new PublicationOutcomeUnknownError());
   }
-  new FatalActor().start();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  mark('after-uncertainty');
 }
 
 if (mode === 'llm-conversation') {

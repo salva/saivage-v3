@@ -59,7 +59,8 @@ export abstract class BaseActor {
   protected onFatalTaskError(_error: unknown): void {}
 
   state(): string {
-    return this.#currentState!;
+    if (this.#currentState === undefined) throw new InternalActorError('Cannot read actor state before start');
+    return this.#currentState;
   }
 
   start(): void {
@@ -226,7 +227,6 @@ export abstract class BaseActor {
     try {
       return { ok: true, result: await run() };
     } catch (error) {
-      this.onFatalTaskError(error);
       return { ok: false, error: error as Error };
     }
   }

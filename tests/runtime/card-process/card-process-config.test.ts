@@ -360,7 +360,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','queue_notification','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch']);
     expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
     expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
-    expect(compiled.agents.get('analyst')?.tools).toHaveLength(43);
+    expect(compiled.agents.get('analyst')?.tools.map((tool)=>tool.name)).toEqual(source().agents.analyst!.tools);
     expect(compiled.agents.get('analyst')?.tools[2]?.name).toBe('reopen_card');
   });
 

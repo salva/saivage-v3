@@ -487,8 +487,13 @@ New provider-exchange `request_params` retain transport-specific metadata but om
 `offered_tools_count` records the number of tools offered in the provider request, taken from the adapter's request tool-list length; terminal-tool firing remains separately evidenced by `terminal_tool_fired`.
 
 Routing occurs only when the matching activation-owned tracker consumer runs after the settled task slot has been cleared, stages the accepted result or ordinary failure, and sends the corresponding event.
-Ordinary failure routes through code-owned `execution:failed`; publication uncertainty is delivered by the BaseActor hook before a failed `TaskResult`, tracker consumer, event, or cleanup.
+Ordinary failure routes through code-owned `execution:failed` without routine fatal-hook notification. CardProcess intercepts publication uncertainty inside the raw node callback, around its captured successor guard and entire awaited execution, before a failed `TaskResult`, tracker consumer, event, or cleanup. This fatal interception remains active when cancellation has already settled the tracker wrapper and abandoned raw work rejects later.
+BaseActor state reads before start throw `InternalActorError`; start-entry and actor-main failures retain their fatal-hook notification and existing lifecycle failure ownership.
 Activation trackers own node cancellation and remain separate semantic owners from provider invocation lifecycles over shared low-level `ContainedOperations`.
+Each activation task synchronously registers its completion and one consumer delivery, even after admission closes; the deferred raw callback checks admission before entering caller work.
+Tracker joins snapshot currently owned operations and deliveries, not future registrations. CardProcess also awaits actor lifecycle settlement.
+Ordinary node rejection may settle an authoritative FAILED outcome without failing containment; owned consumer, required cleanup, and actor-main failures retain their existing failure lanes and precedence.
+Retiring and current node trackers remain separate owners.
 
 The operator LLM-exchange handler is a separate external operator response/non-disclosure boundary.
 It reuses the same idempotent typed provider-exchange projector on the latest strictly read canonical payload and parses that projection before response without rewriting persistence.
@@ -1643,7 +1648,7 @@ The top-level inventory therefore includes the optional source fields, while eff
 `PublicationOutcomeUnknownError` is the dependency-neutral signal from direct file owners, and `ApplicationFatalPort` is injected from application composition.
 The port uses synchronous fd-2 output followed unconditionally by `process.exit(1)`.
 Catch guards rethrow the same instance until the earliest concrete owner can deliver it.
-`BaseActor` stays persistence-neutral through a no-op fatal-task hook; its sole production subclass, `CardProcessActor`, supplies fatal delivery.
+`BaseActor` stays persistence-neutral: its no-op fatal-task hook covers start-entry and actor-main failures, not routine handled task rejection. Its sole production subclass, `CardProcessActor`, supplies that hook's fatal delivery and separately intercepts uncertainty inside raw node execution. Existing Conversation LLM provider/compaction and Analyst fatal owners remain authoritative at their earlier boundaries.
 `ConversationLLMActor` is a direct phase owner, while `AnalystSession` and `SupervisorRuntimeApi` remain plain coordinators.
 REST chat rejection reaches the consuming Fastify fatal boundary before it can send a replacement response. Read-owned truncation uncertainty likewise retains the identical signal through current/historical projections, card/record services, event/provider queries, tools, and HTTP/WebSocket catches to the existing fatal owner before any diagnostic, response, settlement, or further effect. Observation adds no publication coordinator or repair layer.
 

@@ -394,6 +394,9 @@ Every family rejects relabelling, wrong provenance/reason, wrong or reordered de
 
 ## 3. Configured Card Processes And Sessions
 
+Reading BaseActor state before start throws `InternalActorError`. An ordinary task rejection delivers its failure callback once without fatal-hook notification; start-entry and actor-main failures retain that notification.
+CardProcess catches publication uncertainty inside raw node work around the captured successor guard and the entire awaited execution, including preparation and finalization. It reaches the nonreturning fatal port before any ordinary failure callback, projection, transition, cleanup, or later read, even if cancellation already settled the tracker wrapper before the raw rejection. Existing earlier provider, compaction, and Analyst fatal boundaries remain unchanged.
+
 Any failure escaping the BaseActor main loop is terminal.
 BaseActor latches the exact value once, rejects every current and future lifecycle waiter with it, logs it once, invokes the required generic terminal-failure hook once, and never restarts the pump.
 A throwing hook is logged separately and cannot replace the primary latch.

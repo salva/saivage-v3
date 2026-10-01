@@ -140,6 +140,66 @@ describe('InvocationLifecycle', () => {
 });
 
 describe('ActivationOperationTracker', () => {
+  it.each(['close', 'cancelAndSettle', 'revoke'] as const)(
+    'registers exactly one refused delivery after %s without entering caller work', async (action) => {
+      const tracker = new ActivationOperationTracker();
+      const reason = new Error('admission closed');
+      if (action === 'close') tracker.closeAdmission(reason);
+      else tracker[action](reason);
+      let entered = false;
+      const wrapper = tracker.run(new AbortController().signal, async () => { entered = true; });
+      const consumer = deferred<void>();
+      let deliveries = 0;
+      const delivery = wrapper.catch((error: unknown) => {
+        expect(error).toBe(reason);
+        return tracker.trackConsumer(() => { deliveries++; return consumer.promise; });
+      });
+      let joined = false;
+      const joining = tracker.join().then((outcome) => { joined = true; return outcome; });
+      await expect(wrapper).rejects.toBe(reason);
+      await Promise.resolve();
+      expect(entered).toBe(false);
+      expect(deliveries).toBe(1);
+      expect(joined).toBe(false);
+      consumer.resolve();
+      await delivery;
+      await joining;
+      expect(() => tracker.trackConsumer(() => undefined)).toThrow('No contained operation is awaiting consumer delivery.');
+    },
+  );
+
+  it('refuses caller work when admission closes after registration but before raw invocation', async () => {
+    const tracker = new ActivationOperationTracker();
+    const reason = new Error('closed before execution');
+    let entered = false;
+    const wrapper = tracker.run(new AbortController().signal, async () => { entered = true; });
+    const delivery = wrapper.catch(() => tracker.trackConsumer(() => undefined));
+    tracker.closeAdmission(reason);
+    await expect(wrapper).rejects.toBe(reason);
+    await delivery;
+    await expect(tracker.join()).resolves.toEqual({ status: 'joined' });
+    expect(entered).toBe(false);
+  });
+
+  it('retains the exact failure of a held admitted consumer captured before join', async () => {
+    const tracker = new ActivationOperationTracker();
+    const wrapper = tracker.run(new AbortController().signal, async () => 'done');
+    await wrapper;
+    const consumer = deferred<void>();
+    const delivery = tracker.trackConsumer(() => consumer.promise);
+    const failure = new Error('admitted consumer failed');
+    const deliveredFailure = expect(delivery).rejects.toBe(failure);
+    tracker.closeAdmission(new Error('stop'));
+    let settled = false;
+    const joining = tracker.join().finally(() => { settled = true; });
+    const joinFailure = expect(joining).rejects.toBe(failure);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    consumer.reject(failure);
+    await deliveredFailure;
+    await joinFailure;
+  });
+
   it('combines activation and tracker revoke signals', async () => {
     const activationTracker = new ActivationOperationTracker();
     const activation = new AbortController();
@@ -187,7 +247,6 @@ describe('ActivationOperationTracker', () => {
     await Promise.resolve();
 
     tracker.closeAdmission(reason);
-    expect(() => tracker.run(activation.signal, async () => 'new')).toThrow(reason);
     expect(admittedSignal.aborted).toBe(false);
     let joined = false;
     const joining = tracker.join().then((outcome) => { joined = true; return outcome; });
@@ -226,7 +285,6 @@ describe('ActivationOperationTracker', () => {
     expect(admittedSignal.aborted).toBe(true);
     expect(admittedSignal.reason).toBe(reason);
     expect(abortCount).toBe(1);
-    expect(() => tracker.run(activation.signal, async () => 'new')).toThrow(reason);
     const joining = tracker.join();
     await Promise.resolve();
     consumer.resolve();
@@ -257,7 +315,6 @@ describe('ActivationOperationTracker', () => {
     tracker.revoke(new Error('also ignored'));
     expect(admittedSignal.reason).toBe(reason);
     expect(abortCount).toBe(1);
-    expect(() => tracker.run(activation.signal, async () => 'new')).toThrow(reason);
     let joined = false;
     const joining = tracker.join().then((outcome) => { joined = true; return outcome; });
     await Promise.resolve();

@@ -28,9 +28,11 @@ export class ActivationOperationTracker {
   readonly #operations = new ContainedOperations(new InvocationInterruptedError('Activation operation tracker was revoked.'));
 
   run<T>(activationSignal: AbortSignal, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    this.#operations.assertAdmissionOpen();
     const signal = AbortSignal.any([activationSignal, this.#controller.signal]);
-    return this.#operations.run(signal, run);
+    return this.#operations.run(signal, (signal) => {
+      this.#operations.assertAdmissionOpen();
+      return run(signal);
+    });
   }
 
   trackConsumer(consume: () => void | Promise<void>): Promise<void> {

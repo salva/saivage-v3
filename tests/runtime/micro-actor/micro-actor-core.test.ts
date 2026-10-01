@@ -56,6 +56,7 @@ describe('configured actor lifecycle', () => {
       compiledActorTable('ready', { ready: compiledActorState({ terminal: true }) }),
       { entered: (context) => contexts.push(context) },
     );
+    expect(() => actor.state()).toThrow(InternalActorError);
     actor.start();
     expect(actor.state()).toBe('ready');
     expect(contexts).toEqual([{ source: null, event: null, target: 'ready' }]);
@@ -77,12 +78,16 @@ describe('configured actor lifecycle', () => {
   });
 
   it('3. propagates start-entry failure synchronously after assigning state', () => {
+    const fatalTaskError = jest.fn<(error: unknown) => void>();
+    const failure = new Error('start failed');
     const actor = new TestActor(
       compiledActorTable('ready', { ready: compiledActorState({ terminal: true }) }),
-      { entered: () => { throw new Error('start failed'); } },
+      { entered: () => { throw failure; }, fatalTaskError },
     );
     expect(() => actor.start()).toThrow('start failed');
     expect(actor.state()).toBe('ready');
+    expect(fatalTaskError).toHaveBeenCalledTimes(1);
+    expect(fatalTaskError).toHaveBeenCalledWith(failure);
     expect(() => actor.start()).toThrow(InternalActorError);
   });
 
@@ -159,6 +164,7 @@ describe('configured actor lifecycle', () => {
 
   it('8. clears a rejected task before its failure callback and explicit event', async () => {
     const failure = new Error('failed');
+    const fatalTaskError = jest.fn<(error: unknown) => void>();
     const log: string[] = [];
     let actor!: TestActor;
     actor = new TestActor(
@@ -177,11 +183,13 @@ describe('configured actor lifecycle', () => {
           });
         },
         transitioned: () => log.push('transition'),
+        fatalTaskError,
       },
     );
     actor.start();
     await eventually(() => expect(actor.state()).toBe('terminal'));
     expect(log).toEqual(['entry:running', 'failure', 'transition', 'entry:terminal']);
+    expect(fatalTaskError).not.toHaveBeenCalled();
   });
 
   it('9. reenters the same node after task completion with transition then entry and no abort surface', async () => {
