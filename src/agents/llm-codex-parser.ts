@@ -3,11 +3,13 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { classifyDirectProviderFailure, parseFiniteRetryAfterMs } from './llm-failure-classifiers.js';
 import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 
-export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number): Promise<LlmCompleteResult> {
+type PendingCodexToolCall = { id: string; itemId?: string; name: string; args: string };
+
+export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number, signal?: AbortSignal): Promise<LlmCompleteResult> {
   const reader = body.getReader();
   const sse = new IncrementalSseReader();
   let message: string | undefined;
-  const pendingToolCalls = new Map<string, { id: string; name: string; args: string }>();
+  const pendingToolCalls = new Map<string, PendingCodexToolCall>();
   const finalizedToolCalls = new Set<string>();
   const toolCalls: ToolCall[] = [];
   const setMessage = (content: string): void => { message = content; };
@@ -26,10 +28,8 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, re
       }
     }
   } catch (err) {
+    if ((signal?.aborted && err === signal.reason) || ((err instanceof Error || err instanceof DOMException) && err.name === 'AbortError')) throw err;
     if (err instanceof LlmRequestError) throw err;
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new LlmRequestError({ kind: 'cancelled', provider: 'openai-codex', reason: 'timeout', message: 'OpenAI Codex streaming request aborted due to timeout' });
-    }
     throw new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}` });
   } finally {
     reader.releaseLock();
@@ -42,7 +42,7 @@ function completedCodexResult(toolCalls: ToolCall[], message: string | undefined
   throw new Error('OpenAI Codex response completed without a finalized tool call or completed assistant message.');
 }
 
-function consumeCodexEvents(outputs: SseOutput[], responseStatus: number, pendingToolCalls: Map<string, { id: string; name: string; args: string }>, finalizedToolCalls: Set<string>, toolCalls: ToolCall[], setMessage: (content: string) => void): boolean {
+function consumeCodexEvents(outputs: SseOutput[], responseStatus: number, pendingToolCalls: Map<string, PendingCodexToolCall>, finalizedToolCalls: Set<string>, toolCalls: ToolCall[], setMessage: (content: string) => void): boolean {
   for (const output of outputs) {
     if (output === SSE_DONE) throw new Error('OpenAI Codex stream ended before response.completed.');
     if (handleOpenAICodexEvent(output.dataText, responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, setMessage)) return true;
@@ -53,7 +53,7 @@ function consumeCodexEvents(outputs: SseOutput[], responseStatus: number, pendin
 export function handleOpenAICodexEvent(
   dataText: string,
   responseStatus: number,
-  pendingToolCalls: Map<string, { id: string; name: string; args: string }>,
+  pendingToolCalls: Map<string, PendingCodexToolCall>,
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   setMessage: (content: string) => void,
@@ -66,9 +66,9 @@ export function handleOpenAICodexEvent(
   } else if (type === 'response.output_item.added') {
     const item = event['item'] as Record<string, unknown> | undefined;
     if (item?.['type'] === 'function_call') {
-      const callId = String(item['call_id'] ?? item['id'] ?? `call_${pendingToolCalls.size}`);
-      const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
-      const pending = { id: callId, name: String(item['name'] ?? ''), args: String(item['arguments'] ?? '') };
+      const callId = realCodexIdentity(item, 'id');
+      const itemId = optionalCodexItemIdentity(item);
+      const pending = { id: callId, itemId, name: String(item['name'] ?? ''), args: String(item['arguments'] ?? '') };
       pendingToolCalls.set(callId, pending);
       if (itemId && itemId !== callId) pendingToolCalls.set(itemId, pending);
     }
@@ -76,28 +76,26 @@ export function handleOpenAICodexEvent(
     const item = directObject(event['item']);
     if (!item) throw new Error('OpenAI Codex completed output item must be an object.');
     if (item['type'] === 'function_call') {
-      const callId = String(item['call_id'] ?? item['id'] ?? `call_${toolCalls.length}`);
-      const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
+      const callId = realCodexIdentity(item, 'id');
+      const itemId = optionalCodexItemIdentity(item);
       const pending = pendingToolCalls.get(callId) ?? (itemId ? pendingToolCalls.get(itemId) : undefined);
-      finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String(item['name'] ?? pending?.name ?? ''), String(item['arguments'] ?? pending?.args ?? '{}'));
-      pendingToolCalls.delete(callId);
-      if (itemId) pendingToolCalls.delete(itemId);
+      finalizeCodexToolCall(toolCalls, finalizedToolCalls, pending?.id ?? callId, String(item['name'] ?? pending?.name ?? ''), String(item['arguments'] ?? pending?.args ?? '{}'));
+      if (pending) removePendingCodexToolCall(pendingToolCalls, pending);
     } else if (item['type'] === 'message') {
       setMessage(completedCodexMessageContent(item));
     }
   } else if (type === 'response.function_call_arguments.delta') {
-    const id = String(event['call_id'] ?? event['item_id'] ?? '');
+    const id = realCodexIdentity(event, 'item_id');
     const pending = pendingToolCalls.get(id);
-    if (pending) pending.args += String(event['delta'] ?? '');
+    if (!pending) throw new Error(`OpenAI Codex argument delta targets unknown function call '${id}'.`);
+    if (typeof event['delta'] !== 'string') throw new Error('OpenAI Codex argument delta must be a string.');
+    pending.args += event['delta'];
   } else if (type === 'response.function_call_arguments.done') {
-    const id = String(event['call_id'] ?? event['item_id'] ?? '');
+    const id = realCodexIdentity(event, 'item_id');
     const pending = pendingToolCalls.get(id);
-    const callId = String(event['call_id'] ?? pending?.id ?? id);
-    if (pending || typeof event['arguments'] === 'string') {
-      finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String((event['name'] as string | undefined) ?? pending?.name ?? ''), String((event['arguments'] as string | undefined) ?? pending?.args ?? '{}'));
-      pendingToolCalls.delete(id);
-      if (pending?.id) pendingToolCalls.delete(pending.id);
-    }
+    if (!pending) throw new Error(`OpenAI Codex completed arguments target unknown function call '${id}'.`);
+    finalizeCodexToolCall(toolCalls, finalizedToolCalls, pending.id, String(event['name'] ?? pending.name), String(event['arguments'] ?? pending.args));
+    removePendingCodexToolCall(pendingToolCalls, pending);
   } else if (type === 'response.failed') {
     throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus, dataText);
   } else if (type === 'error') {
@@ -110,6 +108,24 @@ export function handleOpenAICodexEvent(
     return true;
   }
   return false;
+}
+
+function realCodexIdentity(value: Record<string, unknown>, fallbackKey: 'id' | 'item_id'): string {
+  const selected = value['call_id'] === undefined ? value[fallbackKey] : value['call_id'];
+  if (typeof selected !== 'string' || selected.length === 0) throw new Error('OpenAI Codex function call must carry a nonempty real identity.');
+  return selected;
+}
+
+function optionalCodexItemIdentity(item: Record<string, unknown>): string | undefined {
+  const id = item['id'];
+  if (id === undefined) return undefined;
+  if (typeof id !== 'string' || id.length === 0) throw new Error('OpenAI Codex function item id must be a nonempty string.');
+  return id;
+}
+
+function removePendingCodexToolCall(pendingToolCalls: Map<string, PendingCodexToolCall>, pending: PendingCodexToolCall): void {
+  pendingToolCalls.delete(pending.id);
+  if (pending.itemId) pendingToolCalls.delete(pending.itemId);
 }
 
 function finalizeCodexToolCall(

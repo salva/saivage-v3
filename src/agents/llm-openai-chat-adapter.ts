@@ -1,3 +1,4 @@
+import { COPILOT_CLIENT_IDENTITY } from './copilot-client-identity.js';
 import {
   parseToolCallMessageForModel,
   LlmRequestError,
@@ -61,12 +62,7 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       Connection: 'close',
     };
     if (isCopilot)
-      Object.assign(headers, {
-        'User-Agent': 'GitHubCopilotChat/0.35.0',
-        'Editor-Version': 'vscode/1.107.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.35.0',
-        'Copilot-Integration-Id': 'vscode-chat',
-      });
+      Object.assign(headers, COPILOT_CLIENT_IDENTITY);
     if (transport.apiKey) headers.Authorization = `Bearer ${transport.apiKey}`;
     const request = body as unknown as ChatCompletionRequest;
     return {

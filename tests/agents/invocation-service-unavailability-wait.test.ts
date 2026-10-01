@@ -13,6 +13,7 @@ import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
+import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
@@ -60,6 +61,137 @@ afterEach(() => {
 });
 
 describe('InvocationService temporary LLM unavailability wait', () => {
+  it.each([503, 403, 429])('applies truthful HTTP %s plus Retry-After to real availability and retry selection', async (status) => {
+    jest.useFakeTimers({ now: 1000 });
+    const availability = new MemoryCandidateAvailability();
+    const svc = service({ chain: [candidate, alternate], availability });
+    const fetch = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status, headers: { 'retry-after': '120' } }))
+      .mockResolvedValue(chatSuccess('healthy alternate'));
+    if (status === 403) {
+      await expect(invoke(svc, request([candidate, alternate]))).rejects.toMatchObject({ originalFailure: { failure: { kind: 'auth_permanent', status: 403 } }, provider_exchanges: [{ response_status: 403 }] });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } else {
+      const completion = await invoke(svc, request([candidate, alternate]));
+      expect(completion.provider_exchanges[0]).toMatchObject({ response_status: status });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    }
+    expect(availability.getEntry(candidate)).toMatchObject(status === 503
+      ? { state: 'COOLING', untilMs: 61000, reason: 'server_transient' }
+      : status === 403
+        ? { state: 'BLOCKED_UNTIL', untilMs: 3601000, reason: 'auth_permanent' }
+        : { state: 'BLOCKED_UNTIL', untilMs: 121000, reason: 'rate_limit' });
+  });
+  it.each([
+    [new DOMException('stream stopped', 'AbortError'), false],
+    [Object.assign(new Error('stream stopped'), { name: 'AbortError' }), false],
+    [new Error('custom owner stopped'), true],
+  ] satisfies Array<[Error | DOMException, boolean]>)('preserves actual Codex adapter/runner stream cancellation evidence without retry or availability effects: %p', async (reason, abortOwner) => {
+    jest.useFakeTimers({ now: 0 });
+    const codex = { provider: 'openai-codex', account: null, model: 'gpt-5' };
+    const availability = new MemoryCandidateAvailability();
+    const failed = jest.spyOn(availability, 'markFailed');
+    const succeeded = jest.spyOn(availability, 'markSucceeded');
+    const controller = new AbortController();
+    let firstBody!: ReadableStream<Uint8Array>;
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      firstBody = new ReadableStream<Uint8Array>({ pull(streamController) {
+        if (abortOwner) controller.abort(reason);
+        streamController.error(reason);
+      } }, { highWaterMark: 0 });
+      return new Response(firstBody, { status: 200 });
+    });
+    const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability,
+      registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test-account') }) });
+    let caught: unknown;
+    const pending = invoke(svc, request([codex], controller.signal)).catch((error: unknown) => { caught = error; });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(caught).toMatchObject({
+      originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
+      provider_exchanges: [{ attempt_index: 0, status: 'error', error: { name: reason instanceof Error ? reason.name : 'Error', message: reason instanceof Error ? reason.message : String(reason) } }],
+    });
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(firstBody.locked).toBe(false);
+    expect(failed).not.toHaveBeenCalled();
+    expect(succeeded).not.toHaveBeenCalled();
+  });
+
+  it('sends to a healthy untried alternate immediately after a real primary 503, preserving ordered evidence', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(serverUnavailable()).mockResolvedValueOnce(chatSuccess('alternate'));
+    const pending = invoke(service({ chain: [candidate, alternate] }), request([candidate, alternate]));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'alternate' }, provider_exchanges: [
+      { attempt_index: 0, provider: 'p', status: 'error', error: { status: 503 } },
+      { attempt_index: 1, provider: 'alt', status: 'ok' },
+    ] });
+    expect(Date.now()).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('keeps a real earlier Codex 503 before an identity-equal stream cancellation with no later retry or availability mutation', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const codex = { provider: 'openai-codex', account: null, model: 'gpt-5' };
+    const availability = new MemoryCandidateAvailability();
+    const failed = jest.spyOn(availability, 'markFailed');
+    const succeeded = jest.spyOn(availability, 'markSucceeded');
+    const controller = new AbortController();
+    const reason = new Error('stream owner stopped');
+    let body!: ReadableStream<Uint8Array>;
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(serverUnavailable()).mockImplementationOnce(async () => {
+      body = new ReadableStream<Uint8Array>({ pull(streamController) { controller.abort(reason); streamController.error(reason); } }, { highWaterMark: 0 });
+      return new Response(body, { status: 200 });
+    });
+    const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability,
+      registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test-account') }) });
+    const pending = invoke(svc, request([codex], controller.signal));
+    const rejection = expect(pending).rejects.toMatchObject({ originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } }, provider_exchanges: [
+      { attempt_index: 0, status: 'error', error: { status: 503 } },
+      { attempt_index: 1, status: 'error', error: { name: 'Error', message: reason.message } },
+    ] });
+    await jest.advanceTimersByTimeAsync(60_000);
+    await rejection;
+    expect(body.locked).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(succeeded).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each(['ordinary', 'pinned'] as const)('retains successful Responses result/private context and indexed evidence through racing abort: %s', async (route) => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    const succeeded = jest.spyOn(availability, 'markSucceeded');
+    const controller = new AbortController();
+    const output = [{ type: 'reasoning', id: 'rs-1', encrypted_content: 'opaque' }, { type: 'message', id: 'msg-1', content: [{ type: 'output_text', text: 'known' }] }];
+    let release!: (response: Response) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const fetch = jest.spyOn(globalThis, 'fetch');
+    if (route === 'ordinary') fetch.mockResolvedValueOnce(serverUnavailable());
+    fetch.mockImplementation(() => new Promise((resolve) => { release = resolve; entered(); }));
+    const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability, registry: invocationProviderRegistry([candidate], { p: { transportProtocol: 'openai-responses' } }) });
+    let pending: Promise<ProviderTurnCompletion>;
+    if (route === 'ordinary') pending = invoke(svc, request([candidate], controller.signal));
+    else {
+      const preflight = svc.preflightPinnedContentPolicyRequest({ ...request([candidate]), routePass: { kind: 'pinned-content-policy-retry', candidate } });
+      if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned request.');
+      pending = svc.executePinnedContentPolicyRequest(preflight, controller.signal);
+    }
+    await jest.advanceTimersByTimeAsync(route === 'ordinary' ? 60_000 : 0);
+    await started;
+    controller.abort(new Error('owner stopped'));
+    release(new Response(JSON.stringify({ status: 'completed', output }), { status: 200 }));
+    const expectedAttempts = route === 'ordinary'
+      ? [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'error' }, { source_input_id: 'agent:planner:card:1', attempt_index: 1, status: 'ok' }]
+      : [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'ok' }];
+    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'known' }, provider_private_context: { kind: 'openai_responses', source_input_id: 'agent:planner:card:1', provider: 'p', model: 'm', output }, provider_exchanges: expectedAttempts });
+    expect(fetch).toHaveBeenCalledTimes(route === 'ordinary' ? 2 : 1);
+    expect(succeeded).not.toHaveBeenCalled();
+  });
+
   it('indexes an identity-equal owner cancellation without retry or availability mutation', async () => {
     const availability = new MemoryCandidateAvailability();
     const markFailed = jest.spyOn(availability, 'markFailed');
@@ -112,7 +244,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     expect(markSucceeded).not.toHaveBeenCalled();
   });
 
-  it('discards a late successful availability update after its owner closes', async () => {
+  it('returns a known late success without a late availability update after its owner closes', async () => {
     const availability = new MemoryCandidateAvailability();
     const controller = new AbortController();
     let release!: (value: Response) => void;
@@ -126,7 +258,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     await started;
     controller.abort(new Error('owner stopped'));
     release(chatSuccess('late'));
-    await expect(pending).rejects.toThrow('owner stopped');
+    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'late' }, provider_exchanges: [{ attempt_index: 0, status: 'ok' }] });
     expect(availability.getEntry(candidate)).toBeUndefined();
   });
 
@@ -179,7 +311,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('selects an alternative after primary pre-provider exhaustion and retains only real exchange evidence', async () => {
+  it('selects an alternative immediately after a primary pre-provider transient and retains only real exchange evidence', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
     const failure = new LlmRequestError({ kind: 'server_transient', provider: 'p', status: 0, message: 'refresh unavailable' });
@@ -194,16 +326,14 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const scripted = new ScriptedService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate, alternate]), candidateAvailability: availability });
     const pending = invoke(scripted, request([candidate, alternate]));
 
-    await jest.advanceTimersByTimeAsync(60_000);
-    await jest.advanceTimersByTimeAsync(60_000);
-    await jest.advanceTimersByTimeAsync(60_000);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(seen).toEqual([candidate, alternate]);
 
     await expect(pending).resolves.toMatchObject({
       result: { kind: 'message', content: 'alternative succeeded' },
       provider_exchanges: [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'ok', provider: 'alt', model: 'm-alt' }],
     });
-    expect(seen).toEqual([candidate, candidate, candidate, candidate, alternate]);
-    expect(availability.getEntry(candidate)).toMatchObject({ state: 'COOLING', untilMs: 240_000, reason: 'server_transient' });
+    expect(availability.getEntry(candidate)).toMatchObject({ state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     expect(jest.getTimerCount()).toBe(0);
   });
 

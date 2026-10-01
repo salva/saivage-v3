@@ -82,10 +82,11 @@ export type InvocationRequest = InvocationRequestBase &
   (
     | {
         preparedCompaction: PreparedCompaction;
+        contextUtilizationFraction?: never;
         preparedContext: PreparedInvocationContext;
         modelParams: { temperature: number; maxTokens?: never };
       }
-    | { preparedCompaction?: never; preparedContext?: never; modelParams: { temperature: number; maxTokens: number } }
+    | { preparedCompaction?: never; preparedContext?: never; contextUtilizationFraction?: number; modelParams: { temperature: number; maxTokens: number } }
   );
 
 interface InvocationServiceConfig {
@@ -314,16 +315,6 @@ export class InvocationService {
       throwIfAborted(signal);
       const completion = await this.executeAdmittedPlan(preflight.plan, { ...preflight.options, signal }, preflight.capabilityRequest);
       const attempts = indexProviderExchangeAttempts(preflight.inputId, 0, completion.provider_exchanges);
-      try {
-        throwIfAborted(signal);
-      } catch (error) {
-        throw new ProviderTurnFailure({
-          failure_phase: 'provider_attempt',
-          provider_exchanges: attempts,
-          originalFailure: error,
-          candidate,
-        });
-      }
       return { ...completion, provider_exchanges: attempts };
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
@@ -462,8 +453,7 @@ export class InvocationService {
             result.provider_exchanges,
           ),
         );
-        throwIfAborted(signal);
-        this.candidateAvailability.markSucceeded(record.identity);
+        if (!signal?.aborted) this.candidateAvailability.markSucceeded(record.identity);
         return {
           result: result.result,
           provider_exchanges: run.settled,
@@ -576,13 +566,16 @@ export class InvocationService {
     | { kind: 'timeout' }
     | { kind: 'none' } {
     const now = Date.now();
-    const standardWaiting = records.find((record) => record.state.kind === 'retry_waiting' && record.state.wait === 'standard');
-    if (standardWaiting && standardWaiting.state.kind === 'retry_waiting') return waitUntil(standardWaiting.state.untilMs, now, deadlineMs);
-    const standardReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'standard');
-    if (standardReady) return { kind: 'attempt', record: standardReady };
     const untried = records.find(
       (record) => record.state.kind === 'untried' && this.candidateAvailability.isAvailable(record.identity),
     );
+    const standardWaiting = records.find((record) => record.state.kind === 'retry_waiting' && record.state.wait === 'standard');
+    if (standardWaiting && standardWaiting.state.kind === 'retry_waiting') {
+      if (untried) return { kind: 'attempt', record: untried };
+      return waitUntil(standardWaiting.state.untilMs, now, deadlineMs);
+    }
+    const standardReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'standard');
+    if (standardReady) return { kind: 'attempt', record: standardReady };
     if (untried) return { kind: 'attempt', record: untried };
     const rateReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'rate_limit');
     if (rateReady) return { kind: 'attempt', record: rateReady };
@@ -632,10 +625,16 @@ function requestedCompletionTokensOf(request: InvocationRequest): number {
     : request.modelParams.maxTokens;
 }
 
+function contextUtilizationFractionOf(request: InvocationRequest): number | null {
+  return request.preparedCompaction !== undefined
+    ? request.preparedCompaction.contextUtilizationFraction
+    : request.contextUtilizationFraction ?? null;
+}
+
 function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {
   const requestedCompletionTokens = requestedCompletionTokensOf(request);
   return {
-    contextUtilizationFraction: request.preparedCompaction?.contextUtilizationFraction ?? null,
+    contextUtilizationFraction: contextUtilizationFractionOf(request),
     requestedCompletionTokens,
   };
 }
@@ -667,7 +666,7 @@ function executionBindings(request: InvocationRequest, capabilityRequest: Readon
     capabilityRequestSha256: capabilityHash,
     temperature: request.modelParams.temperature,
     requestedCompletionTokens,
-    contextUtilizationFraction: request.preparedCompaction?.contextUtilizationFraction ?? null,
+    contextUtilizationFraction: contextUtilizationFractionOf(request),
     preparedCompactionSha256: sha256Of(canonicalJson(request.preparedCompaction ?? null)),
   });
 }

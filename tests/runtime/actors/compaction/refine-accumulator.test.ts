@@ -11,7 +11,7 @@ import {
   SUMMARY_REFINE_INSTRUCTION,
   SummaryConstructionLimitError,
 } from '../../../../src/runtime/actors/compaction/refine-accumulator.js';
-import { SUMMARY_OUTPUT_TARGET_BYTES, type SummarizerProviderPort, type SummaryRequestSerialization } from '../../../../src/runtime/actors/compaction/summarizer.js';
+import { SUMMARY_OUTPUT_TARGET_BYTES, type SummarizerProviderPort, type SummaryRequestSerialization, type AdmittedSummaryRequest } from '../../../../src/runtime/actors/compaction/summarizer.js';
 import { noCompactionProgress } from '../../../helpers/executing-llm-snapshot.js';
 import { buildCandidateRequest } from '../../../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../../../src/agents/llm-protocol-adapter.js';
@@ -166,7 +166,7 @@ describe('sequential contextual refine accumulator', () => {
 
   it('stops at the first rejected growth probe, resumes at the admitted endpoint, and sends the exact admitted objects', async () => {
     const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization; range: string }> = [];
-    const completed: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
     const estimateForRange = (range: string): number => {
       if (range === '0:9' || range === '0:4') return 10_000;
       return 1;
@@ -180,7 +180,7 @@ describe('sequential contextual refine accumulator', () => {
         return result;
       },
       completeTurn: async (input, admitted) => {
-        completed.push({ input, serialization: admitted });
+        completed.push({ input, admitted });
         return { result: { kind: 'message' as const, content: `summary-${completed.length}` }, provider_exchanges: [] };
       },
     });
@@ -193,11 +193,11 @@ describe('sequential contextual refine accumulator', () => {
     expect(estimateForRange('0:8')).toBe(1);
     expect(completed).toHaveLength(2);
     expect(completed[0]!.input).toBe(attempts[4]!.input);
-    expect(completed[0]!.serialization).toBe(attempts[4]!.serialization);
+    expect(completed[0]!.admitted).toMatchObject({ ...attempts[4]!.serialization, contextUtilizationFraction: .8, usableInputTokens: 6000 });
     expect(onlySourceRange(completed[0]!.input)).toBe('0:3');
     expect(attempts.find(({ range }) => range === '0:4')!.serialization.estimatedInputTokens).toBeGreaterThan(8_000 - 2_000);
     expect(completed[1]!.input).toBe(attempts[6]!.input);
-    expect(completed[1]!.serialization).toBe(attempts[6]!.serialization);
+    expect(completed[1]!.admitted).toMatchObject({ ...attempts[6]!.serialization, contextUtilizationFraction: .8, usableInputTokens: 6000 });
     expect(onlySourceRange(completed[1]!.input)).toBe('3:9');
   });
 
@@ -244,7 +244,7 @@ describe('sequential contextual refine accumulator', () => {
 
   it('retains the distinct fitting whole-width doubling probe at an eight-code-point EOF', async () => {
     const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
-    const completed: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
     const provider = recordingProvider({
       contextWindowTokens: 10_000,
       serialize: (input) => {
@@ -253,7 +253,7 @@ describe('sequential contextual refine accumulator', () => {
         return result;
       },
       completeTurn: async (input, admitted) => {
-        completed.push({ input, serialization: admitted });
+        completed.push({ input, admitted });
         return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
       },
     });
@@ -277,12 +277,12 @@ describe('sequential contextual refine accumulator', () => {
     }]);
     expect(completed).toHaveLength(1);
     expect(completed[0]!.input).toBe(attempts[4]!.input);
-    expect(completed[0]!.serialization).toBe(attempts[4]!.serialization);
+    expect(completed[0]!.admitted).toMatchObject({ ...attempts[4]!.serialization, contextUtilizationFraction: .8, usableInputTokens: 6000 });
   });
 
   it('does not add a clamped width-eight probe at a seven-code-point EOF', async () => {
     const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
-    const completed: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
     const provider = recordingProvider({
       contextWindowTokens: 10_000,
       serialize: (input) => {
@@ -291,7 +291,7 @@ describe('sequential contextual refine accumulator', () => {
         return result;
       },
       completeTurn: async (input, admitted) => {
-        completed.push({ input, serialization: admitted });
+        completed.push({ input, admitted });
         return { result: { kind: 'message' as const, content: `summary-${completed.length}` }, provider_exchanges: [] };
       },
     });

@@ -151,11 +151,12 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
     );
     const preparation = svc.prepareAdmittedRecovery({ suspension: handoff, request: compacted(value) });
     const pending = svc.resumeAdmittedExecution(preparation);
-    await jest.advanceTimersByTimeAsync(200_000);
+    await jest.advanceTimersByTimeAsync(0);
     const completion = await pending;
-    expect(calls).toEqual(['cand-b', 'cand-b', 'cand-b', 'cand-b', 'cand-c']);
+    expect(calls).toEqual(['cand-b', 'cand-b', 'cand-c']);
     expect(completion.result).toMatchObject({ kind: 'message', content: 'c-wins' });
-    expect(completion.provider_exchanges.map((attempt) => attempt.attempt_index)).toEqual([0, 1, 2, 3, 4]);
+    expect(completion.provider_exchanges.map((attempt) => attempt.attempt_index)).toEqual([0, 1, 2]);
+    expect(Date.now()).toBe(0);
   });
 
   it('excludes an exhausted member from compacted recovery while the context-failed member still retries first', async () => {
@@ -174,7 +175,10 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
       return bCalls === 1 ? contextExhausted() : chatSuccess('b-recovered');
     });
     const value = request([A, B]);
-    const svc = service([A, B]);
+    const availability = new MemoryCandidateAvailability();
+    // Keep B unavailable until A exhausts: a healthy untried B now wins over cooling A.
+    availability.markFailed(B, { state: 'BLOCKED_UNTIL', untilMs: 240_000, reason: 'rate_limit' });
+    const svc = service([A, B], availability);
     const handoffPromise = svc.executeAdmittedWithRecovery(admitted(svc, value)).then(
       () => { throw new Error('Expected suspension.'); },
       (error: unknown) => {

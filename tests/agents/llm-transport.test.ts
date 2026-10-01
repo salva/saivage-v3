@@ -17,11 +17,63 @@ type RefreshProvider = 'openai-codex' | 'github-copilot';
 const roots: string[] = [];
 
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
 describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth refresh', (provider) => {
+  it.each<[string, () => Promise<Response>]>([
+    ['network rejection', () => Promise.reject(new Error('synthetic refresh network failure'))],
+    ['HTTP 503', () => Promise.resolve(new Response('', { status: 503 }))],
+  ])('fails over immediately after a real pre-provider refresh %s without inventing an exchange', async (_label, refreshResult) => {
+    jest.useFakeTimers({ now: 1000 });
+    const alternate: Candidate = { provider: 'healthy', account: null, model: 'healthy-model' };
+    const fixture = setup(provider, alternate);
+    const availability = new MemoryCandidateAvailability();
+    const fetch = jest.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(refreshResult)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: 'healthy secondary' }, finish_reason: 'stop' }] }), { status: 200 }));
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
+    const request: InvocationRequest = { ...invocationRequest(fixture.candidate), routePass: { kind: 'ordinary', candidateChain: [fixture.candidate, alternate] } };
+    const admission = service.preparePrimaryRequestAdmission(request);
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    let settled = false;
+    const pending = service.executeAdmittedWithRecovery(admission).then((completion) => { settled = true; return completion; });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    const completion = await pending;
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([refreshUrl(provider), 'https://healthy.example.test/v1/chat/completions']);
+    expect(completion.result).toEqual({ kind: 'message', content: 'healthy secondary' });
+    expect(completion.provider_exchanges).toHaveLength(1);
+    expect(completion.provider_exchanges[0]).toMatchObject({ provider: 'healthy', model: 'healthy-model', source_input_id: request.inputId, attempt_index: 0, status: 'ok', response_status: 200 });
+    expect(availability.getEntry(fixture.candidate)).toMatchObject({ state: 'COOLING', reason: 'server_transient', untilMs: 61000 });
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    expect(Date.now()).toBe(1000);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('preserves the shared Copilot identity on refresh and provider dispatch', async () => {
+    if (provider !== 'github-copilot') return;
+    const fixture = setup(provider);
+    const headers: Headers[] = [];
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      headers.push(new Headers(init!.headers));
+      return String(url) === refreshUrl(provider)
+        ? new Response(JSON.stringify({ token: 'synthetic-refreshed-token', expires_at: Math.floor(Date.now() / 1000) + 3600 }), { status: 200 })
+        : new Response(JSON.stringify({ choices: [{ message: { content: 'done' }, finish_reason: 'stop' }] }), { status: 200 });
+    });
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const preflight = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
+    if (preflight.kind !== 'admitted') throw new Error('fixture must admit');
+    await service.executePinnedContentPolicyRequest(preflight);
+    expect(headers).toHaveLength(2);
+    const identity = { 'User-Agent': 'GitHubCopilotChat/0.35.0', 'Editor-Version': 'vscode/1.107.0', 'Editor-Plugin-Version': 'copilot-chat/0.35.0', 'Copilot-Integration-Id': 'vscode-chat' };
+    for (const [key, value] of Object.entries(identity)) {
+      expect(headers[0]!.get(key)).toBe(value);
+      expect(headers[1]!.get(key)).toBe(value);
+    }
+  });
   it.each<[string, () => Promise<Response>, number]>([
     ['network rejection', () => Promise.reject(new Error('synthetic network failure')), 0],
     ['HTTP 5xx', () => Promise.resolve(new Response('', { status: 503 })), 503],
@@ -112,7 +164,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
   });
 });
 
-function setup(provider: RefreshProvider): {
+function setup(provider: RefreshProvider, alternate?: Candidate): {
   projectRoot: string;
   candidate: Candidate;
   registry: ProviderRegistry;
@@ -133,6 +185,7 @@ function setup(provider: RefreshProvider): {
   replaceAuthProfiles(projectRoot, authFile);
   const registry = new ProviderRegistry({
     providers: {
+      ...(alternate ? { [alternate.provider]: { models: [alternate.model], baseUrl: 'https://healthy.example.test', apiKey: 'synthetic-healthy-key', capabilities: { transportProtocol: 'openai-chat-completions', contextWindowTokens: 100_000, maxOutputTokens: 10_000 } } } : {}),
       [provider]: {
         models: [candidate.model],
         authProfile: 'profile',

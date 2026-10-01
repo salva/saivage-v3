@@ -18,9 +18,14 @@ import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
+import { InvocationService } from '../../../src/agents/invocation-service.js';
+import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
+import { createInvocationServiceProvider } from '../../../src/application/invocation-service-provider.js';
+import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
+import { invocationProviderRegistry } from '../../helpers/invocation-provider-fixture.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { jest.restoreAllMocks(); while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function projectRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'oversight-session-'));
@@ -53,6 +58,32 @@ function session(root: string, provider: LLMProviderPort, runtimeProjectionChang
 const finalMessage = (): ProviderTurnCompletion => ({ result: { kind: 'message', content: 'No action needed.' }, provider_exchanges: [] });
 
 describe('OversightSession owned check settlement', () => {
+  it('matches a real-service late successful tool call through existing cancellation settlement without execution or continuation', async () => {
+    const root = projectRoot();
+    const executor = jest.fn(async () => executedToolOutcome('none', toolSucceeded({ known: true })));
+    const definition = defineTool({ name: 'probe', description: 'probe', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor });
+    const surface: InvocationSurface = { agentName: 'oversight', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'probe', tools: [definition] }] };
+    const service = new InvocationService({ projectRoot: root, registry: invocationProviderRegistry([{ provider: 'test', account: null, model: 'test-model' }]), candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const check = session(root, createInvocationServiceProvider(service), () => {}, surface);
+    let release!: (response: Response) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise((resolve) => { release = resolve; entered(); }));
+    const pending = check.run();
+    await started;
+    check.cancel(new Error('runtime paused'));
+    release(new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-real', type: 'function', function: { name: 'probe', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
+    await expect(pending).resolves.toBe('cancelled');
+    const rows = readConversation(root, 'agent:oversight:global').sourceRows;
+    expect(rows.filter((row) => row.kind === 'tool_call')).toHaveLength(1);
+    expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
+    expect(rows.find((row) => row.kind === 'tool_result')).toMatchObject({ tool_call_id: 'call-real', content: expect.stringContaining('cancelled before tool execution') });
+    expect(rows.some((row) => row.kind === 'model_issue')).toBe(false);
+    expect(executor).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await check.join();
+  });
+
   it('renders the compiled global vocabulary values for every check', async () => {
     const root = projectRoot();
     const render = jest.fn((_purpose, _agent, values: Record<string, string>) => values.vocabularySnippet);

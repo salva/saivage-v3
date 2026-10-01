@@ -21,6 +21,30 @@ function classify(
 }
 
 describe('strict HTTP input-context classification', () => {
+  it.each<[number, Record<string, unknown>, string]>([
+    [503, {}, 'server_transient'],
+    [403, {}, 'auth_permanent'],
+    [401, { code: 'rate_limit' }, 'auth_permanent'],
+    [429, { code: 'server_error' }, 'rate_limit'],
+    [400, { code: 'usage_limit_reached' }, 'rate_limit'],
+    [400, { code: 'context_length_exceeded' }, 'input_context_exhausted'],
+    [403, { code: 'content_filter' }, 'content_policy'],
+    [400, { code: 'context_length_exceeded', message: 'content policy' }, 'provider_protocol_error'],
+    [400, {}, 'rate_limit'],
+  ])('HTTP and opened terminal explicit evidence outranks timing: %s %p', (status, error, kind) => {
+    const http = classifyHttpFailure('codex', mockResponse(status, { 'retry-after': '120', 'x-ratelimit-reset': '2026-10-01T12:00:00Z' }), JSON.stringify({ error }), { provider: 'test', model: 'm' });
+    const terminal = classifyDirectProviderFailure({ provider: 'test', source: { kind: 'opened_response_terminal', responseStatus: 200, embeddedStatus: status }, error, allowedContextParams: ['input'], message: 'failed', providerResponse: JSON.stringify(error), retryAfterMs: 120000, resetsAt: '2026-10-01T12:00:00Z' });
+    expect(http).toMatchObject({ kind, status });
+    expect(terminal).toMatchObject({ kind, status: 200 });
+    if (kind === 'rate_limit') {
+      expect(http).toMatchObject({ retryAfterMs: 120000, resetsAt: '2026-10-01T12:00:00Z' });
+      expect(terminal).toMatchObject({ retryAfterMs: 120000, resetsAt: '2026-10-01T12:00:00Z' });
+    }
+  });
+
+  it('keeps opened prompt-policy rejection ahead of metadata-only rate limiting', () => {
+    expect(classifyDirectProviderFailure({ provider: 'test', source: { kind: 'opened_response_terminal', responseStatus: 200, embeddedStatus: undefined }, error: { code: 'invalid_prompt', message: 'Your prompt was flagged as potentially violating our usage policy' }, allowedContextParams: ['input'], message: 'failed', providerResponse: '', retryAfterMs: 1000 })).toMatchObject({ kind: 'provider_protocol_error', status: 200, reason: 'prompt_policy_rejection' });
+  });
   it.each<[LlmHttpTransport, Record<string, unknown>]>([
     ['chat', { code: 'context_length_exceeded' }],
     ['chat', { code: 'context_length_exceeded', type: null, param: null }],

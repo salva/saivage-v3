@@ -69,7 +69,7 @@ export { compact, shouldCompact } from './actors/compaction/compactor.js';
 export type { AutonomousCompactionPolicy } from './actors/compaction/compactor.js';
 export { SUMMARY_REFINE_INSTRUCTION } from './actors/compaction/refine-accumulator.js';
 export { SUMMARY_COMPLETION_TOKENS, admitSummaryRequest, assertSummarizerCapabilities, buildSummaryRequestInput } from './actors/compaction/summarizer.js';
-export type { SummarizerProviderPort, SummaryRequestSerialization } from './actors/compaction/summarizer.js';
+export type { SummarizerProviderPort, SummaryRequestSerialization, AdmittedSummaryRequest } from './actors/compaction/summarizer.js';
 export { currentCoveredRequiredFactRows } from './actors/context/composition-projector.js';
 export { compileInvocationToolContract } from './actors/context/context-blocks.js';
 export type { ExecutingLlmSnapshot, LlmToolInvocationContext } from './actors/executing-llm-snapshot.js';

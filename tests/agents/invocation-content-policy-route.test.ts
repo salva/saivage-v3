@@ -34,6 +34,30 @@ function request(routePass: InvocationRequest['routePass'], signal?: AbortSignal
 }
 
 describe('content-policy route passes', () => {
+  it('returns a known pinned success despite racing abort without availability effects', async () => {
+    const availability = new MemoryCandidateAvailability();
+    const reads = jest.spyOn(availability, 'isAvailable');
+    const failed = jest.spyOn(availability, 'markFailed');
+    const succeeded = jest.spyOn(availability, 'markSucceeded');
+    const controller = new AbortController();
+    let release!: (response: Response) => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise((resolve) => { release = resolve; started(); }));
+    const svc = service(availability);
+    const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
+    if (preflight.kind !== 'admitted') throw new Error('Expected pinned admission.');
+    const pending = svc.executePinnedContentPolicyRequest(preflight, controller.signal);
+    await entered;
+    controller.abort(new Error('owner stopped'));
+    release(chatSuccess('retained'));
+    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'retained' }, provider_exchanges: [{ attempt_index: 0, status: 'ok' }] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(reads).not.toHaveBeenCalled();
+    expect(failed).not.toHaveBeenCalled();
+    expect(succeeded).not.toHaveBeenCalled();
+  });
+
   it('terminates ordinary routing at the refusing candidate without availability effects', async () => {
     const availability = new MemoryCandidateAvailability();
     const isAvailable = jest.spyOn(availability, 'isAvailable');
@@ -64,7 +88,7 @@ describe('content-policy route passes', () => {
 
   it('rejects an oversized pinned candidate before any transport', async () => {
     const fetch = jest.spyOn(globalThis, 'fetch');
-    const preflight = service(new MemoryCandidateAvailability(), { first: { contextWindowTokens: 101 } })
+    const preflight = service(new MemoryCandidateAvailability(), { first: { contextWindowTokens: 127 } })
       .preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     expect(preflight.kind).toBe('rejected');
     if (preflight.kind !== 'rejected') throw new Error('unreachable');

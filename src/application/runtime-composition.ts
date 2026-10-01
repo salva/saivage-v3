@@ -140,7 +140,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     contextWindowTokens: summarizerCapabilities.contextWindowTokens,
     maxOutputTokens: summarizerCapabilities.maxOutputTokens,
     serializeSummaryRequest: summarizerSerializeRequest,
-    completeTurn: (input, admitted, signal) => executeInternalSummaryTurn(invocationService, input, signal, admitted.requestSha256),
+    completeTurn: (input, admitted, signal) => executeInternalSummaryTurn(invocationService, input, signal, admitted),
     projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,

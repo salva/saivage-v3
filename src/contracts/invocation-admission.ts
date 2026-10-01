@@ -10,6 +10,7 @@ import { utf8SafeSlice } from '../utils/index.js';
 import { usableInputTokens } from './context-budget.js';
 
 type CandidateIdentity = Candidate;
+const DEFAULT_CONTEXT_UTILIZATION_FRACTION = 0.80;
 
 const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
@@ -66,7 +67,7 @@ export function classifyCandidateLocalAdmission(args: {
   const inputCapacity = usableInputTokens(
     args.capabilities.contextWindowTokens,
     args.limits.requestedCompletionTokens,
-    args.limits.contextUtilizationFraction ?? 1,
+    args.limits.contextUtilizationFraction ?? DEFAULT_CONTEXT_UTILIZATION_FRACTION,
   );
   if (inputCapacity <= 0)
     return { kind: 'candidate_ineligible', reason: { kind: 'nonpositive_usable_input' } };

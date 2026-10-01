@@ -1030,11 +1030,12 @@ Separately, for each provider candidate the actual request builder maps the proj
 Equal units do not make actor weighting provider-wire admission authority: only the complete canonical provider body is used for exact admission, and its deterministic best-effort estimate is not fit proof.
 Admission, retries, and the final transport send reuse that exact serialized body without rebuilding or normalizing it, so Responses wire admission includes private output bytes present in the sent body.
 Prepared persisted requests prohibit ordinary `modelParams.maxTokens`; Invocation Service uses only prepared requested-completion tokens for candidate admission and options.
+Prepared requests prohibit a second utilization source. Unprepared requests may carry explicit U; one service accessor supplies both admission limits and retained bindings. Only genuinely absent U defaults to .80. Summary packing retains its actual successful `AdmittedSummaryRequest`, including configured U and serialization/hash, through normal/split/corrective groups and the runtime-api/composition boundary into `executeInternalSummaryTurn`; the service verifies the retained request hash and sends unchanged bytes. This adds no admission owner or layer, prepared summary object, cap, or second margin.
 Chat emits `max_tokens`, public Responses emits `max_output_tokens`, and Codex emits neither while retaining admission/options authority.
 
 Invocation Service captures one required invocation-local `CandidateRequestPlan` per candidate: the structured candidate, one effective-capability snapshot, the one adapter selected by a closed exhaustive protocol switch, and the canonical body/bytes/estimate/hash.
 That plan is the sole wire-request authority.
-The ordinary invocation also carries the exact immutable capability request retained by startup binding; pinned content-policy retry retains it, while direct fixed-candidate summarizers supply their explicit no-tools/exclusive-choice request.
+The ordinary invocation also carries the exact immutable capability request retained by startup binding; pinned content-policy retry retains it, while direct fixed-candidate summarizers supply their explicit no-tools request without exclusive tool choice.
 The adapter maps the planned body and carries only its credential requirement plus protocol-specific endpoint, headers, request metadata, HTTP interpretation, and response parser.
 Response mode is protocol-owned: Chat and public Responses request and parse complete JSON, while Codex requests and parses SSE.
 Credential resolution consumes the adapter's requirement and never rediscovers capabilities or protocol.
@@ -1070,7 +1071,7 @@ The Codex parser owns parsed backend events and backend completion: deltas are v
 A `response.completed` first validates its non-null, non-array object `response` and string `response.id`, then propagates one direct boolean terminal signal through the event handler, ordered output consumer, and read loop.
 Only that valid signal returns finalized tools before the message immediately and releases the reader lock in `finally`, without waiting for closure or consuming later events; malformed completion, pre-completion failure, `[DONE]`, and EOF retain failure authority, while outputs dispatched by SSE EOF finalization are consumed before truncation is decided.
 There is no delta assembler, fallback terminator, transport cancellation, or generic lifecycle mechanism.
-The common classifier applies operational status/rate/transient precedence before context/content ambiguity, exact context, explicit content, and remaining auth.
+The common classifier orders 401, explicit 429/rate tokens, 5xx/transient tokens, eligible context/content ambiguity, exact context, content, residual 403/auth, opened-200 prompt rejection, timing-only rate hints, then unmatched failure. Actual HTTP status remains evidence; timing cannot turn transient cooling or terminal auth into rate-limit blocking.
 Thus HTTP-200 failed Responses objects preserve the exact complete JSON body, while Codex terminal frames preserve normalized `dataText`, without retaining request bytes.
 
 `ConversationLLMActor` construction requires immutable `autonomous-card` or `global-agent` purpose and validates it against the stable session identity.
@@ -1100,6 +1101,8 @@ Provider output/input capacity and recognized content-policy exhaustion remain e
 `compaction/summarizer.ts` separately owns summary-attempt evidence: each refine call uses the internal `internal:compaction-summary:<source-session-hash>` evidence session and fresh input UUID, projects settled attempts exactly once through `InvocationService.projectProviderExchanges()` with empty assistant output IDs, and never merges them into the triggering input.
 Projection failure is outcome-unknown and is not retried. After settled attempts project successfully, `summarizer.ts` converts only an exhausted typed prompt-policy flag into `SummaryPromptPolicyBlockedError`, carrying the summary input UUID and fixed safe text without primary exchange authority. It bypasses correction, endpoint fallback, retained candidates, source-range changes, and partial publication.
 Invocation Service remains the sole retry/deadline/cancellation/evidence-recovery owner for the fixed summarizer candidate.
+Available untried admitted alternatives precede standard-cooling waits, without changing the mandatory context-failed retry, remaining selector priorities, membership, budgets, or deadlines. The Codex parser preserves exact caught owner cancellation and AbortError values and releases its lock; the shared runner owns raw evidence and typed cancellation, while unrelated malformed streams remain parse errors. Function identities and delta targets must be real provider call/item references, with unknown or malformed deltas rejected rather than normalized or discarded; latest-completed-message replacement and strict JSON semantics remain unchanged.
+An ordinary or pinned known successful return survives a racing abort with its indexed attempts/private context, but cannot mark availability succeeded after abort. The existing retained graceful conversation owner publishes output/evidence and settles cancelled tool calls without continuation. Immediate revocation still fences all late persistence, hints, and delivery; no runner-side rescue or second publication owner exists.
 
 The last-chance actor boundary has one narrow non-provider ownership marker plus the typed summary-policy terminal signal.
 After summary `ProviderTurnFailure` evidence has been published, `ConversationLLMActor` first publishes the original planner context-failure attempts once under the planner input with null terminal output.
@@ -1127,9 +1130,10 @@ Auth profiles use direct strict whole-file reads and optimistic replacement.
 Exact-path `ENOENT` alone means absence.
 OAuth refresh threads the original invocation abort signal through the attempt runner, transport resolver, and refresh implementation; it checks after response/body awaits and immediately before the synchronous latest-file reread and replacement.
 OpenAI Codex and GitHub Copilot refresh network rejection becomes `server_transient` status `0`, and refresh HTTP 5xx becomes `server_transient` with the actual status.
+One agents-local frozen Copilot client-identity object supplies the same four unchanged identity headers to chat dispatch and token refresh; each request owner retains credentials, Accept/Connection, and endpoint choices.
 Credential refresh precedes adapter wire derivation and recorder creation, so these failures leave the profile unchanged, enter the existing admitted retry/cooling path, send no stale-token provider request, and create no provider exchange.
 An exhausted admitted record is excluded from the final generic availability-wait scan within that invocation, so cooling expiry cannot reopen it or produce a terminal zero-wait loop.
-Viable alternatives and non-exhausted rate-limit waits keep their existing priority; retained process-local cooling remains available to other or future invocations.
+An available untried admitted alternative precedes a standard retry wait; other ready/rate-limit priorities remain unchanged, and retained process-local cooling remains available to other or future invocations.
 Concurrent refresh is accepted last-completed-write-wins behavior with no revision, CAS, lock, or merge protocol.
 
 ## 11. API And UI Projection

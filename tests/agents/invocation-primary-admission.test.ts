@@ -64,6 +64,29 @@ function service(candidates: readonly Candidate[], overrides: Record<string, Sai
 }
 
 describe('ordinary primary-request local admission', () => {
+  it.each([undefined, .60, .90, 1])('uses absent .80 headroom or exactly supplied U=%s with retained bindings and real wire equality', (u) => {
+    const prepared = request([A]);
+    const { preparedCompaction: _compaction, preparedContext: _context, ...common } = prepared;
+    const unprepared: InvocationRequest = { ...common, modelParams: { temperature: 0, maxTokens: 2000 }, ...(u === undefined ? {} : { contextUtilizationFraction: u }) };
+    const baseline = service([A]).preparePrimaryRequestAdmission(unprepared);
+    if (baseline.kind !== 'admitted' || baseline.candidates[0]?.kind !== 'admitted') throw new Error('fixture must fit');
+    const estimate = baseline.candidates[0].plan.request.estimatedWireInputTokens;
+    const fraction = u ?? .8;
+    const window = Math.ceil((estimate + 2000) / fraction);
+    const exact = service([A], { 'cand-a': { contextWindowTokens: window } }).preparePrimaryRequestAdmission(unprepared);
+    expect(Math.floor(fraction * window) - 2000).toBe(estimate);
+    expect(exact.kind).toBe('admitted');
+    expect(exact.bindings.contextUtilizationFraction).toBe(u ?? null);
+    const over = service([A], { 'cand-a': { contextWindowTokens: window - 1 } }).preparePrimaryRequestAdmission(unprepared);
+    expect(over.candidates[0]).toMatchObject({ kind: 'projection_too_large', estimatedInputTokens: estimate, usableInputTokens: estimate - 1 });
+    expect(over.bindings.contextUtilizationFraction).toBe(u ?? null);
+    if (u === undefined) {
+      const fetch = jest.spyOn(globalThis, 'fetch');
+      const svc = service([A], { 'cand-a': { contextWindowTokens: estimate + 2000 } });
+      expect(svc.preparePrimaryRequestAdmission(unprepared).kind).not.toBe('admitted');
+      expect(fetch).not.toHaveBeenCalled();
+    }
+  });
   it('admits the exact production serialization with one full prepared block and retains those bytes', () => {
     const full = 'FULL-PREPARED-CARD-BRIEF-'.repeat(40);
     const block = Object.freeze({ id: 'card-activation:project', role: 'system', content: full, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock);
@@ -184,11 +207,11 @@ describe('ordinary primary-request local admission', () => {
     expect(admission.executionAuthority.admittedCandidateIdentities).toEqual([A, C]);
     expect(admission.executionAuthority.admittedCandidateIdentitiesSha256).toHaveLength(64);
     const pending = svc.executeAdmittedWithRecovery(admission);
-    await jest.advanceTimersByTimeAsync(3 * 60_000);
+    await jest.advanceTimersByTimeAsync(0);
     const completion = await pending;
     expect(completion.result).toMatchObject({ kind: 'message', content: 'c-wins' });
-    expect(calls).toEqual(['cand-a', 'cand-a', 'cand-a', 'cand-a', 'cand-c']);
-    expect(completion.provider_exchanges.map((attempt) => attempt.attempt_index)).toEqual([0, 1, 2, 3, 4]);
+    expect(calls).toEqual(['cand-a', 'cand-c']);
+    expect(completion.provider_exchanges.map((attempt) => attempt.attempt_index)).toEqual([0, 1]);
   });
 
   it('projects bounded diagnostics capped at 32 candidates with 128-byte previews and no account values', () => {

@@ -21,7 +21,7 @@ import {
   SUMMARY_OUTPUT_TARGET_BYTES,
   SummaryResultValidationError,
   type SummaryRequestItem,
-  type SummaryRequestSerialization,
+  type AdmittedSummaryRequest,
   type SummarizerProviderPort,
 } from './summarizer.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
@@ -69,7 +69,7 @@ export class SummaryConstructionLimitError extends Error {
 }
 
 type Range = Readonly<{ component: PreparedRefineSourceComponent; startByte: number; endByte: number; startUtf16: number; endUtf16: number }>;
-type AdmittedGroup = Readonly<{ ranges: readonly Range[]; input: LlmInvocationInput; serialization: SummaryRequestSerialization }>;
+type AdmittedGroup = Readonly<{ ranges: readonly Range[]; input: LlmInvocationInput; admitted: AdmittedSummaryRequest }>;
 type ScannedEndpoint = Readonly<{ utf16: number; byte: number; codePoints: number }>;
 type PackingCursor = Readonly<{ componentIndex: number; startUtf16: number; startByte: number }>;
 type FoldRecipe = Readonly<{ inheritedSummary: string | null; ranges: readonly Range[] }>;
@@ -192,7 +192,7 @@ export function createSequentialRefineAccumulator(args: {
     args.progress.foldStarted();
     let summary: string;
     try {
-      summary = await invokeSummaryRequest({ input: group.input, admitted: group.serialization, summarizerProvider: args.summarizerProvider, signal: args.signal });
+      summary = await invokeSummaryRequest({ input: group.input, admitted: group.admitted, summarizerProvider: args.summarizerProvider, signal: args.signal });
     } catch (error) {
       if (!(error instanceof PublicationOutcomeUnknownError)) args.progress.foldFailed();
       throw error;
@@ -211,7 +211,7 @@ export function createSequentialRefineAccumulator(args: {
     const serialization = args.summarizerProvider.serializeSummaryRequest(input);
     const admission = admitSummaryRequest({ serialization, contextUtilizationFraction: args.budget.contextUtilizationFraction, contextWindowTokens: args.summarizerProvider.contextWindowTokens, maxOutputTokens: args.summarizerProvider.maxOutputTokens });
     if (admission.kind !== 'admitted') throw new SummaryConstructionLimitError('request_context_capacity', invocationCount);
-    return invokeFold({ ranges: recipe.ranges, input, serialization });
+    return invokeFold({ ranges: recipe.ranges, input, admitted: admission });
   }
 }
 
@@ -326,7 +326,7 @@ function packNextActualRanges(args: {
         endUtf16: admittedEnd.utf16,
       };
       return {
-        group: { ranges: [...current, admittedRange], input: admittedGroup.input, serialization: admittedGroup.serialization },
+        group: { ranges: [...current, admittedRange], input: admittedGroup.input, admitted: admittedGroup.admitted },
         nextCursor: admittedEnd.utf16 === prepared.content.length
           ? { componentIndex: componentIndex + 1, startUtf16: 0, startByte: 0 }
           : { componentIndex, startUtf16: admittedEnd.utf16, startByte: admittedEnd.byte },
@@ -346,12 +346,13 @@ function admitRanges(args: {
 }, ranges: readonly Range[]): AdmittedGroup | null {
   const input = requestInput(args.provider, args.sourceSessionId, args.orientation, args.inheritedSummary, ranges);
   const serialization = args.provider.serializeSummaryRequest(input);
-  return admitSummaryRequest({
+  const admitted = admitSummaryRequest({
     serialization,
     contextUtilizationFraction: args.contextUtilizationFraction,
     contextWindowTokens: args.provider.contextWindowTokens,
     maxOutputTokens: args.provider.maxOutputTokens,
-  }).kind === 'admitted' ? { ranges, input, serialization } : null;
+  });
+  return admitted.kind === 'admitted' ? { ranges, input, admitted } : null;
 }
 
 function requestInput(

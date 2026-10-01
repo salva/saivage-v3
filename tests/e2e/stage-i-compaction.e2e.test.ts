@@ -566,7 +566,7 @@ function summaryProvider(args: {
       args.setTransport({ model: args.candidate.model, body: admitted.serializedRequest, hash: admitted.requestSha256, response });
       const ranges = summaryRanges(input);
       const bodies = input.providerConversation.messages.map(summaryMessageBody);
-      const completion = await executeInternalSummaryTurn(service, input, signal, admitted.requestSha256);
+      const completion = await executeInternalSummaryTurn(service, input, signal, admitted);
       args.records.push(Object.freeze({ input, body: admitted.serializedRequest, hash: admitted.requestSha256, bytes: Buffer.byteLength(admitted.serializedRequest, 'utf8'), estimated: admitted.estimatedInputTokens, sourceBytes: ranges.reduce((sum, range) => sum + Buffer.byteLength(range.content, 'utf8'), 0), inheritedBytes: Buffer.byteLength(inheritedSummary(input) ?? '', 'utf8'), orientationBytes: input.providerConversation.messages.reduce((sum, message, index) => message.content.includes('[kind=prepared_context ') ? sum + Buffer.byteLength(bodies[index]!, 'utf8') : sum, 0), correction, ranges, returnedSummary: response.trim() }));
       return completion;
     },

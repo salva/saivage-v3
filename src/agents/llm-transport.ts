@@ -1,3 +1,4 @@
+import { COPILOT_CLIENT_IDENTITY } from './copilot-client-identity.js';
 import {
   LlmRequestError,
   localSetupFailure,
@@ -167,10 +168,7 @@ async function refreshGitHubCopilotProfile(
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${profile.refreshToken}`,
-        'User-Agent': 'GitHubCopilotChat/0.35.0',
-        'Editor-Version': 'vscode/1.107.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.35.0',
-        'Copilot-Integration-Id': 'vscode-chat',
+        ...COPILOT_CLIENT_IDENTITY,
         Connection: 'close',
       },
       signal: abortSignal,

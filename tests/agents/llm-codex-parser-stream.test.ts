@@ -63,6 +63,55 @@ async function expectFailure(body: ReadableStream<Uint8Array>, expected: LlmTran
 }
 
 describe('OpenAI Codex stream parser', () => {
+  it.each([new DOMException('stream stopped', 'AbortError'), Object.assign(new Error('stream stopped'), { name: 'AbortError' }), { owner: 'stopped' }])('preserves exact stream cancellation identity and releases its lock: %p', async (reason) => {
+    const controller = new AbortController();
+    controller.abort(reason);
+    const body = new ReadableStream<Uint8Array>({ pull(streamController) { streamController.error(reason); } });
+    await expect(readOpenAICodexStream(body, 200, controller.signal)).rejects.toBe(reason);
+    expect(body.locked).toBe(false);
+  });
+
+  it('does not relabel an unrelated stream failure when its signal is aborted', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('owner stopped'));
+    const body = new ReadableStream<Uint8Array>({ pull(streamController) { streamController.error(new Error('different failure')); } });
+    await expect(readOpenAICodexStream(body, 200, controller.signal)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
+    expect(body.locked).toBe(false);
+  });
+
+  it.each([
+    { type: 'response.output_item.added', item: { type: 'function_call', name: 'lookup' } },
+    { type: 'response.output_item.done', item: { type: 'function_call', name: 'lookup', arguments: '{}' } },
+    { type: 'response.output_item.done', item: { type: 'function_call', call_id: 7, id: 'real-item', name: 'lookup' } },
+    { type: 'response.output_item.done', item: { type: 'function_call', call_id: '', id: 'real-item', name: 'lookup' } },
+    { type: 'response.output_item.done', item: { type: 'function_call', call_id: null, id: 'real-item', name: 'lookup' } },
+    { type: 'response.function_call_arguments.delta', item_id: 'unknown', delta: '{}' },
+    { type: 'response.function_call_arguments.delta', item_id: 7, delta: '{}' },
+    { type: 'response.function_call_arguments.delta', item_id: 'item-1', delta: 7 },
+    { type: 'response.function_call_arguments.delta', item_id: 'item-1' },
+    { type: 'response.function_call_arguments.delta', delta: '{}' },
+    { type: 'response.function_call_arguments.done', item_id: 'unknown', arguments: '{}' },
+  ])('rejects unusable function identity or targeted arguments at consumption: %p', async (invalid) => {
+    const added = event({ type: 'response.output_item.added', item: { type: 'function_call', call_id: 'call-original', id: 'item-1', name: 'lookup' } });
+    await expectParseError(stream(added + event(invalid) + finalizedTool() + completion()));
+  });
+
+  it('assembles interleaved real aliases and deduplicates two done events, removing both finalized aliases', async () => {
+    const source = event({ type: 'response.output_item.added', item: { type: 'function_call', call_id: 'call-a', id: 'item-a', name: 'a' } })
+      + event({ type: 'response.output_item.added', item: { type: 'function_call', id: 'item-b', name: 'b' } })
+      + event({ type: 'response.function_call_arguments.delta', item_id: 'item-a', delta: '{"a":' })
+      + event({ type: 'response.function_call_arguments.delta', call_id: 'item-b', delta: '{}' })
+      + event({ type: 'response.function_call_arguments.delta', call_id: 'call-a', delta: '1}' })
+      + event({ type: 'response.function_call_arguments.done', call_id: 'call-a' })
+      + event({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call-a', id: 'item-a', name: 'a', arguments: '{"a":1}' } })
+      + event({ type: 'response.function_call_arguments.done', item_id: 'item-b' });
+    await expect(readOpenAICodexStream(stream(source + completion()), 200)).resolves.toEqual({ kind: 'tool_calls', tool_calls: [
+      { id: 'call-a', type: 'function', function: { name: 'a', arguments: '{"a":1}' } },
+      { id: 'item-b', type: 'function', function: { name: 'b', arguments: '{}' } },
+    ] });
+    await expectParseError(stream(source + event({ type: 'response.function_call_arguments.delta', item_id: 'item-a', delta: 'late' }) + completion()));
+  });
+
   it('uses the completed message instead of repeated, overlapping, or nested done text across chunk and multibyte boundaries', async () => {
     const source = event({ type: 'response.output_text.delta', delta: 'a' })
       + event({ type: 'response.output_text.delta', delta: 'a' })
@@ -250,5 +299,9 @@ describe('OpenAI Codex stream parser', () => {
 
   it('fails malformed normalized multiline JSON instead of skipping it', async () => {
     await expectParseError(stream('event: ignored\r\ndata: {"type":\r\ndata: bad}\r\n\r\n' + completion()));
+  });
+
+  it('fails empty event data as malformed JSON instead of skipping it', async () => {
+    await expectParseError(stream('data:\n\n' + message('must not rescue') + completion()));
   });
 });

@@ -4,12 +4,28 @@ import { defaultInvocationRecoveryPolicy } from '../../src/agents/invocation-rec
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { parseOpenAIResponsesJson } from '../../src/agents/llm-openai-responses-parser.js';
+import { classifyHttpFailure, classifyDirectProviderFailure } from '../../src/agents/llm-failure-classifiers.js';
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
 const policy = defaultInvocationRecoveryPolicy;
 const baseContext = { candidate, recoveryDelayMs: 25, purpose: 'primary' as const, promptPolicyRejections: 0 };
 
 describe('InvocationRecoveryPolicy', () => {
+  it.each([503, 403, 429])('applies actual recovery effects for HTTP/opened %s plus timing', (status) => {
+    jest.useFakeTimers({ now: 1_000 });
+    try {
+      const http = classifyHttpFailure('chat', new Response('', { status, headers: { 'retry-after': '120' } }), '{}', { provider: candidate.provider, model: candidate.model });
+      const terminal = classifyDirectProviderFailure({ provider: candidate.provider, source: { kind: 'opened_response_terminal', responseStatus: 200, embeddedStatus: status }, error: {}, allowedContextParams: ['input'], message: 'failed', providerResponse: '{}', retryAfterMs: 120_000 })!;
+      for (const failure of [http, terminal]) {
+        const effect = policy.decideFailure(new LlmRequestError(failure), baseContext);
+        expect(effect).toEqual(status === 503
+          ? { kind: 'retry', wait: 'standard', retryDelayMs: 25, availability: { state: 'COOLING', untilMs: 6_000, reason: 'server_transient' } }
+          : status === 403
+            ? { kind: 'terminal', availability: { state: 'BLOCKED_UNTIL', untilMs: 3_601_000, reason: 'auth_permanent' } }
+            : { kind: 'retry', wait: 'rate-limit', availability: { state: 'BLOCKED_UNTIL', untilMs: 121_000, reason: 'rate_limit' } });
+      }
+    } finally { jest.useRealTimers(); }
+  });
   it('returns only terminal/retry control and consumed availability state', () => {
     jest.useFakeTimers({ now: 1_000 });
     try {

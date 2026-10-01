@@ -92,8 +92,9 @@ export function classifyDirectProviderFailure(args: {
   const responseStatus = source.responseStatus;
   const embeddedStatus = source.kind === 'opened_response_terminal' ? source.embeddedStatus : undefined;
   if (responseStatus === 401 || embeddedStatus === 401) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
-  if (responseStatus === 429 || embeddedStatus === 429 || args.retryAfterMs !== undefined || args.resetsAt !== undefined || (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))) {
-    return { kind: 'rate_limit', provider, status: responseStatus, message: args.message, ...(args.retryAfterMs !== undefined ? { retryAfterMs: args.retryAfterMs } : {}), ...(args.resetsAt !== undefined ? { resetsAt: args.resetsAt } : {}) };
+  const rateLimit = (): LlmTransportFailure => ({ kind: 'rate_limit', provider, status: responseStatus, message: args.message, ...(args.retryAfterMs !== undefined ? { retryAfterMs: args.retryAfterMs } : {}), ...(args.resetsAt !== undefined ? { resetsAt: args.resetsAt } : {}) });
+  if (responseStatus === 429 || embeddedStatus === 429 || (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))) {
+    return rateLimit();
   }
   if ((embeddedStatus !== undefined && embeddedStatus >= 500) || responseStatus >= 500 || (error !== undefined && directToken(error, TRANSIENT_TOKENS))) return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
   const contextEligible = source.kind === 'opened_response_terminal' || responseStatus === 400;
@@ -105,6 +106,7 @@ export function classifyDirectProviderFailure(args: {
   if (responseStatus === 403 || embeddedStatus === 403 || (error !== undefined && directToken(error, AUTH_TOKENS))) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
   if (source.kind === 'opened_response_terminal' && responseStatus === 200 && error !== undefined && hasPromptPolicyRejectionEvidence(error))
     return { kind: 'provider_protocol_error', provider, status: responseStatus, message: args.message, bodyPreview: args.providerResponse.slice(0, 500), reason: 'prompt_policy_rejection' };
+  if (args.retryAfterMs !== undefined || args.resetsAt !== undefined) return rateLimit();
   return undefined;
 }
 

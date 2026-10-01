@@ -31,7 +31,7 @@ export interface SummarizerProviderPort {
   readonly contextWindowTokens: number;
   readonly maxOutputTokens: number;
   serializeSummaryRequest(input: LlmInvocationInput): SummaryRequestSerialization;
-  completeTurn(input: LlmInvocationInput, admitted: SummaryRequestSerialization, signal: AbortSignal): Promise<ProviderTurnCompletion>;
+  completeTurn(input: LlmInvocationInput, admitted: AdmittedSummaryRequest, signal: AbortSignal): Promise<ProviderTurnCompletion>;
   projectProviderExchanges(ownerSessionId: ConversationSessionId, purpose: 'internal-summary', sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext,
   ): void;
 }
@@ -43,8 +43,11 @@ type SummaryRequestAdmission =
       requestSha256: string;
       estimatedInputTokens: number;
       usableInputTokens: number;
+      contextUtilizationFraction: number;
     }>
   | Readonly<{ kind: 'too_large'; estimatedInputTokens: number; usableInputTokens: number }>;
+
+export type AdmittedSummaryRequest = Extract<SummaryRequestAdmission, { kind: 'admitted' }>;
 
 export function admitSummaryRequest(args: {
   serialization: SummaryRequestSerialization;
@@ -64,6 +67,7 @@ export function admitSummaryRequest(args: {
     };
   return {
     kind: 'admitted',
+    contextUtilizationFraction: args.contextUtilizationFraction,
     serializedRequest: args.serialization.serializedRequest,
     requestSha256: args.serialization.requestSha256,
     estimatedInputTokens: args.serialization.estimatedInputTokens,
@@ -111,7 +115,7 @@ export function buildSummaryRequestInput(args: {
 
 export async function invokeSummaryRequest(args: {
   input: LlmInvocationInput;
-  admitted: SummaryRequestSerialization;
+  admitted: AdmittedSummaryRequest;
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
 }): Promise<string> {
@@ -123,7 +127,7 @@ export async function invokeSummaryRequest(args: {
 
 async function sendAdmittedSummaryRequest(args: {
   input: LlmInvocationInput;
-  admitted: SummaryRequestSerialization;
+  admitted: AdmittedSummaryRequest;
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
 }): Promise<ProviderTurnCompletion> {
