@@ -31,7 +31,7 @@ export const ChatIdentityResponseSchema = z
     session_id: ConversationSessionIdSchema,
   })
   .strict();
-export const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
+const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
   z
     .object({
       status: z.literal('confirmation_required'),

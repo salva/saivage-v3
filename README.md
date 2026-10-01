@@ -75,6 +75,7 @@ The control room has **Cockpit**, **Files**, and **System**. The card cockpit
 keeps its tree and **Overview**, **Conversations**, **Records & History**, and
 **Evidence** facets together; the Analyst panel stays available for steering. Submitted [workspace focus](docs/spec/system-specification.md) is advisory context captured at Send, not continuous observation of the screen.
 See the authoritative [operator UI contracts](docs/spec/operator-ui-contracts.md).
+Analyst submissions use REST only (`POST /api/chat`); WebSocket carries live observation subscriptions and freshness hints, not submissions or turn acknowledgements.
 
 ```bash
 curl http://localhost:8080/health

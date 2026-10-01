@@ -5,7 +5,8 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed, readonly } from 'vue';
+import { ref, computed, readonly, onScopeDispose } from 'vue';
+import { createOwnedFetch } from './owned-fetch';
 import type { McpToolsResponse, McpServerWithTools } from '../api/types';
 import { getMcpTools, OperatorApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -16,7 +17,9 @@ export const useMcpStore = defineStore('mcp', () => {
   // ── State ──────────────────────────────────────────────────
 
   const servers = ref<McpServerWithTools[]>([]);
-  const loading = ref(false);
+  const request = createOwnedFetch();
+  const loading = request.pending;
+  onScopeDispose(request.cancel);
   const error = ref<string | null>(null);
   const lastRefreshed = ref<string | null>(null);
 
@@ -38,19 +41,15 @@ export const useMcpStore = defineStore('mcp', () => {
   // ── Actions ────────────────────────────────────────────────
 
   async function fetchMcpData(): Promise<void> {
-    loading.value = true;
     error.value = null;
-    try {
-      const response: McpToolsResponse = await getMcpTools();
+    await request.run(getMcpTools, (response: McpToolsResponse) => {
       servers.value = response.servers;
       lastRefreshed.value = new Date().toISOString();
-    } catch (err) {
+    }, (err) => {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch MCP tools';
       error.value = msg;
       log.error('fetchMcpData', msg);
-    } finally {
-      loading.value = false;
-    }
+    });
   }
 
   return {

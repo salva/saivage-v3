@@ -23,11 +23,8 @@ import {
   OUTBOUND_RAW_MARKER,
   OUTBOUND_TEXT_MARKER,
 } from '../helpers/outbound-identity-fixtures.js';
-import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 import { globalObservationToolBinders, type GlobalObservationToolContext } from '../../src/tools/global-observation-tools.js';
 import { AnalystTurnBusyError } from '../../src/runtime/runtime-api.js';
-import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
-import type { WebSocket } from 'ws';
 import { toolFailed } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { canonicalJson } from '../../src/schemas/index.js';
@@ -367,11 +364,7 @@ describe('operator chat route request contracts', () => {
     );
     const result = JSON.parse(agentRows[1]!.content);
     expect({ tool: agentRows[0]!.tool, params: callArguments, result }).toEqual(chatInvocation);
-    const activity = projectAnalystToolInvocationActivity(invocation, 'agent:analyst:global');
-    expect({ tool: activity.tool, params: activity.params, result: activity.result }).toEqual(
-      chatInvocation,
-    );
-    expect(JSON.stringify({ chatInvocation, agentRows, bounded, activity })).not.toContain(
+    expect(JSON.stringify({ chatInvocation, agentRows, bounded })).not.toContain(
       OUTBOUND_RAW_MARKER,
     );
   });
@@ -502,45 +495,6 @@ describe('operator chat route request contracts', () => {
       error: 'analyst_turn_busy',
       message: 'Another Analyst turn is active. Retry after it finishes.',
     });
-  });
-
-  it('shares immediate one-winner admission across REST and WebSocket without later queued execution', async () => {
-    let release!: (value: { sessionId: 'agent:analyst:global'; toolInvocations: []; restart: null }) => void;
-    const active = new Promise<{ sessionId: 'agent:analyst:global'; toolInvocations: []; restart: null }>((resolve) => { release = resolve; });
-    let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
-    let submissions = 0;
-    submit.mockImplementation(() => {
-      submissions += 1;
-      if (submissions === 1) { markStarted(); return active; }
-      return Promise.reject(new AnalystTurnBusyError());
-    });
-    const restWinner = fastify.inject({
-      method: 'POST',
-      url: '/api/chat',
-      headers: authHeaders,
-      payload: { content: 'rest winner' },
-    }).then((response) => response);
-    await started;
-
-    const sendToClient = jest.fn();
-    const wsHandler = new AnalystWsHandler({
-      fatalPort: testApplicationFatalPort,
-      restartCapability: { available: false },
-      liveSyncSocket: { handleClientFrame: () => false } as never,
-      runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
-      sendToClient,
-    });
-    const ws = { OPEN: 1, readyState: 1 } as WebSocket;
-    await wsHandler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'ws loser' } })), { error() {} });
-    expect(sendToClient).toHaveBeenCalledWith(ws, {
-      type: 'error',
-      content: { error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' },
-    });
-
-    release({ sessionId: 'agent:analyst:global', toolInvocations: [], restart: null });
-    expect((await restWinner).statusCode).toBe(200);
-    expect(submit).toHaveBeenCalledTimes(2);
   });
 
   it('returns an immediate typed loser for overlapping REST callers without later execution', async () => {

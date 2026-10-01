@@ -1,6 +1,9 @@
 <template>
   <aside class="participant-rail" aria-label="Card participants">
     <h3 class="rail-label">Participants</h3>
+    <ViewState v-if="presentation?.error" state="error" title="Configured workflow unavailable" :message="presentation.error">
+      <template #action><button type="button" @click="retryPresentation">Retry workflow</button></template>
+    </ViewState>
     <ViewState v-if="state.loading && state.sessions.length === 0" state="loading" title="Loading card sessions" />
     <ViewState v-else-if="state.error" state="error" title="Card sessions unavailable" :message="state.error">
       <template #action><button type="button" @click="refresh">Retry</button></template>
@@ -36,12 +39,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch } from 'vue';
-import { storeToRefs } from 'pinia';
 import type { CardDetail } from '../../api/types';
 import type { ConversationSessionId } from '../../api/contracts';
 import { useCardAgentSessionsStore } from '../../stores/cardAgentSessions';
 import { useSyncStore } from '../../stores/sync';
-import { useDebugStore } from '../../stores/debug';
+import { useWorkflowPresentationStore } from '../../stores/workflowPresentation';
 import { formatRecentTimestamp } from '../../utils/timestamp';
 import { livenessPhrase } from '../../utils/legibility';
 import ViewState from '../ui/ViewState.vue';
@@ -54,8 +56,10 @@ const emit = defineEmits<{
 
 const cardSessionsStore = useCardAgentSessionsStore();
 const liveSync = useSyncStore();
-const debugStore = useDebugStore();
-const { graphs } = storeToRefs(debugStore);
+const presentations = useWorkflowPresentationStore();
+const presentation = computed(() => props.detail ? presentations.scope(props.detail.type) : null);
+watch(() => props.detail?.type, (type) => { if (type) void presentations.fetch(type); }, { immediate: true });
+function retryPresentation(): void { if (props.detail) void presentations.fetch(props.detail.type); }
 
 const state = computed(() => cardSessionsStore.scope(props.cardId));
 let close: (() => void) | null = null;
@@ -68,7 +72,7 @@ interface RailGroup {
 }
 
 const railGroups = computed<RailGroup[]>(() => {
-  const graph = graphs.value?.find((candidate) => candidate.card_type === props.detail?.type) ?? null;
+  const graph = presentation.value?.value ?? null;
   const byAgent = new Map<string, RailGroup>();
   for (const session of state.value.sessions) {
     const group = byAgent.get(session.agent_name) ?? { agentName: session.agent_name, sessions: [], configuredNodes: [] };
@@ -120,7 +124,6 @@ function maybeFocusSoleActiveMember(): void {
 function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : ''; }
 
 onMounted(() => {
-  if (graphs.value === null) void debugStore.fetchGraphs().catch(() => {});
   openScope();
 });
 watch(() => props.cardId, openScope);

@@ -5,7 +5,6 @@ import {
   LiveSyncSubscribedFrameSchema,
   LiveSyncSubscribeFrameSchema,
   LiveSyncUnsubscribeFrameSchema,
-  InboundAnalystMessageEnvelopeSchema,
   buildConnectedEnvelope,
   parseServerEgressWsEnvelope,
   parseLiveSyncClientFrame,
@@ -90,7 +89,6 @@ describe('live-sync unscoped wire contracts', () => {
 
 describe('server-egress WebSocket parser', () => {
   const connected = buildConnectedEnvelope({
-    sessionId: 'agent:analyst:global',
     timestamp: '2026-07-24T00:00:00.000Z',
     clientCount: 1,
   });
@@ -99,14 +97,9 @@ describe('server-egress WebSocket parser', () => {
     expect(parseServerEgressWsEnvelope(connected)).toEqual(connected);
   });
 
-  it('keeps strict browser-to-server Analyst input separate', () => {
+  it('rejects Analyst submission frames in both directions', () => {
     const input = { type: 'message', content: { text: 'Inspect the project.' } };
-    expect(InboundAnalystMessageEnvelopeSchema.parse(input)).toEqual(input);
-    expect(InboundAnalystMessageEnvelopeSchema.safeParse({ ...input, extra: true }).success).toBe(false);
-    expect(InboundAnalystMessageEnvelopeSchema.safeParse({
-      ...input,
-      content: { ...input.content, extra: true },
-    }).success).toBe(false);
+    expect(parseLiveSyncClientFrame(input)).toBeNull();
     expect(() => parseServerEgressWsEnvelope(input)).toThrow();
   });
 

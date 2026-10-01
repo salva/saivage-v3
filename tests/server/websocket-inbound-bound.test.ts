@@ -1,9 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { WebSocket } from 'ws';
 
-import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { Environment } from '../../src/config/environment.js';
-import { MAX_ANALYST_WS_FRAME_BYTES } from '../../src/contracts/index.js';
+import { MAX_WS_FRAME_BYTES } from '../../src/contracts/index.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
@@ -16,20 +15,14 @@ describe('WebSocket inbound frame bound', () => {
       nodeEnv: 'test',
       server: { logLevel: 'silent' },
     } as Environment, testApplicationFatalPort);
-    const submit = jest.fn();
-    const runtimeApplication = {
-      analystSessionId: 'agent:analyst:global',
-      analystRuntime: { submit },
-    } as unknown as RuntimeApplication;
+    const liveSyncSocket = new LiveSyncSocket();
+    const admit = jest.spyOn(liveSyncSocket, 'handleClientFrame');
     let client: WebSocket | undefined;
 
     try {
       registerWebSocket(fastify, {
-        restartCapability: { available: false },
         authPolicy: new AuthPolicy({}),
-        liveSyncSocket: new LiveSyncSocket(),
-        runtimeApplication,
-        fatalPort: testApplicationFatalPort,
+        liveSyncSocket,
       });
       await fastify.listen({ host: '127.0.0.1', port: 0 });
       const address = fastify.server.address();
@@ -37,10 +30,10 @@ describe('WebSocket inbound frame bound', () => {
 
       client = new WebSocket(`ws://127.0.0.1:${address.port}/ws`);
       await observeOpen(client, 2_000);
-      client.send(Buffer.alloc(MAX_ANALYST_WS_FRAME_BYTES + 1, 0x61));
+      client.send(Buffer.alloc(MAX_WS_FRAME_BYTES + 1, 0x61));
 
       await expect(observeClose(client, 2_000)).resolves.toMatchObject({ code: 1009 });
-      expect(submit).not.toHaveBeenCalled();
+      expect(admit).not.toHaveBeenCalled();
     } finally {
       if (client && client.readyState !== WebSocket.CLOSED) client.terminate();
       await fastify.close();

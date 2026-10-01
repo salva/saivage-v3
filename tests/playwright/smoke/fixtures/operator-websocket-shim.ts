@@ -1,20 +1,17 @@
 import type { Page } from '@playwright/test';
 import {
   buildConnectedEnvelope,
-  type InboundAnalystMessageEnvelope,
   type LiveSyncInvalidateFrame,
 } from '../../../../src/contracts/operator-events.js';
 
 const connectedEnvelope = buildConnectedEnvelope({
-  sessionId: 'agent:analyst:global',
   timestamp: '2026-05-19T12:00:00.000Z',
   clientCount: 1,
 });
 const runtimeUpdateEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'runtime' };
-const inboundAnalystFixture: InboundAnalystMessageEnvelope = { type: 'message', content: { text: 'hello analyst' } };
 
 export async function installOperatorWebSocketShim(page: Page, options: { autoAcknowledge?: boolean } = {}): Promise<void> {
-  await page.addInitScript(({ connected, runtimeUpdate, inboundFixture, autoAcknowledge }) => {
+  await page.addInitScript(({ connected, runtimeUpdate, autoAcknowledge }) => {
     type Listener = (event: Event) => void;
     type FixtureFrame = Record<string, unknown>;
 
@@ -129,7 +126,6 @@ export async function installOperatorWebSocketShim(page: Page, options: { autoAc
       sockets,
       outbound,
       connectedEnvelope: connected as FixtureFrame,
-      inboundAnalystFixture: inboundFixture as FixtureFrame,
       emitRuntimeUpdate() {
         for (const socket of sockets) socket.emit(runtimeUpdate as FixtureFrame);
       },
@@ -143,7 +139,6 @@ export async function installOperatorWebSocketShim(page: Page, options: { autoAc
   }, {
     connected: connectedEnvelope,
     runtimeUpdate: runtimeUpdateEnvelope,
-    inboundFixture: inboundAnalystFixture,
     autoAcknowledge: options.autoAcknowledge ?? true,
   });
 }
@@ -154,7 +149,6 @@ declare global {
       sockets: unknown[];
       outbound: string[];
       connectedEnvelope: unknown;
-      inboundAnalystFixture: unknown;
       emitRuntimeUpdate(): void;
       emit(envelope: unknown): void;
       closeAll(): void;

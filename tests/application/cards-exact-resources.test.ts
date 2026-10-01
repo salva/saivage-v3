@@ -129,9 +129,9 @@ describe('exact Card operator resources',()=>{
 
   it('distinguishes dynamic and optional absence, malformed names, bootstrap corruption, and inactive cards',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
-    expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'Card record not found',cardId:card.id,name:'unknown.md'}});
+    expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'card_record_not_found',cardId:card.id,name:'unknown.md'}});
     expect(()=>model.getRecord(card.id,'UNKNOWN.md')).toThrow();
-    expect(model.getRecord(card.id,'status.md')).toEqual({statusCode:404,body:{error:'Card record not found',cardId:card.id,name:'status.md'}});
+    expect(model.getRecord(card.id,'status.md')).toEqual({statusCode:404,body:{error:'card_record_not_found',cardId:card.id,name:'status.md'}});
     cards.openRecord(card.id,'status.md');
     expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',head_version:1,state:'open',draft:{content:''},effective_content_source:'draft'}}});
     cards.discardRecord(card.id,'status.md','not needed');

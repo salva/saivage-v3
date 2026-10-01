@@ -85,11 +85,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
-import { storeToRefs } from 'pinia';
+import { computed, watch } from 'vue';
 import type { CardDetail, CardWorkflowPosition } from '../../api/types';
 import { cardRouteChain, useCardStore } from '../../stores/cards';
-import { useDebugStore } from '../../stores/debug';
+import { useWorkflowPresentationStore } from '../../stores/workflowPresentation';
 import { formatRecentTimestamp } from '../../utils/timestamp';
 import { labelForCardType, statusForCard } from '../../utils/status';
 import { positionGloss } from '../../utils/legibility';
@@ -104,20 +103,19 @@ const props = defineProps<{
 }>();
 
 const cardStore = useCardStore();
-const debugStore = useDebugStore();
-const { graphs, graphsLoading, graphsError } = storeToRefs(debugStore);
-
-onMounted(() => {
-  if (graphs.value === null && !graphsLoading.value) void debugStore.fetchGraphs().catch(() => {});
-});
-function retryGraphs(): void { void debugStore.fetchGraphs().catch(() => {}); }
+const presentations = useWorkflowPresentationStore();
+const presentation = computed(() => props.detail ? presentations.scope(props.detail.type) : null);
+const graphsLoading = computed(() => presentation.value?.loading ?? false);
+const graphsError = computed(() => presentation.value?.error ?? null);
+watch(() => props.detail?.type, (type) => { if (type) void presentations.fetch(type); }, { immediate: true });
+function retryGraphs(): void { if (props.detail) void presentations.fetch(props.detail.type); }
 function fmtDate(ts: string): string { return formatRecentTimestamp(ts); }
 
 const chainCards = computed(() => cardRouteChain(props.cardId)
   .map((id) => cardStore.hierarchyCardById(id))
   .filter((card): card is NonNullable<typeof card> => card !== null));
 
-const graph = computed(() => graphs.value?.find((candidate) => candidate.card_type === props.detail?.type) ?? null);
+const graph = computed(() => presentation.value?.value ?? null);
 
 const observedPosition = computed(() => {
   const position = props.position;

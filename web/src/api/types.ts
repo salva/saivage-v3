@@ -53,6 +53,7 @@ export type FileContent = OperatorApiSuccess<'files.content'>;
 
 export type DebugErrorRecord = OperatorApiSuccess<'debug.errors'>['errors'][number];
 export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
+export type WorkflowPresentation = OperatorApiSuccess<'workflows.presentation'>;
 export type DebugGlobalAgent = OperatorApiSuccess<'debug.graphs'>['global_agents'][number];
 export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
 
@@ -86,7 +87,6 @@ export type LoggedEventView = EventsListResponse['events'][number];
 export type ConfigGetResponse = OperatorApiSuccess<'config.get'>;
 export type ProvidersListResponse = OperatorApiSuccess<'providers.list'>;
 export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
-export type ContentPolicyRuntimeResponse = OperatorApiSuccess<'runtime.contentPolicy'>;
 export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
 export type AgentConversationVersionListResponse = OperatorApiSuccess<'agents.conversationVersions.list'>;
 export type AgentConversationVersionResponse = OperatorApiSuccess<'agents.conversationVersions.get'>;

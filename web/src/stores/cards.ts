@@ -590,7 +590,7 @@ export const useCardStore = defineStore('cards', () => {
           return;
         const optionalEmpty404 =
           isOperatorApiError(error, 'cards.records.get', 404) &&
-          error.data.error === 'Card record not found' &&
+          error.data.error === 'card_record_not_found' &&
           error.data.cardId === cardId &&
           error.data.name === name &&
           !prior.descriptor.bootstrap &&

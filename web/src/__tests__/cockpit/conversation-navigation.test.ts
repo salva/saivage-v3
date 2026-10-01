@@ -9,14 +9,14 @@ import { useCardStore } from '../../stores/cards';
 import { useCardAgentSessionsStore } from '../../stores/cardAgentSessions';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { OperatorApiError } from '../../api/client';
-import { agentSession, cardDetail, hierarchyParent, hierarchyRecord } from './fixtures';
+import { agentSession, cardDetail, hierarchyParent, hierarchyRecord, cyclicCodePresentation } from './fixtures';
 
 const api = vi.hoisted(() => ({
   getAgentSession: vi.fn(),
   getCard: vi.fn(),
   getCardChildren: vi.fn(),
   getCardAgentSessions: vi.fn(),
-  getDebugGraphs: vi.fn(),
+  getWorkflowPresentation: vi.fn(),
   listCardRecords: vi.fn(),
 }));
 
@@ -26,7 +26,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
   getCard: api.getCard,
   getCardChildren: api.getCardChildren,
   getCardAgentSessions: api.getCardAgentSessions,
-  getDebugGraphs: api.getDebugGraphs,
+  getWorkflowPresentation: api.getWorkflowPresentation,
   listCardRecords: api.listCardRecords,
 }));
 
@@ -65,7 +65,7 @@ function installDefaults(): void {
     return { parent: hierarchyParent(id), children: [] };
   });
   api.getCardAgentSessions.mockResolvedValue({ sessions: [] });
-  api.getDebugGraphs.mockResolvedValue({ graphs: [], global_agents: [] });
+  api.getWorkflowPresentation.mockImplementation(async (cardType: string) => ({ ...cyclicCodePresentation(), card_type: cardType }));
   api.listCardRecords.mockImplementation(async (cardId: string) => ({
     card_id: cardId,
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null }],

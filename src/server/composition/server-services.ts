@@ -67,7 +67,6 @@ export async function createServerServices(input: {
     validateConfiguredGlobalConversation(projectRoot, globalAgentSessionId(participant.agent.name));
 
   const fastify = await createFastifyApp(environment, input.fatalPort);
-  terminal.registerAdmissionCloser('http-admission', () => { /* onRequest observes the shared closing flag */ });
   terminal.registerCleanupLeaf('fastify', () => fastify.close());
   fastify.addHook('onRequest', async (_request, reply) => {
     if (terminal.isApplicationClosing()) await reply.code(503).send({ error: 'application_closing' });

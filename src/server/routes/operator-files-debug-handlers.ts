@@ -1,4 +1,4 @@
-import { EventQueryService, WorkspaceFileReadModelService } from '../../application/index.js';
+import { WorkspaceFileReadModelService } from '../../application/index.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 import { projectCompiledGraphs } from '../../runtime/runtime-api.js';
@@ -8,12 +8,10 @@ import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 
 export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService; configAuthority: ResolvedConfigAuthority; workflows: CompiledRuntimeWorkflows }) {
   const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, options.cardServiceProvider, options.configAuthority);
-  const eventQueries = new EventQueryService(options.projectRoot);
 
   return defineOperatorContractHandlers({
     'files.list': ({ query }) => fileReadModel.listFiles(query.path || '.'),
     'files.content': ({ query }) => fileReadModel.readFileContent(query.path),
-    'debug.errors': () => ({ body: eventQueries.queryErrors() }),
     'debug.graphs': () => ({ body: projectCompiledGraphs(options.workflows) }),
     'debug.doctor': ({ request }) => {
       try {

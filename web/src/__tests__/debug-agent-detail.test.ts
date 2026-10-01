@@ -44,7 +44,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
       cursor: { segment_version: 1, message_id: null },
     });
     api.getAgentLlmExchange.mockRejectedValue(
-      new OperatorApiError('agents.llmExchange', 404, { error: 'No LLM exchange recorded for this session yet.' }),
+      new OperatorApiError('agents.llmExchange', 404, { error: 'llm_exchange_not_found' }),
     );
   });
 

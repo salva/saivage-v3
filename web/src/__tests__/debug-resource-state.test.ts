@@ -4,6 +4,8 @@ import type { DebugErrorsResponse } from '../api/types';
 
 const api = vi.hoisted(() => ({
   getDebugErrors: vi.fn(),
+  listProcesses: vi.fn(),
+  getDoctor: vi.fn(),
 }));
 
 vi.mock('../api/client', async (importOriginal) => ({
@@ -57,5 +59,32 @@ describe('Debug Errors resource state', () => {
     expect(await errorsAction).toBe(expectedFailure);
     expect(store.errorsLoading).toBe(false);
     expect(store.errorsError).toBe('Failed to fetch debug errors');
+  });
+
+  it('suppresses stale Errors failure while independent process/Doctor observations retain last-good values', async () => {
+    const first = deferred<DebugErrorsResponse>();
+    const second = deferred<DebugErrorsResponse>();
+    api.getDebugErrors.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    api.listProcesses.mockResolvedValueOnce({ processes: [{ id: 'retained' }] }).mockRejectedValueOnce(new Error('offline'));
+    api.getDoctor.mockResolvedValueOnce({ status: 'ok', checks: [{ name: 'retained' }], issues: [] }).mockRejectedValueOnce(new Error('offline'));
+    const store = useDebugStore();
+    const a = store.fetchErrors();
+    const b = store.fetchErrors();
+    await Promise.all([store.fetchProcesses(), store.fetchDoctor()]);
+    first.reject(new Error('superseded'));
+    await a;
+    expect(store.errorsError).toBeNull();
+    expect(store.errorsLoading).toBe(true);
+    await Promise.all([store.fetchProcesses(), store.fetchDoctor()]);
+    expect(store.processes).toEqual([{ id: 'retained' }]);
+    expect(store.processesError).toBe('Failed to fetch processes');
+    expect(store.doctorStatus).toBe('ok');
+    expect(store.doctorChecks).toEqual([{ name: 'retained' }]);
+    expect(store.doctorError).toBe('Failed to fetch doctor diagnostics');
+    store.$dispose();
+    expect((api.getDebugErrors.mock.calls[1]![0] as AbortSignal).aborted).toBe(true);
+    second.resolve({ errors: [], total: 0 });
+    await b;
+    expect(store.errorsLoading).toBe(false);
   });
 });

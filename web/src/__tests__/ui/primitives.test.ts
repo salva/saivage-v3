@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
-import Button from '../../components/ui/Button.vue';
 import Dialog from '../../components/ui/Dialog.vue';
 import Panel from '../../components/ui/Panel.vue';
 import SelectableRow from '../../components/ui/SelectableRow.vue';
@@ -10,14 +9,6 @@ import ViewState from '../../components/ui/ViewState.vue';
 
 
 describe('ui primitives', () => {
-  it('renders Button variants and disabled state on a native button', () => {
-    const wrapper = mount(Button, { props: { variant: 'primary', disabled: true }, slots: { default: 'Save' } });
-    expect(wrapper.element.tagName).toBe('BUTTON');
-    expect(wrapper.classes()).toContain('ui-button--primary');
-    expect(wrapper.attributes()).toHaveProperty('disabled');
-    expect(wrapper.text()).toBe('Save');
-  });
-
   it('renders Panel with semantic classes', () => {
     expect(mount(Panel, { slots: { default: 'Body' } }).classes()).toContain('ui-panel');
   });

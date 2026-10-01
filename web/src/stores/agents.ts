@@ -148,6 +148,7 @@ export const useAgentStore = defineStore('agents', () => {
     try {
       const response = await listAgentSessions(controller.signal);
       if (generation !== sessionsGeneration) return false;
+      abortMembershipRequests();
       acceptBaseline(response.sessions);
       sessionsLoaded.value = true;
       sessionsError.value = null;
@@ -171,7 +172,7 @@ export const useAgentStore = defineStore('agents', () => {
   async function reconcileMembership(frame: LeaseInvalidation): Promise<void> {
     void selectedSummaryHint(frame);
     if (!frame || frame.resource !== 'agent-membership') return void (await fetchSessions());
-    const key = frame.scope === 'card' ? frame.card_id : 'global';
+    const key = frame.scope === 'card' ? frame.card_id : frame.session_id;
     const baselineGeneration = sessionsGeneration;
     const requestGeneration = (membershipGenerations.get(key) ?? 0) + 1;
     membershipGenerations.set(key, requestGeneration);
@@ -205,7 +206,11 @@ export const useAgentStore = defineStore('agents', () => {
           membershipGenerations.get(key) !== requestGeneration
         )
           return;
-        partitions.set('global', [response.session]);
+        const globalSessions = partitions.get('global') ?? [];
+        const exists = globalSessions.some((session) => session.id === response.session.id);
+        partitions.set('global', exists
+          ? globalSessions.map((session) => session.id === response.session.id ? response.session : session)
+          : [...globalSessions, response.session]);
       }
       publishPartitions();
     } finally {
@@ -402,7 +407,7 @@ export const useAgentStore = defineStore('agents', () => {
       if (token !== activeExchangeToken || generation !== exchangeGeneration || abortError(error))
         return;
       if (isOperatorApiError(error, 'agents.llmExchange', 404)) {
-        if (error.data.error === 'No LLM exchange recorded for this session yet.') {
+        if (error.data.error === 'llm_exchange_not_found') {
           currentLlmExchange.value = null;
           llmExchangeLoaded.value = true;
           llmExchangeError.value = null;

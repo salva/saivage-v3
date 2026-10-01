@@ -3,6 +3,7 @@ import {
   type DebugGraphsResponse,
 } from '../../contracts/index.js';
 import { effectiveCardNodeToolReferences } from '../../tools/tool-api.js';
+import { workflowEdge, workflowEntryTarget } from './workflow-topology.js';
 import {
   type CardProcessEntry,
   type CompiledCardTypeWorkflow,
@@ -12,18 +13,6 @@ import {
 
 const entries = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const terminals = ['DONE', 'BLOCKED', 'FAILED'] as const;
-
-function entryTarget(workflow: CompiledCardTypeWorkflow, entry: CardProcessEntry): string {
-  const transition = workflow.states.get(`entry:${entry}`)?.on.get('entry:route');
-  if (!transition || transition.semantic.kind !== 'entry-route')
-    throw new Error(`Compiled workflow '${workflow.cardType}' is missing entry '${entry}'.`);
-  const target = workflow.states.get(transition.targetStateId);
-  if (!target || target.kind !== 'node')
-    throw new Error(
-      `Compiled workflow '${workflow.cardType}' entry '${entry}' does not target a node.`,
-    );
-  return target.nodeId;
-}
 
 function entryPrompt(workflow: CompiledCardTypeWorkflow, entry: CardProcessEntry) {
   const route = workflow.states.get(`entry:${entry}`)?.on.get('entry:route');
@@ -52,7 +41,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     const cardType=workflow.cardType;
     const graphEntries = entries.map((entry) => ({
       entry,
-      node_id: entryTarget(workflow, entry),
+      node_id: workflowEntryTarget(workflow, entry),
        prompt: projectedPrompt(entryPrompt(workflow, entry)),
     }));
     const nodeStates = [...workflow.states.values()].filter((state) => state.kind === 'node');
@@ -99,23 +88,13 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     });
     const edges = nodeStates.flatMap((node) =>
       [...node.on.values()].map((route) => {
-        const target = workflow.states.get(route.targetStateId)!;
+        const structural = workflowEdge(workflow, node, route);
         if (route.semantic.kind === 'configured-outcome') {
-          if (target.kind !== 'node' && target.kind !== 'terminal')
-            throw new Error(
-              `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid configured target.`,
-            );
           const behavior = route.semantic.terminalBehavior;
           return {
-            source_node_id: node.nodeId,
-            outcome: route.semantic.outcome,
+            ...structural,
             runtime_owned: false,
-            condition: 'default' as const,
              prompt: projectedPrompt(route.semantic.prompt),
-            target:
-              target.kind === 'terminal'
-                ? { kind: 'terminal' as const, terminal: target.terminal }
-                : { kind: 'node' as const, node_id: target.nodeId },
             export_records: behavior?.exportRecords.map((record) => record.name) ?? [],
             promotion:
               behavior === null
@@ -126,33 +105,25 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           };
         }
         if (route.semantic.kind === 'configured-pending-notifications') {
-          if (target.kind !== 'node') throw new Error(`Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid pending-notifications target.`);
           return {
-            source_node_id: node.nodeId,
-            outcome: route.semantic.outcome,
+            ...structural,
             runtime_owned: false,
-            condition: 'pending_notifications' as const,
              prompt: projectedPrompt(route.semantic.prompt),
-            target: { kind: 'node' as const, node_id: target.nodeId },
             export_records: [],
             promotion: null,
           };
         }
         if (route.semantic.kind === 'notification-interrupt') {
-          if (target.kind !== 'node') throw new Error(`Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid interruption target.`);
-          return { source_node_id: node.nodeId, outcome: 'notification:interrupt', runtime_owned: true, condition: 'default' as const, prompt: projectedPrompt(route.semantic.prompt), target: { kind: 'node' as const, node_id: target.nodeId }, export_records: [], promotion: null };
+          return { ...structural, runtime_owned: true, prompt: projectedPrompt(route.semantic.prompt), export_records: [], promotion: null };
         }
-        if (route.semantic.kind !== 'runtime-terminal' || target.kind !== 'terminal')
+        if (route.semantic.kind !== 'runtime-terminal')
           throw new Error(
             `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid runtime target.`,
           );
         return {
-          source_node_id: node.nodeId,
-          outcome: route.semantic.cause === 'failed' ? 'execution:failed' : 'execution:blocked',
+          ...structural,
           runtime_owned: true,
-          condition: 'default' as const,
            prompt: null,
-          target: { kind: 'terminal' as const, terminal: target.terminal },
           export_records: [],
           promotion: null,
         };

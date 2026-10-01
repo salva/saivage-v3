@@ -13,6 +13,7 @@ import { OperatorApiError } from '../api/client';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
 import type { ConversationInvalidation } from '../sync/client';
 import { useAgentStore } from '../stores/agents';
+import { cyclicCodePresentation } from './cockpit/fixtures';
 
 const lifecycle = vi.hoisted(() => ({
   events: [] as string[],
@@ -53,7 +54,7 @@ vi.mock('../api/client', async (importOriginal) => ({
   getAgentLlmExchange: vi.fn(),
   getCard: vi.fn(async () => ({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
   getCardAgentSessions: vi.fn(async () => ({ sessions: [] })),
-  getDebugGraphs: vi.fn(async () => ({ graphs: [], global_agents: [] })),
+  getWorkflowPresentation: vi.fn(async () => ({ ...cyclicCodePresentation(), card_type: 'project' })),
   getCardChildren: vi.fn(async (id: string) => ({ parent: { id, type: 'project', title: 'Project', status: 'running', permitted_child_types: [] }, children: [] })),
   listCardRecords: vi.fn(async () => ({ card_id: 'project', records: [] })),
 }));

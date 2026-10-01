@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, onScopeDispose } from 'vue';
+import { createOwnedFetch } from './owned-fetch';
 import type { ConfigGetResponse, ControlActionsListResponse, ProvidersListResponse } from '../api/types';
 import { getConfig, listControlActions, listProviders } from '../api/client';
 
@@ -10,50 +11,44 @@ import { getConfig, listControlActions, listProviders } from '../api/client';
  */
 export const useSystemResourcesStore = defineStore('system-resources', () => {
   const config = ref<ConfigGetResponse | null>(null);
-  const configLoading = ref(false);
+  const configRequest = createOwnedFetch();
+  const configLoading = configRequest.pending;
   const configError = ref<string | null>(null);
   const providers = ref<ProvidersListResponse | null>(null);
-  const providersLoading = ref(false);
+  const providersRequest = createOwnedFetch();
+  const providersLoading = providersRequest.pending;
   const providersError = ref<string | null>(null);
   const actions = ref<ControlActionsListResponse | null>(null);
-  const actionsLoading = ref(false);
+  const actionsRequest = createOwnedFetch();
+  const actionsLoading = actionsRequest.pending;
   const actionsError = ref<string | null>(null);
 
   async function fetchConfig(): Promise<void> {
-    configLoading.value = true;
     configError.value = null;
-    try {
-      config.value = await getConfig();
-    } catch (error) {
+    await configRequest.run(getConfig, (value) => { config.value = value; }, (error) => {
       configError.value = error instanceof Error ? error.message : String(error);
-    } finally {
-      configLoading.value = false;
-    }
+    });
   }
 
   async function fetchProviders(): Promise<void> {
-    providersLoading.value = true;
     providersError.value = null;
-    try {
-      providers.value = await listProviders();
-    } catch (error) {
+    await providersRequest.run(listProviders, (value) => { providers.value = value; }, (error) => {
       providersError.value = error instanceof Error ? error.message : String(error);
-    } finally {
-      providersLoading.value = false;
-    }
+    });
   }
 
   async function fetchActions(): Promise<void> {
-    actionsLoading.value = true;
     actionsError.value = null;
-    try {
-      actions.value = await listControlActions();
-    } catch (error) {
+    await actionsRequest.run((signal) => listControlActions({}, signal), (value) => { actions.value = value; }, (error) => {
       actionsError.value = error instanceof Error ? error.message : String(error);
-    } finally {
-      actionsLoading.value = false;
-    }
+    });
   }
+
+  onScopeDispose(() => {
+    configRequest.cancel();
+    providersRequest.cancel();
+    actionsRequest.cancel();
+  });
 
   return {
     config, configLoading, configError, fetchConfig,

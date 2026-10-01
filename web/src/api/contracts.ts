@@ -36,8 +36,6 @@ export {
   LiveSyncInvalidateFrameSchema,
   LiveSyncSubscribedFrameSchema,
   buildConnectedEnvelope,
-  isAnalystActivityContent,
-  parseAnalystTurnAcknowledgedStatusContent,
   parseServerEgressWsEnvelope,
 } from '@saivage/contracts/operator-events';
 

@@ -193,7 +193,7 @@ It contains no dependency, assignment, start, note, notification, child, or oper
 `GET /api/cards/:id/records` proves active linkage and returns the selected card type's startup-compiled declarations in declaration order, with exact `{name,format,schema,bootstrap,current}` descriptors and no write-authority field.
 It does not discover dynamic names.
 `GET /api/cards/:id/records/:name` validates both path grammars before file access, proves active linkage, resolves declared metadata, and folds the record's exact `record-<stem>.jsonl` stream, returning the current row's effective content.
-A missing optional record stream is exactly `Card record not found`; a missing bootstrap record stream, a present empty or malformed record stream, and every unreadable reached current authority are server failures.
+A missing optional record stream is exactly `card_record_not_found`; a missing bootstrap record stream, a present empty or malformed record stream, and every unreadable reached current authority are server failures.
 Publication uncertainty is rethrown before every ordinary absence mapping and reaches the existing fatal boundary.
 Titles, lifecycle summaries/errors, descriptor schemas, and record content are redacted before exact response validation.
 Current authored-record content, explicit record versions, and record diffs share the authored-record outbound artifact projection.
@@ -215,10 +215,8 @@ A runtime frame is only a lossy trigger for a new combined runtime REST read; it
 RuntimeStore separately owns whether a current-epoch combined response has been accepted, its payload, initial loading/error, retained-state refreshing/refresh error, and the absolute completion instant of the last accepted response.
 Before acceptance runtime status is unknown; accepted `runtime:null` means stopped with no live runtime; an accepted non-null payload supplies its exact status.
 The browser has no runtime callback-provenance or age-derived stale model.
-Browser-to-server Analyst input is the separate strict `message` envelope and is never valid server egress.
-Server event egress is one strict `status | activity | error` union; it has no `message`, `thinking`, unknown, or open member.
-Its event-bearing content uses only `connected`, `analyst_turn_acknowledged`, `notification_added`, `control_action_recorded`, `analyst_tool_invoked`, and `tool_invocation`.
-`tool_invocation` requires the singular classified `ToolResult` contract.
+Browser-to-server input is limited to strict live-sync subscribe/unsubscribe frames; Analyst input uses REST only.
+Server event egress contains only the strict `status` connected envelope, with content exactly `{event:'connected',timestamp,clientCount}`. It has no activity, error, message, thinking, or open member. Live-sync subscribed/invalidate frames are separate strict observations.
 Every server envelope and content variant is an exact strict object: an undeclared key is structurally invalid.
 The server-egress parser returns a validated server value or throws for structurally invalid, unknown, malformed, or wrong-direction input; unknown events are never dispatched through a generic envelope path.
 Ordinary Cards freshness is carried only by the scoped identity-only invalidations above; there is no card-history activity payload carrying changed fields.
@@ -259,7 +257,7 @@ There is no Cards polling, timer, automatic retry, trailing refresh, sequence le
 
 Displayed “Diff vs current” browser requests follow the [exact source-derived request identity and currentness contract](operator-ui-contracts.md#exact-displayed-current-diff-request-contract).
 
-Current authored-record absence handling accepts only the exact strict `{error:'Card record not found',cardId,name}` response for a non-bootstrap definition as empty.
+Current authored-record absence handling accepts only the exact strict `{error:'card_record_not_found',cardId,name}` response for a non-bootstrap definition as empty.
 Card-not-found, definition-not-found, any other 404 body, and every other failure remain errors.
 Bootstrap absence is canonical corruption and never empty.
 
@@ -524,13 +522,13 @@ identity.conversation-session = {"agentParser":"agentNameSchema","captures":[{"i
 The Analyst runtime owns at most one lazily created actor and accepts no caller-selected session identity.
 `GET /api/chat` returns only the configured global Analyst `session_id` and is the sole REST chat identity response.
 `POST /api/chat` accepts exactly a strict object with required non-empty `content` and optional strict workspace context; success returns only tool-invocation and restart results, with no session identity field. REST `content` is additionally capped by schema at `1_048_576` UTF-16 code units (JavaScript `string.length`).
-The first synchronous `AnalystSession.submit()` admission wins across REST and every WebSocket.
-An overlap is rejected immediately, never queued: REST maps the typed busy error to HTTP 409 while WebSocket uses the corresponding strict discriminated error member; the exact shared variant is documented in [Section 11](#exact-shared-operator-error-contracts).
+REST `chats.send` (`POST /api/chat`) is the sole Analyst submission transport. The first synchronous `AnalystSession.submit()` admission wins.
+An overlap is rejected immediately, never queued: REST maps the typed busy error to HTTP 409; the exact shared variant is documented in [Section 11](#exact-shared-operator-error-contracts).
 Failed, disposed, closed-admission, canonical-state, provider, persistence, invariant, and publication-uncertain failures are not busy.
-WebSocket connection and successful turn acknowledgement and final Analyst tool activities carry the configured identity; a busy loser emits no acknowledgement or activity.
+WebSocket is observation-only: inbound frames are strict live-sync subscribe/unsubscribe objects. Unsupported frames (including Analyst messages) and malformed JSON close with code 1008 and fixed reason `Invalid live-sync frame`, before any subscription effect or acknowledgement. Connected status contains exactly `{event:'connected',timestamp,clientCount}`; chat identity comes only from REST `chats.get`. No Analyst activity, busy/error, or turn-acknowledgement envelope is sent over WS.
 Generic Agent detail, conversation, and LLM-exchange parameters use the full shared session grammar.
 Invalid raw frames are rejected before subscription mutation or acknowledgement, and malformed Vue Agent route input mounts no detail, REST, or live-sync work.
-The single WebSocket transport caps the entire reassembled inbound message at 1 MiB (`1_048_576` bytes); an oversized message closes with code 1009 before JSON parsing, schema validation, or Analyst handler work. Inbound Analyst `text` is additionally capped by schema at `1_048_576` UTF-16 code units (JavaScript `string.length`). The transport limit is authoritative for multibyte content, and its nominal 1 MiB ceiling is aligned with the explicit global REST body limit.
+The single WebSocket transport caps the entire reassembled inbound message at 1 MiB (`1_048_576` bytes); an oversized message closes with code 1009 before JSON parsing or subscription admission. This transport bound is separate from the REST content schema limit and explicit global REST body limit.
 
 Agent summaries require `id`, `agent_name`, `session_scope`, `card_id`, `started_at`, required nullable `compaction`, and exactly one valid liveness pair: `status:'active'` with `activity:'busy'`, or `status:'inactive'` with `activity:'idle'`. `compaction` is null unless that exact executing session owns current ephemeral progress; otherwise it is exactly `{strategy,started_at,folds_done,fold_in_flight}` with a nonnegative logical-success count.
 `GET /api/agents` derives the configured global Analyst and every active linked card's distinct compiled workflow agents.
@@ -582,13 +580,13 @@ Initial, tool-continuation, and plain-text-repair provider invocations each allo
 Deferred startup rechecks exact operation authority before ingress and nested admission.
 Only positively identified pure pre-effect preparation rejection restores reusable admission; persistence, observer, cleanup, invariant, outcome-unknown, and unclassified rejection poison the session.
 There is no Analyst-turn cancellation authority, backend method or callback, response flag, transcript notice, fabricated tool result, or hidden generic terminal/cancellation winner.
-Transport-local WebSocket queues do not exist, and closing a socket does not cancel an accepted global turn.
+Closing an observation socket does not cancel an accepted global turn.
 Application teardown instead closes admission, cancels and settles an accepted Analyst operation that owns an initial or continuation provider handoff, and joins owned completion before final Conversation LLM disposal. Every returned tool call is matched without executor entry or model continuation before the submission rejects with the exact disposal reason.
 If disposal re-enters after ordinary ingress publication has entered, the writer finishes exactly the one two-row activation/user batch; the submission then rejects with the exact disposal reason before conversation reread or provider admission, and the outer tracker and Conversation LLM join successfully.
 
 Server composition derives one immutable discriminated restart capability from the selected authentication policy and boot-owned restart port.
 Authenticated composition without that port fails; disabled authentication produces only `{available:false}`.
-That exact capability reaches runtime status, the Analyst tool/session, REST routes, and WebSocket acknowledgement.
+That exact capability reaches runtime status, the Analyst tool/session, and REST routes. A scheduled chat restart is acknowledged only on REST response finish (`reply.raw`); no socket acknowledgement exists.
 The sole public status projector maps its discriminator to `restart_server_available`; no downstream consumer re-derives availability from authentication or combines a boolean with an optional port.
 
 Restart confirmation is one move-only in-memory capability.
@@ -607,7 +605,7 @@ When cancellation suppresses a terminal handoff during terminal-error publicatio
 
 The references above to caller-supplied results describe the existing entered-writer lifecycle only; the current caller supplies a nominal action settlement, not a wire envelope.
 The append owner writes the settlement authority's exact canonical bytes and returns the same settled ToolResult and bytes through the LLM actor.
-Analyst stores that returned result only after durable append and passes it unchanged to immediate REST and WebSocket activity, while those live projections outbound-project arguments only.
+Analyst stores that returned result only after durable append and passes it unchanged to immediate REST results, whose live projection outbound-projects arguments only. Conversation invalidations supply live observation to other clients without activity fan-out.
 Successful restart no-continuation settlement likewise returns the authority-created facts before confirmation handling.
 
 Every bounded tool response is admitted against canonical bytes of the final post-outbound settled ToolResult, not an inner pre-redaction payload estimate.
@@ -1015,7 +1013,7 @@ A declared non-200 response becomes validated operator error data; an undeclared
 On server output, an undeclared status or malformed declared body follows the fixed actionable-evidence/opaque-500 path without sending the candidate body or consulting another schema.
 Fixed params, query, body, success, nested-row, and error objects are strict; records and explicitly opaque leaves alone remain open.
 Runtime validation errors require `{error:'ValidationError',message,issues}` with strict issue rows, unauthorized responses require numeric `statusCode`, and handler-owned variants remain exact status-local schemas rather than a generic API error.
-Agent detail/conversation absence is exactly `{error:'Agent session not found'}`, absent LLM exchange is exactly `{error:'No LLM exchange recorded for this session yet.'}`, and the conversation cursor failure is its own exact one-issue 400 variant.
+Agent detail/conversation absence is exactly `{error:'Agent session not found'}`, absent LLM exchange is exactly `{error:'llm_exchange_not_found'}`, and the conversation cursor failure is its own exact one-issue 400 variant.
 Process-list status is exactly `running | exited | failed | killed`.
 
 Each request computes one response descriptor inside one complete pre-send `ContractRuntime` boundary.
@@ -1083,7 +1081,7 @@ Inner catches rethrow the identical object before local classification.
 The Supervisor `activateProcessor()` rejection callback synchronously begins the one runtime halt and preserves the identical publication error on the owning activation settlement.
 Structural child waits receive the shared `RuntimeStoppedInterruption`, become terminal and consumable before joins, and cannot turn the stop into an ordinary failed planner tool result.
 The halt performs no publication follow-up I/O and cleanup failure cannot replace publication-error identity at that owning boundary.
-The other consuming roots remain the global Fastify handler and registered Analyst WebSocket message rejection observer; they publish no replacement evidence and expose no cause through HTTP or WebSocket responses, while delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr.
+The other consuming root remains the global Fastify handler; it publishes no replacement evidence and exposes no cause through HTTP responses, while delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr. Observation-only sockets invoke no durable owner.
 
 Successful owners call narrow SyncHub effects directly.
 Conversation publication emits `conversationChanged({session_id,segment_version,visible_message_id})` only after confirmed append/index commit.
@@ -1101,6 +1099,8 @@ There is no Debug Timeline, `/api/debug/timeline`, dedicated error lane, ErrorLo
 Missing app-log state yields empty results.
 Every full read validates the complete event/control stream and rejects repeated logical IDs within that stream before lane filtering.
 Any incomplete content, duplicate, complete malformed canonical envelope, or invalid row fails the whole explicit read with HTTP 500 and returns no valid prefix; bytes remain unchanged.
+
+Authenticated `GET /api/workflows/:cardType/presentation` (`workflows.presentation`) supplies the cockpit's compact structural facts for exactly one installed card type, directly from the immutable startup artifact with no file reads or all-types projection. Its strict response is `{card_type,nodes:[{node_id,agent_name}],entries:[{entry,node_id}],edges:[{source_node_id,outcome,condition,target}],terminals:[{terminal}],records:[{name,bootstrap}]}`. Entry, condition, terminal enums and node/terminal targets match Debug Graphs, including configured and runtime-owned edges. Unknown installed type returns strict HTTP 404 `{error:'workflow_type_not_found',card_type}`. Prompt declarations/bodies/paths, globals, model/provider bindings, tools, capabilities, secrets, and runtime position are absent. This is presentation evidence, not another workflow authority; System retains the richer Debug Graphs operation.
 
 Authenticated `GET /api/debug/graphs` returns one strict graph projection for each canonical card type in canonical order.
 Its sole source is the immutable runtime workflow artifact compiled and bound during startup: the handler reads no configuration, prompt file, or runtime-state file.
@@ -1638,7 +1638,7 @@ Interrupted external effects may repeat, notification context may duplicate, pro
 Every Saivage-owned durable replacement, JSONL append, owning-reader suffix truncation, lifecycle-lock publication, process-output append, and work-artifact replacement classifies failure at its direct syscall boundary.
 Preparation and safe acquisition failures remain ordinary.
 Once canonical mutation is attempted and its result is unknown, the owner throws `PublicationOutcomeUnknownError`.
-The first actor, Analyst, WebSocket, process-callback, server, startup, direct-mutation, or CLI boundary writes exactly one credential-free line to process stderr synchronously and exits with status 1. The line contains the fixed fatal sentence followed, when the direct syscall cause was captured, by ` Cause: ` and that cause's message, including the ordinary errno, syscall, and path detail carried by Node filesystem errors.
+The first actor, Analyst, process-callback, server, startup, direct-mutation, or CLI boundary writes exactly one credential-free line to process stderr synchronously and exits with status 1. The line contains the fixed fatal sentence followed, when the direct syscall cause was captured, by ` Cause: ` and that cause's message, including the ordinary errno, syscall, and path detail carried by Node filesystem errors.
 It performs no logging, response conversion, card settlement, process cleanup, descriptor cleanup, retry, inspection, or lifecycle-lock release.
 
 Replacement becomes uncertain at rename.

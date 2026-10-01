@@ -3,11 +3,9 @@ import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import { WebSocket } from 'ws';
 
-import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { registerWebSocket } from '../../src/server/websocket.js';
-import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 describe('WebSocket authentication rejection', () => {
   it.each([
@@ -18,22 +16,14 @@ describe('WebSocket authentication rejection', () => {
     async (_case, query) => {
       const fastify = Fastify({ logger: false });
       const liveSyncSocket = new LiveSyncSocket();
-      const analystSessionIdRead = jest.fn(() => 'agent:analyst:global' as const);
-      const runtimeApplication = {
-        get analystSessionId() {
-          return analystSessionIdRead();
-        },
-      } as unknown as RuntimeApplication;
+      const admit = jest.spyOn(liveSyncSocket, 'add');
       let client: WebSocket | undefined;
 
       try {
         await fastify.register(websocket);
   registerWebSocket(fastify, {
-    restartCapability: { available: false },
           authPolicy: new AuthPolicy({ apiToken: 'test-bearer-token' }),
           liveSyncSocket,
-          runtimeApplication,
-          fatalPort: testApplicationFatalPort,
         });
         await fastify.listen({ host: '127.0.0.1', port: 0 });
         const address = fastify.server.address();
@@ -50,7 +40,7 @@ describe('WebSocket authentication rejection', () => {
         expect(Date.now() - startedAt).toBeLessThan(2_000);
         expect(messages).toEqual([]);
         expect(liveSyncSocket.clientCount()).toBe(0);
-        expect(analystSessionIdRead).not.toHaveBeenCalled();
+        expect(admit).not.toHaveBeenCalled();
       } finally {
         if (client && client.readyState !== WebSocket.CLOSED) client.terminate();
         await fastify.close();

@@ -8,7 +8,8 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed, readonly } from 'vue';
+import { ref, computed, readonly, onScopeDispose } from 'vue';
+import { createOwnedFetch } from './owned-fetch';
 import type {
   DebugErrorRecord,
   DebugErrorsResponse,
@@ -37,17 +38,20 @@ const log = createLogger('store:debug');
 
 export const useDebugStore = defineStore('debug', () => {
   const errors = ref<DebugErrorRecord[]>([]);
-  const errorsLoading = ref(false);
+  const errorsRequest = createOwnedFetch();
+  const errorsLoading = errorsRequest.pending;
   const errorsError = ref<string | null>(null);
 
   const processes = ref<ProcessView[]>([]);
-  const processesLoading = ref(false);
+  const processesRequest = createOwnedFetch();
+  const processesLoading = processesRequest.pending;
   const processesError = ref<string | null>(null);
 
   const doctorStatus = ref<'ok' | 'issues_found' | null>(null);
   const doctorChecks = ref<DoctorCheck[]>([]);
   const doctorIssues = ref<DoctorIssue[]>([]);
-  const doctorLoading = ref(false);
+  const doctorRequest = createOwnedFetch();
+  const doctorLoading = doctorRequest.pending;
   const doctorError = ref<string | null>(null);
 
   const graphs = ref<DebugGraph[] | null>(null);
@@ -62,52 +66,40 @@ export const useDebugStore = defineStore('debug', () => {
   const errorsBySource = computed<Map<string, DebugErrorItem[]>>(() => selectErrorsBySource(projectedErrors.value));
 
   async function fetchErrors(): Promise<void> {
-    errorsLoading.value = true;
     errorsError.value = null;
-    try {
-      const response: DebugErrorsResponse = await getDebugErrors();
+    await errorsRequest.run(getDebugErrors, (response: DebugErrorsResponse) => {
       errors.value = response.errors;
-    } catch (err) {
+    }, (err) => {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug errors';
       errorsError.value = msg;
       log.error('fetchErrors', msg);
       throw err;
-    } finally {
-      errorsLoading.value = false;
-    }
+    });
   }
 
   async function fetchProcesses(): Promise<void> {
-    processesLoading.value = true;
     processesError.value = null;
-    try {
-      const response: ProcessListResponse = await listProcesses();
+    await processesRequest.run(listProcesses, (response: ProcessListResponse) => {
       processes.value = response.processes;
-    } catch (err) {
+    }, (err) => {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch processes';
       processesError.value = msg;
       log.error('fetchProcesses', msg);
-    } finally {
-      processesLoading.value = false;
-    }
+    });
   }
 
 
   async function fetchDoctor(): Promise<void> {
-    doctorLoading.value = true;
     doctorError.value = null;
-    try {
-      const response: DoctorResponse = await getDoctor();
+    await doctorRequest.run(getDoctor, (response: DoctorResponse) => {
       doctorStatus.value = response.status;
       doctorChecks.value = response.checks;
       doctorIssues.value = response.issues;
-    } catch (err) {
+    }, (err) => {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch doctor diagnostics';
       doctorError.value = msg;
       log.error('fetchDoctor', msg);
-    } finally {
-      doctorLoading.value = false;
-    }
+    });
   }
 
   async function fetchGraphs(): Promise<void> {
@@ -143,6 +135,12 @@ export const useDebugStore = defineStore('debug', () => {
       }
     }
   }
+
+  onScopeDispose(() => {
+    errorsRequest.cancel();
+    processesRequest.cancel();
+    doctorRequest.cancel();
+  });
 
   return {
     errors: readonly(projectedErrors),

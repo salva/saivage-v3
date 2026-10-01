@@ -51,8 +51,5 @@ export function registerServerRoutes(options: {
   registerWebSocket(options.fastify, {
     authPolicy: options.authPolicy,
     liveSyncSocket: options.liveSyncSocket,
-    runtimeApplication: options.runtimeApplication,
-    restartCapability: options.restartCapability,
-    fatalPort: options.fatalPort,
   });
 }

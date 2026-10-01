@@ -139,7 +139,7 @@ const AgentSessionNotFoundErrorSchema = z.object({
   error: z.literal('Agent session not found'),
 }).strict();
 const AgentLlmExchangeNotFoundErrorSchema = z.object({
-  error: z.literal('No LLM exchange recorded for this session yet.'),
+  error: z.literal('llm_exchange_not_found'),
 }).strict();
 const AgentConversationCursorNotFoundErrorSchema = z.object({
   error: z.literal('conversation_cursor_not_found'), session_id: ConversationSessionIdSchema, segment_version: positiveSafeIntegerSchema, since: z.string().min(1),

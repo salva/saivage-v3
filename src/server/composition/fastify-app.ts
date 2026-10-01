@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '../../config/index.js';
-import { MAX_ANALYST_WS_FRAME_BYTES, PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
+import { MAX_WS_FRAME_BYTES, PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
 import { serializeRequestForLog } from '../request-log-serializer.js';
 
 export async function createFastifyApp(environment: Environment, fatalPort: ApplicationFatalPort): Promise<FastifyInstance> {
@@ -41,7 +41,7 @@ export async function createFastifyApp(environment: Environment, fatalPort: Appl
   });
 
   await fastify.register(cors);
-  await fastify.register(websocket, { options: { maxPayload: MAX_ANALYST_WS_FRAME_BYTES } });
+  await fastify.register(websocket, { options: { maxPayload: MAX_WS_FRAME_BYTES } });
   await registerStaticAssets(fastify);
   return fastify;
 }

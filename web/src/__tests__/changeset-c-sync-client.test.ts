@@ -9,7 +9,6 @@ function harness() {
   const conn = {
     state: { value: 'connected' as const },
     connect: vi.fn(),
-    reconfigure: vi.fn(),
     sendRaw: vi.fn((value) => {
       sent.push(value);
       return true;

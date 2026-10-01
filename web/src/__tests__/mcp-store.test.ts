@@ -35,4 +35,26 @@ describe('MCP displayed hierarchy store', () => {
     expect(store).not.toHaveProperty('invocationStats');
     expect(store).not.toHaveProperty('startPolling');
   });
+
+  it('retains last-good hierarchy on failure and cancels disposed late reads', async () => {
+    api.getMcpTools.mockResolvedValueOnce({ servers: [{ name: 'retained', tools: [] }] })
+      .mockRejectedValueOnce(new Error('offline'));
+    const store = useMcpStore();
+    await store.fetchMcpData();
+    const timestamp = store.lastRefreshed;
+    await store.fetchMcpData();
+    expect(store.servers[0]!.name).toBe('retained');
+    expect(store.lastRefreshed).toBe(timestamp);
+    expect(store.error).toBe('Failed to fetch MCP tools');
+    let resolve!: (value: unknown) => void;
+    api.getMcpTools.mockImplementationOnce(() => new Promise((yes) => { resolve = yes; }));
+    const pending = store.fetchMcpData();
+    const signal = api.getMcpTools.mock.calls.at(-1)![0] as AbortSignal;
+    store.$dispose();
+    expect(signal.aborted).toBe(true);
+    resolve({ servers: [] });
+    await pending;
+    expect(store.servers[0]!.name).toBe('retained');
+    expect(store.loading).toBe(false);
+  });
 });

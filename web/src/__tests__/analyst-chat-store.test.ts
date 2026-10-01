@@ -76,22 +76,6 @@ describe('analyst chat store', () => {
     await useAnalystChat().resolveIdentity();
   });
 
-  it('does not refresh transcript from analyst tool activity frames', async () => {
-    const store = useAnalystChat();
-    await loadTranscript(store);
-    apiMocks.getAgentConversation.mockClear();
-
-    store.ingestWsEvent({
-      event: 'analyst_tool_invoked',
-      sessionId: analystSessionId,
-      tool: 'list_cards',
-      summary: 'listed cards',
-      success: true,
-    });
-
-    expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
-  });
-
   it('resolves the fixed singleton Analyst identity without fetching its transcript', async () => {
     const store = useAnalystChat();
 
@@ -285,23 +269,6 @@ describe('analyst chat store', () => {
     expect(store.messages.map((message) => message.id)).toEqual([first.id, second.id]);
   });
 
-  it('does not refresh transcript from control activity frames', async () => {
-    const store = useAnalystChat();
-    await store.resolveIdentity();
-    apiMocks.getAgentConversation.mockClear();
-
-    store.ingestWsEvent({
-      event: 'control_action_recorded',
-      sessionId: analystSessionId,
-      actor: 'analyst',
-      surface: 'web-chat',
-      action: 'approved',
-      target_id: '11111111-1111-4111-8111-111111111111',
-    });
-
-    expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
-  });
-
   it('presents a confirmation-required response without adding a status transcript entry', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       toolInvocations: [],
@@ -324,10 +291,9 @@ describe('analyst chat store', () => {
     ['abort', new DOMException('Aborted', 'AbortError')],
   ])('retains confirmation acknowledgement on a response-less %s', async (_name, error) => {
     const store = useAnalystChat();
-    store.ingestRestartAcknowledgement({
-      status: 'confirmation_required',
-      confirmationMessage: 'RESTART SERVER',
-    });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ toolInvocations: [], restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } });
+    store.setDraft('restart');
+    await store.sendMessage();
     store.setDraft('RESTART SERVER');
     apiMocks.sendChatMessage.mockRejectedValueOnce(error);
 
@@ -338,15 +304,14 @@ describe('analyst chat store', () => {
       confirmationMessage: 'RESTART SERVER',
     });
     expect(store.draft).toBe('RESTART SERVER');
-    expect(store.messages).toEqual([]);
+    expect(store.messages.map((message) => message.content)).toEqual(['restart']);
   });
 
   it('updates confirmation state only after a successful response consumes the next turn', async () => {
     const store = useAnalystChat();
-    store.ingestRestartAcknowledgement({
-      status: 'confirmation_required',
-      confirmationMessage: 'RESTART SERVER',
-    });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ toolInvocations: [], restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } });
+    store.setDraft('restart');
+    await store.sendMessage();
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       toolInvocations: [],
       restart: null,
@@ -360,10 +325,9 @@ describe('analyst chat store', () => {
 
   it('preserves the scheduled acknowledgement and optimistic confirmation when shutdown interrupts refetch', async () => {
     const store = useAnalystChat();
-    store.ingestRestartAcknowledgement({
-      status: 'confirmation_required',
-      confirmationMessage: 'RESTART SERVER',
-    });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ toolInvocations: [], restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } });
+    store.setDraft('restart');
+    await store.sendMessage();
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       toolInvocations: [],
       restart: { status: 'scheduled' },
@@ -375,8 +339,8 @@ describe('analyst chat store', () => {
 
     expect(store.restartAcknowledgement).toBeNull();
     expect(store.draft).toBe('');
-    expect(store.messages).toHaveLength(1);
-    expect(store.messages[0].content).toBe('RESTART SERVER');
+    expect(store.messages).toHaveLength(2);
+    expect(store.messages[1].content).toBe('RESTART SERVER');
     expect(store.sendError).toBeNull();
     expect(useFeedbackStore().toasts).toContainEqual(
       expect.objectContaining({

@@ -133,6 +133,18 @@ export function agentSession(id: string, overrides: Partial<AgentSession> = {}):
   };
 }
 
+export function cyclicCodePresentation(): OperatorApiSuccess<'workflows.presentation'> {
+  const graph = cyclicCodeGraph();
+  return {
+    card_type: graph.card_type,
+    nodes: graph.nodes.map(({ node_id, agent_name }) => ({ node_id, agent_name })),
+    entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
+    edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
+    terminals: graph.terminals,
+    records: graph.records.map(({ name, bootstrap }) => ({ name, bootstrap })),
+  };
+}
+
 export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][number] {
   const prompt = { reference: 'prompts/code/execute.md', compactable: true };
   return {

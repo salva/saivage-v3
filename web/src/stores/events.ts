@@ -46,7 +46,7 @@ export const useEventsStore = defineStore('events', () => {
     return state;
   }
 
-  async function read(cardScope: EventsScope, options: { mode: 'newest_tail' | 'oldest_page'; offset?: number; retry?: boolean }): Promise<void> {
+  async function read(cardScope: EventsScope, options: { mode: 'newest_tail' | 'oldest_page'; offset?: number }): Promise<void> {
     const key = scopeKey(cardScope);
     const state = scope(cardScope);
     const generation = (generations.get(key) ?? 0) + 1;
@@ -97,7 +97,7 @@ export const useEventsStore = defineStore('events', () => {
   function retry(cardScope: EventsScope): Promise<void> {
     const state = scope(cardScope);
     if (state.error === null && state.refreshError === null) return Promise.resolve();
-    return read(cardScope, { mode: state.mode, offset: state.offset, retry: true });
+    return read(cardScope, { mode: state.mode, offset: state.offset });
   }
 
   function browseOldest(cardScope: EventsScope, offset: number): Promise<void> {

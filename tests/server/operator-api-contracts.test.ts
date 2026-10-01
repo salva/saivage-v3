@@ -537,9 +537,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const body of [
       {error:'Card not found',cardId:'project'},
       {error:'Card record definition not found',cardId:'project',name:'brief.md'},
-      {error:'Card record not found',cardId:'project',name:'brief.md'},
+      {error:'card_record_not_found',cardId:'project',name:'brief.md'},
     ]) expect(record404.parse(body)).toEqual(body);
-    expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md',extra:true})).toThrow();
+    expect(() => record404.parse({error:'card_record_not_found',cardId:'project',name:'brief.md',extra:true})).toThrow();
+    expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md'})).toThrow();
     const entry = { card_id: 'project', version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-01-01T00:00:00.000Z', artifact: { kind: 'card-version', card: outboundCanonicalCard, change: null } } as const;
     expect((parseOperatorResponse('cards.history.get', 200, entry) as any).artifact.card).toEqual(outboundCanonicalCard);
     expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, card: canonicalCard } })).toThrow();
@@ -554,6 +555,14 @@ describe('operator API runtime contract without runtime ledgers', () => {
       delete incompleteSnapshot[key];
       expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, card: incompleteSnapshot } })).toThrow();
     }
+  });
+
+  it('strictly distinguishes absent exchange from absent session with a machine discriminator', () => {
+    for (const body of [{ error: 'llm_exchange_not_found' }, { error: 'Agent session not found' }]) {
+      expect(parseOperatorResponse('agents.llmExchange', 404, body)).toEqual(body);
+    }
+    expect(() => parseOperatorResponse('agents.llmExchange', 404, { error: 'No LLM exchange recorded for this session yet.' })).toThrow();
+    expect(() => parseOperatorResponse('agents.llmExchange', 404, { error: 'llm_exchange_not_found', extra: true })).toThrow();
   });
 
   it('uses resulting-version metadata and rejects embedded prior-snapshot history rows', () => {

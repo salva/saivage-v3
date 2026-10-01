@@ -112,12 +112,20 @@ contracts the current Card Cockpit implements.
   malformed navigation results are inert. Logical Back pops without
   re-recording the restored destination.
 - Analyst chat context is a detached `{view, entityId, refinement}` copy captured at Send, not a live route. Views are cockpit/files/system or null; entity identity is opaque and refinements are opaque string metadata (not evidence of reading a facet or entry). The strict serialized context is bounded to 2048 UTF-8 bytes; invalid input preserves the draft and reports the send error, without truncating identity or retrying. Server preparation may add only a bounded linked-card or owning-card snapshot for exact cockpit card/session identity; Files/System identity supplies no content. Displayed context is not evidence the Analyst has read it.
+- Analyst form/Enter submission and System participant refresh consume action failures at their UI event boundaries. Store-owned send feedback/restored drafts and initial/refresh inventory errors remain visible; failed sends do not run success-only composer focus. Targeted global membership observations retain sibling sessions and explicit System selection.
 - The shared card header stays compact on every cockpit facet and on the
   exact card-session reader: title, type, one lifecycle badge, exact identity,
   represented path, and one plain-language **Observed workflow step** lead.
   Exact position/state/node/ordinal, configured outcomes and conditions, the
   complete configured workflow, and publication facts live in the initially
-  closed **Workflow & technical details** disclosure. The header is a named,
+  closed **Workflow & technical details** disclosure. Header and Participants
+  consume `workflows.presentation` for the exact detail type, including all
+  entries, nodes, configured/runtime edges, terminals, and record labels.
+  Same-type pending reads are shared; detail arrival/type changes select only
+  matching facts, accepted facts are immutable for the server incarnation,
+  and failed reads offer explicit retry. System alone retains rich Debug Graph
+  installed bindings. None of these structural facts supplies liveness or
+  runtime ownership. The header is a named,
   keyboard-focusable scrollport bounded to at most 45% of the available
   center/session height; expanding it preserves an independently usable body
   scrollport. An unavailable card flow retains exact identity and its explicit
@@ -126,6 +134,8 @@ contracts the current Card Cockpit implements.
   participants**, **Recorded result and records**, **Problems and waiting**,
   then **Parent and related work**. Detailed workflow mechanics remain
   available from the shared header rather than leading the reading order.
+
+Plain resource reads cancel their pending request when their owner departs. Superseded success or failure cannot change the current view or clear newer loading. System resources and diagnostic/MCP refreshes retain last-good values on failure; file selection and exact-session resolution clear departed content, while current-card orientation retains its last accepted detail and reports authoritative 404 unavailability. These request-lifetime rules do not replace Cards freshness or conversation lease contracts.
 
 ## 4. Card tree and hierarchy
 
@@ -327,9 +337,9 @@ honesty-rule changes. Owners: `web/src/utils/legibility.ts` and
   (`active · busy`, `inactive · idle`); any other pair renders the exact
   backend words unchanged.
 - `positionGloss` supplies the primary **Observed workflow step** only from the
-  compiled graph (node → owning agent's step; terminal → configured end
+  per-type compiled-workflow presentation (node → owning agent's step; terminal → configured end
   states). Exact raw position belongs in **Workflow & technical details**;
-  without a graph the UI states that workflow details are unavailable rather
+  without matching presentation the UI states that workflow details are unavailable rather
   than guessing a role or business milestone.
 - The recorded-result one-liner quotes the backend-recorded `summary`
   verbatim (120-char truncation; full JSON one disclosure away); key

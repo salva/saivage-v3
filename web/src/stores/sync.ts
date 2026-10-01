@@ -10,10 +10,6 @@ export const useSyncStore = defineStore('sync', () => {
     syncClient.start();
   }
 
-  function reconfigure(): void {
-    syncClient.reconfigure();
-  }
-
   function registerResource(registration: SyncResourceRegistration): () => void {
     return syncClient.register(registration);
   }
@@ -38,7 +34,6 @@ export const useSyncStore = defineStore('sync', () => {
   return {
     connectionState,
     connect,
-    reconfigure,
     registerResource,
     openAgents,
     openCardAgentSessions,

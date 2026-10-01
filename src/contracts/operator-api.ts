@@ -9,6 +9,7 @@ import { filesDebugOperatorApiContracts } from './operator-api-files-debug.js';
 import { mcpOperatorApiContracts } from './operator-api-mcp.js';
 import { processesOperatorApiContracts } from './operator-api-processes.js';
 import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.js';
+import { workflowOperatorApiContracts } from './operator-api-workflows.js';
 
 export { AgentConversationResponseSchema, AgentListResponseSchema, CardAgentSessionsResponseSchema, AgentSessionSummarySchema } from './operator-api-agents.js';
 export type { AgentConversationEntry, AgentSessionSummary, ConversationSegmentContext } from './operator-api-agents.js';
@@ -38,6 +39,7 @@ export type { CardDetail, CardRecordDescriptor, CardHierarchyParent, CardHierarc
 export { ProcessListResponseSchema, ProcessViewSchema } from './operator-api-processes.js';
 export type { ProcessView } from './operator-api-processes.js';
 export const operatorApiContracts = {
+  ...workflowOperatorApiContracts,
   ...authOperatorApiContracts,
   ...runtimeCardsOperatorApiContracts,
   ...mcpOperatorApiContracts,

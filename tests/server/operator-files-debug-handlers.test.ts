@@ -10,6 +10,7 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
+import { buildEventsOperatorContractHandlers } from '../../src/server/routes/operator-events-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { appLogFile, cardNamespace } from '../../src/persistence/layout.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
@@ -34,7 +35,7 @@ describe('operator files and debug contract handlers', () => {
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(
       fastify,
       filesDebugOperatorApiContracts,
-      buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot), workflows: TEST_RUNTIME_WORKFLOWS }),
+      { ...buildEventsOperatorContractHandlers({ projectRoot }), ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot), workflows: TEST_RUNTIME_WORKFLOWS }) },
     );
     await fastify.ready();
   });
@@ -390,6 +391,7 @@ function mountedDoctorHandler(options: {
   } as unknown as FastifyInstance;
   const appendEventPrepared = jest.fn();
   const handlers = {
+    ...buildEventsOperatorContractHandlers({ projectRoot: options.projectRoot }),
     ...buildFilesDebugOperatorContractHandlers({
       projectRoot: options.projectRoot,
       cardServiceProvider: options.cardServiceProvider,

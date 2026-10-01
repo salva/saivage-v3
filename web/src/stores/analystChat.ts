@@ -334,30 +334,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
   }
 
-  function ingestWsEvent(payload: Record<string, unknown>): void {
-    const event = typeof payload.event === 'string' ? payload.event : null;
-    if (event === 'notification_added') {
-      return;
-    }
-    if (event === 'control_action_recorded') {
-      if (payload.actor === 'analyst' && payload.surface === 'web-chat') {
-        const action = typeof payload.action === 'string' ? payload.action : 'action';
-        const targetId = typeof payload.target_id === 'string' ? payload.target_id : 'unknown';
-        const id = typeof payload.id === 'string' ? payload.id : `${Date.now()}`;
-        useFeedbackStore().notify({
-          id,
-          tone: 'neutral',
-          title: `Analyst ${action}`,
-          message: targetId,
-        });
-      }
-    }
-  }
-
-  function ingestRestartAcknowledgement(restart: RestartChatAcknowledgement | null): void {
-    presentRestartAcknowledgement(restart);
-  }
-
   return {
     identityState,
     activeSessionId,
@@ -373,7 +349,5 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     fetchMessages,
     claimTranscriptLease,
     sendMessage,
-    ingestWsEvent,
-    ingestRestartAcknowledgement,
   };
 });

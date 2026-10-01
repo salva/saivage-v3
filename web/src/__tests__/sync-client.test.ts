@@ -13,8 +13,6 @@ import type {
   WsSyncFrameHandler,
 } from '../api/websocket';
 import { SyncClient, type SyncResourceRegistration } from '../sync/client';
-import { useAnalystChat } from '../stores/analystChat';
-import { useFeedbackStore } from '../stores/feedback';
 
 function deferred<T = void>(): {
   promise: Promise<T>;
@@ -38,7 +36,6 @@ function createConn(initial: WsConnectionState = 'offline') {
   const conn: WsConnectionManager = {
     state: { value: initial },
     connect: vi.fn(),
-    reconfigure: vi.fn(),
     sendRaw: vi.fn(() => true),
     onEvent: vi.fn((handler) => {
       eventHandlers.add(handler);
@@ -149,18 +146,14 @@ describe('SyncClient', () => {
     ]);
   });
 
-  it('resets baseline suppression synchronously on every reconfigure', () => {
+  it('suppresses only the first Cards open baseline and refreshes on natural reconnect', () => {
     const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);
     const onReconnect = vi.fn();
     client.register({ resource: 'cards', onInvalidate: vi.fn(), onReconnect });
     client.start();
     emitOpen();
-    emitOpen();
-    expect(onReconnect).toHaveBeenCalledTimes(1);
-    client.reconfigure();
-    client.reconfigure();
-    expect(conn.reconfigure).toHaveBeenCalledTimes(2);
+    expect(onReconnect).not.toHaveBeenCalled();
     emitOpen();
     expect(onReconnect).toHaveBeenCalledTimes(1);
     emitOpen();
@@ -608,13 +601,9 @@ describe('SyncClient', () => {
     refetch.mockClear();
 
     harness.emitEvent({
-      type: 'activity',
+      type: 'status',
       content: {
-        event: 'analyst_tool_invoked',
-        sessionId: 'agent:analyst:global',
-        tool: 'read',
-        summary: 'opened docs',
-        success: true,
+        event: 'connected', timestamp: '2026-10-01T00:00:00.000Z', clientCount: 1,
       },
     } as Parameters<WsEventHandler>[0]);
     await flush();
@@ -630,36 +619,4 @@ describe('SyncClient', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('ingests canonical Analyst WS restart acknowledgements through the shared presenter', async () => {
-    const harness = createConn();
-    const client = new SyncClient(harness.conn);
-    const chat = useAnalystChat();
-    client.start();
-
-    harness.emitEvent({
-      type: 'status',
-      content: {
-        event: 'analyst_turn_acknowledged',
-        sessionId: 'agent:analyst:global',
-        restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
-      },
-    } as Parameters<WsEventHandler>[0]);
-    expect(chat.restartAcknowledgement).toEqual({
-      status: 'confirmation_required',
-      confirmationMessage: 'RESTART SERVER',
-    });
-
-    harness.emitEvent({
-      type: 'status',
-      content: {
-        event: 'analyst_turn_acknowledged',
-        sessionId: 'agent:analyst:global',
-        restart: { status: 'scheduled' },
-      },
-    } as Parameters<WsEventHandler>[0]);
-    expect(chat.restartAcknowledgement).toBeNull();
-    expect(useFeedbackStore().toasts).toContainEqual(
-      expect.objectContaining({ title: 'Server restart scheduled' }),
-    );
-  });
 });

@@ -33,7 +33,7 @@ import {
 
 export const CardNotFoundErrorSchema = z.object({ error: z.literal('Card not found'), cardId: cardIdSchema }).strict();
 const CardRecordDefinitionNotFoundErrorSchema = z.object({ error: z.literal('Card record definition not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
-const CardRecordNotFoundErrorSchema = z.object({ error: z.literal('Card record not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
+const CardRecordNotFoundErrorSchema = z.object({ error: z.literal('card_record_not_found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
 export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema]);
 export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema]);
 

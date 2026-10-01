@@ -83,6 +83,18 @@ const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
   global_agents: [{ agent_name: 'analyst', session: { scope: 'global', identity: 'agent:analyst:global' }, prompt: { source: 'bundled-shared', declaration: { reference: 'analyst', compactable: true } }, model: { route: 'analyst', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read'] }],
   graphs: [codeDebugGraph, { ...codeDebugGraph, card_type: 'goal', permitted_child_types: ['code'] }],
 });
+const projectPresentation = parseOperatorResponse('workflows.presentation', 200, {
+  card_type: 'project',
+  nodes: [{ node_id: 'plan', agent_name: 'planner' }],
+  entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'plan' })),
+  edges: [
+    { source_node_id: 'plan', outcome: 'done', condition: 'default', target: { kind: 'terminal', terminal: 'DONE' } },
+    { source_node_id: 'plan', outcome: 'execution:blocked', condition: 'default', target: { kind: 'terminal', terminal: 'BLOCKED' } },
+    { source_node_id: 'plan', outcome: 'execution:failed', condition: 'default', target: { kind: 'terminal', terminal: 'FAILED' } },
+  ],
+  terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
+  records: [{ name: 'brief.md', bootstrap: true }],
+});
 const doctorOk = parseOperatorResponse('debug.doctor', 200, {
   status: 'ok',
   checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }],
@@ -361,6 +373,20 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('events.list', 200, { events: [], total: 0 }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/graphs') return json(route, debugGraphs);
+    const workflowMatch = /^\/api\/workflows\/([^/]+)\/presentation$/.exec(url.pathname);
+    if (request.method() === 'GET' && workflowMatch) {
+      if (workflowMatch[1] === 'project') return json(route, projectPresentation);
+      const graph = debugGraphs.graphs.find(({ card_type }) => card_type === workflowMatch[1]);
+      if (!graph) return json(route, parseOperatorResponse('workflows.presentation', 404, { error: 'workflow_type_not_found', card_type: workflowMatch[1] }), 404);
+      return json(route, parseOperatorResponse('workflows.presentation', 200, {
+        card_type: graph.card_type,
+        nodes: graph.nodes.map(({ node_id, agent_name }) => ({ node_id, agent_name })),
+        entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
+        edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
+        terminals: graph.terminals,
+        records: graph.records.map(({ name, bootstrap }) => ({ name, bootstrap })),
+      }));
+    }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', 200, {

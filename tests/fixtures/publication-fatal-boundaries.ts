@@ -5,7 +5,11 @@ import { z } from 'zod';
 
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { withDirectMutationComposition } from '../../src/boot/direct-mutation-composition.js';
-import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
+import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
+import { AuthPolicy } from '../../src/server/auth-policy.js';
+import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats.js';
+import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
+import type { Environment } from '../../src/config/environment.js';
 import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } from '../../src/runtime/micro-actor/index.js';
 import { compiledActorState, compiledActorTable } from '../helpers/compiled-actor-table.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
@@ -29,6 +33,18 @@ import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 const mode = process.argv[2];
 const path = process.argv[3];
 const fatalPort = createApplicationFatalPort();
+async function submitThroughRest(submit: (input: { userContent: string }) => Promise<unknown>): Promise<void> {
+  const app = await createFastifyApp({ nodeEnv: 'test', server: { logLevel: 'silent' } } as Environment, fatalPort);
+  const runtime = new ContractRuntime({ fatalPort, authPolicy: new AuthPolicy({}), eventLogger: {} as never });
+  runtime.mount(app, chatOperatorApiContracts, buildChatOperatorContractHandlers({
+    projectRoot: path ? dirname(path) : '.', saivageConfig: TEST_SAIVAGE_CONFIG,
+    restartCapability: { available: false },
+    runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
+  }));
+  await app.inject({ method: 'POST', url: '/api/chat', payload: { content: 'publish' } });
+  if (path) appendFileSync(path, 'response');
+  await app.close();
+}
 const diagnosticOnlyBoundary = (action: () => void): void => {
   try { action(); }
   catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
@@ -39,18 +55,10 @@ if (mode === 'direct-mutation') {
   withDirectMutationComposition(path, 'bound', fatalPort, () => { replaceFile(join(path, '.saivage', 'startup-publication'), Buffer.from('published')); throw new PublicationOutcomeUnknownError(); });
 }
 
-if (mode === 'websocket') {
+if (mode === 'rest-chat') {
   if (!path) throw new Error('marker path required');
   let submits = 0;
-  const handler = new AnalystWsHandler({
-    fatalPort,
-    restartCapability: { available: false },
-    liveSyncSocket: { handleClientFrame: () => false } as never,
-    runtimeApplication: { analystRuntime: { submit: async () => { submits += 1; appendFileSync(path, String(submits)); throw new PublicationOutcomeUnknownError(); } } } as never,
-    sendToClient: () => { appendFileSync(path, 'frame'); },
-  });
-  const ws = { OPEN: 1, readyState: 1 } as never;
-  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })), { error() {} });
+  void submitThroughRest(async () => { submits += 1; appendFileSync(path, String(submits)); throw new PublicationOutcomeUnknownError(); });
 }
 
 if (mode === 'base-actor-task') {
@@ -197,22 +205,7 @@ if (mode === 'analyst-project-context') {
       },
     },
   };
-  const handler = new AnalystWsHandler({
-    fatalPort,
-    restartCapability: { available: false },
-    liveSyncSocket: { handleClientFrame: () => false } as never,
-    runtimeApplication: runtimeApplication as never,
-    sendToClient: () => { mark('transport-send'); },
-  });
-  const ws = { OPEN: 1, readyState: 1 } as never;
-  void handler.handleRawMessage(
-    ws,
-    Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect project' } })),
-    { error() {} },
-  ).then(
-    () => mark('handler-resolve'),
-    () => mark('handler-reject'),
-  );
+  void submitThroughRest(runtimeApplication.analystRuntime.submit);
 }
 
 if (mode === 'analyst-card' || mode === 'analyst-config' || mode === 'analyst-app-log') {
@@ -225,7 +218,5 @@ if (mode === 'analyst-card' || mode === 'analyst-config' || mode === 'analyst-ap
     else appendAppLogEntry(root, 'event', () => appLogEntrySchema.parse({ type: 'event', data: { id: 'analyst-fatal', timestamp: '2026-07-24T00:00:00.000Z', kind: 'runtime_diagnostic', error_message: 'injected' } }) as never);
     throw new PublicationOutcomeUnknownError();
   };
-  const handler = new AnalystWsHandler({ fatalPort, restartCapability: { available: false }, liveSyncSocket: { handleClientFrame: () => false } as never, runtimeApplication: { analystRuntime: { submit: async () => publication() } } as never, sendToClient: () => { appendFileSync(path, 'frame'); } });
-  const ws = { OPEN: 1, readyState: 1 } as never;
-  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'publish' } })), { error() {} });
+  void submitThroughRest(async () => publication());
 }

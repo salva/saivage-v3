@@ -54,10 +54,10 @@ describe('publication fatal owner boundaries', () => {
     unlinkSync(runtimeProcessLockFile(root));
   });
 
-  it('exits the WebSocket message owner before an ordinary error frame', () => {
+  it('exits the REST chat owner at the real Fastify boundary before a response', () => {
     const root = mkdtempSync(join(tmpdir(), 'publication-websocket-')); roots.push(root);
     const marker = join(root, 'marker'); writeFileSync(marker, '');
-    const result = child('websocket', marker);
+    const result = child('rest-chat', marker);
     expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
     expect(result.stderr).toBe(diagnostic);
@@ -105,7 +105,7 @@ describe('publication fatal owner boundaries', () => {
     expect(readAppLogEntries(root)).toEqual([]);
   });
 
-  it.each(['analyst-card', 'analyst-config', 'analyst-app-log'] as const)('exits Analyst WebSocket ownership after %s publication without a response or follow-up', (mode) => {
+  it.each(['analyst-card', 'analyst-config', 'analyst-app-log'] as const)('exits Analyst REST ownership after %s publication without a response or follow-up', (mode) => {
     expectFatalOwner(mode);
   });
 });

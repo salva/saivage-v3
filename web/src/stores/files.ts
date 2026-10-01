@@ -11,10 +11,10 @@ import { ref, computed, onScopeDispose } from 'vue';
 import type { FileEntry, FileContent, FilesListResponse } from '../api/types';
 import { listFiles, getFileContent, OperatorApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
+import { createOwnedFetch } from './owned-fetch';
 
 const log = createLogger('store:files');
 const STALE_AFTER_MS = 30_000;
-let fileContentRequestSeq = 0;
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -67,7 +67,8 @@ export const useFileStore = defineStore('files', () => {
   // File content viewer
   const viewedFile = ref<FileContent | null>(null);
   const viewedFilePath = ref<string>('');
-  const contentLoading = ref(false);
+  const contentRequest = createOwnedFetch();
+  const contentLoading = contentRequest.pending;
   const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
 
   // Shared
@@ -116,6 +117,7 @@ export const useFileStore = defineStore('files', () => {
   }
 
   onScopeDispose(() => {
+    contentRequest.cancel();
     if (staleTimer !== undefined) clearTimeout(staleTimer);
     const metaOwner = metaRequestOwner;
     metaRequestOwner = undefined;
@@ -206,20 +208,15 @@ export const useFileStore = defineStore('files', () => {
   // ── Actions: File Content ──────────────────────────────────
 
   async function fetchFileContent(path: string): Promise<void> {
-    const requestSeq = ++fileContentRequestSeq;
-    contentLoading.value = true;
     viewerError.value = null;
     viewerState.value = 'idle';
     viewedFile.value = null;
     viewedFilePath.value = path;
-    try {
-      const response: FileContent = await getFileContent(path);
-      if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
+    await contentRequest.run((signal) => getFileContent(path, signal), (response: FileContent) => {
       viewedFile.value = response;
       viewerState.value = 'ready';
       markRestSnapshotCompleted();
-    } catch (err) {
-      if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
+    }, (err) => {
       const msg = handleApiError(err, 'Failed to fetch file content');
       viewerError.value = msg;
       if (err instanceof OperatorApiError) {
@@ -233,12 +230,11 @@ export const useFileStore = defineStore('files', () => {
         viewerState.value = 'error';
       }
       log.error('fetchFileContent', msg);
-    } finally {
-      if (requestSeq === fileContentRequestSeq) contentLoading.value = false;
-    }
+    });
   }
 
   function clearViewedFile(): void {
+    contentRequest.cancel();
     viewedFile.value = null;
     viewedFilePath.value = '';
     viewerState.value = 'idle';

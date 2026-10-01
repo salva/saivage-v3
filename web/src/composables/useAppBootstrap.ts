@@ -1,7 +1,6 @@
 import { useCardStore } from '../stores/cards';
 import { useRuntimeStore } from '../stores/runtime';
 import { useSyncStore } from '../stores/sync';
-import { useContentPolicyStore } from '../stores/contentPolicy';
 
 let started = false;
 
@@ -12,12 +11,11 @@ export function startAppBootstrap(): void {
   const syncStore = useSyncStore();
   const runtimeStore = useRuntimeStore();
   const cardStore = useCardStore();
-  const contentPolicyStore = useContentPolicyStore();
 
   syncStore.registerResource({
     resource: 'cards',
-    onInvalidate: (target) => { cardStore.onInvalidate(target); void contentPolicyStore.refetch().catch(() => {}); },
-    onReconnect: () => { cardStore.onReconnect(); void contentPolicyStore.refetch().catch(() => {}); },
+    onInvalidate: (target) => { cardStore.onInvalidate(target); },
+    onReconnect: () => { cardStore.onReconnect(); },
   });
   syncStore.registerResource({
     resource: 'runtime',
@@ -26,5 +24,4 @@ export function startAppBootstrap(): void {
   syncStore.connect();
   runtimeStore.refetch().catch(() => {});
   void cardStore.ensureRoot();
-  void contentPolicyStore.refetch().catch(() => {});
 }

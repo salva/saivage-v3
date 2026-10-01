@@ -3,7 +3,81 @@ import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js'
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenBeforeNavigation, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 
+declare global {
+  interface Window {
+    promiseFailures: string[];
+  }
+}
+
 const syntheticToken = 'synthetic-direct-load-token';
+
+test('REST Analyst send, reconnect and rejected UI actions leave multi-global inventory and browser promises intact', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.addInitScript(() => {
+    window.promiseFailures = [];
+    window.addEventListener('unhandledrejection', (event) => {
+      window.promiseFailures.push(String(event.reason));
+    });
+  });
+  await seedTokenBeforeNavigation(page, syntheticToken);
+  await installOperatorWebSocketShim(page);
+  const rest = await installOperatorRestRoutes(page);
+  await page.goto('/system?section=participants');
+  const inventory = page.getByRole('complementary', { name: 'Persisted agent sessions' });
+  await expect(inventory).toContainText('agent:analyst:global');
+  await expect(inventory).toContainText('agent:oversight:global');
+  await inventory.getByRole('button', { name: /agent:oversight:global/ }).click();
+  await page.evaluate(() => {
+    window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'agent-membership', scope: 'global-session', session_id: 'agent:analyst:global' });
+    window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'agent-membership', scope: 'global-session', session_id: 'agent:oversight:global' });
+  });
+  await expect.poll(() => rest.counts.get('GET /api/agents/agent%3Aanalyst%3Aglobal') ?? 0).toBeGreaterThan(0);
+  await expect(inventory).toContainText('agent:analyst:global');
+  await expect(inventory).toContainText('agent:oversight:global');
+  await expect(inventory.getByRole('button', { name: /agent:oversight:global/ })).toHaveClass(/selected/);
+
+  let rejectRefresh = true;
+  let rejectSend = false;
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if ((rejectRefresh && request.method() === 'GET' && path === '/api/agents') ||
+        (rejectSend && request.method() === 'POST' && path === '/api/chat')) {
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'InternalServerError', message: 'Internal server error' }) });
+    }
+    return route.fallback();
+  });
+  await page.getByTestId('route-system').getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByTestId('route-system')).toContainText('Internal server error');
+  await expect(inventory).toContainText('agent:analyst:global');
+  await expect(inventory).toContainText('agent:oversight:global');
+  rejectRefresh = false;
+
+  const composer = page.getByLabel('Analyst chat composer');
+  await composer.fill('REST acceptance message');
+  await composer.press('Enter');
+  await expect.poll(() => rest.chatPosts.length).toBe(1);
+  await expect(composer).toHaveValue('');
+  expect(rest.chatPosts[0]!.body.content).toContain('REST acceptance message');
+  const tickets = rest.counts.get('POST /api/auth/ws-ticket') ?? 0;
+  const sockets = await page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0);
+  await page.evaluate(() => window.__saivageWsFixture?.closeAll());
+  await expect.poll(() => rest.counts.get('POST /api/auth/ws-ticket') ?? 0).toBeGreaterThan(tickets);
+  await expect.poll(() => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBeGreaterThan(sockets);
+  await expect(page.getByTestId('strip-socket')).toHaveText(/Live|Connected/i);
+  await expect.poll(() => page.evaluate(() => (window.__saivageWsFixture?.outbound ?? [])
+    .map((frame) => JSON.parse(frame)).filter((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === 'agent:analyst:global').length)).toBeGreaterThan(1);
+  rejectSend = true;
+  await composer.fill('Preserve rejected draft');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.chat-status-error')).toContainText('Internal server error');
+  await expect(composer).toHaveValue('Preserve rejected draft');
+  expect(await page.evaluate(() => (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame)).some((frame) => frame.type === 'message'))).toBe(false);
+  expect(pageErrors).toEqual([]);
+  expect(await page.evaluate(() => window.promiseFailures)).toEqual([]);
+  expect(rest.unknown).toEqual([]);
+});
 
 const smokeCardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 

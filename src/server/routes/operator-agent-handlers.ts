@@ -74,7 +74,7 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       const sessionId = params.id;
       try {
         const catalog = agentReadModel().admitConversationCatalog(sessionId);
-        if (catalog.currentVersion === null) return { statusCode: 404, body: { error: 'No LLM exchange recorded for this session yet.' } };
+        if (catalog.currentVersion === null) return { statusCode: 404, body: { error: 'llm_exchange_not_found' } };
       } catch (error) {
         if (error instanceof AgentSessionNotFoundError) return { statusCode: 404, body: { error: 'Agent session not found' } };
         if (error instanceof AgentCurrentStateUnavailableError) return { statusCode: 503, body: { error: 'current_state_unavailable', resource: error.resource, owner_id: error.ownerId, restart_required: true } };
@@ -90,7 +90,7 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       if (!exchange)
         return {
           statusCode: 404,
-          body: { error: 'No LLM exchange recorded for this session yet.' },
+          body: { error: 'llm_exchange_not_found' },
         };
       return { body: { session_id: sessionId, exchange: projectProviderExchangeForOperator(exchange) } };
     },

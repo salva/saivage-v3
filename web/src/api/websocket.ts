@@ -6,8 +6,8 @@
  * dispatching to registered listeners.
  *
  * Server events use the strict JSON egress contract in docs/spec/system-specification.md:
- *   { "type": "activity | status | error", "content": { ... } }
- * Browser-to-server Analyst messages use a separate strict input contract.
+ *   { "type": "status", "content": { "event": "connected", ... } }
+ * Browser-to-server frames only subscribe/unsubscribe to live observation.
  */
 
 import type { WsConnectionState } from './types';
@@ -28,8 +28,6 @@ export interface WsConnectionManager {
 
   /** Connect (or reconnect) the WebSocket. */
   connect(): void;
-
-  reconfigure(): void;
 
   /** Send a low-level JSON payload over the socket. */
   sendRaw(payload: unknown): boolean;
@@ -99,17 +97,6 @@ export function createWsConnection(): WsConnectionManager {
     const attempt = ++connectAttempt;
 
     void openWithFreshTicket(attempt);
-  }
-
-  function reconfigure(): void {
-    shouldReconnect = true;
-    const generation = ++connectAttempt;
-    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-    const previous = ws;
-    ws = null;
-    if (previous) previous.close(1000, 'Connection reconfigured');
-    setState('connecting');
-    void openWithFreshTicket(generation);
   }
 
   async function openWithFreshTicket(attempt: number): Promise<void> {
@@ -268,7 +255,6 @@ export function createWsConnection(): WsConnectionManager {
   return {
     state,
     connect,
-    reconfigure,
     sendRaw,
     onEvent,
     onSyncFrame,

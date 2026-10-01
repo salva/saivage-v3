@@ -21,7 +21,9 @@ export { usableInputTokens } from './context-budget.js';
 export { ProcessToolResultSchema } from './operator-api-processes.js';
 export type { ProcessToolResult } from './operator-api-processes.js';
 export { ToolResultSchema } from './tool-result.js';
-export { InboundAnalystMessageEnvelopeSchema, ServerEgressWsEnvelopeSchema, MAX_ANALYST_WS_FRAME_BYTES, buildConnectedEnvelope, parseLiveSyncClientFrame } from './operator-events.js';
+export { ServerEgressWsEnvelopeSchema, MAX_WS_FRAME_BYTES, buildConnectedEnvelope, parseLiveSyncClientFrame } from './operator-events.js';
+export { WorkflowPresentationSchema } from './operator-api-workflows.js';
+export type { WorkflowPresentation } from './operator-api-workflows.js';
 export {
   PublicationOutcomeUnknownError,
   createApplicationFatalPort,
@@ -133,8 +135,6 @@ export type {
   CanonicalResultIdentity,
   ToolInvocationProjector,
 } from './tool-invocation-projection.js';
-export { ANALYST_PROCESSING_FAILED_ERROR, ClassifiedToolInvocationActivityContentSchema } from './operator-events.js';
-export type { ClassifiedToolInvocationActivityContent } from './operator-events.js';
 export type { WorkspaceNavigationIntent } from './workspace-navigation.js';
 export { McpToolCallArgumentsSchema } from './mcp-invocation.js';
 export type { McpToolCallArguments } from './mcp-invocation.js';

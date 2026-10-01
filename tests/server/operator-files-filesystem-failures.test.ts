@@ -19,6 +19,7 @@ const { filesDebugOperatorApiContracts } = await import('../../src/contracts/ope
 const { AuthPolicy } = await import('../../src/server/auth-policy.js');
 const { ContractRuntime } = await import('../../src/server/contract-runtime.js');
 const { buildFilesDebugOperatorContractHandlers } = await import('../../src/server/routes/operator-files-debug-handlers.js');
+const { buildEventsOperatorContractHandlers } = await import('../../src/server/routes/operator-events-handlers.js');
 const { createTestConfigAuthority } = await import('../helpers/project-config.js');
 const { testApplicationFatalPort } = await import('../helpers/test-application-fatal-port.js');
 
@@ -54,7 +55,7 @@ describe('operator Files filesystem failure normalization', () => {
       authPolicy: new AuthPolicy(),
       eventLogger: { appendEventPrepared: jest.fn() } as never,
       fatalPort: testApplicationFatalPort,
-    }).mount(fastify, filesDebugOperatorApiContracts, handlers);
+    }).mount(fastify, filesDebugOperatorApiContracts, { ...buildEventsOperatorContractHandlers({ projectRoot }), ...handlers });
     await fastify.ready();
   });
 

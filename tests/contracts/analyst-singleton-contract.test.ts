@@ -7,11 +7,7 @@ import {
   chatOperatorApiContracts,
 } from '../../src/contracts/operator-api-chats.js';
 import {
-  AnalystToolInvokedContentSchema,
-  AnalystTurnAcknowledgedStatusContentSchema,
   ConnectedStatusContentSchema,
-  ClassifiedToolInvocationActivityContentSchema,
-  ErrorEnvelopeSchema,
   buildConnectedEnvelope,
 } from '../../src/contracts/operator-events.js';
 
@@ -24,23 +20,17 @@ describe('singleton Analyst contracts', () => {
     expect(chatOperatorApiContracts['chats.send'].response).not.toHaveProperty('404');
   });
 
-  it('encodes literal agent:analyst:global in chat and WebSocket success contracts', () => {
+  it('keeps chat identity authoritative and connected status transport-only', () => {
     expect(ChatIdentityResponseSchema.parse({ session_id: 'agent:analyst:global' }).session_id).toBe(
       'agent:analyst:global',
     );
     expect(ChatSendResponseSchema.parse({ toolInvocations: [], restart: null })).toEqual({ toolInvocations: [], restart: null });
-    expect(buildConnectedEnvelope({sessionId:'agent:analyst:global'}).content.sessionId).toBe('agent:analyst:global');
-    expect(AnalystTurnAcknowledgedStatusContentSchema.parse({ event: 'analyst_turn_acknowledged', sessionId: 'agent:analyst:global', restart: null }).sessionId).toBe('agent:analyst:global');
-    expect(AnalystToolInvokedContentSchema.parse({ event: 'analyst_tool_invoked', sessionId: 'agent:analyst:global', tool: 'read', success: true, summary: '' }).sessionId).toBe('agent:analyst:global');
-    expect(ClassifiedToolInvocationActivityContentSchema.parse({ event: 'tool_invocation', sessionId: 'agent:analyst:global', tool: 'read', params: {}, result: { success: true } }).sessionId).toBe('agent:analyst:global');
+    expect(buildConnectedEnvelope({}).content).not.toHaveProperty('sessionId');
   });
 
   it.each(invalid)('rejects noncanonical Analyst identity %s at every identity-bearing success/event boundary', (sessionId) => {
     expect(ChatIdentityResponseSchema.safeParse({ session_id: sessionId }).success).toBe(false);
     expect(ConnectedStatusContentSchema.safeParse({ event: 'connected', sessionId, timestamp, clientCount: 1 }).success).toBe(false);
-    expect(AnalystTurnAcknowledgedStatusContentSchema.safeParse({ event: 'analyst_turn_acknowledged', sessionId, restart: null }).success).toBe(false);
-    expect(AnalystToolInvokedContentSchema.safeParse({ event: 'analyst_tool_invoked', sessionId, tool: 'read', success: true, summary: '' }).success).toBe(false);
-    expect(ClassifiedToolInvocationActivityContentSchema.safeParse({ event: 'tool_invocation', sessionId, tool: 'read', params: {}, result: { success: true } }).success).toBe(false);
   });
 
   it('accepts only the identity response and rejects removed transcript/activity fields', () => {
@@ -63,15 +53,9 @@ describe('singleton Analyst contracts', () => {
     expect(ChatSendResponseSchema.safeParse({ ...response, session_id: 'agent:analyst:global' }).success).toBe(false);
   });
 
-  it('keeps REST and WebSocket Analyst errors strict and content-free', () => {
+  it('keeps REST busy errors strict and content-free', () => {
     const busy = { error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' };
     expect(AnalystTurnBusyErrorSchema.parse(busy)).toEqual(busy);
-    expect(ErrorEnvelopeSchema.parse({ type: 'error', content: busy })).toEqual({ type: 'error', content: busy });
-    expect(ErrorEnvelopeSchema.parse({ type: 'error', content: { error: 'analyst_processing_failed', message: 'Failed to process Analyst message.' } })).toEqual({
-      type: 'error',
-      content: { error: 'analyst_processing_failed', message: 'Failed to process Analyst message.' },
-    });
-    expect(ErrorEnvelopeSchema.safeParse({ type: 'error', content: { ...busy, details: 'not admitted' } }).success).toBe(false);
-    expect(ErrorEnvelopeSchema.safeParse({ type: 'error', content: { error: 'other', message: 'dynamic' } }).success).toBe(false);
+    expect(AnalystTurnBusyErrorSchema.safeParse({ ...busy, details: 'not admitted' }).success).toBe(false);
   });
 });

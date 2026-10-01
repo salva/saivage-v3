@@ -29,7 +29,6 @@ describe('outbound redaction', () => {
         type: 'status',
         content: {
           event: 'connected',
-          sessionId: 'agent:analyst:global',
           timestamp: '2026-07-24T12:00:00.000Z',
           clientCount: 1,
         },
@@ -38,20 +37,6 @@ describe('outbound redaction', () => {
       expect(redactForOutbound({ source: 'ws-envelope', value: connected })).toEqual(connected);
     });
 
-    it('preserves acknowledged status exactly', () => {
-      const acknowledged = {
-        type: 'status' as const,
-        content: {
-          event: 'analyst_turn_acknowledged' as const,
-          sessionId: 'agent:analyst:global' as const,
-          restart: null,
-        },
-      };
-
-      expect(redactForOutbound({ source: 'ws-envelope', value: acknowledged })).toEqual(
-        acknowledged,
-      );
-    });
   });
 
   describe('structured values', () => {

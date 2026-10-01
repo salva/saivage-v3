@@ -191,7 +191,7 @@ describe('FilesView', () => {
     await refetch();
 
     expect(listFiles).toHaveBeenCalledWith(parentPath, expect.any(AbortSignal));
-    expect(getFileContent).toHaveBeenCalledWith(filePath);
+    expect(getFileContent).toHaveBeenCalledWith(filePath, expect.any(AbortSignal));
     expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain('.saivage/work');
     expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain(filePath);
     wrapper.unmount();
@@ -240,7 +240,7 @@ describe('FilesView', () => {
     expect.soft(firstSignal.aborted).toBe(false);
     expect.soft(vi.mocked(listFiles).mock.calls.map(([path]) => path)).toEqual([filePath, parentPath]);
     expect.soft(getFileContent).toHaveBeenCalledOnce();
-    expect.soft(getFileContent).toHaveBeenCalledWith(filePath);
+    expect.soft(getFileContent).toHaveBeenCalledWith(filePath, expect.any(AbortSignal));
     expect.soft(wrapper.find('[data-testid="files-viewer"]').exists()).toBe(true);
     wrapper.unmount();
   });
@@ -397,7 +397,7 @@ describe('FilesView', () => {
 
     expect(vi.mocked(listFiles).mock.calls.map(([path]) => path)).toEqual([parentPath]);
     expect(getFileContent).toHaveBeenCalledOnce();
-    expect(getFileContent).toHaveBeenCalledWith(filePath);
+    expect(getFileContent).toHaveBeenCalledWith(filePath, expect.any(AbortSignal));
     wrapper.unmount();
   });
 

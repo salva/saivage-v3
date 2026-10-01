@@ -550,7 +550,7 @@ describe('useAgentStore singular agent resource ownership', () => {
 
   it('accepts only the exact no-exchange 404 as loaded empty', async () => {
     vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(
-      new OperatorApiError('agents.llmExchange', 404, { error: 'No LLM exchange recorded for this session yet.' }),
+      new OperatorApiError('agents.llmExchange', 404, { error: 'llm_exchange_not_found' }),
     );
     const store = useAgentStore();
     const token = store.beginLlmExchangeSelection(S1);
@@ -558,6 +558,14 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.llmExchangeLoaded).toBe(true);
     expect(store.currentLlmExchange).toBeNull();
     expect(store.llmExchangeError).toBeNull();
+
+    const missingSession = store.beginLlmExchangeSelection(S1);
+    vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(
+      new OperatorApiError('agents.llmExchange', 404, { error: 'Agent session not found' }),
+    );
+    await store.fetchLlmExchange(missingSession);
+    expect(store.llmExchangeLoaded).toBe(false);
+    expect(store.llmExchangeError).toBe('Agent session not found');
 
     const failed = store.beginLlmExchangeSelection(S1);
     vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(

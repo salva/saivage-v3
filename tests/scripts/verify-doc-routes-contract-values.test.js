@@ -36,7 +36,7 @@ const EXPECTED_CATALOG = {
   'constant.summarizer-output-target-bytes': ['constants', ['src/runtime/actors/compaction/summarizer.ts']],
   'constant.sync-hub-debounce-ms': ['constants', ['src/server/sync-hub.ts']],
   'constant.tool-result-envelope-max-bytes': ['constants', ['src/contracts/builtin-tool-inputs.ts', 'src/tools/card-inspection-provider.ts', 'src/tools/card-version-provider.ts', 'src/tools/project-file-tools.ts', 'src/tools/response-packer.ts']],
-  'error.analyst-turn-busy': ['errors', ['src/contracts/operator-api-chats.ts', 'src/contracts/operator-events.ts', 'src/server/analyst-ws-handler.ts', 'src/server/routes/operator-chat-handlers.ts']],
+  'error.analyst-turn-busy': ['errors', ['src/contracts/operator-api-chats.ts', 'src/server/routes/operator-chat-handlers.ts']],
   'error.cards-diff-404': ['errors', CARD_ERROR_PATHS],
   'error.cards-history-404': ['errors', CARD_ERROR_PATHS],
   'error.unauthorized': ['errors', ['src/contracts/operator-api-core.ts']],
@@ -175,8 +175,6 @@ const SOURCE_MUTATIONS = [
   ['Analyst busy declaration', verifyErrorShapeDocs, 'src/contracts/operator-api-chats.ts', "error: z.literal('analyst_turn_busy')"],
   ['Analyst busy frozen constant', verifyErrorShapeDocs, 'src/contracts/operator-api-chats.ts', 'ANALYST_TURN_BUSY_ERROR = Object.freeze('],
   ['Analyst busy REST mapping', verifyErrorShapeDocs, 'src/server/routes/operator-chat-handlers.ts', 'statusCode: 409, body: ANALYST_TURN_BUSY_ERROR'],
-  ['Analyst busy WebSocket member', verifyErrorShapeDocs, 'src/contracts/operator-events.ts', '  AnalystTurnBusyErrorSchema,\n  AnalystProcessingFailedErrorSchema,'],
-  ['Analyst busy WebSocket producer', verifyErrorShapeDocs, 'src/server/analyst-ws-handler.ts', '? ANALYST_TURN_BUSY_ERROR'],
   ['lifecycle domain union', verifyClosedVocabularyDocs, 'src/schemas/types.ts', 'cardStatusValues'],
   ['lifecycle schema variants', verifyClosedVocabularyDocs, 'src/schemas/lifecycle.ts', "status: z.literal('backlog')"],
   ['lifecycle validator', verifyClosedVocabularyDocs, 'src/schemas/validators.ts', 'cardStatusSchema = z.enum(cardStatusValues)'],
@@ -530,23 +528,6 @@ describe('documentation value contracts', () => {
       writeFileSync(sourceFile, source.replace(`${block}\n`, ''));
       writeFileSync(targetFile, `${readFileSync(targetFile, 'utf8')}\n${block}\n`);
       expect(verifySourceConstantDocs({ projectRoot: root }).ok).toBe(false);
-    });
-  });
-
-  it('fails the Analyst-busy claim when WebSocket schema membership alone is detached', () => {
-    withProject((root) => {
-      replaceChecked(
-        root,
-        'src/contracts/operator-events.ts',
-        '  AnalystTurnBusyErrorSchema,\n  AnalystProcessingFailedErrorSchema,',
-        '  AnalystProcessingFailedErrorSchema,\n  AnalystProcessingFailedErrorSchema,',
-      );
-      const result = verifyErrorShapeDocs({ projectRoot: root });
-      expect(result.ok).toBe(false);
-      expect(result.failures).toContainEqual(expect.objectContaining({
-        claim: 'error.analyst-turn-busy',
-        message: expect.stringContaining('must directly contain AnalystTurnBusyErrorSchema'),
-      }));
     });
   });
 

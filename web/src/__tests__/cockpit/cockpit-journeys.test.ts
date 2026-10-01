@@ -7,11 +7,12 @@ import RestartServerDialog from '../../components/cockpit/RestartServerDialog.vu
 import CardFlowHeader from '../../components/cockpit/CardFlowHeader.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useCardStore } from '../../stores/cards';
+import { useWorkflowPresentationStore } from '../../stores/workflowPresentation';
 import { createOperatorRouter } from '../../router';
 import {
   agentSession,
   cardDetail,
-  cyclicCodeGraph,
+  cyclicCodePresentation,
   noCurrentRuntimeStatus,
   runtimeStatusSnapshot,
   serverAvailability,
@@ -25,6 +26,7 @@ const api = vi.hoisted(() => ({
   getCardAgentSessions: vi.fn(),
   getAgentSession: vi.fn(),
   getDebugGraphs: vi.fn(),
+  getWorkflowPresentation: vi.fn(),
   listCardRecords: vi.fn(),
   getCardRecord: vi.fn(),
 }));
@@ -38,6 +40,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
   getCardAgentSessions: api.getCardAgentSessions,
   getAgentSession: api.getAgentSession,
   getDebugGraphs: api.getDebugGraphs,
+  getWorkflowPresentation: api.getWorkflowPresentation,
   listCardRecords: api.listCardRecords,
   getCardRecord: api.getCardRecord,
 }));
@@ -83,7 +86,8 @@ function installDefaultFixtureApi(): void {
   api.getAgentSession.mockImplementation(async (id: string) => ({
     session: agentSession(id),
   }));
-  api.getDebugGraphs.mockResolvedValue({ graphs: [cyclicCodeGraph()], global_agents: [] });
+  api.getDebugGraphs.mockRejectedValue(new Error('Debug graphs unavailable'));
+  api.getWorkflowPresentation.mockImplementation(async (cardType: string) => ({ ...cyclicCodePresentation(), card_type: cardType }));
   api.listCardRecords.mockResolvedValue({
     card_id: 'card-a-b',
     records: [{ name: 'brief.md', format: 'markdown', schema: 'brief.v1', bootstrap: true, current: null }],
@@ -133,6 +137,8 @@ describe('cockpit acceptance fixtures', () => {
     const cardStore = useCardStore(pinia);
     await cardStore.ensureRoot();
     const { wrapper } = await mountAt('/cards/card-a-b', pinia);
+    await useWorkflowPresentationStore(pinia).fetch('code');
+    await flushPromises();
 
     expect(wrapper.get('[data-testid="card-flow-title"]').text()).toBe('Running deep child');
     expect(wrapper.get('[data-testid="card-flow-id"]').text()).toBe('card-a-b');
@@ -241,6 +247,7 @@ describe('cockpit acceptance fixtures', () => {
       },
       global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
     });
+    await useWorkflowPresentationStore(pinia).fetch('code');
     await flushPromises();
 
     const technical = wrapper.get('[data-testid="card-flow-technical"]');

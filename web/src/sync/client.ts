@@ -8,11 +8,8 @@ import type {
   WsConnectionState,
 } from '../api/types';
 import {
-  isAnalystActivityContent,
-  parseAnalystTurnAcknowledgedStatusContent,
   type ConversationSessionId,
 } from '../api/contracts';
-import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
 type ReconnectResourceKey = LiveSyncUnscopedResource | 'files';
@@ -98,21 +95,7 @@ export class SyncClient {
       this.resubscribeLeases();
     });
     this.conn.onSyncFrame((frame) => this.handleSyncFrame(frame));
-    this.conn.onEvent((envelope) => {
-      const restartAcknowledgement = parseAnalystTurnAcknowledgedStatusContent(envelope.content);
-      if (restartAcknowledgement) {
-        useAnalystChat().ingestRestartAcknowledgement(restartAcknowledgement.restart);
-        return;
-      }
-      if (isAnalystActivityContent(envelope.content))
-        useAnalystChat().ingestWsEvent(envelope.content);
-    });
     this.conn.connect();
-  }
-
-  reconfigure(): void {
-    this.cardsBaselineOpenPending = true;
-    this.conn.reconfigure();
   }
 
   register(registration: SyncResourceRegistration): () => void {

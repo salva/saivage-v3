@@ -401,10 +401,10 @@ All other F-numbers remain unchanged.
 - **N1 — Current-work synthesis (F2–F3):** runtime ownership, current-card identity,
   committed hierarchy, and backend-decorated session liveness exist. Runtime status also
   supplies a per-owned-card process-state projection of observed entry/node/terminal
-  position; the compiled workflow/Debug-Graph projection supplies configured entries,
+  position; the per-type compiled-workflow presentation supplies configured entries,
   nodes, outcome edges, and terminals. Their integrated presentation in current-work
   orientation (chain, workflow, and session together) is not established today. Current
-  policy permits these process-state and compiled workflow/Debug-Graph projections as
+  policy permits these process-state and compiled-workflow presentation projections as
   evidence for card workflow position. Agent liveness/activity comes only from
   backend-decorated session summaries; the browser performs no runtime join and derives
   no agent/session liveness or ownership from card process-state, actor state, graph

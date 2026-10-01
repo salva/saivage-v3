@@ -88,7 +88,7 @@ export class CardsReadModelService {
   getRecord(id: string, name: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.records.get'> {
     {
       const result=this.store.readRecordCurrent(id,name,instrumentation);if(result.kind==='card-not-found')return{statusCode:404,body:{error:'Card not found',cardId:id}};const projection=result.value.projection;
-      if(!projection)return { statusCode: 404, body: { error: 'Card record not found', cardId: id, name } };
+      if(!projection)return { statusCode: 404, body: { error: 'card_record_not_found', cardId: id, name } };
       return { body: CardRecordContentResponseSchema.parse({ card_id: id, record: projectRecord(projection) }) };
     }
   }

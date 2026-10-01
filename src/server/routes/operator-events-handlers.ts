@@ -6,5 +6,6 @@ export function buildEventsOperatorContractHandlers(options: OperatorProjectCont
 
   return defineOperatorContractHandlers({
     'events.list': ({ query }) => ({ body: readModel.queryEvents(query) }),
+    'debug.errors': () => ({ body: readModel.queryErrors() }),
   });
 }

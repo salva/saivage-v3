@@ -47,7 +47,7 @@ Valid Analyst and Invocation Service app-log ownership remains; autonomous runti
 
 Server composition is the sole restart-availability derivation boundary.
 It combines authentication policy with the optional boot input into one immutable `RestartCapability`: unavailable has no port, while available requires its `RestartPort`; authenticated composition without that port fails immediately.
-The exact capability is passed unchanged through runtime, tool, Analyst, REST, and WebSocket composition.
+The exact capability is passed unchanged through runtime, tool, Analyst, and REST composition. Scheduled chat restart acknowledgement belongs to REST response finish, not observation-only sockets.
 `buildRuntimeStatusReadModel()` is the sole projector of its discriminator to public `restart_server_available`.
 
 `AnalystSession` is a plain serial phase coordinator.
@@ -374,7 +374,7 @@ On rejection, Supervisor first installs the halt, terminally interrupts every ad
 This settlement-before-join order breaks the Conversation LLM → child lease → activation dependency and prevents deadlock.
 Dynamic execution uses existing direct scopes under the runtime-card, operator-session, and service-infrastructure process roots; halt cleanup closes/joins only owned volatile scopes and cannot replace the publication error at its owning boundary.
 Exact continuation fences compare map owner, activation identity, relationships, and absence of halt before and after every await that could publish, activate, settle, or release.
-The exact consuming roots remain the global Fastify error handler, registered Analyst WebSocket message rejection observer, and Supervisor `activateProcessor()`. The Supervisor observes both processor activation rejection and both resulting settlement chains. A current-owner settlement invariant rejection enters the singular `runtime_failure` halt with the original error retained as that owner's halt and settlement evidence. A stale observer with a remaining live run or retained halt still starts or joins containment as applicable without attributing its obsolete error to a current owner; a stale observer finding neither run nor halt has nothing left to contain and returns without effects.
+The exact consuming roots remain the global Fastify error handler and Supervisor `activateProcessor()`. The Supervisor observes both processor activation rejection and both resulting settlement chains. A current-owner settlement invariant rejection enters the singular `runtime_failure` halt with the original error retained as that owner's halt and settlement evidence. A stale observer with a remaining live run or retained halt still starts or joins containment as applicable without attributing its obsolete error to a current owner; a stale observer finding neither run nor halt has nothing left to contain and returns without effects.
 They publish no replacement evidence and expose no cause through HTTP or WebSocket responses; delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr.
 
 `EventQueryService` is the sole event/error query authority for the authenticated operator API and Analyst tools.
@@ -382,7 +382,7 @@ Each query performs one complete strict event-lane read and then filters/slices.
 `/api/events` supplies non-UI operator event queries with strict oldest-page or newest-tail selection, maximum 1000, and no session/since filters; `/api/debug/errors` is its complete derived error projection and the Debug UI's only event-derived input.
 Debug has no event Timeline; `/api/debug/timeline`, ErrorLog, and duplicate event read models do not exist.
 
-The strict global agent catalog is the sole agent authority. Startup selects one immutable participant collection containing configured Analyst and Oversight contracts and compiled global prompts; binding, prompt lookup, generic Agent admission, REST, and WebSocket reads use that collection. Conversation admission is owner-specific rather than collection-wide: startup strictly requires the selected Analyst index, while Oversight retains lazy index initialization at actual check use. Unselected global catalog entries are not participants, and unrelated generated state creates no durable Oversight provenance.
+The strict global agent catalog is the sole agent authority. Startup selects one immutable participant collection containing configured Analyst and Oversight contracts and compiled global prompts; binding, prompt lookup, generic Agent admission, and REST reads use that collection. Conversation admission is owner-specific rather than collection-wide: startup strictly requires the selected Analyst index, while Oversight retains lazy index initialization at actual check use. Unselected global catalog entries are not participants, and unrelated generated state creates no durable Oversight provenance.
 
 `ProjectOversight` in application is the process-local schedule owner. It owns either one monotonic deadline or one runtime-owned `OversightSession`, records only current-epoch attempt timestamps/outcomes in memory, and receives explicit authoritative Supervisor status transitions. It uses chained bounded timeouts for deadlines beyond Node's single-timeout range, never `setInterval`, catch-up ticks, a queue, persistence, reports, or a health latch. `OversightSession` owns check execution in runtime: it creates one ordinary global-purpose `ConversationLLMActor` per check over the retained canonical global session, renders the selected compiled card-type vocabulary through the shared tool-owned global vocabulary formatter used by Analyst, binds shared observation dependencies plus only its caller-authorized notification port, and settles known tool/provider evidence before suppressing continuation on cancellation. Its outer check owner clears the task and cancellation controller before publishing the existing exact global-session membership invalidation on every completion, so the subscriber's next projection cannot retain a settled executing snapshot. Analyst binds that same notification input/result contract to its audited runtime-cancellation policy without intervention readiness; Planner binds it to exact active-card authority. No binder infers authority from an agent name or falls back to raw runtime submission. Permanent application disposal follows owned settlement.
 
@@ -511,7 +511,7 @@ Filesystem and record mutation domain outcomes are `applied` or `rejected` and a
 Webfetch successes compose `write:{kind,data}` and never nest a result envelope.
 
 The durable conversation append owner uses the settlement authority's exact bytes and returns the same settled result and bytes through the LLM actor. For corrective continuation, the LLM actor builds the settled result row and all known continuation rows before one append. The result keeps its parked source-input/call identity while the continuation rows use one fresh continuation input identity. Plain-text repair similarly batches configured repair, diagnostics, and ordinary continuation context. Post-append callbacks alone remove notifications or install refreshed review context; publication uncertainty keeps its original cause and admits no callback, reread, retry, or cleanup.
-A shared live-invocation projector outbound-projects arguments but passes this complete result unchanged to Analyst REST and WebSocket activity; it does not narrow or re-redact the result.
+A shared live-invocation projector outbound-projects arguments but passes this complete result unchanged to Analyst REST; it does not narrow or re-redact the result. Socket conversation invalidations remain the live observation path, without tool activity fan-out.
 Historical/read-model rows remain strict wire values and use the application Agent conversation read-side projector rather than becoming current producer outcomes.
 
 Bounded response admission measures the exact canonical bytes of the final post-outbound ToolResult.
@@ -551,7 +551,7 @@ AppShell initiates that identity-only request independently of Cards and owns pe
 Each mounted persistent Analyst panel lifetime claims the store's retained current identity handoff, owns one exact acknowledged conversation lease, and only after matching acknowledgement uses the cursor-transcript resource.
 The panel may project already-loaded Cards children but never initiates Cards loading.
 Identity replacement or lifetime end releases the exact lease; a replacement mount reacquires a fresh lease from retained current identity even when Pinia's identity has not changed.
-`AnalystSession.submit()` is the one process-local live-turn owner across REST and all sockets.
+`AnalystSession.submit()` is the one process-local live-turn owner; REST `chats.send` is its sole operator submission transport.
 Overlap receives immediate typed busy and no server queue; request-local `sending`, acknowledgements, and optimistic messages are presentation state only.
 Exact REST busy removes only its optimistic send owner and restores that captured draft only when the composer is empty; live-sync/REST later reveal the durable winner.
 
@@ -577,7 +577,7 @@ Its leaf input is structurally `complete` with real arguments and result, `call-
 Known-valid, unsupported, known malformed-JSON, and known schema-invalid argument classifications are distinct, so rejected calls remain readable without settlement-message inference.
 Results instead have one shape-independent path: parse only the generic success/failure envelope and recursively redact opaque optional data and error without consulting tool identity.
 Existing Analyst array/wrapper and terminal payloads are ordinary values of `data: unknown`, not versioned or compatibility shapes.
-Exposure paths are live `chats.send`, one-pass WebSocket activity projection, complete generic Agent transcript rows, and direct or recursively nested bounded `read_agent_session` rows.
+Exposure paths are live `chats.send`, complete generic Agent transcript rows, and direct or recursively nested bounded `read_agent_session` rows.
 `ToolDefinition`, invocation execution, MCP, and provider output contracts remain unchanged.
 
 Workspace navigation has one strict shared target-and-intent contract owned independently of that generic transport.
@@ -595,10 +595,7 @@ Duplicate/mismatched calls or results, result-before-call, multiple unmatched ca
 The permitted final call has no liveness meaning.
 Cursor and bounded suffixes are selected only after complete validation, may begin with a result whose call lies before the boundary, and are never expanded to recover mates.
 
-`projectAnalystToolInvocationActivity` is the sole WebSocket invocation owner.
-It invokes the switch once, narrows already-classified activity metadata, and the final server-egress-envelope projector validates/copies that activity without redispatch or whole-envelope recursion.
-`ToolResultSchema` remains the classified activity-result authority.
-This dependency direction prevents both double projection and an Agent-conversation/invocation ES-module cycle.
+Observation-only WebSocket registration has no runtime application, restart capability, or fatal-port dependencies. It synchronously parses JSON and admits only strict subscribe/unsubscribe frames through LiveSyncSocket; malformed/unsupported input closes 1008 with a fixed non-disclosing reason. No socket branch submits Analyst work or publishes durable state. REST retains its global Fastify fatal boundary and response-finish restart acknowledgement.
 
 Each role, Analyst turn, compactor summary call, repair, and continuation uses a fresh opaque UUID `source_input_id` generated by its live owner.
 Tool identities derive only from the original source UUID `S` and provider tool-call ID `T`:
@@ -712,7 +709,7 @@ The concrete supervisor also implements the narrow read-only Analyst interventio
 Composition passes that facet directly to both Analyst contexts without adding it to `RuntimeApi`.
 The supervisor independently retains its exact process runner and injected runtime root without exposing either object reference or undeclared broad access, and retains no ordinary constructor-options bag containing them.
 Composition keeps the concrete supervisor only for those internal capabilities, application lifecycle cleanup, and executing-LLM snapshots; they are not a second control port.
-Analyst final tool activity is request-client-only and is not a generic event broadcast.
+Analyst final tool results are REST request-client-only and are not a socket activity broadcast.
 No runtime-state cache, readiness binding, initialization flag, or replacement mechanism exists.
 Public runtime-state reads fail fast while internal status is `uninitialized` and otherwise are freshly built from supervisor status, injected lock identity, `ActiveCardLeaf`, and the observation clock.
 Compact status uses the same identity/currentness and the installed actor maps.
@@ -1094,7 +1091,7 @@ Provider/summarizer projection and compaction consume the synthetic marker text,
 
 For Analyst continuations, the actor first settles the waiting call, appends exactly one tool result, allocates a fresh continuation UUID, and rereads canonical history while retaining the submission's prepared object.
 Preventive compaction then runs before the continuation provider call.
-The accepted tool invocation, external/domain effect, activity broadcast, and persisted result are outside the provider retry seam; a context rejection retries only that same continuation input and never replays the tool, rebroadcasts it, or duplicates its result or source ingress.
+The accepted tool invocation, external/domain effect, and persisted result are outside the provider retry seam; a context rejection retries only that same continuation input and never replays the tool or duplicates its result or source ingress.
 Restart-confirmation settlement remains terminal and model-free.
 
 Clean no-smaller remains an ordinary final actor outcome with the triggering attempts linked to its ordinary terminal model issue, including when compaction needed no summary-provider call. Successful compaction outcomes and post-await abort recognition are discriminated outside summary-error classification; a compactor rejection that is identity-equal to the exact aborted signal reason is likewise rethrown before summary classification. Neither exact abort case is summary unavailability.
@@ -1175,10 +1172,10 @@ Connection-local acknowledged leases are independent for global Agents, one card
 Subscribe replaces an exact key before acknowledgement, stale unsubscribe cannot remove its replacement, and socket close drops all lease state.
 Frames route only to matching leases; a card-membership frame additionally reaches global Agents leases.
 WebSocket hints carry no membership or write authority.
-Server event egress is the closed strict `status | activity | error` union; `message` exists only as separate browser-to-server Analyst input and `thinking` is not a wire member.
+Server event egress is the strict connected `status` envelope; browser input admits only subscribe/unsubscribe, with no Analyst message, activity, error, or thinking wire member.
 Its final source-owned projector copies only declared fields, with no undeclared dynamic passthrough lane.
 The browser's server-egress parser is a throwing boundary: structurally invalid, unknown, malformed, and wrong-direction events do not dispatch.
-Activity event-bearing content is exactly `connected`, `analyst_turn_acknowledged`, `notification_added`, `control_action_recorded`, `analyst_tool_invoked`, and `tool_invocation`. Ordinary Cards freshness remains the scoped identity-only invalidation contract; there is no history changed-fields activity event or replacement queue-metadata event.
+The sole event envelope is transport status `{type:'status',content:{event:'connected',timestamp,clientCount}}`, with no Analyst identity. Independent subscribed/invalidate frames retain their strict contracts. Ordinary Cards freshness remains scoped identity-only invalidation; no activity or turn acknowledgement is emitted.
 
 ### Exact SyncHub debounce policy
 
@@ -1206,7 +1203,7 @@ Reconnect installs a fresh lease and generation-local dispatcher state, so newly
 There is no cross-generation or global flight gate.
 
 Runtime, Card, and Agent Pinia stores own separate resources.
-Global Agent inventory exists only while the System Participants section holds the acknowledged global lease and is partitioned by global/card scope. The selected session reader additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unrelated known scoped hints remain suppressed, while unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail. A whole-Agents baseline reconciliation also exact-rereads the currently selected summary when one exists, independently of the inventory baseline; it neither writes nor acknowledges the transcript.
+Global Agent inventory exists only while the System Participants section holds the acknowledged global lease and is partitioned by global/card scope. Targeted global membership requests own independent exact session-ID keys and upsert only that session in the shared global partition; they never replace or cancel a sibling. Card hints still replace their exact card partition. A fresh whole-inventory request aborts outstanding membership requests and fences their late responses with the baseline generation; baseline acceptance also aborts and fences hints started while that baseline was pending. The selected session reader additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unrelated known scoped hints remain suppressed, while unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail. A whole-Agents baseline reconciliation also exact-rereads the currently selected summary when one exists, independently of the inventory baseline; it neither writes nor acknowledges the transcript.
 Card Conversations owns a separate card-keyed store and lease.
 `workspaceRoute` remains the sole bounded logical-navigation-history owner. Its
 one owner-local single-flight automatic selection replaces an unselected
@@ -1229,6 +1226,7 @@ Files stale age still derives only from completed REST snapshot time; Files owns
 The Files key is not part of the SyncHub wire vocabulary.
 
 `projectCompiledGraphs()` is the source-adjacent non-disclosure projector for Debug Graphs.
+`projectWorkflowPresentation()` projects only one exact installed card type's nodes and full structural topology for `workflows.presentation`. It never projects all rich graphs and discards fields. The cockpit header and participant rail share a per-type presentation store; late detail arrival/type changes select the matching immutable facts, same-type pending reads are shared, and failure allows explicit retry. Accepted data is reused without reconnect refresh or invalidation, and never grants runtime/liveness/card authority. System retains DebugStore and rich installed workflow bindings.
 Server composition passes the one bound `CompiledRuntimeWorkflows` startup object directly to the operator handler.
 Projection derives selected global agents plus entries, nodes, configured edges, and runtime-owned edges from the singular immutable startup artifact. Selected globals expose their exact global identity, safe resolved static declaration/source, model binding, skills flag, and tools separately from card graphs. Workflow nodes resolve model candidates and operational tool names from the same immutable agent bindings used by execution; there is no actor-definition or node/edge index.
 It omits prompt text/path and candidate account identity and validates the complete strict response schema.
@@ -1408,6 +1406,10 @@ The UI offers no direct project start/stop or pause/resume controls; those reque
 It never optimistically writes a running card as cancelled.
 Agent conversation APIs never return raw canonical compaction JSON. They project strict safe segment context; rendered current and selected historical views omit accumulated-summary prose and separately show ordered retained instruction context with source coordinates and redacted declaration/content.
 
+### Plain browser request lifetime
+
+`createOwnedFetch()` owns only an instance-local current request, AbortController and pending ref. Replacement/cancellation invalidates the owner before abort; superseded success, failure and finally publish nothing. Acceptance faults propagate rather than becoming transport errors. Domain values, errors and last-good/reset semantics stay local. Its ten consumers are MCP tools; System configuration, providers and actions; Debug errors, processes and Doctor; file content; exact session route resolution; and current-card orientation. Disposal and departing route/selection cancel those reads. Cards, graph reads, directory listings, session inventory and conversation/lease freshness owners retain their separate contracts.
+
 ## 12. Reset And Failure Model
 
 `readCanonicalLinkedCardHistoryTree()` follows committed links and folds each reached card stream.
@@ -1416,12 +1418,7 @@ Content policy folds terminal refusal metadata from row changes only, reads no o
 It uses no enumeration, cache, counter, or repository.
 
 The authenticated operator contract map owns `GET /api/runtime/content-policy`; server composition calls that direct read model and generated/shared web contracts parse the exact count/latest response.
-A focused Pinia store exclusively owns request value/loading/error and epoch/AbortController supersession.
-Application bootstrap performs initial and auth-reset reads and composes the existing single cards SyncClient callbacks so card invalidation and reconnect preserve CardStore behavior before requesting a high-water refetch.
-There is no websocket resource, timer, watcher, polling, or process cache.
-Dashboard consumes only the store and renders quiet zero, honest unavailable, or a nonzero safe latest banner.
-Its link selects `/agents/<session>?entry=<marker>`; Agents validates the marker query, fetches only the exact session, and highlights/scrolls only that exact row or reports it missing.
-Rendered marker text is synthetic and contains no provider response.
+This endpoint remains an explicit read-derived API; application bootstrap, card invalidation and reconnect do not fetch it, and no UI policy store or Dashboard high-water banner exists. Refusal presentation derives from authoritative blocked results and Errors. Exact session entry links select only their named session and marker, without searching replacements; rendered marker text is synthetic and contains no provider response.
 
 Named incompatible durable-format changes require stopping each affected service, running the matching current built reset, and then starting that binary.
 Directory-owned parent-local spreadsheet claims, the exact two-kind card stream, card records without `position`, complete parent-owned `children` membership/order, immutable card type across every card version, the ordered summary-group payload, minimal strict `applied_policy`, and marker-first/no-preamble Analyst source contract are such cutovers.
@@ -1472,6 +1469,7 @@ This appendix is maintained as source-derived reference data for documentation d
 | `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:20` |
 | `GET /api/chat` | Configured global Analyst identity. | `src/contracts/operator-api-chats.ts:60` |
 | `POST /api/chat` | Configured global Analyst turn submission. | `src/contracts/operator-api-chats.ts:74` |
+| `GET /api/workflows/:cardType/presentation` | Presentation-only topology for one installed card type. | `src/contracts/operator-api-workflows.ts:23` |
 | `GET /api/config` | Operator-session redacted configuration. | `src/contracts/operator-api-config.ts:58` |
 | `GET /api/providers` | Operator-session provider routing projection. | `src/contracts/operator-api-config.ts:68` |
 | `GET /api/control-actions` | Operator-session control-action projection. | `src/contracts/operator-api-config.ts:78` |
@@ -1656,7 +1654,7 @@ The port uses synchronous fd-2 output followed unconditionally by `process.exit(
 Catch guards rethrow the same instance until the earliest concrete owner can deliver it.
 `BaseActor` stays persistence-neutral through a no-op fatal-task hook; its sole production subclass, `CardProcessActor`, supplies fatal delivery.
 `ConversationLLMActor` is a direct phase owner, while `AnalystSession` and `SupervisorRuntimeApi` remain plain coordinators.
-`AnalystWsHandler` owns ordinary WebSocket turn and queue rejection boundaries; publication uncertainty exits from the consuming fatal boundary before it can send a response.
+REST chat rejection reaches the consuming Fastify fatal boundary before it can send a replacement response; observation-only WebSocket admission has no publication owner.
 
 Replacement uses exclusive same-directory temporary publication and becomes uncertain at rename.
 The startup conversation-tail owner becomes uncertain at `ftruncate`.

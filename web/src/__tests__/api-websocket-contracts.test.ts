@@ -31,7 +31,7 @@ describe('websocket bootstrap boundary after S06', () => {
   });
 
   it('strictly parses valid server input and throws for wrong-direction, unknown, or malformed input', () => {
-    const connected = buildConnectedEnvelope({ sessionId: 'agent:analyst:global' });
+    const connected = buildConnectedEnvelope({});
     expect(parseServerEgressWsEnvelope(connected)).toEqual(connected);
 
     expect(() => parseServerEgressWsEnvelope({ type: 'activity', content: { event: 'future_event' } })).toThrow();
@@ -50,7 +50,7 @@ describe('websocket bootstrap boundary after S06', () => {
     expect(() => parseServerEgressWsEnvelope({ ...connected, extra: true })).toThrow();
   });
 
-  it('requires the classified ToolResult activity contract', () => {
+  it('rejects removed tool activity even with a valid ToolResult', () => {
     const activity = {
       type: 'activity',
       content: {
@@ -61,41 +61,11 @@ describe('websocket bootstrap boundary after S06', () => {
         result: { success: true, data: { visible: true } },
       },
     };
-    expect(parseServerEgressWsEnvelope(activity)).toEqual(activity);
+    expect(() => parseServerEgressWsEnvelope(activity)).toThrow();
     expect(() => parseServerEgressWsEnvelope({
       ...activity,
       content: { ...activity.content, result: { success: true, error: 'impossible' } },
     })).toThrow();
   });
 
-  it('preserves exact queue notification success and activation-closed failure events', () => {
-    const content = {
-      event: 'tool_invocation' as const,
-      sessionId: 'agent:analyst:global',
-      tool: 'queue_notification',
-      params: { card_id: 'card-a', kind: 'progress', body: 'Working', urgency: 'normal' },
-    };
-    const success = {
-      type: 'activity' as const,
-      content: {
-        ...content,
-        result: { success: true as const, data: { queued: true, card_id: 'card-a', notification_id: 'notification-a' } },
-      },
-    };
-    const failure = {
-      type: 'activity' as const,
-      content: {
-        ...content,
-        result: {
-          success: false as const,
-          error: "Cannot queue notification for card 'card-a': its current activation is closed to new notifications.",
-          data: { queued: false, reason: 'activation_closed', card_id: 'card-a' },
-        },
-      },
-    };
-    expect(parseServerEgressWsEnvelope(success)).toEqual(success);
-    expect(parseServerEgressWsEnvelope(failure)).toEqual(failure);
-    expect(failure.content.result.data).not.toHaveProperty('status');
-    expect(failure.content.result.data).not.toHaveProperty('winner');
-  });
 });

@@ -1,4 +1,5 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue';
+import { computed, ref, watch, onScopeDispose, type ComputedRef, type Ref } from 'vue';
+import { createOwnedFetch } from '../stores/owned-fetch';
 import type { CardDetail } from '../api/types';
 import { OperatorApiError, getCard } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -22,29 +23,27 @@ export function useCurrentCardOrientation(
   const detail = ref<CardDetail | null>(null);
   const unavailable = ref(false);
   const observedIdentity = ref<string | null>(null);
-  let generation = 0;
+  const request = createOwnedFetch();
+  onScopeDispose(request.cancel);
 
   async function observe(cardId: string): Promise<void> {
-    const token = ++generation;
-    try {
-      const response = await getCard(cardId);
-      if (token !== generation) return;
+    await request.run((signal) => getCard(cardId, signal), (response) => {
       detail.value = response.card;
       unavailable.value = false;
       observedIdentity.value = cardId;
-    } catch (error) {
-      if (token !== generation) return;
+    }, (error) => {
       if (error instanceof OperatorApiError && error.isNotFound) {
         unavailable.value = true;
         return;
       }
       log.error('current-card orientation read failed', error);
-    }
+    });
   }
 
   watch(
     () => [currentCardId(), observationAccepted()] as const,
     ([cardId, accepted]) => {
+      request.cancel();
       if (!accepted || cardId === null) return;
       if (cardId === observedIdentity.value && detail.value) return;
       void observe(cardId);

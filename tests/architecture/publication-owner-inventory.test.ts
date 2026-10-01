@@ -71,17 +71,6 @@ describe('source-derived publication owner inventory', () => {
     });
   });
 
-  it('keeps the sole AnalystWsHandler composition and every rejection owner fatal-aware', () => {
-    expect(fileCountInventory(/new\s+AnalystWsHandler\(/gu)).toEqual({ 'src/server/websocket.ts': 1 });
-    const handler = source('src/server/analyst-ws-handler.ts');
-    expect([...handler.matchAll(/(?<!\.)\bcatch\s*\(/gu)]).toHaveLength(1);
-    expect([...handler.matchAll(/\.catch\(/gu)]).toHaveLength(0);
-    expect(handler).not.toContain('turnQueues');
-    expect(handler).not.toContain('queueTurn');
-    expect(source('src/server/websocket.ts')).toContain('fatalPort: options.fatalPort');
-    expect(source('src/server/composition/route-composition.ts')).toContain('fatalPort: options.fatalPort');
-  });
-
   it('validates the exact configured Analyst session before transport, MCP, or runtime startup', () => {
     const services = source('src/server/composition/server-services.ts');
     const workflows = services.indexOf('const workflows = bindRuntimeWorkflows');

@@ -1,11 +1,5 @@
 import { z } from 'zod';
 import { ConversationSessionIdSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
-import {
-  AnalystTurnBusyErrorSchema,
-  MAX_INBOUND_ANALYST_TEXT_CHARS,
-  RestartChatAcknowledgementSchema,
-} from './operator-api-chats.js';
-import { ToolResultSchema } from './tool-result.js';
 
 const LiveSyncUnscopedResourceSchema = z.literal('runtime');
 const LiveSyncCardRecordNameSchema = recordNameSchema;
@@ -159,12 +153,9 @@ export function parseLiveSyncClientFrame(input: unknown): LiveSyncClientFrame | 
   return parsed.success ? parsed.data : null;
 }
 
-const stringOrNullSchema = z.string().nullable();
-const optionalStringSchema = z.string().optional();
 export const ConnectedStatusContentSchema = z
   .object({
     event: z.literal('connected'),
-    sessionId: ConversationSessionIdSchema,
     timestamp: z.string().datetime(),
     clientCount: z.number().int().nonnegative(),
   })
@@ -175,167 +166,16 @@ const ConnectedStatusEnvelopeSchema = z.object({
   content: ConnectedStatusContentSchema,
 }).strict();
 
-export const AnalystTurnAcknowledgedStatusContentSchema = z
-  .object({
-    event: z.literal('analyst_turn_acknowledged'),
-    sessionId: ConversationSessionIdSchema,
-    restart: RestartChatAcknowledgementSchema.nullable(),
-  })
-  .strict();
-
-const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
-  type: z.literal('status'),
-  content: AnalystTurnAcknowledgedStatusContentSchema,
-}).strict();
-
-const AnalystActivityEventNames = [
-  'notification_added',
-  'control_action_recorded',
-  'analyst_tool_invoked',
-  'tool_invocation',
-] as const;
-
-export const NotificationAddedContentSchema = z
-  .object({
-    event: z.literal('notification_added'),
-    session_id: z.string().nullable(),
-    kind: z.string().min(1),
-  })
-  .strict();
-
-export const ControlActionRecordedContentSchema = z
-  .object({
-    event: z.literal('control_action_recorded'),
-    id: z.string().min(1),
-    action: z.string().min(1),
-    target_kind: stringOrNullSchema,
-    target_id: stringOrNullSchema,
-    outcome: z.string().min(1),
-    created_at: z.string().min(1),
-    actor: optionalStringSchema,
-    surface: optionalStringSchema,
-  })
-  .strict();
-
-export const AnalystToolInvokedContentSchema = z
-  .object({
-    event: z.literal('analyst_tool_invoked'),
-    sessionId: ConversationSessionIdSchema,
-    tool: z.string().min(1),
-    success: z.boolean(),
-    summary: z.string(),
-    classified_as: optionalStringSchema,
-    related_card_id: optionalStringSchema,
-    related_note_id: optionalStringSchema,
-    related_process_id: optionalStringSchema,
-  })
-  .strict();
-
-export const ClassifiedToolInvocationActivityContentSchema = z
-  .object({
-    event: z.literal('tool_invocation'),
-    sessionId: ConversationSessionIdSchema,
-    tool: z.string().min(1),
-    params: z.unknown(),
-    result: ToolResultSchema,
-  })
-  .strict();
-
-const AnalystActivityContentSchema = z.discriminatedUnion('event', [
-  NotificationAddedContentSchema,
-  ControlActionRecordedContentSchema,
-  AnalystToolInvokedContentSchema,
-  ClassifiedToolInvocationActivityContentSchema,
-]);
-
-const ServerActivityEnvelopeSchema = z.object({
-  type: z.literal('activity'),
-  content: AnalystActivityContentSchema,
-}).strict();
-
-export const MAX_ANALYST_WS_FRAME_BYTES = 1_048_576;
-
-export const InboundAnalystMessageContentSchema = z
-  .object({
-    text: z.string().min(1).max(MAX_INBOUND_ANALYST_TEXT_CHARS),
-  })
-  .strict();
-
-export const InboundAnalystMessageEnvelopeSchema = z.object({
-  type: z.literal('message'),
-  content: InboundAnalystMessageContentSchema,
-}).strict();
-
-const AnalystProcessingFailedErrorSchema = z.object({
-    error: z.literal('analyst_processing_failed'),
-    message: z.literal('Failed to process Analyst message.'),
-  })
-  .strict();
-export const ANALYST_PROCESSING_FAILED_ERROR = Object.freeze(
-  AnalystProcessingFailedErrorSchema.parse({
-    error: 'analyst_processing_failed',
-    message: 'Failed to process Analyst message.',
-  }),
-);
-const AnalystWsErrorContentSchema = z.discriminatedUnion('error', [
-  AnalystTurnBusyErrorSchema,
-  AnalystProcessingFailedErrorSchema,
-]);
-export const ErrorEnvelopeSchema = z
-  .object({
-    type: z.literal('error'),
-    content: AnalystWsErrorContentSchema,
-  })
-  .strict();
-
-const ServerStatusWsEnvelopeSchema = z.union([
-  ConnectedStatusEnvelopeSchema,
-  AnalystTurnAcknowledgedStatusEnvelopeSchema,
-]);
-
-export const ServerEgressWsEnvelopeSchema = z.union([
-  ServerStatusWsEnvelopeSchema,
-  ServerActivityEnvelopeSchema,
-  ErrorEnvelopeSchema,
-]);
-
-const analystActivityEventNameSet = new Set<string>(AnalystActivityEventNames);
+export const MAX_WS_FRAME_BYTES = 1_048_576;
+export const ServerEgressWsEnvelopeSchema = ConnectedStatusEnvelopeSchema;
 
 export type ServerEgressWsEnvelope = z.infer<typeof ServerEgressWsEnvelopeSchema>;
-export type ClassifiedToolInvocationActivityContent = z.infer<
-  typeof ClassifiedToolInvocationActivityContentSchema
->;
-export type InboundAnalystMessageEnvelope = z.infer<typeof InboundAnalystMessageEnvelopeSchema>;
-type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;
-
-function getContentEvent(content: unknown): string | null {
-  if (!content || typeof content !== 'object') return null;
-  const event = (content as Record<string, unknown>).event;
-  return typeof event === 'string' ? event : null;
-}
 
 export function parseServerEgressWsEnvelope(envelope: unknown): ServerEgressWsEnvelope {
   return ServerEgressWsEnvelopeSchema.parse(envelope);
 }
 
-export function isAnalystActivityContent(content: unknown): content is AnalystActivityContent {
-  const event = getContentEvent(content);
-  return Boolean(
-    event &&
-    analystActivityEventNameSet.has(event) &&
-    AnalystActivityContentSchema.safeParse(content).success,
-  );
-}
-
-export function parseAnalystTurnAcknowledgedStatusContent(
-  input: unknown,
-): z.infer<typeof AnalystTurnAcknowledgedStatusContentSchema> | null {
-  const parsed = AnalystTurnAcknowledgedStatusContentSchema.safeParse(input);
-  return parsed.success ? parsed.data : null;
-}
-
 export function buildConnectedEnvelope(input: {
-  sessionId: z.infer<typeof ConversationSessionIdSchema>;
   timestamp?: string;
   clientCount?: number;
 }): z.infer<typeof ConnectedStatusEnvelopeSchema> {
@@ -343,7 +183,6 @@ export function buildConnectedEnvelope(input: {
     type: 'status',
     content: {
       event: 'connected',
-      sessionId: input.sessionId,
       timestamp: input.timestamp ?? new Date(0).toISOString(),
       clientCount: input.clientCount ?? 1,
     },

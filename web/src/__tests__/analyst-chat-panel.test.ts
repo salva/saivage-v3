@@ -321,6 +321,29 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
+  it.each(['form', 'keyboard'] as const)('handles rejected %s submission at the event boundary without losing feedback or draft', async (event) => {
+    const pinia = createPinia();
+    const wrapper = mountPanel(pinia);
+    await flushPromises();
+    api.sendChatMessage.mockRejectedValueOnce(new OperatorApiError('chats.send', 409, {
+      error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.',
+    }));
+    const textarea = wrapper.get('textarea');
+    await textarea.setValue('retry this draft');
+    const focus = vi.spyOn(textarea.element, 'focus');
+    if (event === 'form') await wrapper.get('form').trigger('submit');
+    else await textarea.trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    const chat = useAnalystChat(pinia);
+    expect(api.sendChatMessage).toHaveBeenCalledOnce();
+    expect(chat.draft).toBe('retry this draft');
+    expect(chat.messages).toEqual(entries);
+    expect(wrapper.get('[role="alert"]').text()).toBe('Another Analyst turn is active. Retry after it finishes.');
+    expect(focus).not.toHaveBeenCalled();
+    focus.mockRestore();
+    wrapper.unmount();
+  });
+
   it('withholds direct, send-follow-up, and invalidation transcript reads until acknowledgement', async () => {
     let callback!: (frame: any) => Promise<void>;
     live.openConversation.mockImplementation((_id, value) => {
@@ -414,7 +437,6 @@ describe('AnalystChatPanel', () => {
     const conn = {
       state: { value: 'connected' as const },
       connect: vi.fn(),
-      reconfigure: vi.fn(),
       sendRaw: vi.fn((frame) => { sent.push(frame); return true; }),
       onEvent: vi.fn(() => () => {}),
       onState: vi.fn(() => () => {}),

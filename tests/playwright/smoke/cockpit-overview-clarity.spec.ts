@@ -149,6 +149,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     const path = url.pathname;
     if (request.method() !== 'GET') return route.fallback();
     requests.push(path);
+    if (path === '/api/debug/graphs') return json(route, { error: 'InternalServerError', message: 'Internal server error' }, 500);
 
     if (path === '/api/state') return json(route, parseOperatorResponse('runtime.getState', 200, { projectId: 'project', runtime: { status: 'running', project_id: 'project', pid: 4242, started_at: now, current_card_id: smokeCardId, updated_at: now }, serverAvailability: smokeServerAvailability }));
     if (path === '/api/runtime/status') return json(route, parseOperatorResponse('runtime.status', 200, {
@@ -194,7 +195,14 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
       const entries = transcriptEntries();
       return json(route, parseOperatorResponse('agents.conversation', 200, { session_id: sessionId, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: entries.at(-1)!.id } }));
     }
-    if (path === '/api/debug/graphs') return json(route, parseOperatorResponse('debug.graphs', 200, { global_agents: [], graphs: [graph] }));
+    if (path === `/api/workflows/${graph.card_type}/presentation`) return json(route, parseOperatorResponse('workflows.presentation', 200, {
+      card_type: graph.card_type,
+      nodes: graph.nodes.map(({ node_id, agent_name }) => ({ node_id, agent_name })),
+      entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
+      edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
+      terminals: graph.terminals,
+      records: graph.records.map(({ name, bootstrap }) => ({ name, bootstrap })),
+    }));
     return route.fallback();
   });
   return { requests, recordReads, recordOrder, releaseHeldRefresh: heldRefresh.resolve };
@@ -284,7 +292,7 @@ test('work-first Overview uses custom current sources without request fan-out at
 
 test('constrained shared Cockpit keeps exact conversation context and independent scrolling', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 900, height: 700 });
-  const { base } = await setup(page);
+  const { base, fixture } = await setup(page);
   await page.goto(`/cards/${smokeCardId}`);
   await expect(page.getByTestId('facet-overview').getByText('Parent and related work')).toBeAttached();
 
@@ -300,6 +308,13 @@ test('constrained shared Cockpit keeps exact conversation context and independen
   const technicalSummary = header.locator('summary', { hasText: 'Workflow & technical details' });
   await openDetailsByKeyboard(page, technicalSummary);
   await expect(header.getByTestId('card-flow-outcomes').getByText('continue-along-the-long-custom-cycle-01', { exact: false })).toBeVisible();
+  const topology = header.locator('.flow-graph-details');
+  await expect(topology).toContainText('custom-worker-42');
+  await expect(topology).toContainText('BACKLOG → node node-01');
+  await expect(topology).toContainText('continue-along-the-long-custom-cycle-42 (default)→ node node-01');
+  const terminals = topology.locator('.flow-graph-row').filter({ hasText: 'Terminals:' });
+  for (const terminal of ['DONE', 'BLOCKED', 'FAILED']) await expect(terminals).toContainText(terminal);
+  await expect(topology).toContainText(`${objectiveName} (bootstrap)`);
 
   const cockpitMetrics = await page.evaluate(() => {
     const center = document.querySelector<HTMLElement>('.cockpit-center')!;
@@ -412,4 +427,6 @@ test('constrained shared Cockpit keeps exact conversation context and independen
   await screenshot(page, testInfo, 'cockpit-conversation-expanded-900x700.png');
 
   expect(base.unknown).toEqual([]);
+  expect(base.counts.get('GET /api/debug/graphs') ?? 0).toBe(0);
+  expect(fixture.requests).not.toContain('/api/debug/graphs');
 });

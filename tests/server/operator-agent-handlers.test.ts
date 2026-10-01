@@ -163,7 +163,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     };
     const cursorValidation = { error: 'conversation_cursor_not_found', session_id: 'agent:planner:project', segment_version: 1, since: 'missing' };
     const sessionNotFound = { error: 'Agent session not found' };
-    const exchangeNotFound = { error: 'No LLM exchange recorded for this session yet.' };
+    const exchangeNotFound = { error: 'llm_exchange_not_found' };
 
     expect(agentOperatorApiContracts['agents.detail'].response[400].parse(runtimeValidation)).toEqual(runtimeValidation);
     expect(agentOperatorApiContracts['agents.conversation'].response[400].parse(runtimeValidation)).toEqual(runtimeValidation);
@@ -302,7 +302,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       } as never),
     ).resolves.toEqual({
       statusCode: 404,
-      body: { error: 'No LLM exchange recorded for this session yet.' },
+      body: { error: 'llm_exchange_not_found' },
     });
   });
 
@@ -354,7 +354,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     try {
       const absent = await fastify.inject({ method: 'GET', url });
       expect(absent.statusCode).toBe(404);
-      expect(absent.json()).toEqual({ error: 'No LLM exchange recorded for this session yet.' });
+      expect(absent.json()).toEqual({ error: 'llm_exchange_not_found' });
       const payload = sensitiveExchange('ok');
       appendProviderExchangeEntry(root, session, providerExchangeEntry({ session_id: session, source_input_id: payload.source_input_id, attempt_index: payload.attempt_index, timestamp: payload.completed_at, payload }));
       const published = await fastify.inject({ method: 'GET', url });

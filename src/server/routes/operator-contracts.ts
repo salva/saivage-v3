@@ -3,6 +3,7 @@ import type { McpManager } from '../../mcp/manager-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import type { AuthPolicy } from '../auth-policy.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
+import { buildWorkflowOperatorContractHandlers } from './operator-workflow-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
 import { buildConfigOperatorContractHandlers } from './operator-config-handlers.js';
 import { buildEventsOperatorContractHandlers } from './operator-events-handlers.js';
@@ -52,6 +53,7 @@ export function registerOperatorContractRoutes(
     fatalPort: options.fatalPort,
   });
   const handlers = {
+    ...buildWorkflowOperatorContractHandlers(options.workflows),
     ...defineOperatorContractHandlers({
       'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
     }),

@@ -44,7 +44,7 @@ describe('CardStore exact card resources',()=>{
 
   it('loads descriptors separately, then exact record resources and maps only exact optional missing errors to empty',async()=>{
     vi.mocked(getCard).mockResolvedValue({card:cardView(A)}); vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:descriptors});
-    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{if(name==='research-findings.md')throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId,name});return content(cardId,name,name);});
+    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{if(name==='research-findings.md')throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId,name});return content(cardId,name,name);});
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
     expect(getCard).toHaveBeenCalledTimes(1); expect(listCardRecords).toHaveBeenCalledTimes(1); expect(getCardRecord).toHaveBeenCalledTimes(3);
     expect(vi.mocked(listCardRecords).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(getCardRecord).mock.invocationCallOrder[0]!);
@@ -53,21 +53,21 @@ describe('CardStore exact card resources',()=>{
 
   it('keeps bootstrap and nonexact 404 failures as errors',async()=>{
     vi.mocked(getCard).mockResolvedValue({card:cardView(A)}); vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:descriptors});
-    vi.mocked(getCardRecord).mockImplementation(async(_cardId,name)=>{throw new OperatorApiError('cards.records.get',404,name==='brief.md'?{error:'Card record not found',cardId:A,name}:name==='research-findings.md'?{error:'Card record not found',cardId:'card-b',name}:{error:'Card not found',cardId:A});});
+    vi.mocked(getCardRecord).mockImplementation(async(_cardId,name)=>{throw new OperatorApiError('cards.records.get',404,name==='brief.md'?{error:'card_record_not_found',cardId:A,name}:name==='research-findings.md'?{error:'card_record_not_found',cardId:'card-b',name}:{error:'Card not found',cardId:A});});
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
-    expect(store.cardRecords['brief.md']!.accepted).toBeNull(); expect(store.cardRecords['brief.md']!.error).toBe('Card record not found');
-    expect(store.cardRecords['research-findings.md']!.accepted).toBeNull(); expect(store.cardRecords['research-findings.md']!.error).toBe('Card record not found');
+    expect(store.cardRecords['brief.md']!.accepted).toBeNull(); expect(store.cardRecords['brief.md']!.error).toBe('card_record_not_found');
+    expect(store.cardRecords['research-findings.md']!.accepted).toBeNull(); expect(store.cardRecords['research-findings.md']!.error).toBe('card_record_not_found');
   });
 
   it('retries only the exact initially failed record while preserving unrelated outcomes',async()=>{
     vi.mocked(getCard).mockResolvedValue({card:cardView(A)}); vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:descriptors});
     vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{
-      if(name==='brief.md')throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId,name});
-      if(name==='research-findings.md')throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId,name});
+      if(name==='brief.md')throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId,name});
+      if(name==='research-findings.md')throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId,name});
       return content(cardId,name,name);
     });
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
-    expect(store.cardRecords['brief.md']!.error).toBe('Card record not found');
+    expect(store.cardRecords['brief.md']!.error).toBe('card_record_not_found');
     expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'});
     expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',content:'decision.md'});
     vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>content(cardId,name,'retried objective'));
@@ -79,6 +79,20 @@ describe('CardStore exact card resources',()=>{
     expect(store.cardRecords['brief.md']!.accepted).toMatchObject({kind:'content',content:'retried objective'});
     expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'});
     expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',content:'decision.md'});
+  });
+
+  it('does not accept a missing-record code for a different record name', async () => {
+    vi.mocked(getCard).mockResolvedValue({ card: cardView(A) });
+    vi.mocked(listCardRecords).mockResolvedValue({ card_id: A, records: descriptors });
+    vi.mocked(getCardRecord).mockImplementation(async (cardId, name) => {
+      if (name === 'research-findings.md') throw new OperatorApiError('cards.records.get', 404, {
+        error: 'card_record_not_found', cardId, name: 'decision.md',
+      });
+      return content(cardId, name);
+    });
+    const store = useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
+    expect(store.cardRecords['research-findings.md']!.accepted).toBeNull();
+    expect(store.cardRecords['research-findings.md']!.error).toBe('card_record_not_found');
   });
 
   it('fences a selected-card load after pending descriptors before reading record content',async()=>{
@@ -122,11 +136,11 @@ describe('CardStore exact card resources',()=>{
     vi.mocked(getCard).mockResolvedValue({card:cardView(A)}); vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:descriptors});
     vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>content(cardId,name,`${name} accepted`));
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
-    vi.mocked(getCardRecord).mockImplementation(async(_cardId,name)=>{throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId:'card-b',name});});
+    vi.mocked(getCardRecord).mockImplementation(async(_cardId,name)=>{throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId:'card-b',name});});
     store.onInvalidate({resource:'cards',scope:'record',card_id:A,record_name:'research-findings.md'}); await Promise.resolve(); await Promise.resolve();
     expect(store.cardRecords['research-findings.md']!.accepted).toMatchObject({kind:'content',content:'research-findings.md accepted'});
     expect(store.cardRecords['research-findings.md']!.staleReason).toBe('refresh-failed');
-    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{throw new OperatorApiError('cards.records.get',404,{error:'Card record not found',cardId,name});});
+    vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId,name});});
     await store.retryRecord('research-findings.md');
     expect(store.cardRecords['research-findings.md']!.accepted).toMatchObject({kind:'content',content:'research-findings.md accepted'});
     expect(store.cardRecords['research-findings.md']!.staleReason).toBe('refresh-failed');

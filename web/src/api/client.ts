@@ -30,7 +30,6 @@ import type {
   CardHistoryListResponse,
   CardHistoryEntryResponse,
   CardDiffResponse,
-  ContentPolicyRuntimeResponse,
 } from './types';
 import { type ConversationSessionId } from './contracts';
 import { getAuthToken } from './auth';
@@ -267,9 +266,6 @@ export function getCardDiff(
 export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateResponse> {
   return operatorRequest('runtime.getState', { signal });
 }
-export function getContentPolicyRuntime(signal?: AbortSignal): Promise<ContentPolicyRuntimeResponse> {
-  return operatorRequest('runtime.contentPolicy', { signal });
-}
 
 export function getRuntimeStatus(
   signal?: AbortSignal,
@@ -340,12 +336,12 @@ export function getFileContent(path: string, signal?: AbortSignal): Promise<File
   return operatorRequest('files.content', { query: { path }, signal });
 }
 
-export function listProcesses(): Promise<ProcessListResponse> {
-  return operatorRequest('processes.list');
+export function listProcesses(signal?: AbortSignal): Promise<ProcessListResponse> {
+  return operatorRequest('processes.list', { signal });
 }
 
-export function getDebugErrors(): Promise<DebugErrorsResponse> {
-  return operatorRequest('debug.errors');
+export function getDebugErrors(signal?: AbortSignal): Promise<DebugErrorsResponse> {
+  return operatorRequest('debug.errors', { signal });
 }
 
 export function getDebugGraphs(
@@ -354,12 +350,16 @@ export function getDebugGraphs(
   return operatorRequest('debug.graphs', { signal });
 }
 
-export function getDoctor(): Promise<DoctorResponse> {
-  return operatorRequest('debug.doctor');
+export function getWorkflowPresentation(cardType: string): Promise<import('./types').WorkflowPresentation> {
+  return operatorRequest('workflows.presentation', { params: { cardType } });
 }
 
-export function getMcpTools(): Promise<McpToolsResponse> {
-  return operatorRequest('mcp.tools');
+export function getDoctor(signal?: AbortSignal): Promise<DoctorResponse> {
+  return operatorRequest('debug.doctor', { signal });
+}
+
+export function getMcpTools(signal?: AbortSignal): Promise<McpToolsResponse> {
+  return operatorRequest('mcp.tools', { signal });
 }
 
 interface EventsQueryOptions {
@@ -384,14 +384,14 @@ export function listEvents(options: EventsQueryOptions = {}): Promise<import('./
   });
 }
 
-export function getConfig(): Promise<import('./types').ConfigGetResponse> {
-  return operatorRequest('config.get');
+export function getConfig(signal?: AbortSignal): Promise<import('./types').ConfigGetResponse> {
+  return operatorRequest('config.get', { signal });
 }
 
-export function listProviders(): Promise<import('./types').ProvidersListResponse> {
-  return operatorRequest('providers.list');
+export function listProviders(signal?: AbortSignal): Promise<import('./types').ProvidersListResponse> {
+  return operatorRequest('providers.list', { signal });
 }
 
-export function listControlActions(query: { cardId?: string } = {}): Promise<import('./types').ControlActionsListResponse> {
-  return operatorRequest('controlActions.list', { query: { card_id: query.cardId } });
+export function listControlActions(query: { cardId?: string } = {}, signal?: AbortSignal): Promise<import('./types').ControlActionsListResponse> {
+  return operatorRequest('controlActions.list', { query: { card_id: query.cardId }, signal });
 }

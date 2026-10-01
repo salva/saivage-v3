@@ -5,22 +5,18 @@
  * Auth:        Checked on upgrade; invalid → close 1008.
  *
  * Server event envelope (JSON):
- *   { "type": "activity | status | error", "content": { ... } }
- * Browser-to-server Analyst messages use their separate strict input contract.
+ *   { "type": "status", "content": { "event": "connected", ... } }
+ * Browser input is strict live-sync subscribe/unsubscribe only.
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { RuntimeApplication } from '../application/index.js';
 import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema,
 } from '../contracts/index.js';
 import type { ServerEgressWsEnvelope } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/artifact-api.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
-import { AnalystWsHandler } from './analyst-ws-handler.js';
-import type { RestartCapability } from '../contracts/index.js';
-import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 export function serializeOutboundEnvelope(event: ServerEgressWsEnvelope): string {
   const classified = ServerEgressWsEnvelopeSchema.parse(event);
@@ -28,13 +24,12 @@ export function serializeOutboundEnvelope(event: ServerEgressWsEnvelope): string
   return JSON.stringify(ServerEgressWsEnvelopeSchema.parse(envelope));
 }
 
-export function sendToClient(ws: WebSocket, event: ServerEgressWsEnvelope, callback?: (error?: Error) => void,
-): void {
+export function sendToClient(ws: WebSocket, event: ServerEgressWsEnvelope): void {
   try {
     if (ws.readyState === ws.OPEN) {
-      ws.send(serializeOutboundEnvelope(event), callback);
+      ws.send(serializeOutboundEnvelope(event));
     }
-  } catch { void 0; 
+  } catch { void 0;
   }
 }
 
@@ -49,22 +44,12 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
 interface RegisterWebSocketOptions {
   authPolicy: AuthPolicy;
   liveSyncSocket: LiveSyncSocket;
-  runtimeApplication: RuntimeApplication;
-  restartCapability: RestartCapability;
-  fatalPort: ApplicationFatalPort;
 }
 
 export function registerWebSocket(fastify: FastifyInstance,
   options: RegisterWebSocketOptions,
 ): void {
   const liveSyncSocket = options.liveSyncSocket;
-  const analystWsHandler = new AnalystWsHandler({
-    liveSyncSocket,
-    runtimeApplication: options.runtimeApplication,
-    restartCapability: options.restartCapability,
-    sendToClient,
-    fatalPort: options.fatalPort,
-  });
   fastify.get(
     '/ws',
     { websocket: true },
@@ -76,28 +61,30 @@ export function registerWebSocket(fastify: FastifyInstance,
 
       liveSyncSocket.add(ws);
 
-      const analystSessionId = analystWsHandler.initialize(ws);
-
       sendToClient(ws, buildConnectedEnvelope({
-        sessionId: analystSessionId,
         timestamp: new Date().toISOString(),
         clientCount: liveSyncSocket.clientCount(),
-      }),
-    );
+      }));
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         if (!liveSyncSocket.isAdmissionOpen()) return;
-        void analystWsHandler.handleRawMessage(ws, raw, request.log).catch((error) => {
-          if (error instanceof PublicationOutcomeUnknownError) options.fatalPort.publicationOutcomeUnknown(error);
-        });
+        let input: unknown;
+        try {
+          const bytes = Buffer.isBuffer(raw) ? raw : Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw);
+          input = JSON.parse(bytes.toString('utf-8'));
+        } catch {
+          ws.close(1008, 'Invalid live-sync frame');
+          return;
+        }
+        if (!liveSyncSocket.handleClientFrame(ws, input)) ws.close(1008, 'Invalid live-sync frame');
       });
 
       ws.on('close', () => {
         liveSyncSocket.delete(ws);
-    });
+      });
 
       ws.on('error', () => {
         liveSyncSocket.delete(ws);
-    });
+      });
     });
 }

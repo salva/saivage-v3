@@ -281,7 +281,7 @@ async function refreshOperatorControl(): Promise<void> {
   await runtimeStore.fetchState().catch(() => {});
 }
 async function refreshAgents(): Promise<void> {
-  await agentStore.fetchSessions();
+  await agentStore.fetchSessions().catch(() => {});
 }
 function selectAgentSession(sessionId: ConversationSessionId): void {
   explicitAgentSessionId.value = sessionId;

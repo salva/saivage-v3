@@ -80,6 +80,7 @@ export { isRuntimeStoppedInterruption } from './actors/runtime-stopped-interrupt
 export { bindRuntimeWorkflows, compileProjectWorkflows, genericRecordDefinition, runtimeAgentBinding } from './card-process/card-process-config.js';
 export type { CompiledCardTypeWorkflow, CompiledProjectWorkflows, CompiledRuntimeWorkflows, ProcessPosition, WorkflowCompileOptions } from './card-process/card-process-config.js';
 export { projectCompiledGraphs } from './card-process/compiled-graphs-projection.js';
+export { projectWorkflowPresentation } from './card-process/workflow-presentation-projection.js';
 export { propagateAnalystRecordEdit, propagateChange } from './changed-propagation.js';
 export { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, sanitizedCommandEnv } from './command-policy.js';
 export { acquireRuntimeLifecycleLock, bindRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeProcessIdentity } from './lock.js';

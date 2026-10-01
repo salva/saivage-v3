@@ -177,7 +177,12 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 }
 
 async function submitMessage(): Promise<void> {
-  await chat.sendMessage();
+  try {
+    await chat.sendMessage();
+  } catch {
+    // The store retains send feedback and restores the draft.
+    return;
+  }
   await nextTick();
   focusComposer();
 }

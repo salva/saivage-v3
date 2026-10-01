@@ -702,7 +702,7 @@ function sourcePathSet(paths) {
 const PATHS = Object.freeze({
   cardErrors: sourcePathSet(['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts']),
   backendPivots: sourcePathSet(['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts']),
-  analystBusy: sourcePathSet(['src/contracts/operator-api-chats.ts', 'src/contracts/operator-events.ts', 'src/server/analyst-ws-handler.ts', 'src/server/routes/operator-chat-handlers.ts']),
+  analystBusy: sourcePathSet(['src/contracts/operator-api-chats.ts', 'src/server/routes/operator-chat-handlers.ts']),
   unexpected: sourcePathSet(['src/contracts/operator-api-core.ts', 'src/server/contract-runtime.ts']),
   unauthorized: sourcePathSet(['src/contracts/operator-api-core.ts']),
   lifecycle: sourcePathSet(['src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/schemas/lifecycle.ts', 'src/schemas/types.ts', 'src/schemas/validators.ts']),
@@ -723,9 +723,7 @@ function selectAnalystBusy(projectRoot) {
   requireSourceFragments(projectRoot, PATHS.analystBusy[0], ['ANALYST_TURN_BUSY_ERROR = Object.freeze(', 'AnalystTurnBusyErrorSchema.parse({'], 'busy frozen constant');
   const constant = strictObjectVariantFromParse(projectRoot, PATHS.analystBusy[0], 'ANALYST_TURN_BUSY_ERROR');
   if (canonicalJson(declaration.fields) !== canonicalJson(constant.fields)) throw new Error('Analyst busy constant does not match its schema literals');
-  requireDirectUnionMember(projectRoot, PATHS.analystBusy[1], 'AnalystWsErrorContentSchema', 'error', 'AnalystTurnBusyErrorSchema');
-  requireSourceFragments(projectRoot, PATHS.analystBusy[2], ['error instanceof AnalystTurnBusyError', '? ANALYST_TURN_BUSY_ERROR'], 'busy WebSocket producer');
-  requireSourceFragments(projectRoot, PATHS.analystBusy[3], ['error instanceof AnalystTurnBusyError', 'statusCode: 409, body: ANALYST_TURN_BUSY_ERROR'], 'busy REST producer');
+  requireSourceFragments(projectRoot, PATHS.analystBusy[1], ['error instanceof AnalystTurnBusyError', 'statusCode: 409, body: ANALYST_TURN_BUSY_ERROR'], 'busy REST producer');
   return errorValue([declaration]);
 }
 function strictObjectVariantFromParse(projectRoot, path, name) {
