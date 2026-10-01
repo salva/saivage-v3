@@ -20,7 +20,7 @@ export const ChatWorkspaceContextSchema = z.object({
   if (context.view === null && (context.entityId !== null || context.refinement !== null))
     refinement.addIssue({ code: 'custom', message: 'No-view context cannot include an entity or refinement.' });
   if (new TextEncoder().encode(JSON.stringify(context)).byteLength > MAX_ANALYST_WORKSPACE_CONTEXT_BYTES)
-    refinement.addIssue({ code: 'custom', message: 'Workspace context exceeds the 2048-byte limit.' });
+    refinement.addIssue({ code: 'custom', message: `Workspace context exceeds the ${MAX_ANALYST_WORKSPACE_CONTEXT_BYTES}-byte limit.` });
 });
 export const ChatSendRequestSchema = z.object({
   content: z.string().min(1).max(MAX_INBOUND_ANALYST_TEXT_CHARS),

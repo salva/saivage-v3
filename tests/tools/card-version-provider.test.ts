@@ -53,6 +53,21 @@ function childInput(title: string, depends_on: string[] = []) {
 }
 
 describe('card version provider', () => {
+  it('rejects every supplied summary position and succeeds when position is omitted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-position-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('Scalar summary'));
+    const surface = surfaceFor(cards);
+    const args = { card_id: child.id, version: 1, section: 'summary' };
+    for (const position of [{ item_index: 0, item_byte_offset: 0 }, { item_index: 1, item_byte_offset: 1 }]) {
+      await expect(invokeTool(surface, 'get_card_version', { ...args, position })).rejects.toThrow("Section 'summary' is a bounded scalar section and accepts no position.");
+    }
+    const execution = await invokeTool(surface, 'get_card_version', args);
+    expect(settleToolActionOutcome(execution.providerOutcome).providerResult).toMatchObject({
+      success: true, data: { section: 'summary', card: { title: 'Scalar summary' } },
+    });
+  });
+
   it("returns the selected row's complete carrier from the historical children section", async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-children-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

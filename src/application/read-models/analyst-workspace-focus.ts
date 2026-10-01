@@ -1,4 +1,4 @@
-import type { ChatWorkspaceContext } from '../../contracts/index.js';
+import { MAX_ANALYST_WORKSPACE_CONTEXT_BYTES, type ChatWorkspaceContext } from '../../contracts/index.js';
 import { ConversationSessionIdSchema, conversationSessionIdentity, type CardRecord } from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 
@@ -27,7 +27,7 @@ export function buildAnalystWorkspaceFocus(
       .map(([key, value]) => ({ key: redactTextForOutbound(key), value: redactTextForOutbound(value) }))
   );
   const redactedRoute = { view: route.view, entityId, refinement };
-  if (bytes(JSON.stringify(redactedRoute)) > 2048) return exceeded;
+  if (bytes(JSON.stringify(redactedRoute)) > MAX_ANALYST_WORKSPACE_CONTEXT_BYTES) return exceeded;
 
   let snapshot: Record<string, unknown> | string = route.view === null ? 'no_focus' : 'not_provided';
   if (route.view === 'cockpit' && route.entityId !== null) {

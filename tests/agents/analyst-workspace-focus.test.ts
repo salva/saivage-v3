@@ -36,6 +36,8 @@ describe('Analyst workspace focus', () => {
     const overhead = Buffer.byteLength(JSON.stringify(base), 'utf8');
     const accepted = { ...base, entityId: 'x'.repeat(MAX_ANALYST_WORKSPACE_CONTEXT_BYTES - overhead) };
     expect(ChatWorkspaceContextSchema.safeParse(accepted).success).toBe(true);
+    expect(buildAnalystWorkspaceFocus(accepted, cards).kind).toBe('rendered');
+    expect(buildAnalystWorkspaceFocus({ ...base, entityId: accepted.entityId + 'x' }, cards)).toEqual({ kind: 'budget_exceeded' });
     expect(ChatWorkspaceContextSchema.safeParse({ ...base, entityId: accepted.entityId + '🧭' }).success).toBe(false);
     const expansion = { view: 'files' as const, entityId: null, refinement: Object.fromEntries(Array.from({ length: 105 }, (_, index) => [`k${index}`, 'sk-a'])) };
     expect(ChatWorkspaceContextSchema.safeParse(expansion).success).toBe(true);

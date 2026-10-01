@@ -159,7 +159,12 @@ Node-externalization warnings are not browser-safety success.
 
 ## Build and release gates
 
-The build and release gates package every registered prompt tree and run its
+The build and release gates package every registered prompt tree. Packaging
+checks independently compiled classic/classic-typed closures for equal selected
+shared agent/fragment path membership and bytes, plus byte equality of shared
+process prompts at common paths; typed-only process paths remain permitted.
+The ordinary registry/copy-script Jest suites protect this family parity guard.
+Build then runs each template's
 compiled composition smoke (`npm run test:compiled-prompt-composition`,
 resolving `--source-root` against the invocation working directory for source
 byte comparison). After building documentation and the web UI they also run a

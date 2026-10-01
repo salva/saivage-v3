@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_TEMPLATES } from '../src/config/system-templates/registry.js';
@@ -52,6 +52,35 @@ export function collectTemplatePromptClosure({ template, promptRoot = template.p
   return Object.freeze([...selected].sort());
 }
 
+/** Compare the independently compiled classic family's selected shared artifacts. */
+export function assertClassicFamilyPromptParity({ templates = SYSTEM_TEMPLATES } = {}) {
+  const family = ['classic', 'classic-typed'].map((name) => {
+    const template = templates.find((entry) => entry.name === name);
+    if (!template) throw new Error(`Classic prompt family requires system template '${name}'.`);
+    return { template, closure: collectTemplatePromptClosure({ template }) };
+  });
+  const [classic, typed] = family;
+  const sharedGuidance = (path) => path.startsWith('agents/_shared/') || path.startsWith('fragments/_shared/');
+  const classicGuidance = new Set(classic.closure.filter(sharedGuidance));
+  const typedGuidance = new Set(typed.closure.filter(sharedGuidance));
+  for (const [selected, other] of [[classic, typed], [typed, classic]]) {
+    const otherGuidance = selected === classic ? typedGuidance : classicGuidance;
+    for (const path of selected.closure.filter(sharedGuidance)) {
+      if (!otherGuidance.has(path)) {
+        throw new Error(`Classic prompt family membership differs: '${selected.template.name}' selects '${path}' but '${other.template.name}' does not.`);
+      }
+    }
+  }
+  const typedPaths = new Set(typed.closure);
+  const comparedPaths = classic.closure.filter((path) => sharedGuidance(path)
+    || (path.startsWith('process/_shared/') && typedPaths.has(path)));
+  for (const path of comparedPaths) {
+    if (!readFileSync(join(classic.template.promptRoot, path)).equals(readFileSync(join(typed.template.promptRoot, path)))) {
+      throw new Error(`Classic prompt family bytes differ between '${classic.template.name}' and '${typed.template.name}': ${path}`);
+    }
+  }
+}
+
 function assertEqualPaths(actual, expected, message) {
   if (actual.length !== expected.length || actual.some((path, index) => path !== expected[index])) {
     throw new Error(`${message}: ${expected.join(', ')}`);
@@ -97,6 +126,7 @@ export function copySystemTemplatePrompts({ templates = SYSTEM_TEMPLATES, distRo
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
+    assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
     const packaged = copySystemTemplatePrompts();
     console.log(packaged.map((entry) => `Copied ${entry.count} '${entry.name}' prompt artifacts to ${relative(repoRoot, entry.outputRoot)}`).join('\n'));
   } catch (error) {

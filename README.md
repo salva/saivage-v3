@@ -150,6 +150,11 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 Use the profile that matches the change; `docs/validation.md` owns the
 toolchain internals and CI topology behind them.
 
+Build (and release through build) checks compiler-derived classic/classic-typed
+shared-template parity during prompt packaging, then runs compiled prompt
+composition with source/package byte comparison and all five selected roles.
+Routine validation does not run these build checks.
+
 | Profile | Runs | Use for |
 | --- | --- | --- |
 | `npm run validate:docs` | `docs:verify` (docs build + all drift guards); excludes `npm test` and `web:test:operator-smoke` | Documentation-only changes |

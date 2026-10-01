@@ -5,8 +5,8 @@
         <div>
           <h4 class="debug-section-title">Runtime Diagnostics</h4>
           <p class="operator-subtitle">
-            Inspect runtime state here. Ask the Analyst to Run, Pause, or Shutdown the runtime; use
-            Debug &gt; Errors for durable command, precondition, activation, and actionable-error
+            Inspect runtime state here. Ask the Analyst to run, pause, resume, or stop the project; use
+            System &gt; Errors for durable command, precondition, activation, and actionable-error
             evidence.
           </p>
         </div>
@@ -39,8 +39,9 @@
         <StatusBanner v-if="runtimeRefreshError" tone="warning" :message="runtimeRefreshError" />
         <ViewState v-if="runtimeLoaded && !runtime" state="empty" title="No live runtime." />
         <div class="operator-runtime-guidance" role="note">
-          Debug is diagnostic-only. Lifecycle changes are Analyst-owned. Dashboard shows current
-          runtime and activation ownership; Debug &gt; Errors is the durable error surface.
+          System is diagnostic-only. Project lifecycle changes are Analyst-owned; stopping the project
+          does not shut down the server. Cockpit shows current runtime and activation ownership;
+          System &gt; Errors is the durable error surface.
         </div>
       </div>
     </section>
@@ -51,11 +52,11 @@
           <h4 class="debug-section-title">Actionable runtime issues</h4>
           <p class="operator-subtitle">
             Durable command, runtime precondition, activation, and actionable-error evidence is
-            reported in Debug &gt; Errors with next-action guidance where available.
+            reported in System &gt; Errors with next-action guidance where available.
           </p>
         </div>
       </div>
-      <ViewState state="empty" title="Open Debug > Errors for durable runtime issues." />
+      <ViewState state="empty" title="Open System > Errors for durable runtime issues." />
     </section>
   </div>
 </template>

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { SYSTEM_TEMPLATES, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { minimalSystemTemplate, secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
-import { collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
+import { assertClassicFamilyPromptParity, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
 
 function fail(message) { throw new Error(message); }
 function assert(condition, message) { if (!condition) fail(message); }
@@ -60,11 +60,6 @@ const TYPED_CLOSURE = [
   ...['data-schema', 'data-validate', 'data-implement', 'data-to-validate', 'data-to-implement', 'data-revise-schema', 'data-implementation-retry'].map((id) => `process/data/${id}.md`),
   ...['architecture-draft', 'architecture-component-review', 'architecture-system-review', 'architecture-to-component-review', 'architecture-to-system-review', 'architecture-component-revision', 'architecture-system-revision', 'architecture-notifications-to-draft'].map((id) => `process/architecture/${id}.md`),
 ].sort();
-const SHARED_PROMPT_FILES = [
-  ...['analyst', 'executor', 'oversight', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
-  ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
-  ...['execute', 'handle-notifications', 'review-to-notifications', 'stopped-recovery', 'correct-plan-result', 'correct-review-result', 'correct-execution-result'].map((id) => `process/_shared/${id}.md`),
-];
 
 function writeFixtureUnion(root) {
   write(root, 'agents', '_shared', 'analyst', 'analyst {{vocabularySnippet}}');
@@ -76,6 +71,68 @@ function writeFixtureUnion(root) {
   write(root, 'process', '_shared', 'second-execute', 'second execute {{cardType}}');
   write(root, 'process', '_shared', 'correct-execution-result', 'correct {{cardType}}');
   write(root, 'process', '_shared', 'stopped-recovery', 'recover {{cardType}}');
+}
+
+function runClassicFamilyPromptParityTest() {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-template-parity-'));
+  const fixtureFamily = (caseName) => SYSTEM_TEMPLATES.map((template) => {
+    const promptRoot = join(root, caseName, template.name);
+    cpSync(template.promptRoot, promptRoot, { recursive: true });
+    return { ...template, config: structuredClone(template.config), promptRoot };
+  });
+  const selectFragment = (template, text) => {
+    const analystPath = join(template.promptRoot, 'agents', '_shared', 'analyst.md');
+    writeFileSync(analystPath, `${readFileSync(analystPath, 'utf8')}\n{{> newly-selected}}\n`);
+    write(template.promptRoot, 'fragments', '_shared', 'newly-selected', text);
+  };
+  try {
+    for (const missing of ['classic', 'classic-typed']) {
+      expectThrows(
+        () => assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES.filter((template) => template.name !== missing) }),
+        new RegExp(`requires system template '${missing}'`, 'u'),
+        `family parity silently skipped missing ${missing}`,
+      );
+    }
+
+    const oversightDrift = fixtureFamily('oversight-drift');
+    const oversightPath = join(oversightDrift[1].promptRoot, 'agents', '_shared', 'oversight.md');
+    writeFileSync(oversightPath, `${readFileSync(oversightPath, 'utf8')}\nfixture byte drift\n`);
+    expectThrows(() => assertClassicFamilyPromptParity({ templates: oversightDrift }), /bytes differ.*classic.*classic-typed.*agents\/_shared\/oversight\.md/u, 'family parity accepted changed Oversight bytes');
+
+    const agentAddition = fixtureFamily('agent-addition');
+    const typed = agentAddition[1];
+    typed.config.agents.executor.prompt.reference = 'newly-selected-agent';
+    write(typed.promptRoot, 'agents', '_shared', 'newly-selected-agent', readFileSync(join(typed.promptRoot, 'agents', '_shared', 'executor.md')));
+    expectThrows(() => assertClassicFamilyPromptParity({ templates: agentAddition }), /membership differs.*agents\/_shared\//u, 'family parity accepted a one-sided selected agent');
+
+    const fragmentAddition = fixtureFamily('fragment-addition');
+    selectFragment(fragmentAddition[0], 'new fragment');
+    expectThrows(() => assertClassicFamilyPromptParity({ templates: fragmentAddition }), /membership differs.*classic.*fragments\/_shared\/newly-selected\.md.*classic-typed/u, 'family parity accepted a one-sided selected fragment');
+
+    const processDrift = fixtureFamily('process-drift');
+    const processPath = join(processDrift[1].promptRoot, 'process', '_shared', 'execute.md');
+    writeFileSync(processPath, `${readFileSync(processPath, 'utf8')}\nfixture byte drift\n`);
+    expectThrows(() => assertClassicFamilyPromptParity({ templates: processDrift }), /bytes differ.*process\/_shared\/execute\.md/u, 'family parity accepted changed common process bytes');
+
+    const typedOnly = fixtureFamily('typed-only');
+    const classicClosure = new Set(collectTemplatePromptClosure({ template: typedOnly[0] }));
+    const typedOnlyPaths = collectTemplatePromptClosure({ template: typedOnly[1] }).filter((path) => path.startsWith('process/') && !classicClosure.has(path));
+    assert(typedOnlyPaths.some((path) => path.startsWith('process/_shared/')), 'fixture has no typed-only shared process path');
+    assert(typedOnlyPaths.some((path) => path.startsWith('process/code/')), 'fixture has no typed card-scoped process path');
+    for (const path of typedOnlyPaths) {
+      const sourcePath = join(typedOnly[1].promptRoot, path);
+      writeFileSync(sourcePath, `${readFileSync(sourcePath, 'utf8')}\nfixture typed-only change\n`);
+    }
+    assertClassicFamilyPromptParity({ templates: typedOnly });
+
+    const bothFragments = fixtureFamily('both-fragments');
+    for (const template of bothFragments) selectFragment(template, 'identical newly selected bytes');
+    assertClassicFamilyPromptParity({ templates: bothFragments });
+    write(bothFragments[1].promptRoot, 'fragments', '_shared', 'newly-selected', 'different newly selected bytes');
+    expectThrows(() => assertClassicFamilyPromptParity({ templates: bothFragments }), /bytes differ.*fragments\/_shared\/newly-selected\.md/u, 'family parity did not automatically compare a newly selected shared fragment');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function runCopySystemTemplatePromptsTest() {
@@ -100,6 +157,21 @@ function runCopySystemTemplatePromptsTest() {
     assert(minimalClosure.join('\n') === expectedMinimal.join('\n'), 'minimal template closure omitted a selected prompt');
     assert(secondClosure.join('\n') === expectedSecond.join('\n'), 'second template closure omitted a template-only prompt or direct fragment');
     assert(collectTemplatePromptClosure({ template: minimal }).join('\n') === minimalClosure.join('\n'), 'closure collection is not deterministic');
+
+    const customTemplates = [minimal, second].map((template) => {
+      const promptRoot = temporary(`saivage-template-${template.name}-`);
+      for (const path of collectTemplatePromptClosure({ template })) {
+        const destination = join(promptRoot, path);
+        mkdirSync(dirname(destination), { recursive: true });
+        cpSync(join(unionRoot, path), destination);
+      }
+      return { ...template, promptRoot };
+    });
+    const customDist = temporary('saivage-template-custom-dist-');
+    copySystemTemplatePrompts({ templates: customTemplates, distRoot: customDist });
+    for (const template of customTemplates) {
+      assertTreesEqual(template.promptRoot, join(customDist, 'src', 'config', 'system-templates', template.name, 'prompts'));
+    }
 
     const outside = temporary('saivage-template-outside-');
     const escapedRoot = temporary('saivage-template-escaped-');
@@ -136,9 +208,7 @@ function runCopySystemTemplatePromptsTest() {
     assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the source-declared lock');
     assert(walkFiles(classicRoot).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic source tree contains an unselected or missing artifact');
     assert(walkFiles(typedRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed source tree contains an unselected or missing artifact');
-    for (const file of SHARED_PROMPT_FILES) {
-      assert(readFileSync(join(classicRoot, file), 'utf8') === readFileSync(join(typedRoot, file), 'utf8'), `classic-family shared prompt drifted between templates: ${file}`);
-    }
+    assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
 
     const distRoot = temporary('saivage-template-dist-');
     copySystemTemplatePrompts({ distRoot });
@@ -171,8 +241,10 @@ function runCopySystemTemplatePromptsTest() {
 }
 
 if (typeof globalThis.test === 'function') {
+  globalThis.test('enforces compiled classic-family membership and byte parity without equating typed workflows', runClassicFamilyPromptParityTest);
   globalThis.test('collects each template closure and copies exact per-template trees idempotently', runCopySystemTemplatePromptsTest);
 } else {
+  runClassicFamilyPromptParityTest();
   runCopySystemTemplatePromptsTest();
   console.log('copy-system-template-prompts test passed');
 }

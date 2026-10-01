@@ -7,8 +7,8 @@ import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.j
 import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
-
-const SHARED_PROMPT_FILES=[...['analyst','oversight','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`),...['execute','stopped-recovery','correct-plan-result','correct-review-result','correct-execution-result'].map((id)=>`process/_shared/${id}.md`),...['common','analyst','oversight','planner','executor','reviewer'].map((id)=>`fragments/_shared/project-guidance-${id}.md`)];
+// @ts-expect-error Packaging tooling is JavaScript without a TypeScript declaration.
+import { assertClassicFamilyPromptParity } from '../../scripts/copy-system-template-prompts.js';
 
 describe('system template registry',()=>{
   it('registers exactly classic then classic-typed with module-relative prompt roots',()=>{
@@ -71,7 +71,7 @@ describe('system template registry',()=>{
     expect(typed.config.server).toEqual(classic.config.server);
     expect(typed.config.compaction).toEqual(classic.config.compaction);
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
-    for(const file of SHARED_PROMPT_FILES)expect(readFileSync(join(typed.promptRoot,file),'utf8')).toBe(readFileSync(join(classic.promptRoot,file),'utf8'));
+    expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
   });
 
   it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{
