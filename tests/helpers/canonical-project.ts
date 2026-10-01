@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { publishInitialProjectRuntime } from '../../src/boot/index.js';
 import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
-import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/contracts/index.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';

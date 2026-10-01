@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';

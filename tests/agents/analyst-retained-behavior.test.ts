@@ -10,7 +10,7 @@ import { listControlActions } from '../../src/persistence/control-action-audit.j
 import { reorder_child } from '../../src/tools/analyst-card-tools.js';
 import { queue_notification } from '../../src/tools/analyst-misc-tools.js';
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
-import { AnalystInterventionNotReadyError } from '../../src/application/intervention-readiness.js';
+import { AnalystInterventionNotReadyError } from '../../src/contracts/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];

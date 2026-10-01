@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { redactCommandForPolicy, sanitizedCommandEnv } from '../../src/runtime/command-policy.js';
+import { sanitizedCommandEnv } from '../../src/runtime/command-policy.js';
 
 describe('command policy', () => {
   it('sanitizes inherited env keys while preserving intended safe keys', () => {
@@ -82,13 +82,5 @@ describe('command policy', () => {
       for (const key of Object.keys(process.env)) delete process.env[key];
       Object.assign(process.env, originalEnv);
     }
-  });
-
-  it('redacts synthetic secrets from command text', () => {
-    const rawSecret = 'synthetic-command-secret';
-    const redacted = redactCommandForPolicy(`echo token=${rawSecret}`);
-
-    expect(redacted).toContain('[REDACTED]');
-    expect(redacted).not.toContain(rawSecret);
   });
 });

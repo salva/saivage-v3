@@ -1,4 +1,4 @@
-import type { FreshnessEffects, AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from '../application/index.js';
+import type { FreshnessEffects, AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from '../contracts/index.js';
 import type { LiveSyncCardInvalidateTarget, LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { ConversationSessionId } from '../schemas/index.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';

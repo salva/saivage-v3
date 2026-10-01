@@ -7,7 +7,8 @@ import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/
 import { writeAllExact } from '../persistence/index.js';
 import type { ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/index.js';
-import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
+import { sanitizedCommandEnv } from './command-policy.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import { replaceFile, type ReplacementFileIo } from '../persistence/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import {
@@ -247,7 +248,7 @@ export class ProcessRunner {
       owner_id: spec.ownerId,
       owner_kind: spec.ownerKind,
       agent_session_id: spec.agentSessionId ?? null,
-      command: redactCommandForPolicy(spec.command),
+      command: redactTextForOutbound(spec.command),
       cwd,
       status: 'running',
       started_at: now(),

@@ -185,7 +185,7 @@ test('runtime and agents directional denials override public API admission', () 
 
 test('overlapping prohibitions select exactly one precedence rule per occurrence', () => withFixture((root) => {
   writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
-  for (const owner of ['runtime', 'contracts', 'schemas', 'tools', 'server', 'boot']) {
+  for (const owner of ['runtime', 'contracts', 'schemas', 'tools', 'server', 'boot', 'workspace', 'redaction']) {
     mkdirSync(path.join(root, `src/${owner}`), { recursive: true });
   }
   const cases = [
@@ -200,19 +200,56 @@ test('overlapping prohibitions select exactly one precedence rule per occurrence
     ['schemas', 'server/server-api.js', 'schemas-bottom-layer'],
     ['tools', 'server/internal.js', 'server-import'],
     ['boot', 'server/internal.js', 'cross-package-deep'],
+    ['workspace', 'runtime', 'workspace-runtime'],
+    ['workspace', 'runtime/index.js', 'workspace-runtime'],
+    ['workspace', 'runtime/runtime-api.js', 'workspace-runtime'],
+    ['workspace', 'runtime/command-policy.js', 'workspace-runtime'],
+    ['server', 'boot', 'server-boot'],
+    ['server', 'boot/index.js', 'server-boot'],
+    ['server', 'boot/app.js', 'server-boot'],
   ];
   for (const [owner, target, rule] of cases) {
     const source = `src/${owner}/consumer.ts`;
-    writeFileSync(path.join(root, source), `import { value } from '../${target}';\n`);
-    const actual = { totalViolations: 1, violationDigest: digest([[source, rule, target]]) };
+    for (const statement of [
+      `import { value } from '../${target}';`,
+      `import type { Value } from '../${target}';`,
+      `import { value } from '@saivage/${target.replace(/\.js$/, '.ts')}';`,
+      `import type { Value } from '@saivage/${target.replace(/\.js$/, '.ts')}';`,
+      `export { value } from '@saivage/${target.replace(/\.js$/, '.ts')}';`,
+    ]) {
+      writeFileSync(path.join(root, source), `${statement}\n`);
+      const actual = { totalViolations: 1, violationDigest: digest([[source, rule, target]]) };
+      writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
+      const rejected = run(root);
+      assert.notEqual(rejected.status, 0, `${statement}: ${output(rejected)}`);
+      assert.match(output(rejected), new RegExp(`Actual: ${escapeRegExp(JSON.stringify(actual))}`));
+      assert.equal(rejected.stderr.split('\n').filter((line) => line.startsWith('- ')).length, 1);
+      writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(actual.totalViolations, actual.violationDigest));
+      const admitted = run(root);
+      assert.equal(admitted.status, 0, `${statement}: ${output(admitted)}`);
+      writeFileSync(path.join(root, source), 'export const consumer = true;\n');
+    }
+  }
+  for (const [owner, target] of [
+    ['workspace', 'redaction'],
+    ['workspace', 'redaction/index.js'],
+    ['server', 'contracts'],
+    ['server', 'contracts/index.js'],
+    ['boot', 'server/server-api.js'],
+    ['server', 'server/internal.js'],
+  ]) {
+    const source = `src/${owner}/consumer.ts`;
     writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
-    const rejected = run(root);
-    assert.notEqual(rejected.status, 0, `${owner}->${target}: ${output(rejected)}`);
-    assert.match(output(rejected), new RegExp(`Actual: ${escapeRegExp(JSON.stringify(actual))}`));
-    assert.equal(rejected.stderr.split('\n').filter((line) => line.startsWith('- ')).length, 1);
-    writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(actual.totalViolations, actual.violationDigest));
-    const admitted = run(root);
-    assert.equal(admitted.status, 0, `${owner}->${target}: ${output(admitted)}`);
+    for (const statement of [
+      `import { value } from '../${target}';`,
+      `import type { Value } from '@saivage/${target.replace(/\.js$/, '.ts')}';`,
+      `export { value } from '../${target}';`,
+    ]) {
+      writeFileSync(path.join(root, source), `${statement}\n`);
+      const result = run(root);
+      assert.equal(result.status, 0, `${statement}: ${output(result)}`);
+      assert.match(result.stdout, new RegExp(digest([])));
+    }
     writeFileSync(path.join(root, source), 'export const consumer = true;\n');
   }
 }));

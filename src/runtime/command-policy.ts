@@ -1,5 +1,3 @@
-import { redactTextForOutbound } from '../redaction/index.js';
-
 const SAFE_ENV_ALLOWLIST = new Set([
   'PATH',
   'HOME',
@@ -26,8 +24,4 @@ export function sanitizedCommandEnv(): NodeJS.ProcessEnv {
     }
   }
   return env;
-}
-
-export function redactCommandForPolicy(command: string): string {
-  return redactTextForOutbound(command);
 }

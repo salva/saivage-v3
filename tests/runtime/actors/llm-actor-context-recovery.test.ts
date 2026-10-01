@@ -25,7 +25,7 @@ import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { createInvocationServiceProvider } from '../../../src/application/invocation-service-provider.js';
-import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { providerExchangeFile } from '../../../src/persistence/layout.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';

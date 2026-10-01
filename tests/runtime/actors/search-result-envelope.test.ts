@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
 import { createInvocationServiceProvider } from '../../../src/application/invocation-service-provider.js';
-import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { canonicalJson } from '../../../src/schemas/index.js';
 import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';

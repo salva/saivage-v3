@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import {
   isWriteBlocked,
+  redactCommandForOperator,
   redactOperatorErrorMessage,
   resolveContainedProjectPath,
 } from '../../src/workspace/file-access-security.js';
@@ -54,6 +55,11 @@ describe('isWriteBlocked', () => {
 });
 
 describe('redaction file-safety behavior', () => {
+  it('redacts synthetic secrets from operator command text', () => {
+    const redacted = redactCommandForOperator('echo token=synthetic-command-secret');
+    expect(redacted).toBe('echo token=[REDACTED]');
+  });
+
   it('redacts token-shaped literals in arbitrary plain text', () => {
     const content = 'tokens: sk-live-secret tid=abc123 ghu_deadbeef rt_refresh tok_live_123456';
     const redacted = redactTextForOutbound(content);

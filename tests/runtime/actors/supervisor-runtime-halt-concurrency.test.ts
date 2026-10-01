@@ -21,7 +21,7 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
-import type { AgentMembershipFreshnessTarget } from '../../../src/application/freshness-effects.js';
+import type { AgentMembershipFreshnessTarget } from '../../../src/contracts/index.js';
 
 function barrier<T>() {
   let resolve!: (value: T) => void;

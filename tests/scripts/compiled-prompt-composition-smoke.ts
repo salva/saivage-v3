@@ -30,7 +30,7 @@ const { compileProjectWorkflows, bindRuntimeWorkflows, describeNodeResultContrac
 const { ProviderRegistry } = await import('../../src/agents/provider.js');
 const { ModelRouter } = await import('../../src/agents/model-router.js');
 const { createRuntimeApplication } = await import('../../src/application/runtime-composition.js');
-const { NO_FRESHNESS_EFFECTS } = await import('../../src/application/freshness-effects.js');
+const { NO_FRESHNESS_EFFECTS } = await import('../../src/contracts/index.js');
 const { CardService } = await import('../../src/cards/card-service.js');
 const { createResolvedConfigAuthority } = await import('../../src/config/index.js');
 const { createEventLog } = await import('../../src/observability/index.js');

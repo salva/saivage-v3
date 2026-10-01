@@ -11,7 +11,7 @@ import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };

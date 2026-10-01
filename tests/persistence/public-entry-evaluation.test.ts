@@ -6,7 +6,12 @@ import { pathToFileURL } from 'node:url';
 const sourceUrl = (path: string) => pathToFileURL(resolve('src', path)).href;
 
 describe('fresh-process public entry evaluation', () => {
-  for (const entry of ['tools/invocation.ts', 'persistence/index.ts', 'redaction/index.ts']) {
+  for (const entry of [
+    'tools/invocation.ts', 'persistence/index.ts', 'redaction/index.ts',
+    'tools/tool-api.ts', 'redaction/artifact-api.ts', 'application/index.ts',
+    'runtime/runtime-api.ts', 'workspace/index.ts', 'cards/store-api.ts',
+    'boot/index.ts', 'boot/restart-port.ts',
+  ]) {
     it(`initializes the unsupported invocation policy when ${entry} is first`, () => {
       const script = `
         import ${JSON.stringify(sourceUrl(entry))};
@@ -24,6 +29,7 @@ describe('fresh-process public entry evaluation', () => {
       `;
       const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', script], {
         cwd: process.cwd(),
+        env: { ...process.env, TSX_DISABLE_CACHE: '1' },
         encoding: 'utf8',
         timeout: 30_000,
       });

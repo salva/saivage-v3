@@ -24,7 +24,7 @@ import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import type { ContextBlock } from '../../src/contracts/index.js';
 import type { ToolDefinition } from '../../src/contracts/index.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';

@@ -81,7 +81,7 @@ export { bindRuntimeWorkflows, compileProjectWorkflows, genericRecordDefinition,
 export type { CompiledCardTypeWorkflow, CompiledProjectWorkflows, CompiledRuntimeWorkflows, ProcessPosition, WorkflowCompileOptions } from './card-process/card-process-config.js';
 export { projectCompiledGraphs } from './card-process/compiled-graphs-projection.js';
 export { propagateAnalystRecordEdit, propagateChange } from './changed-propagation.js';
-export { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
+export { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, sanitizedCommandEnv } from './command-policy.js';
 export { acquireRuntimeLifecycleLock, bindRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeProcessIdentity } from './lock.js';
 export type { RuntimeControlEndpoint, RuntimeLifecycleLockHandle, RuntimeProcessIdentity } from './lock.js';
 export { ManagedProcessGroupRegistry } from './managed-process-group-registry.js';

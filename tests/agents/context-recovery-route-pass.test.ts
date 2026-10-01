@@ -18,7 +18,7 @@ import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import { chatSuccess, contextExhausted, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
 
 const A: Candidate = { provider: 'cand-a', account: null, model: 'model-a' };

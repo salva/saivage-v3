@@ -16,7 +16,7 @@ import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
-import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
+import type { AgentMembershipFreshnessTarget } from '../../src/contracts/index.js';
 import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
 import { appendLlmTurnToolCallBatch, type InvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
 import { canonicalJson, type CardConversationSessionId } from '../../src/schemas/index.js';

@@ -1,4 +1,4 @@
-import type { LiveSyncCardInvalidateTarget } from '../contracts/index.js';
+import type { LiveSyncCardInvalidateTarget } from './operator-events.js';
 import type { ConversationSessionId } from '../schemas/index.js';
 import type { CardId } from '../schemas/index.js';
 

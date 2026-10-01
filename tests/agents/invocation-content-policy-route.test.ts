@@ -6,7 +6,7 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import { chatSuccess, contextExhausted, invocationProviderRegistry } from '../helpers/invocation-provider-fixture.js';
 
 const first: Candidate = { provider: 'first', account: null, model: 'm1' };

@@ -22,7 +22,7 @@ import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { AnalystRuntime } from '../../src/runtime/runtime-api.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
-import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
+import type { AgentMembershipFreshnessTarget } from '../../src/contracts/index.js';
 import type { OversightClock } from '../../src/application/project-oversight.js';
 
 const roots: string[] = [];

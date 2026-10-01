@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/index.js';
-import type { AppTerminalRegistration } from '../../boot/index.js';
+import type { AppTerminalRegistration } from '../../contracts/index.js';
 import type { RestartCapability, RestartPort } from '../../contracts/index.js';
 import { createRuntimeApplication, validateConfiguredGlobalConversation, type RuntimeApplication } from '../../application/index.js';
 import { CardService } from '../../cards/store-api.js';

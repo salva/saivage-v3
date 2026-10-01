@@ -76,6 +76,8 @@ function classifyImport(fromPkg, parts) {
   if (fromPkg === 'schemas' && SCHEMA_FORBIDDEN.has(toPkg)) return 'schemas-bottom-layer';
   if (fromPkg === 'agents' && toPkg === 'runtime') return 'agents-runtime';
   if (fromPkg === 'runtime' && toPkg === 'agents') return 'runtime-agents';
+  if (fromPkg === 'workspace' && toPkg === 'runtime') return 'workspace-runtime';
+  if (fromPkg === 'server' && toPkg === 'boot') return 'server-boot';
   if (toPkg === 'server' && fromPkg !== 'server' && fromPkg !== 'boot') return 'server-import';
   if (!isCrossPackageAllowed(fromPkg, parts)) return 'cross-package-deep';
   return null;
@@ -83,6 +85,17 @@ function classifyImport(fromPkg, parts) {
 
 function runSelfTest() {
   const cases = [
+    { fromPkg: 'workspace', parts: ['runtime'], rule: 'workspace-runtime', label: 'workspace runtime root' },
+    { fromPkg: 'workspace', parts: ['runtime', 'index.js'], rule: 'workspace-runtime', label: 'workspace runtime index' },
+    { fromPkg: 'workspace', parts: ['runtime', 'runtime-api.js'], rule: 'workspace-runtime', label: 'workspace runtime public API' },
+    { fromPkg: 'workspace', parts: ['runtime', 'command-policy.js'], rule: 'workspace-runtime', label: 'workspace runtime leaf overlap' },
+    { fromPkg: 'server', parts: ['boot'], rule: 'server-boot', label: 'server boot root' },
+    { fromPkg: 'server', parts: ['boot', 'index.js'], rule: 'server-boot', label: 'server boot index' },
+    { fromPkg: 'server', parts: ['boot', 'app.js'], rule: 'server-boot', label: 'server boot leaf overlap' },
+    { fromPkg: 'workspace', parts: ['redaction', 'index.js'], rule: null, label: 'workspace primitive redaction root' },
+    { fromPkg: 'workspace', parts: ['redaction'], rule: null, label: 'workspace primitive redaction alias root' },
+    { fromPkg: 'server', parts: ['contracts', 'index.js'], rule: null, label: 'server contracts root' },
+    { fromPkg: 'server', parts: ['contracts'], rule: null, label: 'server contracts alias root' },
     { fromPkg: 'agents', parts: ['cards'], rule: 'cross-package-deep', label: 'cards alias root' },
     { fromPkg: 'agents', parts: ['cards', 'index.js'], rule: 'cross-package-deep', label: 'cards index' },
     { fromPkg: 'agents', parts: ['cards', 'store-api.js'], rule: null, label: 'cards explicit public API' },
@@ -199,6 +212,12 @@ for (const file of walk(SRC)) {
         break;
       case 'runtime-agents':
         message = `runtime must not import agents (${spec}); depend on contracts instead`;
+        break;
+      case 'workspace-runtime':
+        message = `workspace must not import runtime (${spec}); depend on primitive owners instead`;
+        break;
+      case 'server-boot':
+        message = `server must not import boot (${spec}); depend on contracts instead`;
         break;
       case 'server-import':
         message = `${fromPkg === null ? 'root entrypoint' : fromPkg} must not import server (${spec})`;

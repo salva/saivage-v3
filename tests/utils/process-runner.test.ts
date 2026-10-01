@@ -55,6 +55,13 @@ describe('ProcessRunner managed process groups', () => {
     expect(new ProcessRunnerImplementation(root, new ManagedProcessGroupRegistry(), testApplicationFatalPort).list()).toEqual([]);
   });
 
+  it('projects redacted command text while executing the original command', async () => {
+    const record = launch('token=synthetic-command-secret ; test "${#token}" -eq 24');
+    expect(record.command).toBe('token=[REDACTED] ; test "${#token}" -eq 24');
+    await expect(runner.waitForSettlement(record.id)).resolves.toMatchObject({ status: 'exited', exitCode: 0 });
+    expect(runner.get(record.id)?.command).toBe(record.command);
+  });
+
   it('contains a real spawn error and remains usable after a nonexistent cwd', async () => {
     const failedScope = direct('runtime_card', 'failed-launch');
     expect(() => runner.spawn({

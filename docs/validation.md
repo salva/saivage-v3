@@ -72,10 +72,12 @@ owner API (including normalized terminal `.ts` spelling), not a schemas-wide
 or general `*-server` exemption. `schemas/index.ts` remains browser-safe and
 does not export those generators. Cross-package consumers of runtime use only
 `runtime/runtime-api.ts`; agents may not import runtime, and runtime may not
-import agents, even through public APIs. Same-package leaves remain allowed.
+import agents, even through public APIs. Workspace must not import runtime and
+server must not import boot, including type-only references and export-from
+occurrences; public surfaces do not override these denials. Same-package leaves remain allowed.
 The scanner and self-test use one classifier returning null or a single rule,
 with precedence `contracts-declarative`, `schemas-bottom-layer`, `agents-runtime`,
-`runtime-agents`, `server-import`, then `cross-package-deep`. Specific ownership
+`runtime-agents`, `workspace-runtime`, `server-boot`, `server-import`, then `cross-package-deep`. Specific ownership
 prohibitions override public-surface admission; boot's server imports still
 require a permitted public surface. Each offending matched import/export-from
 occurrence contributes exactly one tuple. Repeated identical edges count

@@ -12,7 +12,7 @@ import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/cont
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import { invocationProviderRegistry } from '../helpers/invocation-provider-fixture.js';
 
 const CANDIDATE: Candidate = { provider: 'summary-provider', account: null, model: 'summary-model' };

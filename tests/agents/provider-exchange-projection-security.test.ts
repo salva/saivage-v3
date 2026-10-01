@@ -11,7 +11,7 @@ import { readProviderExchangeEntries } from '../../src/persistence/provider-exch
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { dirname } from 'node:path';
 import type { ConversationSessionId } from '../../src/schemas/index.js';
-import type { FreshnessEffects } from '../../src/application/freshness-effects.js';
+import type { FreshnessEffects } from '../../src/contracts/index.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 

@@ -8,7 +8,7 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { readAuthProfiles, replaceAuthProfiles, type AuthProfile } from '../../src/auth/index.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 

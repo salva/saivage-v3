@@ -5,35 +5,10 @@ import { startServer, type ServerInstance } from '../server/server-api.js';
 import { createRestartPort } from './restart-port.js';
 import { publishInitialProjectRuntime } from './project-runtime-bootstrap.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../contracts/index.js';
+import type { ShutdownComponent, SafeCleanupWarning, ShutdownReport, AppTerminalRegistration } from '../contracts/index.js';
+import { logShutdownWarnings } from './shutdown-report.js';
 
 export const APP_CLEANUP_LEAF_TIMEOUT_MS = 10_000;
-
-type ShutdownComponent =
-  | 'http-admission'
-  | 'websocket-admission'
-  | 'fastify'
-  | 'live-sync'
-  | 'runtime'
-  | 'process-admission'
-  | 'analyst'
-  | 'oversight'
-  | 'mcp'
-  | 'sync-hub'
-  | 'signal-handlers'
-  | 'lifecycle-lock';
-
-interface SafeCleanupWarning {
-  readonly component: ShutdownComponent;
-  readonly code: 'closer_failed' | 'cleanup_failed' | 'cleanup_timeout';
-}
-
-export interface ShutdownReport { readonly warnings: readonly SafeCleanupWarning[] }
-
-export interface AppTerminalRegistration {
-  registerAdmissionCloser(component: ShutdownComponent, close: () => void): void;
-  registerCleanupLeaf(component: ShutdownComponent, cleanup: () => void | Promise<void>): void;
-  isApplicationClosing(): boolean;
-}
 
 type CleanupSettlement = 'fulfilled' | 'rejected' | 'timeout';
 
@@ -91,10 +66,6 @@ export function createAppTerminalCoordinator(): AppTerminalRegistration & { stop
       return stopPromise;
     },
   };
-}
-
-export function logShutdownWarnings(report: ShutdownReport): void {
-  for (const warning of report.warnings) console.warn(`[shutdown] ${warning.component}: ${warning.code}`);
 }
 
 export function createOversightOwnerFailureHandler(input: {

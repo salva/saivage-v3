@@ -5,7 +5,6 @@ import {
   assertNotSecretPath,
 } from './secret-paths.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { redactCommandForPolicy } from '../runtime/runtime-api.js';
 
 const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
@@ -73,7 +72,7 @@ export function redactOperatorErrorMessage(message: string, projectRoot?: string
 }
 
 export function redactCommandForOperator(command: string): string {
-  return redactCommandForPolicy(command);
+  return redactTextForOutbound(command);
 }
 
 interface SafeProjectPathResult {

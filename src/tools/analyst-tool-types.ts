@@ -4,7 +4,8 @@ import type { RuntimeApi } from '../runtime/runtime-api.js';
 import type { ToolActionOutcome, RestartCapability } from '../contracts/index.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
-import type { InterventionReadinessFacet, AnalystMutationServices, AnalystPreparationReadServices, EventQueryService } from '../application/index.js';
+import type { InterventionReadinessFacet } from '../contracts/index.js';
+import type { AnalystMutationServices, AnalystPreparationReadServices, EventQueryService } from '../application/index.js';
 import type { CardTypeName, ConversationSessionId } from '../schemas/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/runtime-api.js';
 

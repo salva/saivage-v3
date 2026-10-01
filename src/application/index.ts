@@ -3,11 +3,7 @@ export type { WorkspaceFocusResult } from './read-models/analyst-workspace-focus
 export { buildAnalystOrientationSnapshot } from './read-models/analyst-orientation.js';
 export type { AnalystOrientationCard, AnalystOrientationSnapshot } from './read-models/analyst-orientation.js';
 export type { AnalystMutationOutcome, AnalystMutationServices } from './analyst-mutation-services.js';
-export { AnalystInterventionNotReadyError } from './intervention-readiness.js';
-export type { InterventionReadinessFacet } from './intervention-readiness.js';
 export type { ActorRuntimeReadModel } from './read-models/actor-runtime-read-model.js';
-export { NO_FRESHNESS_EFFECTS } from './freshness-effects.js';
-export type { FreshnessEffects, AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from './freshness-effects.js';
 export { OperatorRuntimeHttpClient } from './operator-runtime-http-client.js';
 export { createRuntimeApplication } from './runtime-composition.js';
 export type { RuntimeApplication } from './runtime-composition.js';

@@ -160,3 +160,8 @@ export {
   ConversationVersionListResponseSchema,
 } from './operator-api-agents.js';
 export type { AgentSessionSummary } from './operator-api-agents.js';
+export { NO_FRESHNESS_EFFECTS } from './freshness-effects.js';
+export type { FreshnessEffects, AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from './freshness-effects.js';
+export { AnalystInterventionNotReadyError } from './intervention-readiness.js';
+export type { InterventionReadinessFacet } from './intervention-readiness.js';
+export type { ShutdownComponent, SafeCleanupWarning, ShutdownReport, AppTerminalRegistration } from './application-lifecycle.js';
