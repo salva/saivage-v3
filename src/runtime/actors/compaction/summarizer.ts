@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../contracts/index.js';
-import { isPromptPolicyRejection, LlmRequestError } from '../../../contracts/llm-failure.js';
+import { isPromptPolicyRejection, LlmRequestError } from '../../../contracts/index.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
-} from '../../../contracts/provider-exchange.js';
+} from '../../../contracts/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import type { ConversationSessionId } from '../../../schemas/index.js';
-import { internalCompactionSummarySessionId } from '../../../contracts/provider-exchange-log.js';
+import { internalCompactionSummarySessionId } from '../../../contracts/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
-import type { Candidate } from '../../../contracts/provider-candidate.js';
+import type { Candidate } from '../../../contracts/index.js';
 import type { EffectiveProviderCapabilities } from '../../../contracts/index.js';
 import { usableInputTokens } from '../../../contracts/index.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../schemas/index.js';

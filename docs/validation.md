@@ -38,9 +38,19 @@ forms. Run `node scripts/check-export-consumers.js --report-test-only` for the
 sorted test-only report. `scripts/export-consumer-allowlist.json` is the
 strict exceptional allowlist and remains an empty array.
 
-Intentional governed export-inventory changes must update the pinned
-classification counts in `tests/scripts/export-consumers.test.js` in the same
-commit.
+`tests/scripts/export-consumers.test.js` checks semantic inventory correctness,
+not fixed repository-wide classification counts. It independently checks
+candidate/consumer parity, unique identities, record/histogram arithmetic,
+effective totals, declaration reachability and promotion evidence, zero-use
+cleanup, and empty failure/stale/unsupported/allowlist results. Controlled
+fixtures retain exact classification expectations. Legitimate public-surface
+changes must preserve these invariants rather than repin aggregate counts.
+Run the focused test with `npm run test:direct -- --runInBand --runTestsByPath
+tests/scripts/export-consumers.test.js`; this script enables Node's experimental
+VM modules for Jest. Direct Jest invocation likewise requires
+`NODE_OPTIONS=--experimental-vm-modules`. Export and boundary refactors also
+require the full `npm test`, including its serial terminal-child stage;
+`validate:routine` runs the export CLI but not that Jest coverage.
 
 ## Import-boundary ratchet
 
@@ -51,9 +61,19 @@ genuine removals, and equal-count substitutions; line-only movement and
 equivalent relative, alias, or terminal `.ts`/`.js` spellings of the same
 resolved target do not change identity. After reviewing a genuine removal,
 compare the complete before/after identity multisets, including duplicates:
-the after multiset must be a subset, not just smaller. Runtime cross-package
-consumers use only `runtime/runtime-api.ts`; agent sources may not import
-runtime. Copy both printed fields into the baseline in the same commit.
+the after multiset must be a subset, not just smaller. The current baseline is
+zero, including runtime-origin imports: all backend callers use permitted
+owner roots or explicit public entrypoints, with no blanket runtime permission
+for other packages' leaves. Runtime conversation operations use
+`persistence/session-api.ts`; text sanitization uses `sanitization/index.ts`.
+The exact defining `schemas/round-id-server.ts` module is a server-only public
+owner API (including normalized terminal `.ts` spelling), not a schemas-wide
+or general `*-server` exemption. `schemas/index.ts` remains browser-safe and
+does not export those generators. Cross-package consumers of runtime use only
+`runtime/runtime-api.ts`; agents may not import runtime, and runtime may not
+import agents, even through public APIs. Same-package leaves remain allowed.
+Copy both printed fields into the baseline in the same commit only after a
+reviewed genuine removal.
 Admitting any new identity, including through an equal or lower count, weakens
 the guard and requires an explicit owner decision.
 `npm run test:import-boundaries` is the canonical focused command: it runs the
@@ -61,6 +81,10 @@ checker self-test, real-CLI ratchet subprocess regressions, and repository
 admission. The lint profile
 delegates to that command once; direct component invocations are diagnostic
 evidence, not alternative maintained profiles.
+For component diagnosis use `node scripts/check-import-boundaries.cjs --self-test`
+and `node scripts/check-import-boundaries.cjs`. Admission does not prove cycle
+freedom or complete import-syntax coverage; routed value imports also need
+focused execution coverage of their actual semantic owners.
 
 ## Lint profile ordering
 
@@ -93,6 +117,15 @@ least-privilege, secret-free Node 24 jobs and cancels superseded runs.
   `/docs/` (guarded by `npm run test:static-serving`).
 
 ## Browser and E2E profiles
+
+Shared-root export changes require `node scripts/check-web-browser-imports.cjs`
+and `npm --prefix web run build` (browser graph admission, Vue typecheck, Vite
+production build), plus `npm --prefix web run test --
+src/__tests__/card-store.test.ts src/__tests__/operator-cockpit-smoke.test.ts`
+for the actual schemas-root consumers. Web uses `schemas/index.ts` as well as
+selected contract/schema leaves; the backend-facing contracts root is not a
+browser entry. Node typecheck/Jest alone cannot establish browser eligibility;
+Node-externalization warnings are not browser-safety success.
 
 - `npm run web:test:operator-smoke` is the operator smoke owner: the Vitest
   dashboard smoke plus the Playwright smoke specs, including the Cards

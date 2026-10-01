@@ -57,6 +57,7 @@ function isPackageRootImport(parts) {
 
 function isExplicitPublicEntrypoint(parts) {
   if (parts.length !== 2) return false;
+  if (normalizedParts(parts) === 'schemas/round-id-server.js') return true;
   if (parts[0] === 'runtime') return parts[1] === 'runtime-api.js';
   return EXPLICIT_PUBLIC_ENTRYPOINT_RE.test(parts[1]);
 }
@@ -99,6 +100,28 @@ function runSelfTest() {
     { fromPkg: 'agents', parts: ['cards', 'card-store.js'], ok: false, label: '../cards/card-store.js two-part deep' },
     { fromPkg: 'agents', parts: ['cards', 'card-store'], ok: false, label: '@saivage/cards/card-store two-part deep' },
     { fromPkg: 'cards', parts: ['cards', 'card-store.js'], ok: true, label: 'same-package deep' },
+    { fromPkg: 'runtime', parts: ['runtime', 'actors', 'llm-actor.js'], ok: true, label: 'runtime same-package deep' },
+    { fromPkg: 'runtime', parts: ['persistence', 'conversation-file.js'], ok: false, label: 'runtime persistence leaf' },
+    { fromPkg: 'runtime', parts: ['persistence', 'session-api.js'], ok: true, label: 'runtime persistence session API' },
+    { fromPkg: 'runtime', parts: ['persistence', 'index.js'], ok: true, label: 'runtime persistence root' },
+    { fromPkg: 'runtime', parts: ['contracts', 'tool-result.js'], ok: false, label: 'runtime contracts leaf' },
+    { fromPkg: 'runtime', parts: ['contracts', 'index.js'], ok: true, label: 'runtime contracts root' },
+    { fromPkg: 'runtime', parts: ['schemas', 'card-id.js'], ok: false, label: 'runtime schemas leaf' },
+    { fromPkg: 'runtime', parts: ['schemas', 'index.js'], ok: true, label: 'runtime browser-safe schemas root' },
+    { fromPkg: 'runtime', parts: ['sanitization', 'analyst-sanitization.js'], ok: false, label: 'runtime sanitization leaf' },
+    { fromPkg: 'runtime', parts: ['sanitization', 'index.js'], ok: true, label: 'runtime sanitization root' },
+    { fromPkg: 'runtime', parts: ['tools', 'invocation.js'], ok: false, label: 'runtime invocation leaf' },
+    { fromPkg: 'runtime', parts: ['tools', 'tool-api.js'], ok: true, label: 'runtime tool API' },
+    { fromPkg: 'runtime', parts: ['agents', 'execution-api.js'], ok: false, label: 'runtime must not import agents public API' },
+    { fromPkg: 'agents', parts: ['runtime', 'runtime-api.js'], ok: false, label: 'agents must not import runtime public API' },
+    { fromPkg: 'runtime', parts: ['schemas', 'round-id-server.js'], ok: true, label: 'runtime exact server-only round API' },
+    { fromPkg: 'tools', parts: ['schemas', 'round-id-server.js'], ok: true, label: 'another backend exact server-only round API' },
+    { fromPkg: 'runtime', parts: ['schemas', 'round-id-server.ts'], ok: true, label: 'normalized TypeScript round API' },
+    { fromPkg: 'tools', parts: ['schemas', 'round-id-server.ts'], ok: true, label: 'another backend normalized round API' },
+    { fromPkg: 'runtime', parts: ['schemas', 'round-id.js'], ok: false, label: 'neighboring round grammar leaf' },
+    { fromPkg: 'runtime', parts: ['schemas', 'nested', 'round-id-server.js'], ok: false, label: 'nested server-named leaf' },
+    { fromPkg: 'runtime', parts: ['schemas', 'other-server.js'], ok: false, label: 'arbitrary schemas server-named leaf' },
+    { fromPkg: 'runtime', parts: ['tools', 'round-id-server.js'], ok: false, label: 'exact server API belongs only to schemas' },
     { fromPkg: 'runtime', parts: ['agents', 'nested', 'module.js'], ok: false, label: 'runtime must not import agent internals' },
     { fromPkg: 'runtime', parts: ['agents', 'index.js'], ok: false, label: 'runtime must not import agents index' },
     { fromPkg: 'server', parts: ['runtime', 'runtime-api.js'], ok: true, label: 'server may use the canonical runtime API' },
@@ -117,7 +140,7 @@ function runSelfTest() {
     if (isAgentRuntimeAllowed('agents', ['runtime', 'runtime-api.js'], fromRel)) failures.push(`${fromRel}: formerly exempt agent must not import runtime public API`);
   }
   for (const testCase of cases) {
-    const allowed = (isCrossPackageAllowed(testCase.fromPkg, testCase.parts) || (testCase.fromPkg === 'runtime' && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts))) && isAgentRuntimeAllowed(testCase.fromPkg, testCase.parts) && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts) && isSchemaImportAllowed(testCase.fromPkg, testCase.parts);
+    const allowed = isCrossPackageAllowed(testCase.fromPkg, testCase.parts) && isAgentRuntimeAllowed(testCase.fromPkg, testCase.parts) && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts) && isSchemaImportAllowed(testCase.fromPkg, testCase.parts);
     if (allowed !== testCase.ok) {
       failures.push(`${testCase.label}: expected ${testCase.ok ? 'allowed' : 'rejected'}, got ${allowed ? 'allowed' : 'rejected'}`);
     }
@@ -180,7 +203,7 @@ for (const file of walk(SRC)) {
     if (fromPkg === 'runtime' && toPkg === 'agents' && !isRuntimeAgentAllowed(fromPkg, parts, relFile)) {
       violations.push({ identity: [identityFile, 'runtime-agents', target], diagnostic: `${relFile}:${line}: runtime must not import agents package internals (${spec}); depend on contracts or exact composition factory only` });
     }
-    if (!isCrossPackageAllowed(fromPkg, parts) && !(fromPkg === 'runtime' && isRuntimeAgentAllowed(fromPkg, parts, relFile)) && !isPreexistingDeepImportException(relFile, parts)) {
+    if (!isCrossPackageAllowed(fromPkg, parts) && !isPreexistingDeepImportException(relFile, parts)) {
       const consumer = fromPkg === null ? 'root entrypoint' : `cross-package import into ${toPkg}`;
       violations.push({ identity: [identityFile, 'cross-package-deep', target], diagnostic: `${relFile}:${line}: deep ${consumer} is forbidden (${spec}); import from the package index or move within the owning package` });
     }

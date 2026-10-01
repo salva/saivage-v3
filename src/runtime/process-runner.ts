@@ -3,12 +3,12 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import type { Readable } from 'node:stream';
 import { join, resolve } from 'node:path';
-import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
-import { writeAllExact } from '../persistence/write-all-exact.js';
+import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/index.js';
+import { writeAllExact } from '../persistence/index.js';
 import type { ProcessStatus } from '../schemas/index.js';
-import { now } from '../utils/clock.js';
+import { now } from '../utils/index.js';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
-import { replaceFile, type ReplacementFileIo } from '../persistence/replace-file.js';
+import { replaceFile, type ReplacementFileIo } from '../persistence/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import {
   ManagedProcessGroupRegistry,

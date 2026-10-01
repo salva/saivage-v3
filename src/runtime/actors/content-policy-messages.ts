@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import type { Candidate } from '../../contracts/provider-candidate.js';
+import type { Candidate } from '../../contracts/index.js';
 import { canonicalJson, CONTENT_POLICY_RETRY_TEXT, contentPolicyRefusalContentSchema, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ContentPolicyRefusalContent, type ConversationSessionId } from '../../schemas/index.js';
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
 

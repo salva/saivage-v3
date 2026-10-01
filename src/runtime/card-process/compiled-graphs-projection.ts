@@ -1,8 +1,8 @@
 import {
   DebugGraphsResponseSchema,
   type DebugGraphsResponse,
-} from '../../contracts/operator-api-files-debug.js';
-import { effectiveCardNodeToolReferences } from '../../tools/runtime-tool-catalog.js';
+} from '../../contracts/index.js';
+import { effectiveCardNodeToolReferences } from '../../tools/tool-api.js';
 import {
   type CardProcessEntry,
   type CompiledCardTypeWorkflow,

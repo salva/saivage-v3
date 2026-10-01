@@ -11,21 +11,21 @@ import {
   type PinnedContentPolicyPreflight,
   type SuspendedAdmittedExecution,
 } from '../../contracts/index.js';
-import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
+import { LlmRequestError, type LlmTransportFailure } from '../../contracts/index.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY, CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, compactionSummaryBlockedResultSchema, contentPolicyEvidenceUrl, conversationSessionIdentity, parseConversationSessionId, type CompactionSummaryBlockedResult, type ContentPolicyRefusalBlockedResult, type ConversationSessionId, type RuntimeOwnedBlockedResult } from '../../schemas/index.js';
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
-import type { CardId } from '../../schemas/card-id.js';
+import type { CardId } from '../../schemas/index.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendToolResult, buildModelRepairMessage, buildSettledToolResult, selectInvocationResultPolicy, type InvocationResultPolicy, type SettledToolResultFacts } from './llm-delivery-log.js';
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
-import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
-import type { ToolSettlementInput } from '../../tools/invocation.js';
+import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/session-api.js';
+import type { ToolSettlementInput } from '../../tools/tool-api.js';
 import { assertPreparedContextContinuity } from './context/context-blocks.js';
 import { type ContextBlock } from '../../contracts/index.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
-import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/provider-exchange.js';
+import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/index.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult, type CompactionStrategy } from './compaction/compactor.js';
 import { SummaryPromptPolicyBlockedError, type SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ChildInvocationReservation, CompactionProgress, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';

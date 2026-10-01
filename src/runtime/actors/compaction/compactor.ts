@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalValueSha256, type ConversationContinuation } from '../../../persistence/canonical-conversation-artifacts.js';
+import { canonicalValueSha256, type ConversationContinuation } from '../../../persistence/index.js';
 import {
   publishCompactedConversationSegment,
   readCurrentConversationSegment,
   type CompactionPublicationOptions,
   type CompactionSuccessorIdentity,
   type ConversationFileContext,
-} from '../../../persistence/conversation-file.js';
+} from '../../../persistence/session-api.js';
 import { compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, protectedPromptsSha256, type AgentMessage, type CompactedHistory,
 } from '../../../schemas/index.js';
 import {
@@ -19,7 +19,7 @@ import {
   type InheritedConversationActivation,
   type SourceRound,
   type ValidatedConversation,
-} from '../../../contracts/conversation-validation.js';
+} from '../../../contracts/index.js';
 import type { ProviderConversationProjection, ToolDefinition } from '../../../contracts/index.js';
 import type { PreparedLlmInvocationInput } from '../llm-invocation.js';
 import type { PreparedCompaction } from '../../../contracts/index.js';
@@ -30,8 +30,8 @@ import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import { createSequentialRefineAccumulator, SummaryConstructionLimitError } from './refine-accumulator.js';
 import { SUMMARY_OUTPUT_TARGET_BYTES, SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
 import { ProviderTurnFailure } from '../../../contracts/index.js';
-import { LlmRequestError } from '../../../contracts/llm-failure.js';
-import { versionFilename } from '../../../persistence/version-index.js';
+import { LlmRequestError } from '../../../contracts/index.js';
+import { versionFilename } from '../../../persistence/index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
 export type AutonomousCompactionPolicy = {

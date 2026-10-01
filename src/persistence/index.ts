@@ -15,7 +15,7 @@ export type { CurrentAuthoredRecordClassification, RecordProjection } from './au
 export { cardVersionChangeSchema } from './canonical-card-artifacts.js';
 export type { CardArtifact, CardVersionChange, CardVersionListEntry } from './canonical-card-artifacts.js';
 export { canonicalValueSha256, conversationSha256 } from './canonical-conversation-artifacts.js';
-export type { ConversationSegmentGenesis } from './canonical-conversation-artifacts.js';
+export type { ConversationSegmentGenesis, ConversationContinuation } from './canonical-conversation-artifacts.js';
 export { effectiveRecordContent, isEmptyRecordContent, recordContentSha256 } from './canonical-record-artifacts.js';
 export type { AuthoredRecordVersionArtifact } from './canonical-record-artifacts.js';
 export {
@@ -65,7 +65,10 @@ export {
   saivageWorkRelativePath,
   saivageWorkRoot,
 } from './layout.js';
-export { createProjectIdentity, projectIdentityDigest, readProjectIdentity } from './project-identity.js';
+export { createProjectIdentity, parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from './project-identity.js';
+export { cardProcessOutputRoot, nonCardProcessOutputRoot, projectIdentityFile, runtimeProcessLockFile, saivageLocksRoot, saivageRoot } from './layout.js';
+export { versionFilename } from './version-index.js';
+export { writeAllExact } from './write-all-exact.js';
 export { appendProviderExchangeEntry, readLatestProviderExchangePayload } from './provider-exchange-log.js';
 export { replaceFile } from './replace-file.js';
-export type { PublicationTemporaryIdFactory } from './replace-file.js';
+export type { PublicationTemporaryIdFactory, ReplacementFileIo } from './replace-file.js';

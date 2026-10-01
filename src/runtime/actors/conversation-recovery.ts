@@ -4,14 +4,14 @@ import {
   loggedToolCallIdentity,
   loggedToolCallKey,
   loggedToolResultIdentity,
-} from '../../schemas/message-identity.js';
+} from '../../schemas/index.js';
 import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
 import { appendProviderVisibleSyntheticFailedToolResult, type InvocationResultPolicy } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext,
-} from '../../persistence/conversation-file.js';
+} from '../../persistence/session-api.js';
 import {
   validateConversation, type ValidatedConversation,
-} from '../../contracts/conversation-validation.js';
+} from '../../contracts/index.js';
 
 type ConversationImplicitState =
   | 'empty'

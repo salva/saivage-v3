@@ -1,6 +1,6 @@
 import type { ContextBlock, ProviderToolDefinition, CompiledInvocationToolContract, StaticInvocationPrefix, PreparedInvocationContext, PreparedCompaction } from '../../../contracts/index.js';
 import { canonicalJson } from '../../../schemas/index.js';
-import { conversationSha256 } from '../../../persistence/canonical-conversation-artifacts.js';
+import { conversationSha256 } from '../../../persistence/index.js';
 import type { ToolResultPolicyTemplate } from '../../../schemas/index.js';
 export type { ContextEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 

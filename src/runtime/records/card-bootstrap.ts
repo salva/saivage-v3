@@ -1,4 +1,4 @@
-import type { CardService } from '../../cards/card-service.js';
+import type { CardService } from '../../cards/store-api.js';
 import type { CardRecord } from '../../schemas/index.js';
 export function cardBootstrapForPrompt(store: Pick<CardService, 'readRecordCurrent' | 'workflows'>, card: CardRecord): string {
   const workflow=store.workflows.cardTypes.get(card.type);

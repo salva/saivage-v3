@@ -13,10 +13,10 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { projectIdentityFile, runtimeProcessLockFile, saivageLocksRoot, saivageRoot } from '../persistence/layout.js';
-import { replaceFile } from '../persistence/replace-file.js';
-import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity.js';
-import { writeAllExact } from '../persistence/write-all-exact.js';
+import { projectIdentityFile, runtimeProcessLockFile, saivageLocksRoot, saivageRoot } from '../persistence/index.js';
+import { replaceFile } from '../persistence/index.js';
+import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/index.js';
+import { writeAllExact } from '../persistence/index.js';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export interface RuntimeControlEndpoint {

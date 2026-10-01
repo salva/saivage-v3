@@ -1,16 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from '../../config/system-templates/registry.js';
-import type { AgentName } from '../../schemas/agent-name.js';
-import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
-import type { CardTypeSource, DurablePromptDeclaration, SaivageConfig, StaticPromptDeclaration } from '../../schemas/saivage-config.js';
+import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from '../../config/index.js';
+import type { AgentName } from '../../schemas/index.js';
+import { parseRecordName, type RecordName } from '../../schemas/index.js';
+import type { CardTypeSource, DurablePromptDeclaration, SaivageConfig, StaticPromptDeclaration } from '../../schemas/index.js';
 import { parseCardTypeName, type CardStatus, type CardTypeName } from '../../schemas/index.js';
 import { validateCompiledActorTable } from '../micro-actor/micro-actor.js';
 import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
 import { capabilityRequestForTools, usableInputTokens, zodToJsonSchemaMini, type Candidate, type CapabilityRequest, type EffectiveProviderCapabilities, type ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
-import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
+import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/tool-api.js';
 import { z } from 'zod';
-import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
+import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/index.js';
 
 interface WorkflowModelRouting {
   resolveModels(ids: readonly string[], request: CapabilityRequest): Candidate[];

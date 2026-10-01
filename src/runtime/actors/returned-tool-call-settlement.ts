@@ -1,6 +1,6 @@
 import type { LLMActorOutcome, ConversationLLMActor } from './llm-actor.js';
 import type { SettledToolResultFacts } from './llm-delivery-log.js';
-import { syntheticToolSettlement } from '../../tools/invocation.js';
+import { syntheticToolSettlement } from '../../tools/tool-api.js';
 
 export function settleReturnedToolCallWithoutEntry(
   llm: ConversationLLMActor,

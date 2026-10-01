@@ -123,6 +123,10 @@ export { appLogEntryLogicalId, appLogEntrySchema } from './app-log.js';
 export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType } from './app-log.js';
 export { validateCompactedHistorySuccessor, validateConversation } from './conversation-validation.js';
 export type { CompactedGenesisSeed, ValidatedConversation } from './conversation-validation.js';
+export { deriveRequiredModelFacts, selectAtomicCoveredSourceGroups, selectConversationProtection } from './conversation-validation.js';
+export type { InheritedConversationActivation, SourceRound } from './conversation-validation.js';
+export { DebugGraphsResponseSchema } from './operator-api-files-debug.js';
+export type { DebugGraphsResponse } from './operator-api-files-debug.js';
 export type {
   ToolInvocationProjectionInput,
   CanonicalCallIdentity,

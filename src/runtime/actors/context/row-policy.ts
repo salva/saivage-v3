@@ -1,5 +1,5 @@
 import type { AgentMessage, ContextAudience, ContextEvidence, ContextReplacement, SettledToolEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
-import { parseToolCallMessageForModel } from '../../../contracts/persisted-tool-call.js';
+import { parseToolCallMessageForModel } from '../../../contracts/index.js';
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled exhaustive conversation row kind '${String(value)}'.`);

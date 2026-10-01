@@ -122,3 +122,63 @@ test('count-only and malformed digest baselines fail closed', () => withFixture(
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+test('runtime leaves require owner public surfaces in the real CLI', () => withFixture((root) => {
+  writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
+  for (const owner of ['runtime', 'persistence', 'contracts', 'schemas', 'sanitization', 'tools']) {
+    mkdirSync(path.join(root, `src/${owner}`), { recursive: true });
+  }
+  const cases = [
+    ['../persistence/conversation-file.js', false],
+    ['../persistence/session-api.js', true],
+    ['../persistence/index.js', true],
+    ['../contracts/tool-result.js', false],
+    ['../contracts/index.js', true],
+    ['../schemas/card-id.js', false],
+    ['../schemas/index.js', true],
+    ['../sanitization/analyst-sanitization.js', false],
+    ['../sanitization/index.js', true],
+    ['../tools/invocation.js', false],
+    ['../tools/tool-api.js', true],
+    ['./actors/llm-actor.js', true],
+    ['../schemas/round-id-server.js', true],
+    ['../schemas/round-id-server.ts', true],
+    ['@saivage/schemas/round-id-server.ts', true],
+    ['../schemas/round-id.js', false],
+    ['../schemas/nested/round-id-server.js', false],
+    ['../schemas/other-server.js', false],
+    ['../tools/round-id-server.js', false],
+  ];
+  for (const [specifier, allowed] of cases) {
+    writeFileSync(path.join(root, 'src/runtime/consumer.ts'), `import { value } from '${specifier}';\n`);
+    const target = specifier.startsWith('@saivage/')
+      ? specifier.slice('@saivage/'.length)
+      : path.posix.normalize(`runtime/${specifier}`);
+    const tuples = allowed ? [] : [['src/runtime/consumer.ts', 'cross-package-deep', target.replace(/\.ts$/, '.js')]];
+    writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(tuples.length, digest(tuples)));
+    const result = run(root);
+    assert.equal(result.status, 0, `${specifier}: ${output(result)}`);
+    assert.match(result.stdout, new RegExp(digest(tuples)));
+  }
+}));
+
+test('exact round-ID server owner API is public to another backend package', () => withFixture((root) => {
+  mkdirSync(path.join(root, 'src/schemas'));
+  writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
+  for (const specifier of ['../schemas/round-id-server.js', '../schemas/round-id-server.ts', '@saivage/schemas/round-id-server.ts']) {
+    writeFileSync(path.join(root, 'src/agents/consumer.ts'), `import { value } from '${specifier}';\n`);
+    const result = run(root);
+    assert.equal(result.status, 0, `${specifier}: ${output(result)}`);
+  }
+}));
+
+test('runtime and agents directional denials override public API admission', () => withFixture((root) => {
+  mkdirSync(path.join(root, 'src/runtime'));
+  writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
+  writeFileSync(path.join(root, 'src/agents/consumer.ts'), "import { value } from '../runtime/runtime-api.js';\n");
+  writeFileSync(path.join(root, 'src/runtime/consumer.ts'), "import { value } from '../agents/execution-api.js';\n");
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(output(result), /agents must not import runtime/);
+  assert.match(output(result), /runtime must not import agents/);
+}));

@@ -165,6 +165,14 @@ test:parallel -- <Jest arguments>` or `npm run test:direct -- <Jest
 arguments>` for focused tests in the ordinary Jest set, which excludes the
 terminal-child suite; run `npm run test:terminal-child` for that in-band
 exceptional suite, and `npm run test:e2e` for the backend E2E tier.
+Export or backend boundary refactors require the focused semantic export test
+(`npm run test:direct -- --runInBand --runTestsByPath tests/scripts/export-consumers.test.js`),
+`npm run check:export-consumers`, `npm run test:import-boundaries`, and the full
+`npm test` parallel-plus-serial run. `validate:routine` alone does not run Jest
+and is not sufficient validation for these refactors. Shared-root export changes
+also require `node scripts/check-web-browser-imports.cjs`,
+`npm --prefix web run build`, and focused root-consuming browser tests; Node
+typecheck and Jest alone do not establish browser eligibility.
 Required guards: `npm run check:export-consumers`, `npm run
 web:test:operator-smoke`, `npm run lint`, `npm run test:import-boundaries`,
 `npm run audit:security`, and `npm run deps:review`. Root and web

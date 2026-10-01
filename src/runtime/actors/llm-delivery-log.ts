@@ -1,12 +1,12 @@
 import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId, type SettledToolEvidence, type ToolResultPolicyTemplate, type ToolSettlementOrigin } from '../../schemas/index.js';
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
-import { conversationSha256 } from '../../persistence/canonical-conversation-artifacts.js';
+import { conversationSha256 } from '../../persistence/index.js';
 import type { ProviderPrivateContext, ToolCall } from '../../contracts/index.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
-import { UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, type ToolSettlementInput } from '../../tools/invocation.js';
-import type { ToolResult } from '../../contracts/tool-result.js';
-import { settleToolActionOutcome } from '../../tools/tool-result-settlement.js';
-import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
+import { UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, type ToolSettlementInput } from '../../tools/tool-api.js';
+import type { ToolResult } from '../../contracts/index.js';
+import { settleToolActionOutcome } from '../../tools/tool-api.js';
+import { appendConversationBatch, type ConversationFileContext } from '../../persistence/session-api.js';
 import { validateResponsesPairs } from '../../contracts/index.js';
 
 export type InvocationResultPolicy = Readonly<{

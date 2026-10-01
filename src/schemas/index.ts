@@ -16,8 +16,8 @@ export {
 export { agentNameSchema, parseAgentName, type AgentName } from './agent-name.js';
 export { cardTypeNameSchema, parseCardTypeName, type CardTypeName } from './card-type-name.js';
 export { recordNameSchema, parseRecordName, recordStreamFilename, type RecordName } from './record-name.js';
-export { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId, loggedToolCallIdentity, loggedToolResultIdentity } from './message-identity.js';
-export { actorPauseModeSchema, publicCardActorStateSchema, type ActorPauseMode, type PublicCardActorState } from './actor-vocabulary.js';
+export { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId, loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity, type LoggedToolMessageIdentity } from './message-identity.js';
+export { actorPauseModeSchema, publicCardActorStateSchema, toPublicCardActorState, type ActorPauseMode, type PublicCardActorState } from './actor-vocabulary.js';
 export { eventKindValues, errorEventSchema, isErrorEvent, loggedEventSchema } from './event-catalog.js';
 export { actionableErrorEnvelopeSchema } from './actionable-error.js';
 export {
@@ -38,3 +38,4 @@ export { cardVersionChangeSchema, type CardVersionChange } from './card-version-
 export { outboundCardVersionChangeSchema, type OrdinaryCardChangeField, type OutboundCardVersionChange } from './outbound-card-version-change.js';
 export { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema, type SystemTemplateName, type OutboundEffectiveSaivageConfig, type SaivageConfig, type SaivageConfigSource, type ProviderCapabilities, type ProviderEntry, type ProviderAccount, type CardTypesSource, type McpServerConfig, type StdioMcpServerConfig, type StreamableHttpMcpServerConfig } from './saivage-config.js';
 export { cardParentId } from './card-id.js';
+export type { CardTypeSource, DurablePromptDeclaration, StaticPromptDeclaration } from './saivage-config.js';

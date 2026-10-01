@@ -3,10 +3,10 @@ import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } fr
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from './llm-actor.js';
-import type { ConversationFileContext } from '../../persistence/conversation-file.js';
+import type { ConversationFileContext } from '../../persistence/session-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
-import type { CardService } from '../../cards/card-service.js';
-import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
+import type { CardService } from '../../cards/store-api.js';
+import type { McpToolInvocationPort } from '../../mcp/manager-api.js';
 import type { ProcessRunner } from '../process-runner.js';
 import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';

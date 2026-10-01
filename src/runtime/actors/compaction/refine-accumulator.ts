@@ -10,7 +10,7 @@ import {
   type ConversationSessionId,
   type ProtectedPrompt,
 } from '../../../schemas/index.js';
-import type { ValidatedConversation } from '../../../contracts/conversation-validation.js';
+import type { ValidatedConversation } from '../../../contracts/index.js';
 import { composeContextProjection, type SummarizerContextItem } from '../context/composition-projector.js';
 import { selectLatestContextBlocks } from '../context/context-blocks.js';
 import { type ContextBlock } from '../../../contracts/index.js';
@@ -27,7 +27,7 @@ import {
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { CompactionProgressCallbacks } from './compactor.js';
 import { ProviderTurnFailure } from '../../../contracts/index.js';
-import { LlmRequestError } from '../../../contracts/llm-failure.js';
+import { LlmRequestError } from '../../../contracts/index.js';
 import { PublicationOutcomeUnknownError } from '../../../contracts/index.js';
 
 const SUMMARY_CORRECTION_TARGET_BYTES = 6_000;

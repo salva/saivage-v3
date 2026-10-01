@@ -1,8 +1,8 @@
 import type { RuntimeState, RuntimeStatus } from '../schemas/index.js';
-import type { ActorRuntimeReadModel } from '../application/read-models/actor-runtime-read-model.js';
+import type { ActorRuntimeReadModel } from '../application/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { CardCancellationResult } from './actors/card-activation-owner.js';
-import type { NotificationUrgency } from '../contracts/builtin-tool-inputs.js';
+import type { NotificationUrgency } from '../contracts/index.js';
 
 interface RuntimeControlStateResult {
   runtime: RuntimeState | null;

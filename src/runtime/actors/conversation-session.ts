@@ -2,13 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, durablePrimaryContentPolicy, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
-import type { ValidatedConversation } from '../../contracts/conversation-validation.js';
+import type { ValidatedConversation } from '../../contracts/index.js';
 import type { ProviderConversationProjection } from '../../contracts/index.js';
 import { composeContextProjection, providerConversationFromComposedContext } from './context/composition-projector.js';
 import { classifyConversationRowPolicy } from './context/row-policy.js';
 import type { ContextBlock } from '../../contracts/index.js';
 import { appendConversationBatch, type ConversationFileContext,
-} from '../../persistence/conversation-file.js';
+} from '../../persistence/session-api.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
 
 type UserContextMessageCategory =
