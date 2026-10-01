@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
 
 import { projectConfigSchema, type ProjectConfig } from '../schemas/index.js';
@@ -26,7 +26,7 @@ export function readProjectIdentity(projectRoot: string): ProjectConfig | null {
 }
 
 export function projectIdentityDigest(project: Pick<ProjectConfig, 'id' | 'created_at'>): string {
-  return createHash('sha256').update(JSON.stringify({ id: project.id, created_at: project.created_at })).digest('hex');
+  return sha256Hex(JSON.stringify({ id: project.id, created_at: project.created_at }));
 }
 
 export function createProjectIdentity(projectRoot: string, name: string, publicationTemporaryId?: PublicationTemporaryIdFactory): ProjectConfig {

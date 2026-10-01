@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, it } from '@jest/globals';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -52,6 +52,28 @@ describe('strict app-log startup admission', () => {
 });
 
 describe('strict app-log publication', () => {
+  it.each(['.saivage', 'logs'])('continues EEXIST establishment through a usable %s directory symlink', (name) => {
+    const projectRoot = root(); const destination = join(projectRoot, 'directory'); mkdirSync(destination);
+    if (name === 'logs') mkdirSync(join(projectRoot, '.saivage'));
+    symlinkSync(destination, name === 'logs' ? join(projectRoot, '.saivage', 'logs') : join(projectRoot, '.saivage'));
+    append(projectRoot, event('first'));
+    expect(readAppLogEntries(projectRoot)).toEqual([event('first')]);
+  });
+
+  it('propagates establishment errors and fails an unusable EEXIST parent at exact use', () => {
+    const projectRoot = root(); writeFileSync(join(projectRoot, '.saivage'), 'not a directory');
+    expect(() => append(projectRoot, event('first'))).toThrow(expect.objectContaining({ code: 'ENOTDIR' }));
+    expect(() => append(join(projectRoot, 'missing', 'project'), event('first'))).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+    expect(readFileSync(join(projectRoot, '.saivage'), 'utf8')).toBe('not a directory');
+  });
+
+  it('a duplicate complete retained prefix blocks both read and append truncation', () => {
+    const projectRoot = root(); append(projectRoot, event('same')); append(projectRoot, event('same'));
+    const path = appLogFile(projectRoot); writeFileSync(path, Buffer.concat([readFileSync(path), Buffer.from('suffix')])); const before = readFileSync(path);
+    expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id/);
+    expect(() => append(projectRoot, event('later'))).toThrow(/duplicate logical id/);
+    expect(readFileSync(path)).toEqual(before);
+  });
   it('accepts exactly the three {type,data} lanes and rejects old outer fields and removed lanes', () => {
     expect(appLogEntrySchema.parse(event('event'))).toEqual(event('event'));
     expect(appLogEntrySchema.safeParse({ ...event('event'), id: 'outer', timestamp: '2026-07-20T00:00:00.000Z' }).success).toBe(false);
@@ -78,7 +100,7 @@ describe('strict app-log publication', () => {
   it('first-publishes one exact newline-terminated envelope into a missing tree', () => {
     const projectRoot = root(); const entry = event('first');
     expect(appendAppLogEntry(projectRoot, 'event', () => entry, { publicationTemporaryId: () => '11111111-1111-4111-8111-111111111111' })).toEqual(entry);
-    expect(readFileSync(appLogFile(projectRoot))).toEqual(serializeGrowingEnvelope([entry], appLogEntrySchema));
+    expect(readFileSync(appLogFile(projectRoot))).toEqual(serializeGrowingEnvelope([entry]));
   });
 
   it('publishes a duplicate logical id and rejects it on every complete read and startup validation', () => {
@@ -115,7 +137,7 @@ describe('strict app-log publication', () => {
         },
       }),
     ];
-    writeFileSync(path, serializeGrowingEnvelope(duplicateRows, appLogEntrySchema));
+    writeFileSync(path, serializeGrowingEnvelope(duplicateRows));
     const log = createEventLog(projectRoot);
 
     expect(log.appendEvent(event('distinct', '2026-07-20T00:00:02.000Z').data)).toEqual(event('distinct', '2026-07-20T00:00:02.000Z').data);
@@ -135,22 +157,22 @@ describe('strict app-log publication', () => {
     expect(() => initializeAppLog(projectRoot)).toThrow(/malformed/);
   });
 
-  it('keeps ordinary reads correction-free for an unterminated final suffix', () => {
+  it('ordinary reads truncate a validated unterminated final suffix', () => {
     const projectRoot = root(); append(projectRoot, event('first'));
     const path = appLogFile(projectRoot); const canonical = readFileSync(path);
     writeFileSync(path, Buffer.concat([canonical, Buffer.from('partial')]));
-    expect(() => readAppLogEntries(projectRoot, 'event')).toThrow(/incomplete final envelope/);
-    expect(readFileSync(path)).toEqual(Buffer.concat([canonical, Buffer.from('partial')]));
+    expect(readAppLogEntries(projectRoot, 'event')).toEqual([event('first')]);
+    expect(readFileSync(path)).toEqual(canonical);
   });
 
-  it('rejects append admission without correcting an interrupted invalid-byte suffix', () => {
+  it('append admission discards interrupted invalid bytes after validating the prefix', () => {
     const projectRoot = root(); const first = event('first'); append(projectRoot, first);
     const path = appLogFile(projectRoot); const firstBytes = readFileSync(path);
     writeFileSync(path, Buffer.concat([firstBytes, Buffer.from([0x7b, 0xff, 0x7d])]));
     const second = event('second', '2026-07-20T00:00:01.000Z');
 
-    expect(() => append(projectRoot, second)).toThrow(/incomplete final envelope/);
-    expect(readFileSync(path)).toEqual(Buffer.concat([firstBytes, Buffer.from([0x7b, 0xff, 0x7d])]));
+    expect(append(projectRoot, second)).toEqual(second);
+    expect(readFileSync(path)).toEqual(Buffer.concat([firstBytes, serializeGrowingEnvelope([second])]));
   });
 
   it('fails before appending to complete malformed data and leaves the bytes unchanged', () => {
@@ -164,7 +186,7 @@ describe('strict app-log publication', () => {
   it('fails before appending to a complete invalid-UTF-8 envelope and leaves the bytes unchanged', () => {
     const projectRoot = root(); append(projectRoot, event('first'));
     const path = appLogFile(projectRoot);
-    const validEnvelope = serializeGrowingEnvelope([event('invalid-marker', '2026-07-20T00:00:01.000Z')], appLogEntrySchema);
+    const validEnvelope = serializeGrowingEnvelope([event('invalid-marker', '2026-07-20T00:00:01.000Z')]);
     const marker = Buffer.from('invalid-marker');
     const markerOffset = validEnvelope.indexOf(marker);
     const invalidEnvelope = Buffer.concat([
@@ -183,13 +205,13 @@ describe('strict app-log publication', () => {
     const projectRoot = root();
     mkdirSync(join(projectRoot, '.saivage', 'logs'), { recursive: true });
     const path = appLogFile(projectRoot);
-    const clean = serializeGrowingEnvelope([event('clean-final')], appLogEntrySchema);
+    const clean = serializeGrowingEnvelope([event('clean-final')]);
     const before = Buffer.concat([Buffer.from('{earlier malformed}\n'), clean]);
     writeFileSync(path, before);
 
     const later = event('later', '2026-07-20T00:00:01.000Z');
     expect(append(projectRoot, later)).toEqual(later);
-    expect(readFileSync(path).byteLength).toBe(before.byteLength + serializeGrowingEnvelope([later], appLogEntrySchema).byteLength);
+    expect(readFileSync(path).byteLength).toBe(before.byteLength + serializeGrowingEnvelope([later]).byteLength);
     expect(() => readAppLogEntries(projectRoot)).toThrow(/malformed/);
     expect(() => initializeAppLog(projectRoot)).toThrow(/malformed/);
   });

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { sha256Hex, canonicalValueSha256 } from '../schemas/index.js';
+import { mkdirSync, readFileSync } from 'node:fs';
 
 import {
   validateCompactedHistorySuccessor,
   validateConversation,
-  PublicationOutcomeUnknownError,
+  throwIfPublicationOutcomeUnknown,
   type CompactedGenesisSeed,
   type ValidatedConversation,
 } from '../contracts/index.js';
@@ -12,14 +13,12 @@ import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, typ
 import {
   conversationSegmentEnvelopeSchema,
   conversationVersionIndexSchema,
-  canonicalValueSha256,
-  conversationSha256,
   type ConversationContinuation,
   type ConversationSegmentGenesis,
   type ConversationVersionEntry,
   type ConversationVersionIndex,
 } from './canonical-conversation-artifacts.js';
-import { appendEnvelope, type GrowingFileIo } from './growing-file.js';
+import { appendRequiredEnvelope, consumeGrowingFile, readCanonicalBytes, type GrowingFileIo } from './growing-file.js';
 import {
   cardConversationRoot,
   cardConversationVersionFile,
@@ -42,7 +41,6 @@ export interface ConversationFileContext {
   };
 }
 interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
-interface ConversationTruncationIo { open(path: string, flags: number): number; ftruncate(fd: number, length: number): void; fsync(fd: number): void; close(fd: number): void }
 interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
 export interface ConversationSegment { readonly index: ConversationVersionIndex; readonly entry: ConversationVersionEntry; readonly genesis: ConversationSegmentGenesis; readonly rows: readonly AgentMessage[]; readonly bytes: Buffer; readonly conversation: ValidatedConversation }
 export class ConversationHistoricalVersionNotFoundError extends Error {}
@@ -67,8 +65,8 @@ function parseIndex(path: string): ConversationVersionIndex {
   if (!text.endsWith('\n') || text.slice(0, -1).includes('\n')) throw new Error(`Conversation index '${path}' must contain one newline-terminated JSON object.`);
   try { return conversationVersionIndexSchema.parse(JSON.parse(text.slice(0, -1))); } catch (error) { throw new Error(`Conversation index '${path}' is malformed.`, { cause: error }); }
 }
-function parseSegment(path: string, suppliedBytes?: Buffer): { bytes: Buffer; genesis: ConversationSegmentGenesis; rows: AgentMessage[] } {
-  const bytes = suppliedBytes ?? readFileSync(path); const text = decode(path, bytes);
+function parseSegment(path: string, bytes: Buffer): { bytes: Buffer; genesis: ConversationSegmentGenesis; rows: AgentMessage[] } {
+  const text = decode(path, bytes);
   if (text.length === 0 || !text.endsWith('\n')) throw new Error(`Conversation segment '${path}' has an incomplete final envelope.`);
   const all: unknown[] = [];
   for (const [offset, line] of text.slice(0, -1).split('\n').entries()) {
@@ -80,14 +78,15 @@ function parseSegment(path: string, suppliedBytes?: Buffer): { bytes: Buffer; ge
   if (rows.some((row) => (row as { kind?: string }).kind === 'ordinary_segment_genesis' || (row as { kind?: string }).kind === 'compacted_segment_genesis')) throw new Error(`Conversation segment '${path}' contains a non-initial genesis row.`);
   return { bytes, genesis: genesis as ConversationSegmentGenesis, rows: rows.map((row) => agentMessageSchema.parse(row)) };
 }
-function emptyIndex(sessionId: ConversationSessionId): ConversationVersionIndex { return conversationVersionIndexSchema.parse({ format_version: 2, kind: 'conversation-version-index', session_id: sessionId, created_at: new Date().toISOString(), versions: [], current_version: null, current_filename: null }); }
-function publishIndex(path: string, index: ConversationVersionIndex, temporary?: PublicationTemporaryIdFactory): void { replaceFile(path, serializeStrictJson(conversationVersionIndexSchema.parse(index)), temporary); }
+function emptyIndex(sessionId: ConversationSessionId): ConversationVersionIndex { return conversationVersionIndexSchema.parse({ format_version: 3, kind: 'conversation-version-index', session_id: sessionId, created_at: new Date().toISOString(), versions: [], current_version: null, current_filename: null }); }
+function publishIndex(path: string, index: ConversationVersionIndex, temporary?: PublicationTemporaryIdFactory): void { replaceFile(path, serializeStrictJson(index), temporary); }
 
 export function initializeConversation(projectRoot: string, sessionId: ConversationSessionId, temporary?: PublicationTemporaryIdFactory): void {
   const target = location(projectRoot, sessionId); mkdirSync(target.root); mkdirSync(target.versionsRoot); publishIndex(target.indexPath, emptyIndex(sessionId), temporary);
 }
-function ensureDirectory(path: string): void { try { mkdirSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; if (!lstatSync(path).isDirectory()) throw new Error(`Required conversation path '${path}' is not a directory.`); } }
+function ensureDirectory(path: string): void { try { mkdirSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; } }
 export function initializeMissingConversation(projectRoot: string, sessionId: ConversationSessionId, temporary?: PublicationTemporaryIdFactory): boolean {
+  // Optional selected Oversight actual use, never replacement of a required missing session.
   const target = location(projectRoot, sessionId); try { parseIndex(target.indexPath); return false; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   ensureDirectory(target.root); ensureDirectory(target.versionsRoot); publishIndex(target.indexPath, emptyIndex(sessionId), temporary); return true;
 }
@@ -96,12 +95,22 @@ export function readConversationCatalog(projectRoot: string, sessionId: Conversa
   if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
   return Object.freeze({ sessionId, createdAt: index.created_at, versions: index.versions, currentVersion: index.current_version });
 }
-function readSegment(projectRoot: string, sessionId: ConversationSessionId, version?: number, suppliedIndex?: ConversationVersionIndex): ConversationSegment | null {
+function selectSegment(projectRoot: string, sessionId: ConversationSessionId, version?: number, suppliedIndex?: ConversationVersionIndex) {
   const target = location(projectRoot, sessionId); const index = suppliedIndex ?? parseIndex(target.indexPath);
   if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
   const entry = version === undefined ? index.versions.at(-1) : index.versions[version - 1];
   if (!entry) { if (version !== undefined) throw new ConversationHistoricalVersionNotFoundError(); return null; }
-  const parsed = parseSegment(target.versionPath(entry.filename)); return validateLoadedSegment(index, entry, parsed, sessionId);
+  return { index, entry, path: target.versionPath(entry.filename) };
+}
+function loadSegment(selected: NonNullable<ReturnType<typeof selectSegment>>, sessionId: ConversationSessionId): ConversationSegment {
+  const { index, entry, path } = selected;
+  const bytes = readCanonicalBytes(path);
+  const validate = (prefix: Buffer) => validateLoadedSegment(index, entry, parseSegment(path, prefix), sessionId);
+  return entry.version === index.current_version ? consumeGrowingFile(path, bytes, validate) : validate(bytes);
+}
+function readSegment(projectRoot: string, sessionId: ConversationSessionId, version?: number, suppliedIndex?: ConversationVersionIndex): ConversationSegment | null {
+  const selected = selectSegment(projectRoot, sessionId, version, suppliedIndex);
+  return selected ? loadSegment(selected, sessionId) : null;
 }
 function validateLoadedSegment(index: ConversationVersionIndex, entry: ConversationVersionEntry, parsed: ReturnType<typeof parseSegment>, sessionId: ConversationSessionId): ConversationSegment {
   const { genesis, rows } = parsed;
@@ -119,34 +128,31 @@ function validateLoadedSegment(index: ConversationVersionIndex, entry: Conversat
 }
 export function readCurrentConversationSegment(projectRoot: string, sessionId: ConversationSessionId): ConversationSegment | null { return readSegment(projectRoot, sessionId); }
 export function readHistoricalConversationSegment(projectRoot: string, sessionId: ConversationSessionId, version: number): ConversationSegment {
-  const target = location(projectRoot, sessionId);
-  const index = parseIndex(target.indexPath);
-  if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
-  const entry = index.versions[version - 1];
-  if (!entry) throw new ConversationHistoricalVersionNotFoundError();
-  try { return validateLoadedSegment(index, entry, parseSegment(target.versionPath(entry.filename)), sessionId); }
-  catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError) throw error; const code = (error as NodeJS.ErrnoException).code; throw new ConversationHistoricalVersionUnavailableError(version, code === 'ENOENT' ? 'missing' : code ? 'io_error' : 'corrupt'); }
+  const selected = selectSegment(projectRoot, sessionId, version)!;
+  try { return loadSegment(selected, sessionId); }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); if (error instanceof ConversationHistoricalVersionNotFoundError) throw error; const code = (error as NodeJS.ErrnoException).code; throw new ConversationHistoricalVersionUnavailableError(version, code === 'ENOENT' ? 'missing' : code ? 'io_error' : 'corrupt'); }
 }
 export function readConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation { return readSegment(projectRoot, sessionId)?.conversation ?? validateConversation(sessionId, []); }
 function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] { if (!messages.length) throw new Error('Conversation append requires at least one message.'); const parsed = messages.map((message) => agentMessageSchema.parse(message)); const sessionId = parsed[0]!.session_id; if (parsed.some((message) => message.session_id !== sessionId)) throw new Error('Conversation append requires one session.'); if (new Set(parsed.map((message) => message.id)).size !== parsed.length) throw new Error('Conversation append contains duplicate message ids.'); return parsed; }
-function segmentEnvelope(rows: readonly unknown[]): Buffer { return Buffer.from(`${JSON.stringify(conversationSegmentEnvelopeSchema.parse({ version: 2, type: 'conversation-segment', rows }))}\n`); }
+function segmentEnvelope(rows: readonly (ConversationSegmentGenesis | AgentMessage)[]): Buffer {
+  if (!rows.length) throw new Error('Conversation envelope requires at least one row.');
+  return Buffer.from(`${JSON.stringify({ version: 3, type: 'conversation-segment', rows })}\n`);
+}
 function visibleMessageId(rows: readonly AgentMessage[]): string | null { return rows.filter((row) => row.kind !== 'provider_private').at(-1)?.id ?? null; }
 
 export function appendConversationBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: ConversationAppendOptions = {}): void {
-  const parsed = validateBatch(messages); const sessionId = parsed[0]!.session_id; const target = location(conversations.projectRoot, sessionId); const index = parseIndex(target.indexPath); if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
+  const parsed = validateBatch(messages); const sessionId = parsed[0]!.session_id; const target = location(conversations.projectRoot, sessionId); const index = parseIndex(target.indexPath);
   const current = readSegment(conversations.projectRoot, sessionId, undefined, index);
   const existingIds = new Set(current?.rows.map((message) => message.id) ?? []); const duplicate = parsed.find((message) => existingIds.has(message.id)); if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);
-  const prospectiveSeeds = current ? validationSeeds(current.genesis) : { inherited: undefined, compacted: undefined };
-  validateConversation(sessionId, [...(current?.rows ?? []), ...parsed], prospectiveSeeds.inherited, prospectiveSeeds.compacted);
   let segmentVersion: number;
   if (!current) {
-    const entryId = randomUUID(); const filename = versionFilename(1, randomUUID(), 'jsonl'); const timestamp = new Date().toISOString(); const genesis = { format_version: 2, kind: 'ordinary_segment_genesis', id: randomUUID(), entry_id: entryId, session_id: sessionId, segment_version: 1, timestamp } as const;
+    const entryId = randomUUID(); const filename = versionFilename(1, randomUUID(), 'jsonl'); const timestamp = new Date().toISOString(); const genesis = { format_version: 3, kind: 'ordinary_segment_genesis', id: randomUUID(), entry_id: entryId, session_id: sessionId, segment_version: 1, timestamp } as const;
     const entry = { entry_id: entryId, version: 1, filename, created_at: timestamp, genesis: { kind: 'ordinary' } } as const; const next = conversationVersionIndexSchema.parse({ ...index, versions: [entry], current_version: 1, current_filename: filename });
     createImmutableVersionFile(target.versionPath(filename), segmentEnvelope([genesis, ...parsed])); publishIndex(target.indexPath, next, options.publicationTemporaryId); segmentVersion = 1;
   } else {
-    const result = appendEnvelope(target.versionPath(current.entry.filename), segmentEnvelope(parsed), options.io); if (result.kind === 'missing') throw new Error(`Conversation '${sessionId}' disappeared before append.`); segmentVersion = current.entry.version;
+    appendRequiredEnvelope(target.versionPath(current.entry.filename), segmentEnvelope(parsed), options.io); segmentVersion = current.entry.version;
   }
-  conversations.changes?.conversationChanged({ session_id: sessionId, segment_version: segmentVersion, visible_message_id: visibleMessageId([...(current?.rows ?? []), ...parsed]) });
+  conversations.changes?.conversationChanged({ session_id: sessionId, segment_version: segmentVersion, visible_message_id: visibleMessageId(parsed) ?? visibleMessageId(current?.rows ?? []) });
   if (!current) { const identity = conversationSessionIdentity(sessionId); conversations.changes?.agentMembershipChanged(identity.cardId === null ? { scope: 'global-session', sessionId } : { scope: 'card', cardId: identity.cardId }); }
 }
 
@@ -193,8 +199,8 @@ export function publishCompactedConversationSegment(conversations: ConversationF
     throw new Error('A between-rounds cutoff cannot leave an inherited open activation with no retained row.');
   }
   const version = compaction.identity.segmentVersion; const entryId = compaction.identity.entryId; const timestamp = compaction.identity.timestamp; const filename = compaction.identity.filename;
-  const retainedHash = canonicalValueSha256(rows); const sourceHash = conversationSha256(current.bytes); const payloadHash = canonicalValueSha256(compaction.history); const continuationHash = canonicalValueSha256(compaction.continuation);
-  const genesis = { format_version: 2, kind: 'compacted_segment_genesis', id: compaction.identity.genesisId, entry_id: entryId, session_id: sessionId, segment_version: version, timestamp, source: { version: current.entry.version, filename: current.entry.filename, sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId }, compaction: compaction.history, continuation: compaction.continuation, retained_rows: { first_message_id: rows[0]?.id ?? null, last_message_id: rows.at(-1)?.id ?? null, row_count: rows.length, sha256: retainedHash } } as const;
+  const retainedHash = canonicalValueSha256(rows); const sourceHash = sha256Hex(current.bytes); const payloadHash = canonicalValueSha256(compaction.history); const continuationHash = canonicalValueSha256(compaction.continuation);
+  const genesis = { format_version: 3, kind: 'compacted_segment_genesis', id: compaction.identity.genesisId, entry_id: entryId, session_id: sessionId, segment_version: version, timestamp, source: { version: current.entry.version, filename: current.entry.filename, sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId }, compaction: compaction.history, continuation: compaction.continuation, retained_rows: { first_message_id: rows[0]?.id ?? null, last_message_id: rows.at(-1)?.id ?? null, row_count: rows.length, sha256: retainedHash } } as const;
   const entry = { entry_id: entryId, version, filename, created_at: timestamp, genesis: { kind: 'compacted', source_version: current.entry.version, source_filename: current.entry.filename, source_sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId, compaction_payload_sha256: payloadHash, continuation_sha256: continuationHash, retained_rows_sha256: retainedHash } } as const;
   const next = conversationVersionIndexSchema.parse({ ...current.index, versions: [...current.index.versions, entry], current_version: version, current_filename: filename });
   const successor = validateConversation(sessionId, rows, inherited, { id: compaction.identity.genesisId, timestamp, history: compaction.history, sourceVersion: current.entry.version });
@@ -202,23 +208,4 @@ export function publishCompactedConversationSegment(conversations: ConversationF
   io.replaceFile(target.indexPath, serializeStrictJson(next), options.temporary);
   conversations.changes?.conversationChanged({ session_id: sessionId, segment_version: version, visible_message_id: visibleMessageId(rows) });
   return successor;
-}
-
-const conversationTruncationIo: ConversationTruncationIo = { open: openSync, ftruncate: ftruncateSync, fsync: fsyncSync, close: closeSync };
-
-export function truncateCurrentConversationUnterminatedSuffix(projectRoot: string, sessionId: ConversationSessionId, io: ConversationTruncationIo = conversationTruncationIo): ConversationSegment | null {
-  const target = location(projectRoot, sessionId); const index = parseIndex(target.indexPath);
-  if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
-  const entry = index.versions.at(-1); if (!entry) return null;
-  const path = target.versionPath(entry.filename); const bytes = readFileSync(path);
-  if (bytes.at(-1) === 0x0a) return validateLoadedSegment(index, entry, parseSegment(path, bytes), sessionId);
-  const finalNewline = bytes.lastIndexOf(0x0a);
-  if (finalNewline < 0) throw new Error(`Conversation segment '${path}' has no complete prefix before its unterminated suffix.`);
-  const length = finalNewline + 1;
-  const segment = validateLoadedSegment(index, entry, parseSegment(path, bytes.subarray(0, length)), sessionId);
-  const descriptor = io.open(path, constants.O_RDWR);
-  try { io.ftruncate(descriptor, length); } catch (error) { throw new PublicationOutcomeUnknownError(error); }
-  try { io.fsync(descriptor); } catch (error) { throw new PublicationOutcomeUnknownError(error); }
-  try { io.close(descriptor); } catch (error) { throw new PublicationOutcomeUnknownError(error); }
-  return segment;
 }

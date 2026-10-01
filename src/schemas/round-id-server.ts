@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { sha256Hex } from './sha256.js';
 import type { RoundKind } from './round-id.js';
 
 export function generateRoundId(kind: RoundKind): string {
@@ -9,5 +10,5 @@ export function deterministicRoundId(
   kind: Exclude<RoundKind, 'compacted'>,
   seed: string,
 ): string {
-  return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+  return `r-${kind}-${sha256Hex(seed).slice(0, 32)}`;
 }

@@ -84,6 +84,20 @@ describe('shared LLM provider attempt', () => {
     expect(value.trace).toEqual(['credentials', 'wire', 'fetch']); expect(result.provider_exchanges).toHaveLength(1); expect(result.provider_exchanges[0]).toMatchObject({ status: 'ok', response_status: 200, terminal_tool_fired: 'done' });
   });
 
+  it('retains exact wire bytes and known successful evidence when abort arrives during successful parsing', async () => {
+    const controller = new AbortController(); const reason = new Error('stopped after provider success');
+    const value = fixture({ parseSuccess: async () => { controller.abort(reason); return { result: { kind: 'message', content: 'known success' }, finishReason: 'stop' }; } });
+    const wire = ' {"é":1,"A":2} \n';
+    value.plan.request.serializedBody = wire;
+    value.plan.request.requestHash = createHash('sha256').update(wire, 'utf8').digest('hex');
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+    const result = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(controller.signal) });
+    expect(fetchSpy.mock.calls[0]![1]!.body).toBe(wire);
+    expect(result).toMatchObject({ result: { kind: 'message', content: 'known success' }, provider_exchanges: [{ status: 'ok', response_status: 200 }] });
+    expect(result.provider_exchanges).toHaveLength(1);
+    expect(controller.signal.aborted).toBe(true);
+  });
+
   it('evaluates generic capabilities once before credentials, wire derivation, and fetch', async () => {
     const value = fixture();
     let capabilityReads = 0;

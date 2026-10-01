@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../../schemas/index.js';
 
 import {
   parseToolCallMessageForModel,
@@ -111,7 +111,7 @@ function projectResultRow(
   assertProjectedResult(projected, identity);
   const content = JSON.stringify(projected.result);
   if (row.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${row.id}' is missing its tool_result context policy.`);
-  return agentMessageSchema.parse({ ...row, content, context_policy: { ...row.context_policy, result_content_sha256: createHash('sha256').update(content, 'utf8').digest('hex') } });
+  return agentMessageSchema.parse({ ...row, content, context_policy: { ...row.context_policy, result_content_sha256: sha256Hex(content) } });
 }
 
 function assertProjectedCall(

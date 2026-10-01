@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { validateConversation } from '../../src/contracts/conversation-validation.js';
-import { accumulatedSummarySha256, agentMessageSchema, compactedHistorySchema, coveredSourceGroupsSha256, protectedPromptsSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
+import { sha256Hex, agentMessageSchema, compactedHistorySchema, coveredSourceGroupsSha256, canonicalValueSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -123,7 +123,7 @@ function validHistory(overrides: { requiredModelFactsOverride?: Record<string, u
     summaryText: 'accumulated prose',
     source: { kind: 'current_rows', groups },
     dispositionCommitment: { sha256: 'c'.repeat(64), count: 2, summarized: 2, evidenceOnly: 0, superseded: 0, protected: 0, ...overrides.dispositionsOverride },
-    coverageCommitment: { sourceSessionId: SESSION, sourceVersion: 3, coveredThroughMessageId: 'tail', coveredSourceGroupsSha256: coveredSourceGroupsSha256(groups), accumulatedSummarySha256: accumulatedSummarySha256('accumulated prose'), protectedPromptsSha256: protectedPromptsSha256([]) },
+    coverageCommitment: { sourceSessionId: SESSION, sourceVersion: 3, coveredThroughMessageId: 'tail', coveredSourceGroupsSha256: coveredSourceGroupsSha256(groups), accumulatedSummarySha256: sha256Hex('accumulated prose'), protectedPromptsSha256: canonicalValueSha256([]) },
     protectedPrompts: [],
     requiredModelFacts: {
       latestRecovery: { sourceMessageId: `${INPUT}:model-recovered`, activationInputId: INPUT },
@@ -135,5 +135,5 @@ function validHistory(overrides: { requiredModelFactsOverride?: Record<string, u
 
 function historyWithProtected(protectedPrompts: CompactedHistory['protectedPrompts']): CompactedHistory {
   const history = validHistory();
-  return { ...history, protectedPrompts, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: protectedPromptsSha256(protectedPrompts) } };
+  return { ...history, protectedPrompts, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: canonicalValueSha256(protectedPrompts) } };
 }

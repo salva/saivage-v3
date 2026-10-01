@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { canonicalJson } from '../schemas/index.js';
+import { canonicalJson, sha256Hex } from '../schemas/index.js';
 import {
   assertProviderConversationSourceRows,
   type Candidate,
@@ -50,7 +49,7 @@ export function buildCandidateRequest(args: {
       body,
       serializedBody,
       estimatedWireInputTokens: Math.ceil(Buffer.byteLength(serializedBody, 'utf8') / 4),
-      requestHash: createHash('sha256').update(serializedBody, 'utf8').digest('hex'),
+      requestHash: sha256Hex(serializedBody),
     },
   };
 }

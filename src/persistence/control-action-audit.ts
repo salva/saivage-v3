@@ -4,13 +4,6 @@ import type { ControlActionAuditEntry } from '../schemas/index.js';
 import { appendAppLogEntry, readAppLogEntries } from './app-log.js';
 import { projectControlAction } from './control-action-outbound.js';
 
-export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
-  const obj = value as Record<string, unknown>;
-  return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(',')}}`;
-}
-
 export function listControlActions(projectRoot: string, filters?: { card_id?: string; since?: string }): ControlActionAuditEntry[] {
   return readAppLogEntries(projectRoot, 'control_action')
     .map((entry) => entry.data)

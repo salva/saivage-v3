@@ -13,11 +13,34 @@ import { cardVersionChangeSchema } from '../../src/persistence/canonical-card-ar
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { appendAppLogEntry } from '../../src/persistence/app-log.js';
+import { appendProviderExchangeEntry } from '../../src/persistence/provider-exchange-log.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('current generated state startup admission', () => {
+  it('existing startup consumers truncate selected valid tails in all five families without initializing optional records', () => {
+    const root = fixture();
+    appendAppLogEntry(root, 'event', () => ({ type: 'event', data: { id: 'first', timestamp: '2026-08-11T00:00:00.000Z', kind: 'runtime_diagnostic', error_message: 'first' } }));
+    const owner = 'agent:planner:project' as const; const timestamp = '2026-08-11T00:00:00.000Z';
+    appendProviderExchangeEntry(root, owner, { type: 'provider_exchange', data: { session_id: owner, source_input_id: 'first', attempt_index: 0, timestamp, payload: { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model: 'test', source_input_id: 'first', attempt_index: 0, request_params: {}, started_at: timestamp, completed_at: timestamp, status: 'ok', terminal_tool_fired: null, assistant_output_ids: [] } } });
+    const conversation = plannerConversationWithSuffix(root);
+    const paths = [cardStreamFile(root, 'project'), cardRecordStreamFile(root, 'project', testRecordDefinition('brief.md', 'project')), appLogFile(root), providerExchangeFile(root, owner)];
+    const retained = paths.map((path) => readFileSync(path));
+    for (const path of paths) appendFileSync(path, Buffer.from([0xe2, 0x82]));
+    initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS);
+    paths.forEach((path, index) => expect(readFileSync(path)).toEqual(retained[index]));
+    expect(readFileSync(conversation).at(-1)).toBe(0x0a); expect(existsSync(optionalStream(root))).toBe(false);
+  });
+
+  it('linked-card owning consumption can truncate before required-index admission, but later owners do not run', () => {
+    const root = fixture(); const card = cardStreamFile(root, 'project'); const retained = readFileSync(card); appendFileSync(card, 'suffix');
+    const conversation = plannerConversationWithSuffix(root); const before = readFileSync(conversation);
+    rmSync(cardConversationVersionIndexFile(root, 'project', 'reviewer'));
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(/Required conversation index/);
+    expect(readFileSync(card)).toEqual(retained); expect(readFileSync(conversation)).toEqual(before);
+  });
   it('accepts a valid custom type on the wire and rejects it at compiled startup admission',()=>{
     const root=fixture();const cards=new CardService(root);const codeWorkflow=TEST_WORKFLOWS.cardTypes.get('code')!;const customWorkflow={...codeWorkflow,cardType:'custom-leaf'};
     const unknown=publishInitialChildCard(root,{type:'custom-leaf',parent:'project',title:'custom wire',bootstrap_content:'brief',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]},customWorkflow);
@@ -41,7 +64,7 @@ describe('current generated state startup admission', () => {
     expect(readFileSync(conversationPath)).toEqual(before);
   });
 
-  it('accepts a missing optional stream, never creates it, and truncates only an unterminated conversation suffix', () => {
+  it('accepts a missing optional stream, never creates it, and consumes an unterminated conversation suffix', () => {
     const root = fixture(); const optional = optionalStream(root);
     expect(existsSync(optional)).toBe(false);
     const path = plannerConversationWithSuffix(root); const canonicalLength = readFileSync(path).byteLength - Buffer.byteLength('unterminated');
@@ -216,11 +239,13 @@ describe('current generated state startup admission', () => {
     const sentinel = readFileSync(conversationPath);
     const optionalBelow = cardRecordStreamFile(root, child.id, testRecordDefinition('status.md', 'code'));
     cards.deleteSubtrees([child.id], () => true);
+    const terminalPath = cardStreamFile(root, child.id); const terminal = readFileSync(terminalPath); appendFileSync(terminalPath, 'suffix');
     const cardTypes = new Map(TEST_WORKFLOWS.cardTypes); cardTypes.delete('code');
     const workflows = { ...TEST_WORKFLOWS, cardTypes } as CompiledProjectWorkflows;
 
     expect(() => initializeAndValidateCurrentGeneratedState(root, workflows)).not.toThrow();
     expect(readFileSync(conversationPath)).toEqual(sentinel);
+    expect(readFileSync(terminalPath)).toEqual(terminal);
     expect(existsSync(optionalBelow)).toBe(false);
   });
 

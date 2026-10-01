@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
-import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
+import { cardConversationVersionFile } from '../../../src/persistence/layout.js';
 import { validateConversation } from '../../../src/contracts/conversation-validation.js';
 import { canonicalJson, type AgentMessage, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, InvocationResultPolicy, selectInvocationResultPolicy, settleToolResultForConversation } from '../../../src/runtime/actors/llm-delivery-log.js';
@@ -136,7 +137,7 @@ describe('typed tool settlement', () => {
     expect(executedToolOutcome('observational_query', toolFailed('x')).evidence).toEqual({ kind: 'none' });
   });
 
-  it('validates composite-identity pairing, rejection of orphans, repeats, name and commitment mismatches', () => {
+  it('pairs identical call IDs across distinct source inputs and retains duplicate-ID append admission', () => {
     const root = newRoot();
     const firstInput = randomUUID();
     const secondInput = randomUUID();
@@ -147,17 +148,30 @@ describe('typed tool settlement', () => {
       appendToolResult({ projectRoot: root }, { session_id: SESSION, source_input_id: sourceInputId, tool_call_id: 'shared-call', tool_name: toolName, resultPolicy, settlement: { kind: 'executed', execution: { providerOutcome: toolSucceeded({}), evidence: { kind: 'observational_result_bytes' } } } });
 
     appendLlmTurnToolCallBatch({ projectRoot: root }, input, call(firstInput, 'shared-call'), policy);
-    expect(() => appendSettled(secondInput, 'get_card', policy)).toThrow(/no matching earlier call/);
     expect(() => appendSettled(firstInput, 'get_card', policy)).not.toThrow();
     appendLlmTurnToolCallBatch({ projectRoot: root }, invocation(secondInput, [cardToolContract()]), call(secondInput, 'shared-call'), policy);
     expect(() => appendSettled(secondInput, 'get_card', policy)).not.toThrow();
     expect(() => validateConversation(SESSION, rows())).not.toThrow();
     expect(() => appendSettled(firstInput, 'get_card', policy)).toThrow(/duplicate tool result identity|already exists/);
-    expect(() => appendConversationBatch({ projectRoot: root }, [settledRow(randomUUID(), 'orphan-1')])).toThrow(/no matching earlier call/);
-    expect(() => appendConversationBatch({ projectRoot: root }, [settledRow(randomUUID(), 'shared-call', 'read')])).toThrow(/same identity and tool name/);
-    const wrongCommitment = { ...settledRow(randomUUID(), 'late-1', 'get_card') };
-    if (wrongCommitment.context_policy.kind === 'tool_result') wrongCommitment.context_policy = { ...wrongCommitment.context_policy, call_policy_sha256: '0'.repeat(64) };
-    expect(() => appendConversationBatch({ projectRoot: root }, [wrongCommitment])).toThrow(/does not commit to its call's policy template hash|tool result has no matching earlier call/);
+  });
+
+  it.each<[string, RegExp]>([
+    ['source-input orphan', /no matching earlier call/],
+    ['call-ID orphan', /no matching earlier call/],
+    ['name mismatch', /same identity and tool name/],
+    ['commitment mismatch', /does not commit to its call's policy template hash/],
+  ])('strictly rejects durable %s on consumption, not by a prospective append fold', (fault, expected) => {
+    const root = newRoot(); const inputId = randomUUID(); const input = invocation(inputId, [cardToolContract()]);
+    const policy = selectInvocationResultPolicy(input, 'get_card');
+    appendLlmTurnToolCallBatch({ projectRoot: root }, input, call(inputId, 'shared-call'), policy);
+    const segment = readCurrentConversationSegment(root, SESSION)!;
+    const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
+    const result = settledRow(fault === 'source-input orphan' ? randomUUID() : inputId, fault === 'call-ID orphan' ? 'orphan' : 'shared-call', fault === 'name mismatch' ? 'read' : 'get_card');
+    if (fault === 'commitment mismatch' && result.context_policy.kind === 'tool_result') result.context_policy = { ...result.context_policy, call_policy_sha256: '0'.repeat(64) };
+    expect(() => appendConversationBatch({ projectRoot: root }, [result])).not.toThrow();
+    const before = readFileSync(path);
+    expect(() => readConversation(root, SESSION)).toThrow(expected);
+    expect(readFileSync(path)).toEqual(before);
   });
 
   it('keeps the sole final unmatched call primary-visible and rejects a second unmatched call', () => {
@@ -169,8 +183,13 @@ describe('typed tool settlement', () => {
     const conversation = readConversation(root, SESSION);
     expect(conversation.unmatchedCall?.toolCallId).toBe('waiting');
     expect(conversation.unmatchedCall?.message).toBe(conversation.physicalRows.at(-1));
+    const segment = readCurrentConversationSegment(root, SESSION)!;
+    const path = cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename);
     const second = invocation(randomUUID(), [cardToolContract()]);
-    expect(() => appendLlmTurnToolCallBatch({ projectRoot: root }, second, call(second.inputId, 'waiting-2'), selectInvocationResultPolicy(second, 'get_card'))).toThrow(/more than one unmatched tool call/);
+    expect(() => appendLlmTurnToolCallBatch({ projectRoot: root }, second, call(second.inputId, 'waiting-2'), selectInvocationResultPolicy(second, 'get_card'))).not.toThrow();
+    const before = readFileSync(path);
+    expect(() => readConversation(root, SESSION)).toThrow(/more than one unmatched tool call/);
+    expect(readFileSync(path)).toEqual(before);
   });
 
   it('settles recovery interruptions with execution_failed synthetic none under the call policy', () => {

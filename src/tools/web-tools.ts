@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import { lookup } from 'node:dns/promises';
 import { dirname, join } from 'node:path';
 import net from 'node:net';
@@ -202,7 +202,7 @@ function packWebfetchText(
   }
   if (redactedTextUtf8Bytes === 0) throw new Error('Webfetch text result exceeded the complete-result byte limit.');
 
-  const hash = createHash('sha256').update(normalizedText).digest('hex').slice(0, 16);
+  const hash = sha256Hex(normalizedText).slice(0, 16);
   const filename = `webfetch-${Date.now()}-${hash}.txt`;
   const contentUrl = buildScopedPathUrl('work', ['tmp', 'stash', filename]);
   const fixed = WebfetchTextDataSchema.parse({

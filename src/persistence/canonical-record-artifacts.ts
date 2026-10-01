@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import { z } from 'zod';
 
 import { agentNameSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, uuidV4Schema, valuesEqual, type AgentName, type RecordName } from '../schemas/index.js';
@@ -8,7 +8,6 @@ const nonNegativeSafeIntegerSchema = z.number().int().safe().nonnegative();
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const writerSchema = z.union([agentNameSchema, z.literal('runtime:bootstrap')]);
 
-export function recordContentSha256(content: string): string { return createHash('sha256').update(content, 'utf8').digest('hex'); }
 export function isEmptyRecordContent(content: string): boolean { return content.trim().length === 0; }
 
 const acceptedRecordSnapshotShape = {
@@ -23,13 +22,13 @@ const acceptedRecordSnapshotShape = {
 } as const;
 const acceptedRecordSnapshotSchema = z.object(acceptedRecordSnapshotShape).strict().superRefine((accepted, ctx) => {
   if (isEmptyRecordContent(accepted.content)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted record content must not be empty.', path: ['content'] });
-  if (recordContentSha256(accepted.content) !== accepted.content_sha256) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted content hash does not match content.', path: ['content_sha256'] });
+  if (sha256Hex(accepted.content) !== accepted.content_sha256) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted content hash does not match content.', path: ['content_sha256'] });
   if (Buffer.byteLength(accepted.content, 'utf8') !== accepted.size_bytes) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted content size does not match content.', path: ['size_bytes'] });
 });
 
 const openRecordDraftShape = { opened_at: z.string().datetime(), updated_at: z.string().datetime(), content: z.string(), content_sha256: sha256Schema } as const;
 const openRecordDraftSchema = z.object(openRecordDraftShape).strict().superRefine((draft, ctx) => {
-  if (recordContentSha256(draft.content) !== draft.content_sha256) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Draft content hash does not match content.', path: ['content_sha256'] });
+  if (sha256Hex(draft.content) !== draft.content_sha256) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Draft content hash does not match content.', path: ['content_sha256'] });
 });
 const discardedRecordStateSchema = z.object({ discarded_at: z.string().datetime(), reason: nonEmptyStringSchema }).strict();
 

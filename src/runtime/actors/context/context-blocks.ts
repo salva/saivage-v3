@@ -1,10 +1,8 @@
 import type { ContextBlock, ProviderToolDefinition, CompiledInvocationToolContract, StaticInvocationPrefix, PreparedInvocationContext, PreparedCompaction } from '../../../contracts/index.js';
 import { canonicalJson } from '../../../schemas/index.js';
-import { conversationSha256 } from '../../../persistence/index.js';
+import { sha256Hex, canonicalValueSha256 } from '../../../schemas/index.js';
 import type { ToolResultPolicyTemplate } from '../../../schemas/index.js';
 export type { ContextEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
-
-export const contextContentSha256 = (content: string): string => conversationSha256(content);
 
 export function compileInvocationToolContract(providerDefinition: ProviderToolDefinition, resultPolicyTemplate: ToolResultPolicyTemplate): CompiledInvocationToolContract {
   const providerDefinitionBytes = canonicalJson(providerDefinition);
@@ -14,12 +12,12 @@ export function compileInvocationToolContract(providerDefinition: ProviderToolDe
     providerDefinitionBytes,
     resultPolicyTemplate,
     resultPolicyTemplateBytes,
-    resultPolicyTemplateSha256: conversationSha256(resultPolicyTemplateBytes),
+    resultPolicyTemplateSha256: sha256Hex(resultPolicyTemplateBytes),
   });
 }
 
 export const internalToolContractSha256 = (compiledTools: readonly CompiledInvocationToolContract[]): string =>
-  conversationSha256(canonicalJson(compiledTools.map((tool) => ({ providerDefinitionBytes: tool.providerDefinitionBytes, resultPolicyTemplateBytes: tool.resultPolicyTemplateBytes }))));
+  canonicalValueSha256(compiledTools.map((tool) => ({ providerDefinitionBytes: tool.providerDefinitionBytes, resultPolicyTemplateBytes: tool.resultPolicyTemplateBytes })));
 
 export function buildStaticInvocationPrefix(instructionText: string, terminalToolNames: readonly string[], compiledTools: readonly CompiledInvocationToolContract[]): StaticInvocationPrefix {
   const immutablePrefixBytes = canonicalJson({
@@ -31,11 +29,9 @@ export function buildStaticInvocationPrefix(instructionText: string, terminalToo
     instructionText,
     terminalToolNames: Object.freeze([...terminalToolNames]),
     immutablePrefixBytes,
-    immutablePrefixSha256: conversationSha256(immutablePrefixBytes),
+    immutablePrefixSha256: sha256Hex(immutablePrefixBytes),
   });
 }
-
-export const dynamicBlocksSha256 = (blocks: readonly ContextBlock[]): string => conversationSha256(canonicalJson(blocks));
 
 export function selectLatestContextBlocks(blocks: readonly ContextBlock[]): readonly ContextBlock[] {
   const latest = new Map<string, number>();
@@ -55,7 +51,7 @@ export function buildPreparedInvocationContext(input: Readonly<{
     compiledTools: Object.freeze([...input.compiledTools]),
     internalToolContractSha256: internalToolContractSha256(input.compiledTools),
     dynamicBlocks: Object.freeze([...input.dynamicBlocks]),
-    dynamicBlocksSha256: dynamicBlocksSha256(input.dynamicBlocks),
+    dynamicBlocksSha256: canonicalValueSha256(input.dynamicBlocks),
     preparedCompaction: input.preparedCompaction,
   });
 }

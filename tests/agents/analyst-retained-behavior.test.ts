@@ -30,6 +30,13 @@ function harness(options: { ready?: boolean } = {}) {
 }
 
 describe('audited Analyst mutation settlement', () => {
+  it('formats audit parameters with canonical code-unit ordering and ordinary integer-key enumeration', async () => {
+    const test = harness();
+    const params = { '10': 'ten', '2': 'two', é: 'accent', _: 'underscore', A: 'upper', body: 'omitted', nested: { '10': 10, '2': 2, z: 0, A: 1 } };
+    await runAuditedAnalystTool(test.context, params, test.spec(() => ({ kind: 'returned' as const, success: true as const })));
+    expect(listControlActions(test.root)[0]!.params_summary).toBe('{"2":"two","10":"ten","A":"upper","_":"underscore","nested":{"2":2,"10":10,"A":1,"z":0},"é":"accent"}');
+  });
+
   it('queues and audits notifications without intervention readiness',async()=>{
     const test=harness();
     (test.context as any).interventionReadiness={assertInterventionReady(){throw new AnalystInterventionNotReadyError();}};

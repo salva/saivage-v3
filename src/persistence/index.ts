@@ -14,9 +14,8 @@ export {
 export type { CurrentAuthoredRecordClassification, RecordProjection } from './authored-record-files.js';
 export { cardVersionChangeSchema } from './canonical-card-artifacts.js';
 export type { CardArtifact, CardVersionChange, CardVersionListEntry } from './canonical-card-artifacts.js';
-export { canonicalValueSha256, conversationSha256 } from './canonical-conversation-artifacts.js';
 export type { ConversationSegmentGenesis, ConversationContinuation } from './canonical-conversation-artifacts.js';
-export { effectiveRecordContent, isEmptyRecordContent, recordContentSha256 } from './canonical-record-artifacts.js';
+export { effectiveRecordContent, isEmptyRecordContent } from './canonical-record-artifacts.js';
 export type { AuthoredRecordVersionArtifact } from './canonical-record-artifacts.js';
 export {
   cardDiffValue,
@@ -49,7 +48,7 @@ export {
   readHistoricalConversationSegment,
 } from './conversation-file.js';
 export type { ConversationFileContext, ConversationSegment } from './conversation-file.js';
-export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
+export { listControlActions, recordControlAction } from './control-action-audit.js';
 export { projectControlAction } from './control-action-outbound.js';
 export { initializeAndValidateCurrentGeneratedState } from './current-generated-graph.js';
 export { findProjectRoot } from './discovery.js';

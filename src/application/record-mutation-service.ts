@@ -1,6 +1,6 @@
 import type { CardService } from '../cards/store-api.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
-import { parseRecordUrl, RecordMutationFailureSchema, RecordMutationSuccessSchema, type AnalystPreNetworkAdmission, type RecordMutationDenialReason, type RecordMutationFailure, type RecordMutationResult, type RecordMutationSuccess } from '../contracts/index.js';
+import { parseRecordUrl, throwIfPublicationOutcomeUnknown, RecordMutationFailureSchema, RecordMutationSuccessSchema, type AnalystPreNetworkAdmission, type RecordMutationDenialReason, type RecordMutationFailure, type RecordMutationResult, type RecordMutationSuccess } from '../contracts/index.js';
 import { effectiveRecordContent, isEmptyRecordContent, type RecordProjection } from '../persistence/index.js';
 import type { AgentName } from '../schemas/index.js';
 
@@ -35,7 +35,7 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   if (parsed.version !== null) throw new Error('Historical record URLs cannot be mutated.');
   let card: ReturnType<CardService['read']>;
   try { card = store.read(parsed.cardId); }
-  catch { return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'card', owner_id: parsed.cardId, operation: request.operation, restart_required: true } }); }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'card', owner_id: parsed.cardId, operation: request.operation, restart_required: true } }); }
   if (!card) return denied(parsed, request.operation, 'card_not_active');
   if (request.surface === 'card_agent' && request.cardId !== parsed.cardId) return denied(parsed, request.operation, 'cross_card_scope');
   const configured = request.surface === 'analyst' ? store.workflows.analyst : store.workflows.agents.get(request.agentName);
@@ -44,7 +44,7 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   if (request.surface === 'analyst' && analystRecordEditEffect(card.lifecycle.status) === null) return denied(parsed, request.operation, 'lifecycle_unsupported');
   let classification: ReturnType<CardService['classifyCurrentRecord']>;
   try { classification = store.classifyCurrentRecord(card, parsed.name); }
-  catch { return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'authored_record', owner_id: `${parsed.cardId}/${parsed.name}`, operation: request.operation, restart_required: true } }); }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'authored_record', owner_id: `${parsed.cardId}/${parsed.name}`, operation: request.operation, restart_required: true } }); }
   const current = classification.kind === 'present' ? classification.projection : null;
   if (request.surface === 'analyst' && current?.artifact.state === 'open') return failure({ kind: 'rejected', error: 'Record already has an open workflow draft.', data: { code: 'record_open_conflict', card_id: parsed.cardId, name: parsed.name, current_head: current.headVersion, operation: request.operation } });
   return { parsed, current };

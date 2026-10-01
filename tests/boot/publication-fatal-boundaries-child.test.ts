@@ -17,7 +17,8 @@ jest.setTimeout(childTimeoutMs + 5_000);
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function child(mode: string, value?: string) {
-  return spawnSync(process.execPath, ['--import', 'tsx', fixture, mode, ...(value ? [value] : [])], { cwd: process.cwd(), encoding: 'utf8', timeout: childTimeoutMs });
+  const selected = mode.startsWith('read-owned-') || mode === 'log-append-torn' ? join(process.cwd(), 'tests', 'fixtures', 'growing-read-fatal-boundaries.ts') : fixture;
+  return spawnSync(process.execPath, ['--import', 'tsx', selected, mode, ...(value ? [value] : [])], { cwd: process.cwd(), encoding: 'utf8', timeout: childTimeoutMs });
 }
 
 function diagnosticWithCause(message: string): string {
@@ -35,6 +36,9 @@ function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
 }
 
 describe('publication fatal owner boundaries', () => {
+  it.each(['read-owned-card', 'read-owned-record', 'read-owned-provider', 'read-owned-conversation', 'read-owned-log', 'log-append-torn'])('exits real REST %s ownership before response, diagnostic, or later effects', (mode) => {
+    expectFatalOwner(mode, diagnosticWithCause('truncate uncertain'));
+  });
   it('exits from BaseActor task delivery before failed-task or actor-main effects', () => {
     const result = child('base-actor-task');
     expect(result.status).toBe(1);

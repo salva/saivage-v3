@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import {
   closeSync,
   constants,
@@ -78,7 +79,7 @@ function lockPath(projectRoot: string, config?: RuntimeLockConfig): string {
 }
 
 function canonicalRootHash(root: string): string {
-  return createHash('sha256').update(root).digest('hex');
+  return sha256Hex(root);
 }
 
 function readProcStartIdentity(pid: number): string {

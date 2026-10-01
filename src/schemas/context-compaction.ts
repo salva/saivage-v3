@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { sha256Hex } from './sha256.js';
-import { canonicalJson } from './canonical-json.js';
+import { canonicalValueSha256 } from './canonical-json.js';
 import { agentMessageSchema } from './validators.js';
 
 const sha256HexPattern = /^[0-9a-f]{64}$/;
@@ -41,9 +41,9 @@ export const compactedHistorySchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dispositionCommitment'], message: 'Disposition count must equal the sum of its kinds.' });
   if (coveredSourceGroupsSha256(history.source.groups) !== history.coverageCommitment.coveredSourceGroupsSha256)
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverageCommitment', 'coveredSourceGroupsSha256'], message: 'Coverage commitment does not commit to the named covered source groups.' });
-  if (accumulatedSummarySha256(history.summaryText) !== history.coverageCommitment.accumulatedSummarySha256)
+  if (sha256Hex(history.summaryText) !== history.coverageCommitment.accumulatedSummarySha256)
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverageCommitment', 'accumulatedSummarySha256'], message: 'Coverage commitment does not commit to the exact accumulated summary bytes.' });
-  if (protectedPromptsSha256(history.protectedPrompts) !== history.coverageCommitment.protectedPromptsSha256)
+  if (canonicalValueSha256(history.protectedPrompts) !== history.coverageCommitment.protectedPromptsSha256)
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverageCommitment', 'protectedPromptsSha256'], message: 'Coverage commitment does not commit to the exact protected prompts.' });
 });
 
@@ -55,16 +55,8 @@ type DispositionCommitment = CompactedHistory['dispositionCommitment'];
 
 export type CoveredDisposition = 'summarized' | 'evidence_only' | 'superseded' | 'protected';
 
-export function protectedPromptsSha256(prompts: readonly ProtectedPrompt[]): string {
-  return sha256Hex(canonicalJson(prompts));
-}
-
 export function coveredSourceGroupsSha256(groups: readonly CoveredSourceGroup[]): string {
-  return sha256Hex(canonicalJson(groups.map((group) => ({ content_sha256: group.content_sha256, message_ids: group.message_ids }))));
-}
-
-export function accumulatedSummarySha256(summaryText: string): string {
-  return sha256Hex(summaryText);
+  return canonicalValueSha256(groups.map((group) => ({ content_sha256: group.content_sha256, message_ids: group.message_ids })));
 }
 
 export function foldDispositionCommitment(prior: DispositionCommitment | null, dispositions: readonly { id: string; disposition: CoveredDisposition }[]): DispositionCommitment {
@@ -73,7 +65,7 @@ export function foldDispositionCommitment(prior: DispositionCommitment | null, d
   const superseded = dispositions.filter((entry) => entry.disposition === 'superseded').length;
   const protectedCount = dispositions.filter((entry) => entry.disposition === 'protected').length;
   return {
-    sha256: sha256Hex(canonicalJson({ prior: prior?.sha256 ?? null, dispositions })),
+    sha256: canonicalValueSha256({ prior: prior?.sha256 ?? null, dispositions }),
     count: (prior?.count ?? 0) + dispositions.length,
     summarized: (prior?.summarized ?? 0) + summarized,
     evidenceOnly: (prior?.evidenceOnly ?? 0) + evidenceOnly,

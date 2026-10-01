@@ -1,6 +1,6 @@
 import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId, type SettledToolEvidence, type ToolResultPolicyTemplate, type ToolSettlementOrigin } from '../../schemas/index.js';
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
-import { conversationSha256 } from '../../persistence/index.js';
+import { sha256Hex, canonicalValueSha256 } from '../../schemas/index.js';
 import type { ProviderPrivateContext, ToolCall } from '../../contracts/index.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, type ToolSettlementInput } from '../../tools/tool-api.js';
@@ -18,7 +18,7 @@ export type InvocationResultPolicy = Readonly<{
 const UNSUPPORTED_INVOCATION_RESULT_POLICY: InvocationResultPolicy = Object.freeze({
   resultPolicyTemplate: UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE,
   resultPolicyTemplateBytes: canonicalJson(UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE),
-  resultPolicyTemplateSha256: conversationSha256(canonicalJson(UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE)),
+  resultPolicyTemplateSha256: canonicalValueSha256(UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE),
 });
 
 export function selectInvocationResultPolicy(input: CanonicalLlmInvocationInput, toolName: string): InvocationResultPolicy {
@@ -28,7 +28,7 @@ export function selectInvocationResultPolicy(input: CanonicalLlmInvocationInput,
 
 function assertResultPolicyConsistency(resultPolicy: InvocationResultPolicy, toolName: string): void {
   const bytes = canonicalJson(resultPolicy.resultPolicyTemplate);
-  if (bytes !== resultPolicy.resultPolicyTemplateBytes || conversationSha256(bytes) !== resultPolicy.resultPolicyTemplateSha256)
+  if (bytes !== resultPolicy.resultPolicyTemplateBytes || sha256Hex(bytes) !== resultPolicy.resultPolicyTemplateSha256)
     throw new Error(`Result policy template for tool '${toolName}' does not commit to its canonical bytes and hash.`);
 }
 
@@ -45,7 +45,7 @@ export function settleToolResultForConversation(toolName: string, resultPolicy: 
   assertResultPolicyConsistency(resultPolicy, toolName);
   const outcome = settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome;
   const { providerResult, settledResultBytes } = settleToolActionOutcome(outcome);
-  const resultContentSha256 = conversationSha256(settledResultBytes);
+  const resultContentSha256 = sha256Hex(settledResultBytes);
   const settlementOrigin: ToolSettlementOrigin = settlement.kind === 'executed' ? 'executed' : settlement.kind;
   const evidence = settledEvidence(resultPolicy, settlement, providerResult, toolName);
   return Object.freeze({ providerResult, settledResultBytes, resultContentSha256, settlementOrigin, evidence, callPolicySha256: resultPolicy.resultPolicyTemplateSha256 });
@@ -58,7 +58,7 @@ function settledEvidence(resultPolicy: InvocationResultPolicy, settlement: ToolS
   switch (resultPolicy.resultPolicyTemplate.evidenceMode) {
     case 'observational_query':
       if (executionEvidence.kind !== 'observational_result_bytes') throw new Error(`Executed observational tool '${toolName}' must supply observational result bytes evidence.`);
-      return { kind: 'observational_query', observedSha256: conversationSha256(canonicalJson(projected)) };
+      return { kind: 'observational_query', observedSha256: canonicalValueSha256(projected) };
     case 'canonical_locator':
       if (executionEvidence.kind !== 'canonical_locator') throw new Error(`Executed canonical-locator tool '${toolName}' must supply its validated locator evidence.`);
       return { kind: 'canonical_locator', locator: executionEvidence.locator, sha256: executionEvidence.sha256 };

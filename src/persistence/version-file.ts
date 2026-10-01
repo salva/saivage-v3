@@ -1,4 +1,5 @@
 import { closeSync, constants, fsyncSync, openSync, writeSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { writeAllExact } from './write-all-exact.js';
 
 export interface ImmutableVersionFileIo {
@@ -20,6 +21,9 @@ export function createImmutableVersionFile(path: string, bytes: Uint8Array, io: 
   writeAllExact(descriptor, bytes, io.write, () => new Error(`Write made no progress for '${path}'.`));
   io.fsync(descriptor);
   io.close(descriptor);
+  const directory = io.open(dirname(path), constants.O_RDONLY);
+  io.fsync(directory);
+  io.close(directory);
 }
 
 export function serializeStrictJson(value: unknown): Buffer {

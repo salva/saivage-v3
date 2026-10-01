@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { EventLog } from '../observability/index.js';
 import type { ProcessRunner } from '../runtime/runtime-api.js';
@@ -33,7 +33,7 @@ function stableValue(value: unknown): unknown {
 }
 
 function revisionOf(config: McpServerConfig): string {
-  return createHash('sha256').update(JSON.stringify(stableValue(config))).digest('hex');
+  return sha256Hex(JSON.stringify(stableValue(config)));
 }
 
 export class McpManager implements McpReconciliationPort {

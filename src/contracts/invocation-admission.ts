@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { canonicalJson, type AgentName } from '../schemas/index.js';
+import { sha256Hex, canonicalJson, canonicalValueSha256, type AgentName } from '../schemas/index.js';
 import { candidatesEqual, type Candidate } from './provider-candidate.js';
 import type { CapabilitySkipReason, CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities } from './provider-capabilities.js';
 import type { CandidateRequestPlan, LlmCompleteOptions } from './provider-request.js';
@@ -12,10 +11,7 @@ import { usableInputTokens } from './context-budget.js';
 type CandidateIdentity = Candidate;
 const DEFAULT_CONTEXT_UTILIZATION_FRACTION = 0.80;
 
-const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
-
-export const candidateIdentitySha256 = (identity: CandidateIdentity): string => sha256(canonicalJson({ provider: identity.provider, account: identity.account, model: identity.model }));
-export const capabilityRequestSha256 = (request: Readonly<CapabilityRequest>): string => sha256(canonicalJson(request));
+export const candidateIdentitySha256 = (identity: CandidateIdentity): string => canonicalValueSha256({ provider: identity.provider, account: identity.account, model: identity.model });
 
 type CandidateIneligibleReason =
   | Readonly<{ kind: 'capability_mismatch'; reasons: readonly CapabilitySkipReason[] }>
@@ -95,7 +91,7 @@ export const ordinaryAdmittedExecutionAuthority = (identities: readonly Candidat
   Object.freeze({
     kind: 'ordinary',
     admittedCandidateIdentities: Object.freeze([...identities]),
-    admittedCandidateIdentitiesSha256: sha256(canonicalJson([...identities])),
+    admittedCandidateIdentitiesSha256: canonicalValueSha256([...identities]),
   });
 
 export type OrdinaryPrimaryRequestAdmission =
@@ -274,7 +270,7 @@ export function projectAdmissionDiagnostics(candidates: readonly CandidateLocalA
   return Object.freeze({
     verdictCounts: Object.freeze(verdictCounts),
     reasonCounts: Object.freeze(reasonCounts),
-    verdictSummarySha256: sha256(verdictSummary(candidates)),
+    verdictSummarySha256: sha256Hex(verdictSummary(candidates)),
     candidates: Object.freeze(displayed),
     omittedCandidateCount: Math.max(0, candidates.length - DIAGNOSTIC_CANDIDATE_CAP),
   });
@@ -329,7 +325,7 @@ export function verifySuspendedAdmittedExecution(suspension: SuspendedAdmittedEx
   const authority = suspension.authority;
   const identities = authority.admittedCandidateIdentities;
   if (identities.length === 0) throw new AdmittedRecoveryIntegrityError('Suspended admitted execution carries an empty authority membership.');
-  if (authority.admittedCandidateIdentitiesSha256 !== sha256(canonicalJson([...identities])))
+  if (authority.admittedCandidateIdentitiesSha256 !== canonicalValueSha256([...identities]))
     throw new AdmittedRecoveryIntegrityError('Suspended admitted execution authority hash does not match its membership.');
   for (const [index, identity] of identities.entries())
     if (identities.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, identity)))

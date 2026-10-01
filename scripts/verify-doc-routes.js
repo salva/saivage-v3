@@ -851,8 +851,8 @@ function selectAppLog(projectRoot) {
   const members = [...source.matchAll(/const\s+\w+EntrySchema\s*=\s*z\.object\(\{\s*type:\s*z\.literal\('([^']+)'\)/g)].map((match) => match[1]);
   if (members.length === 0) throw new Error(`${path} has no app-log entry declarations`);
   requireDirectUnionMembers(projectRoot, path, 'appLogEntrySchema', 'type', ['eventEntrySchema', 'controlEntrySchema']);
-  requireSourceFragments(projectRoot, PATHS.appLog[1], ['readStrictCanonicalGrowingFile(path, appLogEntrySchema)', 'prepareGrowingEnvelope([candidate], appLogEntrySchema)', 'candidate.type !== entryType'], 'app-log persistence');
-  requireSourceFragments(projectRoot, 'src/persistence/provider-exchange-log.ts', ['providerExchangeFile(projectRoot, owner)', 'readStrictCanonicalGrowingFile(path, ownerSchema(owner))', 'readProviderExchangeEntries(projectRoot, sessionId)'], 'exact-session provider evidence');
+  requireSourceFragments(projectRoot, PATHS.appLog[1], ['consumeGrowingRows(path, bytes, appLogEntrySchema', 'serializeGrowingEnvelope([candidate])', 'candidate.type !== entryType'], 'app-log persistence');
+  requireSourceFragments(projectRoot, 'src/persistence/provider-exchange-log.ts', ['providerExchangeFile(projectRoot, owner)', 'consumeGrowingRows(path, bytes, ownerSchema(owner)', 'readProviderExchangeEntries(projectRoot, sessionId)'], 'exact-session provider evidence');
   return vocabularyValue(members);
 }
 function requireDirectUnionMembers(projectRoot, path, name, discriminator, expectedMembers) {

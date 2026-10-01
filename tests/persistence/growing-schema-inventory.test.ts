@@ -19,10 +19,10 @@ describe('durable growing-schema and writer inventory', () => {
     expect(messages).toMatch(/entityLinkSchema = z\.object\([\s\S]*?\)\.strict\(\)/);
     expect(messages).toMatch(/agentMessageSchema = z\.object\([\s\S]*?\)\.strict\(\)\.superRefine/);
 
-    expect(appLog).toContain('prepareGrowingEnvelope');
+    expect(appLog).toContain('serializeGrowingEnvelope');
     expect(conversations).toContain("type: 'conversation-segment'");
     expect(conversations).toContain('createImmutableVersionFile');
-    expect(conversations).toContain('appendEnvelope');
+    expect(conversations).toContain('appendRequiredEnvelope');
     for (const owner of [appLog]) {
       expect(owner).toContain('publishFirstEnvelope');
       expect(owner).toContain('appendEnvelope');

@@ -6,7 +6,6 @@ import { internalCompactionSummarySessionId, providerExchangeLogId } from '../..
 import { appendAppLogEntry, readAppLogEntries } from '../../src/persistence/app-log.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
-import { providerExchangeLogEntrySchema } from '../../src/contracts/provider-exchange-log.js';
 import { providerExchangeFile } from '../../src/persistence/layout.js';
 import { appendProviderExchangeEntry, readLatestProviderExchangePayload, readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 
@@ -35,6 +34,21 @@ function publish(root: string, sessionId: string, model: string, timestamp = fir
 }
 
 describe('strict selected provider evidence', () => {
+  it('truncates a valid torn prefix at read and append use, including interrupted multibyte bytes', () => {
+    const root = project(); publish(root, owner, 'first'); const path = providerExchangeFile(root, owner); const prefix = readFileSync(path);
+    writeFileSync(path, Buffer.concat([prefix, Buffer.from([0xe2, 0x82])]));
+    expect(readLatestProviderExchangePayload(root, owner)?.model).toBe('first'); expect(readFileSync(path)).toEqual(prefix);
+    writeFileSync(path, Buffer.concat([prefix, Buffer.from('suffix')])); publish(root, owner, 'second', later);
+    expect(readProviderExchangeEntries(root, owner)).toHaveLength(2);
+  });
+
+  it.each(['duplicate', 'owner'] as const)('retains a semantically invalid %s prefix and its torn suffix at both uses', (fault) => {
+    const root = project(); publish(root, owner, 'first'); const path = providerExchangeFile(root, owner);
+    const invalid = row(fault === 'owner' ? 'agent:reviewer:project' : owner, 'first');
+    writeFileSync(path, Buffer.concat([readFileSync(path), serializeGrowingEnvelope([invalid]), Buffer.from('suffix')])); const before = readFileSync(path);
+    expect(() => readProviderExchangeEntries(root, owner)).toThrow();
+    expect(() => publish(root, owner, 'later')).toThrow(); expect(readFileSync(path)).toEqual(before);
+  });
   it('treats only missing exact evidence as empty; publication requires an existing owner', () => {
     const root = project();
     expect(readLatestProviderExchangePayload(root, owner)).toBeNull();
@@ -82,7 +96,7 @@ describe('strict selected provider evidence', () => {
     for (const invalid of [row('agent:reviewer:project', 'wrong'), row(internalCompactionSummarySessionId('agent:reviewer:project'), 'wrong-summary')]) {
       const root = project();
       const path = providerExchangeFile(root, owner);
-      writeFileSync(path, serializeGrowingEnvelope([invalid], providerExchangeLogEntrySchema));
+      writeFileSync(path, serializeGrowingEnvelope([invalid]));
       const before = readFileSync(path);
       expect(() => readLatestProviderExchangePayload(root, owner)).toThrow();
       expect(readFileSync(path)).toEqual(before);
@@ -99,7 +113,7 @@ describe('strict selected provider evidence', () => {
       expect(() => readProviderExchangeEntries(root, owner)).toThrow();
       expect(readFileSync(path)).toEqual(bytes);
     }
-    writeFileSync(path, Buffer.concat([Buffer.from('{broken}\n'), ...Array.from({ length: 40 }, () => serializeGrowingEnvelope([row(owner, 'ok')], providerExchangeLogEntrySchema))]));
+    writeFileSync(path, Buffer.concat([Buffer.from('{broken}\n'), ...Array.from({ length: 40 }, () => serializeGrowingEnvelope([row(owner, 'ok')]))]));
     expect(() => readProviderExchangeEntries(root, owner)).toThrow(/malformed/);
   });
 });

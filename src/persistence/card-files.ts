@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { validateParsedCards } from '../cards/artifact-api.js';
 import type { NewChildCardInput } from '../cards/store-api.js';
@@ -25,8 +25,8 @@ import {
   type CardVersionChange,
   type CardVersionListEntry,
 } from './canonical-card-artifacts.js';
-import { appendEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
-import { cardChildrenRoot, cardConversationsRoot, cardNamespace, cardStreamFile, globalAgentConversationsRoot, saivageAgentsRoot, saivageCardsRoot, saivageRoot } from './layout.js';
+import { appendRequiredEnvelope, publishFirstEnvelope, readCanonicalBytes, readCanonicalBytesOrMissing, consumeGrowingRows, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
+import { cardChildrenRoot, cardConversationsRoot, cardNamespace, cardStreamFile, globalAgentConversationsRoot, saivageAgentsRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
 export interface CanonicalLinkedCardHistoryProjection {
@@ -41,79 +41,40 @@ interface ActiveCardPathRead { readonly canonicalProjectRoot: string; readonly f
 interface CommittedCardArtifactCatalog { readonly rows: readonly CardArtifact[]; readonly versions: readonly CardVersionListEntry[]; readonly head: CardArtifact }
 interface ActiveCardTraversalRow { readonly card: CardRecord; readonly parentId: string | null; readonly activeChildrenCount: number; readonly relativeDepth: number; readonly activeDescendantCount: number }
 
-function requireDirectory(path: string): void {
-  const stat = lstatSync(path);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Canonical card path '${path}' must be a real directory.`);
-}
-
-function proveCanonicalDirectory(realProjectRoot: string, path: string): void {
-  requireDirectory(path);
-  const real = realpathSync(path);
-  const fromRoot = relative(realProjectRoot, real);
-  if (real !== path || fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) throw new Error(`Canonical card path '${path}' must resolve to its exact contained directory.`);
-}
-
-function proveCanonicalBase(projectRoot: string): string | null {
-  const configuredRoot = resolve(projectRoot);
-  const realProjectRoot = realpathSync(configuredRoot);
-  requireDirectory(realProjectRoot);
-  try {
-    proveCanonicalDirectory(realProjectRoot, saivageRoot(realProjectRoot));
-    proveCanonicalDirectory(realProjectRoot, saivageCardsRoot(realProjectRoot));
-    proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, 'project'));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
-  return realProjectRoot;
-}
-
 function readExactCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold {
   const path = cardStreamFile(projectRoot, cardId);
-  return validateCardStream(readStrictCanonicalGrowingFile(path, cardArtifactSchema, instrumentation), path, cardId);
+  return consumeGrowingRows(path, readCanonicalBytes(path, instrumentation), cardArtifactSchema, (rows) => validateCardStream(rows, path, cardId));
 }
 
-function proveCommittedCardFoldFromBase(realProjectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold | null {
-  const segments = cardIdSegments(targetId);
-  if (segments.length === 0) return readExactCard(realProjectRoot, 'project', instrumentation);
-  let currentId = 'project';
-  let current = readExactCard(realProjectRoot, currentId, instrumentation);
-  if (current.tombstone) throw new Error('The project card cannot be tombstoned.');
+function readRoot(projectRoot: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold | null {
+  const path = cardStreamFile(projectRoot, 'project');
+  const bytes = readCanonicalBytesOrMissing(path, instrumentation);
+  if (bytes === null) return null;
+  return consumeGrowingRows(path, bytes, cardArtifactSchema, (rows) => validateCardStream(rows, path, 'project'));
+}
+
+function readLinkedCard(projectRoot: string, targetId: string, terminalTombstone: boolean, instrumentation?: CanonicalReadInstrumentation): CardStreamFold | null {
+  const segments = cardIdSegments(targetId); let currentId = 'project'; let current = readRoot(projectRoot, instrumentation);
+  if (!current) return null;
   for (const [position, segment] of segments.entries()) {
-    const nextId = childCardId(currentId, segment);
-    if (!current.current.card.child_membership.includes(nextId)) return null;
-    proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, currentId));
-    proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, nextId));
-    if (position === segments.length - 1) return readExactCard(realProjectRoot, nextId, instrumentation);
-    current = readExactCard(realProjectRoot, nextId, instrumentation);
-    if (current.tombstone) return null;
-    currentId = nextId;
-  }
-  throw new Error('Unreachable committed card path state.');
-}
-
-function proveActiveCardPathFromBase(realProjectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold | null {
-  const segments = cardIdSegments(targetId); let currentId = 'project'; let current = readExactCard(realProjectRoot, currentId, instrumentation);
-  if (current.tombstone) throw new Error('The project card cannot be tombstoned.');
-  for (const segment of segments) {
     const nextId = childCardId(currentId, segment); if (!current.current.card.child_membership.includes(nextId)) return null;
-    proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, currentId)); proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, nextId));
-    current = readExactCard(realProjectRoot, nextId, instrumentation); if (current.tombstone) return null; currentId = nextId;
+    current = readExactCard(projectRoot, nextId, instrumentation);
+    if (current.tombstone && !(terminalTombstone && position === segments.length - 1)) return null;
+    currentId = nextId;
   }
   return current;
 }
 
 export function readActiveCardPath(projectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): ActiveCardPathRead | null {
   cardIdSchema.parse(targetId);
-  const realProjectRoot = proveCanonicalBase(projectRoot);
-  if (realProjectRoot === null) return null;
-  const target = proveActiveCardPathFromBase(realProjectRoot, targetId, instrumentation);
+  const realProjectRoot = resolve(projectRoot);
+  const target = readLinkedCard(realProjectRoot, targetId, false, instrumentation);
   return target ? { canonicalProjectRoot:realProjectRoot, fold:target } : null;
 }
 
-function proveActiveCardPath(projectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold | null { return readActiveCardPath(projectRoot, targetId, instrumentation)?.fold ?? null; }
-export function readCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardRecord | null { return proveActiveCardPath(projectRoot, cardId, instrumentation)?.current.card ?? null; }
-export function readCardDetail(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> { const target = proveActiveCardPath(projectRoot, cardId, instrumentation); return target ? { kind: 'found', value: target.current.card } : { kind: 'card-not-found' }; }
+function readActiveCardFold(projectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold | null { return readActiveCardPath(projectRoot, targetId, instrumentation)?.fold ?? null; }
+export function readCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardRecord | null { return readActiveCardFold(projectRoot, cardId, instrumentation)?.current.card ?? null; }
+export function readCardDetail(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> { const target = readActiveCardFold(projectRoot, cardId, instrumentation); return target ? { kind: 'found', value: target.current.card } : { kind: 'card-not-found' }; }
 
 interface LinkedChildrenProjection { readonly parent: CardRecord; readonly activeChildren: CardRecord[] }
 export interface CanonicalCardProjection { readonly card: CardRecord; readonly artifact: CardArtifact }
@@ -123,11 +84,9 @@ export type CanonicalCardFileSlot = 'card' | RecordName;
 function canonicalProjection(fold: CardStreamFold): CanonicalCardProjection { return { card: fold.current.card, artifact: fold.head }; }
 function readMembershipChildrenOfReached(realProjectRoot: string, parentId: string, parent: CardStreamFold, instrumentation?: CanonicalReadInstrumentation): CardStreamFold[] {
   if(parent.current.card.child_membership.length===0)return [];
-  proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, parentId));
   return parent.current.card.child_membership.map((id)=>{
     const segment=cardIdSegments(id).at(-1)!;
     if(childCardId(parentId,segment)!==id)throw new Error(`Card '${parentId}' has invalid direct child '${id}'.`);
-    proveCanonicalDirectory(realProjectRoot,cardNamespace(realProjectRoot,id));
     return readExactCard(realProjectRoot,id,instrumentation);
   });
 }
@@ -142,17 +101,17 @@ function readCanonicalChildrenOfReached(realProjectRoot: string, parentId: strin
   });
 }
 
-export function readCanonicalCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardProjection> { const target = proveActiveCardPath(projectRoot, cardId, instrumentation); return target ? { kind: 'found', value: canonicalProjection(target) } : { kind: 'card-not-found' }; }
+export function readCanonicalCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardProjection> { const target = readActiveCardFold(projectRoot, cardId, instrumentation); return target ? { kind: 'found', value: canonicalProjection(target) } : { kind: 'card-not-found' }; }
 export function readCanonicalCardHierarchy(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalLinkedChildrenProjection> {
-  cardIdSchema.parse(parentId); const realProjectRoot = proveCanonicalBase(projectRoot); if (!realProjectRoot) return { kind: 'card-not-found' };
-  const target = proveActiveCardPathFromBase(realProjectRoot, parentId, instrumentation); if (!target) return { kind: 'card-not-found' };
+  cardIdSchema.parse(parentId); const realProjectRoot = resolve(projectRoot);
+  const target = readLinkedCard(realProjectRoot, parentId, false, instrumentation); if (!target) return { kind: 'card-not-found' };
   return { kind: 'found', value: { parent: canonicalProjection(target), activeChildren: readCanonicalChildrenOfReached(realProjectRoot, parentId, target, instrumentation).map(canonicalProjection) } };
 }
 
 export function readCardHierarchy(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<LinkedChildrenProjection> { const result = readCanonicalCardHierarchy(projectRoot, parentId, instrumentation); return result.kind === 'card-not-found' ? result : { kind: 'found', value: { parent: result.value.parent.card, activeChildren: result.value.activeChildren.map(({ card }) => card) } }; }
 export function readLinkedChildrenProjection(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): LinkedChildrenProjection { const result = readCardHierarchy(projectRoot, parentId, instrumentation); if (result.kind === 'card-not-found') throw new Error(`Parent card '${parentId}' does not exist.`); return result.value; }
 export function readLinkedChildren(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardRecord[] { return readLinkedChildrenProjection(projectRoot, parentId, instrumentation).activeChildren; }
-function readCardArtifacts(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold { const fold = proveActiveCardPath(projectRoot, cardId, instrumentation); if (!fold) throw new Error(`Card '${cardId}' does not exist.`); return fold; }
+function readCardArtifacts(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardStreamFold { const fold = readActiveCardFold(projectRoot, cardId, instrumentation); if (!fold) throw new Error(`Card '${cardId}' does not exist.`); return fold; }
 
 function walkActivePreorder(realProjectRoot:string,root:CardStreamFold,instrumentation?:CanonicalReadInstrumentation):ActiveCardTraversalRow[]{
   const rows:ActiveCardTraversalRow[]=[];
@@ -160,7 +119,7 @@ function walkActivePreorder(realProjectRoot:string,root:CardStreamFold,instrumen
   visit(root,0);return rows;
 }
 
-export function listActiveCardTraversal(projectRoot:string,instrumentation?:CanonicalReadInstrumentation):readonly ActiveCardTraversalRow[]{const realProjectRoot=proveCanonicalBase(projectRoot);if(!realProjectRoot)return[];const root=readExactCard(realProjectRoot,'project',instrumentation);if(root.tombstone)throw new Error('The project card cannot be tombstoned.');const rows=walkActivePreorder(realProjectRoot,root,instrumentation);validateParsedCards({cards:rows.map(({card})=>card)});return rows;}
+export function listActiveCardTraversal(projectRoot:string,instrumentation?:CanonicalReadInstrumentation):readonly ActiveCardTraversalRow[]{const realProjectRoot=resolve(projectRoot);const root=readRoot(realProjectRoot,instrumentation);if(!root)return[];const rows=walkActivePreorder(realProjectRoot,root,instrumentation);validateParsedCards({cards:rows.map(({card})=>card)});return rows;}
 export function readActiveCardSubtree(projectRoot:string,cardId:string,instrumentation?:CanonicalReadInstrumentation):CardTargetRead<readonly ActiveCardTraversalRow[]>{const reached=readActiveCardPath(projectRoot,cardId,instrumentation);if(!reached)return{kind:'card-not-found'};return{kind:'found',value:walkActivePreorder(reached.canonicalProjectRoot,reached.fold,instrumentation)};}
 
 export function listCards(projectRoot: string): CardRecord[] {
@@ -168,27 +127,26 @@ export function listCards(projectRoot: string): CardRecord[] {
 }
 
 export function readCanonicalLinkedCardHistoryTree(projectRoot: string, instrumentation?: CanonicalReadInstrumentation): readonly CanonicalLinkedCardHistoryProjection[] {
-  const realProjectRoot = proveCanonicalBase(projectRoot); if (!realProjectRoot) return [];
+  const realProjectRoot = resolve(projectRoot); const root = readRoot(realProjectRoot, instrumentation); if (!root) return [];
   const reached: CanonicalLinkedCardHistoryProjection[] = [];
   const visit = (cardId: string, current: CardStreamFold): void => {
     reached.push(Object.freeze({ current: current.current.card, tombstone: current.tombstone, rows: current.rows }));
     if (current.tombstone) return;
     for (const child of readMembershipChildrenOfReached(realProjectRoot,cardId,current,instrumentation)) visit(child.current.card.id,child);
   };
-  visit('project', readExactCard(realProjectRoot, 'project', instrumentation)); return Object.freeze(reached);
+  visit('project', root); return Object.freeze(reached);
 }
 
 export function readCommittedCardArtifactCatalog(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CommittedCardArtifactCatalog> {
-  cardIdSchema.parse(cardId); const root = proveCanonicalBase(projectRoot); if (!root) return { kind: 'card-not-found' };
-  const fold=proveCommittedCardFoldFromBase(root,cardId,instrumentation);return fold?{kind:'found',value:Object.freeze({rows:fold.rows,versions:fold.rows.map(cardVersionListEntry),head:fold.head})}:{kind:'card-not-found'};
+  cardIdSchema.parse(cardId);
+  const fold=readLinkedCard(resolve(projectRoot),cardId,true,instrumentation);return fold?{kind:'found',value:Object.freeze({rows:fold.rows,versions:fold.rows.map(cardVersionListEntry),head:fold.head})}:{kind:'card-not-found'};
 }
 
 type CardDiffValue = { readonly deleted: boolean; readonly card: CardRecord };
 export function cardDiffValue(artifact: CardArtifact): CardDiffValue { return artifact.kind === 'card-version' ? { deleted: false, card: artifact.card } : { deleted: true, card: artifact.final_card }; }
 
 function appendCardRow(path: string, artifact: CardArtifact, io?: GrowingFileIo): void {
-  const result = appendEnvelope(path, serializeGrowingEnvelope([artifact], cardArtifactSchema), io);
-  if (result.kind === 'missing') throw new Error(`Card stream '${path}' is missing for append.`);
+  appendRequiredEnvelope(path, serializeGrowingEnvelope([artifact]), io);
 }
 
 function publishInitialStreams(projectRoot: string, card: CardRecord, bootstrapContent: string, definitions: readonly RecordDefinition[], temporary?: PublicationTemporaryIdFactory): void {
@@ -202,7 +160,7 @@ function initializeCardConversations(projectRoot: string, card: CardRecord, work
   for (const name of names) initializeConversation(projectRoot, cardAgentSessionId(name, card.id), temporary);
 }
 
-function claimChildNamespace(projectRoot: string, parentId: string): string { const childrenPath = cardChildrenRoot(projectRoot, parentId); try { mkdirSync(childrenPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; requireDirectory(childrenPath); } let segment = nextCardSegment(); for (;;) { const id = childCardId(parentId, segment); try { mkdirSync(cardNamespace(projectRoot, id)); return id; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; segment = nextCardSegment(segment); } } }
+function claimChildNamespace(projectRoot: string, parentId: string): string { const childrenPath = cardChildrenRoot(projectRoot, parentId); try { mkdirSync(childrenPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; } let segment = nextCardSegment(); for (;;) { const id = childCardId(parentId, segment); try { mkdirSync(cardNamespace(projectRoot, id)); return id; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; segment = nextCardSegment(segment); } } }
 
 export function publishInitialChildCard(projectRoot: string, input: NewChildCardInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): CardRecord {
   if (workflow.cardType !== input.type) throw new Error(`Compiled workflow '${workflow.cardType}' does not match child type '${input.type}'.`);
@@ -224,10 +182,10 @@ export function publishCardVersion(projectRoot: string, card: CardRecord, change
   if (change === null) {
     const artifact = cardVersionArtifactSchema.parse({ format_version: 4, kind: 'card-version', entry_id: randomUUID(), card_id: card.id, version: 1, committed_at: card.created_at, card, change: null });
     validateInitialCard(artifact.card, path);
-    publishFirstEnvelope(path, serializeGrowingEnvelope([artifact], cardArtifactSchema), temporary);
+    publishFirstEnvelope(path, serializeGrowingEnvelope([artifact]), temporary);
     return artifact;
   }
-  const fold = validateCardStream(readStrictCanonicalGrowingFile(path, cardArtifactSchema), path, card.id);
+  const fold = readExactCard(projectRoot, card.id);
   if (fold.tombstone) throw new Error(`Card '${card.id}' is terminal.`);
   const artifact = cardVersionArtifactSchema.parse({ format_version: 4, kind: 'card-version', entry_id: change.entry_id, card_id: card.id, version: fold.head.version + 1, committed_at: change.changed_at, card, change });
   validateCardTransition(fold.current.card, artifact.card, artifact.change!, path);

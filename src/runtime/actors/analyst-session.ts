@@ -41,7 +41,7 @@ import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { randomUUID } from 'node:crypto';
 import type { ProcessStopReport } from '../process-runner.js';
 import { settleReturnedToolCallWithoutEntry } from './returned-tool-call-settlement.js';
-import { conversationSha256 } from '../../persistence/index.js';
+import { sha256Hex } from '../../schemas/index.js';
 
 function unsupportedAnalystAction(capabilityClass: string, toolNames: string[]): string {
   const suffix = toolNames.length > 0 ? ` Closest available capability: ${capabilityClass}. Available tools in that class: ${toolNames.join(', ')}.` : '';
@@ -500,7 +500,7 @@ export class AnalystSession {
     return Object.freeze({
       id: 'analyst.workspace_focus', role: 'system', content: focus.content,
       storage: 'activation_local',
-      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.workspace_focus', contentSha256: conversationSha256(focus.content) }),
+      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.workspace_focus', contentSha256: sha256Hex(focus.content) }),
       audience: 'primary_and_summarizer', evidence: Object.freeze({ kind: 'none' }),
     });
   }

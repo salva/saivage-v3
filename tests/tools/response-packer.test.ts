@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
+import { canonicalValueSha256 } from '../../src/schemas/index.js';
 
 import { canonicalJson } from '../../src/schemas/index.js';
 import {
@@ -8,7 +9,6 @@ import {
   DiscoveryCollectionPositionError,
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,
-  observationSha256,
   packCollectionData,
   packTextSliceData,
   utf8ByteLength,
@@ -352,8 +352,8 @@ describe('response packer primitives', () => {
   it('exposes the exact discovery byte constants and deterministic observation hashing', () => {
     expect(DISCOVERY_RESPONSE_MAX_BYTES).toBe(32768);
     expect(DISCOVERY_RESPONSE_MIN_BYTES).toBe(512);
-    expect(observationSha256({ b: 1, a: 2 })).toBe(observationSha256({ a: 2, b: 1 }));
-    expect(observationSha256({ a: 1 })).not.toBe(observationSha256({ a: 2 }));
+    expect(canonicalValueSha256({ b: 1, a: 2 })).toBe(canonicalValueSha256({ a: 2, b: 1 }));
+    expect(canonicalValueSha256({ a: 1 })).not.toBe(canonicalValueSha256({ a: 2 }));
     expect(Buffer.byteLength(settledSuccessBytes({ x: 1 }), 'utf8')).toBe(envelope({ x: 1 }));
     expect(utf8SafePreview('tïtle'.repeat(200), 8)).toBe('tïtlet');
     expect(Buffer.byteLength(utf8SafePreview('tïtle'.repeat(200), 8), 'utf8')).toBeLessThanOrEqual(8);

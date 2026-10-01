@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
-import { conversationSha256 } from '../../../../src/persistence/canonical-conversation-artifacts.js';
+import { sha256Hex, canonicalValueSha256 } from '../../../../src/schemas/index.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
-import { assertPreparedContextContinuity, buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, contextContentSha256, dynamicBlocksSha256, internalToolContractSha256, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { assertPreparedContextContinuity, buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, internalToolContractSha256, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
 import { type CompiledInvocationToolContract, type ContextBlock, type ProviderToolDefinition } from '../../../../src/contracts/index.js';
 import type { PreparedCompaction } from '../../../../src/contracts/index.js';
 
@@ -16,7 +16,7 @@ const block = (id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): C
   ...overrides,
 });
 const snapshotBlock = (id: string, key: string, content: string): ContextBlock =>
-  block(id, { content, storage: 'activation_local', replacement: { kind: 'latest_snapshot', key, contentSha256: contextContentSha256(content) } });
+  block(id, { content, storage: 'activation_local', replacement: { kind: 'latest_snapshot', key, contentSha256: sha256Hex(content) } });
 const providerDefinition: ProviderToolDefinition = { type: 'function', function: { name: 'lookup', description: 'Lookup', parameters: { type: 'object', properties: { query: { type: 'string' } }, additionalProperties: false } } };
 const retainTemplate: ToolResultPolicyTemplate = { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' };
 const observationalTemplate: ToolResultPolicyTemplate = { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidenceMode: 'observational_query' };
@@ -46,7 +46,7 @@ describe('context contracts', () => {
     const contract = compileInvocationToolContract(providerDefinition, observationalTemplate);
     expect(contract.providerDefinitionBytes).toBe(canonicalJson(providerDefinition));
     expect(contract.resultPolicyTemplateBytes).toBe(canonicalJson(observationalTemplate));
-    expect(contract.resultPolicyTemplateSha256).toBe(conversationSha256(canonicalJson(observationalTemplate)));
+    expect(contract.resultPolicyTemplateSha256).toBe(sha256Hex(canonicalJson(observationalTemplate)));
     expect(Object.isFrozen(contract)).toBe(true);
     const reordered = compileInvocationToolContract(
       { type: 'function', function: { parameters: providerDefinition.function.parameters, description: 'Lookup', name: 'lookup' } },
@@ -58,7 +58,7 @@ describe('context contracts', () => {
     const first = compileInvocationToolContract(providerDefinition, retainTemplate);
     const second = compileInvocationToolContract(providerDefinition, observationalTemplate);
     const ordered: readonly CompiledInvocationToolContract[] = [first, second];
-    expect(internalToolContractSha256(ordered)).toBe(conversationSha256(canonicalJson([
+    expect(internalToolContractSha256(ordered)).toBe(sha256Hex(canonicalJson([
       { providerDefinitionBytes: first.providerDefinitionBytes, resultPolicyTemplateBytes: first.resultPolicyTemplateBytes },
       { providerDefinitionBytes: second.providerDefinitionBytes, resultPolicyTemplateBytes: second.resultPolicyTemplateBytes },
     ])));
@@ -70,7 +70,7 @@ describe('context contracts', () => {
     const prefix = buildStaticInvocationPrefix('instruction', ['emit_result'], tools);
     const expectedBytes = canonicalJson({ instructionText: 'instruction', providerToolDefinitionBytes: tools.map((tool) => tool.providerDefinitionBytes), terminalToolNames: ['emit_result'] });
     expect(prefix.immutablePrefixBytes).toBe(expectedBytes);
-    expect(prefix.immutablePrefixSha256).toBe(conversationSha256(expectedBytes));
+    expect(prefix.immutablePrefixSha256).toBe(sha256Hex(expectedBytes));
     expect(prefix.instructionText).toBe('instruction');
     expect(prefix.terminalToolNames).toEqual(['emit_result']);
     expect(Object.isFrozen(prefix)).toBe(true);
@@ -83,9 +83,8 @@ describe('context contracts', () => {
   it('hashes dynamic blocks canonically and order-sensitively', () => {
     const first = snapshotBlock('a', 'k', 'v1');
     const second = block('b', { audience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { cardId: 'card-1' }, observed_sha256: '0'.repeat(64) } });
-    expect(dynamicBlocksSha256([first, second])).toBe(conversationSha256(canonicalJson([first, second])));
-    expect(dynamicBlocksSha256([second, first])).not.toBe(dynamicBlocksSha256([first, second]));
-    expect(contextContentSha256(first.content)).toBe(conversationSha256(first.content));
+    expect(canonicalValueSha256([first, second])).toBe(sha256Hex(canonicalJson([first, second])));
+    expect(canonicalValueSha256([second, first])).not.toBe(canonicalValueSha256([first, second]));
   });
   it('builds one frozen prepared invocation context from its exact inputs', () => {
     const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
@@ -94,7 +93,7 @@ describe('context contracts', () => {
     expect(prepared.prefix).toEqual(buildStaticInvocationPrefix('instruction', ['emit_result'], compiledTools));
     expect(prepared.compiledTools).toEqual(compiledTools);
     expect(prepared.internalToolContractSha256).toBe(internalToolContractSha256(compiledTools));
-    expect(prepared.dynamicBlocksSha256).toBe(dynamicBlocksSha256([snapshotBlock('a', 'k', 'v1')]));
+    expect(prepared.dynamicBlocksSha256).toBe(canonicalValueSha256([snapshotBlock('a', 'k', 'v1')]));
     expect(prepared.preparedCompaction).toBe(preparedCompaction);
     expect(Object.isFrozen(prepared)).toBe(true);
     expect(Object.isFrozen(prepared.compiledTools)).toBe(true);

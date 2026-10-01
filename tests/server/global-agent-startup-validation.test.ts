@@ -89,10 +89,21 @@ describe('configured selected-global runtime validation', () => {
     expect(readFileSync(path)).toEqual(before);
   });
 
-  it('does not repair a malformed runtime suffix', () => {
+  it('selected global owning consumption discards a proven unterminated suffix', () => {
     const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
-    const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); appendFileSync(path, '{"broken":'); const before = readFileSync(path);
-    expect(() => validateConfiguredGlobalConversation(root, SESSION)).toThrow(/incomplete final envelope/);
+    const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); const before = readFileSync(path); appendFileSync(path, '{"broken":');
+    expect(() => validateConfiguredGlobalConversation(root, SESSION)).not.toThrow();
+    expect(readFileSync(path)).toEqual(before);
+    expect(readConversation(root, SESSION).physicalRows).toEqual(segment.rows);
+  });
+
+  it.each(['schema', 'semantic'] as const)('does not discard a suffix after complete %s-invalid global history', (fault) => {
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
+    const envelope = JSON.parse(segment.bytes.toString().trim());
+    appendFileSync(path, fault === 'schema' ? '{"complete":"invalid"}\n' : `${JSON.stringify({ ...envelope, rows: envelope.rows.slice(1) })}\n`);
+    appendFileSync(path, '{"broken":'); const before = readFileSync(path);
+    expect(() => validateConfiguredGlobalConversation(root, SESSION)).toThrow();
     expect(readFileSync(path)).toEqual(before);
   });
 

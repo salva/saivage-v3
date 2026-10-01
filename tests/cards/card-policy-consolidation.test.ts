@@ -11,7 +11,7 @@ import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { CARD_RECORD_FIELDS, cardRecordSchema, type CardLifecycleState, type CardRecord, type CardStatus } from '../../src/schemas/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
-import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { readGrowingRows } from '../helpers/growing-rows.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
@@ -60,7 +60,7 @@ function transition(template: CardRecord, from: CardStatus, to: CardStatus, reas
 }
 
 function rows(root: string, cardId: string): CardArtifact[] {
-  return readStrictCanonicalGrowingFile(cardStreamFile(root, cardId), cardArtifactSchema);
+  return readGrowingRows(cardStreamFile(root, cardId), cardArtifactSchema);
 }
 
 describe('card field ordering policy', () => {

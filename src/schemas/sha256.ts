@@ -9,8 +9,8 @@ const K = [
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ];
 
-export function sha256Hex(input: string): string {
-  const bytes = new TextEncoder().encode(input);
+export function sha256Hex(input: string | Uint8Array): string {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
   const bitLength = bytes.length * 8;
   const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
   padded.set(bytes);

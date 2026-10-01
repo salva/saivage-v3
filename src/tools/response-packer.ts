@@ -1,5 +1,4 @@
 import { canonicalJson } from '../schemas/index.js';
-import { canonicalValueSha256 } from '../persistence/index.js';
 import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,
@@ -91,10 +90,6 @@ export function certifiedPrefixEndpoints(
 
 export function boundedToolError(message: string): string {
   return utf8SafeSlice(message, 0, DISCOVERY_FAILURE_ERROR_MAX_BYTES).content;
-}
-
-export function observationSha256(value: unknown): string {
-  return canonicalValueSha256(value);
 }
 
 function makeTextSlice(text: string, offsetBytes: number, maxBytes: number): TextSlice {

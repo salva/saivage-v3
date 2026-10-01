@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -41,6 +42,7 @@ describe('InvocationService internal-summary recovery', () => {
     expect(service.sentBodies).toHaveLength(2);
     expect(service.sentBodies[1]).toBe(service.sentBodies[0]);
     expect(service.sentRequestHashes[1]).toBe(service.sentRequestHashes[0]);
+    expect(service.sentRequestHashes).toEqual(service.sentBodies.map((bytes) => createHash('sha256').update(bytes, 'utf8').digest('hex')));
     expect(service.sentCandidates).toEqual([CANDIDATE, CANDIDATE]);
     expect(service.sentInputIds).toEqual([INPUT_ID, INPUT_ID]);
     expect(markFailed).not.toHaveBeenCalled();

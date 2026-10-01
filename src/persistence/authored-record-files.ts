@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 
 import type { AgentName, CardRecord } from '../schemas/index.js';
 import type { RecordDefinition } from '../records/index.js';
 import {
   authoredRecordVersionArtifactSchema,
-  recordContentSha256,
   isEmptyRecordContent,
   validateRecordStream,
   type AcceptedRecordSnapshot,
   type AuthoredRecordVersionArtifact,
 } from './canonical-record-artifacts.js';
-import { appendEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
+import { appendRequiredEnvelope, publishFirstEnvelope, readCanonicalBytesOrMissing, consumeGrowingRows, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardRecordStreamFile } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
@@ -22,7 +22,7 @@ export interface RecordProjection {
   readonly versionUrl: string;
   readonly artifact: AuthoredRecordVersionArtifact;
 }
-interface RecordVersionCatalog { readonly cardId: string; readonly filename: string; readonly versions: readonly AuthoredRecordVersionArtifact[]; readonly current: RecordProjection | null }
+interface RecordVersionCatalog { readonly cardId: string; readonly filename: string; readonly versions: readonly AuthoredRecordVersionArtifact[] }
 
 export class AuthoredRecordNotFoundError extends Error { constructor() { super('Authored record not found.'); this.name = 'AuthoredRecordNotFoundError'; } }
 export type CurrentAuthoredRecordClassification = Readonly<{ kind:'unclaimed'|'empty' }> | Readonly<{kind:'present';projection:RecordProjection}>;
@@ -34,11 +34,9 @@ export function projectAuthoredRecordArtifact(definition: RecordDefinition, arti
 
 function readStreamRows(projectRoot: string, cardId: string, definition: RecordDefinition, instrumentation?: CanonicalReadInstrumentation): readonly AuthoredRecordVersionArtifact[] | null {
   const path = cardRecordStreamFile(projectRoot, cardId, definition);
-  let rows: AuthoredRecordVersionArtifact[];
-  try { rows = readStrictCanonicalGrowingFile(path, authoredRecordVersionArtifactSchema, instrumentation); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
-  validateRecordStream(rows, path, cardId, definition);
-  return rows;
+  const bytes = readCanonicalBytesOrMissing(path, instrumentation);
+  if (bytes === null) return null;
+  return consumeGrowingRows(path, bytes, authoredRecordVersionArtifactSchema, (rows) => { validateRecordStream(rows, path, cardId, definition); return rows; });
 }
 
 export function classifyCurrentAuthoredRecord(projectRoot:string,card:CardRecord,definition:RecordDefinition,instrumentation?:CanonicalReadInstrumentation):CurrentAuthoredRecordClassification{
@@ -52,10 +50,10 @@ export function initializeAuthoredRecord(projectRoot: string, cardId: string, de
   if (!definition.bootstrap) throw new Error('Only the configured bootstrap record accepts bootstrap content.');
   const path = cardRecordStreamFile(projectRoot, cardId, definition);
   const stamp = new Date().toISOString(); const entryId = randomUUID();
-  const accepted: AcceptedRecordSnapshot = { source_version: 1, source_entry_id: entryId, committed_at: stamp, writer_agent: 'runtime:bootstrap', card_version_seq: 1, content: bootstrapContent, content_sha256: recordContentSha256(bootstrapContent), size_bytes: Buffer.byteLength(bootstrapContent, 'utf8') };
+  const accepted: AcceptedRecordSnapshot = { source_version: 1, source_entry_id: entryId, committed_at: stamp, writer_agent: 'runtime:bootstrap', card_version_seq: 1, content: bootstrapContent, content_sha256: sha256Hex(bootstrapContent), size_bytes: Buffer.byteLength(bootstrapContent, 'utf8') };
   const artifact = authoredRecordVersionArtifactSchema.parse({ format_version: 1, kind: 'authored-record-version', entry_id: entryId, card_id: cardId, record_name: definition.filename, record_format: definition.format, schema: definition.schema, version: 1, published_at: stamp, state: 'closed', accepted, draft: null, discarded: null });
   validateRecordStream([artifact], path, cardId, definition);
-  publishFirstEnvelope(path, serializeGrowingEnvelope([artifact], authoredRecordVersionArtifactSchema), temporary);
+  publishFirstEnvelope(path, serializeGrowingEnvelope([artifact]), temporary);
   return projectAuthoredRecordArtifact(definition, artifact);
 }
 
@@ -66,20 +64,18 @@ export function readCurrentAuthoredRecord(projectRoot: string, card: CardRecord,
 export function listAuthoredRecordVersions(projectRoot: string, card: CardRecord, definition: RecordDefinition, instrumentation?: CanonicalReadInstrumentation): RecordVersionCatalog {
   const rows = readStreamRows(projectRoot, card.id, definition, instrumentation);
   if (rows === null) {
-    return Object.freeze({ cardId:card.id, filename: definition.filename, versions: [], current: null });
+    return Object.freeze({ cardId:card.id, filename: definition.filename, versions: [] });
   }
-  return Object.freeze({ cardId:card.id, filename: definition.filename, versions: rows, current: null });
+  return Object.freeze({ cardId:card.id, filename: definition.filename, versions: rows });
 }
 
-function publishRow(path: string, rows: readonly AuthoredRecordVersionArtifact[] | null, artifact: AuthoredRecordVersionArtifact, cardId: string, definition: RecordDefinition, io?: GrowingFileIo, temporary?: PublicationTemporaryIdFactory): void {
-  validateRecordStream(rows === null ? [artifact] : [...rows, artifact], path, cardId, definition);
-  const bytes = serializeGrowingEnvelope([artifact], authoredRecordVersionArtifactSchema);
-  if (rows === null) { publishFirstEnvelope(path, bytes, temporary); return; }
-  const result = appendEnvelope(path, bytes, io);
-  if (result.kind === 'missing') throw new Error(`Authored-record stream '${path}' is missing for append.`);
+function publishRow(path: string, initial: boolean, artifact: AuthoredRecordVersionArtifact, io?: GrowingFileIo, temporary?: PublicationTemporaryIdFactory): void {
+  const bytes = serializeGrowingEnvelope([artifact]);
+  if (initial) { publishFirstEnvelope(path, bytes, temporary); return; }
+  appendRequiredEnvelope(path, bytes, io);
 }
 
-function draft(stamp: string, openedAt = stamp, content = '') { return { opened_at: openedAt, updated_at: stamp, content, content_sha256: recordContentSha256(content) }; }
+function draft(stamp: string, openedAt = stamp, content = '') { return { opened_at: openedAt, updated_at: stamp, content, content_sha256: sha256Hex(content) }; }
 
 export function openAuthoredRecord(projectRoot: string, card: CardRecord, definition: RecordDefinition, io?: GrowingFileIo, temporary?: PublicationTemporaryIdFactory): RecordProjection {
   const cardId=card.id;
@@ -88,7 +84,8 @@ export function openAuthoredRecord(projectRoot: string, card: CardRecord, defini
   if (current?.state === 'open') return projectAuthoredRecordArtifact(definition, current);
   const stamp = new Date().toISOString(); const version = (current?.version ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({ format_version: 1, kind: 'authored-record-version', entry_id: randomUUID(), card_id: cardId, record_name: definition.filename, record_format: definition.format, schema: definition.schema, version, published_at: stamp, state: 'open', accepted: current?.accepted ?? null, draft: draft(stamp), discarded: null });
-  publishRow(path, rows, artifact, cardId, definition, io, temporary);
+  if (rows === null) validateRecordStream([artifact], path, cardId, definition);
+  publishRow(path, rows === null, artifact, io, temporary);
   return projectAuthoredRecordArtifact(definition, artifact);
 }
 
@@ -98,7 +95,7 @@ export function editOpenAuthoredRecord(projectRoot: string, card: CardRecord, de
   const rows = readStreamRows(projectRoot, cardId, definition); const current = rows?.at(-1) ?? null;
   if (!current || current.state !== 'open' || !current.draft) throw new Error(`Record '${cardId}/${definition.filename}' is not open.`); if (current.draft.content === content) throw new Error('Record open edit must change content.');
   const stamp = new Date().toISOString(); const artifact = authoredRecordVersionArtifactSchema.parse({ ...current, entry_id: randomUUID(), version: current.version + 1, published_at: stamp, draft: draft(stamp, current.draft.opened_at, content) });
-  publishRow(path, rows, artifact, cardId, definition, io);
+  publishRow(path, false, artifact, io);
   return projectAuthoredRecordArtifact(definition, artifact);
 }
 
@@ -110,7 +107,7 @@ export function closeOpenAuthoredRecord(projectRoot: string, card: CardRecord, d
   if (isEmptyRecordContent(current.draft.content)) throw new Error('Record content must not be empty.');
   const stamp = new Date().toISOString(); const version = current.version + 1; const accepted: AcceptedRecordSnapshot = { source_version: version, source_entry_id: randomUUID(), committed_at: stamp, writer_agent: writer, card_version_seq: card.version_seq, content: current.draft.content, content_sha256: current.draft.content_sha256, size_bytes: Buffer.byteLength(current.draft.content, 'utf8') };
   const artifact = authoredRecordVersionArtifactSchema.parse({ ...current, entry_id: accepted.source_entry_id, version, published_at: stamp, state: 'closed', accepted, draft: null, discarded: null });
-  publishRow(path, rows, artifact, cardId, definition, io);
+  publishRow(path, false, artifact, io);
   return projectAuthoredRecordArtifact(definition, artifact);
 }
 
@@ -120,6 +117,6 @@ export function discardOpenAuthoredRecord(projectRoot: string, card: CardRecord,
   const rows = readStreamRows(projectRoot, cardId, definition); const current = rows?.at(-1) ?? null;
   if (!current || current.state !== 'open') throw new Error(`Record '${cardId}/${definition.filename}' is not open.`);
   const stamp = new Date().toISOString(); const artifact = authoredRecordVersionArtifactSchema.parse({ ...current, entry_id: randomUUID(), version: current.version + 1, published_at: stamp, state: 'discarded', draft: null, discarded: { discarded_at: stamp, reason } });
-  publishRow(path, rows, artifact, cardId, definition, io);
+  publishRow(path, false, artifact, io);
   return projectAuthoredRecordArtifact(definition, artifact);
 }

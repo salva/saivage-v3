@@ -6,7 +6,7 @@ import { cardAgentSessionId, globalAgentSessionId, type AgentName, type Conversa
 import { initializeAppLog } from './app-log.js';
 import { readCurrentAuthoredRecord } from './authored-record-files.js';
 import { readCanonicalLinkedCardHistoryTree, type CanonicalLinkedCardHistoryProjection } from './card-files.js';
-import { readConversationCatalog, truncateCurrentConversationUnterminatedSuffix } from './conversation-file.js';
+import { readConversationCatalog, readCurrentConversationSegment } from './conversation-file.js';
 import { readProviderExchangeEntries } from './provider-exchange-log.js';
 
 interface AdmittedCard {
@@ -78,7 +78,7 @@ export function initializeAndValidateCurrentGeneratedState(projectRoot: string, 
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   if (oversightEstablished) readProviderExchangeEntries(projectRoot, oversightSessionId);
-  for (const sessionId of sessionIds) truncateCurrentConversationUnterminatedSuffix(projectRoot, sessionId);
+  for (const sessionId of sessionIds) readCurrentConversationSegment(projectRoot, sessionId);
 
   for (const { projection, workflow } of admitted) {
     const card = projection.current;

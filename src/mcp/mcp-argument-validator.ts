@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import { Ajv } from 'ajv';
 import type { AnySchema, ErrorObject, ValidateFunction } from 'ajv';
 
@@ -47,7 +47,7 @@ function stableJson(value: unknown): string {
 }
 
 export function fingerprintMcpInputSchema(schema: unknown): string {
-  return createHash('sha256').update(stableJson(schema)).digest('hex');
+  return sha256Hex(stableJson(schema));
 }
 
 const MAX_DIAGNOSTIC_STRING_LENGTH = 120;

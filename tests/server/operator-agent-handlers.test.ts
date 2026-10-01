@@ -14,7 +14,6 @@ import {
 } from '../../src/contracts/operator-api-agents.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 import { providerExchangeFile } from '../../src/persistence/layout.js';
-import { providerExchangeLogEntrySchema } from '../../src/contracts/provider-exchange-log.js';
 import { appendProviderExchangeEntry } from '../../src/persistence/provider-exchange-log.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
@@ -397,7 +396,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       timestamp: payload.completed_at,
       payload,
     });
-    const line = serializeGrowingEnvelope([entry], providerExchangeLogEntrySchema);
+    const line = serializeGrowingEnvelope([entry]);
     mkdirSync(dirname(providerExchangeFile(root, 'agent:planner:project')), { recursive: true });
     writeFileSync(providerExchangeFile(root, 'agent:planner:project'), Buffer.concat([line, line]));
     const handlers = buildAgentOperatorContractHandlers({

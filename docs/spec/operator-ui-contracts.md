@@ -284,6 +284,12 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   redaction notice). Physical persistence paths are never disclosed. Files
   and previews expose explicit Refresh and permitted resource-local Retry;
   a failed historical read preserves usable listing/current state.
+- Read-only presentation is not a promise of non-mutating backend consumption:
+  exact owners may discard a current growing file's proven torn final suffix
+  only after full retained-prefix validation. Older conversation segments stay
+  immutable; complete corruption remains unavailable/error, and publication
+  uncertainty is fatal before a response, not translated to not-found or Retry.
+  No browser repair action or new control is introduced.
 - Process rows carry supplied owner/card identity, status, and canonical
   `work:///` log references. Retirement does not erase a known link or
   promise retention; there is no terminate control or process-history cache.

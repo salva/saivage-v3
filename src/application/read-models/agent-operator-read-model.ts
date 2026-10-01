@@ -100,7 +100,7 @@ export class AgentOperatorReadModelService {
   }
 
   listConversationVersions(sessionId: ConversationSessionId) { const catalog = this.admitConversationCatalog(sessionId); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.created_at, genesis_kind: entry.genesis.kind, source_version: entry.genesis.kind === 'compacted' ? entry.genesis.source_version : null })); return ConversationVersionListResponseSchema.parse({ session_id: sessionId, versions, total: versions.length }); }
-  getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldHistoricalConversationRows(segment.rows) }); }
+  getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { throwIfPublicationOutcomeUnknown(error); if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldHistoricalConversationRows(segment.rows) }); }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {
     const snapshots = this.captureExecutingLlmSnapshots();
@@ -133,7 +133,7 @@ export class AgentOperatorReadModelService {
     }
     let cardResult;
     try { cardResult = readCommittedCardArtifactCatalog(this.projectRoot, identity.cardId); }
-    catch (error) { throw new AgentCurrentStateUnavailableError('card', identity.cardId, { cause: error }); }
+    catch (error) { throwIfPublicationOutcomeUnknown(error); throw new AgentCurrentStateUnavailableError('card', identity.cardId, { cause: error }); }
     if (cardResult.kind === 'card-not-found') throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
     const head=cardResult.value.head;const card = head.kind === 'card-version' ? head.card : head.final_card;
     const workflow = this.workflows.cardTypes.get(card.type); if (!workflow) throw new Error(`No compiled workflow for '${card.type}'.`);

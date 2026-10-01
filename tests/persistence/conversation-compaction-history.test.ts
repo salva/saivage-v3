@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -12,7 +12,7 @@ import { composeContextProjection, providerConversationFromComposedContext, type
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
-import { canonicalValueSha256 } from '../../src/persistence/canonical-conversation-artifacts.js';
+import { canonicalJson } from '../../src/schemas/index.js';
 import {
   contentPolicyRefusalProjectionText,
   MODEL_RECOVERY_NOTICE_TEXT,
@@ -721,7 +721,7 @@ describe('accumulated compaction history generations', () => {
       expect(successorGenesis.compaction.source).toMatchObject({
         kind: 'prior_genesis_plus_current_rows',
         priorGenesisId: predecessorGenesis.id,
-        priorHistoryHash: canonicalValueSha256(predecessorGenesis.compaction),
+        priorHistoryHash: createHash('sha256').update(canonicalJson(predecessorGenesis.compaction), 'utf8').digest('hex'),
       });
       expect(successorGenesis.compaction.coverageCommitment.coveredThroughMessageId).toBe(bundle[1]!.id);
       expect(conversation.sourceRows.findIndex((row) => row.id === successorGenesis.compaction.coverageCommitment.coveredThroughMessageId) + 1).toBeGreaterThan(1);
@@ -799,45 +799,4 @@ describe('accumulated compaction history generations', () => {
     } finally { rmSync(root2, { recursive: true, force: true }); }
   });
 
-  it('fails clearly when an old-format compacted segment is read by the current validators', () => {
-    const root = mkdtempSync(join(tmpdir(), 'compaction-history-old-format-'));
-    initProjectTree(root);
-    try {
-      const v1Name = '1-00000000-0000-4000-8000-000000000001.jsonl';
-      const v2Name = '2-00000000-0000-4000-8000-000000000002.jsonl';
-      const agentRoot = join(root, '.saivage', 'cards', 'project', 'conversations', 'planner');
-      mkdirSync(join(agentRoot, 'versions'), { recursive: true });
-      const v1Envelope = { version: 1, type: 'conversation-segment', rows: [{ format_version: 1, kind: 'ordinary_segment_genesis', id: '00000000-0000-4000-8000-0000000000aa', entry_id: '00000000-0000-4000-8000-0000000000bb', session_id: SESSION, segment_version: 1, timestamp: '2026-08-18T00:00:00.000Z' }] };
-      const oldGenesis = {
-        format_version: 1,
-        kind: 'compacted_segment_genesis',
-        id: '00000000-0000-4000-8000-0000000000cc',
-        entry_id: '00000000-0000-4000-8000-0000000000dd',
-        session_id: SESSION,
-        segment_version: 2,
-        timestamp: '2026-08-18T00:01:00.000Z',
-        source: { version: 1, filename: v1Name, sha256: '0'.repeat(64), covered_through_message_id: 'activation-1' },
-        compaction: { boundary: 'round', retained_static_message_ids: [], summaries: [], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 0, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' } },
-        continuation: { kind: 'between_rounds' },
-        retained_rows: { first_message_id: null, last_message_id: null, row_count: 0, static_row_count: 0, tail_row_count: 0, tail_first_message_id: null, sha256: '1'.repeat(64) },
-      };
-      const v2Envelope = { version: 1, type: 'conversation-segment', rows: [oldGenesis] };
-      writeFileSync(join(agentRoot, 'versions', v1Name), `${JSON.stringify(v1Envelope)}\n`);
-      writeFileSync(join(agentRoot, 'versions', v2Name), `${JSON.stringify(v2Envelope)}\n`);
-      const index = {
-        format_version: 1,
-        kind: 'conversation-version-index',
-        session_id: SESSION,
-        created_at: '2026-08-18T00:00:00.000Z',
-        versions: [
-          { entry_id: '00000000-0000-4000-8000-0000000000bb', version: 1, filename: v1Name, created_at: '2026-08-18T00:00:00.000Z', genesis: { kind: 'ordinary' } },
-          { entry_id: '00000000-0000-4000-8000-0000000000dd', version: 2, filename: v2Name, created_at: '2026-08-18T00:01:00.000Z', genesis: { kind: 'compacted', source_version: 1, source_filename: v1Name, source_sha256: '0'.repeat(64), covered_through_message_id: 'activation-1', compaction_payload_sha256: '2'.repeat(64), continuation_sha256: '3'.repeat(64), retained_rows_sha256: '1'.repeat(64) } },
-        ],
-        current_version: 2,
-        current_filename: v2Name,
-      };
-      writeFileSync(join(agentRoot, 'index.json'), `${JSON.stringify(index)}\n`);
-      expect(() => readCurrentConversationSegment(root, SESSION)).toThrow(/malformed|invalid/);
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
 });

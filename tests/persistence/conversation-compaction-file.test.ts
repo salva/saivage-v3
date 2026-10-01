@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -14,6 +14,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
+import { cardConversationVersionFile } from '../../src/persistence/layout.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
@@ -31,6 +32,17 @@ describe('conversation compaction file persistence', () => {
       expect(readCurrentConversationSegment(root, SESSION)!.genesis.kind).toBe('compacted_segment_genesis');
       expect(readHistoricalConversationSegment(root, SESSION, 1).genesis.kind).toBe('ordinary_segment_genesis');
       expect(readCurrentConversationSegment(root, SESSION)!.rows.some((row) => row.kind === ('context_compaction' as never))).toBe(false);
+      const predecessorPath = cardConversationVersionFile(root, 'project', 'planner', current.entry.filename);
+      appendFileSync(predecessorPath, 'torn immutable suffix'); const immutable = readFileSync(predecessorPath);
+      expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow(); expect(readFileSync(predecessorPath)).toEqual(immutable);
+      const successor = readCurrentConversationSegment(root, SESSION)!;
+      const successorPath = cardConversationVersionFile(root, 'project', 'planner', successor.entry.filename);
+      appendFileSync(successorPath, 'torn current suffix');
+      expect(readHistoricalConversationSegment(root, SESSION, 2).bytes).toEqual(successor.bytes); expect(readFileSync(successorPath)).toEqual(successor.bytes);
+      const envelopes = successor.bytes.toString().trimEnd().split('\n').map((line) => JSON.parse(line));
+      envelopes[0].rows[0].source.sha256 = '0'.repeat(64);
+      const invalid = Buffer.from(`${envelopes.map((envelope) => JSON.stringify(envelope)).join('\n')}\nsuffix`); writeFileSync(successorPath, invalid);
+      expect(() => readCurrentConversationSegment(root, SESSION)).toThrow(/commitment/); expect(readFileSync(successorPath)).toEqual(invalid);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

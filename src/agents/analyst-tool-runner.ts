@@ -1,4 +1,5 @@
-import { recordControlAction, stableStringify } from '../persistence/index.js';
+import { recordControlAction } from '../persistence/index.js';
+import { canonicalJson } from '../schemas/index.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
 import { executedToolOutcome, toolFailure, type AnalystToolOutcome, type ToolContext, type ToolExecutionResult } from '../tools/execution-api.js';
 import { AnalystInterventionNotReadyError } from '../contracts/index.js';
@@ -39,9 +40,9 @@ type MutatingSpec<P, Prepared = undefined> =
   | (MutatingSpecBase<P, Prepared> & { lifecycle: { kind: 'intervention_ready'; timing: 'immediate_before_mutation' } | { kind: 'runtime_cancellation' }; prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>; admitBeforePrepare?: never });
 
 function paramsSummary(params: unknown): string {
-  if (typeof params !== 'object' || params === null || Array.isArray(params)) return stableStringify(params);
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) return canonicalJson(params);
   const safe = Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'body' && key !== 'content' && key !== 'old_string' && key !== 'new_string'));
-  return stableStringify(safe);
+  return canonicalJson(safe);
 }
 
 export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {

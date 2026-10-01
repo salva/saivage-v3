@@ -24,6 +24,8 @@ describe('immutable version exact writes', () => {
       ['write', 7, 2, 2],
       ['fsync', 7],
       ['close', 7],
+      ['fsync', 7],
+      ['close', 7],
     ]);
   });
 

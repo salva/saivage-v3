@@ -229,6 +229,11 @@ failed historical read; absence, failure, and accepted empty content remain dist
 evidence into read-only inspection. Check a valid text artifact, oversized or unsupported
 preview, and unavailable target: keep its identity and explain the admitted failure category,
 without exposing physical persistence paths or silently substituting a different artifact.
+Read-only inspection offers no repair control and does not promise that backend
+consumption is non-mutating: an exact growing-file owner may discard only a proven
+torn final suffix after full retained-prefix validation. Complete corruption stays
+an honest failure; uncertain truncation is fatal before a response, not a recoverable
+missing artifact. Older conversation segments remain immutable.
 
 **F23 — Should — Recorded provenance.** Identify who produced or changed an artifact
 where a tool result, process owner, record, or change entry supplies that relationship.

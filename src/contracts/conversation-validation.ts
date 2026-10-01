@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex, canonicalValueSha256 } from '../schemas/index.js';
 
 import {
-  accumulatedSummarySha256,
   canonicalJson,
   conversationSessionIdentity,
   coveredSourceGroupsSha256,
@@ -14,7 +13,6 @@ import {
   type CoveredDisposition,
   type CoveredSourceGroup,
   type RequiredModelFactSlots,
-  protectedPromptsSha256,
   type ProtectedPrompt,
 } from '../schemas/index.js';
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/index.js';
@@ -402,7 +400,7 @@ export function validateCompactedHistorySuccessor(args: {
   const selection = selectAtomicCoveredSourceGroups(source, args.coveredRows, protection.protectedCoveredIds);
   if (canonicalJson(protection.protectedPrompts) !== canonicalJson(successor.protectedPrompts))
     throw new Error('Successor protected prompts do not exactly derive from the source protection selection.');
-  if (protectedPromptsSha256(successor.protectedPrompts) !== successor.coverageCommitment.protectedPromptsSha256)
+  if (canonicalValueSha256(successor.protectedPrompts) !== successor.coverageCommitment.protectedPromptsSha256)
     throw new Error('Successor protected prompts hash does not commit to its exact ordered list.');
   if (canonicalJson(selection.groups) !== canonicalJson(successor.source.groups))
     throw new Error('Successor covered source groups do not match the canonical atomic grouping of the covered rows.');
@@ -414,7 +412,7 @@ export function validateCompactedHistorySuccessor(args: {
     throw new Error('Successor coverage source session does not identify the compacted source conversation.');
   if (successor.coverageCommitment.coveredSourceGroupsSha256 !== coveredSourceGroupsSha256(successor.source.groups))
     throw new Error('Successor coverage groups hash does not commit to its covered source groups.');
-  if (successor.coverageCommitment.accumulatedSummarySha256 !== accumulatedSummarySha256(successor.summaryText))
+  if (successor.coverageCommitment.accumulatedSummarySha256 !== sha256Hex(successor.summaryText))
     throw new Error('Successor coverage summary hash does not commit to its accumulated summary.');
   const expectedDispositions = foldDispositionCommitment(sourceGenesis?.history.dispositionCommitment ?? null, selection.dispositions);
   if (JSON.stringify(expectedDispositions) !== JSON.stringify(successor.dispositionCommitment))
@@ -476,9 +474,9 @@ function validateSelfContainedCompactedHistory(
     throw new Error('Compacted genesis coverage does not name its own source segment version.');
   if (coveredSourceGroupsSha256(history.source.groups) !== history.coverageCommitment.coveredSourceGroupsSha256)
     throw new Error('Compacted genesis coverage groups hash does not commit to its named groups.');
-  if (accumulatedSummarySha256(history.summaryText) !== history.coverageCommitment.accumulatedSummarySha256)
+  if (sha256Hex(history.summaryText) !== history.coverageCommitment.accumulatedSummarySha256)
     throw new Error('Compacted genesis coverage summary hash does not commit to its accumulated summary.');
-  if (protectedPromptsSha256(history.protectedPrompts) !== history.coverageCommitment.protectedPromptsSha256)
+  if (canonicalValueSha256(history.protectedPrompts) !== history.coverageCommitment.protectedPromptsSha256)
     throw new Error('Compacted genesis protected prompts hash does not commit to its ordered list.');
   const ids = new Set<string>();
   let prior: ProtectedPrompt['source'] | null = null;
@@ -732,9 +730,7 @@ function isSafeFallbackBoundary(
 }
 
 function hashConversationRows(rows: readonly AgentMessage[]): string {
-  return createHash('sha256')
-    .update(rows.map(conversationRowHashText).join('\n'), 'utf8')
-    .digest('hex');
+  return sha256Hex(rows.map(conversationRowHashText).join('\n'));
 }
 function conversationRowHashText(row: AgentMessage): string {
   return JSON.stringify({
@@ -746,8 +742,4 @@ function conversationRowHashText(row: AgentMessage): string {
     tool_call_id: row.tool_call_id,
     source_input_id: undefined,
   });
-}
-
-function canonicalValueSha256(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
 }

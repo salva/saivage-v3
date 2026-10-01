@@ -72,7 +72,7 @@ describe('publication syscall boundaries', () => {
     const trace: string[] = [];
     let write = 0;
     const io: GrowingFileIo = {
-      open() { trace.push('open'); return 7; }, stat() { trace.push('stat'); return regular; },
+      open() { trace.push('open'); return 7; },
       write: ((_fd: number, _bytes: Uint8Array, _offset: number, _length: number) => { trace.push('write'); write += 1; if (write === 1) return 1; throw noSpaceFailure; }) as never,
       fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
     };
@@ -80,31 +80,27 @@ describe('publication syscall boundaries', () => {
     try { appendEnvelope('/owner/app.jsonl', Buffer.from('ab'), io); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect((thrown as PublicationOutcomeUnknownError).cause).toBe(noSpaceFailure);
-    expect(trace).toEqual(['open', 'stat', 'write', 'write']);
+    expect(trace).toEqual(['open', 'write', 'write']);
   });
 
-  it('keeps append acquisition and admission failures direct with exactly one permitted close', () => {
+  it('keeps append acquisition failures direct without following operations', () => {
     const missing = Object.assign(new Error('missing'), { code: 'ENOENT' });
     expect(appendEnvelope('/owner/app.jsonl', Buffer.from('x'), { open() { throw missing; } } as never)).toEqual({ kind: 'missing' });
     const denied = new Error('denied');
     expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('x'), { open() { throw denied; } } as never)).toThrow(denied);
-    const trace: string[] = [];
-    const io: GrowingFileIo = { open() { return 1; }, stat() { trace.push('stat'); throw failure; }, write() { trace.push('write'); return 1; }, fsync() {}, close() { trace.push('close'); } } as never;
-    expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('x'), io)).toThrow(failure);
-    expect(trace).toEqual(['stat', 'close']);
   });
 
   it.each(['write', 'fsync', 'close'] as const)('types append %s uncertainty with no following operation', (stage) => {
     const trace: string[] = [];
     const operation = (name: string): void => { trace.push(name); if (name === stage) throw failure; };
-    const io: GrowingFileIo = { open() { trace.push('open'); return 1; }, stat() { trace.push('stat'); return regular; }, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { operation('write'); return length; }) as never, fsync() { operation('fsync'); }, close() { operation('close'); } };
+    const io: GrowingFileIo = { open() { trace.push('open'); return 1; }, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { operation('write'); return length; }) as never, fsync() { operation('fsync'); }, close() { operation('close'); } };
     expect(() => appendEnvelope('/owner/app.jsonl', Buffer.from('x'), io)).toThrow(PublicationOutcomeUnknownError);
     expect(trace.at(-1)).toBe(stage);
   });
 
   it('advances append short-write suffixes and does not repeat failures or zero progress', () => {
     const offsets: number[] = []; let writes = 0;
-    const io: GrowingFileIo = { open() { return 1; }, stat() { return regular; }, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { offsets.push(offset); writes += 1; return writes === 1 ? 1 : length; }) as never, fsync() {}, close() {} };
+    const io: GrowingFileIo = { open() { return 1; }, write: ((_fd: number, _bytes: Uint8Array, offset: number, length: number) => { offsets.push(offset); writes += 1; return writes === 1 ? 1 : length; }) as never, fsync() {}, close() {} };
     expect(appendEnvelope('/owner/app.jsonl', Buffer.from('ab'), io)).toEqual({ kind: 'appended' });
     expect(offsets).toEqual([0, 1]);
     const failingIo = { ...io, write: (() => { throw writeFailure; }) as never };

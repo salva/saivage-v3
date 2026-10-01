@@ -1,6 +1,6 @@
 export { canonicalJson } from './canonical-json.js';
 export { uuidV4Schema } from './uuid.js';
-export { accumulatedSummarySha256, compactedHistorySchema, coveredSourceGroupsSha256, foldDispositionCommitment, protectedPromptsSha256, requiredModelFactSlotsSchema, type CompactedHistory, type CoveredDisposition, type CoveredSourceGroup, type ProtectedPrompt, type RequiredModelFactSlots } from './context-compaction.js';
+export { compactedHistorySchema, coveredSourceGroupsSha256, foldDispositionCommitment, requiredModelFactSlotsSchema, type CompactedHistory, type CoveredDisposition, type CoveredSourceGroup, type ProtectedPrompt, type RequiredModelFactSlots } from './context-compaction.js';
 export { DURABLE_PRIMARY_CONTENT_POLICY, durablePrimaryContentPolicy, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, sha256HexSchema, type ContextAudience, type ContextEvidence, type ContextReplacement, type RowContextPolicy, type SettledToolEvidence, type ToolResultPolicyTemplate, type ToolSettlementOrigin } from './context-policy.js';
 export { CONTENT_POLICY_RETRY_TEXT, contentPolicyEvidenceUrl, contentPolicyRefusalContentSchema, contentPolicyRefusalProjectionText, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
 export {
@@ -39,3 +39,5 @@ export { outboundCardVersionChangeSchema, type OrdinaryCardChangeField, type Out
 export { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema, type SystemTemplateName, type OutboundEffectiveSaivageConfig, type SaivageConfig, type SaivageConfigSource, type ProviderCapabilities, type ProviderEntry, type ProviderAccount, type CardTypesSource, type McpServerConfig, type StdioMcpServerConfig, type StreamableHttpMcpServerConfig } from './saivage-config.js';
 export { cardParentId } from './card-id.js';
 export type { CardTypeSource, DurablePromptDeclaration, StaticPromptDeclaration } from './saivage-config.js';
+export { sha256Hex } from './sha256.js';
+export { canonicalValueSha256 } from './canonical-json.js';

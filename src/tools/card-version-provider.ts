@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { canonicalValueSha256, sha256Hex } from '../schemas/index.js';
 
 import type { ToolContext } from './analyst-tool-types.js';
 import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCanonicalLocatorToolAction, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
@@ -13,11 +14,10 @@ import {
 } from '../contracts/index.js';
 import { redactForOutbound } from '../redaction/artifact-api.js';
 import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/index.js';
-import { recordContentSha256, type CardArtifact } from '../persistence/index.js';
+import type { CardArtifact } from '../persistence/index.js';
 import {
   boundedToolError,
   DISCOVERY_RESPONSE_MAX_BYTES,
-  observationSha256,
   packCollectionData,
   packTextSliceData,
   utf8ByteLength,
@@ -47,7 +47,7 @@ function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
   const result = ctx.store.listCardVersions(params.card_id);
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
   const versions = result.value;
-  const observation = observationSha256({ surface: 'list_card_versions', card_id: params.card_id, versions: versions.map((entry) => ({ version: entry.version, entry_id: entry.entry_id })) });
+  const observation = canonicalValueSha256({ surface: 'list_card_versions', card_id: params.card_id, versions: versions.map((entry) => ({ version: entry.version, entry_id: entry.entry_id })) });
   const { data } = packCollectionData({
     cap: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES,
     total: versions.length,
@@ -79,7 +79,7 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   const card = value.kind === 'card-version' ? value.card : value.final_card;
   const identity = artifactIdentity(value);
   const locator = `card:///${params.card_id}?v=${params.version}#entry=${identity.entry_id}`;
-  const sha256 = observationSha256(projectCardArtifactForOutbound(value));
+  const sha256 = canonicalValueSha256(projectCardArtifactForOutbound(value));
   const base = {
     card_id: params.card_id,
     version: params.version,
@@ -117,10 +117,10 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
   if (result.kind === 'invalid-pivots') return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: result.from, to_version: result.to }));
   if (result.kind === 'version-not-found') return Promise.resolve(failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: result.version, side: result.side }));
-  const fromIdentity={entry_id:result.fromArtifact.entry_id,artifact_sha256:observationSha256(projectCardArtifactForOutbound(result.fromArtifact))};
-  const toIdentity={entry_id:result.toArtifact.entry_id,artifact_sha256:observationSha256(projectCardArtifactForOutbound(result.toArtifact))};
+  const fromIdentity={entry_id:result.fromArtifact.entry_id,artifact_sha256:canonicalValueSha256(projectCardArtifactForOutbound(result.fromArtifact))};
+  const toIdentity={entry_id:result.toArtifact.entry_id,artifact_sha256:canonicalValueSha256(projectCardArtifactForOutbound(result.toArtifact))};
   const projectedDiff = redactForOutbound({ source: 'card-diff', value: result.diff });
-  const observation = observationSha256({ surface: 'diff_card_versions', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version, from_sha256: fromIdentity.artifact_sha256, to_sha256: toIdentity.artifact_sha256, diff: projectedDiff });
+  const observation = canonicalValueSha256({ surface: 'diff_card_versions', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version, from_sha256: fromIdentity.artifact_sha256, to_sha256: toIdentity.artifact_sha256, diff: projectedDiff });
   const diffJson = JSON.stringify(projectedDiff);
   const totalBytes = utf8ByteLength(diffJson);
   const { data } = packTextSliceData({
@@ -153,7 +153,7 @@ function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<type
       : { content: '', content_source: 'none' as const, content_sha256: null };
   })();
   const totalBytes = utf8ByteLength(selected.content);
-  const evidenceSha256 = selected.content_sha256 ?? recordContentSha256('');
+  const evidenceSha256 = selected.content_sha256 ?? sha256Hex('');
   const locator = `${projection.versionUrl}#entry=${artifact.entry_id}`;
   const { data } = packTextSliceData({
     text: selected.content,

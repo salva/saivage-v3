@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { sha256Hex } from '../../schemas/index.js';
 import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, durablePrimaryContentPolicy, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
@@ -46,7 +47,7 @@ export function buildUserContextMessage(
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:user:${inputId}:${category}:${ordinal}:${timestamp}:${content}`;
   return agentMessageSchema.parse({
-    id: `${sessionId}:ctxmsg:${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`,
+    id: `${sessionId}:ctxmsg:${sha256Hex(seed).slice(0, 32)}`,
     session_id: sessionId,
     role: 'user',
     kind: 'text',
@@ -67,7 +68,7 @@ export function appendActivationMarker(
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
   const message = agentMessageSchema.parse({
-    id: `${sessionId}:activation:${createHash('sha256').update(seed).digest('hex').slice(0, 16)}`,
+    id: `${sessionId}:activation:${sha256Hex(seed).slice(0, 16)}`,
     session_id: sessionId,
     role: 'system',
     kind: 'activity',
@@ -183,7 +184,7 @@ function buildContextTextMessage(
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${role}:${timestamp}:${content}`;
   return agentMessageSchema.parse({
-    id: `${sessionId}:context:${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`,
+    id: `${sessionId}:context:${sha256Hex(seed).slice(0, 32)}`,
     session_id: sessionId,
     role,
     kind: 'text',

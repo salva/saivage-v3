@@ -13,10 +13,10 @@ import { compileProjectWorkflows, describeNodeResultContract, type CompiledNodeC
 import { defineTool, executedToolOutcome, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
-import { dynamicBlocksSha256 } from '../../../src/runtime/actors/context/context-blocks.js';
+import { canonicalValueSha256 } from '../../../src/schemas/index.js';
 import { appendActivationMarker } from '../../../src/runtime/actors/conversation-session.js';
 import { appendLlmTurnToolCallBatch, type InvocationResultPolicy } from '../../../src/runtime/actors/llm-delivery-log.js';
-import { conversationSha256 } from '../../../src/persistence/canonical-conversation-artifacts.js';
+import { sha256Hex } from '../../../src/schemas/index.js';
 import { cardConversationVersionFile } from '../../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { deterministicRoundId } from '../../../src/schemas/round-id-server.js';
@@ -143,14 +143,14 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   return { events, cleanupReasons, llm, store, removeNotifications, selectNotifications, projectRoot, sessionId, process, processPromptGet, node, productionNode, run, onConversationChanged: (callback: typeof conversationChanged) => { conversationChanged = callback; } };
 }
 
-const READ_POLICY: InvocationResultPolicy = (() => { const bytes = canonicalJson(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE); return { resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes: bytes, resultPolicyTemplateSha256: conversationSha256(bytes) }; })();
+const READ_POLICY: InvocationResultPolicy = (() => { const bytes = canonicalJson(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE); return { resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes: bytes, resultPolicyTemplateSha256: sha256Hex(bytes) }; })();
 function seedUnmatched(test: ReturnType<typeof harness>, inputId = '00000000-0000-4000-8000-000000000031') {
   appendActivationMarker({ projectRoot: test.projectRoot }, test.sessionId, { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId });
   appendLlmTurnToolCallBatch({ projectRoot: test.projectRoot }, { inputId, sessionId: test.sessionId, agentName: 'planner' } as never, { id: 'old-read', type: 'function', function: { name: 'read', arguments: '{"path":"work:///"}' } }, READ_POLICY);
 }
 function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[]): void {
   const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
-  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 2, type: 'conversation-segment', rows })}\n`);
+  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 3, type: 'conversation-segment', rows })}\n`);
 }
 
 describe('AgentNodeExecution static preparation', () => {
@@ -204,7 +204,7 @@ describe('AgentNodeExecution static preparation', () => {
     const input = (test.llm.turn.mock.calls as unknown as [[unknown]])[0][0] as { preparedContext: { dynamicBlocks: readonly { id: string; content: string }[]; dynamicBlocksSha256: string }; providerConversation: { messages: Array<{ content: string }> } };
     expect(input.preparedContext.dynamicBlocks.map((block) => block.id)).toEqual(['card-activation:project', 'node-activation:project:work']);
     expect(input.preparedContext.dynamicBlocks[1].content).toBe("Current workflow node 'work':\n\nnode prompt");
-    expect(input.preparedContext.dynamicBlocksSha256).toBe(dynamicBlocksSha256(input.preparedContext.dynamicBlocks as never));
+    expect(input.preparedContext.dynamicBlocksSha256).toBe(canonicalValueSha256(input.preparedContext.dynamicBlocks));
     expect(input.providerConversation.messages.filter((item) => item.content.endsWith('node prompt'))).toHaveLength(1);
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows.some((row) => row.content.includes('node prompt'))).toBe(false);
   });

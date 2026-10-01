@@ -8,7 +8,7 @@ import type { CardService as CardServiceType } from '../../src/cards/store-api.j
 import type { InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { contextContentSha256 } from '../../src/runtime/actors/context/context-blocks.js';
+import { sha256Hex } from '../../src/schemas/index.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { ANALYST_ORIENTATION_MAX_BYTES } from '../../src/application/read-models/analyst-orientation.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -108,7 +108,7 @@ describe('Analyst project context', () => {
     expect(tree.storage).toBe('activation_local');
     expect(tree.replacement.kind).toBe('latest_snapshot');
     expect(tree.replacement.key).toBe('analyst.project_tree');
-    expect(tree.replacement.contentSha256).toBe(contextContentSha256(tree.content));
+    expect(tree.replacement.contentSha256).toBe(sha256Hex(tree.content));
     expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.block_identity === tree.id && item.content === tree.content)).toHaveLength(1);
   });
 

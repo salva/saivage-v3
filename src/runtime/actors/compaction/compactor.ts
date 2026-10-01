@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalValueSha256, type ConversationContinuation } from '../../../persistence/index.js';
+import type { ConversationContinuation } from '../../../persistence/index.js';
+import { canonicalValueSha256, sha256Hex } from '../../../schemas/index.js';
 import {
   publishCompactedConversationSegment,
   readCurrentConversationSegment,
@@ -7,7 +8,7 @@ import {
   type CompactionSuccessorIdentity,
   type ConversationFileContext,
 } from '../../../persistence/session-api.js';
-import { compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, protectedPromptsSha256, type AgentMessage, type CompactedHistory,
+import { compactedHistorySchema, coveredSourceGroupsSha256, foldDispositionCommitment, type AgentMessage, type CompactedHistory,
 } from '../../../schemas/index.js';
 import {
   deriveRequiredModelFacts,
@@ -486,8 +487,8 @@ function buildSuccessorHistory(args: {
       sourceVersion: args.sourceVersion,
       coveredThroughMessageId: args.coveredRows.at(-1)!.id,
       coveredSourceGroupsSha256: coveredSourceGroupsSha256(selection.groups),
-      accumulatedSummarySha256: accumulatedSummarySha256(args.summaryText),
-      protectedPromptsSha256: protectedPromptsSha256(protection.protectedPrompts),
+      accumulatedSummarySha256: sha256Hex(args.summaryText),
+      protectedPromptsSha256: canonicalValueSha256(protection.protectedPrompts),
     },
     requiredModelFacts: deriveRequiredModelFacts({
       inherited: args.sourceGenesis?.history.requiredModelFacts ?? { latestRecovery: null, latestContentPolicyRefusal: null },

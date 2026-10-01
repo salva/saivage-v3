@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../../../schemas/index.js';
 import { Buffer } from 'node:buffer';
 
 import {
@@ -388,7 +388,7 @@ function prepareComponent(component: RefineSourceComponent): PreparedRefineSourc
   return {
     ...component,
     totalBytes: Buffer.byteLength(component.content, 'utf8'),
-    sourceSha256: createHash('sha256').update(component.content, 'utf8').digest('hex'),
+    sourceSha256: sha256Hex(component.content),
   };
 }
 

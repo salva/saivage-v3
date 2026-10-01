@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { closeSync, existsSync, fstatSync, fsyncSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { projectIdentityDigest } from '../../src/persistence/index.js';
+import { closeSync, existsSync, fsyncSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AuthoredRecordNotFoundError, classifyCurrentAuthoredRecord, initializeAuthoredRecord, openAuthoredRecord, readCurrentAuthoredRecord } from '../../src/persistence/authored-record-files.js';
-import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { readGrowingRows } from '../helpers/growing-rows.js';
 import { authoredRecordVersionArtifactSchema, type AuthoredRecordVersionArtifact } from '../../src/persistence/canonical-record-artifacts.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import type { RecordDefinition } from '../../src/records/record-definition.js';
@@ -26,11 +28,34 @@ function setup() {
 
 function statusDefinition(overrides: Partial<RecordDefinition> = {}): RecordDefinition { return { filename: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, declared: true, ...overrides }; }
 function streamPath(root: string, cardId: string, filename: string): string { return cardRecordStreamFile(root, cardId, { filename: filename as never }); }
-function recordRows(root: string, cardId: string, definition: RecordDefinition): AuthoredRecordVersionArtifact[] { return readStrictCanonicalGrowingFile(cardRecordStreamFile(root, cardId, definition), authoredRecordVersionArtifactSchema); }
+function recordRows(root: string, cardId: string, definition: RecordDefinition): AuthoredRecordVersionArtifact[] { return readGrowingRows(cardRecordStreamFile(root, cardId, definition), authoredRecordVersionArtifactSchema); }
 function current(cards:CardService,cardId:string,name:string){const result=cards.readRecordCurrent(cardId,name);if(result.kind!=='found'||!result.value.projection)throw new AuthoredRecordNotFoundError();return result.value.projection;}
 function historical(cards:CardService,cardId:string,name:string,version:number){const result=cards.readRecordVersion(cardId,name,version);if(result.kind!=='found')throw new AuthoredRecordNotFoundError();return result.value.projection;}
 
 describe('authored record exact streams', () => {
+  it('preserves identity JSON bytes and exact UTF-8 record content hashes', () => {
+    const identity = { id: 'project' as const, created_at: '2026-10-01T00:00:00.000Z' };
+    expect(projectIdentityDigest(identity)).toBe(createHash('sha256').update(JSON.stringify(identity)).digest('hex'));
+    const { cards, card, root } = setup(); const content = 'é\r\n{"b":2, "A":1}\n😀';
+    cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', content);
+    const rows = recordRows(root, card.id, statusDefinition());
+    expect(rows.at(-1)!.draft!.content_sha256).toBe(createHash('sha256').update(content, 'utf8').digest('hex'));
+    expect(rows.at(-1)!.draft!.content).toBe(content);
+    const accepted = recordRows(root, card.id, statusDefinition({ filename: 'brief.md', schema: 'card-brief.v1', bootstrap: true }))[0]!.accepted!;
+    expect(accepted.content_sha256).toBe(createHash('sha256').update(accepted.content, 'utf8').digest('hex'));
+  });
+
+  it('current and writer reads discard a valid torn final suffix', () => {
+    const { cards, card, root } = setup(); cards.openRecord(card.id, 'status.md'); const path = streamPath(root, card.id, 'status.md'); const prefix = readFileSync(path);
+    writeFileSync(path, Buffer.concat([prefix, Buffer.from([0xe2, 0x82])])); expect(current(cards, card.id, 'status.md').headVersion).toBe(1); expect(readFileSync(path)).toEqual(prefix);
+    writeFileSync(path, Buffer.concat([prefix, Buffer.from('suffix')])); cards.editRecord(card.id, 'status.md', 'new content'); expect(current(cards, card.id, 'status.md').headVersion).toBe(2);
+  });
+
+  it('an illegal complete record transition blocks truncation and writer admission', () => {
+    const { cards, card, root } = setup(); cards.openRecord(card.id, 'status.md'); const path = streamPath(root, card.id, 'status.md'); const first = readFileSync(path);
+    const before = Buffer.concat([first, first, Buffer.from('suffix')]); writeFileSync(path, before);
+    expect(() => current(cards, card.id, 'status.md')).toThrow(); expect(() => cards.editRecord(card.id, 'status.md', 'new content')).toThrow(); expect(readFileSync(path)).toEqual(before);
+  });
   it('reads one active path and one record stream for each complete record operation',()=>{
     const {cards,card,root}=setup();cards.openRecord(card.id,'status.md');const expected=[cardStreamFile(root,'project'),cardStreamFile(root,card.id),streamPath(root,card.id,'status.md')];
     for(const read of [(i:CanonicalReadInstrumentation)=>cards.readRecordCurrent(card.id,'status.md',i),(i:CanonicalReadInstrumentation)=>cards.readRecordHistory(card.id,'status.md',i),(i:CanonicalReadInstrumentation)=>cards.readRecordVersion(card.id,'status.md',1,i),(i:CanonicalReadInstrumentation)=>cards.diffRecordVersions(card.id,'status.md',{from:1,to:1},i)]){const paths:string[]=[];read({onRead:(path)=>paths.push(path)});expect(paths).toEqual(expected);}
@@ -133,7 +158,7 @@ describe('authored record exact streams', () => {
     expect(readFileSync(path)).toEqual(before);
   });
 
-  it('fails closed for non-file and symlink stream paths', () => {
+  it('an unusable exact directory stream fails at read, including through a symlink', () => {
     const definition = statusDefinition({ filename: 'notes.md', declared: false });
     const dirStream = setup(); mkdirSync(streamPath(dirStream.root, dirStream.card.id, 'notes.md')); expect(() => classifyCurrentAuthoredRecord(dirStream.root, dirStream.card, definition)).toThrow();
     const linked = setup(); const target = streamPath(linked.root, linked.card.id, 'notes.md'); mkdirSync(`${target}-dir`); symlinkSync(`${target}-dir`, target); expect(() => classifyCurrentAuthoredRecord(linked.root, linked.card, definition)).toThrow();
@@ -174,7 +199,6 @@ describe('authored record exact streams', () => {
     const definition = statusDefinition({ filename: 'status.md', declared: true });
     const cardsWithIo = new CardService(root, undefined, {
       open: openSync,
-      stat: fstatSync,
       write: (() => { const failure = new Error('simulated append failure') as NodeJS.ErrnoException; failure.code = 'EIO'; throw failure; }) as typeof writeSync,
       fsync: fsyncSync,
       close: closeSync,

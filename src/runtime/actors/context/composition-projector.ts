@@ -16,7 +16,8 @@ import { parseToolCallMessageForModel } from '../../../contracts/index.js';
 import { ToolResultSchema } from '../../../contracts/index.js';
 import type { ProcessToolResult } from '../../../contracts/index.js';
 import { validateProcessToolResult } from '../../../tools/tool-api.js';
-import { contextContentSha256, selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
+import { selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
+import { sha256Hex } from '../../../schemas/index.js';
 import { type ContextBlock } from '../../../contracts/index.js';
 import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToolBundlePolicy } from './row-policy.js';
 
@@ -205,7 +206,7 @@ function projectProcessResultForPrimary(row: AgentMessage): AgentMessage {
     content,
     context_policy: {
       ...row.context_policy,
-      result_content_sha256: contextContentSha256(content),
+      result_content_sha256: sha256Hex(content),
     },
   });
 }
@@ -241,7 +242,7 @@ export function currentCoveredRequiredFactRows(args: {
 function selectVerifiedLatestDynamicBlocks(blocks: readonly ContextBlock[]): readonly ContextBlock[] {
   for (const block of blocks) {
     if (block.replacement.kind !== 'latest_snapshot') continue;
-    if (contextContentSha256(block.content) !== block.replacement.contentSha256) throw new Error(`Dynamic context block '${block.id}' replacement hash does not commit to its exact content.`);
+    if (sha256Hex(block.content) !== block.replacement.contentSha256) throw new Error(`Dynamic context block '${block.id}' replacement hash does not commit to its exact content.`);
   }
   return selectLatestContextBlocks(blocks);
 }

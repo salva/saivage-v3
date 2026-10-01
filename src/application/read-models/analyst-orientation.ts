@@ -1,6 +1,5 @@
 import type { CardStatus, RuntimeStatus } from '../../schemas/index.js';
-import { canonicalJson } from '../../schemas/index.js';
-import { conversationSha256 } from '../../persistence/index.js';
+import { sha256Hex, canonicalValueSha256 } from '../../schemas/index.js';
 
 const ANALYST_ORIENTATION_KEY = 'analyst.project_tree';
 export const ANALYST_ORIENTATION_MAX_BYTES = 8192;
@@ -113,7 +112,7 @@ export function buildAnalystOrientationSnapshot(
     }),
     runtime: { status: runtimeCurrent.status, current_card_id: runtimeCurrent.currentCardId },
   };
-  const fullObservationSha256 = conversationSha256(canonicalJson(fullObservation));
+  const fullObservationSha256 = canonicalValueSha256(fullObservation);
 
   const expanded = new Set<string>(['project', ...chain]);
   const shown = new Set<string>(chain);
@@ -175,5 +174,5 @@ export function buildAnalystOrientationSnapshot(
 
   const content = render();
   if (!fits(content)) throw new AnalystOrientationPreparationError(`the rendered orientation exceeds the ${ANALYST_ORIENTATION_MAX_BYTES}-byte budget.`);
-  return { content, fullObservationSha256, contentSha256: conversationSha256(content) };
+  return { content, fullObservationSha256, contentSha256: sha256Hex(content) };
 }

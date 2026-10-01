@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { readGrowingRows } from '../helpers/growing-rows.js';
 import { cardArtifactSchema, type CardArtifact } from '../../src/persistence/canonical-card-artifacts.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
@@ -23,7 +23,7 @@ function fixture() {
   return { root, cards: new CardService(root) };
 }
 
-function streamRows(root: string, cardId: string): CardArtifact[] { return readStrictCanonicalGrowingFile(cardStreamFile(root, cardId), cardArtifactSchema); }
+function streamRows(root: string, cardId: string): CardArtifact[] { return readGrowingRows(cardStreamFile(root, cardId), cardArtifactSchema); }
 function envelopeCount(root: string, cardId: string): number { return readFileSync(cardStreamFile(root, cardId), 'utf8').trimEnd().split('\n').length; }
 
 function childInput(cardId: string, title: string) {
@@ -31,6 +31,19 @@ function childInput(cardId: string, title: string) {
 }
 
 describe('card exact stream', () => {
+  it('current and retained tombstone owners discard only valid torn suffixes', () => {
+    const { root, cards } = fixture(); const child = cards.create(childInput('project', 'before')); const path = cardStreamFile(root, child.id); const prefix = readFileSync(path);
+    writeFileSync(path, Buffer.concat([prefix, Buffer.from([0xe2, 0x82])])); expect(cards.read(child.id)?.title).toBe('before'); expect(readFileSync(path)).toEqual(prefix);
+    cards.deleteSubtrees([child.id], () => true, 'analyst'); const terminal = readFileSync(path); writeFileSync(path, Buffer.concat([terminal, Buffer.from('suffix')]));
+    expect(readCommittedCardArtifactCatalog(root, child.id)).toMatchObject({ kind: 'found', value: { head: { kind: 'card-tombstone' } } }); expect(readFileSync(path)).toEqual(terminal);
+  });
+
+  it('invalid complete card transitions block truncation and writer publication', () => {
+    const { root, cards } = fixture(); const child = cards.create(childInput('project', 'before')); cards.editCard(child.id, { title: 'after' }, 'planner'); const path = cardStreamFile(root, child.id);
+    const lines = readFileSync(path, 'utf8').trimEnd().split('\n'); const envelope = JSON.parse(lines[1]!); envelope.rows[0].card.title = 'before';
+    const before = Buffer.from(`${lines[0]}\n${JSON.stringify(envelope)}\nsuffix`); writeFileSync(path, before);
+    expect(() => cards.read(child.id)).toThrow(); expect(() => cards.editCard(child.id, { title: 'later' }, 'planner')).toThrow(); expect(readFileSync(path)).toEqual(before);
+  });
   it('publishes row format 4 without removed fields for root, child, update, and tombstone rows', () => {
     const { root, cards } = fixture();
     const child = cards.create(childInput('project', 'before'));
@@ -130,7 +143,7 @@ describe('card exact stream', () => {
     const { root, cards } = fixture();
     const child = cards.create(childInput('project', 'before'));
     cards.editCard(child.id, { title: 'after' }, 'planner');
-    const head = readStrictCanonicalGrowingFile(cardStreamFile(root, child.id), cardArtifactSchema).at(-1)!;
+    const head = readGrowingRows(cardStreamFile(root, child.id), cardArtifactSchema).at(-1)!;
     expect(cards.readCardVersion(child.id, 1)).toMatchObject({ kind: 'found', value: { card: { title: 'before' } } });
     expect(cards.readCardVersion(child.id, 2)).toMatchObject({ kind: 'found', value: { card: { title: 'after' }, entry_id: head.entry_id } });
     expect(cards.readCardVersion(child.id, 3)).toEqual({ kind: 'version-not-found', version: 3 });
@@ -175,7 +188,6 @@ describe('card exact stream', () => {
     const child = cards.create(childInput('project', 'before'));
     const cardsWithIo = new CardService(root, undefined, {
       open: openSync,
-      stat: fstatSync,
       write: (() => { const failure = new Error('simulated append failure') as NodeJS.ErrnoException; failure.code = 'EIO'; throw failure; }) as typeof writeSync,
       fsync: fsyncSync,
       close: closeSync,

@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { canonicalJson, type AgentName, type ConversationSessionId } from '../schemas/index.js';
+import { sha256Hex, canonicalValueSha256, type AgentName, type ConversationSessionId } from '../schemas/index.js';
 import type { FreshnessEffects } from '../contracts/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import {
@@ -13,7 +12,6 @@ import {
   AdmittedProviderTurnFailure,
   AdmittedRecoveryIntegrityError,
   AdmissionIntegrityError,
-  capabilityRequestSha256,
   classifyCandidateLocalAdmission,
   ordinaryAdmittedExecutionAuthority,
   retainedAdmissionStateDiagnostics,
@@ -139,7 +137,7 @@ export class InvocationService {
       if (chain.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, candidate)))
         throw new Error(`Ordinary candidate chain contains a duplicate configured identity: ${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}.`);
     const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
-    const capabilityHash = capabilityRequestSha256(capabilityRequest);
+    const capabilityHash = canonicalValueSha256(capabilityRequest);
     const limits = admissionSizeLimits(request);
     const options = this.buildRequestOptions(request);
     const candidates: CandidateLocalAdmission[] = chain.map((candidate) => {
@@ -177,7 +175,7 @@ export class InvocationService {
     assertProviderConversationSourceRows(request.providerConversation);
     const candidate = this.registry.assertCandidate(request.routePass.candidate);
     const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
-    const capabilityHash = capabilityRequestSha256(capabilityRequest);
+    const capabilityHash = canonicalValueSha256(capabilityRequest);
     const limits = admissionSizeLimits(request);
     const options = this.buildRequestOptions(request);
     const capabilities = this.registry.getEffectiveCapabilities(candidate);
@@ -241,7 +239,7 @@ export class InvocationService {
     assertProviderConversationSourceRows(request.providerConversation);
     verifySuspendedAdmittedExecution(suspension);
     const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
-    const capabilityHash = capabilityRequestSha256(capabilityRequest);
+    const capabilityHash = canonicalValueSha256(capabilityRequest);
     const bindings = executionBindings(request, capabilityRequest, capabilityHash);
     assertBindingsUnchanged(suspension.bindings, bindings);
     const limits = admissionSizeLimits(request);
@@ -659,15 +657,15 @@ function executionBindings(request: InvocationRequest, capabilityRequest: Readon
     sessionId: request.sessionId,
     agentName: request.agentName,
     sourceSessionId: request.providerConversation.sourceSessionId,
-    systemPromptSha256: sha256Of(request.systemPrompt),
-    toolsSha256: sha256Of(canonicalJson(request.tools)),
-    terminalToolNamesSha256: sha256Of(canonicalJson(request.terminalToolNames)),
+    systemPromptSha256: sha256Hex(request.systemPrompt),
+    toolsSha256: canonicalValueSha256(request.tools),
+    terminalToolNamesSha256: canonicalValueSha256(request.terminalToolNames),
     capabilityRequest,
     capabilityRequestSha256: capabilityHash,
     temperature: request.modelParams.temperature,
     requestedCompletionTokens,
     contextUtilizationFraction: contextUtilizationFractionOf(request),
-    preparedCompactionSha256: sha256Of(canonicalJson(request.preparedCompaction ?? null)),
+    preparedCompactionSha256: canonicalValueSha256(request.preparedCompaction ?? null),
   });
 }
 
@@ -705,10 +703,6 @@ function recoveryTerminalFailure(suspension: SuspendedAdmittedExecution, detail:
       message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}. ${diagnostics}`,
     });
   return new LlmRequestError({ kind: 'input_context_exhausted', provider: 'unknown', status: 0, message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}.` });
-}
-
-function sha256Of(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 function waitUntil(

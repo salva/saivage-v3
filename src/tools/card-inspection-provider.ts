@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { canonicalValueSha256 } from '../schemas/index.js';
 import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
 import {
@@ -17,7 +18,6 @@ import {
   boundedToolError,
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
-  observationSha256,
   packCollectionData,
   utf8SafePreview,
   type CollectionPage,
@@ -68,7 +68,7 @@ function listCards(store: CardInspectionStore, params: ListCardsInput): ToolActi
     if(parent!==null&&!all.some(({card})=>card.id===parent))return cardNotFound(parent);
     rows=rows.filter(({parentId})=>parentId===parent);
   }
-  const observation = observationSha256({
+  const observation = canonicalValueSha256({
     surface: 'list_cards',
     filters: { status: params.status ?? null, type: params.type ?? null, parent: params.parent ?? null },
     cards: rows.map(({card}) => ({ id: card.id, version_seq: card.version_seq, status: card.lifecycle.status })),
@@ -100,7 +100,7 @@ function getTree(store: CardInspectionStore, rootId: string, depth: number, posi
       depth_omitted: relativeDepth===depth&&activeChildrenCount>0,
       version_seq: card.version_seq,
     }));
-  const observation = observationSha256({ surface: 'get_tree', root_id: rootId, depth, nodes: nodes.map((node) => ({ id: node.id, version_seq: node.version_seq })) });
+  const observation = canonicalValueSha256({ surface: 'get_tree', root_id: rootId, depth, nodes: nodes.map((node) => ({ id: node.id, version_seq: node.version_seq })) });
   const { data } = packCollectionData({
     cap: responseBytes,
     total: nodes.length,
@@ -140,7 +140,7 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
   if (section === 'dependencies') items = () => [...projected.depends_on];
   else items = () => sectionItems!;
   const complete = items();
-  const observation = observationSha256({ surface: 'get_card', card_id: card.id, version_seq: card.version_seq, section, items: complete });
+  const observation = canonicalValueSha256({ surface: 'get_card', card_id: card.id, version_seq: card.version_seq, section, items: complete });
   const { data } = packCollectionData({
     cap: responseBytes,
     total: complete.length,

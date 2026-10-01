@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
@@ -88,7 +88,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const io = {
       open(path: string, flags: number, mode?: number) { events.push('publication:open'); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
-      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+      write: writeSync, fsync: fsyncSync, close: closeSync,
     } as unknown as GrowingFileIo;
     const service = new CardService(root, freshness, io);
 
@@ -158,7 +158,6 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failure = new Error('injected append failure');
     const failingIo: GrowingFileIo = {
       open: openSync,
-      stat: fstatSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },
       close: closeSync,
@@ -172,7 +171,6 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failure = new Error('injected link append failure');
     const failingIo: GrowingFileIo = {
       open: openSync,
-      stat: fstatSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },
       close: closeSync,
@@ -196,7 +194,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const io = {
       open(path: string, flags: number, mode?: number) { events.push('publication:open'); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
-      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+      write: writeSync, fsync: fsyncSync, close: closeSync,
     } as unknown as GrowingFileIo;
     const service = new CardService(root, freshness, io);
     const originalRead = service.read.bind(service);
@@ -237,7 +235,6 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const io = {
       open(path: string, flags: number, mode?: number) { publications += 1; events.push(`publication:${publications}:open`); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
-      stat: fstatSync,
       write(fd: number, buffer: Uint8Array, offset?: number, length?: number, position?: number | null) {
         events.push(`publication:${publications}:write`);
         if (publications === 2) throw failure;
@@ -308,7 +305,6 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failure = new Error('injected record close failure');
     const failingIo: GrowingFileIo = {
       open: openSync,
-      stat: fstatSync,
       write: writeSync,
       fsync(fd) { fsyncSync(fd); throw failure; },
       close: closeSync,
@@ -325,7 +321,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     flush(); clear();
     const missingIo: GrowingFileIo = {
       open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
-      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+      write: writeSync, fsync: fsyncSync, close: closeSync,
     };
     const missingCards = new CardService(root, hub, missingIo);
     expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow('missing');

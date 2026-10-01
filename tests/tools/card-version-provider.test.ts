@@ -10,7 +10,7 @@ import { invokeToolForLlm, llmToolDefinition, type InvocationSurface } from '../
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { cardStreamFile, cardRecordStreamFile } from '../../src/persistence/layout.js';
-import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { readGrowingRows } from '../helpers/growing-rows.js';
 import { cardArtifactSchema } from '../../src/persistence/canonical-card-artifacts.js';
 import { authoredRecordVersionArtifactSchema } from '../../src/persistence/canonical-record-artifacts.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
@@ -145,7 +145,7 @@ describe('card version provider', () => {
     expect(listData.versions.items.map((entry) => entry.version)).toEqual([1, 2]);
     expect(listData.observation_sha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(envelopeBytes(listed.data)).toBeLessThanOrEqual(32768);
-    const streamEntryIds = readStrictCanonicalGrowingFile(cardStreamFile(root, child.id), cardArtifactSchema).map((row) => row.entry_id);
+    const streamEntryIds = readGrowingRows(cardStreamFile(root, child.id), cardArtifactSchema).map((row) => row.entry_id);
     expect(listData.versions.items.map((entry) => entry.entry_id)).toEqual(streamEntryIds);
     expect(listData.versions.items.map(({ change }) => change)).toEqual([null, { summary: 'title updated', changed_fields: ['title'], actor: 'planner' }]);
 
@@ -325,7 +325,7 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
 
     const streamPath = cardRecordStreamFile(root, child.id, { filename: 'status.md' });
-    const rows = readStrictCanonicalGrowingFile(streamPath, authoredRecordVersionArtifactSchema);
+    const rows = readGrowingRows(streamPath, authoredRecordVersionArtifactSchema);
     expect(rows).toHaveLength(6);
     const closedRow = rows[2]!;
     const discardedRow = rows[5]!;

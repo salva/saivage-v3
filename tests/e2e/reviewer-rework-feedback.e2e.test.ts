@@ -20,7 +20,7 @@ import type { AgentMembershipFreshnessTarget } from '../../src/contracts/index.j
 import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
 import { appendLlmTurnToolCallBatch, type InvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
 import { canonicalJson, type CardConversationSessionId } from '../../src/schemas/index.js';
-import { conversationSha256 } from '../../src/persistence/canonical-conversation-artifacts.js';
+import { sha256Hex } from '../../src/schemas/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
 
@@ -44,7 +44,7 @@ function tool(id: string, name: string, args: object): LlmCompleteResult {
 
 const READ_POLICY: InvocationResultPolicy = (() => {
   const resultPolicyTemplateBytes = canonicalJson(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE);
-  return Object.freeze({ resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes, resultPolicyTemplateSha256: conversationSha256(resultPolicyTemplateBytes) });
+  return Object.freeze({ resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes, resultPolicyTemplateSha256: sha256Hex(resultPolicyTemplateBytes) });
 })();
 
 function seedFinalUnmatchedRead(projectRoot: string, sessionId: CardConversationSessionId, inputId: string, callId: string): void {

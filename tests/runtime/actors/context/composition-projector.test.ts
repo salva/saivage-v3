@@ -21,7 +21,7 @@ import {
   type ComposedContextProjection,
   type EffectiveCompactedHistoryFacts,
 } from '../../../../src/runtime/actors/context/composition-projector.js';
-import { contextContentSha256 } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { sha256Hex } from '../../../../src/schemas/index.js';
 import { type ContextBlock } from '../../../../src/contracts/index.js';
 import { buildContentPolicyRefusalMessage } from '../../../../src/runtime/actors/content-policy-messages.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
@@ -127,12 +127,12 @@ describe('composition projector selection pass', () => {
   });
 
   it('drops superseded snapshots after verifying every represented-content hash', () => {
-    const stale = dynamicBlock('tree-1', { content: 'tree-v1', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextContentSha256('tree-v1') } });
-    const latest = dynamicBlock('tree-2', { content: 'tree-v2', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextContentSha256('tree-v2') } });
+    const stale = dynamicBlock('tree-1', { content: 'tree-v1', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: sha256Hex('tree-v1') } });
+    const latest = dynamicBlock('tree-2', { content: 'tree-v2', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: sha256Hex('tree-v2') } });
     const composed = compose([], { dynamicBlocks: [stale, latest] });
     expect(composed.primary).toHaveLength(1);
     expect(composed.primary[0]).toMatchObject({ origin: 'dynamic', block: { id: 'tree-2' } });
-    const mismatch = dynamicBlock('tree-3', { content: 'tree-v3', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextContentSha256('other') } });
+    const mismatch = dynamicBlock('tree-3', { content: 'tree-v3', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: sha256Hex('other') } });
     expect(() => compose([], { dynamicBlocks: [mismatch] })).toThrow(/replacement hash does not commit/);
   });
 
@@ -326,7 +326,7 @@ describe('primary process-result projection', () => {
     expect(parsed.data).not.toHaveProperty('stdout_url');
     expect(parsed.data.stderr_url).toBe(data.stderr_url);
     expect(copied.content).toBe(canonicalJson(parsed));
-    expect(copied.context_policy).toEqual({ ...rows[1].context_policy, result_content_sha256: contextContentSha256(copied.content) });
+    expect(copied.context_policy).toEqual({ ...rows[1].context_policy, result_content_sha256: sha256Hex(copied.content) });
     expect(agentMessageSchema.parse(copied)).toEqual(copied);
     expect(rows[1]).toEqual(original);
     expect(composed.summarizer).toContainEqual(expect.objectContaining({ kind: 'settled_tool_bundle', resultContent: sourceContent }));

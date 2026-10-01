@@ -1,18 +1,65 @@
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from '@jest/globals';
 
-import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment, truncateCurrentConversationUnterminatedSuffix } from '../../src/persistence/conversation-file.js';
-import { cardConversationVersionFile, cardConversationVersionIndexFile } from '../../src/persistence/layout.js';
+import { appendConversationBatch, initializeMissingConversation, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
+import { consumeGrowingFile } from '../../src/persistence/growing-file.js';
+import { cardConversationVersionFile, cardConversationVersionIndexFile, globalAgentConversationRoot } from '../../src/persistence/layout.js';
 import { agentMessageSchema, type AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it.each(['index', 'envelope', 'ordinary-genesis'])('rejects format 2 at the exact %s consumer without changing bytes', (part) => {
+    const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]);
+    const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
+    const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const segmentPath = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
+    const index = JSON.parse(readFileSync(indexPath, 'utf8'));
+    const envelope = JSON.parse(segment.bytes.toString('utf8'));
+    expect(index.format_version).toBe(3);
+    expect(envelope.version).toBe(3);
+    expect(envelope.rows[0].format_version).toBe(3);
+    const path = part === 'index' ? indexPath : segmentPath;
+    if (part === 'index') index.format_version = 2;
+    else if (part === 'envelope') envelope.version = 2;
+    else envelope.rows[0].format_version = 2;
+    writeFileSync(path, `${JSON.stringify(part === 'index' ? index : envelope)}\n`);
+    const before = readFileSync(path);
+    expect(() => readCurrentConversationSegment(projectRoot, SESSION)).toThrow();
+    expect(readFileSync(path)).toEqual(before);
+  });
+
+  it('lazy establishment tolerates EEXIST usable directory symlinks without a directory proof', () => {
+    const projectRoot = root(); const session = 'agent:oversight:global' as const; const target = globalAgentConversationRoot(projectRoot, 'oversight'); const directory = join(projectRoot, 'oversight-directory'); mkdirSync(directory); symlinkSync(directory, target);
+    expect(initializeMissingConversation(projectRoot, session)).toBe(true); expect(initializeMissingConversation(projectRoot, session)).toBe(false); expect(readConversationCatalog(projectRoot, session).currentVersion).toBeNull();
+  });
+
+  it('lazy establishment propagates non-EEXIST mkdir errors and unusable parent exact-use errors', () => {
+    const projectRoot = root(); const session = 'agent:oversight:global' as const;
+    expect(() => initializeMissingConversation(join(projectRoot, 'missing'), session)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+    writeFileSync(globalAgentConversationRoot(projectRoot, 'oversight'), 'not a directory');
+    expect(() => initializeMissingConversation(projectRoot, session)).toThrow(expect.objectContaining({ code: 'ENOTDIR' }));
+  });
+
+  it('publishes incoming rows without a prospective history fold, then rejects invalid durable semantics on consumption', () => {
+    const projectRoot = root(); const invalid = { ...text('wrong-session'), session_id: 'agent:executor:project' as const };
+    expect(() => appendConversationBatch({ projectRoot }, [text('first'), invalid])).toThrow(/one session/);
+    appendConversationBatch({ projectRoot }, [text('first')]);
+    const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
+    const content = JSON.stringify({ success: true, data: null });
+    const malformed = agentMessageSchema.parse({ ...text('00000000-0000-4000-8000-000000000001:tool-result:orphan'), role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'orphan', content, context_policy: toolRowPolicies({ content, template: OPERATIONAL_RESULT_POLICY_TEMPLATE }).result });
+    // Row schema and session admission remain enforced independently of conversation semantics.
+    expect(() => appendConversationBatch({ projectRoot }, [malformed])).not.toThrow();
+    expect(() => readConversation(projectRoot, SESSION)).toThrow();
+    expect(readConversationCatalog(projectRoot, SESSION).currentVersion).toBe(segment.entry.version);
+  });
   it('retains a configured empty index and publishes ordinary v1 before membership', () => {
     const projectRoot = root(); const effects: unknown[] = [];
     expect(readConversationCatalog(projectRoot, SESSION).currentVersion).toBeNull();
@@ -35,17 +82,17 @@ describe('versioned conversation persistence', () => {
     expect(lines[1].rows.map((row: AgentMessage) => row.id)).toEqual(['private', 'second']);
   });
 
-  it('keeps runtime reads correction-free when the current segment has an unterminated suffix', () => {
+  it('current-version historical consumption truncates and returns retained bytes', () => {
     const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]); const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
     const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename); const canonical = readFileSync(path); appendFileSync(path, '{"unterminated":');
-    expect(() => readConversation(projectRoot, SESSION)).toThrow(/incomplete final envelope/);
-    expect(readFileSync(path)).toEqual(Buffer.concat([canonical, Buffer.from('{"unterminated":')]));
+    expect(readHistoricalConversationSegment(projectRoot, SESSION, 1).bytes).toEqual(canonical);
+    expect(readFileSync(path)).toEqual(canonical);
   });
 
   it('truncates only an unterminated suffix after validating the complete prefix', () => {
     const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]); const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
     const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename); const canonical = readFileSync(path); appendFileSync(path, '{"unterminated":');
-    truncateCurrentConversationUnterminatedSuffix(projectRoot, SESSION);
+    readCurrentConversationSegment(projectRoot, SESSION);
     expect(readFileSync(path)).toEqual(canonical);
     expect(readConversation(projectRoot, SESSION).sourceRows.map((row) => row.id)).toEqual(['first']);
   });
@@ -55,7 +102,7 @@ describe('versioned conversation persistence', () => {
     const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
     const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
     if (fault === 'complete-malformed') appendFileSync(path, '{"complete":"malformed"}\n');
-    else if (fault === 'semantic-invalid') appendFileSync(path, `${JSON.stringify({ version: 1, type: 'conversation-segment', rows: [text('first')] })}\n`);
+    else if (fault === 'semantic-invalid') appendFileSync(path, `${JSON.stringify({ version: 3, type: 'conversation-segment', rows: [text('first')] })}\nsuffix`);
     else if (fault === 'no-complete-prefix') writeFileSync(path, '{"unterminated":');
     else if (fault === 'missing-segment') unlinkSync(path);
     else if (fault === 'genesis-mismatch') {
@@ -67,7 +114,7 @@ describe('versioned conversation persistence', () => {
       writeFileSync(indexPath, `${JSON.stringify({ ...index, session_id: 'agent:executor:project' })}\n`);
     }
     const beforeIndex = readFileSync(indexPath); const beforeSegment = fault === 'missing-segment' ? null : readFileSync(path);
-    expect(() => truncateCurrentConversationUnterminatedSuffix(projectRoot, SESSION)).toThrow();
+    expect(() => readCurrentConversationSegment(projectRoot, SESSION)).toThrow();
     expect(readFileSync(indexPath)).toEqual(beforeIndex);
     if (beforeSegment) expect(readFileSync(path)).toEqual(beforeSegment);
   });
@@ -76,7 +123,7 @@ describe('versioned conversation persistence', () => {
     const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]); const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
     const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename); appendFileSync(path, 'suffix');
     const trace: string[] = [];
-    const result = truncateCurrentConversationUnterminatedSuffix(projectRoot, SESSION, {
+    const result = consumeGrowingFile(path, readFileSync(path), () => segment, {
       open() { trace.push('open'); return 7; }, ftruncate() { trace.push('ftruncate'); }, fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
     });
     expect(trace).toEqual(['open', 'ftruncate', 'fsync', 'close']);
@@ -86,13 +133,13 @@ describe('versioned conversation persistence', () => {
   it('keeps open failure direct and makes each post-truncation failure outcome-unknown and final', () => {
     const direct = new Error('open failed');
     const openFixture = truncationFixture();
-    expect(() => truncateCurrentConversationUnterminatedSuffix(openFixture, SESSION, { open() { throw direct; }, ftruncate() {}, fsync() {}, close() {} })).toThrow(direct);
+    expect(() => consumeGrowingFile('exact', Buffer.from('prefix\nsuffix'), () => openFixture, { open() { throw direct; }, ftruncate() {}, fsync() {}, close() {} })).toThrow(direct);
     for (const failed of ['ftruncate', 'fsync', 'close'] as const) {
       const projectRoot = truncationFixture(); const trace: string[] = [];
       const failure = new Error(`${failed} injected`);
       const operation = (name: string): void => { trace.push(name); if (name === failed) throw failure; };
       let thrown: unknown;
-      try { truncateCurrentConversationUnterminatedSuffix(projectRoot, SESSION, {
+      try { consumeGrowingFile('exact', Buffer.from('prefix\nsuffix'), () => projectRoot, {
         open() { trace.push('open'); return 7; }, ftruncate() { operation('ftruncate'); }, fsync() { operation('fsync'); }, close() { operation('close'); },
       }); } catch (error) { thrown = error; }
       expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);

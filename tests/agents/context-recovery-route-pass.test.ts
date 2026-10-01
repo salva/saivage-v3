@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { canonicalValueSha256 } from '../../src/schemas/index.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,7 +9,6 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import {
   AdmittedProviderTurnFailure,
   AdmittedRecoveryIntegrityError,
-  capabilityRequestSha256,
   candidateIdentitySha256,
   ordinaryAdmittedExecutionAuthority,
   type SuspendedAdmittedExecution,
@@ -268,7 +268,7 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
     const admission = svc.preparePrimaryRequestAdmission(request([A, B]));
     expect(admission.kind).toBe('admitted');
     if (admission.kind !== 'admitted') throw new Error('unreachable');
-    const hash = capabilityRequestSha256(admission.candidates[0]!.capabilityRequest);
+    const hash = canonicalValueSha256(admission.candidates[0]!.capabilityRequest);
     for (const verdict of admission.candidates) {
       expect(verdict.capabilityRequest).toEqual({});
       expect(verdict.capabilityRequestSha256).toBe(hash);

@@ -6,7 +6,7 @@ import {
   type ProviderExchangeLogEntry,
   type ProviderExchangePayload,
 } from '../contracts/index.js';
-import { admitGrowingFileTail, appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
+import { admitGrowingFileTail, appendEnvelope, serializeGrowingEnvelope, publishFirstEnvelope, readCanonicalBytesOrMissing, consumeGrowingRows } from './growing-file.js';
 import { providerExchangeFile } from './layout.js';
 
 function ownerSchema(owner: ConversationSessionId) {
@@ -14,11 +14,7 @@ function ownerSchema(owner: ConversationSessionId) {
     `Provider exchange does not belong to '${owner}'.`);
 }
 
-export function readProviderExchangeEntries(projectRoot: string, owner: ConversationSessionId) {
-  const path = providerExchangeFile(projectRoot, owner);
-  let entries;
-  try { entries = readStrictCanonicalGrowingFile(path, ownerSchema(owner)); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+function validateProviderEntries(path: string, entries: ProviderExchangeLogEntry[]): ProviderExchangeLogEntry[] {
   const ids = new Set<string>();
   for (const entry of entries) {
     const id = providerExchangeLogId(entry.data);
@@ -28,13 +24,20 @@ export function readProviderExchangeEntries(projectRoot: string, owner: Conversa
   return entries;
 }
 
+export function readProviderExchangeEntries(projectRoot: string, owner: ConversationSessionId) {
+  const path = providerExchangeFile(projectRoot, owner);
+  const bytes = readCanonicalBytesOrMissing(path);
+  if (bytes === null) return [];
+  return consumeGrowingRows(path, bytes, ownerSchema(owner), (rows) => validateProviderEntries(path, rows));
+}
+
 export function appendProviderExchangeEntry(projectRoot: string, owner: ConversationSessionId, entry: ProviderExchangeLogEntry): void {
   const path = providerExchangeFile(projectRoot, owner);
-  const prepared = prepareGrowingEnvelope([entry], ownerSchema(owner));
-  admitGrowingFileTail(path, ownerSchema(owner));
-  const result = appendEnvelope(path, prepared.bytes);
+  const bytes = serializeGrowingEnvelope([ownerSchema(owner).parse(entry)]);
+  admitGrowingFileTail(path, ownerSchema(owner), (rows) => { validateProviderEntries(path, rows); });
+  const result = appendEnvelope(path, bytes);
   // Evidence belongs to an established conversation root; missing directories fail at publication.
-  if (result.kind === 'missing') publishFirstEnvelope(path, prepared.bytes);
+  if (result.kind === 'missing') publishFirstEnvelope(path, bytes);
 }
 
 export function readLatestProviderExchangePayload(projectRoot: string, sessionId: ConversationSessionId): ProviderExchangePayload | null {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../schemas/index.js';
 import type { ProviderRegistry } from './provider.js';
 import { supportsCapabilityRequest } from './provider-capabilities.js';
 import {
@@ -25,7 +25,7 @@ export async function executeLlmProviderAttempt(args: {
 }): Promise<ProviderTurnCompletion> {
   const { plan, options } = args;
   options.signal?.throwIfAborted();
-  const actualHash = createHash('sha256').update(plan.request.serializedBody, 'utf8').digest('hex');
+  const actualHash = sha256Hex(plan.request.serializedBody);
   if (actualHash !== plan.request.requestHash)
     throw new CandidateRequestPlanIntegrityError(
       plan.candidate,

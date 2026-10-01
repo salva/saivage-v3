@@ -128,8 +128,12 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   persistent flagging blocks the owning card safely instead of continuing or
   exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-  The conversation index/genesis/segment format is version 2 with strict
-  protected-prompt declarations
+  The conversation index/genesis/segment format is version 3 with strict
+  protected-prompt declarations and locale-independent canonical commitments.
+  Adoption from format 2 is a **reset-only, history-losing cutover** across all
+  four generated roots, not a same-format upgrade; source completion authorizes
+  neither deployment nor reset. See the
+  [storage and cutover rules](docs/runbook/index.md#storage-and-interruption)
   ([prompt contract](docs/architecture/prompts.md),
   [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
   Card stream v5, artifact rows and Files wrappers at format 4 are a separate
@@ -138,6 +142,11 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)
   check by default; its only project effect is an evidenced notification.
+- All five growing JSONL families use exact owner-at-use reads that may discard
+  only a torn final suffix after full retained-prefix validation. Complete
+  corruption remains strict, older conversation segments remain immutable,
+  and uncertain truncation is fatal. See the
+  [interruption contract](docs/runbook/index.md#storage-and-interruption).
 - Process tools return bounded, redacted inline stdout/stderr heads with
   completeness flags and durable log URLs
   ([process result contract](docs/spec/system-specification.md#7-run-pause-resume-stop-and-restart));
