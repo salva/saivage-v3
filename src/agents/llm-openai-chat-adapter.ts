@@ -144,13 +144,13 @@ function buildOpenAIChatRequest(
           };
         }
         if (m.role === 'tool')
-          return { role: 'tool', content: m.content, tool_call_id: m.tool_call_id ?? m.id };
+          return { role: 'tool', content: m.content, tool_call_id: m.tool_call_id };
         return { role: toChatRole(m.role), content: m.content };
       }),
   ];
   const body: ChatCompletionRequest = {
     model: candidate.model,
-    messages: sanitizeToolCallSequences(messages),
+    messages,
     temperature: opts.temperature,
     max_tokens: opts.max_tokens,
     stream: false,
@@ -163,27 +163,6 @@ function buildOpenAIChatRequest(
   return body;
 }
 
-function sanitizeToolCallSequences(messages: ChatMessage[]): ChatMessage[] {
-  const out: ChatMessage[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i]!;
-    if (message.role === 'assistant' && message.tool_calls?.length) {
-      const need = new Set(message.tool_calls.map((call) => call.id));
-      let j = i + 1;
-      while (j < messages.length && messages[j]!.role === 'tool') {
-        const id = messages[j]!.tool_call_id;
-        if (id) need.delete(id);
-        j++;
-      }
-      if (need.size) {
-        if (message.content) out.push({ role: 'assistant', content: message.content });
-        continue;
-      }
-    }
-    out.push(message);
-  }
-  return out;
-}
 function toChatRole(role: ProviderConversationItem['role']): ChatMessage['role'] {
   switch (role) {
     case 'system':

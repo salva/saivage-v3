@@ -4,7 +4,7 @@ import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
 import { projectNotificationSubmission } from './notification-result-projection.js';
-import type { CardRecord, CardTypeName } from '../schemas/index.js';
+import { cardDepth, MAX_CARD_DEPTH, type CardRecord, type CardTypeName } from '../schemas/index.js';
 import {
   throwIfPublicationOutcomeUnknown,
   parseRecordUrl as awaitImportParse,
@@ -81,6 +81,16 @@ function success(data?: unknown): AnalystMutationOutcome {
 
 function denied(reason: string): AnalystMutationOutcome { return { kind: 'denied', reason }; }
 
+function reportPropagation(propagate: () => void): { ok: true } | { ok: false; partial: true; error: string } {
+  try {
+    propagate();
+    return { ok: true };
+  } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
+    return { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function subtree(store: CardService, rootId: string): CardRecord[] {
   return [rootId, ...store.getDescendantIds(rootId)].map((id) => store.read(id)).filter((card): card is CardRecord => card !== null);
 }
@@ -92,17 +102,31 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const parent = input.parent;
     const parentCard = this.store.read(parent);
     if (!parentCard) return denied(`parent '${parent}' does not exist`);
+    const depth = cardDepth(parent) + 1;
+    if (depth > MAX_CARD_DEPTH) return denied(`child depth exceeds ${MAX_CARD_DEPTH}`);
     if (!canCreateChildInStatus(parentCard.lifecycle.status) || parentCard.lifecycle.status === 'running') return denied('wrong_state');
     if (input.type === 'project') return denied('Root project card already exists');
     const analyst=this.store.workflows.analyst;
     if(!analyst.canCreateChildren||!analyst.tools.some((tool)=>tool.name==='create_card'))return denied(`agent '${analyst.name}' is not configured to create children`);
     const parentWorkflow=this.store.workflows.cardTypes.get(parentCard.type);if(!parentWorkflow)throw new Error(`No compiled workflow exists for card type '${parentCard.type}'.`);if(!parentWorkflow.permittedChildTypes.has(input.type))return denied(`child type '${input.type}' is not permitted under '${parentCard.type}'`);
+    const childWorkflow = this.store.workflows.cardTypes.get(input.type);
+    if (!childWorkflow) throw new Error(`No compiled workflow exists for card type '${input.type}'.`);
+    if (depth === MAX_CARD_DEPTH && childWorkflow.permittedChildTypes.size > 0) return denied(`child at depth ${MAX_CARD_DEPTH} must use a leaf card type`);
+    for (const dependency of input.depends_on ?? []) {
+      if (!this.store.read(dependency)) return denied(`dependency '${dependency}' does not exist`);
+    }
     const card = this.store.create({ type: input.type, parent, title: input.title, bootstrap_content: input.bootstrap_content, priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: this.store.workflows.analyst.name, depends_on: input.depends_on ?? [] });
-    try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
-    return success(toCardView(this.store, card));
+    const propagation = reportPropagation(() => propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard));
+    return success({ ...toCardView(this.store, card), propagation });
   }
 
   delete(ids: readonly string[]): AnalystMutationOutcome {
+    for (const id of ids) {
+      if (id === PROJECT_CARD_ID) return denied('root project card cannot be deleted');
+      if (!this.store.read(id)) return denied(`card '${id}' does not exist`);
+      const blocked = subtree(this.store, id).find((card) => card.lifecycle.status === 'running');
+      if (blocked) return denied(`card '${blocked.id}' is running`);
+    }
     const result = this.store.deleteSubtrees(ids, (card) => card.lifecycle.status !== 'running',this.store.workflows.analyst.name);
     return success({ deleted: result.deleted, top_level_deleted: result.requested });
   }
@@ -115,8 +139,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if (blocked) return denied(`card '${blocked.id}' is ${blocked.lifecycle.status}`);
     const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
     const anchor = this.store.getParent(card.id) ?? cardId;
-    try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
-    return success(result);
+    const propagation = reportPropagation(() => propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard));
+    return success({ ...result, propagation });
   }
 
   reorder(parentId: string, orderedChildIds: readonly string[]): AnalystMutationOutcome {
@@ -134,7 +158,8 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const result = this.store.reorderChildren(parentId, [...orderedChildIds]);
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
     if (result.changed > 0) {
-      try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
+      const propagation = reportPropagation(() => propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard));
+      return success({ parent_id: parentId, changed: result.changed, propagation });
     }
     return success({ parent_id: parentId, changed: result.changed });
   }

@@ -53,7 +53,7 @@ const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.str
 
 export const KNOWN_TOOL_INVOCATION_NAMES = [
   'create_card', 'cancel_card', 'delete_card', 'reorder_child', 'reopen_card', 'queue_notification',
-  'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'mcp_reconcile',
+  'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server',
   'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool',
   'list_agent_sessions', 'read_agent_session', 'list_cards', 'get_card', 'get_tree',
@@ -166,7 +166,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'emit_result':
       return { outcome: input['outcome'], summary: redactTextForOutbound(input['summary'] as string) };
     case 'delete_card': case 'reorder_child': case 'reopen_card': case 'get_status': case 'start_project': case 'pause_runtime':
-    case 'resume_runtime': case 'stop_project': case 'restart_server': case 'mcp_reconcile': case 'navigate_back':
+    case 'resume_runtime': case 'stop_project': case 'restart_server': case 'navigate_back':
     case 'show_config': case 'read_runtime_events': case 'read_runtime_errors': case 'read_control_actions':
     case 'list_processes_tool': case 'list_agent_sessions': case 'read_agent_session': case 'list_cards':
     case 'get_card': case 'get_tree': case 'list_card_versions': case 'get_card_version': case 'diff_card_versions':
@@ -208,7 +208,7 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'reopen_card': return z.union([analystReopenCardInputSchema, plannerReopenCardInputSchema]);
     case 'queue_notification': return z.union([queueNotificationInputSchema, plannerQueueNotificationInputSchema]);
     case 'get_status': case 'start_project': case 'pause_runtime': case 'resume_runtime': case 'stop_project':
-    case 'restart_server': case 'mcp_reconcile': case 'navigate_back': case 'show_config':
+    case 'restart_server': case 'navigate_back': case 'show_config':
       return emptyToolInputSchema;
     case 'list_agent_sessions':return listAgentSessionsInputSchema;
     case 'navigate_workspace': return navigateWorkspaceInputSchema;

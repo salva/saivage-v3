@@ -8,7 +8,7 @@ import {
   type ActivateCardArguments,
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
-import { urgencyValues, type CardRecord, type CardTypeName, type Urgency } from '../schemas/index.js';
+import type { CardRecord, CardTypeName, Urgency } from '../schemas/index.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import {
@@ -71,10 +71,10 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof p
   const input: NewChildCardInput = {
     type: type.type,
     parent: ctx.parentCardId,
-    title: requireNonEmptyString(record.title, 'title'),
-    bootstrap_content: requireNonEmptyString(record.bootstrap_content, 'bootstrap_content'),
+    title: record.title,
+    bootstrap_content: record.bootstrap_content,
     priority: record.priority ?? 0,
-    urgency: optionalUrgency(record.urgency),
+    urgency: record.urgency ?? 'normal',
     created_by: parseAgentName(ctx.sessionId.split(':')[1]),
     depends_on: dependsOn,
   };
@@ -157,24 +157,10 @@ function plannerCreatedType(value: string, cardTypeVocabulary: readonly CardType
 
 function plannerEditablePatch(record: z.infer<typeof plannerEditCardInputSchema>): CardEditPatch {
   const patch: CardEditPatch = {};
-  if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
+  if (record.title !== undefined) patch.title = record.title;
   if (record.priority !== undefined) patch.priority = record.priority;
-  if (record.urgency !== undefined) patch.urgency = requireUrgency(record.urgency);
+  if (record.urgency !== undefined) patch.urgency = record.urgency;
   return patch;
-}
-
-function requireNonEmptyString(value: string, field: string): string {
-  if (value.trim().length === 0) throw new Error(`${field} must be a non-empty string.`);
-  return value;
-}
-
-function requireUrgency(value: string): Urgency {
-  if (!urgencyValues.includes(value as Urgency)) throw new Error(`urgency must be one of: ${urgencyValues.join(', ')}.`);
-  return value as Urgency;
-}
-
-function optionalUrgency(value: string | undefined): Urgency {
-  return value === undefined ? 'normal' : requireUrgency(value);
 }
 
 function compactPlannerToolCard(card: CardRecord): { id: string; type: CardTypeName; parent: string | null; status: CardRecord['lifecycle']['status']; title: string; depends_on: string[]; priority: number; urgency: Urgency } {

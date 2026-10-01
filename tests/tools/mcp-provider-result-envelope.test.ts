@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { invokeTool } from '../../src/tools/invocation.js';
+import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { mcpToolBinders, type McpProviderContext } from '../../src/tools/mcp-provider.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { canonicalJson } from '../../src/schemas/index.js';
@@ -15,8 +16,8 @@ const provider = (context: McpProviderContext) => bindToolProvider('mcp', mcpToo
 async function invoke(value: unknown) {
   const manager = { invokeTool: jest.fn(async () => value), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
   const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-  const execution = await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' });
-  return settleToolActionOutcome(execution.providerOutcome);
+  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+  return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
 }
 
 describe('MCP provider result settlement envelope', () => {
@@ -84,8 +85,8 @@ describe('MCP provider result settlement envelope', () => {
     const message = `${'é'.repeat(220)} ${'sk-x '.repeat(100)}`;
     const manager = { invokeTool: async () => { throw new Error(message); }, findToolCapability: () => null, getServerTools: () => undefined };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    const execution = await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' });
-    const settled = settleToolActionOutcome(execution.providerOutcome);
+    const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+    const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
     const result = settled.providerResult;
     expect(result.success).toBe(false);
     if (result.success) throw new Error('Expected MCP failure.');
@@ -100,15 +101,15 @@ describe('MCP provider result settlement envelope', () => {
   it('keeps ordinary short invocation errors unchanged', async () => {
     const manager = { invokeTool: async () => { throw new Error('transport failed'); }, findToolCapability: () => null, getServerTools: () => undefined };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    const execution = await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' });
-    expect(settleToolActionOutcome(execution.providerOutcome).providerResult).toEqual({ success: false, error: 'transport failed' });
+    const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+    expect(settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult).toEqual({ success: false, error: 'transport failed' });
   });
 
   it('propagates packing failures after a successful invocation', async () => {
     const value = new Proxy({}, { ownKeys: () => { throw new Error('projection failed'); } });
     const manager = { invokeTool: jest.fn(async () => value), findToolCapability: () => null, getServerTools: () => undefined };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    await expect(invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' })).rejects.toThrow('projection failed');
+    await expect(invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }))).rejects.toThrow('projection failed');
     expect(manager.invokeTool).toHaveBeenCalledTimes(1);
   });
 
@@ -116,7 +117,7 @@ describe('MCP provider result settlement envelope', () => {
     const failure = new PublicationOutcomeUnknownError();
     const manager = { invokeTool: async () => { throw failure; }, findToolCapability: () => null, getServerTools: () => undefined };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    await expect(invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' })).rejects.toBe(failure);
+    await expect(invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }))).rejects.toBe(failure);
   });
 
   it('composes an oversized HTTP JSON result through transport mapping and final settlement', async () => {
@@ -137,8 +138,8 @@ describe('MCP provider result settlement envelope', () => {
         getServerTools: () => undefined,
       };
       const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-      const execution = await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' });
-      const settled = settleToolActionOutcome(execution.providerOutcome);
+      const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+      const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
       expect(settled.providerResult).toMatchObject({ success: true, data: { result_complete: false, result_utf8_bytes: Buffer.byteLength(canonicalJson(content), 'utf8') } });
       expect(settled.settledResultBytes).toBe(canonicalJson(settled.providerResult));
       expect(Buffer.byteLength(settled.settledResultBytes, 'utf8')).toBeLessThanOrEqual(32_768);

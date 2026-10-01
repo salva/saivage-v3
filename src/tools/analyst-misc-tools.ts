@@ -9,7 +9,7 @@ import {
   type ConfigMutation,
 } from '../config/index.js';
 import { redactForOutbound } from '../redaction/artifact-api.js';
-import { toolFailed, toolSucceeded } from '../contracts/index.js';
+import { toolSucceeded } from '../contracts/index.js';
 import type { QueueNotificationToolInput } from './notification-tool.js';
 
 export async function queue_notification(
@@ -100,13 +100,6 @@ function targetId(input: ReconfigureParams): string {
   }
 }
 
-async function mcp_reconcile(
-  ctx: ToolContext,
-  _params: Record<string, never> = {},
-): Promise<AnalystToolOutcome> {
-  return toolFailed('MCP reconciliation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
-}
-
 export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
     defineToolBinder({
       name: 'show_config',
@@ -122,13 +115,5 @@ export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = O
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => reconfigureParamsSchema,
       executor: (ctx, args, signal) => reconfigure(ctx, args, signal),
-    }),
-    defineToolBinder({
-      name: 'mcp_reconcile',
-      description:
-        'Retry MCP runtime convergence from the already persisted configuration without writing configuration again.',
-      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-      inputSchema: () => emptyInput,
-      executor: (ctx, args) => executeToolAction('none', () => mcp_reconcile(ctx, args)),
     }),
 ]);

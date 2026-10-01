@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 type JsonSchema =
-  | { type: 'string'; enum?: string[]; minLength?: number; description?: string }
+  | { type: 'string'; enum?: string[]; minLength?: number; pattern?: string; description?: string }
   | { type: 'number'; description?: string }
   | { type: 'integer'; description?: string }
   | { type: 'boolean'; description?: string }
@@ -55,11 +55,13 @@ function convertNode(schema: z.ZodTypeAny): JsonSchema {
 
   switch (typeName) {
     case 'ZodString': {
-      const checks = (def?.checks as Array<{ kind: string; value?: number }> | undefined) ?? [];
+      const checks = (def?.checks as Array<{ kind: string; value?: number; regex?: RegExp }> | undefined) ?? [];
       const minCheck = checks.find((c) => c.kind === 'min');
       out = minCheck && typeof minCheck.value === 'number'
         ? { type: 'string', minLength: minCheck.value }
         : { type: 'string' };
+      const regexCheck = checks.find((c) => c.kind === 'regex');
+      if (regexCheck?.regex) out.pattern = regexCheck.regex.source;
       break;
     }
     case 'ZodNumber': {

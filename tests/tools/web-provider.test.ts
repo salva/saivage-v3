@@ -54,7 +54,7 @@ describe('WebProvider', () => {
 
   it('validates webfetch arguments before execution', async () => {
     const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: '/project', agentName: 'executor' })]);
-    await expect(invokeTestTool(surface, 'webfetch', { url: 123 })).rejects.toThrow(/url/);
+    await expect(invokeTestTool(surface, 'webfetch', { url: 123 })).resolves.toMatchObject({ success: false, error: expect.stringContaining('url') });
   });
 
   it('rejects multimodal webfetch before fetch while accepting auto and text modes', async () => {
@@ -62,7 +62,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
       const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' })]);
-      await expect(invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', read_mode: 'multimodal' })).rejects.toThrow(/multimodal/);
+      await expect(invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', read_mode: 'multimodal' })).resolves.toMatchObject({ success: false, error: expect.stringContaining('multimodal') });
       expect(fetchSpy).not.toHaveBeenCalled();
 
       fetchSpy

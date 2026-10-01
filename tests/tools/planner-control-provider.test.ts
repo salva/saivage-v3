@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { plannerControlToolBinders, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
@@ -27,6 +27,37 @@ afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: tru
 function settleToolForLlm(surface: Parameters<typeof invokeToolForLlm>[0], name: string, args: unknown, context: Parameters<typeof invokeToolForLlm>[3], signal?: AbortSignal) { return invokeToolForLlm(surface, name, args, context, signal).then((settlement) => settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult); }
 
 describe('planner control provider ownership delegation', () => {
+  it.each([
+    ['create_card', { type: 'code', title: '', bootstrap_content: 'Brief' }],
+    ['create_card', { type: 'code', title: ' \t\n', bootstrap_content: 'Brief' }],
+    ['create_card', { type: 'code', title: 'valid', bootstrap_content: 'Brief', urgency: 'urgent' }],
+    ['edit_card', { card_id: CHILD, title: '' }],
+    ['edit_card', { card_id: CHILD, title: ' \t\n' }],
+    ['edit_card', { card_id: CHILD, urgency: 'urgent' }],
+  ] as Array<[string, Record<string, unknown>]>)('rejects malformed %s arguments before executor/store entry %#', async (name, args) => {
+    const test = harness();
+    const executor = jest.spyOn(test.surface.tools.get(name)!, 'executor');
+    const settlement = await invokeToolForLlm(test.surface, name, args, testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: name }));
+    expect(settlement.kind).toBe('rejected_before_execution');
+    if (settlement.kind === 'executed') throw new Error('Malformed arguments entered execution.');
+    expect(settleToolActionOutcome(settlement.providerOutcome).providerResult).toMatchObject({ success: false });
+    expect(executor).not.toHaveBeenCalled(); expect(test.store.read).not.toHaveBeenCalled();
+    expect(test.store.create).not.toHaveBeenCalled(); expect(test.store.editCard).not.toHaveBeenCalled();
+  });
+
+  it('projects urgency enums and a semantic non-whitespace title pattern into provider schemas', () => {
+    const test = harness();
+    for (const name of ['create_card', 'edit_card']) {
+      const schema = surfaceToolDefinitions(test.surface).find((tool) => tool.function.name === name)!.function.parameters as { properties: { title: { pattern: string }; urgency: { enum: string[] } }; required: string[] };
+      expect(schema.properties.urgency.enum).toEqual(['low', 'normal', 'high', 'critical']);
+      const pattern = new RegExp(schema.properties.title.pattern);
+      for (const invalid of ['', ' ', '\t\n']) expect(pattern.test(invalid)).toBe(false);
+      for (const valid of ['meaningful', '  meaningful title  ']) expect(pattern.test(valid)).toBe(true);
+      expect(schema.required.includes('title')).toBe(name === 'create_card');
+      expect(schema.required).not.toContain('urgency');
+    }
+  });
+
   function harness() {
     const store = {
       read: jest.fn((id:string)=>id===CHILD?{id:CHILD,type:'code'}:null), create: jest.fn(), editCard: jest.fn(), reorderChildren: jest.fn(),
@@ -163,7 +194,7 @@ describe('planner control provider ownership delegation', () => {
       else if (status === 'failed') store.commitActivationOutcome(child.id, { status, summary: 'failed', result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
       else store.commitActivationOutcome(child.id, { status, summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
     }
-    const provider = bindPlannerControl({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, submitNotification: async () => ({ queued: true, cardId: 'project', notificationId: 'unused', interruption: { status: 'not_requested' } }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
+    const provider = bindPlannerControl({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, submitNotification: async () => ({ queued: true, cardId: 'project', notificationId: 'unused', interruption: { status: 'not_requested' } }), childCreationTypes: new Set(['code']), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     return { store, child: store.read(child.id)!, surface };
   }
@@ -171,6 +202,17 @@ describe('planner control provider ownership delegation', () => {
   function invokeEdit(surface: ReturnType<typeof buildInvocationSurfaceFixture>, args: Record<string, unknown>) {
     return settleToolForLlm(surface, 'edit_card', args, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'edit_card' }));
   }
+
+  it.each([undefined, 'low', 'normal', 'high', 'critical'] as const)('accepts meaningful title bytes and urgency/default %s in create/edit', async (urgency) => {
+    const test = editHarness('backlog');
+    const suppliedUrgency = urgency === undefined ? {} : { urgency };
+    const created = await settleToolForLlm(test.surface, 'create_card', { type: 'code', title: '  meaningful created title  ', bootstrap_content: '  Brief  ', ...suppliedUrgency }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'create_card' }));
+    expect(created).toMatchObject({ success: true, data: { card: { title: '  meaningful created title  ', urgency: urgency ?? 'normal' } } });
+    const childId = (created.data as { card: { id: string } }).card.id;
+    expect(test.store.read(childId)).toMatchObject({ title: '  meaningful created title  ', urgency: urgency ?? 'normal' });
+    await expect(invokeEdit(test.surface, { card_id: test.child.id, title: '  meaningful edited title  ', ...suppliedUrgency })).resolves.toMatchObject({ success: true, data: { card: { title: '  meaningful edited title  ', urgency: urgency ?? 'normal' } } });
+    expect(test.store.read(test.child.id)).toMatchObject({ title: '  meaningful edited title  ', urgency: urgency ?? 'normal' });
+  });
 
   it.each(['blocked', 'failed'] as const)('keeps an equal-value %s child unchanged without adding a version', async (status) => {
     const test = editHarness(status);

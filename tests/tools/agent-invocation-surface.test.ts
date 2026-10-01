@@ -3,10 +3,12 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
+import { DEFAULT_SAIVAGE_CONFIG, SYSTEM_TEMPLATES } from '../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/index.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, buildRuntimeToolCatalog, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { cleanupInvocationSurface, executeToolAction, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { cleanupInvocationSurface, executeToolAction, invokeToolForLlm, surfaceToolDefinitions, syntheticToolSettlement } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
@@ -21,7 +23,7 @@ const unusedParentControl: PlannerChildControlPort = {
 };
 
 const expected = {
-  analyst: ['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
+  analyst: ['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
   oversight: ['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification'],
   planner: ['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch'],
   reviewer: ['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill'],
@@ -29,12 +31,14 @@ const expected = {
 } as const;
 
 describe('named-agent inventories and composition', () => {
-  it('compiles the exact default named inventory in declared order', () => {
-    const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
+  it.each(SYSTEM_TEMPLATES)('compiles the exact $name named inventory in declared order without MCP reconcile', (template) => {
+    const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
+    const workflows = compileProjectWorkflows(config as never, { defaultPromptRoot: template.promptRoot });
     expect([...workflows.agents.keys()]).toEqual(['analyst', 'oversight', 'planner', 'reviewer', 'executor']);
     for (const [name, tools] of Object.entries(expected)) {
-      expect(DEFAULT_SAIVAGE_CONFIG.agents[name as keyof typeof DEFAULT_SAIVAGE_CONFIG.agents]!.tools).toEqual(tools);
+      expect(config.agents[name]!.tools).toEqual(tools);
       expect(workflows.agents.get(name as never)?.tools.map((tool)=>tool.name)).toEqual(tools);
+      expect(new Set(tools).size).toBe(tools.length);
     }
   });
 
@@ -136,11 +140,14 @@ describe('named-agent inventories and composition', () => {
     expect(submitNotification).toHaveBeenCalledTimes(1);
   });
 
-  it('grants configured MCP solely from the named tool declaration without an agent-name or annotation policy',()=>{
+  it('grants functional configured MCP and treats the removed name as ordinary unsupported input',async()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'saivage-configured-mcp-'));roots.push(projectRoot);initProjectTree(projectRoot);
     const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
     expect([...surface.tools.keys()]).toEqual(['mcp_tool_call']);
     expect(surface.providers.map((provider)=>provider.providerName)).toEqual(['mcp']);
+    await expect(invokeToolForLlm(surface, 'mcp_reconcile', {}, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_reconcile' }))).resolves.toEqual(syntheticToolSettlement('unsupported_tool', "Unsupported tool 'mcp_reconcile' for agent 'reviewer'."));
+    const outcome = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_tool_call' }));
+    expect(outcome.kind).toBe('executed');
   });
 
   it('binds only selected process definitions and cleans the shared selected group once',async()=>{

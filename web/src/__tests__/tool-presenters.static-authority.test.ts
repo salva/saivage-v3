@@ -17,7 +17,7 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   get_card_version: { card_id: 'card-a', version: 2, section: 'summary' }, get_status: {}, get_tree: { rootId: 'card-a', depth: 2 },
   glob: { directory: '.', pattern: '**/*.ts' }, grep: { pattern: 'needle', path: 'src' }, kill_process: { process_id: 'proc-a' },
   list_agent_sessions: {}, list_card_versions: { card_id: 'card-a' }, list_cards: { status: ['backlog'], type: 'code', parent: 'project' },
-  list_processes_tool: { status: 'running', cardId: 'card-a' }, mcp_reconcile: {},
+  list_processes_tool: { status: 'running', cardId: 'card-a' },
   mcp_tool_call: { serverName: 'github', toolName: 'issues', args: { state: 'open' } }, navigate_back: {},
   navigate_workspace: { target: { kind: 'card', id: 'card-a', refinement: 'history' } }, pause_runtime: {},
   queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working', urgency: 'normal' }, read: { path: 'README.md' },
@@ -33,7 +33,7 @@ const CURRENT_TOOL_CALL_FIXTURES = {
 const EXPECTED_NAMES = [
   'activate_card', 'apply_patch', 'cancel_card', 'create_card', 'delete_card', 'diff_card_versions', 'edit', 'edit_card', 'emit_result',
   'get_card', 'get_card_version', 'get_status', 'get_tree', 'glob', 'grep', 'kill_process', 'list_agent_sessions',
-  'list_card_versions', 'list_cards', 'list_processes_tool', 'mcp_reconcile', 'mcp_tool_call', 'navigate_back', 'navigate_workspace',
+  'list_card_versions', 'list_cards', 'list_processes_tool', 'mcp_tool_call', 'navigate_back', 'navigate_workspace',
   'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_record_version', 'read_runtime_errors', 'read_runtime_events',
   'reconfigure', 'reopen_card', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project',
   'wait_process', 'webfetch', 'websearch', 'write',
@@ -55,9 +55,9 @@ const ANALYST_CARD_VIEW = {
 };
 
 describe('static tool presenter authority', () => {
-  it('contains exactly the 46 current tools with owned action and call rendering', () => {
+  it('contains exactly the 45 current tools with owned action and call rendering', () => {
     expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(EXPECTED_NAMES);
-    expect(EXPECTED_NAMES).toHaveLength(46);
+    expect(EXPECTED_NAMES).toHaveLength(45);
     for (const [name, descriptor] of Object.entries(TOOL_PRESENTERS)) {
       expect(descriptor.action.length).toBeGreaterThan(0);
       expect(Object.hasOwn(descriptor, 'call')).toBe(true);
@@ -80,13 +80,11 @@ describe('static tool presenter authority', () => {
     expect(inlineText(presentToolCall(callEnvelope('mcp_tool_call', { serverName: 's', toolName: 't' })).headline)).toBe('s/t');
   });
 
-  it('keeps absent names generic and mcp_reconcile dedicated', () => {
-    for (const name of ['move_card', 'get_card_output', 'add_note', 'list_notes', 'get_note', 'mark_note_handled']) {
+  it('keeps absent names generic', () => {
+    for (const name of ['mcp_reconcile', 'move_card', 'get_card_output', 'add_note', 'list_notes', 'get_note', 'mark_note_handled']) {
       expect(isKnownTool(name)).toBe(false);
       expect(presentToolCall(callEnvelope(name, { id: 'old' })).icon).toBe('🔧');
     }
-    expect(isKnownTool('mcp_reconcile')).toBe(true);
-    expect(presentToolCall(callEnvelope('mcp_reconcile')).headline).toEqual([{ kind: 'text', text: 'retry MCP convergence from persisted configuration' }]);
     expect(presentToolCall(callEnvelope('mcp__github__issue', { title: 'x' })).icon).toBe('🔧');
   });
 

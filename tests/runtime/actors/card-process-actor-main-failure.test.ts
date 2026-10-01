@@ -20,6 +20,7 @@ import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../src/schemas/index.js';
 import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
+import { readConversation } from '../../../src/persistence/conversation-file.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -59,7 +60,7 @@ function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_i
     promptTemplates: createTestPromptTemplateRegistry(),
   });
   const terminate = jest.spyOn(processes.processRunner, 'terminateScopeTree');
-  return { supervisor, cards, actorFailure, terminate, armActorTransitionFailure() { armed = true; failureDelivered = false; } };
+  return { projectRoot, supervisor, cards, actorFailure, terminate, armActorTransitionFailure() { armed = true; failureDelivered = false; } };
 }
 
 async function launchCapturingActivation(h: ReturnType<typeof harness>) {
@@ -100,6 +101,42 @@ function fatalNotificationSpy(supervisor: ReturnType<typeof createSupervisorRunt
 }
 
 describe('real CardProcess actor-main fatal containment', () => {
+  it.each([
+    ['create_card', { type: 'code', title: '', bootstrap_content: 'Brief' }],
+    ['create_card', { type: 'code', title: ' \t\n', bootstrap_content: 'Brief' }],
+    ['create_card', { type: 'code', title: 'valid', bootstrap_content: 'Brief', urgency: 'urgent' }],
+    ['edit_card', { card_id: 'card-a', title: '' }],
+    ['edit_card', { card_id: 'card-a', title: ' \t\n' }],
+    ['edit_card', { card_id: 'card-a', urgency: 'urgent' }],
+  ] as Array<[string, Record<string, unknown>]>)('continues real card activation after malformed Planner %s input %#', async (name, args) => {
+    let calls = 0;
+    const complete = jest.fn(async () => {
+      calls += 1;
+      const tool = calls === 1 ? { name, arguments: JSON.stringify(args) }
+        : calls === 2 ? { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project', content: 'completed after rejected Planner input' }) }
+          : { name: 'emit_result', arguments: JSON.stringify({ outcome: 'complete_direct', summary: 'completed normally' }) };
+      if (calls > 3) throw new Error('Unexpected activation repair/continuation.');
+      return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `planner-call-${calls}`, type: 'function' as const, function: tool }] }, provider_exchanges: [] };
+    });
+    const h = harness(scriptedAdmissionProvider(complete));
+    const create = jest.spyOn(h.cards, 'create');
+    const edit = jest.spyOn(h.cards, 'editCard');
+    const { owner, activation } = await launchCapturingActivation(h);
+    await expect(within(activation)).resolves.toMatchObject({ status: 'done', summary: 'completed normally' });
+    await expect(within(owner.settlement.promise)).resolves.toMatchObject({ status: 'done' });
+    expect(complete).toHaveBeenCalledTimes(3);
+    expect(create).not.toHaveBeenCalled(); expect(edit).not.toHaveBeenCalled();
+    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done', error: null } });
+    const history = readConversation(h.projectRoot, 'agent:planner:project');
+    expect(history.unmatchedCall).toBeNull();
+    const call = history.sourceRows.find((row) => row.kind === 'tool_call' && row.tool_call_id === 'planner-call-1')!;
+    const result = history.sourceRows.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'planner-call-1')!;
+    expect(call.tool).toBe(name);
+    expect(JSON.parse(result.content)).toMatchObject({ success: false });
+    expect(result.context_policy).toMatchObject({ settlement_origin: 'rejected_before_execution', evidence: { kind: 'none' } });
+    expect(history.sourceRows.indexOf(result)).toBeGreaterThan(history.sourceRows.indexOf(call));
+  });
+
   it('owns a summary prompt-policy block through the normal card terminal and cleanup path', async () => {
     const complete = jest.fn(async () => { throw new Error('primary provider must not run'); });
     const compact = jest.fn<CompactorPort['compact']>().mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW FLAG')));

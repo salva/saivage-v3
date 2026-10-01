@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { defineTool, invokeTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, syntheticToolSettlement, executedToolOutcome, ToolArgumentValidationError, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
+import { defineTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, syntheticToolSettlement, executedToolOutcome, ToolArgumentValidationError, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
@@ -35,39 +35,20 @@ describe('tool invocation surface', () => {
     expect(surface.providers).toBe(providers);
   });
 
-  it('fails fast for unsupported tool names at the executed boundary', async () => {
+  it('settles unsupported tool names without executor entry', async () => {
     const surface = buildInvocationSurfaceFixture('reviewer', [provider('a')]);
 
-    await expect(invokeTool(surface, 'missing', {})).rejects.toThrow("Unsupported tool 'missing' for agent 'reviewer'.");
-    await expect(invokeToolForLlm(surface, 'missing', {}, testLlmToolInvocationContext({ toolName: 'missing' }))).resolves.toEqual(syntheticToolSettlement('unsupported_tool', "Unsupported tool 'missing' for agent 'reviewer'."));
+    await expect(invokeToolForLlm(surface, 'missing', {}, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'missing' }))).resolves.toEqual(syntheticToolSettlement('unsupported_tool', "Unsupported tool 'missing' for agent 'reviewer'."));
   });
 
   it('classifies invalid parsed arguments as rejected-before-execution settlement', async () => {
     const surface = buildInvocationSurfaceFixture('executor', [provider('a')]);
 
-    await expect(invokeTool(surface, 'demo', { value: 1 })).rejects.toThrow(/Expected string/);
     const settlement = await invokeToolForLlm(surface, 'demo', { value: 1 }, testLlmToolInvocationContext({ toolName: 'demo' }));
     expect(settlement.kind).toBe('rejected_before_execution');
     const result = settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult;
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('Expected string');
-  });
-
-  it('does not catch executor exceptions at the executed boundary', async () => {
-    const surface = buildInvocationSurfaceFixture('executor', [{
-      providerName: 'buggy',
-      tools: [
-        defineTool({
-          name: 'buggy',
-          description: 'Buggy tool.',
-          resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-          inputSchema: z.object({}).strict(),
-          executor: async () => { throw new Error('programmer bug'); },
-        }),
-      ],
-    }]);
-
-    await expect(invokeTool(surface, 'buggy', {})).rejects.toThrow('programmer bug');
   });
 
   it('propagates unclassified executor exceptions from the LLM boundary', async () => {

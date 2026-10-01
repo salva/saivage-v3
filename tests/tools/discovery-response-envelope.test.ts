@@ -84,7 +84,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
       expect(envelopeBytes(result.data)).toBeLessThanOrEqual(args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES);
     }
     const firstChild = cards.listChildren('project')[0]!;
-    await expect(invokeTestTool(surface, 'get_card', { id: firstChild, section: 'notifications', response_bytes: 1024 })).rejects.toThrow();
+    await expect(invokeTestTool(surface, 'get_card', { id: firstChild, section: 'notifications', response_bytes: 1024 })).resolves.toMatchObject({ success: false });
 
     const tree = await invokeTestTool(surface, 'get_tree', { rootId: 'project', depth: 2, response_bytes: 1500 });
     expect(envelopeBytes(tree.data)).toBeLessThanOrEqual(1500);
@@ -201,8 +201,8 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const cards = new CardService(projectRoot);
     const surface = analystSurface(cards, projectRoot);
 
-    await expect(invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MIN_BYTES - 1 })).rejects.toThrow(/response_bytes/u);
-    await expect(invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MAX_BYTES + 1 })).rejects.toThrow(/response_bytes/u);
+    await expect(invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MIN_BYTES - 1 })).resolves.toMatchObject({ success: false, error: expect.stringContaining('response_bytes') });
+    await expect(invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MAX_BYTES + 1 })).resolves.toMatchObject({ success: false, error: expect.stringContaining('response_bytes') });
   });
 
   it('admits only the strict search paging input shape while deferring item-boundary checks to use time', () => {
@@ -284,21 +284,25 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const child = cards.create({ type: 'goal', parent: 'project', title: 'Card', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const surface = analystSurface(cards, projectRoot);
 
-    await expect(invokeTestTool(surface, 'list_cards', { tag: 'obsolete' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'tags' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'related' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'tags' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'related' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'read', { path: 'README.md', offset: 0 } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'read', { path: 'README.md', limit: 10 } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'summary', version: 2 } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'summary', record_content: true } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 'current' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1 } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', source_version: 1 } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md' } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 1 } as never)).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'get_tree', {} as never)).rejects.toThrow();
+    for (const [name, args] of [
+      ['list_cards', { tag: 'obsolete' }],
+      ['get_card', { id: child.id, section: 'tags' }],
+      ['get_card', { id: child.id, section: 'related' }],
+      ['get_card_version', { card_id: child.id, version: 1, section: 'tags' }],
+      ['get_card_version', { card_id: child.id, version: 1, section: 'related' }],
+      ['read', { path: 'README.md', offset: 0 }],
+      ['read', { path: 'README.md', limit: 10 }],
+      ['get_card', { id: child.id, section: 'summary', version: 2 }],
+      ['get_card', { id: child.id, section: 'summary', record_content: true }],
+      ['diff_card_versions', { card_id: child.id, from_version: 1, to_version: 'current' }],
+      ['diff_card_versions', { card_id: child.id, from_version: 1 }],
+      ['read_record_version', { card_id: child.id, record_name: 'status.md', source_version: 1 }],
+      ['read_record_version', { card_id: child.id, record_name: 'status.md' }],
+      ['get_card_version', { card_id: child.id, version: 1 }],
+      ['get_tree', {}],
+    ] as const) {
+      await expect(invokeTestTool(surface, name, args)).resolves.toMatchObject({ success: false });
+    }
   });
 
   it('byte-packs shared observations while keeping control-action and MCP surfaces outside the paging API', () => {

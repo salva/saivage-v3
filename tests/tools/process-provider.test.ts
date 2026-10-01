@@ -353,7 +353,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
-    await expect(invokeTestTool(surface, 'run_command', { command: 'printf never', inactivity_timeout_ms: 1000 })).rejects.toThrow(/inactivity_timeout_ms/);
+    await expect(invokeTestTool(surface, 'run_command', { command: 'printf never', inactivity_timeout_ms: 1000 })).resolves.toMatchObject({ success: false, error: expect.stringContaining('inactivity_timeout_ms') });
     expect(processRunner.processRunner.list()).toEqual([]);
   }));
 
@@ -483,7 +483,7 @@ describe('process provider', () => {
     const controller = new AbortController();
     const pending = invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 10_000 }, controller.signal);
     setTimeout(() => controller.abort(new Error('interrupt wait only')), 25);
-    await expect(pending).rejects.toThrow('interrupt wait only');
+    await expect(pending).resolves.toEqual({ success: false, error: 'interrupt wait only' });
     expect(processes.processRunner.get(processId)).toMatchObject({ status: 'running' });
     await expect(invokeTestTool(surface, 'kill_process', { process_id: processId })).resolves.toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'killed' }) }));
   }));

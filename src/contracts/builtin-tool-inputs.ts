@@ -147,8 +147,8 @@ export const killProcessInputSchema = z.object({ process_id: z.string().min(1) }
 export const websearchInputSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
 export const skillInputSchema = z.object({ name: z.string().optional() }).strict();
 
-export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string(), bootstrap_content: z.string().trim().min(1), priority: z.number().int().optional(), urgency: z.string().optional(), depends_on: z.array(z.string()).optional() }).strict();
-export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, title: z.string().optional(), priority: z.number().int().optional(), urgency: z.string().optional() }).strict();
+export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string().regex(/\S/), bootstrap_content: z.string().trim().min(1), priority: z.number().int().optional(), urgency: z.enum(urgencyValues).optional(), depends_on: z.array(z.string()).optional() }).strict();
+export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, title: z.string().regex(/\S/).optional(), priority: z.number().int().optional(), urgency: z.enum(urgencyValues).optional() }).strict();
 export const plannerCancelCardInputSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
 export const plannerReopenCardInputSchema = z.object({ card_id: cardIdSchema.describe('The exact done or failed direct-child card ID to reopen.') }).strict();
 export const plannerReorderChildInputSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();

@@ -72,8 +72,8 @@ describe('ConversationTimeline', () => {
     const entries: AgentConversationEntry[] = [
       toolEntry('call-read', 'read', { path: 'README.md' }, 0),
       resultEntry('result-read', 'call-read', 'read', { success: true }, 1),
-      toolEntry('call-mcp', 'mcp_reconcile', {}, 2),
-      resultEntry('result-mcp', 'call-mcp', 'mcp_reconcile', { success: true }, 3),
+      toolEntry('call-mcp', 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, 2),
+      resultEntry('result-mcp', 'call-mcp', 'mcp_tool_call', { success: true }, 3),
       toolEntry('call-unknown', 'move_card', { id: 'old-card' }, 4),
       resultEntry('result-unknown', 'call-unknown', 'move_card', { success: false, error: 'boom' }, 5),
       toolEntry('call-fetch', 'webfetch', { url: 'https://example.com' }, 6),
@@ -100,7 +100,8 @@ describe('ConversationTimeline', () => {
     expect(chips[0].text()).toContain('Read');
     expect(chips[0].text()).toContain('README.md');
     expect(chips[1].classes()).toContain('tool-chip-ok');
-    expect(chips[1].text()).toContain('Reconcile MCP');
+    expect(chips[1].text()).toContain('MCP');
+    expect(chips[1].text()).toContain('server/tool');
     expect(chips[1].text()).not.toContain('Generic tool');
     expect(chips[2].classes()).toContain('tool-chip-error');
     expect(chips[2].text()).toContain('Generic tool');

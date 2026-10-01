@@ -1,6 +1,6 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { invokeTool, invokeToolForLlm, type ToolSettlementInput } from '../../src/tools/invocation.js';
+import { invokeToolForLlm, type ToolSettlementInput } from '../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { mcpToolBinders, type McpProviderContext } from '../../src/tools/mcp-provider.js';
@@ -14,7 +14,7 @@ describe('MCP activity segmentation', () => {
   const provider = (context: McpProviderContext) => bindToolProvider('mcp', mcpToolBinders, context);
   it('keeps the complete current MCP invocation active without calling any wait callback', async () => {
     const waits = { external: 0, process: 0 };
-    const base = testLlmToolInvocationContext({ toolCallId: 'mcp-call', toolName: 'mcp_tool_call' });
+    const base = testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolCallId: 'mcp-call', toolName: 'mcp_tool_call' });
     const context: LlmToolInvocationContext = {
       ...base,
       waits: {
@@ -24,22 +24,17 @@ describe('MCP activity segmentation', () => {
     };
     const manager = { invokeTool: jest.fn(async () => ({ value: 1 })), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    expect(settlementResult({ kind: 'executed', execution: await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context) })).toEqual({ success: true, data: { result: { value: 1 }, result_complete: true, result_utf8_bytes: 11 } });
+    expect(settlementResult(await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, context))).toEqual({ success: true, data: { result: { value: 1 }, result_complete: true, result_utf8_bytes: 11 } });
     expect(waits).toEqual({ external: 0, process: 0 });
   });
 
-  it('preserves the fatal pre-install invariant through every tool boundary', async () => {
+  it('preserves the fatal pre-install invariant through the production invocation boundary', async () => {
     const installation = createMcpToolInvocationInstallation();
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: installation.port })]);
     const args = { serverName: 'server', toolName: 'tool' };
-    for (const invoke of [
-      () => invokeTool(surface, 'mcp_tool_call', args),
-      () => invokeToolForLlm(surface, 'mcp_tool_call', args, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })),
-    ]) {
-      const invocation = invoke();
-      await expect(invocation).rejects.toBeInstanceOf(McpToolInvocationNotInstalledError);
-      await expect(invocation).rejects.toThrow('MCP tool invocation authority is not installed.');
-    }
+    const invocation = invokeToolForLlm(surface, 'mcp_tool_call', args, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+    await expect(invocation).rejects.toBeInstanceOf(McpToolInvocationNotInstalledError);
+    await expect(invocation).rejects.toThrow('MCP tool invocation authority is not installed.');
   });
 
   it('keeps invocation failures as failed results and never derives authority from annotations or agent names', async () => {

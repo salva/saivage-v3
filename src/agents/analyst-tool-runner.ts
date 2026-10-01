@@ -40,7 +40,7 @@ type MutatingSpec<P, Prepared = undefined> =
 
 function paramsSummary(params: unknown): string {
   if (typeof params !== 'object' || params === null || Array.isArray(params)) return stableStringify(params);
-  const safe = Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'body' && key !== 'content'));
+  const safe = Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'body' && key !== 'content' && key !== 'old_string' && key !== 'new_string'));
   return stableStringify(safe);
 }
 

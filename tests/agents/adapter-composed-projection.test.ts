@@ -12,6 +12,8 @@ import type { ContextBlock } from '../../src/contracts/index.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { validateConversation } from '../../src/contracts/conversation-validation.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -31,6 +33,44 @@ function userRow(id: string, content: string): AgentMessage {
 }
 
 describe('protocol adapters consume the composed projection', () => {
+  it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)('preserves sequential exchanges with repeated provider IDs and private reasoning in %s', (protocol) => {
+    const callId = 'repeated-provider-id';
+    const rows: AgentMessage[] = [];
+    const privateOutput = [{ type: 'reasoning', encrypted_content: 'opaque-reasoning' }, { type: 'function_call', call_id: callId, name: 'read', arguments: '{"path":"second"}' }];
+    for (const [index, inputId] of [INPUT_A, INPUT_B].entries()) {
+      const content = JSON.stringify({ success: true, data: { content: index === 0 ? 'first result' : 'second result' } });
+      const policies = toolRowPolicies({ content });
+      const common = { session_id: SESSION, round_id: `r-assistant-${String(index + 1).repeat(32)}`, message_index: 1, block_index: 0, timestamp: TS };
+      const call: AgentMessage = { ...common, id: `${inputId}:tool-call:${callId}`, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: callId, context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: index === 0 ? 'first' : 'second' }) } }] }) };
+      if (index === 1) {
+        const privateId = `${inputId}:provider-private:openai-responses`;
+        call.provider_projection = { kind: 'openai_responses', source_input_id: inputId, private_message_id: privateId, projection_kind: 'assistant_tool_call' };
+        rows.push({ ...common, id: privateId, role: 'system', kind: 'provider_private', context_policy: { kind: 'structural', behavior: 'responses_private' }, content: JSON.stringify({ transport: 'openai-responses', source_input_id: inputId, projection_message_id: call.id, provider: 'openai', model: 'gpt-5.6', output: privateOutput }) });
+      }
+      rows.push(call, { ...common, message_index: 2, id: `${inputId}:tool-result:${callId}`, role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: callId, context_policy: policies.result, content });
+    }
+    const conversation = validateConversation(SESSION, rows);
+    const projected = providerConversationProjection(conversation, [{ id: 'current-context', role: 'system', content: 'synthetic context', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }]);
+    expect(projected.messages.some((row) => row.kind === 'synthetic_context')).toBe(true);
+    const body = requestBody(protocol, projected);
+    if (protocol === 'openai-chat-completions') {
+      const messages = body.messages as Array<{ role: string; tool_calls?: Array<{ id: string }>; tool_call_id?: string; content: string }>;
+      const exchanges = messages.filter((row) => row.tool_calls || row.role === 'tool');
+      expect(exchanges.map((row) => row.role)).toEqual(['assistant', 'tool', 'assistant', 'tool']);
+      expect(exchanges.map((row) => row.tool_calls?.[0]?.id ?? row.tool_call_id)).toEqual(Array(4).fill(callId));
+      expect(exchanges[1]!.content).toContain('first result');
+      expect(exchanges[3]!.content).toContain('second result');
+    } else {
+      const input = body.input as Array<Record<string, unknown>>;
+      const exchanges = input.filter((row) => row.type === 'function_call' || row.type === 'function_call_output');
+      expect(exchanges.map((row) => row.type)).toEqual(['function_call', 'function_call_output', 'function_call', 'function_call_output']);
+      expect(exchanges.map((row) => row.call_id)).toEqual(Array(4).fill(callId));
+      expect(exchanges[1]!.output).toContain('first result');
+      expect(exchanges[3]!.output).toContain('second result');
+      if (protocol === 'openai-responses') expect(input.filter((row) => row.type === 'reasoning')).toEqual([privateOutput[0]]);
+    }
+  });
+
   const refusalA = buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: INPUT_A, candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, providerResponse: 'RAW-A' });
   const refusalB = buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: INPUT_B, candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, providerResponse: 'RAW-B' });
   const composed = composeContextProjection({

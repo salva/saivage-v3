@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 
@@ -15,7 +16,9 @@ describe('OpenAI Responses provider conversation mapper', () => {
     const failedContent = '{"success":false,"error":"read failed"}';
     const result: AgentMessage = { ...base, context_policy: toolRowPolicies({ content: failedContent, settlementOrigin: 'execution_failed' }).result, id: `${SOURCE}:tool-result:call-1`, role: 'tool', kind: 'tool_result', content: failedContent, tool: 'read_file', tool_call_id: 'call-1' };
 
-    expect(responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [privateRow, visible, result] })).toEqual([...output, { type: 'function_call_output', call_id: 'call-1', output: failedContent }]);
+    const composed = composeContextProjection({ sourceSessionId: base.session_id, effectiveHistory: null, dynamicBlocks: [], uncoveredRows: [privateRow, visible, result] });
+    const input = responsesInputFromProviderConversation(providerConversationFromComposedContext(composed));
+    expect(input.slice(-3)).toEqual([...output, { type: 'function_call_output', call_id: 'call-1', output: failedContent }]);
   });
 
   it('does not require private rows for unmarked generic assistant history', () => {
@@ -28,15 +31,16 @@ describe('OpenAI Responses provider conversation mapper', () => {
     expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [visible] })).toThrow(/missing private row/);
   });
 
-  it('fails on orphan private rows, duplicate private rows, and mismatched bidirectional ids', () => {
+  it('composition admission rejects orphan private rows, duplicate private rows, and mismatched bidirectional ids', () => {
     const output = [{ type: 'message', content: [{ type: 'output_text', text: 'x' }] }];
     const privateRow: AgentMessage = { ...base, context_policy: { kind: 'structural', behavior: 'responses_private' }, id: 'input-1:provider-private:openai-responses', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: 'input-1', projection_message_id: 'input-1:message', provider: 'openai', model: 'gpt-5.6', output }) };
     const duplicatePrivate: AgentMessage = { ...privateRow, id: 'input-1:provider-private:openai-responses:duplicate' };
     const visible: AgentMessage = { ...base, id: 'input-1:message', role: 'assistant', kind: 'text', content: 'x', provider_projection: { kind: 'openai_responses', source_input_id: 'input-1', private_message_id: privateRow.id, projection_kind: 'assistant_message' } };
 
-    expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [privateRow] })).toThrow(/missing marked visible projection/);
-    expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [privateRow, duplicatePrivate, visible] })).toThrow(/duplicated/);
-    expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [privateRow, { ...visible, provider_projection: { ...visible.provider_projection!, private_message_id: 'wrong-private' } }] })).toThrow(/missing private row/);
-    expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:planner:project', messages: [privateRow, visible] })).toThrow(/not source session 'agent:planner:project'/);
+    const compose = (uncoveredRows: AgentMessage[], sourceSessionId = base.session_id as AgentMessage['session_id']) => composeContextProjection({ sourceSessionId, uncoveredRows, effectiveHistory: null, dynamicBlocks: [] });
+    expect(() => compose([privateRow])).toThrow(/missing marked visible projection/);
+    expect(() => compose([privateRow, duplicatePrivate, visible])).toThrow(/duplicated/);
+    expect(() => compose([privateRow, { ...visible, provider_projection: { ...visible.provider_projection!, private_message_id: 'wrong-private' } }])).toThrow(/missing private row/);
+    expect(() => compose([privateRow, visible], 'agent:planner:project')).toThrow(/not source session 'agent:planner:project'/);
   });
 });

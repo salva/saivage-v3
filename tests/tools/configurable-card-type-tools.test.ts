@@ -50,7 +50,7 @@ describe('configuration-bound card-type tool vocabulary',()=>{
       await expect(invokeTestTool(surface,'list_cards',{type:'custom-leaf'})).resolves.toMatchObject({success:true,data:{cards:{items:[expect.objectContaining({type:'custom-leaf'})]}}});
       await expect(invokeTestTool(surface,'list_cards',{type:['project','custom-leaf']})).resolves.toMatchObject({success:true});
       read.mockClear();
-      await expect(invokeTestTool(surface,'list_cards',{type:'unconfigured'})).rejects.toThrow(/unconfigured/);
+      await expect(invokeTestTool(surface,'list_cards',{type:'unconfigured'})).resolves.toMatchObject({success:false,error:expect.stringContaining('unconfigured')});
       expect(read).not.toHaveBeenCalled();
     }
   });
@@ -83,13 +83,13 @@ describe('configuration-bound card-type tool vocabulary',()=>{
         {...base,type:'custom-leaf',parent:null},
         {...base,type:'custom-leaf',parent:'not-a-card-id'},
       ]){
-        await expect(invokeTestTool(surface,'create_card',input)).rejects.toThrow();
+        await expect(invokeTestTool(surface,'create_card',input)).resolves.toMatchObject({success:false});
       }
       expect(create).not.toHaveBeenCalled();
       await expect(invokeTestTool(surface,'create_card',{...base,type:'project',parent:'project'})).resolves.toMatchObject({success:false,error:expect.stringContaining('Root project card already exists')});
       expect(create).toHaveBeenCalledTimes(1);
       create.mockClear();
-      await expect(invokeTestTool(surface,'create_card',{type:'unconfigured',parent:'project',title:'unknown',bootstrap_content:'unknown'})).rejects.toThrow(/unconfigured/);
+      await expect(invokeTestTool(surface,'create_card',{type:'unconfigured',parent:'project',title:'unknown',bootstrap_content:'unknown'})).resolves.toMatchObject({success:false,error:expect.stringContaining('unconfigured')});
       expect(create).not.toHaveBeenCalled();
     }finally{rmSync(projectRoot,{recursive:true,force:true});}
   });

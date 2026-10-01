@@ -32,14 +32,14 @@ function services(store: CardService, notifyCard: (...args: any[]) => any = jest
 }
 
 describe('analyst card mutation service deletion', () => {
-  it('delegates the complete requested root set to one atomic service preflight and returns deterministic deletion data', () => {
+  it('delegates the complete admitted root set to one service preflight and returns deterministic deletion data', () => {
     const deleteSubtrees = jest.fn((ids: readonly string[], allowed: (card: CardRecord) => boolean) => {
       expect(ids).toEqual([FIRST, SECOND, FIRST]);
       expect(allowed(card('backlog'))).toBe(true);
       expect(allowed(card('running'))).toBe(false);
       return { requested: [FIRST, SECOND], deleted: [SECOND, FIRST] };
     });
-    const service = services({ deleteSubtrees } as unknown as CardService).cards;
+    const service = services({ deleteSubtrees, read: (id: string) => card('backlog', id), getDescendantIds: () => [] } as unknown as CardService).cards;
 
     expect(service.delete([FIRST, SECOND, FIRST])).toEqual({
       kind: 'returned', success: true,
@@ -50,7 +50,7 @@ describe('analyst card mutation service deletion', () => {
 
   it('returns one failure without a partial-success payload when complete preflight rejects', () => {
     const deleteSubtrees = jest.fn(() => { throw new Error(`Card '${SECOND}' cannot be deleted`); });
-    const service = services({ deleteSubtrees } as unknown as CardService).cards;
+    const service = services({ deleteSubtrees, read: (id: string) => card('backlog', id), getDescendantIds: () => [] } as unknown as CardService).cards;
 
     expect(() => service.delete([FIRST, SECOND])).toThrow(`Card '${SECOND}' cannot be deleted`);
     expect(deleteSubtrees).toHaveBeenCalledTimes(1);
@@ -64,13 +64,16 @@ describe('analyst stopped card mutations', () => {
     const store = {
       read: jest.fn((id: string) => id === FIRST ? stopped : null),
       getDescendantIds: jest.fn(() => []),
+      getAncestors: jest.fn(() => []),
       listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : []), create: jest.fn(() => child),
     } as unknown as CardService;
     const bundle = services(store);
     const outcome = bundle.cards.create({ type: 'code', parent: FIRST, title: 'child', bootstrap_content: 'brief' });
     expect(outcome).toMatchObject({ kind: 'returned', success: true });
     if (outcome.kind !== 'returned' || !outcome.success) throw new Error('Expected creation success.');
-    expect(cardViewSchema.parse(outcome.data).card).not.toHaveProperty('pending_notifications');
+    const { propagation, ...view } = outcome.data as Record<string, unknown>;
+    expect(propagation).toEqual({ ok: true });
+    expect(cardViewSchema.parse(view).card).not.toHaveProperty('pending_notifications');
     expect((store.create as jest.Mock)).toHaveBeenCalledTimes(1);
   });
 
@@ -140,7 +143,7 @@ describe('analyst child reorder propagation', () => {
 
   it('propagates exactly once for a real reorder', () => {
     const test = reorderHarness({ ok: true, changed: 2 });
-    expect(test.service.reorder('project', [])).toEqual({ kind: 'returned', success: true, data: { parent_id: 'project', changed: 2 } });
+    expect(test.service.reorder('project', [])).toEqual({ kind: 'returned', success: true, data: { parent_id: 'project', changed: 2, propagation: { ok: true } } });
     expect(test.getAncestors).toHaveBeenCalledTimes(1);
     expect(test.notifyCard).toHaveBeenCalledTimes(1);
   });
@@ -172,7 +175,7 @@ describe('analyst child reorder propagation', () => {
       expect(cards.read('project')).toMatchObject({ version_seq: versionBeforeIdentity, lifecycle: { status: 'done' } });
       expect(notifyCard).not.toHaveBeenCalled();
 
-      expect(mutations.reorder('project', [second.id, first.id])).toEqual({ kind: 'returned', success: true, data: { parent_id: 'project', changed: 2 } });
+      expect(mutations.reorder('project', [second.id, first.id])).toEqual({ kind: 'returned', success: true, data: { parent_id: 'project', changed: 2, propagation: { ok: true } } });
       expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'changed' }, active_child_order: [second.id, first.id, tombstone.id] });
       expect(notifyCard).toHaveBeenCalledTimes(1);
       expect(notifyCard).toHaveBeenCalledWith('project', expect.objectContaining({ source: 'card_changed', content: 'Card changed: analyst reordered children of project' }));

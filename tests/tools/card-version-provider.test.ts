@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
-import { invokeTool, llmToolDefinition, type InvocationSurface } from '../../src/tools/invocation.js';
-import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { invokeToolForLlm, llmToolDefinition, type InvocationSurface } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { cardStreamFile, cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
@@ -39,12 +39,12 @@ function completeSurfaceFor(cards: CardService) {
   ]);
 }
 
-function settleExecution(surface: InvocationSurface, name: string, execution: Awaited<ReturnType<typeof invokeTool>>) {
+function settleExecution(surface: InvocationSurface, name: string, settlement: Awaited<ReturnType<typeof invokeToolForLlm>>) {
   const definition = surface.tools.get(name)!;
   return settleToolResultForConversation(
     name,
     compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate),
-    { kind: 'executed', execution },
+    settlement,
   );
 }
 
@@ -60,10 +60,10 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
     const args = { card_id: child.id, version: 1, section: 'summary' };
     for (const position of [{ item_index: 0, item_byte_offset: 0 }, { item_index: 1, item_byte_offset: 1 }]) {
-      await expect(invokeTool(surface, 'get_card_version', { ...args, position })).rejects.toThrow("Section 'summary' is a bounded scalar section and accepts no position.");
+      await expect(invokeTestTool(surface, 'get_card_version', { ...args, position })).resolves.toMatchObject({ success: false, error: "Section 'summary' is a bounded scalar section and accepts no position." });
     }
-    const execution = await invokeTool(surface, 'get_card_version', args);
-    expect(settleToolActionOutcome(execution.providerOutcome).providerResult).toMatchObject({
+    const result = await invokeTestTool(surface, 'get_card_version', args);
+    expect(result).toMatchObject({
       success: true, data: { section: 'summary', card: { title: 'Scalar summary' } },
     });
   });
@@ -80,10 +80,9 @@ describe('card version provider', () => {
     writeFileSync(cardStreamFile(root, second.id), 'child liveness must not be read\n');
     const surface = surfaceFor(cards);
 
-    const execution = await invokeTool(surface, 'get_card_version', {
+    const settled = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', {
       card_id: 'project', version: parentVersion, section: 'children', response_bytes: 2048,
-    });
-    const settled = settleExecution(surface, 'get_card_version', execution);
+    }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
     const result = settled.providerResult as { data: { entry_id: string; artifact_sha256: string; content: { items: string[] } } };
     expect(result.data.content.items).toEqual([first.id, second.id]);
     expect(settled.evidence).toEqual({
@@ -92,7 +91,7 @@ describe('card version provider', () => {
       sha256: result.data.artifact_sha256,
     });
 
-    const summary = settleExecution(surface, 'get_card_version', await invokeTool(surface, 'get_card_version', { card_id: 'project', version: parentVersion, section: 'summary' }));
+    const summary = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', { card_id: 'project', version: parentVersion, section: 'summary' }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
     expect(summary.evidence).toEqual(settled.evidence);
   });
 
@@ -101,12 +100,12 @@ describe('card version provider', () => {
     const cards = new CardService(root);
     const child = cards.create(childInput('oversized-' + 'x'.repeat(1600)));
 
-    await expect(invokeTool(surfaceFor(cards), 'get_card_version', {
+    await expect(invokeTestTool(surfaceFor(cards), 'get_card_version', {
       card_id: child.id,
       version: 1,
       section: 'summary',
       response_bytes: 512,
-    })).rejects.toThrow("Section 'summary' does not fit the requested response_bytes budget of 512.");
+    })).resolves.toMatchObject({ success: false, error: "Section 'summary' does not fit the requested response_bytes budget of 512." });
   });
 
   it('settles a fitting immutable summary with locator evidence while rejecting notification queue reads', async () => {
@@ -119,8 +118,7 @@ describe('card version provider', () => {
     const responseBytes = 2048;
 
     const currentSummary = await invokeTestTool(surface, 'get_card', { id: child.id, section: 'summary', response_bytes: responseBytes });
-    const immutableSummaryExecution = await invokeTool(surface, 'get_card_version', { card_id: child.id, version, section: 'summary', response_bytes: responseBytes });
-    const immutableSummary = settleExecution(surface, 'get_card_version', immutableSummaryExecution);
+    const immutableSummary = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', { card_id: child.id, version, section: 'summary', response_bytes: responseBytes }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
     expect(immutableSummary.evidence).toMatchObject({
       kind: 'canonical_locator',
       locator: expect.stringMatching(new RegExp(`^card:///${child.id}\\?v=${version}#entry=`)),
@@ -130,8 +128,8 @@ describe('card version provider', () => {
     expect(immutableSummary.settledResultBytes).toBe(canonicalJson(immutableSummary.providerResult));
     expect((immutableSummary.providerResult as { data: { card: unknown } }).data.card).toEqual((currentSummary.data as { card: unknown }).card);
 
-    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'notifications', response_bytes: responseBytes })).rejects.toThrow();
-    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version, section: 'notifications', response_bytes: responseBytes })).rejects.toThrow();
+    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'notifications', response_bytes: responseBytes })).resolves.toMatchObject({ success: false });
+    await expect(invokeToolForLlm(surface, 'get_card_version', { card_id: child.id, version, section: 'notifications', response_bytes: responseBytes }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' }))).resolves.toMatchObject({ kind: 'rejected_before_execution' });
   });
 
   it('lists stream row metadata paged by byte budget and reads and diffs exact resulting versions', async () => {
@@ -151,9 +149,9 @@ describe('card version provider', () => {
     expect(listData.versions.items.map((entry) => entry.entry_id)).toEqual(streamEntryIds);
     expect(listData.versions.items.map(({ change }) => change)).toEqual([null, { summary: 'title updated', changed_fields: ['title'], actor: 'planner' }]);
 
-    const version = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' });
+    const version = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
     expect(version.evidence).toMatchObject({ kind: 'canonical_locator', locator: `card:///${child.id}?v=2#entry=${(listData.versions.items[1]!.entry_id)}`, sha256: expect.any(String) });
-    const versionResult = settleToolActionOutcome(version.providerOutcome).providerResult;
+    const versionResult = version.providerResult;
     expect(versionResult).toMatchObject({ success: true, data: { card_id: child.id, version: 2, section: 'summary', card: { title: 'After' } } });
     expect(envelopeBytes((versionResult as { data: unknown }).data)).toBeLessThanOrEqual(32768);
 
@@ -175,7 +173,7 @@ describe('card version provider', () => {
     cards.enqueueNotification(child.id, { id: 'private-id', content: 'private body', created_at: '2026-09-09T00:00:00.000Z' });
     cards.removeNotifications(child.id, ['private-id']);
     const surface = surfaceFor(cards);
-    const selected = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
+    const selected = await invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' }) as { data: { artifact_sha256: string } };
     const rest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, 2);
     if ('statusCode' in rest) throw new Error('Expected selected REST artifact.');
     expect(selected.data.artifact_sha256).toBe(createHash('sha256').update(canonicalJson(rest.body.artifact)).digest('hex'));
@@ -187,7 +185,7 @@ describe('card version provider', () => {
     const catalog = await invokeTestTool(surface, 'list_card_versions', { card_id: child.id, response_bytes: 1024 });
     expect((catalog.data as { versions: { items: Array<{ change: unknown }> } }).versions.items.map(({ change }) => change)).toEqual([null, null, null]);
     expect(envelopeBytes(catalog.data)).toBeLessThanOrEqual(1024);
-    const removed = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 3, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
+    const removed = await invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 3, section: 'summary' }) as { data: { artifact_sha256: string } };
     const removedRest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, 3);
     if ('statusCode' in removedRest) throw new Error('Expected removed-queue REST artifact.');
     expect(removedRest.body.artifact.change).toBeNull();
@@ -213,7 +211,7 @@ describe('card version provider', () => {
     const terminalChange = { summary: 'lifecycle, status_text, status_text_updated_at updated', changed_fields: ['lifecycle', 'status_text', 'status_text_updated_at'], actor: null };
     expect((listed.data as { versions: { items: Array<{ change: unknown }> } }).versions.items.at(-1)!.change).toEqual(terminalChange);
 
-    const selected = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: terminalVersion, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
+    const selected = await invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: terminalVersion, section: 'summary' }) as { data: { artifact_sha256: string } };
     const rest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, terminalVersion);
     if ('statusCode' in rest) throw new Error('Expected selected REST artifact.');
     expect(rest.body.artifact.change).toEqual(terminalChange);
@@ -239,8 +237,8 @@ describe('card version provider', () => {
     const child = cards.create(childInput('Card'));
     const surface = surfaceFor(cards);
 
-    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 'current' })).rejects.toThrow();
-    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1 })).rejects.toThrow();
+    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 'current' })).resolves.toMatchObject({ success: false });
+    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1 })).resolves.toMatchObject({ success: false });
     const reversed = await invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 2, to_version: 1 });
     expect(reversed).toMatchObject({ success: false, error: 'Invalid card version pivots.' });
   });
@@ -276,7 +274,7 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
 
     await expect(invokeTestTool(surface, 'list_card_versions', { card_id: child.id })).rejects.toThrow();
-    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' })).rejects.toThrow();
+    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' })).rejects.toThrow();
     const fresh = mkdtempSync(join(tmpdir(), 'saivage-card-version-tool-absent-')); roots.push(fresh); initProjectTree(fresh);
     const freshCards = new CardService(fresh);
     const freshChild = freshCards.create(childInput('Card'));
@@ -295,8 +293,8 @@ describe('card version provider', () => {
     cards.editRecord(child.id, 'status.md', 'second draft');
     const surface = surfaceFor(cards);
 
-    const openHead = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 5 });
-    const openHeadResult = settleToolActionOutcome(openHead.providerOutcome).providerResult as { success: boolean; data: { state: string; content_source: string; content: { content: string }; entry_id: string; version_url: string } };
+    const openHead = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 5 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
+    const openHeadResult = openHead.providerResult as { success: boolean; data: { state: string; content_source: string; content: { content: string }; entry_id: string; version_url: string } };
     expect(openHead.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((openHead.evidence as { locator: string }).locator).toBe(`${openHeadResult.data.version_url}#entry=${openHeadResult.data.entry_id}`);
     expect(openHeadResult.data.version_url).toBe(`record:///status.md?card=${encodeURIComponent(child.id)}&v=5`);
@@ -311,7 +309,7 @@ describe('card version provider', () => {
     expect(closedResult.data.content.content).toBe('draft content');
 
     await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 99 })).resolves.toMatchObject({ success: false, error: 'Record version not found.' });
-    await expect(invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 1, source_version: 1 })).rejects.toThrow();
+    await expect(invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 1, source_version: 1 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' }))).resolves.toMatchObject({ kind: 'rejected_before_execution' });
   });
 
   it('returns the discarded baseline or an empty terminal slice without following accepted source identity', async () => {
@@ -334,13 +332,13 @@ describe('card version provider', () => {
     expect(discardedRow.accepted?.source_version).toBe(3);
     expect(discardedRow.entry_id).not.toBe(closedRow.entry_id);
 
-    const discardedWithBaseline = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6 });
-    const discardedResult = settleToolActionOutcome(discardedWithBaseline.providerOutcome).providerResult as { success: boolean; data: { version: number; entry_id: string; state: string; content_source: string; content: { content: string }; content_sha256: string | null; total_bytes: number } };
+    const discardedWithBaseline = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
+    const discardedResult = discardedWithBaseline.providerResult as { success: boolean; data: { version: number; entry_id: string; state: string; content_source: string; content: { content: string }; content_sha256: string | null; total_bytes: number } };
     expect(discardedResult.data).toMatchObject({ version: 6, entry_id: discardedRow.entry_id, state: 'discarded', content_source: 'accepted', content_sha256: closedRow.accepted!.content_sha256 });
     expect(discardedResult.data.content.content).toBe('baseline');
     expect(discardedWithBaseline.evidence).toMatchObject({ kind: 'canonical_locator', locator: `record:///status.md?card=${encodeURIComponent(child.id)}&v=6#entry=${discardedRow.entry_id}`, sha256: closedRow.accepted!.content_sha256 });
 
-    const paged = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6, byte_offset: 4, response_bytes: 512 });
+    const paged = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6, byte_offset: 4, response_bytes: 512 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
     expect((paged.evidence as { locator: string }).locator).toBe((discardedWithBaseline.evidence as { locator: string }).locator);
     expect((paged.evidence as { sha256: string }).sha256).toBe((discardedWithBaseline.evidence as { sha256: string }).sha256);
 
@@ -377,8 +375,8 @@ describe('card version provider', () => {
     const child = cards.create(childInput('Card', dependencies));
     const surface = surfaceFor(cards);
 
-    const first = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'dependencies', response_bytes: 512 });
-    const firstData = (settleToolActionOutcome(first.providerOutcome).providerResult as { data: { artifact_sha256: string; entry_id: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
+    const first = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'dependencies', response_bytes: 512 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
+    const firstData = (first.providerResult as { data: { artifact_sha256: string; entry_id: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
     expect(first.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((first.evidence as { locator: string }).locator).toBe(`card:///${child.id}?v=1#entry=${firstData.entry_id}`);
     expect(firstData.content.total).toBe(dependencies.length);
@@ -386,14 +384,14 @@ describe('card version provider', () => {
     expect(firstData.content.items).toEqual(dependencies.slice(0, firstData.content.returned));
 
     const position = firstData.content.next as { item_index: number; item_byte_offset: number };
-    const second = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'dependencies', response_bytes: 32768, position });
-    const secondData = (settleToolActionOutcome(second.providerOutcome).providerResult as { data: { artifact_sha256: string; content: { items: string[] } } }).data;
+    const second = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'dependencies', response_bytes: 32768, position }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
+    const secondData = (second.providerResult as { data: { artifact_sha256: string; content: { items: string[] } } }).data;
     expect(secondData.content.items[0]).toBe(dependencies[firstData.content.returned]);
     expect(secondData.artifact_sha256).toBe(firstData.artifact_sha256);
     expect((second.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
     expect((second.evidence as { locator: string }).locator).toBe((first.evidence as { locator: string }).locator);
 
-    const summary = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' });
+    const summary = settleExecution(surface, 'get_card_version', await invokeToolForLlm(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'get_card_version' })));
     expect((summary.evidence as { locator: string }).locator).toBe((first.evidence as { locator: string }).locator);
     expect((summary.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
   });

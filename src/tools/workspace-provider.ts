@@ -73,6 +73,19 @@ const analystWorkspace = (ctx: GlobalWorkspaceContext): WorkspaceProviderContext
 const observational = (action: () => Promise<ToolActionOutcome>) => executeToolAction('observational_query', action);
 const operational = (action: () => Promise<ToolActionOutcome>) => executeToolAction('none', action);
 
+function auditedWorkspaceMutation<P extends { path: string }>(ctx: AnalystToolContext, args: P, action: 'workspace.write' | 'workspace.edit', mutate: () => Promise<WorkspaceMutationOutcome>, signal?: AbortSignal) {
+  return runAuditedAnalystTool(ctx, args, {
+    action, safety_class: 'low', target_kind: null, getTargetId: (input) => input.path,
+    lifecycle: { kind: 'runtime_cancellation' },
+    mutate: async () => {
+      const outcome = await runWorkspaceMutation(mutate);
+      return outcome.kind === 'succeeded'
+        ? { kind: 'returned', success: true, data: outcome.data }
+        : { kind: 'returned', success: false, error: outcome.error, data: outcome.data };
+    },
+  }, signal);
+}
+
 export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'read', description: readDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(ctx, args))) }),
   defineToolBinder({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => writeWorkspaceInputSchema, executor: (ctx, args) => operational(() => runWorkspaceMutation(() => writeProject(ctx, args))) }),
@@ -83,19 +96,19 @@ export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext,
 export const patchToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff. Patch paths are project-relative only; scoped URL paths such as work:/// are rejected in diff headers.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => operational(() => runWorkspaceTool(() => applyProjectPatch(ctx, args))) }),
 ]);
-export const globalWorkspaceObservationToolBinders: readonly ToolBinder<GlobalWorkspaceContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'read', description: readDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(analystWorkspace(ctx), args))) }),
-  defineToolBinder({ name: 'glob', description: globDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => globWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => globProject(analystWorkspace(ctx), args))) }),
-  defineToolBinder({ name: 'grep', description: grepDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => grepWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => grepProject(analystWorkspace(ctx), args))) }),
-]);
+const globalReadBinder = defineToolBinder<typeof readWorkspaceInputSchema, GlobalWorkspaceContext>({ name: 'read', description: readDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(analystWorkspace(ctx), args))) });
+const globalGlobBinder = defineToolBinder<typeof globWorkspaceInputSchema, GlobalWorkspaceContext>({ name: 'glob', description: globDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => globWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => globProject(analystWorkspace(ctx), args))) });
+const globalGrepBinder = defineToolBinder<typeof grepWorkspaceInputSchema, GlobalWorkspaceContext>({ name: 'grep', description: grepDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => grepWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => grepProject(analystWorkspace(ctx), args))) });
+export const globalWorkspaceObservationToolBinders: readonly ToolBinder<GlobalWorkspaceContext, any>[] = Object.freeze([globalReadBinder, globalGlobBinder, globalGrepBinder]);
 const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => writeWorkspaceInputSchema, executor: (ctx, args, signal) => args.path.startsWith('record:///') ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.recordMutations.write(input.path, input.content) }, signal) : operational(() => runWorkspaceMutation(() => writeProject(analystWorkspace(ctx), args))) }),
-  defineToolBinder({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => editWorkspaceInputSchema, executor: (ctx, args, signal) => args.path.startsWith('record:///') ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.recordMutations.edit(input.path, input.old_string, input.new_string, input.replace_all === true) }, signal) : operational(() => runWorkspaceMutation(() => editProject(analystWorkspace(ctx), args))) }),
+  defineToolBinder({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => writeWorkspaceInputSchema, executor: (ctx, args, signal) => args.path.startsWith('record:///') ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.recordMutations.write(input.path, input.content) }, signal) : auditedWorkspaceMutation(ctx, args, 'workspace.write', () => writeProject(analystWorkspace(ctx), args), signal) }),
+  defineToolBinder({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => editWorkspaceInputSchema, executor: (ctx, args, signal) => args.path.startsWith('record:///') ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.recordMutations.edit(input.path, input.old_string, input.new_string, input.replace_all === true) }, signal) : auditedWorkspaceMutation(ctx, args, 'workspace.edit', () => editProject(analystWorkspace(ctx), args), signal) }),
 ]);
 export const analystWorkspaceToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
-  globalWorkspaceObservationToolBinders[0]!,
+  globalReadBinder,
   ...analystWorkspaceMutationToolBinders,
-  ...globalWorkspaceObservationToolBinders.slice(1),
+  globalGlobBinder,
+  globalGrepBinder,
 ]);
 export const analystPatchToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => operational(() => runWorkspaceTool(() => applyProjectPatch({ projectRoot: ctx.projectRoot,agentName:ctx.actor }, args))) }),

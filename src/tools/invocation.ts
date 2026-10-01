@@ -161,16 +161,6 @@ export function defineToolBinder<Schema extends z.ZodTypeAny, Context = any, M e
   });
 }
 
-export async function invokeTool(surface: InvocationSurface, name: string, args: unknown, signal: AbortSignal = new AbortController().signal, context?: LlmToolInvocationContext): Promise<ToolExecutionResult<ToolEvidenceMode>> {
-  if (signal.aborted) throw abortError(signal);
-  const definition = surface.tools.get(name);
-  if (!definition) throw new Error(`Unsupported tool '${name}' for agent '${surface.agentName}'.`);
-  const parsed = definition.inputSchema.safeParse(args);
-  if (!parsed.success) throw new ToolArgumentValidationError(parsed.error.message);
-  if (signal.aborted) throw abortError(signal);
-  return definition.executor(parsed.data, signal, context);
-}
-
 export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown, context: LlmToolInvocationContext, signal?: AbortSignal): Promise<ToolSettlementInput> {
   let executorEntered = false;
   try {
@@ -200,12 +190,6 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
 
 export async function cleanupInvocationSurface(surface: InvocationSurface, reason: ToolProviderCleanupReason): Promise<void> {
   await Promise.all(surface.providers.map((provider) => provider.cleanup?.(reason)));
-}
-
-function abortError(signal: AbortSignal): Error {
-  const reason = signal.reason;
-  if (reason instanceof Error) return reason;
-  return new Error(typeof reason === 'string' ? reason : 'Tool invocation was interrupted.');
 }
 
 export function llmToolDefinition(tool: ToolSpecification<unknown>): LlmToolDefinition {

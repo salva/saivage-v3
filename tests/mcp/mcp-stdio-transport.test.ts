@@ -3,7 +3,8 @@ import { describe, expect, it } from '@jest/globals';
 
 import { invokeStdioTool } from '../../src/mcp/stdio-transport.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
-import { invokeTool } from '../../src/tools/invocation.js';
+import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
@@ -23,8 +24,8 @@ async function composedStdioCall(content: unknown) {
     getServerTools: () => undefined,
   };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { mcpToolInvocation: manager })]);
-  const execution = await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' });
-  return settleToolActionOutcome(execution.providerOutcome);
+  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+  return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
 }
 
 describe('stdio MCP transport composition', () => {
