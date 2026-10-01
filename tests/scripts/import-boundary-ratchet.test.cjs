@@ -182,3 +182,57 @@ test('runtime and agents directional denials override public API admission', () 
   assert.match(output(result), /agents must not import runtime/);
   assert.match(output(result), /runtime must not import agents/);
 }));
+
+test('overlapping prohibitions select exactly one precedence rule per occurrence', () => withFixture((root) => {
+  writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
+  for (const owner of ['runtime', 'contracts', 'schemas', 'tools', 'server', 'boot']) {
+    mkdirSync(path.join(root, `src/${owner}`), { recursive: true });
+  }
+  const cases = [
+    ['agents', 'runtime/index.js', 'agents-runtime'],
+    ['agents', 'runtime/runtime-api.js', 'agents-runtime'],
+    ['agents', 'runtime/internal.js', 'agents-runtime'],
+    ['runtime', 'agents/internal.js', 'runtime-agents'],
+    ['runtime', 'agents/execution-api.js', 'runtime-agents'],
+    ['contracts', 'server/internal.js', 'contracts-declarative'],
+    ['contracts', 'server/server-api.js', 'contracts-declarative'],
+    ['schemas', 'server/internal.js', 'schemas-bottom-layer'],
+    ['schemas', 'server/server-api.js', 'schemas-bottom-layer'],
+    ['tools', 'server/internal.js', 'server-import'],
+    ['boot', 'server/internal.js', 'cross-package-deep'],
+  ];
+  for (const [owner, target, rule] of cases) {
+    const source = `src/${owner}/consumer.ts`;
+    writeFileSync(path.join(root, source), `import { value } from '../${target}';\n`);
+    const actual = { totalViolations: 1, violationDigest: digest([[source, rule, target]]) };
+    writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
+    const rejected = run(root);
+    assert.notEqual(rejected.status, 0, `${owner}->${target}: ${output(rejected)}`);
+    assert.match(output(rejected), new RegExp(`Actual: ${escapeRegExp(JSON.stringify(actual))}`));
+    assert.equal(rejected.stderr.split('\n').filter((line) => line.startsWith('- ')).length, 1);
+    writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(actual.totalViolations, actual.violationDigest));
+    const admitted = run(root);
+    assert.equal(admitted.status, 0, `${owner}->${target}: ${output(admitted)}`);
+    writeFileSync(path.join(root, source), 'export const consumer = true;\n');
+  }
+}));
+
+test('repeated normalized edges remain a multiset of offending occurrences', () => withFixture((root) => {
+  writeFileSync(path.join(root, 'src/agents/consumer.ts'), [
+    "import { value } from '../cards/internal.js';",
+    "import type { Other } from '@saivage/cards/internal.ts';",
+    "export { value as repeated } from '../cards/internal.js';",
+    '',
+  ].join('\n'));
+  const tuples = [ORIGINAL_TUPLE, ORIGINAL_TUPLE, ORIGINAL_TUPLE];
+  const actual = { totalViolations: 3, violationDigest: digest(tuples) };
+  const rejected = run(root);
+  assert.notEqual(rejected.status, 0);
+  assert.match(output(rejected), new RegExp(`Actual: ${escapeRegExp(JSON.stringify(actual))}`));
+  assert.equal(rejected.stderr.split('\n').filter((line) => line.startsWith('- ')).length, 3);
+  assert.notEqual(actual.violationDigest, digest([ORIGINAL_TUPLE]));
+  writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(actual.totalViolations, actual.violationDigest));
+  const admitted = run(root);
+  assert.equal(admitted.status, 0, output(admitted));
+  assert.match(admitted.stdout, new RegExp(`3 violations and digest ${actual.violationDigest}`));
+}));

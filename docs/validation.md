@@ -55,16 +55,17 @@ require the full `npm test`, including its serial terminal-child stage;
 ## Import-boundary ratchet
 
 Backend import-boundary findings are pinned by both their count and a SHA-256
-digest of normalized file/rule/resolved-target identities in
+digest of the sorted multiset of slash-normalized source path, selected rule,
+and normalized resolved-target identities in
 `scripts/import-boundary-baseline.json`. The check fails on increases,
 genuine removals, and equal-count substitutions; line-only movement and
 equivalent relative, alias, or terminal `.ts`/`.js` spellings of the same
 resolved target do not change identity. After reviewing a genuine removal,
 compare the complete before/after identity multisets, including duplicates:
 the after multiset must be a subset, not just smaller. The current baseline is
-zero, including runtime-origin imports: all backend callers use permitted
-owner roots or explicit public entrypoints, with no blanket runtime permission
-for other packages' leaves. Runtime conversation operations use
+zero, including runtime-origin imports, with no surviving exception tables:
+all backend callers use permitted owner roots or explicit public entrypoints,
+with no blanket runtime permission for other packages' leaves. Runtime conversation operations use
 `persistence/session-api.ts`; text sanitization uses `sanitization/index.ts`.
 The exact defining `schemas/round-id-server.ts` module is a server-only public
 owner API (including normalized terminal `.ts` spelling), not a schemas-wide
@@ -72,13 +73,22 @@ or general `*-server` exemption. `schemas/index.ts` remains browser-safe and
 does not export those generators. Cross-package consumers of runtime use only
 `runtime/runtime-api.ts`; agents may not import runtime, and runtime may not
 import agents, even through public APIs. Same-package leaves remain allowed.
+The scanner and self-test use one classifier returning null or a single rule,
+with precedence `contracts-declarative`, `schemas-bottom-layer`, `agents-runtime`,
+`runtime-agents`, `server-import`, then `cross-package-deep`. Specific ownership
+prohibitions override public-surface admission; boot's server imports still
+require a permitted public surface. Each offending matched import/export-from
+occurrence contributes exactly one tuple. Repeated identical edges count
+separately and remain duplicated in the digest; neither line numbers nor
+diagnostic wording participates in identity, and no deduplication occurs.
 Copy both printed fields into the baseline in the same commit only after a
 reviewed genuine removal.
 Admitting any new identity, including through an equal or lower count, weakens
 the guard and requires an explicit owner decision.
 `npm run test:import-boundaries` is the canonical focused command: it runs the
-checker self-test, real-CLI ratchet subprocess regressions, and repository
-admission. The lint profile
+checker exact-rule self-test, real-CLI ratchet subprocess regressions (including
+overlap precedence, repeated occurrences, substitution, and line movement),
+and repository admission. The lint profile
 delegates to that command once; direct component invocations are diagnostic
 evidence, not alternative maintained profiles.
 For component diagnosis use `node scripts/check-import-boundaries.cjs --self-test`
