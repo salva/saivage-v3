@@ -111,6 +111,7 @@ export class CardProcessActor extends BaseActor {
           this.#retainedNotificationLlm = null;
         },
         claimResultHandoff: (ordinal) => {
+          // Result handoff and urgent claim compete for the same exact node control winner.
           if (this.#executionOrdinal !== ordinal || this.#nodeControl !== 'open') throw new Error(`Node '${this.cardId}' result handoff lost control admission.`);
           this.#nodeControl = 'result';
         },
@@ -164,6 +165,7 @@ export class CardProcessActor extends BaseActor {
   claimNodeInterruption(ordinal: number, completion: Promise<void>, reason: Error): void {
     if (!this.canInterruptNode(ordinal) || !this.#operationTracker) throw new Error(`Processor '${this.cardId}' node interruption is no longer claimable.`);
     this.#nodeControl = 'interrupt';
+    // Capture old resources before successor admission can replace the current tracker/LLMs.
     this.#retiringNode = { ordinal, completion, reason, tracker: this.#operationTracker, actors: [...this.#activeLlmActors.values()], join: null };
   }
 
@@ -294,6 +296,7 @@ export class CardProcessActor extends BaseActor {
     const guard = context.event === 'notification:interrupt' ? this.#successorGuard : null;
     if (context.event === 'notification:interrupt' && !guard) throw new Error('Interrupted node successor has no settlement guard.');
     this.#nodeControl = guard ? 'interrupt' : 'open';
+    // Capture the guard into ordinary tracked work; execute owns all preparation and stays below it.
     this.runTask(() => tracker.run(activationSignal, async (operationSignal) => {
       if (guard) {
         await guard;
@@ -349,6 +352,8 @@ export class CardProcessActor extends BaseActor {
       this.#retainedNotificationLlm = null;
       this.#currentExecutingLlm = null;
       if (this.#interruptionReason === null) {
+        // The old consumer acknowledges by installing one guarded successor/event, not awaiting
+        // Supervisor completion: that completion first joins this captured retiring consumer.
         this.#operationTracker = new ActivationOperationTracker();
         this.#successorGuard = claim.completion;
         this.sendEvent('notification:interrupt');

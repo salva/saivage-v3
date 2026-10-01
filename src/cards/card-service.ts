@@ -280,12 +280,13 @@ export class CardService {
     if (!['backlog', 'changed', 'stopped', 'blocked', 'failed'].includes(existing.lifecycle.status)) throw new Error(`Card '${id}' cannot be edited in status '${existing.lifecycle.status}'.`);
     const patch = pruneCardEditPatch(existing, changes);
     if (Object.keys(patch).length === 0) return existing;
-    let updateBase: CardRecord | null = existing;
+    let updateBase: CardRecord = existing;
     if (existing.lifecycle.status === 'blocked' || existing.lifecycle.status === 'failed') {
       this.setStatus(id, 'changed');
-      updateBase = this.read(id);
+      // Synchronous admission retains this card identity, but publication effects may append
+      // newer versions: the returned status candidate cannot substitute for a fresh edit base.
+      updateBase = this.read(id)!;
     }
-    if (!updateBase) throw new Error(`Card '${id}' not found after edit admission.`);
     const candidate = buildEditedCard(updateBase, patch, new Date().toISOString());
     const fields = collectEditChangedFields(updateBase, candidate, patch);
     return this.publishVersion(updateBase, candidate, 'update', fields, 'agent edit_card',undefined,agentName);

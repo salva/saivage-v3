@@ -57,6 +57,7 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
   switch (result.kind) {
     case 'appended': return parsed;
     case 'missing':
+      // App log may be the first log writer and owns these exact directory creations/admissions.
       for (const owner of [saivageRoot(projectRoot), saivageLogsRoot(projectRoot)]) {
         try { mkdirSync(owner); }
         catch (error) {

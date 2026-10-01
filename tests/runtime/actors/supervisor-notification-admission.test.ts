@@ -33,6 +33,9 @@ import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-confi
 import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
 import { CardService as RuntimeCardService } from '../../../src/cards/card-service.js';
 import { workflowResult } from '../../helpers/workflow-result.js';
+import { createOversightNotificationPort } from '../../../src/application/oversight-notification-port.js';
+import { submitNotificationTool } from '../../../src/tools/tool-api.js';
+import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 
 function deferred() {
   let resolve!: () => void;
@@ -982,6 +985,126 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(calls).toBe(2);
     await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   }, 15000);
+  it.each(['success', 'cancel-after-claim'] as const)('settles a real Oversight urgent queue tool through the retiring join barrier: %s', async (mode) => {
+    const firstEntered = deferred();
+    const successorEntered = deferred();
+    const oldJoined = deferred();
+    const releaseOldJoin = deferred();
+    let calls = 0;
+    let successorInput = '';
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      calls += 1;
+      if (calls === 1) firstEntered.resolve();
+      else { successorInput = JSON.stringify(input.providerConversation.messages); successorEntered.resolve(); }
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider, undefined, undefined, TEST_RUNTIME_WORKFLOWS);
+    const child = h.cards.create({ type: 'goal', parent: 'project', title: 'Inactive planning target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const originalJoin = ConversationLLMActor.prototype.join;
+    let held = false;
+    jest.spyOn(ConversationLLMActor.prototype, 'join').mockImplementation(async function (this: ConversationLLMActor) {
+      const result = await originalJoin.call(this);
+      if (!held && this.agentId === 'agent:planner:project') {
+        held = true;
+        oldJoined.resolve();
+        await releaseOldJoin.promise;
+      }
+      return result;
+    });
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    await firstEntered.promise;
+    const prior = owner(h.supervisor);
+    const interrupt = jest.spyOn(prior.processor, 'claimNodeInterruption');
+    const enqueue = jest.spyOn(h.cards, 'enqueueNotification');
+    const recordPreparation = jest.spyOn(h.cards, 'readRecordCurrent');
+    const before = readConversation(h.projectRoot, 'agent:planner:project').sourceRows.length;
+    const check = new AbortController();
+    const assertEffectAdmission = jest.fn((signal: AbortSignal) => {
+      if (signal !== check.signal) throw new Error('foreign check signal');
+      signal.throwIfAborted();
+    });
+    const submit = jest.spyOn(h.supervisor, 'submitNotification');
+    const port = createOversightNotificationPort({ oversight: { assertEffectAdmission }, cards: h.cards, workflows: TEST_RUNTIME_WORKFLOWS, submitNotification: h.supervisor.submitNotification.bind(h.supervisor) });
+    const body = `Oversight urgent advice: ${mode}`;
+    let settled = false;
+    const tool = submitNotificationTool({ card_id: child.id, kind: 'finding', body, urgency: 'urgent' }, port, check.signal);
+    void tool.then(() => { settled = true; }, () => { settled = true; });
+    await oldJoined.promise;
+    expect(assertEffectAdmission).toHaveBeenCalledTimes(1);
+    expect(assertEffectAdmission).toHaveBeenCalledWith(check.signal);
+    expect(submit).toHaveBeenCalledTimes(1);
+    const note = enqueue.mock.calls[0]![1];
+    expect(submit).toHaveBeenCalledWith(child.id, note, 'urgent', check.signal);
+    expect(enqueue.mock.calls.map(([id]) => id)).toEqual([child.id, 'project']);
+    expect(h.cards.read(child.id)?.pending_notifications).toEqual([note]);
+    expect(h.cards.read('project')?.pending_notifications).toHaveLength(1);
+    expect(h.cards.read('project')?.pending_notifications[0]?.content).toContain(note.id);
+    // Ordinal progression and the real LLM join prove the old consumer acknowledged;
+    // the successor has not prepared records/session input or called the provider.
+    expect(prior.processor.processPosition()).toMatchObject({ kind: 'node', executionOrdinal: 1 });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(prior.urgentSettlement).not.toBeNull();
+    if (mode === 'cancel-after-claim') check.abort(new Error('Oversight check cancelled after claim'));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(calls).toBe(1);
+    expect(recordPreparation).not.toHaveBeenCalled();
+    expect(h.supervisor.captureAutonomousExecutingLlmSnapshots().size).toBe(0);
+    expect(readConversation(h.projectRoot, 'agent:planner:project').sourceRows.slice(before).map((row) => row.kind)).toEqual(['model_issue']);
+    releaseOldJoin.resolve();
+    await expect(tool).resolves.toEqual({ kind: 'succeeded', data: { queued: true, card_id: child.id, notification_id: note.id, body, interruption: { status: 'interrupted', stopped_card_ids: [] } } });
+    await successorEntered.promise;
+    expect(owner(h.supervisor)).toBe(prior);
+    expect(prior.urgentSettlement).toBeNull();
+    expect(successorInput).toContain(note.id);
+    expect(successorInput).toContain(`descendant '${child.id}'`);
+    expect(h.cards.read(child.id)?.pending_notifications).toEqual([note]);
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(calls).toBe(2);
+    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(h.supervisor.getActorRuntimeReadModel().cards).toEqual([]);
+  }, 15000);
+
+  it.each(['failure', 'stop-takeover'] as const)('ends prepared Run recovery before ancestor work after child publication %s', async (mode) => {
+    const childEntered = deferred();
+    let childId = '';
+    let calls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      calls += 1;
+      if (input.agentName === 'planner') return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-recovery-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      childEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider, undefined, undefined, TEST_RUNTIME_WORKFLOWS);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    await childEntered.promise;
+    await h.supervisor.stopProject();
+    const ancestorRows = readConversation(h.projectRoot, 'agent:planner:project').sourceRows;
+    const originalStop = h.cards.stopRunning.bind(h.cards);
+    const failure = new Error('known child stopped-publication failure');
+    let stopping: Promise<unknown> | null = null;
+    const stop = jest.spyOn(h.cards, 'stopRunning').mockImplementation((id) => {
+      if (mode === 'failure') throw failure;
+      const result = originalStop(id);
+      stopping = h.supervisor.stopProject();
+      return result;
+    });
+    const activate = jest.spyOn(h.cards, 'activateStopped');
+    if (mode === 'failure') await expect(h.supervisor.startProject()).rejects.toBe(failure);
+    else await expect(h.supervisor.startProject()).rejects.toBeInstanceOf(RuntimeStoppedInterruption);
+    await waitFor(() => h.supervisor.getStatus().status === 'stopped');
+    if (stopping) await expect(stopping).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(stop.mock.calls.map(([id]) => id)).toEqual([childId]);
+    expect(readConversation(h.projectRoot, 'agent:planner:project').sourceRows).toEqual(ancestorRows);
+    expect(h.cards.read('project')?.lifecycle.status).toBe('running');
+    expect(h.cards.read(childId)?.lifecycle.status).toBe(mode === 'failure' ? 'running' : 'stopped');
+    expect(activate).not.toHaveBeenCalled();
+    expect(calls).toBe(2);
+    expect(h.supervisor.getActorRuntimeReadModel().cards).toEqual([]);
+  }, 15000);
+
   it('settles a same-process Stop chain through prepared Run before launching project again', async () => {
     const childEntered = deferred();
     let childId = '';

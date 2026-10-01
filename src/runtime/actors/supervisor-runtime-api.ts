@@ -100,7 +100,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     let runningChain: readonly CardRecord[];
     try { runningChain = selectLinkedRunningChain(this.behavior.actorStore); }
     catch (error) {
-      if (error instanceof PublicationOutcomeUnknownError) this.behavior.fatalPort.publicationOutcomeUnknown(error);
       throw new Error('Startup interrupted-card settlement: linked-chain selection failed.', { cause: error });
     }
     this.settleInterruptedRunningChain(runningChain, (write, operation) => {
@@ -115,6 +114,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   private settleInterruptedRunningChain(chain: readonly CardRecord[], publish: (write: () => void, operation: string) => boolean): boolean {
+    // True means the operation completed and this caller still authorizes progression.
+    // Startup returns true or throws; prepared Run may return false after failure or halt takeover.
     for (const card of [...chain].reverse()) {
       for (const agentName of eligibleAgents(this.behavior.workflows, card)) {
         const sessionId = cardAgentSessionId(agentName, card.id);
@@ -279,8 +280,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       const { ok: _ok, ...denied } = queued;
       return { ...denied, queued: false };
     }
-    if (urgency === 'normal') return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_requested' } };
-    if (!selection) throw new Error('Urgent notification selection is missing.');
+    if (selection === null) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_requested' } };
     for (const notice of selection.notices) {
       const parentNote = { id: randomUUID(), content: `Urgent notification '${notification.id}' for descendant '${cardId}' needs attention through immediate child '${notice.childId}' (currently ${notice.childStatus}). Consider ordinary child activation${notice.childStatus === 'done' || notice.childStatus === 'failed' ? ' after discretionary reopening if appropriate' : ''}; the workflow may decline.`, created_at: this.now(), source: 'supervisor' };
       try { this.notifyCard(notice.cardId, parentNote); }
@@ -300,6 +300,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const completed: string[] = [];
     let takenOver = false;
     try {
+      // Install node/suffix winners and the same settlement before cancellation or invalidation.
+      // Supervisor owns tree authority; the processor owns captured retiring node resources.
       this.ownershipTransition(false, () => {
         if (!this.urgentNodeIsCurrent(capture)) throw new Error('Urgent notification ownership changed during interruption claim.');
         if (capture.replaceRoot) { boundary.terminalWinner = 'interrupt'; boundary.phase = 'settling'; }
@@ -342,6 +344,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           completed.push(PROJECT_CARD_ID);
           if (!this.replaceInterruptedRoot(boundary, completion.promise)) { takenOver = true; completion.resolve(); return; }
         } else {
+          // Never join the surviving activation/current guarded task: it awaits completion below.
           await boundary.processor.joinInterruptedNode();
           if (this.haltFor(boundary)) takenOver = true;
           else this.requireOwnerAuthority(boundary);
@@ -791,6 +794,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       }).then((report) => { if (report.failed.length !== 0) throw new Error('Runtime process-scope termination failed.'); });
     } catch (error) { processTermination = Promise.reject(error); }
 
+    // Halt joins current and retiring processor ownership plus captured urgent settlement.
+    // Urgent settlement may observe takeover, but must never await this encompassing halt.
     void Promise.allSettled([...joins, ...owners.flatMap((owner) => owner.urgentSettlement ? [owner.urgentSettlement] : []), processTermination]).then((results) => {
       for (const result of results) if (result.status === 'rejected') retainFirst(result.reason);
       if (hasFailure) {

@@ -33,6 +33,7 @@ export function appendProviderExchangeEntry(projectRoot: string, owner: Conversa
   const prepared = prepareGrowingEnvelope([entry], ownerSchema(owner));
   admitGrowingFileTail(path, ownerSchema(owner));
   const result = appendEnvelope(path, prepared.bytes);
+  // Evidence belongs to an established conversation root; missing directories fail at publication.
   if (result.kind === 'missing') publishFirstEnvelope(path, prepared.bytes);
 }
 

@@ -300,6 +300,8 @@ export class AgentNodeExecution {
     }
     if (cleanupCompletion.kind === 'failure') throw cleanupCompletion.reason;
     if (this.host.claimedNodeInterruption(args.nodeOrdinal)) {
+      // Only the exact processor claim authorizes this control result, after known tool
+      // settlement and surface cleanup; unrelated failure must not become interruption.
       if (primaryCompletion.kind === 'failure' && primaryCompletion.reason !== signal.reason) throw primaryCompletion.reason;
       return { kind: 'node-interrupted', ordinal: args.nodeOrdinal };
     }
