@@ -2,15 +2,20 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import type { StartInputs } from '../../src/boot/index.js';
 
 const startApp = jest.fn<(inputs: StartInputs) => Promise<{ environment: { server: { host: string; port: number } } }>>(async () => ({ environment: { server: { host: '127.0.0.1', port: 0 } } }));
+const withDirectMutationComposition = jest.fn<typeof import('../../src/boot/index.js').withDirectMutationComposition>(() => {
+  throw new Error('Unexpected direct mutation composition during start');
+});
 jest.unstable_mockModule('../../src/boot/index.js', () => ({
   publishInitialProjectRuntime: jest.fn(),
   startApp,
+  withDirectMutationComposition,
 }));
 
 const { run } = await import('../../src/cli.js');
 
 afterEach(() => {
   startApp.mockClear();
+  withDirectMutationComposition.mockClear();
   jest.restoreAllMocks();
 });
 
@@ -32,6 +37,7 @@ describe('start command typed inputs', () => {
       createRuntime: true,
     });
     expect(startApp.mock.calls[0]![0]).not.toHaveProperty('argv');
+    expect(withDirectMutationComposition).not.toHaveBeenCalled();
   });
 
   it('passes explicit false create intent when start has no options', async () => {
@@ -44,5 +50,6 @@ describe('start command typed inputs', () => {
       projectRoot: undefined,
       createRuntime: false,
     });
+    expect(withDirectMutationComposition).not.toHaveBeenCalled();
   });
 });
