@@ -178,6 +178,17 @@ describe('contract-backed process routes', () => {
       const retainedLog = new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
         .readFileContent(`work:///processes/${record.id}/stdout.log`);
       expect(retainedLog).toEqual(expect.objectContaining({ body: expect.objectContaining({ content: 'hello\n' }) }));
+      const contained = processRunner.spawn({
+        command: 'sleep 60', directScope: processScope, category: 'runtime_card',
+        ownerId: 'runtime-owner', ownerKind: 'runtime',
+      });
+      expect((await fastify.inject({ method: 'GET', url: '/api/processes' })).json().processes).toEqual([
+        expect.objectContaining({ id: contained.id, status: 'running' }),
+      ]);
+      await processRunner.terminateScopeTree({ rootScope: processes.runtimeProcessRootScope, categories: ['runtime_card'], reason: 'route containment', graceMs: 100 });
+      expect((await fastify.inject({ method: 'GET', url: '/api/processes' })).json()).toEqual({ processes: [] });
+      expect(new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
+        .readFileContent(`work:///processes/${contained.id}/stdout.log`)).toMatchObject({ body: { content: '' } });
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

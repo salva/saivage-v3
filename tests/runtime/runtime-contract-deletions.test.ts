@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, selectInvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
+import { appendLlmTurnToolCallBatch, appendUncertainPriorToolResult, appendToolResult, selectInvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
+import { readConversation } from '../../src/persistence/session-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { CanonicalLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { toolSucceeded } from '../../src/contracts/tool-result.js';
@@ -55,7 +56,7 @@ describe('runtime ledger contract deletions', () => {
 
     const secondInputId = '00000000-0000-4000-8000-000000000002';
     appendLlmTurnToolCallBatch({ projectRoot }, { ...invocation, inputId: secondInputId }, { id: 'call-2', type: 'function', function: { name: 'write', arguments: '{}' } }, selectInvocationResultPolicy(invocation, 'write'));
-    expect(appendProviderVisibleSyntheticFailedToolResult({ projectRoot }, { sessionId: 'agent:planner:project', sourceInputId: secondInputId, toolCallId: 'call-2', toolName: 'write', error: 'interrupted', resultPolicy: selectInvocationResultPolicy(invocation, 'write') })).toBeUndefined();
+    expect(appendUncertainPriorToolResult({ projectRoot }, 'agent:planner:project', readConversation(projectRoot, 'agent:planner:project').unmatchedCall!, 'actual-use')).toBeUndefined();
 
     const delivery = await import('../../src/runtime/actors/llm-delivery-log.js');
     expect('appendLlmTurnMessage' in delivery).toBe(false);

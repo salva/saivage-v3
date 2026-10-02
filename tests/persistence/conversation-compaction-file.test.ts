@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { compact, prepareCompaction, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
-import { buildAnalystIngressRows, providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { buildGlobalAgentIngressRows, providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import type { ProviderConversationItem } from '../../src/contracts/index.js';
@@ -52,7 +52,7 @@ describe('conversation compaction file persistence', () => {
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) {
         const inputId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
-        const ingress = buildAnalystIngressRows(analyst, inputId, `question ${ordinal} ${'x'.repeat(400)}`);
+        const ingress = buildGlobalAgentIngressRows(analyst, inputId, `question ${ordinal} ${'x'.repeat(400)}`);
         if (ordinal === 1) {
           const oldNote = { ...ingress[1], role: 'system' as const, id: 'retained-workspace-note', content: '[workspace-context] old focus', round_id: ingress[0].round_id, message_index: 0, block_index: 1 };
           appendConversationBatch({ projectRoot: root }, [ingress[0], oldNote, ingress[1]]);
@@ -63,7 +63,7 @@ describe('conversation compaction file persistence', () => {
       expect(result.kind).toBe('compacted');
       expect(readHistoricalConversationSegment(root, analyst, 1).rows.some((row) => row.content === '[workspace-context] old focus')).toBe(true);
       expect(readCurrentConversationSegment(root, analyst)!.genesis.kind).toBe('compacted_segment_genesis');
-      appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(analyst, '00000000-0000-4000-8000-000000000008', 'question after compacted history'));
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(analyst, '00000000-0000-4000-8000-000000000008', 'question after compacted history'));
       expect(readConversation(root, analyst).sourceRows.some((row) => row.content === 'question after compacted history')).toBe(true);
       expect(readHistoricalConversationSegment(root, analyst, 1).rows.some((row) => row.content === '[workspace-context] old focus')).toBe(true);
       expect(readConversation(root, analyst).sourceRows.some((row) => row.content.includes('workspace_focus'))).toBe(false);

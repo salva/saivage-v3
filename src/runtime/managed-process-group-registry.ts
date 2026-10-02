@@ -230,7 +230,6 @@ export class ManagedProcessGroupRegistry {
   }
 
   private probe(record: GroupRecord): 'live' | 'absent' | 'ambiguous' {
-    this.validateCapturedRecord(record);
     if (record.absenceConfirmed) {
       this.confirmAbsent(record);
       return 'absent';
@@ -250,7 +249,6 @@ export class ManagedProcessGroupRegistry {
   }
 
   private signal(record: GroupRecord, signal: NodeJS.Signals): boolean {
-    this.validateCapturedRecord(record);
     if (record.absenceConfirmed) return true;
     if (record.state === 'unverifiable') return false;
     try {
@@ -272,7 +270,6 @@ export class ManagedProcessGroupRegistry {
   }
 
   private confirmAbsent(record: GroupRecord): void {
-    this.validateCapturedRecord(record);
     if (record.absenceConfirmed) return;
     record.absenceConfirmed = true;
     this.groups.delete(record.groupId);
@@ -281,25 +278,6 @@ export class ManagedProcessGroupRegistry {
       this.retireDirectScope(record.directScopeRecord);
     }
     record.onAbsent(record.terminationReason);
-  }
-
-  private validateCapturedRecord(record: GroupRecord): void {
-    const currentGroup = this.groups.get(record.groupId);
-    const currentMembership = record.directScopeRecord.groups.get(record.groupId);
-    const currentScope = this.scopes.get(record.directScope);
-    if (record.absenceConfirmed) {
-      if (currentGroup !== undefined || currentMembership !== undefined) {
-        throw new Error(`Managed process group '${record.groupId}' has conflicting current identity after confirmed absence.`);
-      }
-      if (currentScope !== undefined && currentScope !== record.directScopeRecord) {
-        throw new Error(`Managed process group '${record.groupId}' has conflicting direct scope identity after confirmed absence.`);
-      }
-      return;
-    }
-    if (currentGroup !== record || currentMembership !== record || currentScope !== record.directScopeRecord
-      || record.directScopeRecord.category !== record.category) {
-      throw new Error(`Managed process group '${record.groupId}' current identity diverged before absence confirmation.`);
-    }
   }
 
   private retireDirectScope(record: DirectScopeRecord): void {

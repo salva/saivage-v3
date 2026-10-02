@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -146,6 +147,7 @@ describe('ProcessRunner managed process groups', () => {
     const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
     const syntheticScope = {} as ManagedProcessScope;
     const record = synthetic.spawn({ command: 'synthetic', directScope: syntheticScope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const heldWait = synthetic.waitForSettlement(record.id);
     const terminal = surface === 'kill'
       ? synthetic.kill(record.id, { directScope: syntheticScope, category: 'runtime_card' })
       : synthetic[surface]({ ...(surface === 'terminateScopeTree' ? { rootScope: {} as never, categories: ['runtime_card'] as const } : { directScope: syntheticScope, category: 'runtime_card' as const }), reason: 'test' } as never);
@@ -156,9 +158,10 @@ describe('ProcessRunner managed process groups', () => {
     expect(await synthetic.wait(record.id, 1)).toMatchObject({ status: 'running', timedOut: true });
     stdout.write('late-out'); stderr.write('late-err'); child.emit('exit', 0, null); stdout.end(); stderr.end();
     await terminal;
+    await expect(heldWait).resolves.toMatchObject({ record: { id: record.id, exit_code: 0 }, status: expect.any(String) });
     expect(readFileSync(record.stdout_path, 'utf8')).toBe('late-out');
     expect(readFileSync(record.stderr_path, 'utf8')).toBe('late-err');
-    if (surface === 'closeAndTerminateDirectScope') expect(synthetic.get(record.id)).toBeNull();
+    if (surface !== 'kill') expect(synthetic.get(record.id)).toBeNull();
     else expect(synthetic.get(record.id)?.status).not.toBe('running');
     rmSync(syntheticRoot, { recursive: true, force: true });
   });
@@ -260,7 +263,7 @@ describe('ProcessRunner managed process groups', () => {
     rmSync(syntheticRoot, { recursive: true, force: true });
   });
 
-  it('scope close joins and retires every eligible presentation before propagating the first capture failure', async () => {
+  it.each(['closeAndTerminateDirectScope', 'terminateScopeTree'] as const)('%s joins and retires every selected presentation before propagating the first capture failure', async (surface) => {
     const syntheticRoot = mkdtempSync(join(tmpdir(), 'proc-runner-close-rejections-'));
     initProjectTree(syntheticRoot);
     const launches: Array<{ child: EventEmitter & { stdout: PassThrough; stderr: PassThrough }; absent(): void; id: string }> = [];
@@ -272,6 +275,7 @@ describe('ProcessRunner managed process groups', () => {
         return child;
       },
       closeAndTerminateDirectScope: async () => ({ selected: launches.map(({ id }) => id), stopped: launches.map(({ id }) => id), failed: [] }),
+      terminateScopeTree: async () => ({ selected: launches.map(({ id }) => id), stopped: launches.map(({ id }) => id), failed: [] }),
     };
     const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
     const scope = {} as ManagedProcessScope;
@@ -282,10 +286,13 @@ describe('ProcessRunner managed process groups', () => {
     launches[0]!.child.emit('exit', 0, null); launches[0]!.child.stdout.end(); launches[0]!.child.stderr.end(); launches[0]!.absent();
     launches[1]!.child.emit('exit', 0, null); launches[1]!.absent();
 
-    const closing = synthetic.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'close all' });
+    const closing = surface === 'terminateScopeTree'
+      ? synthetic.terminateScopeTree({ rootScope: scope, categories: ['runtime_card'], reason: 'close all' })
+      : synthetic.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'close all' });
     let settled = false; void closing.then(() => { settled = true; }, () => { settled = true; });
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
+    launches[1]!.child.stdout.emit('error', new Error('second capture failure'));
     launches[1]!.child.stdout.end(); launches[1]!.child.stderr.end();
 
     await expect(closing).rejects.toBe(sentinel);
@@ -300,9 +307,71 @@ describe('ProcessRunner managed process groups', () => {
     const service = launch('sleep 60', direct('service_infrastructure'), 'service_infrastructure');
     const report = await runner.terminateScopeTree({ rootScope: registry.rootScope, categories: ['runtime_card'], reason: 'runtime shutdown', graceMs: 100 });
     expect(report.selected).toEqual([runtime.id]);
-    expect(runner.get(runtime.id)?.status).toBe('killed');
+    expect(runner.get(runtime.id)).toBeNull();
     expect(runner.get(analyst.id)?.status).toBe('running');
     expect(runner.get(service.id)?.status).toBe('running');
+  });
+
+  it('retires a selected natural exit during containment but leaves failed and historical presentations alone', async () => {
+    const launches: Array<{ id: string; absent(): void; child: EventEmitter & { stdout: PassThrough; stderr: PassThrough } }> = [];
+    const fakeRegistry = {
+      launch(input: { groupId: string; onAbsent(): void }) {
+        const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+        child.stdout = new PassThrough(); child.stderr = new PassThrough();
+        launches.push({ id: input.groupId, absent: input.onAbsent, child });
+        return child;
+      },
+      terminateScopeTree: async () => {
+        const natural = launches[1]!;
+        natural.child.emit('exit', 0, null);
+        natural.absent();
+        natural.child.stdout.end('natural tail'); natural.child.stderr.end();
+        return { selected: [natural.id, launches[2]!.id], stopped: [natural.id], failed: [{ groupId: launches[2]!.id, state: 'unverifiable', diagnostic: 'still live' }] };
+      },
+    };
+    const synthetic = new ProcessRunnerImplementation(root, fakeRegistry as never, testApplicationFatalPort);
+    const scope = {} as ManagedProcessScope;
+    const spawn = () => synthetic.spawn({ command: 'synthetic', directScope: scope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const historical = spawn(); const natural = spawn(); const failed = spawn();
+    launches[0]!.child.emit('exit', 0, null); launches[0]!.absent();
+    launches[0]!.child.stdout.end(); launches[0]!.child.stderr.end();
+    await synthetic.waitForSettlement(historical.id);
+    const held = synthetic.waitForSettlement(natural.id);
+    await expect(synthetic.terminateScopeTree({ rootScope: scope, categories: ['runtime_card'], reason: 'natural overlap' })).resolves.toMatchObject({ stopped: [natural.id], failed: [{ groupId: failed.id }] });
+    await expect(held).resolves.toMatchObject({ status: 'exited', exitCode: 0 });
+    expect(readFileSync(natural.stdout_path, 'utf8')).toBe('natural tail');
+    expect(synthetic.get(natural.id)).toBeNull();
+    expect(synthetic.list().map(({ id }) => id)).toEqual([historical.id, failed.id]);
+    expect(synthetic.get(failed.id)?.status).toBe('running');
+    launches[2]!.child.emit('exit', 0, null); launches[2]!.absent();
+    launches[2]!.child.stdout.end(); launches[2]!.child.stderr.end();
+    await synthetic.waitForSettlement(failed.id);
+  });
+
+  it('joins a real natural exit concurrent with containment without losing the held waiter output', async () => {
+    const releasePath = join(root, 'natural-release');
+    const signals: NodeJS.Signals[] = [];
+    const naturalRegistry = new ManagedProcessGroupRegistry({
+      spawn: (file, args, options) => spawn(file, args, options),
+      probe: (pgid) => { process.kill(-pgid, 0); },
+      signal: (_pgid, signal) => {
+        signals.push(signal);
+        // Let the command finish normally while containment already owns its selection.
+        writeFileSync(releasePath, 'release');
+      },
+    });
+    const naturalRunner = new ProcessRunnerImplementation(root, naturalRegistry, testApplicationFatalPort);
+    const scope = naturalRunner.createDirectScope(naturalRegistry.rootScope, 'natural-overlap', 'runtime_card');
+    const record = naturalRunner.spawn({ command: `echo ready; while [ ! -f ${JSON.stringify(releasePath)} ]; do sleep 0.01; done; echo natural-tail`, directScope: scope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const held = naturalRunner.waitForSettlement(record.id);
+    await expect(naturalRunner.terminateScopeTree({ rootScope: naturalRegistry.rootScope, categories: ['runtime_card'], reason: 'natural overlap', graceMs: 1000 })).resolves.toEqual({ selected: [record.id], stopped: [record.id], failed: [] });
+    expect(signals).toEqual(['SIGTERM']);
+    // Existing containment presentation records the termination reason, even when
+    // the command naturally exits during the grace period.
+    await expect(held).resolves.toMatchObject({ status: 'killed', record: { id: record.id } });
+    expect(readFileSync(record.stdout_path, 'utf8')).toBe('ready\nnatural-tail\n');
+    expect(naturalRunner.get(record.id)).toBeNull();
+    expect(naturalRunner.list()).toEqual([]);
   });
 
 });

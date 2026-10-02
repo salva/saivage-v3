@@ -13,6 +13,7 @@ import type { LlmToolInvocationContext } from '../../src/runtime/actors/executin
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { cardProcessOutputRoot, cardWorkRoot, nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { invokeToolForLlm } from '../../src/tools/invocation.js';
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
   return bindToolProvider('process', processToolBinders, { projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
@@ -47,6 +48,60 @@ function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 }
 
 describe('process provider', () => {
+  it.each(['run_command', 'wait_process'] as const)('preserves an entered %s known result and evidence after tree retirement', async (toolName) => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const runner = processes.processRunner;
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+    const command = "trap 'echo trailing; exit 0' TERM; echo ready; while :; do sleep 1; done";
+    let processId = '';
+    if (toolName === 'wait_process') {
+      const background = await invokeTestTool(surface, 'run_command', { command, wait: false });
+      if (!background.success) throw new Error(background.error);
+      processId = (background.data as { process_id: string }).process_id;
+    }
+    let entered!: () => void; const entry = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void; const delivery = new Promise<void>((resolve) => { release = resolve; });
+    const context: LlmToolInvocationContext = {
+      ...testLlmToolInvocationContext({ sessionId: 'agent:executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', toolCallId: 'call-overlap', toolName }),
+      waits: {
+        waitProcess: async <T>(id: string, pending: Promise<T>): Promise<T> => {
+          processId = id; entered();
+          const known = await pending;
+          await delivery;
+          return known;
+        },
+        waitExternal: async <T>(pending: Promise<T>) => pending,
+      },
+    };
+    const invocation = invokeToolForLlm(surface, toolName, toolName === 'run_command'
+      ? { command, timeout_ms: 10000 } : { process_id: processId, timeout_ms: 10000 }, context, new AbortController().signal);
+    try {
+      await entry;
+      const record = runner.get(processId)!;
+      const deadline = Date.now() + 5000;
+      while (!readFileSync(record.stdout_path, 'utf8').includes('ready')) {
+        if (Date.now() >= deadline) throw new Error('Process did not become ready.');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await expect(runner.terminateScopeTree({ rootScope: processes.runtimeProcessRootScope, categories: ['runtime_card'], reason: 'overlap', graceMs: 1000 })).resolves.toEqual({ selected: [processId], stopped: [processId], failed: [] });
+      expect(runner.get(processId)).toBeNull();
+      release();
+      const settlement = await invocation;
+      expect(settlement.kind).toBe('executed');
+      if (settlement.kind !== 'executed') throw new Error('Expected entered tool execution.');
+      expect(settlement.execution.evidence).toEqual({ kind: 'none' });
+      expect(settlement.execution.providerOutcome).toMatchObject({ kind: 'succeeded', data: {
+        process_id: processId, status: 'killed', stdout: 'ready\ntrailing\n', stdout_complete: true,
+        stdout_bytes: Buffer.byteLength('ready\ntrailing\n'),
+        stderr_complete: true,
+      } });
+      expect(runner.list()).toEqual([]);
+    } finally {
+      release();
+      await invocation;
+    }
+  }));
+
   it('labels every cleanup reason before terminating the direct scope', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
     const directScope = processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, 'test:cleanup-labels', 'runtime_card');

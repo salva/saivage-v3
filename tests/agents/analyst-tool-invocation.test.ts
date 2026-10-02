@@ -19,7 +19,7 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort, type RestartCapability } from '../../src/contracts/index.js';
 import { globalAgentConversationVersionFile } from '../../src/persistence/layout.js';
 import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
-import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 
@@ -373,7 +373,7 @@ describe('Analyst parsed tool invocation', () => {
   it('settles a seeded selected-session call with its persisted policy before fresh Analyst ingress', async () => {
     const test = analyst('{"value":"new"}', jest.fn(async (args) => executedToolOutcome('none', toolSucceeded(args))));
     const oldInput = '44444444-4444-4444-8444-444444444444';
-    const ingress = buildAnalystIngressRows('agent:analyst:global', oldInput, 'old request');
+    const ingress = buildGlobalAgentIngressRows('agent:analyst:global', oldInput, 'old request');
     appendConversationBatch({ projectRoot: test.projectRoot }, ingress);
     const oldPolicy = toolCallRowPolicy();
     if (oldPolicy.kind !== 'tool_call') throw new Error('Expected tool-call policy fixture.');

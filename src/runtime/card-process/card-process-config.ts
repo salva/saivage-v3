@@ -573,7 +573,6 @@ function buildCardTypeStateTable(
     ]);
   const states = immutableMap(stateEntries);
   validateCompiledActorTable('lifecycle:ready', states);
-  validateProcessStateTable(draft.location, states);
   const ids = new Set<ProcessPromptId>();
   for (const state of states.values()) {
     if (state.kind === 'node') {
@@ -601,56 +600,6 @@ function buildCardTypeStateTable(
     states,
     processPrompts,
   });
-}
-function validateProcessStateTable(
-  location: string,
-  states: ReadonlyMap<string, CompiledProcessState>,
-): void {
-  for (const [source, state] of states)
-    for (const [event, route] of state.on) {
-      const target = states.get(route.targetStateId)!;
-      if (
-        route.semantic.kind === 'activation' &&
-        (state.kind !== 'ready' || target.kind !== 'entry' || event !== `activate:${target.entry}`)
-      )
-        throw new Error(
-          `${location}.workflow transition '${source}'/'${event}' has invalid activation semantics.`,
-        );
-      if (
-        route.semantic.kind === 'entry-route' &&
-        (state.kind !== 'entry' || target.kind !== 'node' || event !== 'entry:route')
-      )
-        throw new Error(
-          `${location}.workflow transition '${source}'/'${event}' has invalid entry semantics.`,
-        );
-      if (
-        route.semantic.kind === 'runtime-terminal' &&
-        (state.kind !== 'node' || target.kind !== 'terminal' || event !== `execution:${route.semantic.cause}`)
-      )
-        throw new Error(
-          `${location}.workflow transition '${source}'/'${event}' has invalid runtime terminal semantics.`,
-        );
-      if (route.semantic.kind === 'configured-outcome') {
-        if (
-          state.kind !== 'node' ||
-          (target.kind !== 'node' && target.kind !== 'terminal') ||
-          event !== `result:${route.semantic.outcome}`
-        )
-          throw new Error(
-            `${location}.workflow transition '${source}'/'${event}' has invalid configured outcome semantics.`,
-          );
-        if ((target.kind === 'terminal') !== (route.semantic.terminalBehavior !== null))
-          throw new Error(
-            `${location}.workflow transition '${source}'/'${event}' has incompatible terminal behavior.`,
-          );
-      }
-      if (route.semantic.kind === 'configured-pending-notifications') {
-        if (state.kind !== 'node' || target.kind !== 'node' || event !== `result:${route.semantic.outcome}:pending-notifications`)
-          throw new Error(`${location}.workflow transition '${source}'/'${event}' has invalid pending-notifications semantics.`);
-      }
-      if (route.semantic.kind === 'notification-interrupt' && (state.kind !== 'node' || target.kind !== 'node' || event !== 'notification:interrupt'))
-        throw new Error(`${location}.workflow transition '${source}'/'${event}' has invalid notification interruption semantics.`);
-    }
 }
 function validateDescendantContextClosure(drafts:ReadonlyMap<CardTypeName,CardTypeCompileDraft>):void{
   for(const [cardType,draft] of drafts){

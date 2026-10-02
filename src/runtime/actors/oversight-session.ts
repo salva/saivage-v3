@@ -79,8 +79,8 @@ export class OversightSession {
           await settleReturnedToolCallWithoutEntry(this.#llm,outcome,'Oversight check cancelled before tool execution.');
           return this.#settleOrdinary('cancelled');
         }
-        if(outcome.type==='result')return this.#settleOrdinary(signal.aborted?'cancelled':'succeeded');
-        if(outcome.type==='error'||outcome.type==='blocked')return this.#settleOrdinary(signal.aborted?'cancelled':'failed');
+        if(outcome.type==='result')return this.#settleOrdinary('succeeded');
+        if(outcome.type==='error'||outcome.type==='blocked')return this.#settleOrdinary('failed');
         const parsed=parseProtocolToolArgs(this.#llm.waitingToolArguments(outcome));
         let settlement;
         try{settlement=parsed.kind==='ok'&&this.#surface.tools.has(outcome.toolName)

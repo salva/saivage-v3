@@ -13,7 +13,7 @@ import { buildChatOperatorContractHandlers } from '../../src/server/routes/opera
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
-import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
@@ -297,7 +297,7 @@ describe('operator chat route request contracts', () => {
 
     appendConversationBatch(
       { projectRoot },
-      buildAnalystIngressRows('agent:analyst:global', sourceInputId, 'invoke'),
+      buildGlobalAgentIngressRows('agent:analyst:global', sourceInputId, 'invoke'),
     );
     appendConversationBatch({ projectRoot }, [
       {
@@ -578,7 +578,7 @@ describe('operator chat route request contracts', () => {
 
   it('keeps GET identity-only when the durable transcript ends in an unmatched call', async () => {
     const inputId = '11111111-1111-4111-8111-111111111111';
-    const ingress = buildAnalystIngressRows(
+    const ingress = buildGlobalAgentIngressRows(
       'agent:analyst:global',
       inputId,
       'question',

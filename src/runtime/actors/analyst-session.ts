@@ -16,11 +16,11 @@ import {
 } from '../../contracts/index.js';
 import type { CardService } from '../../cards/store-api.js';
 import { buildAgentProtocolViolation } from './agent-protocol-violation.js';
-import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection,
+import { buildGlobalAgentIngressRows, providerConversationProjection,
 } from './conversation-session.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,
 } from './llm-actor.js';
-import { appendProviderVisibleSyntheticFailedToolResult, buildLlmTurnMessage } from './llm-delivery-log.js';
+import { appendUncertainPriorToolResult, buildLlmTurnMessage } from './llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
@@ -240,14 +240,12 @@ export class AnalystSession {
     operation.step = { kind: 'starting', ingress: 'publishing' };
     appendConversationBatch(
       this.#conversations,
-      buildAnalystIngressRows(
+      buildGlobalAgentIngressRows(
         this.#sessionId,
         operation.acceptedOperationId,
         operation.input.userContent,
       ),
     );
-    if (operation.step.kind !== 'starting')
-      throw new Error('Analyst ingress ownership changed during publication.');
     operation.step = { ...operation.step, ingress: 'published' };
     this.assertCurrent(operation, signal);
     const invocationInput: PreparedLlmInvocationInput = {
@@ -367,14 +365,12 @@ export class AnalystSession {
     operation.step = { kind: 'confirmed_restart_publishing', request: null };
     appendConversationBatch(
       this.#conversations,
-      buildAnalystRestartRows(
+      buildGlobalAgentIngressRows(
         this.#sessionId,
         operation.acceptedOperationId,
         operation.input.userContent,
       ),
     );
-    if (operation.step.kind !== 'confirmed_restart_publishing')
-      throw new Error('Restart publication ownership changed.');
     const request = operation.step.request;
     operation.step = { kind: 'confirmed_restart_published' };
     if (request) throw request.reason;
@@ -387,22 +383,7 @@ export class AnalystSession {
   private settlePriorFinalCallForSubmission(): void {
     const call = readConversation(this.#conversations.projectRoot, this.#sessionId).unmatchedCall;
     if (!call) return;
-    const message = call.message;
-    if (message.kind !== 'tool_call' || message.context_policy.kind !== 'tool_call' || !message.tool || !message.tool_call_id || message.tool !== call.toolName || message.tool_call_id !== call.toolCallId)
-      throw new Error(`Unmatched tool call '${message.id}' is missing its tool identity or tool_call context policy.`);
-    appendProviderVisibleSyntheticFailedToolResult(this.#conversations, {
-      sessionId: this.#sessionId,
-      sourceInputId: call.sourceInputId,
-      toolCallId: call.toolCallId,
-      toolName: call.toolName,
-      error: 'Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.',
-      data: { outcome_unknown: true },
-      resultPolicy: Object.freeze({
-        resultPolicyTemplate: message.context_policy.template,
-        resultPolicyTemplateBytes: message.context_policy.template_bytes,
-        resultPolicyTemplateSha256: message.context_policy.template_sha256,
-      }),
-    });
+    appendUncertainPriorToolResult(this.#conversations, this.#sessionId, call, 'actual-use');
   }
 
   private terminalHandoff(operation: AnalystTurnOperation): LlmTerminalHandoff {

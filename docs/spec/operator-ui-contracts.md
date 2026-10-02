@@ -291,7 +291,8 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   uncertainty is fatal before a response, not translated to not-found or Retry.
   No browser repair action or new control is introduced.
 - Process rows carry supplied owner/card identity, status, and canonical
-  `work:///` log references. Retirement does not erase a known link or
+  `work:///` log references. Successfully stopped scope-tree selections disappear
+  after terminal settlement and retirement. Retirement does not erase a known link or
   promise retention; there is no terminate control or process-history cache.
 - Evidence is a source-labeled navigation index: card-version, per-record
   revision, and per-session segment catalogs open on demand with exact links

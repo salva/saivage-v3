@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { validateConfiguredGlobalConversation } from '../../src/application/global-agent-startup-validation.js';
 import { appendConversationBatch, initializeMissingConversation, readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { globalAgentConversationVersionFile } from '../../src/persistence/layout.js';
-import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 
@@ -24,7 +24,7 @@ describe('configured selected-global runtime validation', () => {
   });
 
   it('byte-preserves valid current conversation data', () => {
-    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); const before = readFileSync(path);
     validateConfiguredGlobalConversation(root, SESSION);
     expect(readFileSync(path)).toEqual(before);
@@ -32,10 +32,10 @@ describe('configured selected-global runtime validation', () => {
 
   it('admits retained ordinary system text beside later two-row ingress without rewriting it', () => {
     const root = projectRoot();
-    const old = buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'old question');
+    const old = buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'old question');
     const retained = { ...old[1], id: `${SESSION}:retained-note`, role: 'system' as const, content: '[workspace-context] view: cockpit', round_id: old[0].round_id, message_index: 0, block_index: 1 };
     appendConversationBatch({ projectRoot: root }, [old[0], retained, old[1]]);
-    appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '22222222-2222-4222-8222-222222222222', 'new question'));
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '22222222-2222-4222-8222-222222222222', 'new question'));
     const segment = readCurrentConversationSegment(root, SESSION)!;
     const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     const before = readFileSync(path);
@@ -46,7 +46,7 @@ describe('configured selected-global runtime validation', () => {
 
   it('rejects malformed marker content and marker-free system-text preambles without editing either', () => {
     const malformedRoot = projectRoot();
-    const ingress = buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question');
+    const ingress = buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question');
     appendConversationBatch({ projectRoot: malformedRoot }, ingress);
     const malformedSegment = readCurrentConversationSegment(malformedRoot, SESSION)!;
     const malformedPath = globalAgentConversationVersionFile(malformedRoot, 'analyst', malformedSegment.entry.filename);
@@ -73,7 +73,7 @@ describe('configured selected-global runtime validation', () => {
   it('rejects a strict-valid sole final unmatched global call with bytes unchanged', () => {
     const root = projectRoot();
     const inputId = '11111111-1111-4111-8111-111111111111';
-    const ingress = buildAnalystIngressRows(SESSION, inputId, 'question');
+    const ingress = buildGlobalAgentIngressRows(SESSION, inputId, 'question');
     appendConversationBatch({ projectRoot: root }, ingress);
     appendConversationBatch({ projectRoot: root }, [{
       id: `${inputId}:tool-call:call-startup`, session_id: SESSION, role: 'assistant', kind: 'tool_call',
@@ -90,7 +90,7 @@ describe('configured selected-global runtime validation', () => {
   });
 
   it('selected global owning consumption discards a proven unterminated suffix', () => {
-    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); const before = readFileSync(path); appendFileSync(path, '{"broken":');
     expect(() => validateConfiguredGlobalConversation(root, SESSION)).not.toThrow();
     expect(readFileSync(path)).toEqual(before);
@@ -98,7 +98,7 @@ describe('configured selected-global runtime validation', () => {
   });
 
   it.each(['schema', 'semantic'] as const)('does not discard a suffix after complete %s-invalid global history', (fault) => {
-    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     const envelope = JSON.parse(segment.bytes.toString().trim());
     appendFileSync(path, fault === 'schema' ? '{"complete":"invalid"}\n' : `${JSON.stringify({ ...envelope, rows: envelope.rows.slice(1) })}\n`);
@@ -110,7 +110,7 @@ describe('configured selected-global runtime validation', () => {
   it('accepts absent Oversight state without creating it and validates its exact published session',()=>{
     const root=projectRoot();validateConfiguredGlobalConversation(root,OVERSIGHT_SESSION);
     initializeMissingConversation(root,OVERSIGHT_SESSION);
-    appendConversationBatch({projectRoot:root},buildAnalystIngressRows(OVERSIGHT_SESSION,'22222222-2222-4222-8222-222222222222','check'));
+    appendConversationBatch({projectRoot:root},buildGlobalAgentIngressRows(OVERSIGHT_SESSION,'22222222-2222-4222-8222-222222222222','check'));
     expect(()=>validateConfiguredGlobalConversation(root,OVERSIGHT_SESSION)).not.toThrow();
   });
 });

@@ -83,37 +83,15 @@ export function appendActivationMarker(
   return message;
 }
 
-export function buildAnalystIngressRows(
-  sessionId: ConversationSessionId,
-  inputId: string,
-  userContent: string,
-): readonly [AgentMessage, AgentMessage] {
-  return [
-    buildAnalystActivationMarker(sessionId, inputId),
-    buildContextTextMessage(sessionId, 'user', userContent),
-  ];
-}
-
 export function buildGlobalAgentIngressRows(
   sessionId: ConversationSessionId,
   inputId: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage] {
-  return [buildAnalystActivationMarker(sessionId, inputId), buildContextTextMessage(sessionId, 'user', userContent)];
+  return [buildGlobalAgentActivationMarker(sessionId, inputId), buildContextTextMessage(sessionId, 'user', userContent)];
 }
 
-export function buildAnalystRestartRows(
-  sessionId: ConversationSessionId,
-  inputId: string,
-  userContent: string,
-): readonly [AgentMessage, AgentMessage] {
-  return [
-    buildAnalystActivationMarker(sessionId, inputId),
-    buildContextTextMessage(sessionId, 'user', userContent),
-  ];
-}
-
-function buildAnalystActivationMarker(
+function buildGlobalAgentActivationMarker(
   sessionId: ConversationSessionId,
   inputId: string,
 ): AgentMessage {

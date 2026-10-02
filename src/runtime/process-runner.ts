@@ -167,7 +167,15 @@ export class ProcessRunner {
   async terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
     const presentations = new Map(this.presentations);
     const report = await this.#registry.terminateScopeTree(input);
-    await this.#joinStopped(report, presentations);
+    const stopped = report.stopped.map((id) => {
+      const presentation = presentations.get(id);
+      if (!presentation) throw new Error(`Registry-confirmed stopped process '${id}' has no ProcessRunner presentation.`);
+      return { id, presentation };
+    });
+    const settlements = await Promise.allSettled(stopped.map(({ presentation }) => presentation.terminalSettlement));
+    for (const { id, presentation } of stopped) this.retireSettled(id, presentation.directScope);
+    const rejection = settlements.find((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected');
+    if (rejection) throw rejection.reason;
     return report;
   }
 

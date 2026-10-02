@@ -739,6 +739,7 @@ describe('repository complete export boundary', () => {
       'src/server/routes/operator-mcp-handlers.ts::buildMcpOperatorContractHandlers',
       'src/server/routes/operator-process-handlers.ts::buildProcessOperatorContractHandlers',
       'src/server/routes/operator-runtime-card-handlers.ts::buildRuntimeCardOperatorContractHandlers',
+      'src/server/routes/operator-workflow-handlers.ts::buildWorkflowOperatorContractHandlers',
     ]);
     for (const item of promoted) {
       const identities = item.declarationPaths.map((declarationPath) => JSON.stringify(declarationPath));

@@ -2,6 +2,7 @@ import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRU
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
 import { sha256Hex, canonicalValueSha256 } from '../../schemas/index.js';
 import type { ProviderPrivateContext, ToolCall } from '../../contracts/index.js';
+import type { ValidatedConversation } from '../../contracts/index.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, type ToolSettlementInput } from '../../tools/tool-api.js';
 import type { ToolResult } from '../../contracts/index.js';
@@ -215,14 +216,28 @@ function buildToolResultMessage(record: ToolSettlementAppendRecord, facts: Settl
   });
 }
 
-export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown; resultPolicy: InvocationResultPolicy }): void {
+export function appendUncertainPriorToolResult(
+  conversations: ConversationFileContext,
+  sessionId: ConversationSessionId,
+  call: NonNullable<ValidatedConversation['unmatchedCall']>,
+  context: 'actual-use' | 'recovery',
+): void {
+  const message = call.message;
+  if (message.kind !== 'tool_call' || message.context_policy.kind !== 'tool_call' || message.tool !== call.toolName || message.tool_call_id !== call.toolCallId)
+    throw new Error(`Unmatched tool call '${message.id}' is missing its tool identity or tool_call context policy.`);
   appendToolResult(conversations, {
-    session_id: record.sessionId,
-    source_input_id: record.sourceInputId,
-    tool_call_id: record.toolCallId,
-    tool_name: record.toolName,
-    resultPolicy: record.resultPolicy,
-    settlement: syntheticToolSettlement('execution_failed', record.error, record.data),
+    session_id: sessionId,
+    source_input_id: call.sourceInputId,
+    tool_call_id: call.toolCallId,
+    tool_name: call.toolName,
+    resultPolicy: Object.freeze({
+      resultPolicyTemplate: message.context_policy.template,
+      resultPolicyTemplateBytes: message.context_policy.template_bytes,
+      resultPolicyTemplateSha256: message.context_policy.template_sha256,
+    }),
+    settlement: syntheticToolSettlement('execution_failed', context === 'actual-use'
+      ? 'Prior activation ended without a recorded tool result. External or domain effects may or may not have happened. The prior call will not be replayed.'
+      : 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', { outcome_unknown: true }),
   });
 }
 

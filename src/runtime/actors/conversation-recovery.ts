@@ -6,7 +6,7 @@ import {
   loggedToolResultIdentity,
 } from '../../schemas/index.js';
 import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
-import { appendProviderVisibleSyntheticFailedToolResult, type InvocationResultPolicy } from './llm-delivery-log.js';
+import { appendUncertainPriorToolResult } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import {
@@ -140,15 +140,7 @@ export function stabilizeAgentSession(args: {
   }
   const unmatched = validateCallSettlementPairs(conversation, activationPhysicalIndex, true);
   if (unmatched) {
-    appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
-      sessionId: args.sessionId,
-      sourceInputId: unmatched.sourceInputId,
-      toolCallId: unmatched.toolCallId,
-      toolName: unmatched.toolName,
-      error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.',
-      data: { outcome_unknown: true },
-      resultPolicy: callRowResultPolicy(unmatched.message),
-    });
+    appendUncertainPriorToolResult(args.conversations, args.sessionId, unmatched, 'recovery');
   }
   appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');
   return {
@@ -191,21 +183,13 @@ function physicalIndexForSource(physicalRows: readonly AgentMessage[], source: A
 
 function validateCallSettlementPairs(
   conversation: ValidatedConversation, latestActivationIndex: number | null, interrupted: boolean,
-): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
+): ValidatedConversation['unmatchedCall'] {
   const call = conversation.unmatchedCall;
   if (!call) return null;
   if (!interrupted) throw new Error('A cleanly closed or empty role session contains an unmatched tool call.');
   if (latestActivationIndex === null || call.physicalIndex < latestActivationIndex) throw new Error('Interrupted role session contains an unmatched tool call in an older activation round.',
     );
-  if (!call.message.tool || !call.message.tool_call_id) throw new Error(`Unmatched tool call '${call.message.id}' is malformed.`);
-  return { sourceInputId: call.sourceInputId, toolCallId: call.toolCallId, toolName: call.message.tool, message: call.message,
-  };
-}
-
-function callRowResultPolicy(call: AgentMessage): InvocationResultPolicy {
-  if (call.kind !== 'tool_call' || call.context_policy.kind !== 'tool_call')
-    throw new Error(`Unmatched tool call '${call.id}' is missing its tool_call context policy.`);
-  return Object.freeze({ resultPolicyTemplate: call.context_policy.template, resultPolicyTemplateBytes: call.context_policy.template_bytes, resultPolicyTemplateSha256: call.context_policy.template_sha256 });
+  return call;
 }
 
 function parseResultPayload(message: AgentMessage): { success?: unknown; data?: unknown } {

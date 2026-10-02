@@ -21,7 +21,7 @@ import { resolveSystemTemplate } from '../../src/config/system-templates/registr
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
-import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
 
 const roots: string[] = [];
@@ -82,7 +82,7 @@ describe('application startup generated-state admission', () => {
     cards.setStatus('project', 'running');
     const sessionId = 'agent:analyst:global' as const;
     const inputId = '11111111-1111-4111-8111-111111111111';
-    const ingress = buildAnalystIngressRows(sessionId, inputId, 'question');
+    const ingress = buildGlobalAgentIngressRows(sessionId, inputId, 'question');
     appendConversationBatch({ projectRoot: root }, ingress);
     appendConversationBatch({ projectRoot: root }, [{
       id: `${inputId}:tool-call:call-startup`, session_id: sessionId, role: 'assistant', kind: 'tool_call',

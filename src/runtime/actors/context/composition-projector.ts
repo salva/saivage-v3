@@ -120,9 +120,6 @@ export function composeContextProjection(args: {
         if (behavior === 'responses_private') primary.push({ origin: 'canonical', row, semantic: 'direct' });
         continue;
       }
-      if (behavior === 'model_recovery_notice') {
-        continue;
-      }
       continue;
     }
     if (policy.kind === 'tool_exchange') {

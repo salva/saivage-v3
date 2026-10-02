@@ -48,6 +48,8 @@ describe('App real managed-process cleanup', () => {
       expect(report.warnings).toEqual([]);
       expect(calls).toEqual(['runtime', 'following']);
       expect(processStopReport).toEqual({ selected: [processRecord.id], stopped: [processRecord.id], failed: [] });
+      expect(runner.get(processRecord.id)).toBeNull();
+      expect(runner.list()).toEqual([]);
       expect(elapsed).toBeGreaterThanOrEqual(5_000);
       expect(elapsed).toBeLessThan(10_000);
     } finally {

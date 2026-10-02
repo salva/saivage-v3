@@ -8,7 +8,7 @@ import { appendConversationBatch, readConversation, readCurrentConversationSegme
 import { cardConversationVersionFile } from '../../../src/persistence/layout.js';
 import { validateConversation } from '../../../src/contracts/conversation-validation.js';
 import { canonicalJson, type AgentMessage, type ConversationSessionId } from '../../../src/schemas/index.js';
-import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, InvocationResultPolicy, selectInvocationResultPolicy, settleToolResultForConversation } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { appendLlmTurnToolCallBatch, appendUncertainPriorToolResult, appendToolResult, InvocationResultPolicy, selectInvocationResultPolicy, settleToolResultForConversation } from '../../../src/runtime/actors/llm-delivery-log.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { compileInvocationToolContract, buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
@@ -198,9 +198,10 @@ describe('typed tool settlement', () => {
     const input = invocation(inputId, [cardToolContract()]);
     const policy = selectInvocationResultPolicy(input, 'get_card');
     appendLlmTurnToolCallBatch({ projectRoot: root }, input, call(inputId, 'call-1'), policy);
-    appendProviderVisibleSyntheticFailedToolResult({ projectRoot: root }, { sessionId: SESSION, sourceInputId: inputId, toolCallId: 'call-1', toolName: 'get_card', error: 'Runtime activation was interrupted before completion.', data: { outcome_unknown: true }, resultPolicy: policy });
+    appendUncertainPriorToolResult({ projectRoot: root }, SESSION, readConversation(root, SESSION).unmatchedCall!, 'recovery');
     const result = readConversation(root, SESSION).physicalRows.find((message) => message.kind === 'tool_result')!;
     expect(result.context_policy).toMatchObject({ kind: 'tool_result', settlement_origin: 'execution_failed', evidence: { kind: 'none' }, call_policy_sha256: policy.resultPolicyTemplateSha256 });
+    expect(JSON.parse(result.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
     expect(() => validateConversation(SESSION, readConversation(root, SESSION).physicalRows)).not.toThrow();
   });
 });

@@ -22,7 +22,7 @@ import { appendConversationBatch, readConversation, type ConversationFileContext
 import type { ToolSettlementInput } from '../../tools/tool-api.js';
 import { assertPreparedContextContinuity } from './context/context-blocks.js';
 import { type ContextBlock } from '../../contracts/index.js';
-import { RuntimeGate } from '../runtime-gate.js';
+import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/index.js';
@@ -126,7 +126,7 @@ export class ConversationLLMActor {
   readonly agentId: ConversationSessionId;
   readonly purpose: ConversationLLMActorPurpose;
   readonly provider: LLMProviderPort;
-  readonly gate: RuntimeGate;
+  readonly #cardGate: RuntimeGate | null;
   readonly conversations: ConversationFileContext;
   readonly compactor: CompactorPort;
   readonly summarizerProvider: SummarizerProviderPort;
@@ -144,11 +144,11 @@ export class ConversationLLMActor {
     switch (args.purpose.kind) {
       case 'autonomous-card':
         if (identity.cardId !== args.purpose.cardId) throw new Error(`Autonomous-card LLM actor purpose '${args.purpose.cardId}' does not match session '${this.agentId}'.`);
-        this.gate = (args as Extract<ConversationLLMActorArgs, { purpose: { kind: 'autonomous-card' } }>).gate;
+        this.#cardGate = (args as Extract<ConversationLLMActorArgs, { purpose: { kind: 'autonomous-card' } }>).gate;
         break;
       case 'global-agent':
         if (identity.cardId !== null) throw new Error(`Global-agent LLM actor requires a global session, received '${this.agentId}'.`);
-        this.gate = new RuntimeGate();
+        this.#cardGate = null;
         break;
     }
     this.purpose = Object.freeze(args.purpose);
@@ -405,7 +405,8 @@ export class ConversationLLMActor {
     operation.input = input;
     appendLlmTurnStarted(this.conversations, input);
     operation.turnStartedPersisted = true;
-    await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
+    if (this.#cardGate) await this.#cardGate.waitUntilOpen(signal);
+    this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
     const completion = await this.#callProvider(operation, input, admitted.admission, signal);
     if (operation.disposition.kind !== 'graceful_cancellation') this.#invocations.assertCurrent(operation.lease!);
     if (completion.kind === 'content-policy-blocked') return completion;
