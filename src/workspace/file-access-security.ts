@@ -6,13 +6,9 @@ import {
 } from './secret-paths.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
-const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/saivage.json',
-]);
+const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set(['.saivage/saivage.json']);
 
-const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/saivage.yaml',
-]);
+const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set(['.saivage/saivage.yaml']);
 
 function sanitizeFilePath(filePath: string): string {
   if (!filePath) return '';
@@ -54,7 +50,6 @@ export function looksLikeSecretPath(filePath: string): boolean {
   return sharedLooksLikeSecretPath(filePath);
 }
 
-
 export function redactOperatorErrorMessage(message: string, projectRoot?: string): string {
   let redacted: string = redactTextForOutbound(message);
   if (projectRoot) {
@@ -65,9 +60,7 @@ export function redactOperatorErrorMessage(message: string, projectRoot?: string
     if (pathLike === '[PROJECT_ROOT]') {
       return pathLike;
     }
-    return pathLike.startsWith('.saivage')
-      ? pathLike
-      : '[PATH_REDACTED]';
+    return pathLike.startsWith('.saivage') ? pathLike : '[PATH_REDACTED]';
   });
 }
 
@@ -104,7 +97,9 @@ export function resolveContainedProjectPath(
   }
 
   const resolvedRoot = resolve(projectRoot);
-  const normalized = requestedPath.startsWith('/') ? requestedPath : resolve(projectRoot, requestedPath);
+  const normalized = requestedPath.startsWith('/')
+    ? requestedPath
+    : resolve(projectRoot, requestedPath);
   const resolvedPath = resolve(normalized);
 
   if (!resolvedPath.startsWith(resolvedRoot + sep) && resolvedPath !== resolvedRoot) {

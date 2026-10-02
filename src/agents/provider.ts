@@ -5,7 +5,11 @@ import type {
   SaivageConfig,
 } from '../schemas/index.js';
 import { builtInCapabilitiesForProvider, mergeCapabilities } from './provider-capabilities.js';
-import { candidatesEqual, type EffectiveProviderCapabilities, type Candidate } from '../contracts/index.js';
+import {
+  candidatesEqual,
+  type EffectiveProviderCapabilities,
+  type Candidate,
+} from '../contracts/index.js';
 
 // ── Account ───────────────────────────────────────────────────
 
@@ -35,7 +39,6 @@ export class Account {
     }
     return providerModelSet.has(model);
   }
-
 }
 
 // ── Provider ──────────────────────────────────────────────────
@@ -95,9 +98,7 @@ export class Provider {
    */
   getAccountsForModel(model: string): Account[] {
     if (!this.canServe(model)) return [];
-    const eligible = this.accounts.filter((a) =>
-      a.canServe(model, this.models),
-    );
+    const eligible = this.accounts.filter((a) => a.canServe(model, this.models));
     if (eligible.length > 0) {
       return eligible; // already sorted by priority in constructor
     }
@@ -109,11 +110,18 @@ export class Provider {
   }
 
   /** Compute effective capabilities for an account/model using model → account → provider → built-in → global precedence. */
-  getEffectiveCapabilities(model: string, accountName: string | null): EffectiveProviderCapabilities {
-    const account = accountName != null
-      ? this.getAllAccounts().find((a) => a.name === accountName)
-      : this.implicitAccount;
-    if (!account) throw new Error(`Cannot resolve effective capabilities for unknown account "${accountName}" on provider "${this.name}".`);
+  getEffectiveCapabilities(
+    model: string,
+    accountName: string | null,
+  ): EffectiveProviderCapabilities {
+    const account =
+      accountName != null
+        ? this.getAllAccounts().find((a) => a.name === accountName)
+        : this.implicitAccount;
+    if (!account)
+      throw new Error(
+        `Cannot resolve effective capabilities for unknown account "${accountName}" on provider "${this.name}".`,
+      );
     const builtIn = builtInCapabilitiesForProvider(this.name);
     const providerLevel = mergeCapabilities(builtIn, this.capabilities);
     const accountLevel = mergeCapabilities(providerLevel, account.capabilities);
@@ -164,9 +172,7 @@ export class ProviderRegistry {
 
   /** Get all providers sorted by priority (lower first). */
   getAll(): Provider[] {
-    return Array.from(this.providers.values()).sort(
-      (a, b) => a.priority - b.priority,
-    );
+    return Array.from(this.providers.values()).sort((a, b) => a.priority - b.priority);
   }
 
   /**
@@ -180,7 +186,10 @@ export class ProviderRegistry {
   /** Compute effective capabilities for a concrete candidate. */
   getEffectiveCapabilities(candidate: Candidate): EffectiveProviderCapabilities {
     const provider = this.get(candidate.provider);
-    if (!provider) throw new Error(`Cannot resolve effective capabilities for unknown provider "${candidate.provider}".`);
+    if (!provider)
+      throw new Error(
+        `Cannot resolve effective capabilities for unknown provider "${candidate.provider}".`,
+      );
     return provider.getEffectiveCapabilities(candidate.model, candidate.account);
   }
 
@@ -188,7 +197,9 @@ export class ProviderRegistry {
     const provider = this.get(candidate.provider);
     const emitted = provider?.getCandidatesForModel(candidate.model) ?? [];
     if (!emitted.some((value) => candidatesEqual(value, candidate))) {
-      throw new Error(`compaction.summarizer_candidate does not identify a configured provider/account/model candidate: ${JSON.stringify(candidate)}`);
+      throw new Error(
+        `compaction.summarizer_candidate does not identify a configured provider/account/model candidate: ${JSON.stringify(candidate)}`,
+      );
     }
     return candidate;
   }

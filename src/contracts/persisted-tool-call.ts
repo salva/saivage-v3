@@ -4,10 +4,7 @@ interface PersistedToolCallForModel {
   arguments: string;
 }
 
-type PersistedRowCorruptCode =
-  | 'not_object'
-  | 'legacy_tool_calls_wrapper'
-  | 'malformed_tool_call';
+type PersistedRowCorruptCode = 'not_object' | 'legacy_tool_calls_wrapper' | 'malformed_tool_call';
 
 export class PersistedRowCorruptError extends Error {
   readonly code: PersistedRowCorruptCode;

@@ -25,9 +25,15 @@ export function projectNotificationSubmission(
     case 'missing_card':
       return failure(`Card '${result.cardId}' not found.`, result);
     case 'terminal_card':
-      return failure(`Cannot queue notification for terminal card '${result.cardId}' in status '${result.status}'.`, result);
+      return failure(
+        `Cannot queue notification for terminal card '${result.cardId}' in status '${result.status}'.`,
+        result,
+      );
     case 'activation_closed':
-      return failure(`Cannot queue notification for card '${result.cardId}': its current activation is closed to new notifications.`, result);
+      return failure(
+        `Cannot queue notification for card '${result.cardId}': its current activation is closed to new notifications.`,
+        result,
+      );
     case 'planning_ineligible':
       return failure(`Card '${result.cardId}' is not eligible for planning notifications.`, result);
   }

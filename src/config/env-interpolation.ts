@@ -26,11 +26,17 @@ function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolatio
 }
 
 /** Deep-interpolate ${ENV_VAR} references in any config-compatible value. */
-export function interpolateValue(v: unknown, env: EnvironmentSource): { value: unknown; warnings: string[] } {
+export function interpolateValue(
+  v: unknown,
+  env: EnvironmentSource,
+): { value: unknown; warnings: string[] } {
   return interpolateValueImpl(v, env);
 }
 
-function interpolateValueImpl(v: unknown, env: EnvironmentSource): { value: unknown; warnings: string[] } {
+function interpolateValueImpl(
+  v: unknown,
+  env: EnvironmentSource,
+): { value: unknown; warnings: string[] } {
   if (typeof v === 'string') {
     return interpolateString(v, env);
   }

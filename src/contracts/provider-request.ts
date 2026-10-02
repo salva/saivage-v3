@@ -60,9 +60,24 @@ interface LlmAdapterSuccess {
 export interface LlmProtocolAdapter {
   readonly credentialRequirement: LlmCredentialRequirement;
   buildRequestBody(input: LlmAdapterRequestInput): Record<string, unknown>;
-  deriveWire(candidate: Candidate, transport: LlmTransportConfig, body: Record<string, unknown>, options: LlmCompleteOptions): LlmAdapterWire;
-  classifyHttpFailure(candidate: Candidate, response: Response, bodyText: string, body: Record<string, unknown>, options: LlmCompleteOptions): LlmRequestError;
-  parseSuccess(candidate: Candidate, response: Response, options: LlmCompleteOptions): Promise<LlmAdapterSuccess>;
+  deriveWire(
+    candidate: Candidate,
+    transport: LlmTransportConfig,
+    body: Record<string, unknown>,
+    options: LlmCompleteOptions,
+  ): LlmAdapterWire;
+  classifyHttpFailure(
+    candidate: Candidate,
+    response: Response,
+    bodyText: string,
+    body: Record<string, unknown>,
+    options: LlmCompleteOptions,
+  ): LlmRequestError;
+  parseSuccess(
+    candidate: Candidate,
+    response: Response,
+    options: LlmCompleteOptions,
+  ): Promise<LlmAdapterSuccess>;
 }
 
 export interface CandidateRequestPlan {

@@ -17,7 +17,9 @@ export interface SafeCleanupWarning {
   readonly code: 'closer_failed' | 'cleanup_failed' | 'cleanup_timeout';
 }
 
-export interface ShutdownReport { readonly warnings: readonly SafeCleanupWarning[] }
+export interface ShutdownReport {
+  readonly warnings: readonly SafeCleanupWarning[];
+}
 
 export interface AppTerminalRegistration {
   registerAdmissionCloser(component: ShutdownComponent, close: () => void): void;

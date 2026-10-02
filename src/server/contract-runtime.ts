@@ -17,7 +17,10 @@ function assertNever(value: never): never {
 type ContractSchemaOutput<
   TContract extends OperatorRouteContract,
   TKey extends 'params' | 'query' | 'body',
-> = TContract extends Record<TKey, infer TSchema extends z.ZodTypeAny> ? z.output<TSchema> : undefined;
+> =
+  TContract extends Record<TKey, infer TSchema extends z.ZodTypeAny>
+    ? z.output<TSchema>
+    : undefined;
 
 type ParsedContractRequest<TContract extends OperatorRouteContract> = {
   params: ContractSchemaOutput<TContract, 'params'>;
@@ -25,7 +28,9 @@ type ParsedContractRequest<TContract extends OperatorRouteContract> = {
   body: ContractSchemaOutput<TContract, 'body'>;
 };
 
-export interface ContractRequestContext<TContract extends OperatorRouteContract = OperatorRouteContract> {
+export interface ContractRequestContext<
+  TContract extends OperatorRouteContract = OperatorRouteContract,
+> {
   contract: TContract;
   params: ContractSchemaOutput<TContract, 'params'>;
   query: ContractSchemaOutput<TContract, 'query'>;
@@ -69,7 +74,11 @@ function zodIssues(error: z.ZodError): Array<{ path: string; message: string }> 
   return error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
 }
 
-function validationErrorBody(operationId: string, target: string, error: z.ZodError): Record<string, unknown> {
+function validationErrorBody(
+  operationId: string,
+  target: string,
+  error: z.ZodError,
+): Record<string, unknown> {
   return {
     error: 'ValidationError',
     message: `${operationId} ${target} did not match the operator API contract`,
@@ -105,7 +114,11 @@ export class ContractRuntime {
     }
   }
 
-  private mountOne<TContract extends OperatorRouteContract>(fastify: FastifyInstance, contract: TContract, handler: ContractHandler<TContract>): void {
+  private mountOne<TContract extends OperatorRouteContract>(
+    fastify: FastifyInstance,
+    contract: TContract,
+    handler: ContractHandler<TContract>,
+  ): void {
     const route: RouteOptions = {
       method: contract.method,
       url: contract.path,
@@ -119,13 +132,15 @@ export class ContractRuntime {
 
           failureCode = 'auth_evaluation_failed';
           switch (contract.auth) {
-            case 'public': break;
+            case 'public':
+              break;
             case 'operator-session': {
               const authResult = this.authPolicy.validateHttpRequest(request);
               if (!authResult.ok) candidate = { statusCode: 401, body: unauthorizedBody() };
               break;
             }
-            default: assertNever(contract.auth);
+            default:
+              assertNever(contract.auth);
           }
 
           let parsed: ParsedContractRequest<TContract> | undefined;
@@ -145,9 +160,18 @@ export class ContractRuntime {
             failureCode = 'handler_failed';
             const replyCapability: ContractPreSendReply = {
               raw: reply.raw,
-              header: (name, value) => { reply.header(name, value); },
+              header: (name, value) => {
+                reply.header(name, value);
+              },
             };
-            const result = await handler({ request, reply: replyCapability, contract, params: parsed.params, query: parsed.query, body: parsed.body });
+            const result = await handler({
+              request,
+              reply: replyCapability,
+              contract,
+              params: parsed.params,
+              query: parsed.query,
+              body: parsed.body,
+            });
             candidate = { statusCode: result.statusCode ?? 200, body: result.body };
           }
 
@@ -175,9 +199,9 @@ export class ContractRuntime {
           }
 
           final = { statusCode: candidate.statusCode, body: parsedResponse.data };
-
         } catch (error) {
-          if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error);
+          if (error instanceof PublicationOutcomeUnknownError)
+            this.fatalPort.publicationOutcomeUnknown(error);
           throwIfPublicationOutcomeUnknown(error);
           request.log.error(
             { err: error, operation: contract.operationId, failureCode, ...safeIdentity },
@@ -192,28 +216,52 @@ export class ContractRuntime {
     fastify.route(route);
   }
 
-  private parseRequest<TContract extends OperatorRouteContract>(contract: TContract, request: FastifyRequest):
+  private parseRequest<TContract extends OperatorRouteContract>(
+    contract: TContract,
+    request: FastifyRequest,
+  ):
     | ({ ok: true } & ParsedContractRequest<TContract>)
     | { ok: false; body: Record<string, unknown> } {
     const paramsResult = contract.params?.safeParse(request.params ?? {});
-    if (paramsResult && !paramsResult.success) return { ok: false, body: validationErrorBody(contract.operationId, 'params', paramsResult.error) };
+    if (paramsResult && !paramsResult.success)
+      return {
+        ok: false,
+        body: validationErrorBody(contract.operationId, 'params', paramsResult.error),
+      };
 
     const queryResult = contract.query?.safeParse(request.query ?? {});
-    if (queryResult && !queryResult.success) return { ok: false, body: validationErrorBody(contract.operationId, 'query', queryResult.error) };
+    if (queryResult && !queryResult.success)
+      return {
+        ok: false,
+        body: validationErrorBody(contract.operationId, 'query', queryResult.error),
+      };
 
     const bodyResult = contract.body?.safeParse(request.body ?? {});
-    if (bodyResult && !bodyResult.success) return { ok: false, body: validationErrorBody(contract.operationId, 'body', bodyResult.error) };
+    if (bodyResult && !bodyResult.success)
+      return {
+        ok: false,
+        body: validationErrorBody(contract.operationId, 'body', bodyResult.error),
+      };
 
-    return { ok: true, params: paramsResult?.data, query: queryResult?.data, body: bodyResult?.data };
+    return {
+      ok: true,
+      params: paramsResult?.data,
+      query: queryResult?.data,
+      body: bodyResult?.data,
+    };
   }
 
-  private projectFailureIdentity<TContract extends OperatorRouteContract>(contract: TContract, parsed: ParsedContractRequest<TContract>): SafeFailureIdentity {
+  private projectFailureIdentity<TContract extends OperatorRouteContract>(
+    contract: TContract,
+    parsed: ParsedContractRequest<TContract>,
+  ): SafeFailureIdentity {
     if (!contract.failureIdentity) return {};
     const params = parsed.params as unknown as Record<string, unknown>;
     if (contract.failureIdentity.kind === 'session') {
-      return { sessionId: ConversationSessionIdSchema.parse(params[contract.failureIdentity.parameter]) };
+      return {
+        sessionId: ConversationSessionIdSchema.parse(params[contract.failureIdentity.parameter]),
+      };
     }
     return { cardId: cardIdSchema.parse(params[contract.failureIdentity.parameter]) };
   }
-
 }

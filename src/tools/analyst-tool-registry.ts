@@ -16,7 +16,8 @@ export function getAnalystControlToolBinders(): readonly ToolBinder<ToolContext,
     ...analystNavigationToolBinders,
     ...analystMiscToolBinders,
   ]) {
-    if (byName.has(tool.name)) throw new Error(`Duplicate Analyst tool definition for ${tool.name}`);
+    if (byName.has(tool.name))
+      throw new Error(`Duplicate Analyst tool definition for ${tool.name}`);
     byName.set(tool.name, tool);
   }
   analystControlToolBinderCache = Object.freeze([...byName.values()]);

@@ -802,12 +802,14 @@ function selectCardNotFoundUnion(projectRoot, unionName, operation) {
   requireSourceFragments(projectRoot, 'src/server/routes/operator-runtime-card-handlers.ts', [`'${operation}':`, handlerMethod], `${operation} handler pass-through`);
   const readModel = 'src/application/read-models/cards-read-model.ts';
   const { ast: readModelAst } = sourceAst(projectRoot, readModel);
-  requireNodeFragments(namedFunction(readModelAst, operation === 'cards.history.get' ? 'getHistoryEntry' : 'diffCard', readModel), readModelAst, ["body: { error: 'Card not found', cardId: id }", "body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version"], `${operation} read-model serialization`);
+  requireNodeFragments(namedFunction(readModelAst, operation === 'cards.history.get' ? 'getHistoryEntry' : 'diffCard', readModel), readModelAst, ["body: { error: 'Card not found', cardId: id }", operation === 'cards.history.get'
+    ? "body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version"
+    : "body: {\n          error: 'historical_version_not_found',\n          resource: 'card',\n          owner_id: id,\n          version: result.version,"], `${operation} read-model serialization`);
   const service = 'src/cards/card-service.ts';
   const { ast: serviceAst } = sourceAst(projectRoot, service);
   requireNodeFragments(namedFunction(serviceAst, operation === 'cards.history.get' ? 'readCardVersion' : 'diffCardVersions', service), serviceAst, operation === 'cards.history.get'
     ? ['readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "if (catalog.kind === 'card-not-found') return catalog", 'catalog.value.rows[version - 1]', 'row.version === version', "{ kind: 'version-not-found', version }"]
-    : ["kind:'version-not-found' as const,version,side"], `${operation} CardService selection`);
+    : ["kind: 'version-not-found' as const, version, side"], `${operation} CardService selection`);
   return errorValue([card, historical]);
 }
 
@@ -848,7 +850,7 @@ function selectAvailability(projectRoot, schema) { return vocabularyValue(zodEnu
 function selectAppLog(projectRoot) {
   const path = PATHS.appLog[0];
   const source = readSource(projectRoot, path);
-  const members = [...source.matchAll(/const\s+\w+EntrySchema\s*=\s*z\.object\(\{\s*type:\s*z\.literal\('([^']+)'\)/g)].map((match) => match[1]);
+  const members = [...source.matchAll(/const\s+\w+EntrySchema\s*=\s*z\s*\.object\(\{\s*type:\s*z\.literal\('([^']+)'\)/g)].map((match) => match[1]);
   if (members.length === 0) throw new Error(`${path} has no app-log entry declarations`);
   requireDirectUnionMembers(projectRoot, path, 'appLogEntrySchema', 'type', ['eventEntrySchema', 'controlEntrySchema']);
   requireSourceFragments(projectRoot, PATHS.appLog[1], ['consumeGrowingRows(path, bytes, appLogEntrySchema', 'serializeGrowingEnvelope([candidate])', 'candidate.type !== entryType'], 'app-log persistence');
@@ -875,7 +877,7 @@ function selectLoggedEvents(projectRoot) {
     ['src/contracts/operator-api-events.ts', ['kind: z.enum(eventKindValues).optional()', 'events: z.array(loggedEventSchema)']],
     ['src/application/event-query-service.ts', ["readAppLogEntries(this.projectRoot, 'event')", 'event.kind === query.kind']],
     ['src/server/routes/operator-events-handlers.ts', ['readModel.queryEvents(query)']],
-    ['src/tools/global-observation-tools.ts', ['eventKindValues', "queryEvents({selection:'newest_tail'"]],
+    ['src/tools/global-observation-tools.ts', ['eventKindValues', "queryEvents({\n            selection: 'newest_tail'"]],
   ];
   for (const [path, fragments] of edges) requireSourceFragments(projectRoot, path, fragments, 'logged-event live edge');
   return vocabularyValue(members);
@@ -892,7 +894,7 @@ function constantValue(projectRoot, path, name, unit, uses) {
 function selectMaximumDepth(projectRoot) {
   const value = numberInitializer(projectRoot, 'src/schemas/card-id.ts', 'MAX_CARD_DEPTH');
   requireSourceFragments(projectRoot, 'src/schemas/card-id.ts', ['${MAX_CARD_DEPTH - 1}', '${MAX_CARD_DEPTH} alphabetic segments'], 'card-id depth grammar/messages');
-  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ['depth > MAX_CARD_DEPTH', 'depth===MAX_CARD_DEPTH', '${MAX_CARD_DEPTH}.'], 'CardService depth admission');
+  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ['depth > MAX_CARD_DEPTH', 'depth === MAX_CARD_DEPTH', '${MAX_CARD_DEPTH}.'], 'CardService depth admission');
   requireSourceFragments(projectRoot, 'src/application/read-models/canonical-card-files-read-model.ts', ['depth === MAX_CARD_DEPTH'], 'canonical Files depth stop');
   return { unit: 'segments', value };
 }
@@ -1163,15 +1165,15 @@ function selectSessionIdentity(projectRoot) {
     const token = binary.operatorToken.getText(ast);
     if (!operators.includes(token)) operators.push(token);
   }
-  return { inputGuard, pattern, captures, nullTest: nullNode.getText(ast), agentParser: agent.parser, scopeAlternatives: [globalAlternative, scope.parser], constructors, identityParser: identity.name.text, operators, grouping: validationReturn.expression.getText(ast) };
+  return { inputGuard, pattern, captures, nullTest: nullNode.getText(ast), agentParser: agent.parser, scopeAlternatives: [globalAlternative, scope.parser], constructors, identityParser: identity.name.text, operators, grouping: unwrapExpression(validationReturn.expression).getText(ast).replace(/\s+/gu, ' ') };
 }
 
 function selectBackendPivot(projectRoot, side) {
   const contract = 'src/contracts/operator-api-runtime-cards.ts';
-  requireSourceFragments(projectRoot, contract, ['canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/)', '.superRefine((raw, ctx)', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', '.transform(Number)', "diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema])", 'CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict()'], 'backend diff query');
+  requireSourceFragments(projectRoot, contract, ['canonicalPositiveSafeIntegerStringSchema = z\n  .string()\n  .regex(/^[1-9][0-9]*$/)', '.superRefine((raw, ctx)', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', '.transform(Number)', "diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema])", 'CardDiffQuerySchema = z\n  .object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() })\n  .strict()'], 'backend diff query');
   requireSourceFragments(projectRoot, 'src/server/routes/operator-runtime-card-handlers.ts', ["'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query)"], 'backend diff handler');
-  requireSourceFragments(projectRoot, 'src/application/read-models/cards-read-model.ts', ['diffCard(id: string, query:', 'fromVersion: query.from, toVersion: query.to'], 'backend diff read-model mapping');
-  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "typeof pivots.toVersion === 'number' ? pivots.toVersion : catalog.value.head.version", "pivots.toVersion===undefined||pivots.toVersion==='current'?catalog.value.head"], 'backend diff service meanings');
+  requireSourceFragments(projectRoot, 'src/application/read-models/cards-read-model.ts', ['diffCard(\n    id: string,\n    query:', 'fromVersion: query.from,\n      toVersion: query.to'], 'backend diff read-model mapping');
+  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "typeof pivots.toVersion === 'number' ? pivots.toVersion : catalog.value.head.version", "pivots.toVersion === undefined || pivots.toVersion === 'current'\n        ? catalog.value.head"], 'backend diff service meanings');
   return side === 'from'
     ? { field: 'from', presence: 'required', variants: [{ kind: 'canonical-positive-safe-integer' }], mapping: 'fromVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number' }
     : { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-artifact', current: 'current-artifact' } };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import ts from 'typescript';
 
 const sourceRoot = join(process.cwd(), 'src');
 const sourceFiles = readdirSync(sourceRoot, { recursive: true, withFileTypes: true })
@@ -25,6 +26,24 @@ function fileCountInventory(pattern: RegExp): Record<string, number> {
   }));
 }
 
+function finallyCatchInventory(): Record<string, number> {
+  return Object.fromEntries(sourceFiles.flatMap((path) => {
+    const ast = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true);
+    let count = 0;
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && node.expression.name.text === 'catch') {
+        const receiver = node.expression.expression;
+        if (ts.isCallExpression(receiver) && ts.isPropertyAccessExpression(receiver.expression)
+          && receiver.expression.name.text === 'finally') count += 1;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+    return count === 0 ? [] : [[relativePath(path), count]];
+  }));
+}
+
 describe('source-derived publication owner inventory', () => {
   it('keeps CardProcessActor as the sole production BaseActor subclass', () => {
     const inventory = occurrenceInventory(/extends\s+BaseActor\b/gu);
@@ -39,7 +58,7 @@ describe('source-derived publication owner inventory', () => {
       'src/runtime/actors/llm-actor.ts': 1,
     });
     expect(fileCountInventory(/\bobserve\(/gu)).toEqual({ 'src/runtime/actors/llm-actor.ts': 9 });
-    expect(fileCountInventory(/\.finally\([^\n]*\)\.catch\(/gu)).toEqual({
+    expect(finallyCatchInventory()).toEqual({
       'src/mcp/mcp-manager.ts': 1,
       'src/runtime/actors/contained-operations.ts': 4,
     });

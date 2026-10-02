@@ -40,10 +40,12 @@ export function redactTextWithStablePrefixesForOutbound(text: string): {
   for (const rule of TEXT_REDACTION_RULES) {
     redacted.replace(cloneRegex(rule.pattern), (match, ...captures: unknown[]) => {
       const offset = captures.at(-2);
-      if (typeof offset !== 'number') throw new Error('Text redaction match did not provide an offset.');
+      if (typeof offset !== 'number')
+        throw new Error('Text redaction match did not provide an offset.');
       const end = offset + match.length;
       spans.push({ start: offset, end });
-      if (rule.replacement(match, ...captures) !== match) maxPrefixEnd = Math.min(maxPrefixEnd, offset);
+      if (rule.replacement(match, ...captures) !== match)
+        maxPrefixEnd = Math.min(maxPrefixEnd, offset);
       return match;
     });
   }
@@ -109,11 +111,12 @@ function replaceJsonSecretValue(match: string, ...captures: unknown[]): string {
 function replaceYamlSecretValue(match: string, ...captures: unknown[]): string {
   const [prefix, key, valuePart] = captures as [string, string, string];
   const trimmed = valuePart.trim();
-  const quote = trimmed.startsWith('"') && trimmed.endsWith('"')
-    ? '"'
-    : trimmed.startsWith("'") && trimmed.endsWith("'")
-      ? "'"
-      : '';
+  const quote =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? '"'
+      : trimmed.startsWith("'") && trimmed.endsWith("'")
+        ? "'"
+        : '';
   const candidate = quote ? trimmed.slice(1, -1) : trimmed;
   return !isSecretKey(key) || shouldPreserveValue(candidate)
     ? match
@@ -123,7 +126,15 @@ function replaceBearerCredential(_match: string, ...captures: unknown[]): string
   return `${String(captures[0])}${SECRET_REDACTION_PLACEHOLDER}`;
 }
 function replaceEscapedJsonSecretValue(match: string, ...captures: unknown[]): string {
-  const [keyOpen, key, keyClose, separator, valueOpen, secretValue, valueClose] = captures as [string, string, string, string, string, string, string];
+  const [keyOpen, key, keyClose, separator, valueOpen, secretValue, valueClose] = captures as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
   return !isSecretKey(key) || shouldPreserveValue(secretValue)
     ? match
     : `${keyOpen}${key}${keyClose}${separator}${valueOpen}${SECRET_REDACTION_PLACEHOLDER}${valueClose}`;

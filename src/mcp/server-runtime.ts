@@ -1,16 +1,33 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
 import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import { sanitizedCommandEnv } from '../runtime/runtime-api.js';
-import { compileMcpArgumentValidator, fingerprintMcpInputSchema, validateMcpArguments, type CachedMcpArgumentValidator } from './mcp-argument-validator.js';
+import {
+  compileMcpArgumentValidator,
+  fingerprintMcpInputSchema,
+  validateMcpArguments,
+  type CachedMcpArgumentValidator,
+} from './mcp-argument-validator.js';
 import { InvalidArgumentsError, ServerNotRunningError, ToolNotFoundError } from './errors.js';
-import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpStatus, type McpToolDefinition } from './protocol.js';
+import {
+  MCP_INVOKE_TIMEOUT_MS,
+  type McpServerStatus,
+  type McpStatus,
+  type McpToolDefinition,
+} from './protocol.js';
 import type { McpServerConfig, McpServerHandle } from './server-registry.js';
 import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { buildMcpServerStatus } from './status-projection.js';
-import { discoverStreamableHttpTools, healthStreamableHttpServer, invokeStreamableHttpTool, probeStreamableHttpStartup } from './streamable-http-transport.js';
+import {
+  discoverStreamableHttpTools,
+  healthStreamableHttpServer,
+  invokeStreamableHttpTool,
+  probeStreamableHttpStartup,
+} from './streamable-http-transport.js';
 import { discoverStdioTools, invokeStdioTool } from './stdio-transport.js';
 
-interface McpJsonRpcIdProvider { next(): number | string }
+interface McpJsonRpcIdProvider {
+  next(): number | string;
+}
 
 interface McpServerRuntimeOptions {
   name: string;
@@ -22,7 +39,9 @@ interface McpServerRuntimeOptions {
   invocationStats: McpInvocationStatsRecorder;
 }
 
-function abortError(): Error { return new DOMException('MCP runtime operation was aborted', 'AbortError'); }
+function abortError(): Error {
+  return new DOMException('MCP runtime operation was aborted', 'AbortError');
+}
 
 export class McpServerRuntime {
   readonly #processRunner: ProcessRunner;
@@ -46,7 +65,15 @@ export class McpServerRuntime {
   private readonly controllers = new Set<AbortController>();
   private readonly operations = new Set<Promise<void>>();
 
-  constructor({ name, config, revision, processRunner, processScope, ids, invocationStats }: McpServerRuntimeOptions) {
+  constructor({
+    name,
+    config,
+    revision,
+    processRunner,
+    processScope,
+    ids,
+    invocationStats,
+  }: McpServerRuntimeOptions) {
     this.#name = name;
     this.#config = config;
     this.#revision = revision;
@@ -56,11 +83,21 @@ export class McpServerRuntime {
     this.#invocationStats = invocationStats;
   }
 
-  get name(): string { return this.#name; }
-  get config(): McpServerConfig { return this.#config; }
-  get revision(): string { return this.#revision; }
-  isReady(): boolean { return this.ready; }
-  isContained(): boolean { return this.contained; }
+  get name(): string {
+    return this.#name;
+  }
+  get config(): McpServerConfig {
+    return this.#config;
+  }
+  get revision(): string {
+    return this.#revision;
+  }
+  isReady(): boolean {
+    return this.ready;
+  }
+  isContained(): boolean {
+    return this.contained;
+  }
 
   start(): Promise<void> {
     return this.admit(async (generation, signal) => {
@@ -93,7 +130,8 @@ export class McpServerRuntime {
       containment = Promise.reject(error);
     }
     const directContainment = containment.then((report) => {
-      if (report.failed.length > 0) throw new Error(`MCP server '${this.name}' process containment failed.`);
+      if (report.failed.length > 0)
+        throw new Error(`MCP server '${this.name}' process containment failed.`);
     });
     this.#directContainment = directContainment;
     void directContainment.catch(() => undefined);
@@ -101,7 +139,8 @@ export class McpServerRuntime {
   }
 
   directContainment(): Promise<void> {
-    if (!this.#directContainment) throw new Error(`MCP server '${this.name}' admission has not been closed.`);
+    if (!this.#directContainment)
+      throw new Error(`MCP server '${this.name}' admission has not been closed.`);
     return this.#directContainment;
   }
 
@@ -121,16 +160,28 @@ export class McpServerRuntime {
     this.contained = true;
   }
 
-  dispose(): Promise<void> { return this.stop(); }
+  dispose(): Promise<void> {
+    return this.stop();
+  }
 
-  invokeTool(toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> {
+  invokeTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    options?: { timeoutMs?: number },
+  ): Promise<unknown> {
     return this.admit(async (generation, signal) => {
       const cfg = this.config;
       const handle = this.handle;
       if (!handle || !this.ready) throw new ServerNotRunningError(this.name);
       if (cfg.transport === 'stdio') {
-        if (!handle.process || !handle.processId || this.#processRunner.get(handle.processId)?.status !== 'running') throw new ServerNotRunningError(this.name);
-      } else if (!handle.abortController || handle.abortController.signal.aborted) throw new ServerNotRunningError(this.name);
+        if (
+          !handle.process ||
+          !handle.processId ||
+          this.#processRunner.get(handle.processId)?.status !== 'running'
+        )
+          throw new ServerNotRunningError(this.name);
+      } else if (!handle.abortController || handle.abortController.signal.aborted)
+        throw new ServerNotRunningError(this.name);
 
       const toolDefinition = this.tools?.find((tool) => tool.name === toolName);
       if (!toolDefinition) throw new ToolNotFoundError(this.name, toolName);
@@ -139,9 +190,30 @@ export class McpServerRuntime {
       const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
       let result: unknown;
       try {
-        result = cfg.transport === 'stdio'
-          ? await this.enqueueStdioInvocation(() => { this.assertCurrent(generation, signal); return invokeStdioTool({ serverName: this.name, toolName, args, handle, timeoutMs, ids: this.#ids, signal }); })
-          : await invokeStreamableHttpTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal });
+        result =
+          cfg.transport === 'stdio'
+            ? await this.enqueueStdioInvocation(() => {
+                this.assertCurrent(generation, signal);
+                return invokeStdioTool({
+                  serverName: this.name,
+                  toolName,
+                  args,
+                  handle,
+                  timeoutMs,
+                  ids: this.#ids,
+                  signal,
+                });
+              })
+            : await invokeStreamableHttpTool({
+                serverName: this.name,
+                toolName,
+                args,
+                config: cfg,
+                handle,
+                timeoutMs,
+                ids: this.#ids,
+                signal,
+              });
         this.assertCurrent(generation, signal);
       } catch (err) {
         if (generation !== this.generation) throw err;
@@ -161,16 +233,36 @@ export class McpServerRuntime {
     return this.admit(async (_generation, signal) => {
       const cfg = this.config;
       if (cfg.disabled || !this.ready) return false;
-      if (cfg.transport === 'stdio') return Boolean(this.handle?.processId && this.#processRunner.get(this.handle.processId)?.status === 'running');
-      return healthStreamableHttpServer({ serverName: this.name, config: cfg, handle: this.handle, signal });
+      if (cfg.transport === 'stdio')
+        return Boolean(
+          this.handle?.processId &&
+          this.#processRunner.get(this.handle.processId)?.status === 'running',
+        );
+      return healthStreamableHttpServer({
+        serverName: this.name,
+        config: cfg,
+        handle: this.handle,
+        signal,
+      });
     });
   }
 
   getStatus(): McpServerStatus {
-    return buildMcpServerStatus({ name: this.name, config: this.config, handle: this.handle, override: this.statusOverride, startedAt: this.startedAt, tools: this.tools });
+    return buildMcpServerStatus({
+      name: this.name,
+      config: this.config,
+      handle: this.handle,
+      override: this.statusOverride,
+      startedAt: this.startedAt,
+      tools: this.tools,
+    });
   }
-  getTools(): McpToolDefinition[] | undefined { return this.tools; }
-  isRunning(): boolean { return Boolean(this.handle); }
+  getTools(): McpToolDefinition[] | undefined {
+    return this.tools;
+  }
+  isRunning(): boolean {
+    return Boolean(this.handle);
+  }
 
   private admit<T>(operation: (generation: number, signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.admissionOpen) return Promise.reject(new ServerNotRunningError(this.name));
@@ -178,10 +270,15 @@ export class McpServerRuntime {
     const controller = new AbortController();
     this.controllers.add(controller);
     const result = operation(generation, controller.signal);
-    const tracked = result.then(() => undefined, () => undefined).finally(() => {
-      this.controllers.delete(controller);
-      this.operations.delete(tracked);
-    });
+    const tracked = result
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        this.controllers.delete(controller);
+        this.operations.delete(tracked);
+      });
     this.operations.add(tracked);
     return result;
   }
@@ -193,9 +290,14 @@ export class McpServerRuntime {
   private startStdio(cfg: StdioMcpServerConfig, generation: number, signal: AbortSignal): void {
     this.assertCurrent(generation, signal);
     const launch = this.#processRunner.spawnInteractive({
-      file: cfg.command, args: cfg.args ?? [], directScope: this.#processScope, category: 'service_infrastructure',
-      ownerId: `mcp:${this.name}`, ownerKind: 'runtime',
-      env: { ...sanitizedCommandEnv(), ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'],
+      file: cfg.command,
+      args: cfg.args ?? [],
+      directScope: this.#processScope,
+      category: 'service_infrastructure',
+      ownerId: `mcp:${this.name}`,
+      ownerKind: 'runtime',
+      env: { ...sanitizedCommandEnv(), ...(cfg.env ?? {}) },
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     launch.process.stderr!.on('error', () => undefined);
     launch.process.stderr!.resume();
@@ -207,23 +309,34 @@ export class McpServerRuntime {
     this.controllers.add(observerController);
     const settlement = Promise.race([
       this.#processRunner.waitForSettlement(launch.record.id),
-      new Promise<null>((resolve) => observerController.signal.addEventListener('abort', () => resolve(null), { once: true })),
-    ]).then((result) => {
-      if (!result || generation !== this.generation || !this.admissionOpen) return;
-      if (result.record.status === 'exited') this.statusOverride = { status: 'stopped' };
-      else this.statusOverride = { status: 'error', error: result.record.signal ? 'Process exited with a signal' : 'Process exited unsuccessfully' };
-      this.handle = undefined;
-      this.ready = false;
-      this.clearCaches();
-      this.#processRunner.retireSettled(launch.record.id, this.#processScope);
-    }, (_error) => {
-      if (generation !== this.generation || !this.admissionOpen) return;
-      this.statusOverride = { status: 'error', error: 'Process output capture failed' };
-      this.handle = undefined;
-      this.ready = false;
-      this.clearCaches();
-      this.#processRunner.retireSettled(launch.record.id, this.#processScope);
-    });
+      new Promise<null>((resolve) =>
+        observerController.signal.addEventListener('abort', () => resolve(null), { once: true }),
+      ),
+    ]).then(
+      (result) => {
+        if (!result || generation !== this.generation || !this.admissionOpen) return;
+        if (result.record.status === 'exited') this.statusOverride = { status: 'stopped' };
+        else
+          this.statusOverride = {
+            status: 'error',
+            error: result.record.signal
+              ? 'Process exited with a signal'
+              : 'Process exited unsuccessfully',
+          };
+        this.handle = undefined;
+        this.ready = false;
+        this.clearCaches();
+        this.#processRunner.retireSettled(launch.record.id, this.#processScope);
+      },
+      (_error) => {
+        if (generation !== this.generation || !this.admissionOpen) return;
+        this.statusOverride = { status: 'error', error: 'Process output capture failed' };
+        this.handle = undefined;
+        this.ready = false;
+        this.clearCaches();
+        this.#processRunner.retireSettled(launch.record.id, this.#processScope);
+      },
+    );
     const tracked = settlement.finally(() => {
       this.controllers.delete(observerController);
       this.operations.delete(tracked);
@@ -231,20 +344,34 @@ export class McpServerRuntime {
     this.operations.add(tracked);
   }
 
-  private async startStreamableHttp(cfg: StreamableHttpMcpServerConfig, generation: number, signal: AbortSignal): Promise<void> {
+  private async startStreamableHttp(
+    cfg: StreamableHttpMcpServerConfig,
+    generation: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     const abortController = new AbortController();
     signal.addEventListener('abort', () => abortController.abort(), { once: true });
     this.handle = { abortController };
     this.startedAt = new Date().toISOString();
-    const startupProbe = await probeStreamableHttpStartup({ config: cfg, signal: abortController.signal });
+    const startupProbe = await probeStreamableHttpStartup({
+      config: cfg,
+      signal: abortController.signal,
+    });
     this.assertCurrent(generation, signal);
-    if (!startupProbe.ok) throw new Error(`Streamable HTTP MCP server '${this.name}' failed its startup probe.`);
+    if (!startupProbe.ok)
+      throw new Error(`Streamable HTTP MCP server '${this.name}' failed its startup probe.`);
   }
 
   private discoverTools(signal: AbortSignal): Promise<McpToolDefinition[]> {
     return this.config.transport === 'stdio'
       ? discoverStdioTools({ serverName: this.name, handle: this.handle, ids: this.#ids, signal })
-      : discoverStreamableHttpTools({ serverName: this.name, config: this.config, handle: this.handle, ids: this.#ids, signal });
+      : discoverStreamableHttpTools({
+          serverName: this.name,
+          config: this.config,
+          handle: this.handle,
+          ids: this.#ids,
+          signal,
+        });
   }
 
   private clearCaches(): void {
@@ -253,18 +380,33 @@ export class McpServerRuntime {
     this.stdioInvocationQueue = undefined;
   }
 
-  private validateToolArguments(toolName: string, inputSchema: unknown, args: Record<string, unknown>): void {
+  private validateToolArguments(
+    toolName: string,
+    inputSchema: unknown,
+    args: Record<string, unknown>,
+  ): void {
     const cacheKey = `${toolName}:${fingerprintMcpInputSchema(inputSchema)}`;
     let compiled = this.argumentValidatorCache.get(cacheKey);
-    if (!compiled) { compiled = compileMcpArgumentValidator(inputSchema); this.argumentValidatorCache.set(cacheKey, compiled); }
+    if (!compiled) {
+      compiled = compileMcpArgumentValidator(inputSchema);
+      this.argumentValidatorCache.set(cacheKey, compiled);
+    }
     const result = validateMcpArguments(compiled, args);
-    if (!result.ok) throw new InvalidArgumentsError(this.name, toolName, { source: 'local_input_schema_validation', reason: result.type, diagnostics: result.diagnostics });
+    if (!result.ok)
+      throw new InvalidArgumentsError(this.name, toolName, {
+        source: 'local_input_schema_validation',
+        reason: result.type,
+        diagnostics: result.diagnostics,
+      });
   }
 
   private enqueueStdioInvocation<T>(fn: () => Promise<T>): Promise<T> {
     const previous = this.stdioInvocationQueue ?? Promise.resolve();
     const next = previous.then(fn, fn);
-    this.stdioInvocationQueue = next.then(() => undefined, () => undefined);
+    this.stdioInvocationQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 }

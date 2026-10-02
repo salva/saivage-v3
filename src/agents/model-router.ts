@@ -36,7 +36,10 @@ export class ModelRouter {
     for (const model of orderedModelIds)
       for (const candidate of this.resolveModel(model, request)) {
         const key = `${candidate.provider}\u0000${candidate.account ?? ''}\u0000${candidate.model}`;
-        if (!emittedCandidates.has(key)) { emittedCandidates.add(key); candidates.push(candidate); }
+        if (!emittedCandidates.has(key)) {
+          emittedCandidates.add(key);
+          candidates.push(candidate);
+        }
       }
     return candidates;
   }
@@ -52,10 +55,7 @@ export class ModelRouter {
     for (const provider of providers) {
       const acctCandidates = provider.getCandidatesForModel(model);
       for (const c of acctCandidates) {
-        const match = supportsCapabilityRequest(
-          this.registry.getEffectiveCapabilities(c),
-          request,
-        );
+        const match = supportsCapabilityRequest(this.registry.getEffectiveCapabilities(c), request);
         if (!match.supported) {
           continue;
         }
@@ -65,5 +65,4 @@ export class ModelRouter {
 
     return candidates;
   }
-
 }

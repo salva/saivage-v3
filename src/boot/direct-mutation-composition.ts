@@ -24,18 +24,30 @@ export function withDirectMutationComposition<T>(
 ): T {
   const canonicalProjectRoot = realpathSync(projectRoot);
   let lifecycleLock: RuntimeLifecycleLockHandle;
-  try { lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: canonicalProjectRoot, mode }); }
-  catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
+  try {
+    lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: canonicalProjectRoot, mode });
+  } catch (error) {
+    if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
+    throw error;
+  }
   const composition: DirectMutationComposition = Object.freeze({
     projectRoot: canonicalProjectRoot,
     lifecycleLock,
     createAndBindProjectIdentity: () => {
-      const project = createProjectIdentity(canonicalProjectRoot, basename(canonicalProjectRoot) || 'saivage-project');
+      const project = createProjectIdentity(
+        canonicalProjectRoot,
+        basename(canonicalProjectRoot) || 'saivage-project',
+      );
       bindRuntimeLifecycleLock(lifecycleLock, projectIdentityDigest(project));
       return project;
     },
   });
-  try { return operation(composition); }
-  catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
-  finally { releaseRuntimeLifecycleLock(lifecycleLock); }
+  try {
+    return operation(composition);
+  } catch (error) {
+    if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
+    throw error;
+  } finally {
+    releaseRuntimeLifecycleLock(lifecycleLock);
+  }
 }

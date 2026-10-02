@@ -2,7 +2,15 @@ import type { z } from 'zod';
 import { canonicalValueSha256, sha256Hex } from '../schemas/index.js';
 
 import type { ToolContext } from './analyst-tool-types.js';
-import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCanonicalLocatorToolAction, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
+import {
+  CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE,
+  defineToolBinder,
+  executeCanonicalLocatorToolAction,
+  executeToolAction,
+  OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  ToolArgumentValidationError,
+  type ToolBinder,
+} from './invocation.js';
 import {
   toolFailed,
   toolSucceeded,
@@ -13,7 +21,11 @@ import {
   type ToolActionOutcome,
 } from '../contracts/index.js';
 import { redactForOutbound } from '../redaction/artifact-api.js';
-import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/index.js';
+import {
+  projectCardArtifactForOutbound,
+  projectCardRecordForOutbound,
+  projectCardVersionChangeForOutbound,
+} from '../application/index.js';
 import type { CardArtifact } from '../persistence/index.js';
 import {
   boundedToolError,
@@ -30,24 +42,65 @@ export interface CardVersionProviderContext {
   readonly store: ToolContext['store'];
 }
 
-const COLLECTION_HELP = 'Collection pages expose total, position, returned, next, and items. Copy a non-null page next position unchanged to continue over stable input. An oversized item is a JsonSlice with lowercase-hex content_hex of its complete outbound-projected canonical JSON plus decoded-byte utf8_bytes, offset_bytes, next_offset_bytes, and total_bytes; hex-decode content_hex and concatenate slices by decoded-byte position, then UTF-8 decode and JSON-parse the complete item.';
+const COLLECTION_HELP =
+  'Collection pages expose total, position, returned, next, and items. Copy a non-null page next position unchanged to continue over stable input. An oversized item is a JsonSlice with lowercase-hex content_hex of its complete outbound-projected canonical JSON plus decoded-byte utf8_bytes, offset_bytes, next_offset_bytes, and total_bytes; hex-decode content_hex and concatenate slices by decoded-byte position, then UTF-8 decode and JSON-parse the complete item.';
 
-export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'list_card_versions', description: `List the committed card version catalog as a byte-bounded paged collection. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => listCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => listCardVersions(ctx, args)) }),
-  defineToolBinder({ name: 'get_card_version', description: `Read exactly one committed immutable card version summary, dependencies, or children section. Summary is a bounded scalar: omit position; every supplied position, including all-zero, is rejected. After that error, remove position rather than retrying it. Pending delivery context is not readable. The 'children' section is that row's complete active_child_order carrier and may include retained tombstoned links. Dependencies and children are byte-bounded collections: omit position initially. ${COLLECTION_HELP}`, resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)) }),
-  defineToolBinder({ name: 'diff_card_versions', description: 'Compare two exact committed card versions through a plaintext TextSlice of the outbound-projected canonical JSON diff; offsets count UTF-8 bytes and this content is not hex encoded.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => diffCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => diffCardVersions(ctx, args)) }),
-  defineToolBinder({ name: 'read_record_version', description: 'Read exactly one immutable authored-record version row by exact version. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => readRecordVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)) }),
-]);
+export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] =
+  Object.freeze([
+    defineToolBinder({
+      name: 'list_card_versions',
+      description: `List the committed card version catalog as a byte-bounded paged collection. ${COLLECTION_HELP}`,
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => listCardVersionsInputSchema,
+      executor: (ctx, args) =>
+        executeToolAction('observational_query', () => listCardVersions(ctx, args)),
+    }),
+    defineToolBinder({
+      name: 'get_card_version',
+      description: `Read exactly one committed immutable card version summary, dependencies, or children section. Summary is a bounded scalar: omit position; every supplied position, including all-zero, is rejected. After that error, remove position rather than retrying it. Pending delivery context is not readable. The 'children' section is that row's complete active_child_order carrier and may include retained tombstoned links. Dependencies and children are byte-bounded collections: omit position initially. ${COLLECTION_HELP}`,
+      resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => getCardVersionInputSchema,
+      executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)),
+    }),
+    defineToolBinder({
+      name: 'diff_card_versions',
+      description:
+        'Compare two exact committed card versions through a plaintext TextSlice of the outbound-projected canonical JSON diff; offsets count UTF-8 bytes and this content is not hex encoded.',
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => diffCardVersionsInputSchema,
+      executor: (ctx, args) =>
+        executeToolAction('observational_query', () => diffCardVersions(ctx, args)),
+    }),
+    defineToolBinder({
+      name: 'read_record_version',
+      description:
+        'Read exactly one immutable authored-record version row by exact version. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.',
+      resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => readRecordVersionInputSchema,
+      executor: (ctx, args) =>
+        executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)),
+    }),
+  ]);
 
 function failure(error: string, data?: unknown): ToolActionOutcome {
   return toolFailed(boundedToolError(error), data);
 }
 
-function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof listCardVersionsInputSchema>): Promise<ToolActionOutcome> {
+function listCardVersions(
+  ctx: CardVersionProviderContext,
+  params: z.infer<typeof listCardVersionsInputSchema>,
+): Promise<ToolActionOutcome> {
   const result = ctx.store.listCardVersions(params.card_id);
-  if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
+  if (result.kind === 'card-not-found')
+    return Promise.resolve(
+      failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }),
+    );
   const versions = result.value;
-  const observation = canonicalValueSha256({ surface: 'list_card_versions', card_id: params.card_id, versions: versions.map((entry) => ({ version: entry.version, entry_id: entry.entry_id })) });
+  const observation = canonicalValueSha256({
+    surface: 'list_card_versions',
+    card_id: params.card_id,
+    versions: versions.map((entry) => ({ version: entry.version, entry_id: entry.entry_id })),
+  });
   const { data } = packCollectionData({
     cap: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES,
     total: versions.length,
@@ -62,19 +115,44 @@ function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
         change: projectCardVersionChangeForOutbound(entry.change),
       };
     },
-    render: (page: CollectionPage) => ({ card_id: params.card_id, observation_sha256: observation, versions: page }),
+    render: (page: CollectionPage) => ({
+      card_id: params.card_id,
+      observation_sha256: observation,
+      versions: page,
+    }),
   });
   return Promise.resolve(toolSucceeded(data));
 }
 
-function artifactIdentity(value: CardArtifact): { entry_id: string; committed_at: string; artifact_kind: string } {
+function artifactIdentity(value: CardArtifact): {
+  entry_id: string;
+  committed_at: string;
+  artifact_kind: string;
+} {
   return { entry_id: value.entry_id, committed_at: value.committed_at, artifact_kind: value.kind };
 }
 
-function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof getCardVersionInputSchema>): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
+function getCardVersion(
+  ctx: CardVersionProviderContext,
+  params: z.infer<typeof getCardVersionInputSchema>,
+): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
   const result = ctx.store.readCardVersion(params.card_id, params.version);
-  if (result.kind === 'card-not-found') return Promise.resolve({ outcome: failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }), locator: '', sha256: '' });
-  if (result.kind === 'version-not-found') return Promise.resolve({ outcome: failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: params.version }), locator: '', sha256: '' });
+  if (result.kind === 'card-not-found')
+    return Promise.resolve({
+      outcome: failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }),
+      locator: '',
+      sha256: '',
+    });
+  if (result.kind === 'version-not-found')
+    return Promise.resolve({
+      outcome: failure('Card version not found.', {
+        code: 'card_version_not_found',
+        card_id: params.card_id,
+        version: params.version,
+      }),
+      locator: '',
+      sha256: '',
+    });
   const value = result.value;
   const card = value.kind === 'card-version' ? value.card : value.final_card;
   const identity = artifactIdentity(value);
@@ -90,9 +168,18 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
     section: params.section,
   };
   if (params.section === 'summary') {
-    if (params.position !== undefined) throw new ToolArgumentValidationError("Section 'summary' is a bounded scalar section and accepts no position.");
+    if (params.position !== undefined)
+      throw new ToolArgumentValidationError(
+        "Section 'summary' is a bounded scalar section and accepts no position.",
+      );
     return Promise.resolve({
-      outcome: toolSucceeded(projectBoundedCardSummary({ base, card, responseBytes: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES })),
+      outcome: toolSucceeded(
+        projectBoundedCardSummary({
+          base,
+          card,
+          responseBytes: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES,
+        }),
+      ),
       locator,
       sha256,
     });
@@ -111,16 +198,63 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   return Promise.resolve({ outcome: toolSucceeded(data), locator, sha256 });
 }
 
-function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof diffCardVersionsInputSchema>): Promise<ToolActionOutcome> {
-  if (params.from_version > params.to_version) return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version }));
-  const result = ctx.store.diffCardVersions(params.card_id, { fromVersion: params.from_version, toVersion: params.to_version });
-  if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
-  if (result.kind === 'invalid-pivots') return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: result.from, to_version: result.to }));
-  if (result.kind === 'version-not-found') return Promise.resolve(failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: result.version, side: result.side }));
-  const fromIdentity={entry_id:result.fromArtifact.entry_id,artifact_sha256:canonicalValueSha256(projectCardArtifactForOutbound(result.fromArtifact))};
-  const toIdentity={entry_id:result.toArtifact.entry_id,artifact_sha256:canonicalValueSha256(projectCardArtifactForOutbound(result.toArtifact))};
+function diffCardVersions(
+  ctx: CardVersionProviderContext,
+  params: z.infer<typeof diffCardVersionsInputSchema>,
+): Promise<ToolActionOutcome> {
+  if (params.from_version > params.to_version)
+    return Promise.resolve(
+      failure('Invalid card version pivots.', {
+        code: 'invalid_card_version_pivots',
+        card_id: params.card_id,
+        from_version: params.from_version,
+        to_version: params.to_version,
+      }),
+    );
+  const result = ctx.store.diffCardVersions(params.card_id, {
+    fromVersion: params.from_version,
+    toVersion: params.to_version,
+  });
+  if (result.kind === 'card-not-found')
+    return Promise.resolve(
+      failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }),
+    );
+  if (result.kind === 'invalid-pivots')
+    return Promise.resolve(
+      failure('Invalid card version pivots.', {
+        code: 'invalid_card_version_pivots',
+        card_id: params.card_id,
+        from_version: result.from,
+        to_version: result.to,
+      }),
+    );
+  if (result.kind === 'version-not-found')
+    return Promise.resolve(
+      failure('Card version not found.', {
+        code: 'card_version_not_found',
+        card_id: params.card_id,
+        version: result.version,
+        side: result.side,
+      }),
+    );
+  const fromIdentity = {
+    entry_id: result.fromArtifact.entry_id,
+    artifact_sha256: canonicalValueSha256(projectCardArtifactForOutbound(result.fromArtifact)),
+  };
+  const toIdentity = {
+    entry_id: result.toArtifact.entry_id,
+    artifact_sha256: canonicalValueSha256(projectCardArtifactForOutbound(result.toArtifact)),
+  };
   const projectedDiff = redactForOutbound({ source: 'card-diff', value: result.diff });
-  const observation = canonicalValueSha256({ surface: 'diff_card_versions', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version, from_sha256: fromIdentity.artifact_sha256, to_sha256: toIdentity.artifact_sha256, diff: projectedDiff });
+  const observation = canonicalValueSha256({
+    surface: 'diff_card_versions',
+    card_id: params.card_id,
+    from_version: params.from_version,
+    to_version: params.to_version,
+    from_sha256: fromIdentity.artifact_sha256,
+    to_sha256: toIdentity.artifact_sha256,
+    diff: projectedDiff,
+  });
   const diffJson = JSON.stringify(projectedDiff);
   const totalBytes = utf8ByteLength(diffJson);
   const { data } = packTextSliceData({
@@ -140,16 +274,43 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
   return Promise.resolve(toolSucceeded(data));
 }
 
-function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<typeof readRecordVersionInputSchema>): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
-  const result=ctx.store.readRecordVersion(params.card_id,params.record_name,params.version);
-  if(result.kind!=='found')return Promise.resolve({outcome:failure('Record version not found.',{code:'record_version_not_found',card_id:params.card_id,record_name:params.record_name,version:params.version}),locator:'',sha256:''});
-  const projection=result.value.projection;
+function readRecordVersion(
+  ctx: CardVersionProviderContext,
+  params: z.infer<typeof readRecordVersionInputSchema>,
+): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
+  const result = ctx.store.readRecordVersion(params.card_id, params.record_name, params.version);
+  if (result.kind !== 'found')
+    return Promise.resolve({
+      outcome: failure('Record version not found.', {
+        code: 'record_version_not_found',
+        card_id: params.card_id,
+        record_name: params.record_name,
+        version: params.version,
+      }),
+      locator: '',
+      sha256: '',
+    });
+  const projection = result.value.projection;
   const artifact = projection.artifact;
   const selected = (() => {
-    if (artifact.state === 'open') return { content: artifact.draft!.content, content_source: 'draft' as const, content_sha256: artifact.draft!.content_sha256 };
-    if (artifact.state === 'closed') return { content: artifact.accepted!.content, content_source: 'accepted' as const, content_sha256: artifact.accepted!.content_sha256 };
+    if (artifact.state === 'open')
+      return {
+        content: artifact.draft!.content,
+        content_source: 'draft' as const,
+        content_sha256: artifact.draft!.content_sha256,
+      };
+    if (artifact.state === 'closed')
+      return {
+        content: artifact.accepted!.content,
+        content_source: 'accepted' as const,
+        content_sha256: artifact.accepted!.content_sha256,
+      };
     return artifact.accepted !== null
-      ? { content: artifact.accepted.content, content_source: 'accepted' as const, content_sha256: artifact.accepted.content_sha256 }
+      ? {
+          content: artifact.accepted.content,
+          content_source: 'accepted' as const,
+          content_sha256: artifact.accepted.content_sha256,
+        }
       : { content: '', content_source: 'none' as const, content_sha256: null };
   })();
   const totalBytes = utf8ByteLength(selected.content);

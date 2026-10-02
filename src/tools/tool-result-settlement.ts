@@ -1,5 +1,11 @@
 import { canonicalJson } from '../schemas/index.js';
-import { ToolResultSchema, assertToolActionOutcome, toolSucceeded, type ToolActionOutcome, type ToolResult } from '../contracts/index.js';
+import {
+  ToolResultSchema,
+  assertToolActionOutcome,
+  toolSucceeded,
+  type ToolActionOutcome,
+  type ToolResult,
+} from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
 
 interface SettledToolResultProjection {
@@ -9,9 +15,18 @@ interface SettledToolResultProjection {
 
 function projectOutcome(outcome: ToolActionOutcome): ToolResult {
   assertToolActionOutcome(outcome);
-  return ToolResultSchema.parse(outcome.kind === 'succeeded'
-    ? { success: true, ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }) }
-    : { success: false, error: projectDynamicForOutbound(outcome.error), ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }) });
+  return ToolResultSchema.parse(
+    outcome.kind === 'succeeded'
+      ? {
+          success: true,
+          ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }),
+        }
+      : {
+          success: false,
+          error: projectDynamicForOutbound(outcome.error),
+          ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }),
+        },
+  );
 }
 
 export function settleToolActionOutcome(outcome: ToolActionOutcome): SettledToolResultProjection {
@@ -25,7 +40,16 @@ export function settledSuccessBytes(data: unknown): string {
 
 export function projectHistoricalToolResultForOutbound(value: unknown): ToolResult {
   const result = ToolResultSchema.parse(value);
-  return ToolResultSchema.parse(result.success
-    ? { success: true, ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }) }
-    : { success: false, error: projectDynamicForOutbound(result.error), ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }) });
+  return ToolResultSchema.parse(
+    result.success
+      ? {
+          success: true,
+          ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
+        }
+      : {
+          success: false,
+          error: projectDynamicForOutbound(result.error),
+          ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
+        },
+  );
 }

@@ -1,6 +1,14 @@
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  writeSync,
+} from 'node:fs';
 import type { Readable } from 'node:stream';
 import { join, resolve } from 'node:path';
 import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/index.js';
@@ -81,20 +89,50 @@ interface ProcessPresentation {
   terminalSettlement: Promise<void>;
 }
 
-export interface ProcessOutputIo { open: typeof openSync; stat: typeof fstatSync; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync }
-const processOutputIo: ProcessOutputIo = { open: openSync, stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync };
+export interface ProcessOutputIo {
+  open: typeof openSync;
+  stat: typeof fstatSync;
+  write: typeof writeSync;
+  fsync: typeof fsyncSync;
+  close: typeof closeSync;
+}
+const processOutputIo: ProcessOutputIo = {
+  open: openSync,
+  stat: fstatSync,
+  write: writeSync,
+  fsync: fsyncSync,
+  close: closeSync,
+};
 
-export function appendProcessOutputChunk(path: string, chunk: Uint8Array, io: ProcessOutputIo = processOutputIo): void {
+export function appendProcessOutputChunk(
+  path: string,
+  chunk: Uint8Array,
+  io: ProcessOutputIo = processOutputIo,
+): void {
   const bytes = Buffer.from(chunk);
   if (bytes.byteLength === 0) return;
-  const fd = io.open(path, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try { if (!io.stat(fd).isFile()) throw new Error(`Process output target '${path}' must be a regular file.`); }
-  catch (error) { try { io.close(fd); } catch { /* pre-publication admission failure remains authoritative */ } throw error; }
+  const fd = io.open(
+    path,
+    constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    if (!io.stat(fd).isFile())
+      throw new Error(`Process output target '${path}' must be a regular file.`);
+  } catch (error) {
+    try {
+      io.close(fd);
+    } catch {
+      /* pre-publication admission failure remains authoritative */
+    }
+    throw error;
+  }
   try {
     writeAllExact(fd, bytes, io.write, () => new Error('zero progress'));
     io.fsync(fd);
     io.close(fd);
-  } catch (error) { throw new PublicationOutcomeUnknownError(error); }
+  } catch (error) {
+    throw new PublicationOutcomeUnknownError(error);
+  }
 }
 
 function generateId(): string {
@@ -111,19 +149,36 @@ export class ProcessRunner {
   readonly #outputIo: ProcessOutputIo | undefined;
   readonly #replacementIo: ReplacementFileIo | undefined;
 
-  constructor(readonly projectRoot: string, registry: ManagedProcessGroupRegistry, readonly fatalPort: ApplicationFatalPort, io: { readonly output?: ProcessOutputIo; readonly replacement?: ReplacementFileIo } = {}) {
+  constructor(
+    readonly projectRoot: string,
+    registry: ManagedProcessGroupRegistry,
+    readonly fatalPort: ApplicationFatalPort,
+    io: { readonly output?: ProcessOutputIo; readonly replacement?: ReplacementFileIo } = {},
+  ) {
     this.#registry = registry;
     this.#outputIo = io.output;
     this.#replacementIo = io.replacement;
   }
 
   spawn(spec: ProcessSpawnSpec): ProcessRecord {
-    return this.launch(spec, 'bash', ['-c', spec.command], ['ignore', 'pipe', 'pipe'], true, { ...sanitizedCommandEnv(), PROJECT_ROOT: this.projectRoot, SAIVAGE_ROOT: this.projectRoot, ...spec.env }).record;
+    return this.launch(spec, 'bash', ['-c', spec.command], ['ignore', 'pipe', 'pipe'], true, {
+      ...sanitizedCommandEnv(),
+      PROJECT_ROOT: this.projectRoot,
+      SAIVAGE_ROOT: this.projectRoot,
+      ...spec.env,
+    }).record;
   }
 
   spawnInteractive(spec: InteractiveProcessSpawnSpec): InteractiveProcessLaunch {
     const command = [spec.file, ...spec.args].join(' ');
-    return this.launch({ ...spec, command, env: undefined }, spec.file, spec.args, spec.stdio, false, spec.env);
+    return this.launch(
+      { ...spec, command, env: undefined },
+      spec.file,
+      spec.args,
+      spec.stdio,
+      false,
+      spec.env,
+    );
   }
 
   async wait(procId: string, timeoutMs = 0): Promise<ProcessWaitResult> {
@@ -135,7 +190,10 @@ export class ProcessRunner {
       return this.waitResult(presentation, false, started);
     }
     if (timeoutMs === 0) return this.waitResult(presentation, false, started);
-    const result = await Promise.race([presentation.terminalSettlement.then(() => 'settled' as const), delay(timeoutMs).then(() => 'timeout' as const)]);
+    const result = await Promise.race([
+      presentation.terminalSettlement.then(() => 'settled' as const),
+      delay(timeoutMs).then(() => 'timeout' as const),
+    ]);
     if (result === 'timeout') return this.waitResult(presentation, true, started);
     return this.waitResult(presentation, false, started);
   }
@@ -148,7 +206,15 @@ export class ProcessRunner {
     return this.waitResult(presentation, false, started);
   }
 
-  async kill(procId: string, authority: { directScope: ManagedProcessScope; category: ProcessCategory; reason?: string; graceMs?: number }): Promise<ProcessRecord | null> {
+  async kill(
+    procId: string,
+    authority: {
+      directScope: ManagedProcessScope;
+      category: ProcessCategory;
+      reason?: string;
+      graceMs?: number;
+    },
+  ): Promise<ProcessRecord | null> {
     const presentation = this.presentations.get(procId);
     if (!presentation) return null;
     const report = await this.#registry.terminateGroup({
@@ -164,43 +230,72 @@ export class ProcessRunner {
     return { ...presentation.record };
   }
 
-  async terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+  async terminateScopeTree(input: {
+    rootScope: ManagedProcessScope;
+    categories: readonly ProcessCategory[];
+    reason: string;
+    graceMs?: number;
+  }): Promise<ProcessStopReport> {
     const presentations = new Map(this.presentations);
     const report = await this.#registry.terminateScopeTree(input);
     const stopped = report.stopped.map((id) => {
       const presentation = presentations.get(id);
-      if (!presentation) throw new Error(`Registry-confirmed stopped process '${id}' has no ProcessRunner presentation.`);
+      if (!presentation)
+        throw new Error(
+          `Registry-confirmed stopped process '${id}' has no ProcessRunner presentation.`,
+        );
       return { id, presentation };
     });
-    const settlements = await Promise.allSettled(stopped.map(({ presentation }) => presentation.terminalSettlement));
+    const settlements = await Promise.allSettled(
+      stopped.map(({ presentation }) => presentation.terminalSettlement),
+    );
     for (const { id, presentation } of stopped) this.retireSettled(id, presentation.directScope);
-    const rejection = settlements.find((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected');
+    const rejection = settlements.find(
+      (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
+    );
     if (rejection) throw rejection.reason;
     return report;
   }
 
-  async closeAndTerminateDirectScope(input: { directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+  async closeAndTerminateDirectScope(input: {
+    directScope: ManagedProcessScope;
+    category: ProcessCategory;
+    reason: string;
+    graceMs?: number;
+  }): Promise<ProcessStopReport> {
     const presentations = new Map(
-      [...this.presentations].filter(([, presentation]) => presentation.directScope === input.directScope),
+      [...this.presentations].filter(
+        ([, presentation]) => presentation.directScope === input.directScope,
+      ),
     );
     let report: ProcessStopReport;
     try {
       report = await this.#registry.closeAndTerminateDirectScope(input);
     } catch (error) {
-      const alreadyTerminal = [...presentations.values()].filter((presentation) => presentation.record.status !== 'running');
-      await Promise.allSettled(alreadyTerminal.map((presentation) => presentation.terminalSettlement));
+      const alreadyTerminal = [...presentations.values()].filter(
+        (presentation) => presentation.record.status !== 'running',
+      );
+      await Promise.allSettled(
+        alreadyTerminal.map((presentation) => presentation.terminalSettlement),
+      );
       for (const [id, presentation] of presentations) {
         if (presentation.record.status !== 'running') this.retireSettled(id, input.directScope);
       }
       throw error;
     }
-    const joinable = [...presentations.entries()].filter(([id, presentation]) =>
-      report.stopped.includes(id) || presentation.record.status !== 'running');
-    const settlements = await Promise.allSettled(joinable.map(([, presentation]) => presentation.terminalSettlement));
+    const joinable = [...presentations.entries()].filter(
+      ([id, presentation]) =>
+        report.stopped.includes(id) || presentation.record.status !== 'running',
+    );
+    const settlements = await Promise.allSettled(
+      joinable.map(([, presentation]) => presentation.terminalSettlement),
+    );
     for (const [id, presentation] of presentations) {
       if (presentation.record.status !== 'running') this.retireSettled(id, input.directScope);
     }
-    const rejection = settlements.find((settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected');
+    const rejection = settlements.find(
+      (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
+    );
     if (rejection) throw rejection.reason;
     return report;
   }
@@ -208,18 +303,25 @@ export class ProcessRunner {
   retireSettled(procId: string, directScope: ManagedProcessScope): void {
     const presentation = this.presentations.get(procId);
     if (!presentation) return;
-    if (presentation.directScope !== directScope) throw new Error(`Process '${procId}' is not bound to the invoking direct scope.`);
+    if (presentation.directScope !== directScope)
+      throw new Error(`Process '${procId}' is not bound to the invoking direct scope.`);
     if (presentation.record.status === 'running') return;
     this.presentations.delete(procId);
   }
 
-  closeLaunchAdmission(): void { this.#registry.closeLaunchAdmission(); }
+  closeLaunchAdmission(): void {
+    this.#registry.closeLaunchAdmission();
+  }
 
   createContainerScope(parent: ManagedProcessScope, label: string): ManagedProcessScope {
     return this.#registry.createContainerScope(parent, label);
   }
 
-  createDirectScope(parent: ManagedProcessScope, label: string, category: ProcessCategory): ManagedProcessScope {
+  createDirectScope(
+    parent: ManagedProcessScope,
+    label: string,
+    category: ProcessCategory,
+  ): ManagedProcessScope {
     return this.#registry.createDirectScope(parent, label, category);
   }
 
@@ -238,13 +340,23 @@ export class ProcessRunner {
     return record ? { ...record } : null;
   }
 
-  private launch(spec: ProcessSpawnSpec, file: string, args: readonly string[], stdio: SpawnOptions['stdio'], captureOutput: boolean, childEnv: NodeJS.ProcessEnv): InteractiveProcessLaunch {
+  private launch(
+    spec: ProcessSpawnSpec,
+    file: string,
+    args: readonly string[],
+    stdio: SpawnOptions['stdio'],
+    captureOutput: boolean,
+    childEnv: NodeJS.ProcessEnv,
+  ): InteractiveProcessLaunch {
     if (!spec.command) throw new Error('command must not be empty');
-    if (!spec.ownerId || !spec.ownerKind) throw new Error('process spawn requires explicit ownerId and ownerKind.');
+    if (!spec.ownerId || !spec.ownerKind)
+      throw new Error('process spawn requires explicit ownerId and ownerKind.');
     const id = generateId();
     const cwd = spec.cwd ? resolve(spec.cwd) : this.projectRoot;
     const cardId = spec.cardId ?? null;
-    const outputDir = cardId ? cardProcessOutputRoot(this.projectRoot, cardId, id) : nonCardProcessOutputRoot(this.projectRoot, id);
+    const outputDir = cardId
+      ? cardProcessOutputRoot(this.projectRoot, cardId, id)
+      : nonCardProcessOutputRoot(this.projectRoot, id);
     mkdirSync(outputDir, { recursive: true });
     const stdoutPath = join(outputDir, 'stdout.log');
     const stderrPath = join(outputDir, 'stderr.log');
@@ -267,10 +379,20 @@ export class ProcessRunner {
       stderr_path: stderrPath,
     };
     let resolveAbsence!: () => void;
-    const absence = new Promise<void>((resolveAbsent) => { resolveAbsence = resolveAbsent; });
+    const absence = new Promise<void>((resolveAbsent) => {
+      resolveAbsence = resolveAbsent;
+    });
     let captureFailure: Error | null = null;
-    const recordCaptureFailure = (error: Error): void => { captureFailure ??= error; };
-    const presentation: ProcessPresentation = { record, directScope: spec.directScope, leaderOutcome: null, terminationReason: undefined, terminalSettlement: Promise.resolve() };
+    const recordCaptureFailure = (error: Error): void => {
+      captureFailure ??= error;
+    };
+    const presentation: ProcessPresentation = {
+      record,
+      directScope: spec.directScope,
+      leaderOutcome: null,
+      terminationReason: undefined,
+      terminalSettlement: Promise.resolve(),
+    };
     this.presentations.set(id, presentation);
     let child: ChildProcess;
     try {
@@ -285,14 +407,21 @@ export class ProcessRunner {
           env: childEnv,
           stdio,
         },
-         onAbsent: (reason) => { presentation.terminationReason = reason; resolveAbsence(); },
+        onAbsent: (reason) => {
+          presentation.terminationReason = reason;
+          resolveAbsence();
+        },
       });
     } catch (error) {
       this.presentations.delete(id);
       throw error;
     }
-    const stdoutDrain = captureOutput ? this.#captureReadable(child.stdout, stdoutPath, recordCaptureFailure) : Promise.resolve();
-    const stderrDrain = captureOutput ? this.#captureReadable(child.stderr, stderrPath, recordCaptureFailure) : Promise.resolve();
+    const stdoutDrain = captureOutput
+      ? this.#captureReadable(child.stdout, stdoutPath, recordCaptureFailure)
+      : Promise.resolve();
+    const stderrDrain = captureOutput
+      ? this.#captureReadable(child.stderr, stderrPath, recordCaptureFailure)
+      : Promise.resolve();
     presentation.terminalSettlement = Promise.all([absence, stdoutDrain, stderrDrain]).then(() => {
       this.finalize(presentation, presentation.terminationReason ?? null, captureFailure);
       if (captureFailure) throw captureFailure;
@@ -300,15 +429,26 @@ export class ProcessRunner {
     void presentation.terminalSettlement.catch(() => undefined);
     child.once('exit', (exitCode, signalCode) => {
       presentation.leaderOutcome = {
-        status: signalCode === 'SIGKILL' || signalCode === 'SIGTERM' ? 'killed' : exitCode === 0 ? 'exited' : 'failed',
+        status:
+          signalCode === 'SIGKILL' || signalCode === 'SIGTERM'
+            ? 'killed'
+            : exitCode === 0
+              ? 'exited'
+              : 'failed',
         exit_code: exitCode,
         signal: signalCode ?? null,
       };
     });
     child.once('error', (error) => {
-      try { appendProcessOutputChunk(stderrPath, Buffer.from(`[process-runner] spawn error: ${error.message}\n`), this.#outputIo); }
-      catch (failure) {
-        if (failure instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(failure);
+      try {
+        appendProcessOutputChunk(
+          stderrPath,
+          Buffer.from(`[process-runner] spawn error: ${error.message}\n`),
+          this.#outputIo,
+        );
+      } catch (failure) {
+        if (failure instanceof PublicationOutcomeUnknownError)
+          this.fatalPort.publicationOutcomeUnknown(failure);
         recordCaptureFailure(failure instanceof Error ? failure : new Error(String(failure)));
       }
       presentation.leaderOutcome = { status: 'failed', exit_code: -1, signal: null };
@@ -316,22 +456,43 @@ export class ProcessRunner {
     return { record: { ...record }, process: child };
   }
 
-  private finalize(presentation: ProcessPresentation, terminationReason: string | null, captureFailure: Error | null): void {
+  private finalize(
+    presentation: ProcessPresentation,
+    terminationReason: string | null,
+    captureFailure: Error | null,
+  ): void {
     if (presentation.record.status !== 'running') return;
     const outcome = captureFailure
-      ? { ...(presentation.leaderOutcome ?? { exit_code: null, signal: null }), status: 'failed' as const }
+      ? {
+          ...(presentation.leaderOutcome ?? { exit_code: null, signal: null }),
+          status: 'failed' as const,
+        }
       : terminationReason
-      ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM' }
-      : presentation.leaderOutcome ?? { status: 'failed' as const, exit_code: null, signal: null };
+        ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM' }
+        : (presentation.leaderOutcome ?? {
+            status: 'failed' as const,
+            exit_code: null,
+            signal: null,
+          });
     presentation.record = { ...presentation.record, ...outcome, completed_at: now() };
   }
 
-  #captureReadable(readable: Readable | null, path: string, recordFailure: (error: Error) => void): Promise<void> {
+  #captureReadable(
+    readable: Readable | null,
+    path: string,
+    recordFailure: (error: Error) => void,
+  ): Promise<void> {
     if (!readable) return Promise.resolve();
     readable.on('data', (chunk: Buffer | string) => {
-      try { appendProcessOutputChunk(path, typeof chunk === 'string' ? Buffer.from(chunk) : chunk, this.#outputIo); }
-      catch (error) {
-        if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error);
+      try {
+        appendProcessOutputChunk(
+          path,
+          typeof chunk === 'string' ? Buffer.from(chunk) : chunk,
+          this.#outputIo,
+        );
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError)
+          this.fatalPort.publicationOutcomeUnknown(error);
         recordFailure(error instanceof Error ? error : new Error(String(error)));
         readable.destroy();
       }
@@ -339,29 +500,61 @@ export class ProcessRunner {
     readable.on('error', recordFailure);
     return new Promise<void>((resolveDrain) => {
       let settled = false;
-      const settle = (): void => { if (!settled) { settled = true; resolveDrain(); } };
+      const settle = (): void => {
+        if (!settled) {
+          settled = true;
+          resolveDrain();
+        }
+      };
       readable.once('end', settle);
       readable.once('close', settle);
     });
   }
 
-  async #joinStopped(report: ProcessStopReport, presentations: ReadonlyMap<string, ProcessPresentation>): Promise<void> {
-    await Promise.all(report.stopped.map((id) => {
-      const presentation = presentations.get(id);
-      if (!presentation) throw new Error(`Registry-confirmed stopped process '${id}' has no ProcessRunner presentation.`);
-      return presentation.terminalSettlement;
-    }));
+  async #joinStopped(
+    report: ProcessStopReport,
+    presentations: ReadonlyMap<string, ProcessPresentation>,
+  ): Promise<void> {
+    await Promise.all(
+      report.stopped.map((id) => {
+        const presentation = presentations.get(id);
+        if (!presentation)
+          throw new Error(
+            `Registry-confirmed stopped process '${id}' has no ProcessRunner presentation.`,
+          );
+        return presentation.terminalSettlement;
+      }),
+    );
   }
 
-  private waitResult(presentation: ProcessPresentation, timedOut: boolean, started: number): ProcessWaitResult {
+  private waitResult(
+    presentation: ProcessPresentation,
+    timedOut: boolean,
+    started: number,
+  ): ProcessWaitResult {
     const record = { ...presentation.record };
-    return { id: record.id, status: record.status, exitCode: record.exit_code ?? null, timedOut, waitDurationMs: Date.now() - started, record };
+    return {
+      id: record.id,
+      status: record.status,
+      exitCode: record.exit_code ?? null,
+      timedOut,
+      waitDurationMs: Date.now() - started,
+      record,
+    };
   }
 
   private assertStopSucceeded(report: ProcessStopReport): void {
     if (report.failed.length === 0) return;
-    throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
+    throw new Error(
+      report.failed
+        .map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`)
+        .join('; '),
+    );
   }
 }
 
-export type { ManagedProcessScope, ProcessCategory, ProcessStopReport } from './managed-process-group-registry.js';
+export type {
+  ManagedProcessScope,
+  ProcessCategory,
+  ProcessStopReport,
+} from './managed-process-group-registry.js';

@@ -1,28 +1,56 @@
-import { loadEnvironment, resolveStartupProjectRoot, type Environment, type StartInputs } from '../config/index.js';
-import { initializeAndValidateCurrentGeneratedState, readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/index.js';
-import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/runtime-api.js';
+import {
+  loadEnvironment,
+  resolveStartupProjectRoot,
+  type Environment,
+  type StartInputs,
+} from '../config/index.js';
+import {
+  initializeAndValidateCurrentGeneratedState,
+  readProjectCardOrAssertInitialPublicationAllowed,
+} from '../persistence/index.js';
+import {
+  acquireRuntimeLifecycleLock,
+  publishRuntimeControlEndpoint,
+  releaseRuntimeLifecycleLock,
+  runtimeProcessIdentity,
+  type RuntimeLifecycleLockHandle,
+} from '../runtime/runtime-api.js';
 import { startServer, type ServerInstance } from '../server/server-api.js';
 import { createRestartPort } from './restart-port.js';
 import { publishInitialProjectRuntime } from './project-runtime-bootstrap.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../contracts/index.js';
-import type { ShutdownComponent, SafeCleanupWarning, ShutdownReport, AppTerminalRegistration } from '../contracts/index.js';
+import type {
+  ShutdownComponent,
+  SafeCleanupWarning,
+  ShutdownReport,
+  AppTerminalRegistration,
+} from '../contracts/index.js';
 import { logShutdownWarnings } from './shutdown-report.js';
 
 export const APP_CLEANUP_LEAF_TIMEOUT_MS = 10_000;
 
 type CleanupSettlement = 'fulfilled' | 'rejected' | 'timeout';
 
-async function settleCleanupLeafWithTimeout(cleanup: () => void | Promise<void>, timeoutMs: number): Promise<CleanupSettlement> {
+async function settleCleanupLeafWithTimeout(
+  cleanup: () => void | Promise<void>,
+  timeoutMs: number,
+): Promise<CleanupSettlement> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<'timeout'>((resolveTimeout) => {
     timer = setTimeout(() => resolveTimeout('timeout'), timeoutMs);
   });
   let cleanupPromise: Promise<void>;
-  try { cleanupPromise = Promise.resolve(cleanup()); }
-  catch { cleanupPromise = Promise.reject(); }
+  try {
+    cleanupPromise = Promise.resolve(cleanup());
+  } catch {
+    cleanupPromise = Promise.reject();
+  }
   try {
     return await Promise.race([
-      cleanupPromise.then(() => 'fulfilled' as const, () => 'rejected' as const),
+      cleanupPromise.then(
+        () => 'fulfilled' as const,
+        () => 'rejected' as const,
+      ),
       timeout,
     ]);
   } finally {
@@ -30,9 +58,14 @@ async function settleCleanupLeafWithTimeout(cleanup: () => void | Promise<void>,
   }
 }
 
-export function createAppTerminalCoordinator(): AppTerminalRegistration & { stop(): Promise<ShutdownReport> } {
+export function createAppTerminalCoordinator(): AppTerminalRegistration & {
+  stop(): Promise<ShutdownReport>;
+} {
   const admissionClosers: Array<{ component: ShutdownComponent; close: () => void }> = [];
-  const cleanupLeaves: Array<{ component: ShutdownComponent; cleanup: () => void | Promise<void> }> = [];
+  const cleanupLeaves: Array<{
+    component: ShutdownComponent;
+    cleanup: () => void | Promise<void>;
+  }> = [];
   let applicationClosing = false;
   let stopPromise: Promise<ShutdownReport> | null = null;
 
@@ -51,8 +84,11 @@ export function createAppTerminalCoordinator(): AppTerminalRegistration & { stop
       applicationClosing = true;
       const warnings: SafeCleanupWarning[] = [];
       for (const { component, close } of admissionClosers) {
-        try { close(); }
-        catch { warnings.push({ component, code: 'closer_failed' }); }
+        try {
+          close();
+        } catch {
+          warnings.push({ component, code: 'closer_failed' });
+        }
       }
       stopPromise = (async () => {
         for (const { component, cleanup } of [...cleanupLeaves].reverse()) {
@@ -74,7 +110,10 @@ export function createOversightOwnerFailureHandler(input: {
   writeDiagnostic?(): void;
 }): (error: unknown) => void {
   return (_error: unknown): void => {
-    (input.writeDiagnostic ?? (() => console.error('[oversight] owner failure; application terminating')))();
+    (
+      input.writeDiagnostic ??
+      (() => console.error('[oversight] owner failure; application terminating'))
+    )();
     void input.terminal.stop().then((report) => {
       logShutdownWarnings(report);
       input.exit(1);
@@ -98,15 +137,22 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   const projectRoot = resolveStartupProjectRoot(options, env);
   const terminal = createAppTerminalCoordinator();
   let lifecycleLock: RuntimeLifecycleLockHandle;
-  try { lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot, mode: 'bound' }); }
-  catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
+  try {
+    lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot, mode: 'bound' });
+  } catch (error) {
+    if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
+    throw error;
+  }
   const processIdentity = runtimeProcessIdentity(lifecycleLock);
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
   let environment: Environment;
   let server: ServerInstance;
   try {
     environment = await loadEnvironment(options, env);
-    if (options.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(projectRoot) === null) {
+    if (
+      options.createRuntime &&
+      readProjectCardOrAssertInitialPublicationAllowed(projectRoot) === null
+    ) {
       publishInitialProjectRuntime(projectRoot, environment.workflows);
     }
     initializeAndValidateCurrentGeneratedState(projectRoot, environment.workflows);
@@ -118,12 +164,26 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       terminal,
       exit: (code) => process.exit(code),
     });
-    server = await startServer({ environment, terminal, restartPort, processIdentity, fatalPort,onOversightOwnerFailure });
+    server = await startServer({
+      environment,
+      terminal,
+      restartPort,
+      processIdentity,
+      fatalPort,
+      onOversightOwnerFailure,
+    });
     const address = server.fastify.server.address();
-    if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');
-    const dialHost = environment.server.host === '0.0.0.0' || environment.server.host === '::' ? '127.0.0.1' : environment.server.host;
+    if (address === null || typeof address === 'string')
+      throw new Error('Server did not publish a TCP control address.');
+    const dialHost =
+      environment.server.host === '0.0.0.0' || environment.server.host === '::'
+        ? '127.0.0.1'
+        : environment.server.host;
     const urlHost = dialHost.includes(':') ? `[${dialHost}]` : dialHost;
-    publishRuntimeControlEndpoint(lifecycleLock, { origin: `http://${urlHost}:${address.port}`, auth: environment.auth.apiToken === undefined ? 'disabled' : 'bearer' });
+    publishRuntimeControlEndpoint(lifecycleLock, {
+      origin: `http://${urlHost}:${address.port}`,
+      auth: environment.auth.apiToken === undefined ? 'disabled' : 'bearer',
+    });
   } catch (error) {
     if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
     const report = await terminal.stop();
@@ -132,7 +192,12 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   }
 
   const stop = () => terminal.stop();
-  const stopForSignal = (): void => { void stop().then((report) => { logShutdownWarnings(report); process.exit(0); }); };
+  const stopForSignal = (): void => {
+    void stop().then((report) => {
+      logShutdownWarnings(report);
+      process.exit(0);
+    });
+  };
   process.once('SIGINT', stopForSignal);
   process.once('SIGTERM', stopForSignal);
   terminal.registerCleanupLeaf('signal-handlers', () => {

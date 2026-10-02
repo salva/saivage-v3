@@ -8,7 +8,10 @@ interface ClassifierContext {
 
 export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
-export function parseFiniteRetryAfterMs(value: unknown, millisecondsPerUnit: number): number | undefined {
+export function parseFiniteRetryAfterMs(
+  value: unknown,
+  millisecondsPerUnit: number,
+): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
   const milliseconds = Math.round(value * millisecondsPerUnit);
   return Number.isFinite(milliseconds) && milliseconds >= 0 ? milliseconds : undefined;
@@ -41,20 +44,45 @@ function parseResetsAt(headers: Headers): string | undefined {
 }
 
 const CONTENT_POLICY_TOKENS = new Set(['cyber_policy', 'content_filter']);
-const CONTENT_POLICY_PHRASES = ['content policy', 'safety policy', 'safety refusal', 'request was blocked for safety', 'cannot assist with this request'];
+const CONTENT_POLICY_PHRASES = [
+  'content policy',
+  'safety policy',
+  'safety refusal',
+  'request was blocked for safety',
+  'cannot assist with this request',
+];
 const RATE_LIMIT_TOKENS = new Set(['rate_limit', 'rate_limit_exceeded', 'usage_limit_reached']);
-const TRANSIENT_TOKENS = new Set(['server_error', 'internal_server_error', 'service_unavailable', 'temporarily_unavailable', 'overloaded', 'server_is_overloaded']);
-const AUTH_TOKENS = new Set(['auth', 'authentication_error', 'unauthorized', 'forbidden', 'permission_denied']);
+const TRANSIENT_TOKENS = new Set([
+  'server_error',
+  'internal_server_error',
+  'service_unavailable',
+  'temporarily_unavailable',
+  'overloaded',
+  'server_is_overloaded',
+]);
+const AUTH_TOKENS = new Set([
+  'auth',
+  'authentication_error',
+  'unauthorized',
+  'forbidden',
+  'permission_denied',
+]);
 const PROMPT_POLICY_REJECTION_TOKEN = 'invalid_prompt';
-const PROMPT_POLICY_REJECTION_PHRASE = 'your prompt was flagged as potentially violating our usage policy';
+const PROMPT_POLICY_REJECTION_PHRASE =
+  'your prompt was flagged as potentially violating our usage policy';
 
-function directText(error: Record<string, unknown>, key: 'code' | 'type' | 'message'): string | undefined {
+function directText(
+  error: Record<string, unknown>,
+  key: 'code' | 'type' | 'message',
+): string | undefined {
   const value = error[key];
   return typeof value === 'string' ? value : undefined;
 }
 
 function directToken(error: Record<string, unknown>, tokens: ReadonlySet<string>): boolean {
-  return [directText(error, 'code'), directText(error, 'type')].some((value) => value !== undefined && tokens.has(value.toLowerCase()));
+  return [directText(error, 'code'), directText(error, 'type')].some(
+    (value) => value !== undefined && tokens.has(value.toLowerCase()),
+  );
 }
 
 function hasContentPolicyEvidence(error: Record<string, unknown>): boolean {
@@ -64,8 +92,9 @@ function hasContentPolicyEvidence(error: Record<string, unknown>): boolean {
 }
 
 function hasPromptPolicyRejectionEvidence(error: Record<string, unknown>): boolean {
-  const marker = [directText(error, 'code'), directText(error, 'type')]
-    .some((value) => value?.toLowerCase() === PROMPT_POLICY_REJECTION_TOKEN);
+  const marker = [directText(error, 'code'), directText(error, 'type')].some(
+    (value) => value?.toLowerCase() === PROMPT_POLICY_REJECTION_TOKEN,
+  );
   const message = directText(error, 'message')?.toLowerCase();
   return marker && message !== undefined && message.includes(PROMPT_POLICY_REJECTION_PHRASE);
 }
@@ -90,22 +119,80 @@ export function classifyDirectProviderFailure(args: {
 }): LlmTransportFailure | undefined {
   const { provider, error, source } = args;
   const responseStatus = source.responseStatus;
-  const embeddedStatus = source.kind === 'opened_response_terminal' ? source.embeddedStatus : undefined;
-  if (responseStatus === 401 || embeddedStatus === 401) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
-  const rateLimit = (): LlmTransportFailure => ({ kind: 'rate_limit', provider, status: responseStatus, message: args.message, ...(args.retryAfterMs !== undefined ? { retryAfterMs: args.retryAfterMs } : {}), ...(args.resetsAt !== undefined ? { resetsAt: args.resetsAt } : {}) });
-  if (responseStatus === 429 || embeddedStatus === 429 || (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))) {
+  const embeddedStatus =
+    source.kind === 'opened_response_terminal' ? source.embeddedStatus : undefined;
+  if (responseStatus === 401 || embeddedStatus === 401)
+    return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  const rateLimit = (): LlmTransportFailure => ({
+    kind: 'rate_limit',
+    provider,
+    status: responseStatus,
+    message: args.message,
+    ...(args.retryAfterMs !== undefined ? { retryAfterMs: args.retryAfterMs } : {}),
+    ...(args.resetsAt !== undefined ? { resetsAt: args.resetsAt } : {}),
+  });
+  if (
+    responseStatus === 429 ||
+    embeddedStatus === 429 ||
+    (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))
+  ) {
     return rateLimit();
   }
-  if ((embeddedStatus !== undefined && embeddedStatus >= 500) || responseStatus >= 500 || (error !== undefined && directToken(error, TRANSIENT_TOKENS))) return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
+  if (
+    (embeddedStatus !== undefined && embeddedStatus >= 500) ||
+    responseStatus >= 500 ||
+    (error !== undefined && directToken(error, TRANSIENT_TOKENS))
+  )
+    return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
   const contextEligible = source.kind === 'opened_response_terminal' || responseStatus === 400;
-  const context = contextEligible && error !== undefined && isInputContextErrorObject(error, args.allowedContextParams);
+  const context =
+    contextEligible &&
+    error !== undefined &&
+    isInputContextErrorObject(error, args.allowedContextParams);
   const content = error !== undefined && hasContentPolicyEvidence(error);
-  if (context && content) return { kind: 'provider_protocol_error', provider, status: responseStatus, message: `Ambiguous provider failure contains both input-context and content-policy evidence.`, bodyPreview: args.providerResponse.slice(0, 500) };
-  if (context) return { kind: 'input_context_exhausted', provider, status: responseStatus, message: args.message };
-  if (content) return { kind: 'content_policy', provider, status: responseStatus, message: args.message, providerResponse: args.providerResponse };
-  if (responseStatus === 403 || embeddedStatus === 403 || (error !== undefined && directToken(error, AUTH_TOKENS))) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
-  if (source.kind === 'opened_response_terminal' && responseStatus === 200 && error !== undefined && hasPromptPolicyRejectionEvidence(error))
-    return { kind: 'provider_protocol_error', provider, status: responseStatus, message: args.message, bodyPreview: args.providerResponse.slice(0, 500), reason: 'prompt_policy_rejection' };
+  if (context && content)
+    return {
+      kind: 'provider_protocol_error',
+      provider,
+      status: responseStatus,
+      message: `Ambiguous provider failure contains both input-context and content-policy evidence.`,
+      bodyPreview: args.providerResponse.slice(0, 500),
+    };
+  if (context)
+    return {
+      kind: 'input_context_exhausted',
+      provider,
+      status: responseStatus,
+      message: args.message,
+    };
+  if (content)
+    return {
+      kind: 'content_policy',
+      provider,
+      status: responseStatus,
+      message: args.message,
+      providerResponse: args.providerResponse,
+    };
+  if (
+    responseStatus === 403 ||
+    embeddedStatus === 403 ||
+    (error !== undefined && directToken(error, AUTH_TOKENS))
+  )
+    return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  if (
+    source.kind === 'opened_response_terminal' &&
+    responseStatus === 200 &&
+    error !== undefined &&
+    hasPromptPolicyRejectionEvidence(error)
+  )
+    return {
+      kind: 'provider_protocol_error',
+      provider,
+      status: responseStatus,
+      message: args.message,
+      bodyPreview: args.providerResponse.slice(0, 500),
+      reason: 'prompt_policy_rejection',
+    };
   if (args.retryAfterMs !== undefined || args.resetsAt !== undefined) return rateLimit();
   return undefined;
 }
@@ -148,12 +235,20 @@ function isInputContextErrorObject(
 ): boolean {
   const code = error['code'];
   const type = error['type'];
-  const markerMatches = code === 'context_length_exceeded'
-    ? type === undefined || type === null || type === 'invalid_request_error' || type === 'context_length_exceeded'
-    : (code === undefined || code === null) && type === 'context_length_exceeded';
+  const markerMatches =
+    code === 'context_length_exceeded'
+      ? type === undefined ||
+        type === null ||
+        type === 'invalid_request_error' ||
+        type === 'context_length_exceeded'
+      : (code === undefined || code === null) && type === 'context_length_exceeded';
   if (!markerMatches) return false;
   const param = error['param'];
-  return param === undefined || param === null || (typeof param === 'string' && allowedParams.includes(param));
+  return (
+    param === undefined ||
+    param === null ||
+    (typeof param === 'string' && allowedParams.includes(param))
+  );
 }
 
 function parseJsonObject(bodyText: string): Record<string, unknown> | undefined {
@@ -166,16 +261,29 @@ function parseJsonObject(bodyText: string): Record<string, unknown> | undefined 
 
 function directObject(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
-function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined {
+function defaultTransportClassifier(
+  err: unknown,
+  ctx: ClassifierContext,
+): LlmTransportFailure | undefined {
   if (err instanceof DOMException && err.name === 'AbortError') {
-    return { kind: 'cancelled', provider: ctx.provider, reason: 'abort', message: 'LLM request aborted' };
+    return {
+      kind: 'cancelled',
+      provider: ctx.provider,
+      reason: 'abort',
+      message: 'LLM request aborted',
+    };
   }
   if (err instanceof Error && err.name === 'AbortError') {
-    return { kind: 'cancelled', provider: ctx.provider, reason: 'abort', message: err.message || 'LLM request aborted' };
+    return {
+      kind: 'cancelled',
+      provider: ctx.provider,
+      reason: 'abort',
+      message: err.message || 'LLM request aborted',
+    };
   }
   if (err instanceof Error) {
     const message = err.message;
@@ -183,14 +291,25 @@ function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmTr
       return { kind: 'timeout', provider: ctx.provider, message };
     }
     const errnoCode = (err as Error & { code?: unknown }).code;
-    if (typeof errnoCode === 'string' && /^(ETIMEDOUT|ECONNRESET|ESOCKETTIMEDOUT)$/i.test(errnoCode)) {
+    if (
+      typeof errnoCode === 'string' &&
+      /^(ETIMEDOUT|ECONNRESET|ESOCKETTIMEDOUT)$/i.test(errnoCode)
+    ) {
       return { kind: 'timeout', provider: ctx.provider, message };
     }
   }
   return undefined;
 }
 
-export function classifyTransportFailure(err: unknown, ctx: ClassifierContext): LlmTransportFailure {
-  return defaultTransportClassifier(err, ctx)
-      ?? { kind: 'unknown', provider: ctx.provider, message: err instanceof Error ? err.message : String(err) };
+export function classifyTransportFailure(
+  err: unknown,
+  ctx: ClassifierContext,
+): LlmTransportFailure {
+  return (
+    defaultTransportClassifier(err, ctx) ?? {
+      kind: 'unknown',
+      provider: ctx.provider,
+      message: err instanceof Error ? err.message : String(err),
+    }
+  );
 }

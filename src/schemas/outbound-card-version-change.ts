@@ -14,11 +14,13 @@ const ordinaryCardChangeFieldSchema = z.enum([
   'deleted',
 ]);
 
-export const outboundCardVersionChangeSchema = z.object({
-  summary: z.string().min(1),
-  changed_fields: z.array(ordinaryCardChangeFieldSchema).min(1),
-  actor: agentNameSchema.nullable(),
-}).strict();
+export const outboundCardVersionChangeSchema = z
+  .object({
+    summary: z.string().min(1),
+    changed_fields: z.array(ordinaryCardChangeFieldSchema).min(1),
+    actor: agentNameSchema.nullable(),
+  })
+  .strict();
 
 export type OrdinaryCardChangeField = z.infer<typeof ordinaryCardChangeFieldSchema>;
 export type OutboundCardVersionChange = z.infer<typeof outboundCardVersionChangeSchema>;

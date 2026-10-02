@@ -12,7 +12,10 @@ interface RuntimeControlStateResult {
   error?: string;
 }
 export type StartProjectResult = RuntimeControlStateResult;
-export interface StopProjectResult { readonly status: 'stopped'; readonly contained: boolean }
+export interface StopProjectResult {
+  readonly status: 'stopped';
+  readonly contained: boolean;
+}
 
 export type NotifyCardResult =
   | { ok: true; notificationId: string }
@@ -25,14 +28,28 @@ type NotificationInterruptionResult =
   | { status: 'not_applicable' }
   | { status: 'pending_tool_settlement' }
   | { status: 'interrupted'; stopped_card_ids: string[] }
-  | { status: 'suppressed'; reason: 'cancelled' | 'runtime_ineligible' | 'stale_owner'; stopped_card_ids: string[] };
+  | {
+      status: 'suppressed';
+      reason: 'cancelled' | 'runtime_ineligible' | 'stale_owner';
+      stopped_card_ids: string[];
+    };
 
 export type NotificationSubmissionResult =
   | { queued: false; reason: 'planning_ineligible'; cardId: string }
   | { queued: false; reason: 'missing_card'; cardId: string }
-  | { queued: false; reason: 'terminal_card'; cardId: string; status: 'done' | 'failed' | 'cancelled' }
+  | {
+      queued: false;
+      reason: 'terminal_card';
+      cardId: string;
+      status: 'done' | 'failed' | 'cancelled';
+    }
   | { queued: false; reason: 'activation_closed'; cardId: string }
-  | { queued: true; cardId: string; notificationId: string; interruption: NotificationInterruptionResult };
+  | {
+      queued: true;
+      cardId: string;
+      notificationId: string;
+      interruption: NotificationInterruptionResult;
+    };
 
 export type NotificationSubmissionPort = (
   cardId: string,
@@ -48,7 +65,12 @@ export interface RuntimeApi {
   stopProject(): Promise<StopProjectResult>;
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult>;
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult;
-  submitNotification(cardId: string, notification: CardNotification, urgency: NotificationUrgency, signal?: AbortSignal): Promise<NotificationSubmissionResult>;
+  submitNotification(
+    cardId: string,
+    notification: CardNotification,
+    urgency: NotificationUrgency,
+    signal?: AbortSignal,
+  ): Promise<NotificationSubmissionResult>;
   startProject(): Promise<StartProjectResult>;
   getStatus(): {
     status: RuntimeStatus;
@@ -68,27 +90,70 @@ export type { PlannerChildControlPort } from './actors/card-activation-owner.js'
 export { compact, shouldCompact } from './actors/compaction/compactor.js';
 export type { AutonomousCompactionPolicy } from './actors/compaction/compactor.js';
 export { SUMMARY_REFINE_INSTRUCTION } from './actors/compaction/refine-accumulator.js';
-export { SUMMARY_COMPLETION_TOKENS, admitSummaryRequest, assertSummarizerCapabilities, buildSummaryRequestInput } from './actors/compaction/summarizer.js';
-export type { SummarizerProviderPort, SummaryRequestSerialization, AdmittedSummaryRequest } from './actors/compaction/summarizer.js';
+export {
+  SUMMARY_COMPLETION_TOKENS,
+  admitSummaryRequest,
+  assertSummarizerCapabilities,
+  buildSummaryRequestInput,
+} from './actors/compaction/summarizer.js';
+export type {
+  SummarizerProviderPort,
+  SummaryRequestSerialization,
+  AdmittedSummaryRequest,
+} from './actors/compaction/summarizer.js';
 export { currentCoveredRequiredFactRows } from './actors/context/composition-projector.js';
 export { compileInvocationToolContract } from './actors/context/context-blocks.js';
-export type { ExecutingLlmSnapshot, LlmToolInvocationContext } from './actors/executing-llm-snapshot.js';
+export type {
+  ExecutingLlmSnapshot,
+  LlmToolInvocationContext,
+} from './actors/executing-llm-snapshot.js';
 export type { LLMProviderPort } from './actors/llm-actor.js';
 export type { CompactorPort } from './actors/llm-actor.js';
 export type { LlmInvocationInput } from './actors/llm-invocation.js';
 export { isRuntimeStoppedInterruption } from './actors/runtime-stopped-interruption.js';
-export { bindRuntimeWorkflows, compileProjectWorkflows, genericRecordDefinition, runtimeAgentBinding } from './card-process/card-process-config.js';
-export type { CompiledCardTypeWorkflow, CompiledProjectWorkflows, CompiledRuntimeWorkflows, ProcessPosition, WorkflowCompileOptions } from './card-process/card-process-config.js';
+export {
+  bindRuntimeWorkflows,
+  compileProjectWorkflows,
+  genericRecordDefinition,
+  runtimeAgentBinding,
+} from './card-process/card-process-config.js';
+export type {
+  CompiledCardTypeWorkflow,
+  CompiledProjectWorkflows,
+  CompiledRuntimeWorkflows,
+  ProcessPosition,
+  WorkflowCompileOptions,
+} from './card-process/card-process-config.js';
 export { projectCompiledGraphs } from './card-process/compiled-graphs-projection.js';
 export { projectWorkflowPresentation } from './card-process/workflow-presentation-projection.js';
 export { propagateAnalystRecordEdit, propagateChange } from './changed-propagation.js';
-export { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, sanitizedCommandEnv } from './command-policy.js';
-export { acquireRuntimeLifecycleLock, bindRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeProcessIdentity } from './lock.js';
-export type { RuntimeControlEndpoint, RuntimeLifecycleLockHandle, RuntimeProcessIdentity } from './lock.js';
+export {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  MAX_COMMAND_TIMEOUT_MS,
+  sanitizedCommandEnv,
+} from './command-policy.js';
+export {
+  acquireRuntimeLifecycleLock,
+  bindRuntimeLifecycleLock,
+  publishRuntimeControlEndpoint,
+  readRuntimeLockStatus,
+  releaseRuntimeLifecycleLock,
+  runtimeProcessIdentity,
+} from './lock.js';
+export type {
+  RuntimeControlEndpoint,
+  RuntimeLifecycleLockHandle,
+  RuntimeProcessIdentity,
+} from './lock.js';
 export { ManagedProcessGroupRegistry } from './managed-process-group-registry.js';
 export type { ManagedProcessScope, ProcessStopReport } from './managed-process-group-registry.js';
 export { ProcessRunner } from './process-runner.js';
 export type { ProcessCategory, ProcessRecord, ProcessWaitResult } from './process-runner.js';
 export { RuntimeGate } from './runtime-gate.js';
-export { AnalystRuntime, AnalystSession, AnalystTurnBusyError, AnalystWorkspaceContextBudgetError } from './actors/analyst-session.js';
+export {
+  AnalystRuntime,
+  AnalystSession,
+  AnalystTurnBusyError,
+  AnalystWorkspaceContextBudgetError,
+} from './actors/analyst-session.js';
 export type { AnalystTurnInput } from './actors/analyst-session.js';

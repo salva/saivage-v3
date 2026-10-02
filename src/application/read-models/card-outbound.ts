@@ -44,7 +44,9 @@ export function projectCardRecordForOutbound(card: CardRecord): OutboundCardReco
   });
 }
 
-export function projectCardVersionChangeForOutbound(change: CardVersionChange | null): OutboundCardVersionChange | null {
+export function projectCardVersionChangeForOutbound(
+  change: CardVersionChange | null,
+): OutboundCardVersionChange | null {
   if (change === null) return null;
   switch (change.kind) {
     case 'notification_enqueue':
@@ -57,12 +59,24 @@ export function projectCardVersionChangeForOutbound(change: CardVersionChange | 
       return parseOutboundChange(summarizeChangedFields(fields), fields, null);
     }
     case 'update':
-      return parseOutboundChange(change.change_summary, ordinaryFields(change.changed_fields), change.changed_by_actor);
+      return parseOutboundChange(
+        change.change_summary,
+        ordinaryFields(change.changed_fields),
+        change.changed_by_actor,
+      );
     case 'child_link':
     case 'reorder':
-      return parseOutboundChange(change.change_summary, ordinaryFields(change.changed_fields), null);
+      return parseOutboundChange(
+        change.change_summary,
+        ordinaryFields(change.changed_fields),
+        null,
+      );
     case 'delete':
-      return parseOutboundChange(change.change_summary, ordinaryFields(change.changed_fields), change.changed_by_actor);
+      return parseOutboundChange(
+        change.change_summary,
+        ordinaryFields(change.changed_fields),
+        change.changed_by_actor,
+      );
   }
   return exhaustiveChangeKind(change.kind);
 }
@@ -71,15 +85,21 @@ export function projectCardArtifactForOutbound(artifact: CardArtifact) {
   const change = projectCardVersionChangeForOutbound(artifact.change);
   return artifact.kind === 'card-version'
     ? { kind: artifact.kind, card: projectCardRecordForOutbound(artifact.card), change }
-    : { kind: artifact.kind, final_card: projectCardRecordForOutbound(artifact.final_card), change };
+    : {
+        kind: artifact.kind,
+        final_card: projectCardRecordForOutbound(artifact.final_card),
+        change,
+      };
 }
 
 export function projectCardDiff(diff: CardDiffEntry[]): CardDiffEntry[] {
-  return diff.filter((entry) => entry.field !== 'pending_notifications').map((entry) => ({
-    field: entry.field,
-    before: projectDiffValue(entry.field, entry.before),
-    after: projectDiffValue(entry.field, entry.after),
-  }));
+  return diff
+    .filter((entry) => entry.field !== 'pending_notifications')
+    .map((entry) => ({
+      field: entry.field,
+      before: projectDiffValue(entry.field, entry.before),
+      after: projectDiffValue(entry.field, entry.after),
+    }));
 }
 
 function projectLifecycle(value: CardRecord['lifecycle']): CardRecord['lifecycle'] {
@@ -107,16 +127,26 @@ function projectLifecycle(value: CardRecord['lifecycle']): CardRecord['lifecycle
       };
   }
 }
-function projectTerminalResult<T extends import('../../schemas/index.js').CardResult>(result:T):T{
-  if (result.kind === 'content-policy-refusal' || result.kind === 'compaction-summary-blocked') return { ...result };
+function projectTerminalResult<T extends import('../../schemas/index.js').CardResult>(
+  result: T,
+): T {
+  if (result.kind === 'content-policy-refusal' || result.kind === 'compaction-summary-blocked')
+    return { ...result };
   return { ...result, summary: redactTextForOutbound(result.summary) };
 }
 
 function projectDiffValue(field: string, value: unknown): unknown {
   switch (field) {
-    case 'title': return typeof value === 'string' ? redactTextForOutbound(value) : failDiffType(field);
-    case 'status_text': return value === null ? null : typeof value === 'string' ? redactTextForOutbound(value) : failDiffType(field);
-    case 'lifecycle': return projectLifecycle(cardLifecycleStateSchema.parse(value));
+    case 'title':
+      return typeof value === 'string' ? redactTextForOutbound(value) : failDiffType(field);
+    case 'status_text':
+      return value === null
+        ? null
+        : typeof value === 'string'
+          ? redactTextForOutbound(value)
+          : failDiffType(field);
+    case 'lifecycle':
+      return projectLifecycle(cardLifecycleStateSchema.parse(value));
     case 'id':
     case 'type':
     case 'child_membership':
@@ -155,7 +185,7 @@ function failDiffType(field: string): never {
 function ordinaryFields(fields: readonly string[]): OrdinaryCardChangeField[] {
   return fields
     .filter((field) => field !== 'pending_notifications')
-    .map((field) => field === '__deleted__' ? 'deleted' : field)
+    .map((field) => (field === '__deleted__' ? 'deleted' : field))
     .map((field) => {
       const parsed = outboundCardVersionChangeSchema.shape.changed_fields.element.safeParse(field);
       if (!parsed.success) throw new Error(`Unknown outbound card change field '${field}'.`);
@@ -163,7 +193,11 @@ function ordinaryFields(fields: readonly string[]): OrdinaryCardChangeField[] {
     });
 }
 
-function parseOutboundChange(summary: string, changedFields: OrdinaryCardChangeField[], actor: OutboundCardVersionChange['actor']): OutboundCardVersionChange {
+function parseOutboundChange(
+  summary: string,
+  changedFields: OrdinaryCardChangeField[],
+  actor: OutboundCardVersionChange['actor'],
+): OutboundCardVersionChange {
   return outboundCardVersionChangeSchema.parse({
     summary: redactTextForOutbound(summary),
     changed_fields: changedFields,

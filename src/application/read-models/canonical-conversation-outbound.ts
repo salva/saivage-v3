@@ -8,7 +8,12 @@ import {
   type ToolInvocationProjectionInput,
   type ToolInvocationProjector,
 } from '../../contracts/index.js';
-import { agentMessageSchema, canonicalJson, parseCanonicalContentPolicyRefusal, type AgentMessage } from '../../schemas/index.js';
+import {
+  agentMessageSchema,
+  canonicalJson,
+  parseCanonicalContentPolicyRefusal,
+  type AgentMessage,
+} from '../../schemas/index.js';
 import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
@@ -24,7 +29,13 @@ export function projectCanonicalConversationRow(
   if (row.kind === 'tool_result') return projectResultRow(row, projectInvocation);
   if (row.kind === 'content_policy_refusal') {
     const payload = parseCanonicalContentPolicyRefusal(row.content);
-    return agentMessageSchema.parse({ ...row, content: canonicalJson({ ...payload, provider_response: redactTextForOutbound(payload.provider_response) }) });
+    return agentMessageSchema.parse({
+      ...row,
+      content: canonicalJson({
+        ...payload,
+        provider_response: redactTextForOutbound(payload.provider_response),
+      }),
+    });
   }
   return agentMessageSchema.parse({
     ...row,
@@ -110,8 +121,13 @@ function projectResultRow(
   const projected = projectInvocation({ shape: 'result-row', identity, result });
   assertProjectedResult(projected, identity);
   const content = JSON.stringify(projected.result);
-  if (row.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${row.id}' is missing its tool_result context policy.`);
-  return agentMessageSchema.parse({ ...row, content, context_policy: { ...row.context_policy, result_content_sha256: sha256Hex(content) } });
+  if (row.context_policy.kind !== 'tool_result')
+    throw new Error(`Tool result '${row.id}' is missing its tool_result context policy.`);
+  return agentMessageSchema.parse({
+    ...row,
+    content,
+    context_policy: { ...row.context_policy, result_content_sha256: sha256Hex(content) },
+  });
 }
 
 function assertProjectedCall(

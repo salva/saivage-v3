@@ -20,7 +20,12 @@ export type OversightStatus = Readonly<{
   session_id: string;
   enabled: boolean;
   eligible: boolean;
-  eligibility_reason: 'disabled' | Exclude<RuntimeStatus, 'running'> | 'application_closing' | 'check_in_flight' | null;
+  eligibility_reason:
+    | 'disabled'
+    | Exclude<RuntimeStatus, 'running'>
+    | 'application_closing'
+    | 'check_in_flight'
+    | null;
   state: 'waiting' | 'checking' | 'unavailable';
   next_nominal_due: string | null;
   last_attempt: Readonly<{ outcome: OversightCheckOutcome; settled_at: string }> | null;
@@ -111,7 +116,8 @@ export class ProjectOversight {
   }
 
   status(): OversightStatus {
-    const eligible = this.#enabled && !this.#closing && this.#runtimeStatus === 'running' && !this.#check;
+    const eligible =
+      this.#enabled && !this.#closing && this.#runtimeStatus === 'running' && !this.#check;
     const reason: OversightStatus['eligibility_reason'] = !this.#enabled
       ? 'disabled'
       : this.#closing
@@ -127,7 +133,11 @@ export class ProjectOversight {
       enabled: this.#enabled,
       eligible,
       eligibility_reason: reason,
-      state: this.#check ? 'checking' : eligible && this.#timer !== null ? 'waiting' : 'unavailable',
+      state: this.#check
+        ? 'checking'
+        : eligible && this.#timer !== null
+          ? 'waiting'
+          : 'unavailable',
       next_nominal_due: this.#timer !== null ? this.#dueWall : null,
       last_attempt: this.#lastAttempt,
       last_successful_at: this.#lastSuccess,
@@ -136,7 +146,14 @@ export class ProjectOversight {
   }
 
   #arm(): void {
-    if (!this.#enabled || this.#closing || this.#runtimeStatus !== 'running' || this.#check || this.#timer !== null) return;
+    if (
+      !this.#enabled ||
+      this.#closing ||
+      this.#runtimeStatus !== 'running' ||
+      this.#check ||
+      this.#timer !== null
+    )
+      return;
     this.#deadline = this.#clock.monotonicNow() + this.#intervalMs;
     this.#dueWall = new Date(Date.parse(this.#clock.wallNow()) + this.#intervalMs).toISOString();
     this.#armRemaining();

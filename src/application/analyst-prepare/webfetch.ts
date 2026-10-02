@@ -2,10 +2,16 @@ import type { AnalystMutationReadContext } from '../../agents/tool-api.js';
 import type { WebfetchMetadata, AnalystPreNetworkAdmission } from '../../contracts/index.js';
 import type { AnalystRecordMutationService } from '../analyst-mutation-services.js';
 
-export interface PreparedFetchedRecord { readonly content: string; readonly metadata: WebfetchMetadata; }
+export interface PreparedFetchedRecord {
+  readonly content: string;
+  readonly metadata: WebfetchMetadata;
+}
 
 interface AnalystWebReadClient {
-  fetchText(input: { url: string; read_mode?: 'auto' | 'text'; max_bytes?: number }, signal?: AbortSignal): Promise<PreparedFetchedRecord>;
+  fetchText(
+    input: { url: string; read_mode?: 'auto' | 'text'; max_bytes?: number },
+    signal?: AbortSignal,
+  ): Promise<PreparedFetchedRecord>;
 }
 
 export interface AnalystPreparationReadServices {
@@ -13,7 +19,12 @@ export interface AnalystPreparationReadServices {
   readonly records: Pick<AnalystRecordMutationService, 'admitWrite'>;
 }
 
-export function admitAnalystRecordWebfetch(input: AnalystWebfetchRecordInput, ctx: AnalystMutationReadContext): AnalystPreNetworkAdmission { return ctx.services.records.admitWrite(input.save_as); }
+export function admitAnalystRecordWebfetch(
+  input: AnalystWebfetchRecordInput,
+  ctx: AnalystMutationReadContext,
+): AnalystPreNetworkAdmission {
+  return ctx.services.records.admitWrite(input.save_as);
+}
 
 interface AnalystWebfetchRecordInput {
   readonly url: string;
@@ -22,6 +33,13 @@ interface AnalystWebfetchRecordInput {
   readonly save_as: string;
 }
 
-export function prepareAnalystRecordWebfetch(input: AnalystWebfetchRecordInput, ctx: AnalystMutationReadContext): Promise<PreparedFetchedRecord> {
-  return ctx.services.web.fetchText({ url: input.url, read_mode: input.read_mode, max_bytes: input.max_bytes });
+export function prepareAnalystRecordWebfetch(
+  input: AnalystWebfetchRecordInput,
+  ctx: AnalystMutationReadContext,
+): Promise<PreparedFetchedRecord> {
+  return ctx.services.web.fetchText({
+    url: input.url,
+    read_mode: input.read_mode,
+    max_bytes: input.max_bytes,
+  });
 }

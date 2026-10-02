@@ -2,7 +2,14 @@ import { runAuditedAnalystTool } from '../agents/tool-api.js';
 import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
-import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
+import {
+  defineToolBinder,
+  executeToolAction,
+  OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  OPERATIONAL_RESULT_POLICY_TEMPLATE,
+  type ToolBinder,
+  type ToolExecutionResult,
+} from './invocation.js';
 import {
   reconfigureParamsSchema,
   type ReconfigureParams,
@@ -27,7 +34,13 @@ export async function queue_notification(
       getTargetId: () => params.card_id,
       lifecycle: { kind: 'runtime_cancellation' },
       mutate: (_prepared, input, mutation) =>
-        mutation.services.notifications.queue(input.card_id, input.kind, input.body, input.urgency, signal),
+        mutation.services.notifications.queue(
+          input.card_id,
+          input.kind,
+          input.body,
+          input.urgency,
+          signal,
+        ),
     },
     signal,
   );
@@ -101,19 +114,19 @@ function targetId(input: ReconfigureParams): string {
 }
 
 export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
-    defineToolBinder({
-      name: 'show_config',
-      description: 'Show the current project configuration with secrets redacted.',
-      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
-      inputSchema: () => emptyInput,
-      executor: (ctx, args) => executeToolAction('observational_query', () => show_config(ctx, args)),
-    }),
-    defineToolBinder({
-      name: 'reconfigure',
-      description:
-        'Replace one named-agent model route, model failover chain, or server host/port in the next-start configuration. Every successful mutation requires restart.',
-      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-      inputSchema: () => reconfigureParamsSchema,
-      executor: (ctx, args, signal) => reconfigure(ctx, args, signal),
-    }),
+  defineToolBinder({
+    name: 'show_config',
+    description: 'Show the current project configuration with secrets redacted.',
+    resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => emptyInput,
+    executor: (ctx, args) => executeToolAction('observational_query', () => show_config(ctx, args)),
+  }),
+  defineToolBinder({
+    name: 'reconfigure',
+    description:
+      'Replace one named-agent model route, model failover chain, or server host/port in the next-start configuration. Every successful mutation requires restart.',
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => reconfigureParamsSchema,
+    executor: (ctx, args, signal) => reconfigure(ctx, args, signal),
+  }),
 ]);

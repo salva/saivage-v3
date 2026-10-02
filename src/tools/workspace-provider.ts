@@ -1,4 +1,13 @@
-import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject, type WorkspaceMutationOutcome } from './project-file-tools.js';
+import {
+  applyProjectPatch,
+  editProject,
+  globProject,
+  grepProject,
+  readProject,
+  WorkspaceToolInputError,
+  writeProject,
+  type WorkspaceMutationOutcome,
+} from './project-file-tools.js';
 import {
   applyPatchInputSchema,
   editWorkspaceInputSchema,
@@ -11,7 +20,14 @@ import {
   throwIfPublicationOutcomeUnknown,
   type ToolActionOutcome,
 } from '../contracts/index.js';
-import { defineToolBinder, executeToolAction, isExpectedToolInputFailure, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
+import {
+  defineToolBinder,
+  executeToolAction,
+  isExpectedToolInputFailure,
+  OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  OPERATIONAL_RESULT_POLICY_TEMPLATE,
+  type ToolBinder,
+} from './invocation.js';
 import { boundedToolError } from './response-packer.js';
 import type { AgentName } from '../schemas/index.js';
 import type { CardService } from '../cards/store-api.js';
@@ -35,8 +51,17 @@ function failureFromError(err: unknown): ToolActionOutcome {
 
 function isExpectedWorkspaceFailure(err: unknown): boolean {
   if (err instanceof WorkspaceToolInputError || isExpectedToolInputFailure(err)) return true;
-  const code = typeof err === 'object' && err !== null && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
-  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR' || code === 'EACCES' || code === 'EPERM';
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? (err as NodeJS.ErrnoException).code
+      : undefined;
+  return (
+    code === 'ENOENT' ||
+    code === 'ENOTDIR' ||
+    code === 'EISDIR' ||
+    code === 'EACCES' ||
+    code === 'EPERM'
+  );
 }
 
 async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolActionOutcome> {
@@ -49,10 +74,14 @@ async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolAct
   }
 }
 
-async function runWorkspaceMutation(action: () => Promise<WorkspaceMutationOutcome>): Promise<ToolActionOutcome> {
+async function runWorkspaceMutation(
+  action: () => Promise<WorkspaceMutationOutcome>,
+): Promise<ToolActionOutcome> {
   try {
     const outcome = await action();
-    return outcome.kind === 'applied' ? toolSucceeded(outcome.data) : toolFailed(outcome.error, outcome.data);
+    return outcome.kind === 'applied'
+      ? toolSucceeded(outcome.data)
+      : toolFailed(outcome.error, outcome.data);
   } catch (err) {
     throwIfPublicationOutcomeUnknown(err);
     if (!isExpectedWorkspaceFailure(err)) throw err;
@@ -60,56 +89,227 @@ async function runWorkspaceMutation(action: () => Promise<WorkspaceMutationOutco
   }
 }
 
-const collectionHelp = 'Collection pages are {total,position,returned,next,items}. Copy a non-null page next exactly into position with the same query and stable input; offsets are decoded UTF-8 byte boundaries in the complete outbound-projected canonical JSON item. An oversized item is a JsonSlice {content_hex,utf8_bytes,offset_bytes,next_offset_bytes,total_bytes} with lowercase-hex content_hex: hex-decode it, concatenate decoded bytes by item/offset, UTF-8 decode, then JSON-parse. Do not use a final slice end as a position independently.';
+const collectionHelp =
+  'Collection pages are {total,position,returned,next,items}. Copy a non-null page next exactly into position with the same query and stable input; offsets are decoded UTF-8 byte boundaries in the complete outbound-projected canonical JSON item. An oversized item is a JsonSlice {content_hex,utf8_bytes,offset_bytes,next_offset_bytes,total_bytes} with lowercase-hex content_hex: hex-decode it, concatenate decoded bytes by item/offset, UTF-8 decode, then JSON-parse. Do not use a final slice end as a position independently.';
 const readDescription = `Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs with one exact byte-bounded response envelope. Text files and record documents return plaintext UTF-8 TextSlice {content,utf8_bytes,offset_bytes,next_offset_bytes} pages at a stateless {byte_offset} position; TextSlice content is not hex. Directories and record:/// listings return byte-packed collection pages at a stateless {item_index,item_byte_offset} position. ${collectionHelp} work:/// content is redacted before slicing. metadata_only returns bounded scalars plus the plaintext sliced path text. Files larger than about 10MB are refused rather than read inline. Direct reads and directory listings are not filtered by project search scope; read .saivage-search-ignore by that exact path to inspect it.`;
-const projectSearchScopeHelp = 'For project-directory searches only, optional .saivage-search-ignore literal project-root-relative directory entries prune those roots before traversal; no Git state is inferred. Do not exclude required source or evidence merely to shorten a search or conceal a failed check. Excluded files remain directly readable, and read of the exact .saivage-search-ignore path inspects the policy.';
+const projectSearchScopeHelp =
+  'For project-directory searches only, optional .saivage-search-ignore literal project-root-relative directory entries prune those roots before traversal; no Git state is inferred. Do not exclude required source or evidence merely to shorten a search or conceal a failed check. Excluded files remain directly readable, and read of the exact .saivage-search-ignore path inspects the policy.';
 const globDescription = `Search files in deterministic depth-first string-comparison order under project-relative, project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Every call performs one complete fresh read-only scan of its eligible domain, counts the exact total, retains only the contiguous max_results window (default 200; 1..1000), and packs matches within response_bytes (default/maximum 32768; minimum 512); it writes no result artifact. ${projectSearchScopeHelp} record:///<cardId> searches only effective current declared records without namespace scans. work:/// traverses supported process, stash, and work paths read-only. ${collectionHelp}`;
 const grepDescription = `Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project-relative, project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Every call performs one complete fresh read-only scan of its eligible domain in deterministic depth-first string-comparison order, counts the exact total, retains only the contiguous max_results window (default 200; 1..1000), and packs matches within response_bytes (default/maximum 32768; minimum 512); it writes no result artifact. ${projectSearchScopeHelp} ${collectionHelp} Search retains at most 2000 characters per line; content_truncated reports only that an eligible overlong suffix was not searched, not collection incompleteness. grep record:///<cardId> searches effective current declared records without namespace scans and returns record URLs as path. work:/// traverses supported process, stash, and work paths read-only, and its returned content is redacted.`;
-type GlobalWorkspaceContext = AnalystToolContext | Readonly<{ projectRoot:string; agentName:AgentName; store:CardService }>;
-const analystWorkspace = (ctx: GlobalWorkspaceContext): WorkspaceProviderContext => 'actor' in ctx
-  ? ({ projectRoot: ctx.projectRoot, agentName:ctx.actor,store: ctx.store, notifyCard: ctx.runtime.notifyCard })
-  : ({ projectRoot:ctx.projectRoot,agentName:ctx.agentName,store:ctx.store });
+type GlobalWorkspaceContext =
+  | AnalystToolContext
+  | Readonly<{ projectRoot: string; agentName: AgentName; store: CardService }>;
+const analystWorkspace = (ctx: GlobalWorkspaceContext): WorkspaceProviderContext =>
+  'actor' in ctx
+    ? {
+        projectRoot: ctx.projectRoot,
+        agentName: ctx.actor,
+        store: ctx.store,
+        notifyCard: ctx.runtime.notifyCard,
+      }
+    : { projectRoot: ctx.projectRoot, agentName: ctx.agentName, store: ctx.store };
 
-const observational = (action: () => Promise<ToolActionOutcome>) => executeToolAction('observational_query', action);
+const observational = (action: () => Promise<ToolActionOutcome>) =>
+  executeToolAction('observational_query', action);
 const operational = (action: () => Promise<ToolActionOutcome>) => executeToolAction('none', action);
 
-function auditedWorkspaceMutation<P extends { path: string }>(ctx: AnalystToolContext, args: P, action: 'workspace.write' | 'workspace.edit', mutate: () => Promise<WorkspaceMutationOutcome>, signal?: AbortSignal) {
-  return runAuditedAnalystTool(ctx, args, {
-    action, safety_class: 'low', target_kind: null, getTargetId: (input) => input.path,
-    lifecycle: { kind: 'runtime_cancellation' },
-    mutate: async () => {
-      const outcome = await runWorkspaceMutation(mutate);
-      return outcome.kind === 'succeeded'
-        ? { kind: 'returned', success: true, data: outcome.data }
-        : { kind: 'returned', success: false, error: outcome.error, data: outcome.data };
+function auditedWorkspaceMutation<P extends { path: string }>(
+  ctx: AnalystToolContext,
+  args: P,
+  action: 'workspace.write' | 'workspace.edit',
+  mutate: () => Promise<WorkspaceMutationOutcome>,
+  signal?: AbortSignal,
+) {
+  return runAuditedAnalystTool(
+    ctx,
+    args,
+    {
+      action,
+      safety_class: 'low',
+      target_kind: null,
+      getTargetId: (input) => input.path,
+      lifecycle: { kind: 'runtime_cancellation' },
+      mutate: async () => {
+        const outcome = await runWorkspaceMutation(mutate);
+        return outcome.kind === 'succeeded'
+          ? { kind: 'returned', success: true, data: outcome.data }
+          : { kind: 'returned', success: false, error: outcome.error, data: outcome.data };
+      },
     },
-  }, signal);
+    signal,
+  );
 }
 
-export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'read', description: readDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(ctx, args))) }),
-  defineToolBinder({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => writeWorkspaceInputSchema, executor: (ctx, args) => operational(() => runWorkspaceMutation(() => writeProject(ctx, args))) }),
-  defineToolBinder({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => editWorkspaceInputSchema, executor: (ctx, args) => operational(() => runWorkspaceMutation(() => editProject(ctx, args))) }),
-  defineToolBinder({ name: 'glob', description: globDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => globWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => globProject(ctx, args))) }),
-  defineToolBinder({ name: 'grep', description: grepDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => grepWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => grepProject(ctx, args))) }),
-]);
-export const patchToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff. Patch paths are project-relative only; scoped URL paths such as work:/// are rejected in diff headers.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => operational(() => runWorkspaceTool(() => applyProjectPatch(ctx, args))) }),
-]);
-const globalReadBinder = defineToolBinder<typeof readWorkspaceInputSchema, GlobalWorkspaceContext>({ name: 'read', description: readDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(analystWorkspace(ctx), args))) });
-const globalGlobBinder = defineToolBinder<typeof globWorkspaceInputSchema, GlobalWorkspaceContext>({ name: 'glob', description: globDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => globWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => globProject(analystWorkspace(ctx), args))) });
-const globalGrepBinder = defineToolBinder<typeof grepWorkspaceInputSchema, GlobalWorkspaceContext>({ name: 'grep', description: grepDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => grepWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => grepProject(analystWorkspace(ctx), args))) });
-export const globalWorkspaceObservationToolBinders: readonly ToolBinder<GlobalWorkspaceContext, any>[] = Object.freeze([globalReadBinder, globalGlobBinder, globalGrepBinder]);
-const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => writeWorkspaceInputSchema, executor: (ctx, args, signal) => args.path.startsWith('record:///') ? runAuditedAnalystTool(ctx, args, { action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.recordMutations.write(input.path, input.content) }, signal) : auditedWorkspaceMutation(ctx, args, 'workspace.write', () => writeProject(analystWorkspace(ctx), args), signal) }),
-  defineToolBinder({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to the named agent contract.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => editWorkspaceInputSchema, executor: (ctx, args, signal) => args.path.startsWith('record:///') ? runAuditedAnalystTool(ctx, args, { action: 'record.edit', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.path, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.recordMutations.edit(input.path, input.old_string, input.new_string, input.replace_all === true) }, signal) : auditedWorkspaceMutation(ctx, args, 'workspace.edit', () => editProject(analystWorkspace(ctx), args), signal) }),
-]);
-export const analystWorkspaceToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
-  globalReadBinder,
-  ...analystWorkspaceMutationToolBinders,
-  globalGlobBinder,
-  globalGrepBinder,
-]);
-export const analystPatchToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => operational(() => runWorkspaceTool(() => applyProjectPatch({ projectRoot: ctx.projectRoot,agentName:ctx.actor }, args))) }),
-]);
+export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] =
+  Object.freeze([
+    defineToolBinder({
+      name: 'read',
+      description: readDescription,
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => readWorkspaceInputSchema,
+      executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(ctx, args))),
+    }),
+    defineToolBinder({
+      name: 'write',
+      description:
+        'Create or replace a project, record, tmp, or system file according to the named agent contract.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => writeWorkspaceInputSchema,
+      executor: (ctx, args) =>
+        operational(() => runWorkspaceMutation(() => writeProject(ctx, args))),
+    }),
+    defineToolBinder({
+      name: 'edit',
+      description:
+        'Replace exact text in a project, record, tmp, or system file according to the named agent contract.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => editWorkspaceInputSchema,
+      executor: (ctx, args) =>
+        operational(() => runWorkspaceMutation(() => editProject(ctx, args))),
+    }),
+    defineToolBinder({
+      name: 'glob',
+      description: globDescription,
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => globWorkspaceInputSchema,
+      executor: (ctx, args) => observational(() => runWorkspaceTool(() => globProject(ctx, args))),
+    }),
+    defineToolBinder({
+      name: 'grep',
+      description: grepDescription,
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => grepWorkspaceInputSchema,
+      executor: (ctx, args) => observational(() => runWorkspaceTool(() => grepProject(ctx, args))),
+    }),
+  ]);
+export const patchToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] = Object.freeze(
+  [
+    defineToolBinder({
+      name: 'apply_patch',
+      description:
+        'Apply a text-only unified diff. Patch paths are project-relative only; scoped URL paths such as work:/// are rejected in diff headers.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => applyPatchInputSchema,
+      executor: (ctx, args) =>
+        operational(() => runWorkspaceTool(() => applyProjectPatch(ctx, args))),
+    }),
+  ],
+);
+const globalReadBinder = defineToolBinder<typeof readWorkspaceInputSchema, GlobalWorkspaceContext>({
+  name: 'read',
+  description: readDescription,
+  resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  inputSchema: () => readWorkspaceInputSchema,
+  executor: (ctx, args) =>
+    observational(() => runWorkspaceTool(() => readProject(analystWorkspace(ctx), args))),
+});
+const globalGlobBinder = defineToolBinder<typeof globWorkspaceInputSchema, GlobalWorkspaceContext>({
+  name: 'glob',
+  description: globDescription,
+  resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  inputSchema: () => globWorkspaceInputSchema,
+  executor: (ctx, args) =>
+    observational(() => runWorkspaceTool(() => globProject(analystWorkspace(ctx), args))),
+});
+const globalGrepBinder = defineToolBinder<typeof grepWorkspaceInputSchema, GlobalWorkspaceContext>({
+  name: 'grep',
+  description: grepDescription,
+  resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  inputSchema: () => grepWorkspaceInputSchema,
+  executor: (ctx, args) =>
+    observational(() => runWorkspaceTool(() => grepProject(analystWorkspace(ctx), args))),
+});
+export const globalWorkspaceObservationToolBinders: readonly ToolBinder<
+  GlobalWorkspaceContext,
+  any
+>[] = Object.freeze([globalReadBinder, globalGlobBinder, globalGrepBinder]);
+const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContext, any>[] =
+  Object.freeze([
+    defineToolBinder({
+      name: 'write',
+      description:
+        'Create or replace a project, record, tmp, or system file according to the named agent contract.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => writeWorkspaceInputSchema,
+      executor: (ctx, args, signal) =>
+        args.path.startsWith('record:///')
+          ? runAuditedAnalystTool(
+              ctx,
+              args,
+              {
+                action: 'record.write',
+                safety_class: 'low',
+                target_kind: 'card',
+                getTargetId: (input) => input.path,
+                lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' },
+                mutate: (_prepared, input, mutation) =>
+                  mutation.services.recordMutations.write(input.path, input.content),
+              },
+              signal,
+            )
+          : auditedWorkspaceMutation(
+              ctx,
+              args,
+              'workspace.write',
+              () => writeProject(analystWorkspace(ctx), args),
+              signal,
+            ),
+    }),
+    defineToolBinder({
+      name: 'edit',
+      description:
+        'Replace exact text in a project, record, tmp, or system file according to the named agent contract.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => editWorkspaceInputSchema,
+      executor: (ctx, args, signal) =>
+        args.path.startsWith('record:///')
+          ? runAuditedAnalystTool(
+              ctx,
+              args,
+              {
+                action: 'record.edit',
+                safety_class: 'low',
+                target_kind: 'card',
+                getTargetId: (input) => input.path,
+                lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' },
+                mutate: (_prepared, input, mutation) =>
+                  mutation.services.recordMutations.edit(
+                    input.path,
+                    input.old_string,
+                    input.new_string,
+                    input.replace_all === true,
+                  ),
+              },
+              signal,
+            )
+          : auditedWorkspaceMutation(
+              ctx,
+              args,
+              'workspace.edit',
+              () => editProject(analystWorkspace(ctx), args),
+              signal,
+            ),
+    }),
+  ]);
+export const analystWorkspaceToolBinders: readonly ToolBinder<AnalystToolContext, any>[] =
+  Object.freeze([
+    globalReadBinder,
+    ...analystWorkspaceMutationToolBinders,
+    globalGlobBinder,
+    globalGrepBinder,
+  ]);
+export const analystPatchToolBinders: readonly ToolBinder<AnalystToolContext, any>[] =
+  Object.freeze([
+    defineToolBinder({
+      name: 'apply_patch',
+      description: 'Apply a text-only unified diff.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: () => applyPatchInputSchema,
+      executor: (ctx, args) =>
+        operational(() =>
+          runWorkspaceTool(() =>
+            applyProjectPatch({ projectRoot: ctx.projectRoot, agentName: ctx.actor }, args),
+          ),
+        ),
+    }),
+  ]);

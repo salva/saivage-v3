@@ -6,5 +6,7 @@ export interface Candidate {
 }
 
 export function candidatesEqual(left: Candidate, right: Candidate): boolean {
-  return left.provider === right.provider && left.account === right.account && left.model === right.model;
+  return (
+    left.provider === right.provider && left.account === right.account && left.model === right.model
+  );
 }

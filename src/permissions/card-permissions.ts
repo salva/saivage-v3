@@ -8,12 +8,18 @@ function assertNever(value: never): never {
 
 function isOperatorCardActionAllowed(action: CardAction, status: CardStatus): boolean {
   switch (action) {
-    case 'card.start': return status === 'backlog' || status === 'changed' || status === 'stopped';
-    case 'card.create': return false;
-    case 'card.cancel': return canCancelCardStatus(status);
-    case 'card.delete': return status !== 'running';
-    case 'card.reorder_child': return false;
-    default: return assertNever(action);
+    case 'card.start':
+      return status === 'backlog' || status === 'changed' || status === 'stopped';
+    case 'card.create':
+      return false;
+    case 'card.cancel':
+      return canCancelCardStatus(status);
+    case 'card.delete':
+      return status !== 'running';
+    case 'card.reorder_child':
+      return false;
+    default:
+      return assertNever(action);
   }
 }
 

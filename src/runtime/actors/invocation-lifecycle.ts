@@ -25,7 +25,9 @@ export type InvocationJoinOutcome =
 
 export class ActivationOperationTracker {
   readonly #controller = new AbortController();
-  readonly #operations = new ContainedOperations(new InvocationInterruptedError('Activation operation tracker was revoked.'));
+  readonly #operations = new ContainedOperations(
+    new InvocationInterruptedError('Activation operation tracker was revoked.'),
+  );
 
   run<T>(activationSignal: AbortSignal, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const signal = AbortSignal.any([activationSignal, this.#controller.signal]);
@@ -54,7 +56,6 @@ export class ActivationOperationTracker {
   join(): Promise<InvocationJoinOutcome> {
     return this.#operations.join();
   }
-
 }
 
 /** Owns provider-turn admission and all Saivage callbacks caused by those turns. */
@@ -62,11 +63,14 @@ export class InvocationLifecycle {
   #turn = 0;
   #current: OwnedInvocationLease | null = null;
   #controller: AbortController | null = null;
-  readonly #operations = new ContainedOperations(new InvocationInterruptedError('Invocation lifecycle was revoked.'));
+  readonly #operations = new ContainedOperations(
+    new InvocationInterruptedError('Invocation lifecycle was revoked.'),
+  );
 
   begin(activationSignal: AbortSignal): InvocationLease {
     this.#operations.assertAdmissionOpen();
-    if (this.#current !== null) throw new Error('Cannot begin a provider turn while another invocation is current.');
+    if (this.#current !== null)
+      throw new Error('Cannot begin a provider turn while another invocation is current.');
     const controller = new AbortController();
     const signal = AbortSignal.any([activationSignal, controller.signal]);
     const invocation = Object.freeze({
@@ -89,7 +93,10 @@ export class InvocationLifecycle {
     if (owned.signal.aborted) throw owned.signal.reason;
   }
 
-  runExternal<T>(invocation: InvocationLease, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  runExternal<T>(
+    invocation: InvocationLease,
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     const signal = this.signal(invocation);
     return this.#operations.run(signal, run);
   }
@@ -137,7 +144,8 @@ export class InvocationLifecycle {
 
   #ownedCurrent(invocation: InvocationLease): OwnedInvocationLease {
     const owned = invocation as OwnedInvocationLease;
-    if (owned.owner !== this || this.#current !== invocation) throw this.#operations.interruptionReason();
+    if (owned.owner !== this || this.#current !== invocation)
+      throw this.#operations.interruptionReason();
     return owned;
   }
 }

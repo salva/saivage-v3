@@ -1,11 +1,20 @@
 import { z } from 'zod';
 
-const publicCardActorStates = ['backlog', 'changed', 'blocked', 'stopped', 'failed', 'done', 'running', 'cancelled'] as const;
-export type PublicCardActorState = typeof publicCardActorStates[number];
+const publicCardActorStates = [
+  'backlog',
+  'changed',
+  'blocked',
+  'stopped',
+  'failed',
+  'done',
+  'running',
+  'cancelled',
+] as const;
+export type PublicCardActorState = (typeof publicCardActorStates)[number];
 export const publicCardActorStateSchema = z.enum(publicCardActorStates);
 
 const actorPauseModes = ['idle', 'running', 'paused', 'unknown'] as const;
-export type ActorPauseMode = typeof actorPauseModes[number];
+export type ActorPauseMode = (typeof actorPauseModes)[number];
 export const actorPauseModeSchema = z.enum(actorPauseModes);
 
 export function toPublicCardActorState(value: unknown): PublicCardActorState {

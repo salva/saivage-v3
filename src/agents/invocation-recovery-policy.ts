@@ -25,7 +25,11 @@ function assertNever(x: never): never {
 class InvocationRecoveryPolicy {
   private classify(error: unknown): LlmTransportFailure {
     const failure = unwrapFailure(error);
-    if (failure.kind === 'unknown' && error instanceof Error && (error.name === 'ZodError' || error.name === 'SyntaxError')) {
+    if (
+      failure.kind === 'unknown' &&
+      error instanceof Error &&
+      (error.name === 'ZodError' || error.name === 'SyntaxError')
+    ) {
       return { kind: 'parse_error', provider: failure.provider, message: failure.message };
     }
     return failure;
@@ -34,14 +38,22 @@ class InvocationRecoveryPolicy {
   decideFailure(error: unknown, context: InvocationFailureContext): InvocationFailureDecision {
     const failure = this.classify(error);
 
-    if (context.purpose === 'internal-summary' && context.promptPolicyRejections === 0 && isPromptPolicyRejection(error))
+    if (
+      context.purpose === 'internal-summary' &&
+      context.promptPolicyRejections === 0 &&
+      isPromptPolicyRejection(error)
+    )
       return { kind: 'retry', wait: 'standard', retryDelayMs: 0 };
 
     switch (failure.kind) {
       case 'auth_permanent':
         return {
           kind: 'terminal',
-          availability: { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'auth_permanent' },
+          availability: {
+            state: 'BLOCKED_UNTIL',
+            untilMs: Date.now() + 3_600_000,
+            reason: 'auth_permanent',
+          },
         };
       case 'capability_mismatch':
         return { kind: 'terminal' };
@@ -67,7 +79,11 @@ class InvocationRecoveryPolicy {
           kind: 'retry',
           wait: 'standard',
           retryDelayMs: context.recoveryDelayMs,
-          availability: { state: 'COOLING', untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000), reason: failure.kind },
+          availability: {
+            state: 'COOLING',
+            untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000),
+            reason: failure.kind,
+          },
         };
       case 'provider_protocol_error':
       case 'content_policy':
@@ -84,7 +100,11 @@ class InvocationRecoveryPolicy {
           kind: 'retry',
           wait: 'standard',
           retryDelayMs: context.recoveryDelayMs,
-          availability: { state: 'COOLING', untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000), reason: 'unknown' },
+          availability: {
+            state: 'COOLING',
+            untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000),
+            reason: 'unknown',
+          },
         };
       default:
         return assertNever(failure);

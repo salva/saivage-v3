@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
-import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../../contracts/index.js';
+import {
+  ProviderTurnFailure,
+  type LlmCompleteResult,
+  type ProviderTurnCompletion,
+} from '../../../contracts/index.js';
 import { isPromptPolicyRejection, LlmRequestError } from '../../../contracts/index.js';
-import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
+import type {
+  ProviderExchangeAttempt,
+  ProviderExchangePublicationContext,
 } from '../../../contracts/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import type { ConversationSessionId } from '../../../schemas/index.js';
@@ -19,7 +25,6 @@ export const SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE = COMPACTION_SUMMARY_BLOCKED_
 
 const INTERNAL_SUMMARY_LABEL = 'internal-compaction-summary';
 
-
 export type SummaryRequestSerialization = Readonly<{
   serializedRequest: string;
   requestSha256: string;
@@ -31,8 +36,17 @@ export interface SummarizerProviderPort {
   readonly contextWindowTokens: number;
   readonly maxOutputTokens: number;
   serializeSummaryRequest(input: LlmInvocationInput): SummaryRequestSerialization;
-  completeTurn(input: LlmInvocationInput, admitted: AdmittedSummaryRequest, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges(ownerSessionId: ConversationSessionId, purpose: 'internal-summary', sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext,
+  completeTurn(
+    input: LlmInvocationInput,
+    admitted: AdmittedSummaryRequest,
+    signal: AbortSignal,
+  ): Promise<ProviderTurnCompletion>;
+  projectProviderExchanges(
+    ownerSessionId: ConversationSessionId,
+    purpose: 'internal-summary',
+    sourceInputId: string,
+    attempts: ProviderExchangeAttempt[],
+    context: ProviderExchangePublicationContext,
   ): void;
 }
 
@@ -56,9 +70,16 @@ export function admitSummaryRequest(args: {
   maxOutputTokens: number;
 }): SummaryRequestAdmission {
   if (SUMMARY_COMPLETION_TOKENS > args.maxOutputTokens)
-    throw new Error(`The fixed ${SUMMARY_COMPLETION_TOKENS}-token summary completion request exceeds the candidate output limit (${args.maxOutputTokens} tokens).`);
-  const inputCapacity = usableInputTokens(args.contextWindowTokens, SUMMARY_COMPLETION_TOKENS, args.contextUtilizationFraction);
-  if (inputCapacity <= 0) throw new Error('The fixed summary candidate has no positive usable input capacity.');
+    throw new Error(
+      `The fixed ${SUMMARY_COMPLETION_TOKENS}-token summary completion request exceeds the candidate output limit (${args.maxOutputTokens} tokens).`,
+    );
+  const inputCapacity = usableInputTokens(
+    args.contextWindowTokens,
+    SUMMARY_COMPLETION_TOKENS,
+    args.contextUtilizationFraction,
+  );
+  if (inputCapacity <= 0)
+    throw new Error('The fixed summary candidate has no positive usable input capacity.');
   if (args.serialization.estimatedInputTokens > inputCapacity)
     return {
       kind: 'too_large',
@@ -132,7 +153,11 @@ async function sendAdmittedSummaryRequest(args: {
   signal: AbortSignal;
 }): Promise<ProviderTurnCompletion> {
   try {
-    const completion = await args.summarizerProvider.completeTurn(args.input, args.admitted, args.signal);
+    const completion = await args.summarizerProvider.completeTurn(
+      args.input,
+      args.admitted,
+      args.signal,
+    );
     projectSummaryExchanges(args.summarizerProvider, args.input, completion.provider_exchanges);
     return completion;
   } catch (error) {
@@ -160,18 +185,29 @@ function projectSummaryExchanges(
   input: LlmInvocationInput,
   attempts: ProviderExchangeAttempt[],
 ): void {
-  if (input.providerConversation.sourceSessionId === null) throw new Error('Summary request has no canonical source session.');
-  provider.projectProviderExchanges(input.providerConversation.sourceSessionId, 'internal-summary', input.inputId, attempts, {
-    assistantOutputIds: [],
-    terminalConversationOutputId: null,
-  });
+  if (input.providerConversation.sourceSessionId === null)
+    throw new Error('Summary request has no canonical source session.');
+  provider.projectProviderExchanges(
+    input.providerConversation.sourceSessionId,
+    'internal-summary',
+    input.inputId,
+    attempts,
+    {
+      assistantOutputIds: [],
+      terminalConversationOutputId: null,
+    },
+  );
 }
 
 export class SummaryResultValidationError extends Error {
   readonly reason: 'empty_output' | 'tool_calls' | 'incomplete_output';
   readonly summaryBytes: number | null;
 
-  constructor(reason: 'empty_output' | 'tool_calls' | 'incomplete_output', message: string, summaryBytes: number | null = null) {
+  constructor(
+    reason: 'empty_output' | 'tool_calls' | 'incomplete_output',
+    message: string,
+    summaryBytes: number | null = null,
+  ) {
     super(message);
     this.name = 'SummaryResultValidationError';
     this.reason = reason;
@@ -179,20 +215,41 @@ export class SummaryResultValidationError extends Error {
   }
 }
 
-function validateSummaryCompletion(completion: ProviderTurnCompletion, candidate: Candidate): string {
+function validateSummaryCompletion(
+  completion: ProviderTurnCompletion,
+  candidate: Candidate,
+): string {
   const finalExchange = completion.provider_exchanges.at(-1);
   const finishReason = finalExchange?.status === 'ok' ? finalExchange.finish_reason : undefined;
   if (finishReason === 'length') {
-    const bytes = completion.result.kind === 'message' ? Buffer.byteLength(completion.result.content.trim(), 'utf8') : null;
-    throw new SummaryResultValidationError('incomplete_output', 'Summary refine output ended at the native output limit.', bytes);
+    const bytes =
+      completion.result.kind === 'message'
+        ? Buffer.byteLength(completion.result.content.trim(), 'utf8')
+        : null;
+    throw new SummaryResultValidationError(
+      'incomplete_output',
+      'Summary refine output ended at the native output limit.',
+      bytes,
+    );
   }
   if (finishReason === 'content_filter')
-    throw rejectedChatCompletion(candidate, completion, 'content_policy', 'Summary provider refused the compaction request.');
+    throw rejectedChatCompletion(
+      candidate,
+      completion,
+      'content_policy',
+      'Summary provider refused the compaction request.',
+    );
   if (finishReason !== undefined && finishReason !== null) {
-    const consistent = (finishReason === 'stop' && completion.result.kind === 'message') ||
+    const consistent =
+      (finishReason === 'stop' && completion.result.kind === 'message') ||
       (finishReason === 'tool_calls' && completion.result.kind === 'tool_calls');
     if (!consistent)
-      throw rejectedChatCompletion(candidate, completion, 'provider_protocol_error', 'Summary provider returned inconsistent completion metadata.');
+      throw rejectedChatCompletion(
+        candidate,
+        completion,
+        'provider_protocol_error',
+        'Summary provider returned inconsistent completion metadata.',
+      );
   }
   return validateSummaryResult(completion.result);
 }
@@ -204,9 +261,16 @@ function rejectedChatCompletion(
   message: string,
 ): ProviderTurnFailure {
   const status = completion.provider_exchanges.at(-1)?.response_status ?? 200;
-  const originalFailure = kind === 'content_policy'
-    ? new LlmRequestError({ kind, provider: candidate.provider, status, message, providerResponse: '' })
-    : new LlmRequestError({ kind, provider: candidate.provider, status, message });
+  const originalFailure =
+    kind === 'content_policy'
+      ? new LlmRequestError({
+          kind,
+          provider: candidate.provider,
+          status,
+          message,
+          providerResponse: '',
+        })
+      : new LlmRequestError({ kind, provider: candidate.provider, status, message });
   return new ProviderTurnFailure({
     failure_phase: 'provider_attempt',
     provider_exchanges: completion.provider_exchanges,
@@ -218,17 +282,36 @@ function rejectedChatCompletion(
 
 function validateSummaryResult(result: LlmCompleteResult): string {
   if (result.kind !== 'message')
-    throw new SummaryResultValidationError('tool_calls', 'Summary refine expected prose summary text, got tool calls.');
+    throw new SummaryResultValidationError(
+      'tool_calls',
+      'Summary refine expected prose summary text, got tool calls.',
+    );
   const text = result.content.trim();
-  if (!text) throw new SummaryResultValidationError('empty_output', 'Summary refine returned an empty summary.', 0);
+  if (!text)
+    throw new SummaryResultValidationError(
+      'empty_output',
+      'Summary refine returned an empty summary.',
+      0,
+    );
   return text;
 }
 
-export function assertSummarizerCapabilities(capabilities: EffectiveProviderCapabilities): asserts capabilities is EffectiveProviderCapabilities & { contextWindowTokens: number; maxOutputTokens: number } {
+export function assertSummarizerCapabilities(
+  capabilities: EffectiveProviderCapabilities,
+): asserts capabilities is EffectiveProviderCapabilities & {
+  contextWindowTokens: number;
+  maxOutputTokens: number;
+} {
   if (!Number.isInteger(capabilities.contextWindowTokens) || capabilities.contextWindowTokens! <= 0)
-    throw new Error('The compaction summarizer candidate must declare a positive contextWindowTokens capability.');
+    throw new Error(
+      'The compaction summarizer candidate must declare a positive contextWindowTokens capability.',
+    );
   if (!Number.isInteger(capabilities.maxOutputTokens) || capabilities.maxOutputTokens! <= 0)
-    throw new Error('The compaction summarizer candidate must declare a positive maxOutputTokens capability.');
+    throw new Error(
+      'The compaction summarizer candidate must declare a positive maxOutputTokens capability.',
+    );
   if (capabilities.maxOutputTokens! < SUMMARY_COMPLETION_TOKENS)
-    throw new Error(`The compaction summarizer candidate must support at least ${SUMMARY_COMPLETION_TOKENS} output tokens.`);
+    throw new Error(
+      `The compaction summarizer candidate must support at least ${SUMMARY_COMPLETION_TOKENS} output tokens.`,
+    );
 }

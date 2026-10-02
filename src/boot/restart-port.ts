@@ -1,14 +1,22 @@
 import { logShutdownWarnings } from './shutdown-report.js';
 import type { RestartPort, ShutdownReport } from '../contracts/index.js';
 
-export function createRestartPort(args: { onAcknowledgedRestart(): Promise<ShutdownReport>; exit(code: number): never }): RestartPort {
+export function createRestartPort(args: {
+  onAcknowledgedRestart(): Promise<ShutdownReport>;
+  exit(code: number): never;
+}): RestartPort {
   let scheduled = false;
   let acknowledgement: Promise<void> | null = null;
   return {
-    schedule(): void { scheduled = true; },
+    schedule(): void {
+      scheduled = true;
+    },
     acknowledge(): Promise<void> {
       if (!scheduled) throw new Error('Server restart has not been scheduled.');
-      acknowledgement ??= args.onAcknowledgedRestart().then((report) => { logShutdownWarnings(report); return args.exit(75); });
+      acknowledgement ??= args.onAcknowledgedRestart().then((report) => {
+        logShutdownWarnings(report);
+        return args.exit(75);
+      });
       return acknowledgement;
     },
   };

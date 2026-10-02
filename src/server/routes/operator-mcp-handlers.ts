@@ -1,9 +1,5 @@
-import type {
-  OperatorApiSuccess,
-} from '../../contracts/index.js';
-import type {
-  OperatorMcpProviderContext,
-} from './operator-handler-context.js';
+import type { OperatorApiSuccess } from '../../contracts/index.js';
+import type { OperatorMcpProviderContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import { redactForOutbound } from '../../redaction/artifact-api.js';
 

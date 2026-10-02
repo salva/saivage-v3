@@ -5,7 +5,11 @@ import type { CardId } from '../schemas/index.js';
 export type AgentMembershipFreshnessTarget =
   | { readonly scope: 'card'; readonly cardId: CardId }
   | { readonly scope: 'global-session'; readonly sessionId: ConversationSessionId };
-export interface ConversationFreshnessTarget { readonly session_id: ConversationSessionId; readonly segment_version: number; readonly visible_message_id: string | null }
+export interface ConversationFreshnessTarget {
+  readonly session_id: ConversationSessionId;
+  readonly segment_version: number;
+  readonly visible_message_id: string | null;
+}
 
 export interface FreshnessEffects {
   runtimeChanged(): void;

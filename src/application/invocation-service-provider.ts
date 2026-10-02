@@ -9,30 +9,60 @@ import type { LLMProviderPort, AdmittedSummaryRequest } from '../runtime/runtime
 import type { LlmInvocationInput } from '../runtime/runtime-api.js';
 import type { ProviderTurnCompletion } from '../contracts/index.js';
 
-export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
+export function createInvocationServiceProvider(
+  invocationService: InvocationService,
+): LLMProviderPort {
   return {
-    preparePrimaryRequestAdmission: (input, signal) => invocationService.preparePrimaryRequestAdmission(invocationRequest(input, signal)),
-    executeAdmittedWithRecovery: (admission, signal) => invocationService.executeAdmittedWithRecovery(admission, signal),
+    preparePrimaryRequestAdmission: (input, signal) =>
+      invocationService.preparePrimaryRequestAdmission(invocationRequest(input, signal)),
+    executeAdmittedWithRecovery: (admission, signal) =>
+      invocationService.executeAdmittedWithRecovery(admission, signal),
     prepareAdmittedRecovery: ({ suspension, input, signal }) =>
-      invocationService.prepareAdmittedRecovery({ suspension, request: invocationRequest(input, signal) }),
-    resumeAdmittedExecution: (preparation, signal) => invocationService.resumeAdmittedExecution(preparation, signal),
-    preflightPinnedContentPolicyRequest: (input, signal) => invocationService.preflightPinnedContentPolicyRequest(invocationRequest(input, signal)),
-    executePinnedContentPolicyRequest: (preflight, signal) => invocationService.executePinnedContentPolicyRequest(preflight, signal),
-    projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) => invocationService.projectProviderExchanges(sessionId, purpose, sourceInputId, attempts, context),
+      invocationService.prepareAdmittedRecovery({
+        suspension,
+        request: invocationRequest(input, signal),
+      }),
+    resumeAdmittedExecution: (preparation, signal) =>
+      invocationService.resumeAdmittedExecution(preparation, signal),
+    preflightPinnedContentPolicyRequest: (input, signal) =>
+      invocationService.preflightPinnedContentPolicyRequest(invocationRequest(input, signal)),
+    executePinnedContentPolicyRequest: (preflight, signal) =>
+      invocationService.executePinnedContentPolicyRequest(preflight, signal),
+    projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) =>
+      invocationService.projectProviderExchanges(
+        sessionId,
+        purpose,
+        sourceInputId,
+        attempts,
+        context,
+      ),
   };
 }
 
-export async function executeInternalSummaryTurn(service: InvocationService, input: LlmInvocationInput, signal: AbortSignal, packed: AdmittedSummaryRequest): Promise<ProviderTurnCompletion> {
+export async function executeInternalSummaryTurn(
+  service: InvocationService,
+  input: LlmInvocationInput,
+  signal: AbortSignal,
+  packed: AdmittedSummaryRequest,
+): Promise<ProviderTurnCompletion> {
   const admission = service.preparePrimaryRequestAdmission({
     ...invocationRequestBase(input, signal),
-    modelParams: { temperature: input.modelParams.temperature, maxTokens: input.modelParams.maxTokens! },
+    modelParams: {
+      temperature: input.modelParams.temperature,
+      maxTokens: input.modelParams.maxTokens!,
+    },
     contextUtilizationFraction: packed.contextUtilizationFraction,
   });
   if (admission.kind !== 'admitted')
-    throw new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(admission.candidates) });
+    throw new LocalExactAdmissionError({
+      localCompactionAttempted: false,
+      diagnostics: projectAdmissionDiagnostics(admission.candidates),
+    });
   const admitted = admission.candidates.filter((verdict) => verdict.kind === 'admitted');
   if (admitted.length !== 1 || admitted[0]!.plan.request.requestHash !== packed.requestSha256)
-    throw new AdmissionIntegrityError('Summary request bytes changed between measured admission and provider send.');
+    throw new AdmissionIntegrityError(
+      'Summary request bytes changed between measured admission and provider send.',
+    );
   try {
     return await service.executeSummaryWithRecovery(admission, signal);
   } catch (error) {
@@ -43,16 +73,30 @@ export async function executeInternalSummaryTurn(service: InvocationService, inp
 
 function invocationRequestBase(input: LlmInvocationInput, signal: AbortSignal) {
   return {
-    inputId: input.inputId, agentName: input.agentName, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
+    inputId: input.inputId,
+    agentName: input.agentName,
+    sessionId: input.sessionId,
+    systemPrompt: input.systemPrompt,
     providerConversation: input.providerConversation,
-    tools: input.tools, terminalToolNames: input.terminalToolNames, capabilityRequest: input.capabilityRequest, abortSignal: signal,
-    routePass: input.routePass.kind === 'ordinary' ? { kind: 'ordinary' as const, candidateChain: [...input.routePass.candidateChain] } : { kind: 'pinned-content-policy-retry' as const, candidate: input.routePass.candidate },
+    tools: input.tools,
+    terminalToolNames: input.terminalToolNames,
+    capabilityRequest: input.capabilityRequest,
+    abortSignal: signal,
+    routePass:
+      input.routePass.kind === 'ordinary'
+        ? { kind: 'ordinary' as const, candidateChain: [...input.routePass.candidateChain] }
+        : { kind: 'pinned-content-policy-retry' as const, candidate: input.routePass.candidate },
   };
 }
 
 function invocationRequest(input: LlmInvocationInput, signal: AbortSignal): InvocationRequest {
   const common = invocationRequestBase(input, signal);
   return input.preparedCompaction
-    ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction, preparedContext: input.preparedContext }
+    ? {
+        ...common,
+        modelParams: input.modelParams,
+        preparedCompaction: input.preparedCompaction,
+        preparedContext: input.preparedContext,
+      }
     : { ...common, modelParams: input.modelParams };
 }

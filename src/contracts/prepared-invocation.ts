@@ -1,6 +1,11 @@
 import type { Candidate } from './provider-candidate.js';
 import type { ToolDefinition } from './provider-turn.js';
-import type { ContextAudience, ContextEvidence, ContextReplacement, ToolResultPolicyTemplate } from '../schemas/index.js';
+import type {
+  ContextAudience,
+  ContextEvidence,
+  ContextReplacement,
+  ToolResultPolicyTemplate,
+} from '../schemas/index.js';
 
 export type PreparedCompaction = {
   readonly routeUsableInputTokens: number;

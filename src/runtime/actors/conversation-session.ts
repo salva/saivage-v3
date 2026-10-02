@@ -1,21 +1,42 @@
 import { randomUUID } from 'node:crypto';
 import { sha256Hex } from '../../schemas/index.js';
-import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, durablePrimaryContentPolicy, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
+import {
+  agentMessageSchema,
+  conversationSessionIdentity,
+  DURABLE_PRIMARY_CONTENT_POLICY,
+  durablePrimaryContentPolicy,
+  MODEL_RECOVERY_NOTICE_TEXT,
+  STRUCTURAL_ROW_POLICY,
+  type AgentMessage,
+  type MessageRole,
+  type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/index.js';
 import type { ProviderConversationProjection } from '../../contracts/index.js';
-import { composeContextProjection, providerConversationFromComposedContext } from './context/composition-projector.js';
+import {
+  composeContextProjection,
+  providerConversationFromComposedContext,
+} from './context/composition-projector.js';
 import { classifyConversationRowPolicy } from './context/row-policy.js';
 import type { ContextBlock } from '../../contracts/index.js';
-import { appendConversationBatch, type ConversationFileContext,
+import {
+  appendConversationBatch,
+  type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
 
 type UserContextMessageCategory =
-  | 'notification' | 'reviewer_descendant' | 'process_transition' | 'continuation_hook';
+  | 'notification'
+  | 'reviewer_descendant'
+  | 'process_transition'
+  | 'continuation_hook';
 
-export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string; protection?: Readonly<{ compactable: boolean; compaction_key?: string }> }>;
+export type ProviderVisibleUserContextMessage = Readonly<{
+  role: 'user';
+  content: string;
+  protection?: Readonly<{ compactable: boolean; compaction_key?: string }>;
+}>;
 
 export function appendUserContextMessage(
   conversations: ConversationFileContext,
@@ -52,7 +73,9 @@ export function buildUserContextMessage(
     role: 'user',
     kind: 'text',
     content,
-    context_policy: userContextMessage.protection ? durablePrimaryContentPolicy(userContextMessage.protection) : DURABLE_PRIMARY_CONTENT_POLICY,
+    context_policy: userContextMessage.protection
+      ? durablePrimaryContentPolicy(userContextMessage.protection)
+      : DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: deterministicRoundId('user', seed),
     message_index: 1,
     block_index: 0,
@@ -88,7 +111,10 @@ export function buildGlobalAgentIngressRows(
   inputId: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage] {
-  return [buildGlobalAgentActivationMarker(sessionId, inputId), buildContextTextMessage(sessionId, 'user', userContent)];
+  return [
+    buildGlobalAgentActivationMarker(sessionId, inputId),
+    buildContextTextMessage(sessionId, 'user', userContent),
+  ];
 }
 
 function buildGlobalAgentActivationMarker(
@@ -181,20 +207,23 @@ export function providerConversationProjection(
 ): ProviderConversationProjection {
   const genesis = conversation.compactedGenesis;
   const history = conversation.effectiveCompactedHistory;
-  return providerConversationFromComposedContext(composeContextProjection({
-    sourceSessionId: conversation.sourceSessionId,
-    effectiveHistory: genesis && history
-      ? {
-          summaryText: history.summaryText,
-          historyMessageId: `${genesis.id}:compacted-history`,
-          historyTimestamp: genesis.timestamp,
-          requiredModelFacts: history.requiredModelFacts,
-          protectedPrompts: history.protectedPrompts,
-        }
-      : null,
-    dynamicBlocks: preparedDynamicBlocks,
-    uncoveredRows: conversation.sourceRows,
-  }));
+  return providerConversationFromComposedContext(
+    composeContextProjection({
+      sourceSessionId: conversation.sourceSessionId,
+      effectiveHistory:
+        genesis && history
+          ? {
+              summaryText: history.summaryText,
+              historyMessageId: `${genesis.id}:compacted-history`,
+              historyTimestamp: genesis.timestamp,
+              requiredModelFacts: history.requiredModelFacts,
+              protectedPrompts: history.protectedPrompts,
+            }
+          : null,
+      dynamicBlocks: preparedDynamicBlocks,
+      uncoveredRows: conversation.sourceRows,
+    }),
+  );
 }
 
 export function isConversationBudgetVisible(message: AgentMessage): boolean {

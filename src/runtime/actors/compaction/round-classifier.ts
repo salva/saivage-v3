@@ -1,8 +1,5 @@
 import type { AgentMessage } from '../../../schemas/index.js';
-import type {
-  SourceRound,
-  ValidatedConversation,
-} from '../../../contracts/index.js';
+import type { SourceRound, ValidatedConversation } from '../../../contracts/index.js';
 import { isConversationBudgetVisible } from '../conversation-session.js';
 import { projectedCanonicalRowContent } from '../context/composition-projector.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
@@ -27,7 +24,9 @@ type ClassifiedConversation = {
 export function classifyConversationRounds(
   conversation: ValidatedConversation,
 ): ClassifiedConversation {
-  const classifiedRows = conversation.sourceRows.map((message) => ({ message, estimated_tokens: estimateMessageTokens(message),
+  const classifiedRows = conversation.sourceRows.map((message) => ({
+    message,
+    estimated_tokens: estimateMessageTokens(message),
   }));
   const byId = new Map(classifiedRows.map((row) => [row.message.id, row]));
   const preamble = conversation.preamble.map((row) => byId.get(row.id)!);
@@ -39,8 +38,15 @@ export function classifyConversationRounds(
 export function estimateMessageTokens(message: AgentMessage): number {
   if (!isConversationBudgetVisible(message)) return 0;
   const content = projectedCanonicalRowContent(message);
-  const structural = [message.role, message.kind, message.tool, message.tool_call_id, message.round_id,
-  ].filter(Boolean).join(' ');
+  const structural = [
+    message.role,
+    message.kind,
+    message.tool,
+    message.tool_call_id,
+    message.round_id,
+  ]
+    .filter(Boolean)
+    .join(' ');
   return Math.max(1, estimateUtf8Tokens(content + structural));
 }
 

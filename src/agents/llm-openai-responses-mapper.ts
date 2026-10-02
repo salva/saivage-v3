@@ -6,7 +6,9 @@ import {
 
 type ResponsesInputItem = Record<string, unknown>;
 
-export function responsesInputFromProviderConversation(providerConversation: ProviderConversationProjection): ResponsesInputItem[] {
+export function responsesInputFromProviderConversation(
+  providerConversation: ProviderConversationProjection,
+): ResponsesInputItem[] {
   const input: ResponsesInputItem[] = [];
   const privateByProjection = new Map<string, ReturnType<typeof parsePrivateContent>>();
   for (const message of providerConversation.messages) {
@@ -24,23 +26,36 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
     if (message.kind === 'provider_private') continue;
     if (message.provider_projection?.kind === 'openai_responses') {
       const row = privateByProjection.get(message.id);
-      if (!row) throw new Error(`Responses projection '${message.id}' is missing private row '${message.provider_projection.private_message_id}'.`);
+      if (!row)
+        throw new Error(
+          `Responses projection '${message.id}' is missing private row '${message.provider_projection.private_message_id}'.`,
+        );
       for (const item of row.output) {
         input.push(item as ResponsesInputItem);
       }
       continue;
     }
     if (message.kind === 'tool_result') {
-      input.push({ type: 'function_call_output', call_id: message.tool_call_id, output: message.content });
+      input.push({
+        type: 'function_call_output',
+        call_id: message.tool_call_id,
+        output: message.content,
+      });
       continue;
     }
     if (message.kind === 'tool_call') {
       const call = parseToolCallMessageForModel(JSON.parse(message.content));
-      input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
+      input.push({
+        type: 'function_call',
+        call_id: call.id,
+        name: call.name,
+        arguments: call.arguments,
+      });
       continue;
     }
     if (message.kind === 'text' || message.kind === 'model_repair') {
-      if (message.role === 'tool') throw new Error(`Responses text row '${message.id}' cannot use the tool role.`);
+      if (message.role === 'tool')
+        throw new Error(`Responses text row '${message.id}' cannot use the tool role.`);
       input.push(textInput(message.role, message.content));
       continue;
     }
@@ -50,5 +65,8 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
 }
 
 function textInput(role: 'system' | 'user' | 'assistant', content: string): ResponsesInputItem {
-  return { role, content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: content }] };
+  return {
+    role,
+    content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: content }],
+  };
 }

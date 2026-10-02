@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { CardNotification } from '../schemas/index.js';
-import type { NotificationSubmissionPort, NotificationSubmissionResult } from '../runtime/runtime-api.js';
+import type {
+  NotificationSubmissionPort,
+  NotificationSubmissionResult,
+} from '../runtime/runtime-api.js';
 import type { NotificationUrgency } from '../contracts/index.js';
 
 export function queueNotification(

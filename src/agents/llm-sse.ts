@@ -19,7 +19,10 @@ export class IncrementalSseReader {
     if (this.#finished) throw new Error('Cannot finish SSE reader twice.');
     this.#finished = true;
     const output = this.#process(this.#decoder.decode());
-    if (this.#pendingCR) { this.#pendingCR = false; this.#completeLine(output); }
+    if (this.#pendingCR) {
+      this.#pendingCR = false;
+      this.#completeLine(output);
+    }
     if (this.#line.length > 0) this.#completeLine(output);
     this.#dispatch(output);
     return output;
@@ -43,7 +46,10 @@ export class IncrementalSseReader {
   #completeLine(output: SseOutput[]): void {
     const line = this.#line;
     this.#line = '';
-    if (line === '') { this.#dispatch(output); return; }
+    if (line === '') {
+      this.#dispatch(output);
+      return;
+    }
     if (line.startsWith(':')) return;
     const colon = line.indexOf(':');
     const field = colon === -1 ? line : line.slice(0, colon);

@@ -1,21 +1,24 @@
 import { randomUUID } from 'node:crypto';
-import {
-  closeSync,
-  constants,
-  fsyncSync,
-  openSync,
-  renameSync,
-  writeSync,
-} from 'node:fs';
+import { closeSync, constants, fsyncSync, openSync, renameSync, writeSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import { writeAllExact } from './write-all-exact.js';
 
 export type PublicationTemporaryIdFactory = () => string;
 export interface ReplacementFileIo {
-  open: typeof openSync; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync; rename: typeof renameSync;
+  open: typeof openSync;
+  write: typeof writeSync;
+  fsync: typeof fsyncSync;
+  close: typeof closeSync;
+  rename: typeof renameSync;
 }
-const replacementFileIo: ReplacementFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
+const replacementFileIo: ReplacementFileIo = {
+  open: openSync,
+  write: writeSync,
+  fsync: fsyncSync,
+  close: closeSync,
+  rename: renameSync,
+};
 
 export function replacementTempPath(targetPath: string, temporaryId: string): string {
   return join(dirname(targetPath), `.${basename(targetPath)}.${temporaryId}.saivage-tmp`);
@@ -33,7 +36,12 @@ export function replaceFile(
     temporaryPath,
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
   );
-  writeAllExact(descriptor, bytes, io.write, () => new Error(`Write made no progress for '${temporaryPath}'.`));
+  writeAllExact(
+    descriptor,
+    bytes,
+    io.write,
+    () => new Error(`Write made no progress for '${temporaryPath}'.`),
+  );
   io.fsync(descriptor);
   io.close(descriptor);
   try {

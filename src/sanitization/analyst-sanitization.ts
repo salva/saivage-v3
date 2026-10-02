@@ -4,8 +4,10 @@ import { looksLikeSecretPath } from '../workspace/index.js';
 
 const MAX_ACTIVITY_TEXT = 200;
 const SECRET_PATH_TOKEN = '[SECRET_PATH]';
-const SECRET_ASSIGNMENT_RE = /\b(?:api[_-]?key|token|secret|password|authorization|cookie|credential)s?\s*=\s*([^\s]+)/gi;
-const SECRET_PATH_SEGMENT_RE = /(?<!\[SECRET_PATH\])(?:[A-Za-z]:)?(?:[^\s"'`;,|()<>\]]*\/)?(?:\.saivage\/auth-profiles\.json|auth-profiles\.json|\.env(?:\.[A-Za-z0-9_-]+)?)(?![A-Za-z0-9_.-])/gi;
+const SECRET_ASSIGNMENT_RE =
+  /\b(?:api[_-]?key|token|secret|password|authorization|cookie|credential)s?\s*=\s*([^\s]+)/gi;
+const SECRET_PATH_SEGMENT_RE =
+  /(?<!\[SECRET_PATH\])(?:[A-Za-z]:)?(?:[^\s"'`;,|()<>\]]*\/)?(?:\.saivage\/auth-profiles\.json|auth-profiles\.json|\.env(?:\.[A-Za-z0-9_-]+)?)(?![A-Za-z0-9_.-])/gi;
 const ABSOLUTE_PATH_RE = /(?<![A-Za-z0-9_.-])((?:[A-Za-z]:)?(?:\/[^\s"'`;,|()<>\]]+)+)/g;
 
 function clamp(value: string, max = MAX_ACTIVITY_TEXT): string {
@@ -31,7 +33,9 @@ export function sanitizeAnalystText(value: string, max = MAX_ACTIVITY_TEXT): str
   sanitized = sanitized.replace(SECRET_PATH_SEGMENT_RE, SECRET_PATH_TOKEN);
   sanitized = sanitized.replace(ABSOLUTE_PATH_RE, (_full, match) => {
     try {
-      return looksLikeSecretPath(resolve(match)) || looksLikeSecretPath(basename(match)) ? SECRET_PATH_TOKEN : match;
+      return looksLikeSecretPath(resolve(match)) || looksLikeSecretPath(basename(match))
+        ? SECRET_PATH_TOKEN
+        : match;
     } catch {
       return looksLikeSecretPath(match) ? SECRET_PATH_TOKEN : match;
     }

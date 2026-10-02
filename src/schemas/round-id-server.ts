@@ -6,9 +6,6 @@ export function generateRoundId(kind: RoundKind): string {
   return `r-${kind}-${randomBytes(16).toString('hex')}`;
 }
 
-export function deterministicRoundId(
-  kind: Exclude<RoundKind, 'compacted'>,
-  seed: string,
-): string {
+export function deterministicRoundId(kind: Exclude<RoundKind, 'compacted'>, seed: string): string {
   return `r-${kind}-${sha256Hex(seed).slice(0, 32)}`;
 }

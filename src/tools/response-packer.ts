@@ -1,8 +1,5 @@
 import { canonicalJson } from '../schemas/index.js';
-import {
-  DISCOVERY_RESPONSE_MAX_BYTES,
-  DISCOVERY_RESPONSE_MIN_BYTES,
-} from '../contracts/index.js';
+import { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES } from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 import { utf8SafeSlice } from '../utils/index.js';
@@ -51,7 +48,9 @@ export class DiscoveryBudgetTooSmallError extends Error {
 
 export class DiscoveryCollectionPositionError extends Error {
   constructor() {
-    super('Collection position must identify an existing item and a UTF-8 boundary strictly inside its complete outbound-projected canonical JSON bytes.');
+    super(
+      'Collection position must identify an existing item and a UTF-8 boundary strictly inside its complete outbound-projected canonical JSON bytes.',
+    );
     this.name = 'DiscoveryCollectionPositionError';
   }
 }
@@ -80,10 +79,12 @@ export function certifiedPrefixEndpoints(
   for (const character of stable.text) {
     end += character.length;
     bytes += Buffer.byteLength(character, 'utf8');
-    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end) spanIndex += 1;
+    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end)
+      spanIndex += 1;
     const span = stable.indivisibleSpans[spanIndex];
     const insideSpan = span !== undefined && span.start < end && end < span.end;
-    if (end <= stable.maxPrefixEnd && end <= maximumEnd && bytes <= maximumBytes && !insideSpan) endpoints.push(end);
+    if (end <= stable.maxPrefixEnd && end <= maximumEnd && bytes <= maximumBytes && !insideSpan)
+      endpoints.push(end);
   }
   return endpoints;
 }
@@ -107,16 +108,19 @@ interface PackedTextData {
   readonly slice: TextSlice;
 }
 
-export function packTextSliceData(input: Readonly<{
-  text: string;
-  byteOffset: number;
-  cap: number;
-  render: (slice: TextSlice) => unknown;
-}>): PackedTextData {
+export function packTextSliceData(
+  input: Readonly<{
+    text: string;
+    byteOffset: number;
+    cap: number;
+    render: (slice: TextSlice) => unknown;
+  }>,
+): PackedTextData {
   const total = utf8ByteLength(input.text);
   const offset = Math.min(input.byteOffset, total);
   const make = (maxBytes: number): TextSlice => makeTextSlice(input.text, offset, maxBytes);
-  const fits = (slice: TextSlice): boolean => utf8ByteLength(settledSuccessBytes(input.render(slice))) <= input.cap;
+  const fits = (slice: TextSlice): boolean =>
+    utf8ByteLength(settledSuccessBytes(input.render(slice))) <= input.cap;
   if (!fits(make(0))) throw new DiscoveryBudgetTooSmallError(input.cap);
   let low = 0;
   let high = total - offset;
@@ -134,15 +138,20 @@ interface PackedCollectionData {
   readonly page: CollectionPage;
 }
 
-export function packCollectionData(input: Readonly<{
-  cap: number;
-  total: number;
-  position: CollectionPosition;
-  maxItems?: number;
-  item: (index: number) => unknown;
-  render: (page: CollectionPage) => unknown;
-}>): PackedCollectionData {
-  if (input.maxItems !== undefined && (!Number.isSafeInteger(input.maxItems) || input.maxItems < 1)) {
+export function packCollectionData(
+  input: Readonly<{
+    cap: number;
+    total: number;
+    position: CollectionPosition;
+    maxItems?: number;
+    item: (index: number) => unknown;
+    render: (page: CollectionPage) => unknown;
+  }>,
+): PackedCollectionData {
+  if (
+    input.maxItems !== undefined &&
+    (!Number.isSafeInteger(input.maxItems) || input.maxItems < 1)
+  ) {
     throw new RangeError('maxItems must be a positive safe integer.');
   }
 
@@ -154,35 +163,47 @@ export function packCollectionData(input: Readonly<{
     next,
     items: Object.freeze([...items]),
   });
-  const renderPage = (items: readonly unknown[], next: CollectionPosition | null): PackedCollectionData => {
+  const renderPage = (
+    items: readonly unknown[],
+    next: CollectionPosition | null,
+  ): PackedCollectionData => {
     const page = pageOf(items, next);
     const data = input.render(page);
-    if (utf8ByteLength(settledSuccessBytes(data)) > input.cap) throw new DiscoveryBudgetTooSmallError(input.cap);
+    if (utf8ByteLength(settledSuccessBytes(data)) > input.cap)
+      throw new DiscoveryBudgetTooSmallError(input.cap);
     return { data, page };
   };
   const fits = (items: readonly unknown[], next: CollectionPosition | null): boolean =>
     utf8ByteLength(settledSuccessBytes(input.render(pageOf(items, next)))) <= input.cap;
 
-  const invalidPosition = (): never => { throw new DiscoveryCollectionPositionError(); };
+  const invalidPosition = (): never => {
+    throw new DiscoveryCollectionPositionError();
+  };
 
   if (input.position.item_index >= input.total) {
     if (input.position.item_byte_offset !== 0) invalidPosition();
     return renderPage([], null);
   }
 
-  const windowEnd = Math.min(input.total, input.position.item_index + (input.maxItems ?? input.total));
+  const windowEnd = Math.min(
+    input.total,
+    input.position.item_index + (input.maxItems ?? input.total),
+  );
   let index = input.position.item_index;
   let itemByteOffset = input.position.item_byte_offset;
 
   const continuationAfter = (completedIndex: number): CollectionPosition | null =>
-    completedIndex + 1 < input.total ? { item_index: completedIndex + 1, item_byte_offset: 0 } : null;
-  const sliceOf = (bytes: Buffer, start: number, end: number): JsonSlice => Object.freeze({
-    content_hex: bytes.subarray(start, end).toString('hex'),
-    utf8_bytes: end - start,
-    offset_bytes: start,
-    next_offset_bytes: end,
-    total_bytes: bytes.length,
-  });
+    completedIndex + 1 < input.total
+      ? { item_index: completedIndex + 1, item_byte_offset: 0 }
+      : null;
+  const sliceOf = (bytes: Buffer, start: number, end: number): JsonSlice =>
+    Object.freeze({
+      content_hex: bytes.subarray(start, end).toString('hex'),
+      utf8_bytes: end - start,
+      offset_bytes: start,
+      next_offset_bytes: end,
+      total_bytes: bytes.length,
+    });
   const boundaryAtOrBefore = (bytes: Buffer, start: number, requestedEnd: number): number => {
     let end = requestedEnd;
     while (end > start && end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end -= 1;
@@ -192,17 +213,23 @@ export function packCollectionData(input: Readonly<{
   while (index < windowEnd) {
     const value = input.item(index);
     const itemBytes = Buffer.from(canonicalJson(projectDynamicForOutbound(value)), 'utf8');
-    if (itemByteOffset !== 0 && (
-      itemByteOffset < 0
-      || itemByteOffset >= itemBytes.length
-      || (itemBytes[itemByteOffset]! & 0xc0) === 0x80
-    )) invalidPosition();
+    if (
+      itemByteOffset !== 0 &&
+      (itemByteOffset < 0 ||
+        itemByteOffset >= itemBytes.length ||
+        (itemBytes[itemByteOffset]! & 0xc0) === 0x80)
+    )
+      invalidPosition();
 
     const completedNext = continuationAfter(index);
     if (itemByteOffset === 0 && fits([...emitted, value], completedNext)) {
       emitted.push(value);
       index += 1;
-      if (index === windowEnd) return renderPage(emitted, index < input.total ? { item_index: index, item_byte_offset: 0 } : null);
+      if (index === windowEnd)
+        return renderPage(
+          emitted,
+          index < input.total ? { item_index: index, item_byte_offset: 0 } : null,
+        );
       continue;
     }
     if (itemByteOffset === 0 && emitted.length > 0) {
@@ -214,7 +241,11 @@ export function packCollectionData(input: Readonly<{
       emitted.push(completeSlice);
       index += 1;
       itemByteOffset = 0;
-      if (index === windowEnd) return renderPage(emitted, index < input.total ? { item_index: index, item_byte_offset: 0 } : null);
+      if (index === windowEnd)
+        return renderPage(
+          emitted,
+          index < input.total ? { item_index: index, item_byte_offset: 0 } : null,
+        );
       continue;
     }
 
@@ -232,7 +263,8 @@ export function packCollectionData(input: Readonly<{
       const requestedEnd = low + Math.ceil((high - low) / 2);
       const end = boundaryAtOrBefore(itemBytes, itemByteOffset, requestedEnd);
       const candidate = sliceOf(itemBytes, itemByteOffset, end);
-      if (fits([...emitted, candidate], { item_index: index, item_byte_offset: end })) low = requestedEnd;
+      if (fits([...emitted, candidate], { item_index: index, item_byte_offset: end }))
+        low = requestedEnd;
       else high = requestedEnd - 1;
     }
     const end = boundaryAtOrBefore(itemBytes, itemByteOffset, low);

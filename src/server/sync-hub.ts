@@ -1,4 +1,8 @@
-import type { FreshnessEffects, AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from '../contracts/index.js';
+import type {
+  FreshnessEffects,
+  AgentMembershipFreshnessTarget,
+  ConversationFreshnessTarget,
+} from '../contracts/index.js';
 import type { LiveSyncCardInvalidateTarget, LiveSyncInvalidateTarget } from '../contracts/index.js';
 import type { ConversationSessionId } from '../schemas/index.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
@@ -45,7 +49,12 @@ export class SyncHub implements FreshnessEffects {
     );
   }
   conversationChanged(target: ConversationFreshnessTarget): void {
-    this.markDirty({ resource: 'conversation', id: target.session_id, segment_version: target.segment_version, visible_message_id: target.visible_message_id });
+    this.markDirty({
+      resource: 'conversation',
+      id: target.session_id,
+      segment_version: target.segment_version,
+      visible_message_id: target.visible_message_id,
+    });
   }
   llmExchangeChanged(id: ConversationSessionId): void {
     this.markDirty({ resource: 'llm-exchange', id });
@@ -53,7 +62,12 @@ export class SyncHub implements FreshnessEffects {
   private markDirty(target: LiveSyncInvalidateTarget): void {
     try {
       const prior = this.#pending.get(targetKey(target));
-      if (target.resource === 'conversation' && prior?.resource === 'conversation' && prior.segment_version > target.segment_version) return;
+      if (
+        target.resource === 'conversation' &&
+        prior?.resource === 'conversation' &&
+        prior.segment_version > target.segment_version
+      )
+        return;
       this.#pending.set(targetKey(target), target);
       if (!this.#timer) this.#timer = setTimeout(() => this.flush(), this.debounceMs);
     } catch {

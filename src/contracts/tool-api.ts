@@ -19,15 +19,37 @@ export type CardActivationOutcome =
   | { status: 'cancelled'; summary: string }
   | { status: 'stopped'; summary: string };
 
-export function formatActivateCardResult(cardId: string, outcome: CardActivationOutcome): ToolActionOutcome {
+export function formatActivateCardResult(
+  cardId: string,
+  outcome: CardActivationOutcome,
+): ToolActionOutcome {
   if (outcome.status === 'cancelled' || outcome.status === 'stopped') {
-    return toolFailed(`Child card '${cardId}' activation was ${outcome.status}.`, { card_id: cardId, outcome: outcome.status, summary: outcome.summary });
+    return toolFailed(`Child card '${cardId}' activation was ${outcome.status}.`, {
+      card_id: cardId,
+      outcome: outcome.status,
+      summary: outcome.summary,
+    });
   }
   if (outcome.status === 'done') {
-    return toolSucceeded({ card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result });
+    return toolSucceeded({
+      card_id: cardId,
+      outcome: outcome.status,
+      summary: outcome.summary,
+      result: outcome.result,
+    });
   }
   if (outcome.status === 'failed') {
-    return toolSucceeded({ card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result });
+    return toolSucceeded({
+      card_id: cardId,
+      outcome: outcome.status,
+      summary: outcome.summary,
+      result: outcome.result,
+    });
   }
-  return toolSucceeded({ card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result });
+  return toolSucceeded({
+    card_id: cardId,
+    outcome: outcome.status,
+    summary: outcome.summary,
+    result: outcome.result,
+  });
 }

@@ -1,5 +1,10 @@
 import type { ProviderCapabilities } from '../schemas/index.js';
-import type { EffectiveProviderCapabilities, CapabilityRequest, CapabilitySkipReason, CapabilityMatch } from '../contracts/index.js';
+import type {
+  EffectiveProviderCapabilities,
+  CapabilityRequest,
+  CapabilitySkipReason,
+  CapabilityMatch,
+} from '../contracts/index.js';
 
 const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
   transportProtocol: 'openai-chat-completions',
@@ -32,7 +37,8 @@ export function mergeCapabilities(
   return {
     transportProtocol: override.transportProtocol ?? base.transportProtocol,
     toolsMode: override.toolsMode ?? base.toolsMode,
-    exclusiveToolChoiceSupport: override.exclusiveToolChoiceSupport ?? base.exclusiveToolChoiceSupport,
+    exclusiveToolChoiceSupport:
+      override.exclusiveToolChoiceSupport ?? base.exclusiveToolChoiceSupport,
     responsesReasoning: override.responsesReasoning ?? base.responsesReasoning,
     contextWindowTokens: override.contextWindowTokens ?? base.contextWindowTokens,
     maxOutputTokens: override.maxOutputTokens ?? base.maxOutputTokens,
@@ -40,7 +46,9 @@ export function mergeCapabilities(
   };
 }
 
-export function builtInCapabilitiesForProvider(providerName: string): EffectiveProviderCapabilities {
+export function builtInCapabilitiesForProvider(
+  providerName: string,
+): EffectiveProviderCapabilities {
   return mergeCapabilities(
     BUILT_IN_PROVIDER_CAPABILITIES[providerName] ?? GLOBAL_DEFAULT_CAPABILITIES,
   );
@@ -58,7 +66,10 @@ export function supportsCapabilityRequest(
   if (request.requiresTools && capabilities.toolsMode === 'unsupported') {
     reasons.push('unsupported_tools_mode');
   }
-  if (request.requiresExclusiveToolChoice && capabilities.exclusiveToolChoiceSupport === 'unsupported') {
+  if (
+    request.requiresExclusiveToolChoice &&
+    capabilities.exclusiveToolChoiceSupport === 'unsupported'
+  ) {
     reasons.push('unsupported_exclusive_tool_choice');
   }
   return reasons.length === 0 ? { supported: true } : { supported: false, reasons };

@@ -2,7 +2,10 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../schemas/index.js';
-import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from './resolved-config-authority.js';
+import {
+  createResolvedConfigAuthority,
+  type ResolvedConfigAuthority,
+} from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
 import type { CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 
@@ -14,7 +17,7 @@ export interface Environment {
   readonly projectRoot: string;
   readonly configAuthority: ResolvedConfigAuthority;
   readonly config: SaivageConfig;
-  readonly workflows:CompiledProjectWorkflows;
+  readonly workflows: CompiledProjectWorkflows;
   readonly server: {
     readonly host: string;
     readonly port: number;
@@ -32,7 +35,15 @@ class EnvironmentLoadError extends Error {
   readonly received: string;
   readonly source: 'cli' | 'env' | 'file' | 'default';
 
-  constructor(message: string, details: { field: string; expected: string; received: string; source: 'cli' | 'env' | 'file' | 'default' }) {
+  constructor(
+    message: string,
+    details: {
+      field: string;
+      expected: string;
+      received: string;
+      source: 'cli' | 'env' | 'file' | 'default';
+    },
+  ) {
     super(message);
     this.name = 'EnvironmentLoadError';
     this.field = details.field;
@@ -65,11 +76,21 @@ function deepFreeze<T>(value: T): T {
 
 function parsePort(raw: string, source: 'cli' | 'env'): number {
   if (!/^\d+$/.test(raw)) {
-    throw new EnvironmentLoadError(`Invalid server port from ${source}: expected integer 0-65535`, { field: 'server.port', expected: 'integer 0-65535', received: 'non-integer', source });
+    throw new EnvironmentLoadError(`Invalid server port from ${source}: expected integer 0-65535`, {
+      field: 'server.port',
+      expected: 'integer 0-65535',
+      received: 'non-integer',
+      source,
+    });
   }
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new EnvironmentLoadError(`Invalid server port from ${source}: expected integer 0-65535`, { field: 'server.port', expected: 'integer 0-65535', received: String(port), source });
+    throw new EnvironmentLoadError(`Invalid server port from ${source}: expected integer 0-65535`, {
+      field: 'server.port',
+      expected: 'integer 0-65535',
+      received: String(port),
+      source,
+    });
   }
   return port;
 }
@@ -78,7 +99,12 @@ function parseNodeEnv(raw: string | undefined): NodeEnvironment {
   if (raw === undefined || raw === '') return 'production';
   const parsed = nodeEnvSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new EnvironmentLoadError('Invalid NODE_ENV: expected development, production, or test', { field: 'nodeEnv', expected: 'development | production | test', received: 'invalid value', source: 'env' });
+    throw new EnvironmentLoadError('Invalid NODE_ENV: expected development, production, or test', {
+      field: 'nodeEnv',
+      expected: 'development | production | test',
+      received: 'invalid value',
+      source: 'env',
+    });
   }
   return parsed.data;
 }
@@ -87,7 +113,12 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
   if (raw === undefined || raw === '') return undefined;
   const parsed = logLevelSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new EnvironmentLoadError('Invalid LOG_LEVEL: expected a pino log level', { field: 'server.logLevel', expected: 'fatal | error | warn | info | debug | trace | silent', received: 'invalid value', source: 'env' });
+    throw new EnvironmentLoadError('Invalid LOG_LEVEL: expected a pino log level', {
+      field: 'server.logLevel',
+      expected: 'fatal | error | warn | info | debug | trace | silent',
+      received: 'invalid value',
+      source: 'env',
+    });
   }
   return parsed.data;
 }
@@ -97,40 +128,62 @@ export function resolveStartupProjectRoot(inputs: StartInputs, env: EnvironmentS
   return realpathSync(resolve(selected));
 }
 
-export async function loadEnvironment(inputs: StartInputs, env: EnvironmentSource): Promise<Environment> {
+export async function loadEnvironment(
+  inputs: StartInputs,
+  env: EnvironmentSource,
+): Promise<Environment> {
   const projectRoot = resolveStartupProjectRoot(inputs, env);
-  const selectedConfig = inputs.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`;
+  const selectedConfig =
+    inputs.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`;
   const configPath = resolve(selectedConfig);
-  const configAuthority = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: env,projectRoot });
+  const configAuthority = createResolvedConfigAuthority({
+    path: configPath,
+    interpolationEnvironment: env,
+    projectRoot,
+  });
   let config: SaivageConfig;
-  let workflows:CompiledProjectWorkflows;
+  let workflows: CompiledProjectWorkflows;
   try {
-    ({ config,workflows } = configAuthority.loadEffective());
+    ({ config, workflows } = configAuthority.loadEffective());
   } catch (error) {
     const failure = error as Error & { fieldPath?: string };
     throw new EnvironmentLoadError(`Configuration validation failed: ${failure.message}`, {
-      field: failure.fieldPath ?? 'config', expected: 'valid canonical configuration', received: 'invalid or missing selected config', source: 'file',
+      field: failure.fieldPath ?? 'config',
+      expected: 'valid canonical configuration',
+      received: 'invalid or missing selected config',
+      source: 'file',
     });
   }
 
-  const port = inputs.port !== undefined
-    ? parsePort(inputs.port, 'cli')
-    : env['SAIVAGE_PORT'] !== undefined
-      ? parsePort(env['SAIVAGE_PORT'], 'env')
-      : config.server.port ?? 8080;
+  const port =
+    inputs.port !== undefined
+      ? parsePort(inputs.port, 'cli')
+      : env['SAIVAGE_PORT'] !== undefined
+        ? parsePort(env['SAIVAGE_PORT'], 'env')
+        : (config.server.port ?? 8080);
   const logLevel = parseLogLevel(env['LOG_LEVEL']) ?? 'info';
   const nodeEnv = parseNodeEnv(env['NODE_ENV']);
   const rawApiToken = env['SAIVAGE_API_TOKEN'];
   if (rawApiToken !== undefined && rawApiToken.trim() === '') {
     throw new EnvironmentLoadError(
       'SAIVAGE_API_TOKEN is set but blank; unset it to run with authentication disabled, or set a non-blank token.',
-      { field: 'auth.apiToken', expected: 'unset or a non-blank token without surrounding whitespace', received: 'blank', source: 'env' },
+      {
+        field: 'auth.apiToken',
+        expected: 'unset or a non-blank token without surrounding whitespace',
+        received: 'blank',
+        source: 'env',
+      },
     );
   }
   if (rawApiToken !== undefined && rawApiToken !== rawApiToken.trim()) {
     throw new EnvironmentLoadError(
       'SAIVAGE_API_TOKEN must not have leading or trailing whitespace.',
-      { field: 'auth.apiToken', expected: 'token without leading or trailing whitespace', received: 'leading or trailing whitespace', source: 'env' },
+      {
+        field: 'auth.apiToken',
+        expected: 'token without leading or trailing whitespace',
+        received: 'leading or trailing whitespace',
+        source: 'env',
+      },
     );
   }
   const apiToken = rawApiToken;

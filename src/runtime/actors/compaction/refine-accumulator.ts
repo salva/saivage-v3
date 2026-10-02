@@ -11,7 +11,10 @@ import {
   type ProtectedPrompt,
 } from '../../../schemas/index.js';
 import type { ValidatedConversation } from '../../../contracts/index.js';
-import { composeContextProjection, type SummarizerContextItem } from '../context/composition-projector.js';
+import {
+  composeContextProjection,
+  type SummarizerContextItem,
+} from '../context/composition-projector.js';
 import { selectLatestContextBlocks } from '../context/context-blocks.js';
 import { type ContextBlock } from '../../../contracts/index.js';
 import {
@@ -39,7 +42,8 @@ function summaryInstruction(targetBytes: number): string {
 
 export const SUMMARY_REFINE_INSTRUCTION = summaryInstruction(SUMMARY_OUTPUT_TARGET_BYTES);
 const SUMMARY_CORRECTION_INSTRUCTION = summaryInstruction(SUMMARY_CORRECTION_TARGET_BYTES);
-export const EMPTY_COVERAGE_SUMMARY = 'These rounds contained no provider-visible conversation content.';
+export const EMPTY_COVERAGE_SUMMARY =
+  'These rounds contained no provider-visible conversation content.';
 export const MAX_REFINE_INVOCATIONS = 16;
 
 type RefineSourceComponent = Readonly<{
@@ -49,17 +53,23 @@ type RefineSourceComponent = Readonly<{
   content: string;
 }>;
 
-type PreparedRefineSourceComponent = Readonly<RefineSourceComponent & {
-  totalBytes: number;
-  sourceSha256: string;
-}>;
+type PreparedRefineSourceComponent = Readonly<
+  RefineSourceComponent & {
+    totalBytes: number;
+    sourceSha256: string;
+  }
+>;
 
 export class SummaryConstructionLimitError extends Error {
   readonly reason: 'request_context_capacity' | 'fold_limit';
   readonly invocationCount: number;
   readonly invocationLimit: number;
 
-  constructor(reason: 'request_context_capacity' | 'fold_limit', invocationCount: number, invocationLimit = MAX_REFINE_INVOCATIONS) {
+  constructor(
+    reason: 'request_context_capacity' | 'fold_limit',
+    invocationCount: number,
+    invocationLimit = MAX_REFINE_INVOCATIONS,
+  ) {
     super(`${reason} (invocation_count=${invocationCount}, invocation_limit=${invocationLimit})`);
     this.name = 'SummaryConstructionLimitError';
     this.reason = reason;
@@ -68,8 +78,18 @@ export class SummaryConstructionLimitError extends Error {
   }
 }
 
-type Range = Readonly<{ component: PreparedRefineSourceComponent; startByte: number; endByte: number; startUtf16: number; endUtf16: number }>;
-type AdmittedGroup = Readonly<{ ranges: readonly Range[]; input: LlmInvocationInput; admitted: AdmittedSummaryRequest }>;
+type Range = Readonly<{
+  component: PreparedRefineSourceComponent;
+  startByte: number;
+  endByte: number;
+  startUtf16: number;
+  endUtf16: number;
+}>;
+type AdmittedGroup = Readonly<{
+  ranges: readonly Range[];
+  input: LlmInvocationInput;
+  admitted: AdmittedSummaryRequest;
+}>;
 type ScannedEndpoint = Readonly<{ utf16: number; byte: number; codePoints: number }>;
 type PackingCursor = Readonly<{ componentIndex: number; startUtf16: number; startByte: number }>;
 type FoldRecipe = Readonly<{ inheritedSummary: string | null; ranges: readonly Range[] }>;
@@ -106,22 +126,44 @@ export function createSequentialRefineAccumulator(args: {
   const protectedPrompts = args.protectedPrompts ?? [];
   const protectedMessages = protectedPrompts.map(({ message }) => message);
   const releasedInheritedMessages = args.releasedInheritedMessages ?? [];
-  const orientation: SummaryRequestItem[] = selectLatestContextBlocks(args.preparedBlocks).map((block): SummaryRequestItem => ({
-    label: `[kind=prepared_context source=${block.id}]`,
-    role: block.role === 'tool' ? failToolOrientation(block.id) : block.role,
-    content: block.content,
-  }));
-  orientation.push(...protectedPrompts.map(({ source, message }) => ({ label: `[kind=protected_instruction source=${source.segmentVersion}:${source.rowIndex}:${message.id}]`, role: message.role === 'tool' ? failToolOrientation(message.id) : message.role, content: message.content })));
+  const orientation: SummaryRequestItem[] = selectLatestContextBlocks(args.preparedBlocks).map(
+    (block): SummaryRequestItem => ({
+      label: `[kind=prepared_context source=${block.id}]`,
+      role: block.role === 'tool' ? failToolOrientation(block.id) : block.role,
+      content: block.content,
+    }),
+  );
+  orientation.push(
+    ...protectedPrompts.map(({ source, message }) => ({
+      label: `[kind=protected_instruction source=${source.segmentVersion}:${source.rowIndex}:${message.id}]`,
+      role: message.role === 'tool' ? failToolOrientation(message.id) : message.role,
+      content: message.content,
+    })),
+  );
 
   return {
-    get materializedThrough() { return materializedThrough; },
-    get invocationCount() { return invocationCount; },
-    get correctionCount() { return correctionUsed ? 1 : 0; },
-    get canCorrectLatestFold() { return latestFold !== null && accumulatedSummary !== null && !correctionUsed; },
+    get materializedThrough() {
+      return materializedThrough;
+    },
+    get invocationCount() {
+      return invocationCount;
+    },
+    get correctionCount() {
+      return correctionUsed ? 1 : 0;
+    },
+    get canCorrectLatestFold() {
+      return latestFold !== null && accumulatedSummary !== null && !correctionUsed;
+    },
     async materializeThrough(cutoffCount: number): Promise<string> {
       args.signal.throwIfAborted();
-      if (!Number.isInteger(cutoffCount) || cutoffCount <= materializedThrough || cutoffCount > args.conversation.sourceRows.length)
-        throw new Error(`Sequential refine cutoff must be an integer greater than ${materializedThrough} and no greater than ${args.conversation.sourceRows.length}; received ${cutoffCount}.`);
+      if (
+        !Number.isInteger(cutoffCount) ||
+        cutoffCount <= materializedThrough ||
+        cutoffCount > args.conversation.sourceRows.length
+      )
+        throw new Error(
+          `Sequential refine cutoff must be an integer greater than ${materializedThrough} and no greater than ${args.conversation.sourceRows.length}; received ${cutoffCount}.`,
+        );
 
       const incrementRows = args.conversation.sourceRows.slice(materializedThrough, cutoffCount);
       const superseded = supersededSlotComponents({
@@ -132,8 +174,24 @@ export function createSequentialRefineAccumulator(args: {
         includeRefusal: !inheritedRefusalFolded,
       });
       const protectedIds = new Set(protectedMessages.map((message) => message.id));
-      const released = releasedInstructionsFolded ? [] : releasedInheritedMessages.map((message): RefineSourceComponent => ({ identity: message.id, kind: 'released_protected_instruction', role: message.role === 'tool' ? failToolOrientation(message.id) : message.role, content: message.content }));
-      const components = [...released, ...superseded.components, ...projectSourceComponents(args.conversation, incrementRows.filter((row) => !protectedIds.has(row.id)))];
+      const released = releasedInstructionsFolded
+        ? []
+        : releasedInheritedMessages.map(
+            (message): RefineSourceComponent => ({
+              identity: message.id,
+              kind: 'released_protected_instruction',
+              role: message.role === 'tool' ? failToolOrientation(message.id) : message.role,
+              content: message.content,
+            }),
+          );
+      const components = [
+        ...released,
+        ...superseded.components,
+        ...projectSourceComponents(
+          args.conversation,
+          incrementRows.filter((row) => !protectedIds.has(row.id)),
+        ),
+      ];
       let nextSummary = accumulatedSummary;
       let localLatestFold = latestFold;
       const preparedComponents = components.map(prepareComponent);
@@ -153,7 +211,13 @@ export function createSequentialRefineAccumulator(args: {
             invocationCount,
           });
         } catch (error) {
-          if (!(error instanceof SummaryConstructionLimitError) || error.reason !== 'request_context_capacity' || !localLatestFold || correctionUsed) throw error;
+          if (
+            !(error instanceof SummaryConstructionLimitError) ||
+            error.reason !== 'request_context_capacity' ||
+            !localLatestFold ||
+            correctionUsed
+          )
+            throw error;
           nextSummary = await correctFold(localLatestFold);
           localLatestFold = { ...localLatestFold };
           continue;
@@ -179,7 +243,8 @@ export function createSequentialRefineAccumulator(args: {
     },
     async correctLatestFold(): Promise<string> {
       args.signal.throwIfAborted();
-      if (!latestFold || accumulatedSummary === null) throw new SummaryConstructionLimitError('request_context_capacity', invocationCount);
+      if (!latestFold || accumulatedSummary === null)
+        throw new SummaryConstructionLimitError('request_context_capacity', invocationCount);
       accumulatedSummary = await correctFold(latestFold);
       return accumulatedSummary;
     },
@@ -187,12 +252,18 @@ export function createSequentialRefineAccumulator(args: {
 
   async function invokeFold(group: AdmittedGroup): Promise<string> {
     args.signal.throwIfAborted();
-    if (invocationCount >= MAX_REFINE_INVOCATIONS) throw new SummaryConstructionLimitError('fold_limit', invocationCount);
+    if (invocationCount >= MAX_REFINE_INVOCATIONS)
+      throw new SummaryConstructionLimitError('fold_limit', invocationCount);
     invocationCount++;
     args.progress.foldStarted();
     let summary: string;
     try {
-      summary = await invokeSummaryRequest({ input: group.input, admitted: group.admitted, summarizerProvider: args.summarizerProvider, signal: args.signal });
+      summary = await invokeSummaryRequest({
+        input: group.input,
+        admitted: group.admitted,
+        summarizerProvider: args.summarizerProvider,
+        signal: args.signal,
+      });
     } catch (error) {
       if (!(error instanceof PublicationOutcomeUnknownError)) args.progress.foldFailed();
       throw error;
@@ -206,11 +277,25 @@ export function createSequentialRefineAccumulator(args: {
     if (correctionUsed) throw new Error('Compaction summary correction was already used.');
     correctionUsed = true;
     args.signal.throwIfAborted();
-    if (invocationCount >= MAX_REFINE_INVOCATIONS) throw new SummaryConstructionLimitError('fold_limit', invocationCount);
-    const input = requestInput(args.summarizerProvider, args.conversation.sourceSessionId, orientation, recipe.inheritedSummary, recipe.ranges, SUMMARY_CORRECTION_INSTRUCTION);
+    if (invocationCount >= MAX_REFINE_INVOCATIONS)
+      throw new SummaryConstructionLimitError('fold_limit', invocationCount);
+    const input = requestInput(
+      args.summarizerProvider,
+      args.conversation.sourceSessionId,
+      orientation,
+      recipe.inheritedSummary,
+      recipe.ranges,
+      SUMMARY_CORRECTION_INSTRUCTION,
+    );
     const serialization = args.summarizerProvider.serializeSummaryRequest(input);
-    const admission = admitSummaryRequest({ serialization, contextUtilizationFraction: args.budget.contextUtilizationFraction, contextWindowTokens: args.summarizerProvider.contextWindowTokens, maxOutputTokens: args.summarizerProvider.maxOutputTokens });
-    if (admission.kind !== 'admitted') throw new SummaryConstructionLimitError('request_context_capacity', invocationCount);
+    const admission = admitSummaryRequest({
+      serialization,
+      contextUtilizationFraction: args.budget.contextUtilizationFraction,
+      contextWindowTokens: args.summarizerProvider.contextWindowTokens,
+      maxOutputTokens: args.summarizerProvider.maxOutputTokens,
+    });
+    if (admission.kind !== 'admitted')
+      throw new SummaryConstructionLimitError('request_context_capacity', invocationCount);
     return invokeFold({ ranges: recipe.ranges, input, admitted: admission });
   }
 }
@@ -227,19 +312,38 @@ function packNextActualRanges(args: {
 }): Readonly<{ group: AdmittedGroup; nextCursor: PackingCursor }> {
   let current: Range[] = [];
   let currentAdmission: AdmittedGroup | null = null;
-  for (let componentIndex = args.cursor.componentIndex; componentIndex < args.components.length; componentIndex++) {
+  for (
+    let componentIndex = args.cursor.componentIndex;
+    componentIndex < args.components.length;
+    componentIndex++
+  ) {
     const prepared = args.components[componentIndex]!;
     let startUtf16 = componentIndex === args.cursor.componentIndex ? args.cursor.startUtf16 : 0;
     let startByte = componentIndex === args.cursor.componentIndex ? args.cursor.startByte : 0;
     if (prepared.content.length === 0) {
-      const empty: Range = { component: prepared, startByte: 0, endByte: 0, startUtf16: 0, endUtf16: 0 };
+      const empty: Range = {
+        component: prepared,
+        startByte: 0,
+        endByte: 0,
+        startUtf16: 0,
+        endUtf16: 0,
+      };
       const admitted = admitRanges(args, [...current, empty]);
       if (!admitted) {
-        if (currentAdmission) return { group: currentAdmission, nextCursor: { componentIndex, startUtf16: 0, startByte: 0 } };
+        if (currentAdmission)
+          return {
+            group: currentAdmission,
+            nextCursor: { componentIndex, startUtf16: 0, startByte: 0 },
+          };
         const alone = admitRanges(args, [empty]);
-        if (!alone) throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
-        current = [empty]; currentAdmission = alone;
-      } else { current = [...current, empty]; currentAdmission = admitted; }
+        if (!alone)
+          throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
+        current = [empty];
+        currentAdmission = alone;
+      } else {
+        current = [...current, empty];
+        currentAdmission = admitted;
+      }
       continue;
     }
     while (startUtf16 < prepared.content.length) {
@@ -255,7 +359,8 @@ function packNextActualRanges(args: {
       if (!admitted && currentAdmission) {
         return { group: currentAdmission, nextCursor: { componentIndex, startUtf16, startByte } };
       }
-      if (!admitted) throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
+      if (!admitted)
+        throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
 
       const remaining: Range = {
         component: prepared,
@@ -281,9 +386,19 @@ function packNextActualRanges(args: {
       let rejectedWidth = 0;
       for (let width = 2, scannedWidth = 1; ; width *= 2) {
         const additionalWidth = width - scannedWidth;
-        const probeEnd = advanceCodePoints(prepared.content, scannedEnd.utf16, scannedEnd.byte, additionalWidth);
+        const probeEnd = advanceCodePoints(
+          prepared.content,
+          scannedEnd.utf16,
+          scannedEnd.byte,
+          additionalWidth,
+        );
         if (probeEnd.codePoints !== additionalWidth) {
-          const rest = advanceCodePoints(prepared.content, admittedEnd.utf16, admittedEnd.byte, Number.MAX_SAFE_INTEGER);
+          const rest = advanceCodePoints(
+            prepared.content,
+            admittedEnd.utf16,
+            admittedEnd.byte,
+            Number.MAX_SAFE_INTEGER,
+          );
           rejectedEnd = rest;
           rejectedWidth = admittedWidth + rest.codePoints;
           break;
@@ -296,18 +411,34 @@ function packNextActualRanges(args: {
           endUtf16: probeEnd.utf16,
         };
         const probe = admitRanges(args, [...current, probeRange]);
-        if (!probe) { rejectedEnd = probeEnd; rejectedWidth = width; break; }
+        if (!probe) {
+          rejectedEnd = probeEnd;
+          rejectedWidth = width;
+          break;
+        }
         admittedEnd = probeEnd;
         admittedGroup = probe;
         admittedWidth = width;
         scannedEnd = probeEnd;
         scannedWidth = width;
       }
-      if (!rejectedEnd) throw new Error('Summary range growth ended without a rejected upper endpoint.');
+      if (!rejectedEnd)
+        throw new Error('Summary range growth ended without a rejected upper endpoint.');
       while (rejectedWidth - admittedWidth > 1) {
         const midpointWidth = admittedWidth + Math.floor((rejectedWidth - admittedWidth) / 2);
-        const midpointEnd = advanceCodePoints(prepared.content, admittedEnd.utf16, admittedEnd.byte, midpointWidth - admittedWidth);
-        const midpointRange: Range = { component: prepared, startByte, endByte: midpointEnd.byte, startUtf16, endUtf16: midpointEnd.utf16 };
+        const midpointEnd = advanceCodePoints(
+          prepared.content,
+          admittedEnd.utf16,
+          admittedEnd.byte,
+          midpointWidth - admittedWidth,
+        );
+        const midpointRange: Range = {
+          component: prepared,
+          startByte,
+          endByte: midpointEnd.byte,
+          startUtf16,
+          endUtf16: midpointEnd.utf16,
+        };
         const midpoint = admitRanges(args, [...current, midpointRange]);
         if (midpoint) {
           admittedEnd = midpointEnd;
@@ -326,25 +457,43 @@ function packNextActualRanges(args: {
         endUtf16: admittedEnd.utf16,
       };
       return {
-        group: { ranges: [...current, admittedRange], input: admittedGroup.input, admitted: admittedGroup.admitted },
-        nextCursor: admittedEnd.utf16 === prepared.content.length
-          ? { componentIndex: componentIndex + 1, startUtf16: 0, startByte: 0 }
-          : { componentIndex, startUtf16: admittedEnd.utf16, startByte: admittedEnd.byte },
+        group: {
+          ranges: [...current, admittedRange],
+          input: admittedGroup.input,
+          admitted: admittedGroup.admitted,
+        },
+        nextCursor:
+          admittedEnd.utf16 === prepared.content.length
+            ? { componentIndex: componentIndex + 1, startUtf16: 0, startByte: 0 }
+            : { componentIndex, startUtf16: admittedEnd.utf16, startByte: admittedEnd.byte },
       };
     }
   }
-  if (!currentAdmission) throw new Error('Summary range packer reached the end without an admitted group.');
-  return { group: currentAdmission, nextCursor: { componentIndex: args.components.length, startUtf16: 0, startByte: 0 } };
+  if (!currentAdmission)
+    throw new Error('Summary range packer reached the end without an admitted group.');
+  return {
+    group: currentAdmission,
+    nextCursor: { componentIndex: args.components.length, startUtf16: 0, startByte: 0 },
+  };
 }
 
-function admitRanges(args: {
-  orientation: readonly SummaryRequestItem[];
-  inheritedSummary: string | null;
-  sourceSessionId: ConversationSessionId;
-  provider: SummarizerProviderPort;
-  contextUtilizationFraction: number;
-}, ranges: readonly Range[]): AdmittedGroup | null {
-  const input = requestInput(args.provider, args.sourceSessionId, args.orientation, args.inheritedSummary, ranges);
+function admitRanges(
+  args: {
+    orientation: readonly SummaryRequestItem[];
+    inheritedSummary: string | null;
+    sourceSessionId: ConversationSessionId;
+    provider: SummarizerProviderPort;
+    contextUtilizationFraction: number;
+  },
+  ranges: readonly Range[],
+): AdmittedGroup | null {
+  const input = requestInput(
+    args.provider,
+    args.sourceSessionId,
+    args.orientation,
+    args.inheritedSummary,
+    ranges,
+  );
   const serialization = args.provider.serializeSummaryRequest(input);
   const admitted = admitSummaryRequest({
     serialization,
@@ -364,16 +513,24 @@ function requestInput(
   instruction = SUMMARY_REFINE_INSTRUCTION,
 ) {
   const items: SummaryRequestItem[] = [...orientation];
-  if (inheritedSummary !== null) items.push({ label: '[kind=inherited_history]', role: 'system', content: inheritedSummary });
+  if (inheritedSummary !== null)
+    items.push({ label: '[kind=inherited_history]', role: 'system', content: inheritedSummary });
   for (const part of ranges) items.push(rangeItem(part));
-  return buildSummaryRequestInput({ candidate: provider.candidate, sourceSessionId, instruction, items });
+  return buildSummaryRequestInput({
+    candidate: provider.candidate,
+    sourceSessionId,
+    instruction,
+    items,
+  });
 }
 
 function isCorrectableOutput(error: unknown): boolean {
   if (error instanceof SummaryResultValidationError) return true;
-  return error instanceof ProviderTurnFailure &&
+  return (
+    error instanceof ProviderTurnFailure &&
     error.originalFailure instanceof LlmRequestError &&
-    error.originalFailure.failure.kind === 'output_token_limit_exceeded';
+    error.originalFailure.failure.kind === 'output_token_limit_exceeded'
+  );
 }
 
 function rangeItem(part: Range): SummaryRequestItem {
@@ -392,7 +549,12 @@ function prepareComponent(component: RefineSourceComponent): PreparedRefineSourc
   };
 }
 
-function advanceCodePoints(content: string, startUtf16: number, startByte: number, count: number): ScannedEndpoint {
+function advanceCodePoints(
+  content: string,
+  startUtf16: number,
+  startByte: number,
+  count: number,
+): ScannedEndpoint {
   let utf16 = startUtf16;
   let byte = startByte;
   let codePoints = 0;
@@ -405,23 +567,58 @@ function advanceCodePoints(content: string, startUtf16: number, startByte: numbe
   return { utf16, byte, codePoints };
 }
 
-function projectSourceComponents(conversation: ValidatedConversation, coveredRows: readonly AgentMessage[]): readonly RefineSourceComponent[] {
-  const composed = composeContextProjection({ sourceSessionId: conversation.sourceSessionId, effectiveHistory: null, dynamicBlocks: [], uncoveredRows: coveredRows });
+function projectSourceComponents(
+  conversation: ValidatedConversation,
+  coveredRows: readonly AgentMessage[],
+): readonly RefineSourceComponent[] {
+  const composed = composeContextProjection({
+    sourceSessionId: conversation.sourceSessionId,
+    effectiveHistory: null,
+    dynamicBlocks: [],
+    uncoveredRows: coveredRows,
+  });
   return composed.summarizer.flatMap(convertSummarizerItem);
 }
 
 function convertSummarizerItem(item: SummarizerContextItem): readonly RefineSourceComponent[] {
   switch (item.kind) {
-    case 'inherited_summary': throw new Error('Covered source projection cannot contain inherited history.');
-    case 'message': return [{ identity: item.sourceId, kind: `message:${item.semantic}`, role: item.role, content: item.content }];
+    case 'inherited_summary':
+      throw new Error('Covered source projection cannot contain inherited history.');
+    case 'message':
+      return [
+        {
+          identity: item.sourceId,
+          kind: `message:${item.semantic}`,
+          role: item.role,
+          content: item.content,
+        },
+      ];
     case 'settled_tool_bundle': {
       const identity = `${item.identity.source_input_id}:${item.identity.tool_call_id}`;
       return [
-        { identity: `${identity}:arguments`, kind: `tool_arguments:${item.toolName}`, role: 'assistant', content: item.callArguments },
-        { identity: `${identity}:result`, kind: `tool_result:${item.toolName}`, role: 'user', content: item.resultContent },
+        {
+          identity: `${identity}:arguments`,
+          kind: `tool_arguments:${item.toolName}`,
+          role: 'assistant',
+          content: item.callArguments,
+        },
+        {
+          identity: `${identity}:result`,
+          kind: `tool_result:${item.toolName}`,
+          role: 'user',
+          content: item.resultContent,
+        },
       ];
     }
-    case 'evidence': return [{ identity: item.sourceId, kind: `evidence:${item.evidence.kind}`, role: 'user', content: canonicalJson(item.evidence) }];
+    case 'evidence':
+      return [
+        {
+          identity: item.sourceId,
+          kind: `evidence:${item.evidence.kind}`,
+          role: 'user',
+          content: canonicalJson(item.evidence),
+        },
+      ];
   }
 }
 
@@ -431,27 +628,41 @@ function supersededSlotComponents(args: {
   sourceSessionId: ConversationSessionId;
   includeRecovery: boolean;
   includeRefusal: boolean;
-}): Readonly<{ components: readonly RefineSourceComponent[]; recovery: boolean; refusal: boolean }> {
+}): Readonly<{
+  components: readonly RefineSourceComponent[];
+  recovery: boolean;
+  refusal: boolean;
+}> {
   const facts = args.inheritedHistory?.requiredModelFacts;
   if (!facts) return { components: [], recovery: false, refusal: false };
   const components: RefineSourceComponent[] = [];
-  const recovery = args.includeRecovery && facts.latestRecovery !== null && args.incrementRows.some((row) => row.kind === 'model_recovered');
-  if (recovery && facts.latestRecovery) components.push({
-    identity: facts.latestRecovery.sourceMessageId,
-    kind: 'superseded_recovery_notice',
-    role: 'system',
-    content: `An earlier runtime interruption of activation ${facts.latestRecovery.activationInputId} was recovered before this history; its recovery notice read exactly: ${MODEL_RECOVERY_NOTICE_TEXT}`,
-  });
-  const refusal = args.includeRefusal && facts.latestContentPolicyRefusal !== null && args.incrementRows.some((row) => row.kind === 'content_policy_refusal');
-  if (refusal && facts.latestContentPolicyRefusal) components.push({
-    identity: facts.latestContentPolicyRefusal.markerId,
-    kind: 'superseded_refusal_notice',
-    role: 'user',
-    content: `An earlier activation ${facts.latestContentPolicyRefusal.activationInputId} ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(args.sourceSessionId, facts.latestContentPolicyRefusal.markerId)}`,
-  });
+  const recovery =
+    args.includeRecovery &&
+    facts.latestRecovery !== null &&
+    args.incrementRows.some((row) => row.kind === 'model_recovered');
+  if (recovery && facts.latestRecovery)
+    components.push({
+      identity: facts.latestRecovery.sourceMessageId,
+      kind: 'superseded_recovery_notice',
+      role: 'system',
+      content: `An earlier runtime interruption of activation ${facts.latestRecovery.activationInputId} was recovered before this history; its recovery notice read exactly: ${MODEL_RECOVERY_NOTICE_TEXT}`,
+    });
+  const refusal =
+    args.includeRefusal &&
+    facts.latestContentPolicyRefusal !== null &&
+    args.incrementRows.some((row) => row.kind === 'content_policy_refusal');
+  if (refusal && facts.latestContentPolicyRefusal)
+    components.push({
+      identity: facts.latestContentPolicyRefusal.markerId,
+      kind: 'superseded_refusal_notice',
+      role: 'user',
+      content: `An earlier activation ${facts.latestContentPolicyRefusal.activationInputId} ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(args.sourceSessionId, facts.latestContentPolicyRefusal.markerId)}`,
+    });
   return { components, recovery, refusal };
 }
 
 function failToolOrientation(id: string): never {
-  throw new Error(`Prepared dynamic context block '${id}' cannot use the tool role in a summary request.`);
+  throw new Error(
+    `Prepared dynamic context block '${id}' cannot use the tool role in a summary request.`,
+  );
 }

@@ -11,7 +11,9 @@ export function buildProviderRoutingReadModel(input: {
 }): ProviderRoutingReadModel {
   const providers: Record<string, ProviderRoutingSummary> = {};
   for (const provider of input.registry.getAll()) {
-    const candidates = Array.from(provider.models).flatMap((model) => provider.getCandidatesForModel(model));
+    const candidates = Array.from(provider.models).flatMap((model) =>
+      provider.getCandidatesForModel(model),
+    );
     const availability: ProviderRoutingSummary['availability'] = [];
     let availableCandidateCount = 0;
     for (const candidate of candidates) {
@@ -27,7 +29,12 @@ export function buildProviderRoutingReadModel(input: {
           availability.push({ candidate, state: 'HEALTHY', ...reason });
           break;
         case 'BLOCKED_UNTIL':
-          availability.push({ candidate, state: 'BLOCKED_UNTIL', untilMs: entry.untilMs, ...reason });
+          availability.push({
+            candidate,
+            state: 'BLOCKED_UNTIL',
+            untilMs: entry.untilMs,
+            ...reason,
+          });
           break;
         case 'COOLING':
           availability.push({ candidate, state: 'COOLING', untilMs: entry.untilMs, ...reason });
@@ -39,7 +46,12 @@ export function buildProviderRoutingReadModel(input: {
       models: Array.from(provider.models),
       candidateCount: candidates.length,
       availableCandidateCount,
-      capabilitiesByModel: Object.fromEntries(Array.from(provider.models).map((model) => [model, provider.getEffectiveCapabilities(model, null)])),
+      capabilitiesByModel: Object.fromEntries(
+        Array.from(provider.models).map((model) => [
+          model,
+          provider.getEffectiveCapabilities(model, null),
+        ]),
+      ),
       availability,
     };
   }

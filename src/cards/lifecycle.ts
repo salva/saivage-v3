@@ -1,4 +1,13 @@
-import { cardNotificationSchema, valuesEqual, type CardNotification, type CardRecord, type CardStatus, type CardTypeName, type CreatedBy, type Urgency } from '../schemas/index.js';
+import {
+  cardNotificationSchema,
+  valuesEqual,
+  type CardNotification,
+  type CardRecord,
+  type CardStatus,
+  type CardTypeName,
+  type CreatedBy,
+  type Urgency,
+} from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { acceptsCardNotifications } from './card-status.js';
 
@@ -17,7 +26,9 @@ export type CardEditPatch = Partial<Pick<CardRecord, 'title' | 'priority' | 'urg
 export type SetStatusTarget = 'running' | 'changed' | 'cancelled';
 type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
 
-const EDIT_FIELDS = ['title', 'priority', 'urgency'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
+const EDIT_FIELDS = ['title', 'priority', 'urgency'] as const satisfies ReadonlyArray<
+  keyof CardEditPatch
+>;
 const SET_STATUS_SOURCES: Record<SetStatusTarget, readonly CardStatus[]> = {
   running: ['backlog', 'blocked', 'changed'],
   changed: ['blocked', 'done', 'failed'],
@@ -42,7 +53,10 @@ export function buildStoppedLifecycle(): Extract<CardLifecycleState, { status: '
   return { status: 'stopped', result: null, error: null, completed_at: null };
 }
 
-export function buildActivatedStoppedLifecycle(): Extract<CardLifecycleState, { status: 'running' }> {
+export function buildActivatedStoppedLifecycle(): Extract<
+  CardLifecycleState,
+  { status: 'running' }
+> {
   return { status: 'running', result: null, error: null, completed_at: null };
 }
 
@@ -52,28 +66,71 @@ export function summarizeChangedFields(changedFields: readonly string[]): string
 }
 
 export function pruneCardEditPatch(existing: CardRecord, changes: CardEditPatch): CardEditPatch {
-  return Object.fromEntries(EDIT_FIELDS.flatMap((field) => changes[field] !== undefined && !valuesEqual(existing[field], changes[field]) ? [[field, changes[field]]] : [])) as CardEditPatch;
+  return Object.fromEntries(
+    EDIT_FIELDS.flatMap((field) =>
+      changes[field] !== undefined && !valuesEqual(existing[field], changes[field])
+        ? [[field, changes[field]]]
+        : [],
+    ),
+  ) as CardEditPatch;
 }
 
-export function buildEditedCard(existing: CardRecord, changes: CardEditPatch, stamp: string): CardRecord {
-  return { ...existing, ...changes, id: existing.id, created_at: existing.created_at, created_by: existing.created_by, updated_at: stamp, version_seq: existing.version_seq + 1 };
+export function buildEditedCard(
+  existing: CardRecord,
+  changes: CardEditPatch,
+  stamp: string,
+): CardRecord {
+  return {
+    ...existing,
+    ...changes,
+    id: existing.id,
+    created_at: existing.created_at,
+    created_by: existing.created_by,
+    updated_at: stamp,
+    version_seq: existing.version_seq + 1,
+  };
 }
 
-export function collectEditChangedFields(existing: CardRecord, candidate: CardRecord, changes: CardEditPatch): string[] {
-  return EDIT_FIELDS.filter((field) => changes[field] !== undefined && !valuesEqual(existing[field], candidate[field]));
+export function collectEditChangedFields(
+  existing: CardRecord,
+  candidate: CardRecord,
+  changes: CardEditPatch,
+): string[] {
+  return EDIT_FIELDS.filter(
+    (field) => changes[field] !== undefined && !valuesEqual(existing[field], candidate[field]),
+  );
 }
 
-export function enqueueCardNotification(card: CardRecord, notification: CardNotification): CardRecord {
-  if (!acceptsCardNotifications(card.lifecycle.status)) throw new Error(`Cannot queue notification for terminal card '${card.id}' in status '${card.lifecycle.status}'.`);
+export function enqueueCardNotification(
+  card: CardRecord,
+  notification: CardNotification,
+): CardRecord {
+  if (!acceptsCardNotifications(card.lifecycle.status))
+    throw new Error(
+      `Cannot queue notification for terminal card '${card.id}' in status '${card.lifecycle.status}'.`,
+    );
   const parsed = cardNotificationSchema.parse(notification);
-  if (card.pending_notifications.some((candidate) => candidate.id === parsed.id)) throw new Error(`Notification '${parsed.id}' already exists on card '${card.id}'.`);
+  if (card.pending_notifications.some((candidate) => candidate.id === parsed.id))
+    throw new Error(`Notification '${parsed.id}' already exists on card '${card.id}'.`);
   return { ...card, pending_notifications: [...card.pending_notifications, parsed] };
 }
 
-export function removeCardNotifications(card: CardRecord, notificationIds: readonly string[]): CardRecord {
-  if (notificationIds.length === 0) throw new Error('Notification removal requires at least one id.');
+export function removeCardNotifications(
+  card: CardRecord,
+  notificationIds: readonly string[],
+): CardRecord {
+  if (notificationIds.length === 0)
+    throw new Error('Notification removal requires at least one id.');
   const selected = new Set(notificationIds);
-  if (selected.size !== notificationIds.length) throw new Error('Notification removal ids must be unique.');
-  for (const id of selected) if (!card.pending_notifications.some((notification) => notification.id === id)) throw new Error(`Notification '${id}' is not pending on card '${card.id}'.`);
-  return { ...card, pending_notifications: card.pending_notifications.filter((notification) => !selected.has(notification.id)) };
+  if (selected.size !== notificationIds.length)
+    throw new Error('Notification removal ids must be unique.');
+  for (const id of selected)
+    if (!card.pending_notifications.some((notification) => notification.id === id))
+      throw new Error(`Notification '${id}' is not pending on card '${card.id}'.`);
+  return {
+    ...card,
+    pending_notifications: card.pending_notifications.filter(
+      (notification) => !selected.has(notification.id),
+    ),
+  };
 }

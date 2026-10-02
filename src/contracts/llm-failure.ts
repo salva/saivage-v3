@@ -35,7 +35,13 @@ export type LlmTransportFailure =
       supported: string[];
     }
   | { kind: 'input_context_exhausted'; provider: string; message: string; status: number }
-  | { kind: 'content_policy'; provider: string; message: string; status?: number; providerResponse: string }
+  | {
+      kind: 'content_policy';
+      provider: string;
+      message: string;
+      status?: number;
+      providerResponse: string;
+    }
   | { kind: 'output_token_limit_exceeded'; provider: string; message: string; status: number }
   | { kind: 'parse_error'; provider: string; message: string; bodyPreview?: string }
   | { kind: 'cancelled'; provider: string; message: string; reason: 'abort' | 'timeout' }
@@ -70,11 +76,15 @@ export class LlmRequestError extends Error {
 }
 
 export function isPromptPolicyRejection(error: unknown): error is LlmRequestError & {
-  failure: Extract<LlmTransportFailure, { kind: 'provider_protocol_error' }> & { reason: 'prompt_policy_rejection' };
+  failure: Extract<LlmTransportFailure, { kind: 'provider_protocol_error' }> & {
+    reason: 'prompt_policy_rejection';
+  };
 } {
-  return error instanceof LlmRequestError &&
+  return (
+    error instanceof LlmRequestError &&
     error.failure.kind === 'provider_protocol_error' &&
-    error.failure.reason === 'prompt_policy_rejection';
+    error.failure.reason === 'prompt_policy_rejection'
+  );
 }
 
 export function unwrapFailure(err: unknown): LlmTransportFailure {

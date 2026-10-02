@@ -1,18 +1,39 @@
 import type { CardService } from '../cards/store-api.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
-import type { AgentName, CardNotification, CardTypeName, ToolResultPolicyTemplate } from '../schemas/index.js';
+import type {
+  AgentName,
+  CardNotification,
+  CardTypeName,
+  ToolResultPolicyTemplate,
+} from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
 import { getAnalystControlToolBinders } from './analyst-tool-registry.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { globalObservationToolBinders, type GlobalObservationToolContext } from './global-observation-tools.js';
+import {
+  globalObservationToolBinders,
+  type GlobalObservationToolContext,
+} from './global-observation-tools.js';
 import { compileInvocationToolContract } from '../runtime/runtime-api.js';
 import { type CompiledInvocationToolContract } from '../contracts/index.js';
-import { cardVersionToolBinders, type CardVersionProviderContext } from './card-version-provider.js';
-import { cardInspectionToolBinders, type CardInspectionProviderContext } from './card-inspection-provider.js';
+import {
+  cardVersionToolBinders,
+  type CardVersionProviderContext,
+} from './card-version-provider.js';
+import {
+  cardInspectionToolBinders,
+  type CardInspectionProviderContext,
+} from './card-inspection-provider.js';
 import { mcpToolBinders, type McpProviderContext } from './mcp-provider.js';
-import { plannerControlToolBinders, type PlannerControlProviderContext } from './planner-control-provider.js';
-import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext } from './process-provider.js';
+import {
+  plannerControlToolBinders,
+  type PlannerControlProviderContext,
+} from './planner-control-provider.js';
+import {
+  cleanupProcessProvider,
+  processToolBinders,
+  type ProcessProviderContext,
+} from './process-provider.js';
 import { skillToolBinders, type SkillProviderContext } from './skill-provider.js';
 import { webToolBinders, type WebProviderContext } from './web-tools.js';
 import {
@@ -98,33 +119,186 @@ const global = (runtime: RuntimeToolBindingContext): GlobalToolBindingContext =>
   if (runtime.scope !== 'global') throw new Error('Global tool group received card context.');
   return runtime;
 };
-const observation=(runtime:RuntimeToolBindingContext):GlobalObservationToolContext=>{const value=global(runtime);if(!value.observationToolContext)throw new Error(`Agent '${runtime.agentName}' requested a global observation tool without bound observation authority.`);return value.observationToolContext;};
-const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({ projectRoot: runtime.projectRoot, cardId: runtime.cardId, agentName: runtime.agentName, store: runtime.store, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten });
-const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => {
-  if (!runtime.processScope || !runtime.processOwnerId) throw new Error(`Agent '${runtime.agentName}' process tools require a bound process scope.`);
-  return { projectRoot: runtime.projectRoot, processRunner: runtime.processRunner, directScope: runtime.processScope, category: runtime.scope === 'global' ? 'operator_session' : 'runtime_card', ownerId: runtime.processOwnerId, ownerKind: runtime.scope === 'global' ? 'operator' : 'agent', ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) };
+const observation = (runtime: RuntimeToolBindingContext): GlobalObservationToolContext => {
+  const value = global(runtime);
+  if (!value.observationToolContext)
+    throw new Error(
+      `Agent '${runtime.agentName}' requested a global observation tool without bound observation authority.`,
+    );
+  return value.observationToolContext;
 };
-const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({ projectRoot: runtime.projectRoot, agentName: runtime.agentName, store: runtime.store, ...(runtime.scope === 'global' ? { analystToolContext: global(runtime).analystToolContext } : { cardId: runtime.cardId, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten }) });
+const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({
+  projectRoot: runtime.projectRoot,
+  cardId: runtime.cardId,
+  agentName: runtime.agentName,
+  store: runtime.store,
+  notifyCard: runtime.notifyCard,
+  onRecordWritten: runtime.onRecordWritten,
+});
+const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => {
+  if (!runtime.processScope || !runtime.processOwnerId)
+    throw new Error(`Agent '${runtime.agentName}' process tools require a bound process scope.`);
+  return {
+    projectRoot: runtime.projectRoot,
+    processRunner: runtime.processRunner,
+    directScope: runtime.processScope,
+    category: runtime.scope === 'global' ? 'operator_session' : 'runtime_card',
+    ownerId: runtime.processOwnerId,
+    ownerKind: runtime.scope === 'global' ? 'operator' : 'agent',
+    ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}),
+  };
+};
+const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({
+  projectRoot: runtime.projectRoot,
+  agentName: runtime.agentName,
+  store: runtime.store,
+  ...(runtime.scope === 'global'
+    ? { analystToolContext: global(runtime).analystToolContext }
+    : {
+        cardId: runtime.cardId,
+        notifyCard: runtime.notifyCard,
+        onRecordWritten: runtime.onRecordWritten,
+      }),
+});
 
 let defaultGroups: readonly AnyProviderGroup[] | null = null;
 function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
-  { key: 'global:observation', providerName: 'observation', scope: 'global', binders: globalObservationToolBinders, context: observation },
-  { key: 'global:workspace-observation', providerName: 'workspace', scope: 'global', binders: globalWorkspaceObservationToolBinders, context: (runtime) => global(runtime).analystToolContext??observation(runtime) },
-  { key: 'global:analyst-workspace-mutation', providerName: 'workspace-mutation', scope: 'global', binders: analystWorkspaceToolBinders.filter((binder)=>!globalWorkspaceObservationToolBinders.some((shared)=>shared.name===binder.name)), context: (runtime) => {const context=global(runtime).analystToolContext;if(!context)throw new Error(`Agent '${runtime.agentName}' requested an Analyst-only workspace mutation tool.`);return context;} },
-  { key: 'global:analyst', providerName: 'analyst', scope: 'global', binders: getAnalystControlToolBinders(), context: (runtime) => {const context=global(runtime).analystToolContext;if(!context)throw new Error(`Agent '${runtime.agentName}' requested an Analyst-only tool.`);return context;} },
-  { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, submitNotification: value.submitNotification, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes, cardTypeVocabulary: value.cardTypeVocabulary }; } },
-  ...(['global', 'card'] as const).flatMap((scope): AnyProviderGroup[] => [
-    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, cardTypeVocabulary: runtime.cardTypeVocabulary,...(runtime.scope==='global'?{currentProcessPosition:observation(runtime).currentProcessPosition}:{cardId:runtime.cardId}) }) },
-    { key: `${scope}:card-version`, providerName: 'card-version', scope, binders: cardVersionToolBinders, context: (runtime): CardVersionProviderContext => ({ store: runtime.store }) },
-    ...(scope==='card'?[{ key: 'card:workspace', providerName: 'workspace', scope, binders: workspaceToolBinders, context: (runtime:RuntimeToolBindingContext) => workspace(card(runtime)) }]:[]),
-    { key: `${scope}:patch`, providerName: 'patch', scope, binders: scope === 'global' ? analystPatchToolBinders : patchToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
-    { key: `${scope}:process`, providerName: 'process', scope, binders: processToolBinders, context: process, cleanup: cleanupProcessProvider },
-    { key: `${scope}:web`, providerName: 'web', scope, binders: webToolBinders, context: web },
-    { key: `${scope}:skill`, providerName: 'skill', scope, binders: skillToolBinders, context: (runtime): SkillProviderContext => ({ projectRoot: runtime.projectRoot, agentName: runtime.agentName }) },
-    { key: `${scope}:mcp`, providerName: 'mcp', scope, binders: mcpToolBinders, context: (runtime): McpProviderContext => ({ mcpToolInvocation: runtime.mcpToolInvocation }) },
-  ]),
+    {
+      key: 'global:observation',
+      providerName: 'observation',
+      scope: 'global',
+      binders: globalObservationToolBinders,
+      context: observation,
+    },
+    {
+      key: 'global:workspace-observation',
+      providerName: 'workspace',
+      scope: 'global',
+      binders: globalWorkspaceObservationToolBinders,
+      context: (runtime) => global(runtime).analystToolContext ?? observation(runtime),
+    },
+    {
+      key: 'global:analyst-workspace-mutation',
+      providerName: 'workspace-mutation',
+      scope: 'global',
+      binders: analystWorkspaceToolBinders.filter(
+        (binder) =>
+          !globalWorkspaceObservationToolBinders.some((shared) => shared.name === binder.name),
+      ),
+      context: (runtime) => {
+        const context = global(runtime).analystToolContext;
+        if (!context)
+          throw new Error(
+            `Agent '${runtime.agentName}' requested an Analyst-only workspace mutation tool.`,
+          );
+        return context;
+      },
+    },
+    {
+      key: 'global:analyst',
+      providerName: 'analyst',
+      scope: 'global',
+      binders: getAnalystControlToolBinders(),
+      context: (runtime) => {
+        const context = global(runtime).analystToolContext;
+        if (!context)
+          throw new Error(`Agent '${runtime.agentName}' requested an Analyst-only tool.`);
+        return context;
+      },
+    },
+    {
+      key: 'card:planner-control',
+      providerName: 'planner-control',
+      scope: 'card',
+      binders: plannerControlToolBinders,
+      context: (runtime) => {
+        const value = card(runtime);
+        return {
+          agentName: value.agentName,
+          projectRoot: value.projectRoot,
+          parentCardId: value.cardId,
+          sessionId: value.sessionId,
+          store: value.store,
+          parentControl: value.parentControl,
+          submitNotification: value.submitNotification,
+          childCreationTypes: value.childCreationTypes,
+          childActivationTypes: value.childActivationTypes,
+          cardTypeVocabulary: value.cardTypeVocabulary,
+        };
+      },
+    },
+    ...(['global', 'card'] as const).flatMap((scope): AnyProviderGroup[] => [
+      {
+        key: `${scope}:card-inspection`,
+        providerName: 'card-inspection',
+        scope,
+        binders: cardInspectionToolBinders,
+        context: (runtime): CardInspectionProviderContext => ({
+          store: runtime.store,
+          agentName: runtime.agentName,
+          cardTypeVocabulary: runtime.cardTypeVocabulary,
+          ...(runtime.scope === 'global'
+            ? { currentProcessPosition: observation(runtime).currentProcessPosition }
+            : { cardId: runtime.cardId }),
+        }),
+      },
+      {
+        key: `${scope}:card-version`,
+        providerName: 'card-version',
+        scope,
+        binders: cardVersionToolBinders,
+        context: (runtime): CardVersionProviderContext => ({ store: runtime.store }),
+      },
+      ...(scope === 'card'
+        ? [
+            {
+              key: 'card:workspace',
+              providerName: 'workspace',
+              scope,
+              binders: workspaceToolBinders,
+              context: (runtime: RuntimeToolBindingContext) => workspace(card(runtime)),
+            },
+          ]
+        : []),
+      {
+        key: `${scope}:patch`,
+        providerName: 'patch',
+        scope,
+        binders: scope === 'global' ? analystPatchToolBinders : patchToolBinders,
+        context: (runtime) =>
+          scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)),
+      },
+      {
+        key: `${scope}:process`,
+        providerName: 'process',
+        scope,
+        binders: processToolBinders,
+        context: process,
+        cleanup: cleanupProcessProvider,
+      },
+      { key: `${scope}:web`, providerName: 'web', scope, binders: webToolBinders, context: web },
+      {
+        key: `${scope}:skill`,
+        providerName: 'skill',
+        scope,
+        binders: skillToolBinders,
+        context: (runtime): SkillProviderContext => ({
+          projectRoot: runtime.projectRoot,
+          agentName: runtime.agentName,
+        }),
+      },
+      {
+        key: `${scope}:mcp`,
+        providerName: 'mcp',
+        scope,
+        binders: mcpToolBinders,
+        context: (runtime): McpProviderContext => ({
+          mcpToolInvocation: runtime.mcpToolInvocation,
+        }),
+      },
+    ]),
   ];
   defaultGroups = Object.freeze(source.map((group) => Object.freeze(group)));
   return defaultGroups;
@@ -132,43 +306,86 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
 
 class ImmutableCatalogMap<K, V> implements ReadonlyMap<K, V> {
   readonly #values: Map<K, V>;
-  constructor(entries: Iterable<readonly [K, V]>) { this.#values = new Map(entries); Object.freeze(this); }
-  get size(){return this.#values.size;} get(key:K){return this.#values.get(key);} has(key:K){return this.#values.has(key);}
-  entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();}
-  forEach(callbackfn:(value:V,key:K,map:ReadonlyMap<K,V>)=>void,thisArg?:unknown){for(const [key,value] of this.#values)callbackfn.call(thisArg,value,key,this);}
-  [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableCatalogMap';}
+  constructor(entries: Iterable<readonly [K, V]>) {
+    this.#values = new Map(entries);
+    Object.freeze(this);
+  }
+  get size() {
+    return this.#values.size;
+  }
+  get(key: K) {
+    return this.#values.get(key);
+  }
+  has(key: K) {
+    return this.#values.has(key);
+  }
+  entries() {
+    return this.#values.entries();
+  }
+  keys() {
+    return this.#values.keys();
+  }
+  values() {
+    return this.#values.values();
+  }
+  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown) {
+    for (const [key, value] of this.#values) callbackfn.call(thisArg, value, key, this);
+  }
+  [Symbol.iterator]() {
+    return this.#values[Symbol.iterator]();
+  }
+  get [Symbol.toStringTag]() {
+    return 'ImmutableCatalogMap';
+  }
 }
 
-export function buildRuntimeToolCatalog(sourceGroups: readonly AnyProviderGroup[] = runtimeToolGroups()): ReadonlyMap<string, CatalogEntry> {
+export function buildRuntimeToolCatalog(
+  sourceGroups: readonly AnyProviderGroup[] = runtimeToolGroups(),
+): ReadonlyMap<string, CatalogEntry> {
   const catalog = new Map<string, CatalogEntry>();
-  for (const group of sourceGroups) for (const binder of group.binders) {
-    const key = `${group.scope}\u0000${binder.name}`;
-    if (catalog.has(key)) throw new Error(`Duplicate runtime tool catalog entry '${group.scope}/${binder.name}'.`);
-    catalog.set(key, Object.freeze({ group, binder }));
-  }
+  for (const group of sourceGroups)
+    for (const binder of group.binders) {
+      const key = `${group.scope}\u0000${binder.name}`;
+      if (catalog.has(key))
+        throw new Error(`Duplicate runtime tool catalog entry '${group.scope}/${binder.name}'.`);
+      catalog.set(key, Object.freeze({ group, binder }));
+    }
   return new ImmutableCatalogMap(catalog);
 }
 
 let catalog: ReadonlyMap<string, CatalogEntry> | null = null;
-const runtimeToolCatalog = (): ReadonlyMap<string, CatalogEntry> => catalog ??= buildRuntimeToolCatalog();
+const runtimeToolCatalog = (): ReadonlyMap<string, CatalogEntry> =>
+  (catalog ??= buildRuntimeToolCatalog());
 
 export function resolveRuntimeTool(scope: RuntimeToolScope, name: string): CompiledToolReference {
   const entry = runtimeToolCatalog().get(`${scope}\u0000${name}`);
   if (!entry) throw new Error(`unknown tool '${name}' for ${scope} session scope`);
-  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description, resultPolicyTemplate: entry.binder.resultPolicyTemplate });
+  return Object.freeze({
+    scope,
+    name,
+    providerGroupId: entry.group.key,
+    description: entry.binder.description,
+    resultPolicyTemplate: entry.binder.resultPolicyTemplate,
+  });
 }
 
 export function effectiveCardNodeToolReferences(
   references: readonly CompiledToolReference[],
   childCreationTypes: ReadonlySet<CardTypeName>,
 ): readonly CompiledToolReference[] {
-  return Object.freeze(childCreationTypes.size === 0
-    ? references.filter((reference) => reference.name !== 'create_card')
-    : [...references]);
+  return Object.freeze(
+    childCreationTypes.size === 0
+      ? references.filter((reference) => reference.name !== 'create_card')
+      : [...references],
+  );
 }
 
-export function surfaceToolContracts(surface: InvocationSurface): readonly CompiledInvocationToolContract[] {
-  return Array.from(surface.tools.values(), (definition) => compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate));
+export function surfaceToolContracts(
+  surface: InvocationSurface,
+): readonly CompiledInvocationToolContract[] {
+  return Array.from(surface.tools.values(), (definition) =>
+    compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate),
+  );
 }
 
 export class BoundAgentToolSet {
@@ -179,16 +396,22 @@ export class BoundAgentToolSet {
   constructor(references: readonly CompiledToolReference[]) {
     this.references = Object.freeze([...references]);
     this.names = Object.freeze(references.map((reference) => reference.name));
-    this.requiresProcessScope = references.some((reference) => reference.providerGroupId.endsWith(':process'));
+    this.requiresProcessScope = references.some((reference) =>
+      reference.providerGroupId.endsWith(':process'),
+    );
     Object.freeze(this);
   }
 
   bind(runtime: RuntimeToolBindingContext): InvocationSurface {
     const selectedGroups = new Map<string, CatalogEntry[]>();
     for (const reference of this.references) {
-      if (reference.scope !== runtime.scope) throw new Error(`Tool '${reference.name}' cannot bind to ${runtime.scope} scope.`);
+      if (reference.scope !== runtime.scope)
+        throw new Error(`Tool '${reference.name}' cannot bind to ${runtime.scope} scope.`);
       const entry = runtimeToolCatalog().get(`${reference.scope}\u0000${reference.name}`);
-      if (!entry) throw new Error(`Compiled tool '${reference.scope}/${reference.name}' is absent from the runtime catalog.`);
+      if (!entry)
+        throw new Error(
+          `Compiled tool '${reference.scope}/${reference.name}' is absent from the runtime catalog.`,
+        );
       const selected = selectedGroups.get(reference.providerGroupId) ?? [];
       selected.push(entry);
       selectedGroups.set(reference.providerGroupId, selected);
@@ -201,8 +424,22 @@ export class BoundAgentToolSet {
       const context = group.context(runtime);
       const tools = selected.map((entry) => entry.binder.bind(context));
       for (const definition of tools) definitions.set(definition.name, definition);
-      providers.push({ providerName: group.providerName, tools: Object.freeze(tools), ...(group.cleanup ? { cleanup: (reason) => group.cleanup!(context, reason) } : {}) });
+      providers.push({
+        providerName: group.providerName,
+        tools: Object.freeze(tools),
+        ...(group.cleanup ? { cleanup: (reason) => group.cleanup!(context, reason) } : {}),
+      });
     }
-    return { agentName: runtime.agentName, tools: new Map(this.names.map((name) => { const definition=definitions.get(name);if(!definition)throw new Error(`Bound tool '${name}' is missing its definition.`);return [name,definition] as const; })), providers: Object.freeze(providers) };
+    return {
+      agentName: runtime.agentName,
+      tools: new Map(
+        this.names.map((name) => {
+          const definition = definitions.get(name);
+          if (!definition) throw new Error(`Bound tool '${name}' is missing its definition.`);
+          return [name, definition] as const;
+        }),
+      ),
+      providers: Object.freeze(providers),
+    };
   }
 }

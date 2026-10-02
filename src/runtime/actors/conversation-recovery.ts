@@ -7,11 +7,8 @@ import {
 } from '../../schemas/index.js';
 import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
 import { appendUncertainPriorToolResult } from './llm-delivery-log.js';
-import { readConversation, type ConversationFileContext,
-} from '../../persistence/session-api.js';
-import {
-  validateConversation, type ValidatedConversation,
-} from '../../contracts/index.js';
+import { readConversation, type ConversationFileContext } from '../../persistence/session-api.js';
+import { validateConversation, type ValidatedConversation } from '../../contracts/index.js';
 
 type ConversationImplicitState =
   | 'empty'
@@ -35,19 +32,23 @@ const recoveryVisibilityByKind = {
   provider_private: 'ignored',
 } as const satisfies Record<MessageKind, RecoveryVisibility>;
 
-function classifyConversation(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
+function classifyConversation(
+  messages: readonly AgentMessage[],
+  terminalToolNames: ReadonlySet<string>,
   unmatchedToolCall: AgentMessage | null,
 ): ConversationImplicitState {
   const recoveryVisibilities = messages.map((message) => recoveryVisibility(message.kind));
 
-  const recoveryVisible = messages.filter((_message, index) => recoveryVisibilities[index] === 'visible',
+  const recoveryVisible = messages.filter(
+    (_message, index) => recoveryVisibilities[index] === 'visible',
   );
   if (recoveryVisible.length === 0) return 'empty';
 
   if (unmatchedToolCall && recoveryVisible.some((message) => message.id === unmatchedToolCall.id))
     return 'awaiting_tool_result';
 
-  if (lastModelVisibleExchangeIsSettledTerminal(recoveryVisible, terminalToolNames)) return 'settled_terminal';
+  if (lastModelVisibleExchangeIsSettledTerminal(recoveryVisible, terminalToolNames))
+    return 'settled_terminal';
 
   const last = recoveryVisible.at(-1)!;
   if (last.kind === 'text' && last.role === 'assistant') return 'assistant_text_pending';
@@ -55,7 +56,8 @@ function classifyConversation(messages: readonly AgentMessage[], terminalToolNam
 }
 
 function recoveryVisibility(kind: MessageKind): RecoveryVisibility {
-  if (!Object.hasOwn(recoveryVisibilityByKind, kind)) throw new Error(`Unhandled conversation message kind '${String(kind)}'.`);
+  if (!Object.hasOwn(recoveryVisibilityByKind, kind))
+    throw new Error(`Unhandled conversation message kind '${String(kind)}'.`);
   return recoveryVisibilityByKind[kind];
 }
 
@@ -69,8 +71,9 @@ export function stabilizeAgentSession(args: {
   terminalToolNames: ReadonlySet<string>;
 }): AgentSessionStabilization {
   let conversation: ValidatedConversation;
-  try { conversation = readConversation(args.conversations.projectRoot, args.sessionId); }
-  catch (error) {
+  try {
+    conversation = readConversation(args.conversations.projectRoot, args.sessionId);
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     conversation = validateConversation(args.sessionId, []);
   }
@@ -79,63 +82,79 @@ export function stabilizeAgentSession(args: {
   const latestRound = conversation.rounds.at(-1);
   if (!latestRound) {
     validateCallSettlementPairs(conversation, null, false);
-    const state = classifyConversation(sourceRows, args.terminalToolNames,
+    const state = classifyConversation(
+      sourceRows,
+      args.terminalToolNames,
       conversation.unmatchedCall?.message ?? null,
     );
-    if (state !== 'empty' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
+    if (state !== 'empty' && state !== 'settled_terminal')
+      throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
     return { disposition: 'clean', messages };
   }
-  const latestActivationIndex = latestRound.rows.length === 0 ? -1 : sourceRows.findIndex((row) => row.id === latestRound.rows[0]!.id);
-  if (latestRound.rows.length > 0 && latestActivationIndex < 0) throw new Error(`Activation '${latestRound.label}' has no retained source rows.`);
-  const marker = latestRound.activation.source === 'compacted_genesis' ? { inputId: latestRound.activation.input_id } : requireAssociatedActivationMarker(latestRound.activation.message, args.sessionId);
+  const latestActivationIndex =
+    latestRound.rows.length === 0
+      ? -1
+      : sourceRows.findIndex((row) => row.id === latestRound.rows[0]!.id);
+  if (latestRound.rows.length > 0 && latestActivationIndex < 0)
+    throw new Error(`Activation '${latestRound.label}' has no retained source rows.`);
+  const marker =
+    latestRound.activation.source === 'compacted_genesis'
+      ? { inputId: latestRound.activation.input_id }
+      : requireAssociatedActivationMarker(latestRound.activation.message, args.sessionId);
   const activationRows = latestActivationIndex < 0 ? [] : sourceRows.slice(latestActivationIndex);
   const coveredFacts = conversation.effectiveRequiredModelFacts;
-  const coveredRefusal = coveredFacts.latestContentPolicyRefusal?.activationInputId === marker.inputId
-    ? coveredFacts.latestContentPolicyRefusal : null;
-  const coveredRecovery = coveredFacts.latestRecovery?.activationInputId === marker.inputId
-    ? coveredFacts.latestRecovery : null;
+  const coveredRefusal =
+    coveredFacts.latestContentPolicyRefusal?.activationInputId === marker.inputId
+      ? coveredFacts.latestContentPolicyRefusal
+      : null;
+  const coveredRecovery =
+    coveredFacts.latestRecovery?.activationInputId === marker.inputId
+      ? coveredFacts.latestRecovery
+      : null;
   const final = activationRows.at(-1) ?? null;
-  const refusalMarkers = activationRows.filter((message) => message.kind === 'content_policy_refusal',
+  const refusalMarkers = activationRows.filter(
+    (message) => message.kind === 'content_policy_refusal',
   );
-  const activationPhysicalIndex = latestActivationIndex < 0 ? null : physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
+  const activationPhysicalIndex =
+    latestActivationIndex < 0
+      ? null
+      : physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
   if (refusalMarkers.length > 0) {
-    if (refusalMarkers.length !== 1 || final?.kind !== 'content_policy_refusal') throw new Error(`Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`,
+    if (refusalMarkers.length !== 1 || final?.kind !== 'content_policy_refusal')
+      throw new Error(
+        `Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`,
       );
-    validateCallSettlementPairs(
-      conversation, activationPhysicalIndex, false,
-    );
+    validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
     return { disposition: 'clean', messages };
   }
   if (coveredRefusal) {
-    validateCallSettlementPairs(
-      conversation, activationPhysicalIndex, false,
-    );
+    validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
     return { disposition: 'clean', messages };
   }
-  const exactFinalRecovery = final !== null && isExactRecoveryNotice(final, args.sessionId, marker.inputId);
+  const exactFinalRecovery =
+    final !== null && isExactRecoveryNotice(final, args.sessionId, marker.inputId);
   const recoveryRows = activationRows.filter((message) => message.kind === 'model_recovered');
-  if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`,
+  if (recoveryRows.length > 0 && !exactFinalRecovery)
+    throw new Error(
+      `Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`,
     );
   if (exactFinalRecovery) {
-    if (recoveryRows.length !== 1) throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
-    validateCallSettlementPairs(
-      conversation, activationPhysicalIndex, false,
-    );
+    if (recoveryRows.length !== 1)
+      throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
+    validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
     return { disposition: 'clean', messages };
   }
   if (coveredRecovery) {
-    validateCallSettlementPairs(
-      conversation, activationPhysicalIndex, false,
-    );
+    validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
     return { disposition: 'clean', messages };
   }
-  const state = classifyConversation(activationRows, args.terminalToolNames,
+  const state = classifyConversation(
+    activationRows,
+    args.terminalToolNames,
     conversation.unmatchedCall?.message ?? null,
   );
   if (state === 'settled_terminal') {
-    validateCallSettlementPairs(
-      conversation, activationPhysicalIndex, false,
-    );
+    validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
     return { disposition: 'clean', messages };
   }
   const unmatched = validateCallSettlementPairs(conversation, activationPhysicalIndex, true);
@@ -149,15 +168,27 @@ export function stabilizeAgentSession(args: {
   };
 }
 
-function activationMarker(message: AgentMessage,
+function activationMarker(
+  message: AgentMessage,
 ): { agentName: string; cardId: string; inputId: string } | null {
   if (message.kind !== 'activity') return null;
   try {
-    const payload = JSON.parse(message.content) as { event?: unknown; agent_name?: unknown; card_id?: unknown; input_id?: unknown;
+    const payload = JSON.parse(message.content) as {
+      event?: unknown;
+      agent_name?: unknown;
+      card_id?: unknown;
+      input_id?: unknown;
     };
     if (payload.event !== 'activation_open') return null;
-    if (typeof payload.agent_name !== 'string' || typeof payload.card_id !== 'string' || typeof payload.input_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.input_id,
-      )) throw new Error(`Activation marker '${message.id}' has malformed content.`);
+    if (
+      typeof payload.agent_name !== 'string' ||
+      typeof payload.card_id !== 'string' ||
+      typeof payload.input_id !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        payload.input_id,
+      )
+    )
+      throw new Error(`Activation marker '${message.id}' has malformed content.`);
     return { agentName: payload.agent_name, cardId: payload.card_id, inputId: payload.input_id };
   } catch (error) {
     if (message.id.includes(':activation:')) throw error;
@@ -165,41 +196,70 @@ function activationMarker(message: AgentMessage,
   }
 }
 
-function requireAssociatedActivationMarker(message: AgentMessage, sessionId: CardConversationSessionId,
+function requireAssociatedActivationMarker(
+  message: AgentMessage,
+  sessionId: CardConversationSessionId,
 ): { agentName: string; cardId: string; inputId: string } {
   const marker = activationMarker(message);
-  if (!marker) throw new Error(`Latest activation marker for '${sessionId}' is missing or malformed.`);
-  const identity=conversationSessionIdentity(sessionId);
-  if (identity.cardId===null||marker.agentName !== identity.agentName || marker.cardId !== identity.cardId) throw new Error(`Activation marker '${message.id}' does not match session '${sessionId}'.`);
+  if (!marker)
+    throw new Error(`Latest activation marker for '${sessionId}' is missing or malformed.`);
+  const identity = conversationSessionIdentity(sessionId);
+  if (
+    identity.cardId === null ||
+    marker.agentName !== identity.agentName ||
+    marker.cardId !== identity.cardId
+  )
+    throw new Error(`Activation marker '${message.id}' does not match session '${sessionId}'.`);
   return marker;
 }
 
-function physicalIndexForSource(physicalRows: readonly AgentMessage[], source: AgentMessage,
+function physicalIndexForSource(
+  physicalRows: readonly AgentMessage[],
+  source: AgentMessage,
 ): number {
   const index = physicalRows.findIndex((message) => message.id === source.id);
-  if (index < 0) throw new Error(`Canonical activation marker '${source.id}' is missing from physical rows.`);
+  if (index < 0)
+    throw new Error(`Canonical activation marker '${source.id}' is missing from physical rows.`);
   return index;
 }
 
 function validateCallSettlementPairs(
-  conversation: ValidatedConversation, latestActivationIndex: number | null, interrupted: boolean,
+  conversation: ValidatedConversation,
+  latestActivationIndex: number | null,
+  interrupted: boolean,
 ): ValidatedConversation['unmatchedCall'] {
   const call = conversation.unmatchedCall;
   if (!call) return null;
-  if (!interrupted) throw new Error('A cleanly closed or empty role session contains an unmatched tool call.');
-  if (latestActivationIndex === null || call.physicalIndex < latestActivationIndex) throw new Error('Interrupted role session contains an unmatched tool call in an older activation round.',
+  if (!interrupted)
+    throw new Error('A cleanly closed or empty role session contains an unmatched tool call.');
+  if (latestActivationIndex === null || call.physicalIndex < latestActivationIndex)
+    throw new Error(
+      'Interrupted role session contains an unmatched tool call in an older activation round.',
     );
   return call;
 }
 
 function parseResultPayload(message: AgentMessage): { success?: unknown; data?: unknown } {
-  try { return JSON.parse(message.content) as { success?: unknown; data?: unknown }; } catch { throw new Error(`Tool result '${message.id}' has malformed JSON content.`);
+  try {
+    return JSON.parse(message.content) as { success?: unknown; data?: unknown };
+  } catch {
+    throw new Error(`Tool result '${message.id}' has malformed JSON content.`);
   }
 }
 
-function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
+function lastModelVisibleExchangeIsSettledTerminal(
+  messages: readonly AgentMessage[],
+  terminalToolNames: ReadonlySet<string>,
 ): boolean {
-  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal' || message.kind === 'model_recovered',
+  const modelVisible = messages.filter(
+    (message) =>
+      message.kind === 'text' ||
+      message.kind === 'tool_call' ||
+      message.kind === 'tool_result' ||
+      message.kind === 'model_repair' ||
+      message.kind === 'content_policy_retry' ||
+      message.kind === 'content_policy_refusal' ||
+      message.kind === 'model_recovered',
   );
   if (modelVisible.at(-1)?.kind === 'content_policy_refusal') return true;
   const last = modelVisible.at(-1);
@@ -218,12 +278,14 @@ function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessa
 
 function toolCallIdentity(message: AgentMessage) {
   const identity = loggedToolCallIdentity(message);
-  if (!identity) throw new Error(`Validated tool_call message '${message.id}' is missing tool_call_id.`);
+  if (!identity)
+    throw new Error(`Validated tool_call message '${message.id}' is missing tool_call_id.`);
   return identity;
 }
 
 function toolResultIdentity(message: AgentMessage) {
   const identity = loggedToolResultIdentity(message);
-  if (!identity) throw new Error(`Validated tool_result message '${message.id}' is missing tool_call_id.`);
+  if (!identity)
+    throw new Error(`Validated tool_result message '${message.id}' is missing tool_call_id.`);
   return identity;
 }

@@ -35,7 +35,8 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
       updatedAtMs: Date.now(),
     };
     const index = this.indexOf(candidate);
-    if (index < 0) this.entries.push(next); else this.entries[index] = next;
+    if (index < 0) this.entries.push(next);
+    else this.entries[index] = next;
   }
 
   markFailed(candidate: Candidate, decision: AvailabilityDecision): void {
@@ -55,7 +56,8 @@ export class MemoryCandidateAvailability implements CandidateAvailability {
       updatedAtMs: now,
     };
     const index = this.indexOf(candidate);
-    if (index < 0) this.entries.push(next); else this.entries[index] = next;
+    if (index < 0) this.entries.push(next);
+    else this.entries[index] = next;
   }
 
   getEntry(candidate: Candidate): CandidateAvailabilityEntry | undefined {

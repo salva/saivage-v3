@@ -1,7 +1,13 @@
 import type { CardStatus } from '../schemas/index.js';
 
 export function canCreateChildInStatus(status: CardStatus): boolean {
-  return status === 'backlog' || status === 'changed' || status === 'running' || status === 'blocked' || status === 'stopped';
+  return (
+    status === 'backlog' ||
+    status === 'changed' ||
+    status === 'running' ||
+    status === 'blocked' ||
+    status === 'stopped'
+  );
 }
 
 export function canCancelCardStatus(status: CardStatus): boolean {
@@ -9,7 +15,13 @@ export function canCancelCardStatus(status: CardStatus): boolean {
 }
 
 export function acceptsCardNotifications(status: CardStatus): boolean {
-  return status === 'backlog' || status === 'changed' || status === 'running' || status === 'blocked' || status === 'stopped';
+  return (
+    status === 'backlog' ||
+    status === 'changed' ||
+    status === 'running' ||
+    status === 'blocked' ||
+    status === 'stopped'
+  );
 }
 
 export function analystRecordEditEffect(status: CardStatus): 'preserve' | 'reopen' | null {

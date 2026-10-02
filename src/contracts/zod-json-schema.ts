@@ -7,19 +7,31 @@ type JsonSchema =
   | { type: 'boolean'; description?: string }
   | { type: 'null'; description?: string }
   | { type: 'array'; items: JsonSchema; description?: string }
-  | { type: 'object'; properties?: Record<string, JsonSchema>; required?: string[]; additionalProperties?: boolean | JsonSchema; description?: string }
+  | {
+      type: 'object';
+      properties?: Record<string, JsonSchema>;
+      required?: string[];
+      additionalProperties?: boolean | JsonSchema;
+      description?: string;
+    }
   | { const: unknown }
   | { anyOf: JsonSchema[]; description?: string }
   | { description?: string };
 
-function unwrap(schema: z.ZodTypeAny): { node: z.ZodTypeAny; optional: boolean; nullable: boolean } {
+function unwrap(schema: z.ZodTypeAny): {
+  node: z.ZodTypeAny;
+  optional: boolean;
+  nullable: boolean;
+} {
   let node: z.ZodTypeAny = schema;
   let optional = false;
   let nullable = false;
   let stripped = true;
   while (stripped) {
     stripped = false;
-    const def: { typeName?: string; innerType?: z.ZodTypeAny } | undefined = (node as { _def?: { typeName?: string; innerType?: z.ZodTypeAny } })._def;
+    const def: { typeName?: string; innerType?: z.ZodTypeAny } | undefined = (
+      node as { _def?: { typeName?: string; innerType?: z.ZodTypeAny } }
+    )._def;
     if (!def) break;
     if (def.typeName === 'ZodOptional') {
       optional = true;
@@ -55,11 +67,13 @@ function convertNode(schema: z.ZodTypeAny): JsonSchema {
 
   switch (typeName) {
     case 'ZodString': {
-      const checks = (def?.checks as Array<{ kind: string; value?: number; regex?: RegExp }> | undefined) ?? [];
+      const checks =
+        (def?.checks as Array<{ kind: string; value?: number; regex?: RegExp }> | undefined) ?? [];
       const minCheck = checks.find((c) => c.kind === 'min');
-      out = minCheck && typeof minCheck.value === 'number'
-        ? { type: 'string', minLength: minCheck.value }
-        : { type: 'string' };
+      out =
+        minCheck && typeof minCheck.value === 'number'
+          ? { type: 'string', minLength: minCheck.value }
+          : { type: 'string' };
       const regexCheck = checks.find((c) => c.kind === 'regex');
       if (regexCheck?.regex) out.pattern = regexCheck.regex.source;
       break;
@@ -132,10 +146,12 @@ function convertNode(schema: z.ZodTypeAny): JsonSchema {
 
   if (nullable) {
     const nullableOut: JsonSchema = { anyOf: [out, { type: 'null' }] };
-    if (outerDescription ?? node.description) nullableOut.description = outerDescription ?? node.description;
+    if (outerDescription ?? node.description)
+      nullableOut.description = outerDescription ?? node.description;
     return nullableOut;
   }
-  if (outerDescription ?? node.description) (out as { description?: string }).description = outerDescription ?? node.description;
+  if (outerDescription ?? node.description)
+    (out as { description?: string }).description = outerDescription ?? node.description;
   return out;
 }
 

@@ -22,17 +22,56 @@ export function buildMcpServerStatus(input: {
 }): RuntimeMcpServerStatus {
   const { name, config: cfg, handle, override, startedAt, tools } = input;
   if (cfg.disabled) return { name, transport: cfg.transport, status: 'stopped' };
-  if (override?.status === 'error') return { name, transport: cfg.transport, status: 'error', error: override.error, startedAt, tools_count: tools?.length ?? 0 };
-  if (override?.status === 'stopped') return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: 0 };
-  if (!handle) return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: 0 };
+  if (override?.status === 'error')
+    return {
+      name,
+      transport: cfg.transport,
+      status: 'error',
+      error: override.error,
+      startedAt,
+      tools_count: tools?.length ?? 0,
+    };
+  if (override?.status === 'stopped')
+    return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: 0 };
+  if (!handle)
+    return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: 0 };
   if (cfg.transport === 'stdio' && handle.process) {
     const proc = handle.process;
-    if (proc.killed || proc.exitCode !== null) return { name, transport: cfg.transport, status: 'error', pid: proc.pid ?? undefined, error: proc.killed ? 'Process was killed' : `Process exited with code ${proc.exitCode}`, startedAt, tools_count: tools?.length ?? 0 };
-    return { name, transport: cfg.transport, status: 'running', pid: proc.pid ?? undefined, startedAt, tools_count: tools?.length ?? 0 };
+    if (proc.killed || proc.exitCode !== null)
+      return {
+        name,
+        transport: cfg.transport,
+        status: 'error',
+        pid: proc.pid ?? undefined,
+        error: proc.killed ? 'Process was killed' : `Process exited with code ${proc.exitCode}`,
+        startedAt,
+        tools_count: tools?.length ?? 0,
+      };
+    return {
+      name,
+      transport: cfg.transport,
+      status: 'running',
+      pid: proc.pid ?? undefined,
+      startedAt,
+      tools_count: tools?.length ?? 0,
+    };
   }
   if (cfg.transport === 'streamable-http') {
-    if (handle.abortController?.signal.aborted) return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: tools?.length ?? 0 };
-    return { name, transport: cfg.transport, status: 'running', startedAt, tools_count: tools?.length ?? 0 };
+    if (handle.abortController?.signal.aborted)
+      return {
+        name,
+        transport: cfg.transport,
+        status: 'stopped',
+        startedAt,
+        tools_count: tools?.length ?? 0,
+      };
+    return {
+      name,
+      transport: cfg.transport,
+      status: 'running',
+      startedAt,
+      tools_count: tools?.length ?? 0,
+    };
   }
   return { name, transport: cfg.transport, status: 'stopped' };
 }
@@ -49,7 +88,13 @@ export function buildMcpToolsReadModel(input: {
       const stats = input.invocationStats[statsKey] ?? { total: 0, success: 0, error: 0 };
       return { ...td, stats };
     });
-    return { name: status.name, transport: status.transport, status: status.status, toolCount: toolDefs.length, tools: toolList };
+    return {
+      name: status.name,
+      transport: status.transport,
+      status: status.status,
+      toolCount: toolDefs.length,
+      tools: toolList,
+    };
   });
   return { servers: serverDetails };
 }

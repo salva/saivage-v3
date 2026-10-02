@@ -67,7 +67,11 @@ export function registerOperatorContractRoutes(
     ...buildMcpOperatorContractHandlers({
       mcpToolsProvider: options.mcpManager,
     }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, workflows: options.workflows, captureExecutingLlmSnapshots: options.runtimeApplication.captureExecutingLlmSnapshots }),
+    ...buildAgentOperatorContractHandlers({
+      projectRoot,
+      workflows: options.workflows,
+      captureExecutingLlmSnapshots: options.runtimeApplication.captureExecutingLlmSnapshots,
+    }),
     ...buildChatOperatorContractHandlers({
       projectRoot,
       runtimeApplication: options.runtimeApplication,

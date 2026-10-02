@@ -61,8 +61,7 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       'Content-Type': 'application/json',
       Connection: 'close',
     };
-    if (isCopilot)
-      Object.assign(headers, COPILOT_CLIENT_IDENTITY);
+    if (isCopilot) Object.assign(headers, COPILOT_CLIENT_IDENTITY);
     if (transport.apiKey) headers.Authorization = `Bearer ${transport.apiKey}`;
     const request = body as unknown as ChatCompletionRequest;
     return {

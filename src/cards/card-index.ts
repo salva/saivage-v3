@@ -33,5 +33,4 @@ export class CardIndex {
   upsert(card: CardRecord): void {
     this._cards.set(card.id, { ...card });
   }
-
 }

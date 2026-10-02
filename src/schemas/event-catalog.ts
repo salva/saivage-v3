@@ -8,30 +8,36 @@ const eventBaseShape = {
   timestamp: z.string().datetime(),
 };
 
-const runtimeDiagnosticEventSchema = z.object({
-  ...eventBaseShape,
-  kind: z.literal('runtime_diagnostic'),
-  goal_id: cardIdSchema.optional(),
-  card_id: cardIdSchema.optional(),
-  phase: z.string().optional(),
-  error_message: z.string(),
-}).strict();
+const runtimeDiagnosticEventSchema = z
+  .object({
+    ...eventBaseShape,
+    kind: z.literal('runtime_diagnostic'),
+    goal_id: cardIdSchema.optional(),
+    card_id: cardIdSchema.optional(),
+    phase: z.string().optional(),
+    error_message: z.string(),
+  })
+  .strict();
 
-const runtimeActionableErrorEventSchema = z.object({
-  ...eventBaseShape,
-  kind: z.literal('runtime_actionable_error'),
-  actionable_error: actionableErrorEnvelopeSchema,
-}).strict();
+const runtimeActionableErrorEventSchema = z
+  .object({
+    ...eventBaseShape,
+    kind: z.literal('runtime_actionable_error'),
+    actionable_error: actionableErrorEnvelopeSchema,
+  })
+  .strict();
 
-const mcpToolInvocationEventSchema = z.object({
-  ...eventBaseShape,
-  kind: z.literal('mcp_tool_invocation'),
-  server: z.string(),
-  tool: z.string(),
-  success: z.boolean(),
-  duration_ms: z.number().nonnegative(),
-  error: z.string().optional(),
-}).strict();
+const mcpToolInvocationEventSchema = z
+  .object({
+    ...eventBaseShape,
+    kind: z.literal('mcp_tool_invocation'),
+    server: z.string(),
+    tool: z.string(),
+    success: z.boolean(),
+    duration_ms: z.number().nonnegative(),
+    error: z.string().optional(),
+  })
+  .strict();
 
 export const loggedEventSchema = z.discriminatedUnion('kind', [
   runtimeDiagnosticEventSchema,
@@ -66,10 +72,16 @@ export function getEventSeverity(kind: EventKind): SeverityLevel {
 export const errorEventSchema = z.union([
   runtimeDiagnosticEventSchema,
   runtimeActionableErrorEventSchema,
-  mcpToolInvocationEventSchema.refine((event) => !event.success, 'Successful MCP invocations are not error events.'),
+  mcpToolInvocationEventSchema.refine(
+    (event) => !event.success,
+    'Successful MCP invocations are not error events.',
+  ),
 ]);
 
-export type ErrorEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | (McpToolInvocationEvent & { success: false });
+export type ErrorEvent =
+  | RuntimeDiagnosticEvent
+  | RuntimeActionableErrorEvent
+  | (McpToolInvocationEvent & { success: false });
 
 export function isErrorEvent(event: LoggedEvent): event is ErrorEvent {
   return event.kind !== 'mcp_tool_invocation' || !event.success;

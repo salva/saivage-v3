@@ -26,7 +26,9 @@ const SECRET_PATH_FRAGMENTS: readonly string[] = [
 
 class SecretPathError extends Error {
   constructor(path: string) {
-    super(`Access denied: secret-bearing path is off-limits (${path}). Use safer inspection paths that do not touch secrets.`);
+    super(
+      `Access denied: secret-bearing path is off-limits (${path}). Use safer inspection paths that do not touch secrets.`,
+    );
     this.name = 'SecretPathError';
   }
 }
@@ -39,13 +41,15 @@ function hasSecretFragment(normalizedLowerPath: string): boolean {
   return SECRET_PATH_FRAGMENTS.some((fragment) => {
     const lowerFragment = fragment.toLowerCase();
     const bareFragment = lowerFragment.slice(1);
-    return normalizedLowerPath === lowerFragment
-      || normalizedLowerPath === bareFragment
-      || normalizedLowerPath.endsWith(lowerFragment)
-      || normalizedLowerPath.endsWith(`/${bareFragment}`)
-      || normalizedLowerPath.startsWith(`${lowerFragment}/`)
-      || normalizedLowerPath.startsWith(`${bareFragment}/`)
-      || normalizedLowerPath.includes(`${lowerFragment}/`);
+    return (
+      normalizedLowerPath === lowerFragment ||
+      normalizedLowerPath === bareFragment ||
+      normalizedLowerPath.endsWith(lowerFragment) ||
+      normalizedLowerPath.endsWith(`/${bareFragment}`) ||
+      normalizedLowerPath.startsWith(`${lowerFragment}/`) ||
+      normalizedLowerPath.startsWith(`${bareFragment}/`) ||
+      normalizedLowerPath.includes(`${lowerFragment}/`)
+    );
   });
 }
 
@@ -61,7 +65,8 @@ export function looksLikeSecretPath(absolutePath: string): boolean {
 
   if (hasSecretFragment(lower)) return true;
   if (looksLikeSecretBasename(base)) return true;
-  if (/(?:^|\/)\.git\/(?:.*(?:token|auth)(?:[^/]*|\/.*)|objects(?:\/.*)?)$/i.test(lower)) return true;
+  if (/(?:^|\/)\.git\/(?:.*(?:token|auth)(?:[^/]*|\/.*)|objects(?:\/.*)?)$/i.test(lower))
+    return true;
 
   return false;
 }

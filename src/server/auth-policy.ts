@@ -10,11 +10,19 @@ interface AuthPolicyOptions {
 
 type HttpAuthResult =
   | { ok: true; mode: 'disabled' | 'bearer' }
-  | { ok: false; statusCode: 401; reason: 'missing' | 'malformed' | 'invalid' | 'query-token-prohibited' };
+  | {
+      ok: false;
+      statusCode: 401;
+      reason: 'missing' | 'malformed' | 'invalid' | 'query-token-prohibited';
+    };
 
 type WebSocketAuthResult =
   | { ok: true; mode: 'disabled' | 'ticket' }
-  | { ok: false; closeCode: 1008; reason: 'missing' | 'invalid' | 'expired' | 'used' | 'api-token-prohibited' };
+  | {
+      ok: false;
+      closeCode: 1008;
+      reason: 'missing' | 'invalid' | 'expired' | 'used' | 'api-token-prohibited';
+    };
 
 interface IssuedWebSocketTicket {
   ticket: string;
@@ -40,7 +48,9 @@ function safeTokenEquals(actual: string, expected: string): boolean {
   return timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-function parseBearer(authHeader: unknown): { ok: true; token: string } | { ok: false; malformed: boolean } {
+function parseBearer(
+  authHeader: unknown,
+): { ok: true; token: string } | { ok: false; malformed: boolean } {
   if (typeof authHeader !== 'string' || authHeader.trim() === '') {
     return { ok: false, malformed: false };
   }

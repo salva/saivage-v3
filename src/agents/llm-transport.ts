@@ -8,7 +8,12 @@ import {
 } from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
-import { isProfileExpired, readAuthProfiles, replaceAuthProfiles, type AuthProfile } from '../auth/index.js';
+import {
+  isProfileExpired,
+  readAuthProfiles,
+  replaceAuthProfiles,
+  type AuthProfile,
+} from '../auth/index.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -147,9 +152,7 @@ async function refreshOpenAICodexProfile(
     refreshToken:
       typeof data.refresh_token === 'string' ? data.refresh_token : profile.refreshToken,
     expiresAt:
-      typeof data.expires_in === 'number'
-        ? Date.now() + data.expires_in * 1000
-        : profile.expiresAt,
+      typeof data.expires_in === 'number' ? Date.now() + data.expires_in * 1000 : profile.expiresAt,
   };
   commitRefreshedAuthProfile(projectRoot, profileName, refreshed, abortSignal);
   return refreshed;
@@ -196,7 +199,10 @@ async function refreshGitHubCopilotProfile(
   return refreshed;
 }
 
-function refreshServerTransient(provider: 'openai-codex' | 'github-copilot', status: number): LlmRequestError {
+function refreshServerTransient(
+  provider: 'openai-codex' | 'github-copilot',
+  status: number,
+): LlmRequestError {
   return new LlmRequestError({
     kind: 'server_transient',
     provider,

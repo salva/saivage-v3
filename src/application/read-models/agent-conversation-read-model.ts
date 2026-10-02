@@ -21,7 +21,10 @@ export interface FoldedConversation {
 }
 
 export class ConversationSegmentChangedError extends Error {
-  constructor(readonly requestedVersion: number, readonly currentVersion: number) {
+  constructor(
+    readonly requestedVersion: number,
+    readonly currentVersion: number,
+  ) {
     super('Conversation segment changed.');
   }
 }
@@ -79,12 +82,34 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
         covered_through_message_id: genesis.source.covered_through_message_id,
         summary_text: genesis.compaction.summaryText,
         source_kind: genesis.compaction.source.kind,
-        prior_genesis_id: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorGenesisId : null,
-        prior_history_hash: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorHistoryHash : null,
+        prior_genesis_id:
+          genesis.compaction.source.kind === 'prior_genesis_plus_current_rows'
+            ? genesis.compaction.source.priorGenesisId
+            : null,
+        prior_history_hash:
+          genesis.compaction.source.kind === 'prior_genesis_plus_current_rows'
+            ? genesis.compaction.source.priorHistoryHash
+            : null,
         covered_group_count: genesis.compaction.source.groups.length,
         protected_prompts: genesis.compaction.protectedPrompts.map((entry) => {
           const message = projectCanonicalConversationRow(entry.message, projectToolInvocation);
-          return { source: { segment_version: entry.source.segmentVersion, row_index: entry.source.rowIndex }, message: message.context_policy.kind === 'content' && message.context_policy.compaction_key !== undefined ? { ...message, context_policy: { ...message.context_policy, compaction_key: redactTextForOutbound(message.context_policy.compaction_key) } } : message };
+          return {
+            source: {
+              segment_version: entry.source.segmentVersion,
+              row_index: entry.source.rowIndex,
+            },
+            message:
+              message.context_policy.kind === 'content' &&
+              message.context_policy.compaction_key !== undefined
+                ? {
+                    ...message,
+                    context_policy: {
+                      ...message.context_policy,
+                      compaction_key: redactTextForOutbound(message.context_policy.compaction_key),
+                    },
+                  }
+                : message,
+          };
         }),
         dispositions: {
           sha256: genesis.compaction.dispositionCommitment.sha256,
@@ -98,8 +123,10 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
           source_session_id: genesis.compaction.coverageCommitment.sourceSessionId,
           source_version: genesis.compaction.coverageCommitment.sourceVersion,
           covered_through_message_id: genesis.compaction.coverageCommitment.coveredThroughMessageId,
-          covered_source_groups_sha256: genesis.compaction.coverageCommitment.coveredSourceGroupsSha256,
-          accumulated_summary_sha256: genesis.compaction.coverageCommitment.accumulatedSummarySha256,
+          covered_source_groups_sha256:
+            genesis.compaction.coverageCommitment.coveredSourceGroupsSha256,
+          accumulated_summary_sha256:
+            genesis.compaction.coverageCommitment.accumulatedSummarySha256,
           protected_prompts_sha256: genesis.compaction.coverageCommitment.protectedPromptsSha256,
         },
         required_model_facts: genesis.compaction.requiredModelFacts,
@@ -107,12 +134,16 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
       });
 }
 
-export function foldHistoricalConversationRows(rows: readonly AgentMessage[]): readonly AgentMessage[] {
-  return rows.filter((row) => row.kind !== 'provider_private').map((row) => {
-    const clean = { ...row };
-    delete clean.provider_projection;
-    return clean;
-  });
+export function foldHistoricalConversationRows(
+  rows: readonly AgentMessage[],
+): readonly AgentMessage[] {
+  return rows
+    .filter((row) => row.kind !== 'provider_private')
+    .map((row) => {
+      const clean = { ...row };
+      delete clean.provider_projection;
+      return clean;
+    });
 }
 
 function coveredRequiredFactRows(segment: ConversationSegment): readonly AgentMessage[] {

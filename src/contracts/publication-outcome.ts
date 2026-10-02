@@ -15,14 +15,18 @@ export function throwIfPublicationOutcomeUnknown(error: unknown): void {
   if (error instanceof PublicationOutcomeUnknownError) throw error;
 }
 
-const PUBLICATION_FATAL_PREFIX = 'Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.';
+const PUBLICATION_FATAL_PREFIX =
+  'Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.';
 
 export function createApplicationFatalPort(): ApplicationFatalPort {
   return Object.freeze({
     publicationOutcomeUnknown(error: PublicationOutcomeUnknownError): never {
       try {
         const cause = error.cause;
-        const causeSuffix = cause === undefined ? '' : ` Cause: ${cause instanceof Error ? cause.message : String(cause)}`;
+        const causeSuffix =
+          cause === undefined
+            ? ''
+            : ` Cause: ${cause instanceof Error ? cause.message : String(cause)}`;
         const bytes = Buffer.from(`${PUBLICATION_FATAL_PREFIX}${causeSuffix}\n`, 'utf8');
         let offset = 0;
         while (offset < bytes.byteLength) {

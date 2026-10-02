@@ -53,11 +53,11 @@ describe('source-derived named-agent tool inventory', () => {
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).toContain('fixture_tool');
     });
     withFixture([AGENTS, DOC], (root) => {
-      replaceChecked(root, AGENTS, "['create_card', 'edit_card'", "['create_card', 'create_card'");
+      replaceChecked(root, AGENTS, "'edit_card'", "'create_card'");
       expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains duplicates');
     });
     withFixture([AGENTS, DOC], (root) => {
-      replaceChecked(root, AGENTS, "Object.freeze(['create_card', 'edit_card'", "Object.freeze([computedTool, 'edit_card'");
+      replaceChecked(root, AGENTS, "'edit_card'", 'computedTool');
       expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains a non-string entry');
     });
   });
@@ -100,15 +100,15 @@ describe('source-derived Config schema inventory', () => {
 
   it('turns newly reachable objects into missing-row failures and fails closed for unsupported syntax', () => {
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z.object({', 'const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,');
+      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z\n  .object({', 'const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,');
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('missing-config-section');
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z.object({', 'export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.string()),');
+      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z\n  .object({', 'export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.string()),');
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z.object({', 'export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,');
+      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z\n  .object({', 'export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,');
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unable to resolve unresolvedSchema');
     });
   });

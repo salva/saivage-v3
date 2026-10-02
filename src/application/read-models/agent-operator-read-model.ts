@@ -9,8 +9,22 @@ import {
   throwIfPublicationOutcomeUnknown,
   type AgentSessionSummary,
 } from '../../contracts/index.js';
-import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, readConversationCatalog, readHistoricalConversationSegment, listCards, readCard, readCommittedCardArtifactCatalog } from '../../persistence/index.js';
-import { ConversationCursorNotFoundError, ConversationSegmentChangedError, foldConversation, foldHistoricalConversationRows, segmentContext } from './agent-conversation-read-model.js';
+import {
+  ConversationHistoricalVersionNotFoundError,
+  ConversationHistoricalVersionUnavailableError,
+  readConversationCatalog,
+  readHistoricalConversationSegment,
+  listCards,
+  readCard,
+  readCommittedCardArtifactCatalog,
+} from '../../persistence/index.js';
+import {
+  ConversationCursorNotFoundError,
+  ConversationSegmentChangedError,
+  foldConversation,
+  foldHistoricalConversationRows,
+  segmentContext,
+} from './agent-conversation-read-model.js';
 import {
   cardAgentSessionId,
   conversationSessionIdentity,
@@ -24,7 +38,11 @@ import type { ExecutingLlmSnapshot } from '../../runtime/runtime-api.js';
 export class AgentSessionNotFoundError extends Error {}
 export class CardAgentScopeNotFoundError extends Error {}
 export class AgentCurrentStateUnavailableError extends Error {
-  constructor(readonly resource: 'card' | 'conversation', readonly ownerId: string, options?: ErrorOptions) {
+  constructor(
+    readonly resource: 'card' | 'conversation',
+    readonly ownerId: string,
+    options?: ErrorOptions,
+  ) {
     super(`Current ${resource} state for '${ownerId}' is unavailable.`, options);
   }
 }
@@ -33,13 +51,25 @@ export class AgentOperatorReadModelService {
   constructor(
     private readonly projectRoot: string,
     private readonly workflows: CompiledProjectWorkflows,
-    private readonly captureExecutingLlmSnapshots: () => ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>,
+    private readonly captureExecutingLlmSnapshots: () => ReadonlyMap<
+      ConversationSessionId,
+      ExecutingLlmSnapshot
+    >,
   ) {}
 
   listSessions() {
     const snapshots = this.captureExecutingLlmSnapshots();
-    if(this.workflows.selectedGlobalParticipants.get(this.workflows.analyst.name)?.agent!==this.workflows.analyst||this.workflows.analyst.session!=='global')throw new AgentSessionNotFoundError(`Agent session '${globalAgentSessionId(this.workflows.analyst.name)}' not found.`);
-    const candidates: ConversationSessionId[] = [...this.workflows.selectedGlobalParticipants.values()].map(({ agent }) => globalAgentSessionId(agent.name));
+    if (
+      this.workflows.selectedGlobalParticipants.get(this.workflows.analyst.name)?.agent !==
+        this.workflows.analyst ||
+      this.workflows.analyst.session !== 'global'
+    )
+      throw new AgentSessionNotFoundError(
+        `Agent session '${globalAgentSessionId(this.workflows.analyst.name)}' not found.`,
+      );
+    const candidates: ConversationSessionId[] = [
+      ...this.workflows.selectedGlobalParticipants.values(),
+    ].map(({ agent }) => globalAgentSessionId(agent.name));
     for (const card of listCards(this.projectRoot))
       candidates.push(...this.cardCandidates(card.id, card.type));
     if (new Set(candidates).size !== candidates.length)
@@ -71,10 +101,16 @@ export class AgentOperatorReadModelService {
     return AgentDetailResponseSchema.parse({ session: summary });
   }
 
-  getConversation(sessionId: ConversationSessionId, query: { segment_version?: number; since?: string } = {}) {
+  getConversation(
+    sessionId: ConversationSessionId,
+    query: { segment_version?: number; since?: string } = {},
+  ) {
     this.admitSession(sessionId);
     try {
-      const conversation = foldConversation(this.projectRoot, sessionId, { segmentVersion: query.segment_version, since: query.since });
+      const conversation = foldConversation(this.projectRoot, sessionId, {
+        segmentVersion: query.segment_version,
+        since: query.since,
+      });
       return AgentConversationResponseSchema.parse({
         session_id: conversation.sessionId,
         segment_version: conversation.segmentVersion,
@@ -86,21 +122,63 @@ export class AgentOperatorReadModelService {
       throwIfPublicationOutcomeUnknown(error);
       if (error instanceof ConversationHistoricalVersionNotFoundError)
         throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-      if (error instanceof ConversationSegmentChangedError || error instanceof ConversationCursorNotFoundError) throw error;
+      if (
+        error instanceof ConversationSegmentChangedError ||
+        error instanceof ConversationCursorNotFoundError
+      )
+        throw error;
       throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
     }
   }
   admitConversationCatalog(sessionId: ConversationSessionId) {
     const ownership = this.admitSession(sessionId);
-    try { return Object.freeze({ ...readConversationCatalog(this.projectRoot, sessionId), ownership }); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
+    try {
+      return Object.freeze({ ...readConversationCatalog(this.projectRoot, sessionId), ownership });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
       throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
     }
   }
 
-  listConversationVersions(sessionId: ConversationSessionId) { const catalog = this.admitConversationCatalog(sessionId); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.created_at, genesis_kind: entry.genesis.kind, source_version: entry.genesis.kind === 'compacted' ? entry.genesis.source_version : null })); return ConversationVersionListResponseSchema.parse({ session_id: sessionId, versions, total: versions.length }); }
-  getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { throwIfPublicationOutcomeUnknown(error); if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldHistoricalConversationRows(segment.rows) }); }
+  listConversationVersions(sessionId: ConversationSessionId) {
+    const catalog = this.admitConversationCatalog(sessionId);
+    const versions = catalog.versions.map((entry) => ({
+      entry_id: entry.entry_id,
+      version: entry.version,
+      published_at: entry.created_at,
+      genesis_kind: entry.genesis.kind,
+      source_version: entry.genesis.kind === 'compacted' ? entry.genesis.source_version : null,
+    }));
+    return ConversationVersionListResponseSchema.parse({
+      session_id: sessionId,
+      versions,
+      total: versions.length,
+    });
+  }
+  getConversationVersion(sessionId: ConversationSessionId, version: number) {
+    this.admitSession(sessionId);
+    let segment;
+    try {
+      segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version);
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (
+        error instanceof ConversationHistoricalVersionNotFoundError ||
+        error instanceof ConversationHistoricalVersionUnavailableError
+      )
+        throw error;
+      throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
+    }
+    return ConversationVersionContentResponseSchema.parse({
+      session_id: sessionId,
+      version,
+      entry_id: segment.entry.entry_id,
+      published_at: segment.entry.created_at,
+      segment_context: segmentContext(segment.genesis),
+      entries: foldHistoricalConversationRows(segment.rows),
+    });
+  }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {
     const snapshots = this.captureExecutingLlmSnapshots();
@@ -108,10 +186,28 @@ export class AgentOperatorReadModelService {
     const identity = conversationSessionIdentity(sessionId);
     const ownership = catalog.ownership;
     const snapshot = snapshots.get(sessionId);
-    const session = AgentSessionSummarySchema.parse({ id: sessionId, agent_name: identity.agentName, session_scope: identity.cardId === null ? 'global' : 'card', card_id: identity.cardId, started_at: catalog.createdAt, status: snapshot ? 'active' : 'inactive', activity: snapshot ? 'busy' : 'idle', compaction: projectCompaction(snapshot) });
+    const session = AgentSessionSummarySchema.parse({
+      id: sessionId,
+      agent_name: identity.agentName,
+      session_scope: identity.cardId === null ? 'global' : 'card',
+      card_id: identity.cardId,
+      started_at: catalog.createdAt,
+      status: snapshot ? 'active' : 'inactive',
+      activity: snapshot ? 'busy' : 'idle',
+      compaction: projectCompaction(snapshot),
+    });
     if (catalog.currentVersion === null) return { kind: 'empty' as const, ownership, session };
-    try { return { kind: 'populated' as const, ownership, session, conversation: foldConversation(this.projectRoot, sessionId, { lastN }) }; }
-    catch (error) { throwIfPublicationOutcomeUnknown(error); throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
+    try {
+      return {
+        kind: 'populated' as const,
+        ownership,
+        session,
+        conversation: foldConversation(this.projectRoot, sessionId, { lastN }),
+      };
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
+    }
   }
 
   private cardCandidates(
@@ -120,7 +216,13 @@ export class AgentOperatorReadModelService {
   ): ConversationSessionId[] {
     const workflow = this.workflows.cardTypes.get(type);
     if (!workflow) throw new Error(`No compiled workflow for '${type}'.`);
-    const names = [...new Set([...workflow.states.values()].flatMap((state) => state.kind==='node'?[state.agent.name]:[]))].sort();
+    const names = [
+      ...new Set(
+        [...workflow.states.values()].flatMap((state) =>
+          state.kind === 'node' ? [state.agent.name] : [],
+        ),
+      ),
+    ].sort();
     return names.map((name) => cardAgentSessionId(name, cardId));
   }
 
@@ -128,32 +230,62 @@ export class AgentOperatorReadModelService {
     const identity = conversationSessionIdentity(sessionId);
     if (identity.cardId === null) {
       const participant = this.workflows.selectedGlobalParticipants.get(identity.agentName);
-      if (!participant || participant.agent.session !== 'global' || sessionId !== globalAgentSessionId(participant.agent.name)) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
+      if (
+        !participant ||
+        participant.agent.session !== 'global' ||
+        sessionId !== globalAgentSessionId(participant.agent.name)
+      )
+        throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
       return 'active';
     }
     let cardResult;
-    try { cardResult = readCommittedCardArtifactCatalog(this.projectRoot, identity.cardId); }
-    catch (error) { throwIfPublicationOutcomeUnknown(error); throw new AgentCurrentStateUnavailableError('card', identity.cardId, { cause: error }); }
-    if (cardResult.kind === 'card-not-found') throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-    const head=cardResult.value.head;const card = head.kind === 'card-version' ? head.card : head.final_card;
-    const workflow = this.workflows.cardTypes.get(card.type); if (!workflow) throw new Error(`No compiled workflow for '${card.type}'.`);
-    const configured = [...workflow.states.values()].some((state) => state.kind === 'node' && state.agent.session === 'card' && state.agent.name === identity.agentName);
+    try {
+      cardResult = readCommittedCardArtifactCatalog(this.projectRoot, identity.cardId);
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      throw new AgentCurrentStateUnavailableError('card', identity.cardId, { cause: error });
+    }
+    if (cardResult.kind === 'card-not-found')
+      throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
+    const head = cardResult.value.head;
+    const card = head.kind === 'card-version' ? head.card : head.final_card;
+    const workflow = this.workflows.cardTypes.get(card.type);
+    if (!workflow) throw new Error(`No compiled workflow for '${card.type}'.`);
+    const configured = [...workflow.states.values()].some(
+      (state) =>
+        state.kind === 'node' &&
+        state.agent.session === 'card' &&
+        state.agent.name === identity.agentName,
+    );
     if (!configured) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
     return head.kind === 'card-tombstone' ? 'retained_tombstone' : 'active';
   }
 
-  private summaries(candidates: readonly ConversationSessionId[], snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary[] {
+  private summaries(
+    candidates: readonly ConversationSessionId[],
+    snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>,
+  ): AgentSessionSummary[] {
     if (new Set(candidates).size !== candidates.length)
       throw new Error('Agent session candidate identities must be unique.');
     return candidates
-      .flatMap((id) => { const summary = this.summary(id, snapshots); return summary ? [summary] : []; })
+      .flatMap((id) => {
+        const summary = this.summary(id, snapshots);
+        return summary ? [summary] : [];
+      })
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  private catalogSummary(sessionId: ConversationSessionId, snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary | null {
+  private catalogSummary(
+    sessionId: ConversationSessionId,
+    snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>,
+  ): AgentSessionSummary | null {
     let catalog;
-    try { catalog = readConversationCatalog(this.projectRoot, sessionId); }
-    catch (error) { if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
+    try {
+      catalog = readConversationCatalog(this.projectRoot, sessionId);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
+    }
     if (catalog.currentVersion === null) return null;
     const identity = conversationSessionIdentity(sessionId);
     const snapshot = snapshots.get(sessionId);
@@ -169,7 +301,10 @@ export class AgentOperatorReadModelService {
     });
   }
 
-  private summary(sessionId: ConversationSessionId, snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary | null {
+  private summary(
+    sessionId: ConversationSessionId,
+    snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>,
+  ): AgentSessionSummary | null {
     this.admitSession(sessionId);
     return this.catalogSummary(sessionId, snapshots);
   }
@@ -177,5 +312,12 @@ export class AgentOperatorReadModelService {
 
 function projectCompaction(snapshot: ExecutingLlmSnapshot | undefined) {
   const progress = snapshot?.compaction;
-  return progress ? { strategy: progress.strategy, started_at: progress.startedAt, folds_done: progress.foldsDone, fold_in_flight: progress.foldInFlight } : null;
+  return progress
+    ? {
+        strategy: progress.strategy,
+        started_at: progress.startedAt,
+        folds_done: progress.foldsDone,
+        fold_in_flight: progress.foldInFlight,
+      }
+    : null;
 }

@@ -34,4 +34,6 @@ export type ToolInvocationProjectionInput =
       readonly arguments?: never;
     };
 
-export type ToolInvocationProjector = (input: ToolInvocationProjectionInput) => ToolInvocationProjectionInput;
+export type ToolInvocationProjector = (
+  input: ToolInvocationProjectionInput,
+) => ToolInvocationProjectionInput;

@@ -1,9 +1,5 @@
-export {
-  loadProjectSearchIgnore,
-} from './project-search-ignore.js';
-export {
-  looksLikeSecretPath,
-} from './secret-paths.js';
+export { loadProjectSearchIgnore } from './project-search-ignore.js';
+export { looksLikeSecretPath } from './secret-paths.js';
 export {
   hasParentPathSegment,
   isReadBlocked,

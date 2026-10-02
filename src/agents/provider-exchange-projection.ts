@@ -29,26 +29,25 @@ export function projectProviderExchangeForPublication(
     terminal_tool_fired: attempt.terminal_tool_fired,
   };
 
-  const projected = attempt.status === 'ok'
-    ? {
-        ...base,
-        status: 'ok' as const,
-        ...(attempt.finish_reason !== undefined
-          ? { finish_reason: attempt.finish_reason }
-          : {}),
-        ...(attempt.token_usage !== undefined ? { token_usage: attempt.token_usage } : {}),
-        assistant_output_ids: [...context.assistantOutputIds],
-      }
-    : {
-        ...base,
-        status: 'error' as const,
-        terminal_conversation_output_id: context.terminalConversationOutputId,
-        error: {
-          name: attempt.error.name,
-          message: attempt.error.message,
-          ...(attempt.error.status !== undefined ? { status: attempt.error.status } : {}),
-        },
-      };
+  const projected =
+    attempt.status === 'ok'
+      ? {
+          ...base,
+          status: 'ok' as const,
+          ...(attempt.finish_reason !== undefined ? { finish_reason: attempt.finish_reason } : {}),
+          ...(attempt.token_usage !== undefined ? { token_usage: attempt.token_usage } : {}),
+          assistant_output_ids: [...context.assistantOutputIds],
+        }
+      : {
+          ...base,
+          status: 'error' as const,
+          terminal_conversation_output_id: context.terminalConversationOutputId,
+          error: {
+            name: attempt.error.name,
+            message: attempt.error.message,
+            ...(attempt.error.status !== undefined ? { status: attempt.error.status } : {}),
+          },
+        };
 
   const parsed = providerExchangePayloadSchema.parse(projected satisfies ProviderExchangePayload);
   return redactForOutbound({ source: 'provider-exchange', value: parsed });

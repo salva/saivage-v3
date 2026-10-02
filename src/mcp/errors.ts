@@ -31,7 +31,11 @@ export class InvalidArgumentsError extends McpInvokeError {
 
   constructor(serverName: string, toolName: string, data?: unknown) {
     const dataStr = data !== undefined ? `: ${JSON.stringify(data)}` : '';
-    super(`Invalid arguments for tool '${toolName}' on server '${serverName}'${dataStr}`, 'INVALID_ARGUMENTS', 400);
+    super(
+      `Invalid arguments for tool '${toolName}' on server '${serverName}'${dataStr}`,
+      'INVALID_ARGUMENTS',
+      400,
+    );
     this.name = 'InvalidArgumentsError';
     this.data = data;
   }
@@ -39,7 +43,11 @@ export class InvalidArgumentsError extends McpInvokeError {
 
 export class TimeoutError extends McpInvokeError {
   constructor(serverName: string, toolName: string, timeoutMs: number) {
-    super(`Tool '${toolName}' on server '${serverName}' timed out after ${timeoutMs}ms`, 'TIMEOUT', 408);
+    super(
+      `Tool '${toolName}' on server '${serverName}' timed out after ${timeoutMs}ms`,
+      'TIMEOUT',
+      408,
+    );
     this.name = 'TimeoutError';
   }
 }

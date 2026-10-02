@@ -80,7 +80,9 @@ function buildOpenAICodexRequest(
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): Record<string, unknown> {
-  const messages = providerConversation.messages.filter((message) => message.kind !== 'provider_private');
+  const messages = providerConversation.messages.filter(
+    (message) => message.kind !== 'provider_private',
+  );
   const input = codexMessages(messages);
   if (!input.length)
     input.push({
@@ -108,11 +110,11 @@ function codexMessages(messages: ProviderConversationItem[]): CodexMessage[] {
   const out: CodexMessage[] = [];
   for (const message of messages) {
     if (message.kind === 'synthetic_context') {
-      if (message.role === 'assistant') out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
+      if (message.role === 'assistant')
+        out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
       else if (message.role === 'system') out.push({ role: 'system', content: message.content });
       else out.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
-    } else if (message.role === 'system')
-      out.push({ role: 'system', content: message.content });
+    } else if (message.role === 'system') out.push({ role: 'system', content: message.content });
     else if (message.role === 'user')
       out.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
     else if (message.role === 'assistant' && message.kind === 'tool_call') {
@@ -126,7 +128,11 @@ function codexMessages(messages: ProviderConversationItem[]): CodexMessage[] {
     } else if (message.role === 'assistant')
       out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
     else if (message.role === 'tool') {
-      out.push({ type: 'function_call_output', call_id: message.tool_call_id, output: message.content });
+      out.push({
+        type: 'function_call_output',
+        call_id: message.tool_call_id,
+        output: message.content,
+      });
     }
   }
   return out;

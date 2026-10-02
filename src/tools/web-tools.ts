@@ -24,11 +24,25 @@ import {
 } from '../contracts/index.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
-import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
+import {
+  defineToolBinder,
+  executeToolAction,
+  OPERATIONAL_RESULT_POLICY_TEMPLATE,
+  type ToolBinder,
+} from './invocation.js';
+import {
+  authorizeWriteProject,
+  writeProject,
+  type WorkspaceContext,
+} from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, replaceFile } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/tool-api.js';
-import { admitAnalystRecordWebfetch, admitRecordMutation, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/index.js';
+import {
+  admitAnalystRecordWebfetch,
+  admitRecordMutation,
+  prepareAnalystRecordWebfetch,
+  type PreparedFetchedRecord,
+} from '../application/index.js';
 import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 
@@ -48,27 +62,48 @@ export interface WebProviderContext extends WorkspaceContext {
 
 const websearchSchema = websearchInputSchema;
 const webfetchSchema = WebfetchInvocationSchema.extend({
-  max_inline_bytes: describe(z.number().int().optional(), 'Maximum UTF-8 bytes in the redacted text head, also subject to max_bytes and the complete-result limit.'),
+  max_inline_bytes: describe(
+    z.number().int().optional(),
+    'Maximum UTF-8 bytes in the redacted text head, also subject to max_bytes and the complete-result limit.',
+  ),
   save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.'),
 }).strict();
 
 function parseHttpUrl(raw: string): URL {
   const url = new URL(raw);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('URL must use http or https.');
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw new Error('URL must use http or https.');
   if (url.username || url.password) throw new Error('URL credentials are not allowed.');
   return url;
 }
 
 function privateIpv4(address: string): boolean {
   const parts = address.split('.').map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255))
+    return true;
   const [a, b] = parts;
-  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  );
 }
 
 function privateIpv6(address: string): boolean {
   const lower = address.toLowerCase();
-  return lower === '::1' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('::ffff:127.') || lower.startsWith('::ffff:10.') || lower === '::';
+  return (
+    lower === '::1' ||
+    lower.startsWith('fe80:') ||
+    lower.startsWith('fc') ||
+    lower.startsWith('fd') ||
+    lower.startsWith('::ffff:127.') ||
+    lower.startsWith('::ffff:10.') ||
+    lower === '::'
+  );
 }
 
 async function assertPublicHttpTarget(url: URL): Promise<void> {
@@ -77,8 +112,10 @@ async function assertPublicHttpTarget(url: URL): Promise<void> {
   if (records.length === 0) throw new Error('URL host did not resolve.');
   for (const record of records) {
     const family = net.isIP(record.address);
-    if (family === 4 && privateIpv4(record.address)) throw new Error(`Blocked private/internal web target: ${host}.`);
-    if (family === 6 && privateIpv6(record.address)) throw new Error(`Blocked private/internal web target: ${host}.`);
+    if (family === 4 && privateIpv4(record.address))
+      throw new Error(`Blocked private/internal web target: ${host}.`);
+    if (family === 6 && privateIpv6(record.address))
+      throw new Error(`Blocked private/internal web target: ${host}.`);
     if (family === 0) throw new Error(`Unrecognized resolved address for ${host}.`);
   }
 }
@@ -88,24 +125,65 @@ function combinedSignal(signal: AbortSignal): AbortSignal {
 }
 
 function isAbortError(err: unknown, signal: AbortSignal): boolean {
-  return signal.aborted || err === signal.reason || (err instanceof DOMException && err.name === 'AbortError');
+  return (
+    signal.aborted ||
+    err === signal.reason ||
+    (err instanceof DOMException && err.name === 'AbortError')
+  );
 }
 
-interface MetadataFetchResult { kind: 'metadata'; url: URL; response: Response }
-interface ContentFetchResult { kind: 'content'; url: URL; response: Response; body: Uint8Array; exceededMaxBytes: boolean }
+interface MetadataFetchResult {
+  kind: 'metadata';
+  url: URL;
+  response: Response;
+}
+interface ContentFetchResult {
+  kind: 'content';
+  url: URL;
+  response: Response;
+  body: Uint8Array;
+  exceededMaxBytes: boolean;
+}
 type BoundedFetchPolicy =
   | { kind: 'bounded'; maxBytes: number; overflow: 'reject' }
   | { kind: 'bounded'; maxBytes: number; overflow: 'successful-no-save-text'; readMode: ReadMode };
 type FetchBodyPolicy = { kind: 'metadata' } | BoundedFetchPolicy;
 
-async function fetchPublic(url: URL, policy: { kind: 'metadata' }, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult>;
-async function fetchPublic(url: URL, policy: BoundedFetchPolicy, signal: AbortSignal, redirects?: number): Promise<ContentFetchResult>;
-async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult | ContentFetchResult>;
-async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects = 0): Promise<MetadataFetchResult | ContentFetchResult> {
+async function fetchPublic(
+  url: URL,
+  policy: { kind: 'metadata' },
+  signal: AbortSignal,
+  redirects?: number,
+): Promise<MetadataFetchResult>;
+async function fetchPublic(
+  url: URL,
+  policy: BoundedFetchPolicy,
+  signal: AbortSignal,
+  redirects?: number,
+): Promise<ContentFetchResult>;
+async function fetchPublic(
+  url: URL,
+  policy: FetchBodyPolicy,
+  signal: AbortSignal,
+  redirects?: number,
+): Promise<MetadataFetchResult | ContentFetchResult>;
+async function fetchPublic(
+  url: URL,
+  policy: FetchBodyPolicy,
+  signal: AbortSignal,
+  redirects = 0,
+): Promise<MetadataFetchResult | ContentFetchResult> {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects.');
   await assertPublicHttpTarget(url);
-  if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Tool invocation was interrupted.');
-  const response = await fetch(url, { redirect: 'manual', signal: combinedSignal(signal), headers: { 'User-Agent': 'Saivage/0.1 agent-web-tool' } });
+  if (signal.aborted)
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error('Tool invocation was interrupted.');
+  const response = await fetch(url, {
+    redirect: 'manual',
+    signal: combinedSignal(signal),
+    headers: { 'User-Agent': 'Saivage/0.1 agent-web-tool' },
+  });
   if (response.status >= 300 && response.status < 400) {
     await response.body?.cancel();
     const location = response.headers.get('location');
@@ -118,7 +196,8 @@ async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSigna
     return { kind: 'metadata', url, response };
   }
   const reader = response.body?.getReader();
-  if (!reader) return { kind: 'content', url, response, body: new Uint8Array(), exceededMaxBytes: false };
+  if (!reader)
+    return { kind: 'content', url, response, body: new Uint8Array(), exceededMaxBytes: false };
   const chunks: Uint8Array[] = [];
   let total = 0;
   let exceededMaxBytes = false;
@@ -132,7 +211,11 @@ async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSigna
       chunks.push(value);
       continue;
     }
-    if (policy.overflow === 'reject' || !response.ok || !isTextResponse(response, policy.readMode)) {
+    if (
+      policy.overflow === 'reject' ||
+      !response.ok ||
+      !isTextResponse(response, policy.readMode)
+    ) {
       throw new Error(`Response exceeded max_bytes (${policy.maxBytes}).`);
     }
     if (remaining > 0) {
@@ -163,13 +246,16 @@ function headersObject(headers: Headers): Record<string, string> {
 
 function isTextResponse(response: Response, mode: ReadMode): boolean {
   const contentType = response.headers.get('content-type') ?? '';
-  return mode === 'text' || /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType);
+  return (
+    mode === 'text' || /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType)
+  );
 }
 
 function decodeFetchedText(body: Uint8Array, exceededMaxBytes: boolean, maxBytes: number): string {
   const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
   const text = exceededMaxBytes ? decoder.decode(body, { stream: true }) : decoder.decode(body);
-  if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error(`Decoded text exceeded max_bytes (${maxBytes}).`);
+  if (Buffer.byteLength(text, 'utf8') > maxBytes)
+    throw new Error(`Decoded text exceeded max_bytes (${maxBytes}).`);
   return text;
 }
 
@@ -189,7 +275,8 @@ function packWebfetchText(
     fetched_text_utf8_bytes: fetchedTextUtf8Bytes,
     fetch_truncated: fetchTruncated,
   };
-  const resultBytes = (data: unknown): number => Buffer.byteLength(settledSuccessBytes(data), 'utf8');
+  const resultBytes = (data: unknown): number =>
+    Buffer.byteLength(settledSuccessBytes(data), 'utf8');
   const fullEndpointCertified = stable.maxPrefixEnd === stable.text.length;
   if (fullEndpointCertified && redactedTextUtf8Bytes <= inlineCap) {
     const complete = WebfetchTextDataSchema.parse({
@@ -198,9 +285,11 @@ function packWebfetchText(
       head_utf8_bytes: redactedTextUtf8Bytes,
       head_complete: true,
     });
-    if (resultBytes(complete) <= WEBFETCH_TEXT_RESULT_MAX_BYTES) return { data: complete, absoluteStash: null };
+    if (resultBytes(complete) <= WEBFETCH_TEXT_RESULT_MAX_BYTES)
+      return { data: complete, absoluteStash: null };
   }
-  if (redactedTextUtf8Bytes === 0) throw new Error('Webfetch text result exceeded the complete-result byte limit.');
+  if (redactedTextUtf8Bytes === 0)
+    throw new Error('Webfetch text result exceeded the complete-result byte limit.');
 
   const hash = sha256Hex(normalizedText).slice(0, 16);
   const filename = `webfetch-${Date.now()}-${hash}.txt`;
@@ -212,7 +301,8 @@ function packWebfetchText(
     head_complete: false,
     content_url: contentUrl,
   });
-  if (resultBytes(fixed) > WEBFETCH_TEXT_RESULT_MAX_BYTES) throw new Error('Webfetch text result metadata exceeded the complete-result byte limit.');
+  if (resultBytes(fixed) > WEBFETCH_TEXT_RESULT_MAX_BYTES)
+    throw new Error('Webfetch text result metadata exceeded the complete-result byte limit.');
 
   const endpoints: Array<{ end: number; bytes: number }> = [{ end: 0, bytes: 0 }];
   let end = 0;
@@ -221,18 +311,26 @@ function packWebfetchText(
   for (const character of stable.text) {
     end += character.length;
     bytes += Buffer.byteLength(character, 'utf8');
-    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end) spanIndex += 1;
+    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end)
+      spanIndex += 1;
     const span = stable.indivisibleSpans[spanIndex];
     const insideSpan = span !== undefined && span.start < end && end < span.end;
-    if (end <= stable.maxPrefixEnd && bytes <= inlineCap && bytes < redactedTextUtf8Bytes && !insideSpan) endpoints.push({ end, bytes });
+    if (
+      end <= stable.maxPrefixEnd &&
+      bytes <= inlineCap &&
+      bytes < redactedTextUtf8Bytes &&
+      !insideSpan
+    )
+      endpoints.push({ end, bytes });
   }
-  const candidate = (index: number) => WebfetchTextDataSchema.parse({
-    ...base,
-    head: stable.text.slice(0, endpoints[index]!.end),
-    head_utf8_bytes: endpoints[index]!.bytes,
-    head_complete: false,
-    content_url: contentUrl,
-  });
+  const candidate = (index: number) =>
+    WebfetchTextDataSchema.parse({
+      ...base,
+      head: stable.text.slice(0, endpoints[index]!.end),
+      head_utf8_bytes: endpoints[index]!.bytes,
+      head_complete: false,
+      content_url: contentUrl,
+    });
   let low = 0;
   let high = endpoints.length - 1;
   while (low < high) {
@@ -245,10 +343,19 @@ function packWebfetchText(
 }
 
 function stripHtml(value: string): string {
-  return value.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function ddgResults(html: string, base: URL, max: number): Array<{ title: string; url: string; snippet: string }> {
+function ddgResults(
+  html: string,
+  base: URL,
+  max: number,
+): Array<{ title: string; url: string; snippet: string }> {
   const results: Array<{ title: string; url: string; snippet: string }> = [];
   const anchorRe = /<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   for (const match of html.matchAll(anchorRe)) {
@@ -266,15 +373,24 @@ function ddgResults(html: string, base: URL, max: number): Array<{ title: string
   return results;
 }
 
-async function websearchCore(params: { query: string; max_results?: number }, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<ToolActionOutcome> {
+async function websearchCore(
+  params: { query: string; max_results?: number },
+  signal: AbortSignal = new AbortController().signal,
+  wait?: <T>(promise: Promise<T>) => Promise<T>,
+): Promise<ToolActionOutcome> {
   try {
     const query = params.query.trim();
     if (!query) return toolFailed('query is required.');
     const max = Math.min(Math.max(params.max_results ?? 10, 1), MAX_RESULTS);
     const url = parseHttpUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-    const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES, overflow: 'reject' }, signal);
+    const fetchPromise = fetchPublic(
+      url,
+      { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES, overflow: 'reject' },
+      signal,
+    );
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
-    if (!fetched.response.ok) return toolFailed(`Search provider returned HTTP ${fetched.response.status}.`);
+    if (!fetched.response.ok)
+      return toolFailed(`Search provider returned HTTP ${fetched.response.status}.`);
     const html = Buffer.from(fetched.body).toString('utf8');
     return toolSucceeded({ query, results: ddgResults(html, fetched.url, max) });
   } catch (err) {
@@ -283,16 +399,30 @@ async function websearchCore(params: { query: string; max_results?: number }, si
   }
 }
 
-async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<ToolActionOutcome> {
+async function webfetchCore(
+  ctx: WebProviderContext,
+  params: WebfetchInvocation,
+  signal: AbortSignal = new AbortController().signal,
+  wait?: <T>(promise: Promise<T>) => Promise<T>,
+): Promise<ToolActionOutcome> {
   try {
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
-    if (params.metadata_only && params.save_as) return toolFailed('metadata_only cannot be combined with save_as.');
+    if (params.metadata_only && params.save_as)
+      return toolFailed('metadata_only cannot be combined with save_as.');
     if (params.save_as) {
       authorizeWriteProject(ctx, { path: params.save_as });
       if (params.save_as.startsWith('record:///')) {
-        if (!ctx.store || !ctx.cardId) throw new Error('Card record Webfetch requires a bound card store.');
-        const admission = admitRecordMutation(ctx.store, { path: params.save_as, operation: 'write', surface: 'card_agent', agentName: ctx.agentName, cardId: ctx.cardId, requiredTools: ['write', 'webfetch'] });
+        if (!ctx.store || !ctx.cardId)
+          throw new Error('Card record Webfetch requires a bound card store.');
+        const admission = admitRecordMutation(ctx.store, {
+          path: params.save_as,
+          operation: 'write',
+          surface: 'card_agent',
+          agentName: ctx.agentName,
+          cardId: ctx.cardId,
+          requiredTools: ['write', 'webfetch'],
+        });
         if ('kind' in admission) return toolFailed(admission.error, admission.data);
       }
     }
@@ -300,32 +430,74 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
       const fetchPromise = fetchPublic(url, { kind: 'metadata' }, signal);
       const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
       const headers = headersObject(fetched.response.headers);
-      const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
+      const metadata: WebfetchMetadata = {
+        redacted_url: redactUrl(fetched.url.toString()),
+        status: fetched.response.status,
+        headers,
+      };
       return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, metadata_only: true }));
     }
     const mode = params.read_mode ?? 'auto';
-    const fetchPromise = fetchPublic(url, params.save_as
-      ? { kind: 'bounded', maxBytes, overflow: 'reject' }
-      : { kind: 'bounded', maxBytes, overflow: 'successful-no-save-text', readMode: mode }, signal);
+    const fetchPromise = fetchPublic(
+      url,
+      params.save_as
+        ? { kind: 'bounded', maxBytes, overflow: 'reject' }
+        : { kind: 'bounded', maxBytes, overflow: 'successful-no-save-text', readMode: mode },
+      signal,
+    );
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
-    const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
-    if (!fetched.response.ok) return toolFailed(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
+    const metadata: WebfetchMetadata = {
+      redacted_url: redactUrl(fetched.url.toString()),
+      status: fetched.response.status,
+      headers,
+    };
+    if (!fetched.response.ok)
+      return toolFailed(
+        `HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`,
+      );
     const isText = isTextResponse(fetched.response, mode);
-    if (!isText) return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, bytes: fetched.body.byteLength, content: null, binary: true }));
+    if (!isText)
+      return toolSucceeded(
+        WebfetchDataSchema.parse({
+          ...metadata,
+          bytes: fetched.body.byteLength,
+          content: null,
+          binary: true,
+        }),
+      );
     if (params.save_as) {
       const text = Buffer.from(fetched.body).toString('utf8');
       const rawWrite = await writeProject(ctx, { path: params.save_as, content: text });
       if (params.save_as.startsWith('record:///')) {
-        const result = RecordMutationResultSchema.parse(rawWrite); if (result.kind === 'rejected') return toolFailed(result.error, result.data);
-        return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, saved_as: result.data.current_url, write: { kind: 'record', data: result.data }, bytes: Buffer.byteLength(text, 'utf8') }));
+        const result = RecordMutationResultSchema.parse(rawWrite);
+        if (result.kind === 'rejected') return toolFailed(result.error, result.data);
+        return toolSucceeded(
+          WebfetchDataSchema.parse({
+            ...metadata,
+            saved_as: result.data.current_url,
+            write: { kind: 'record', data: result.data },
+            bytes: Buffer.byteLength(text, 'utf8'),
+          }),
+        );
       }
-      if (rawWrite.kind !== 'applied') throw new Error('Filesystem Webfetch save returned a record rejection.');
+      if (rawWrite.kind !== 'applied')
+        throw new Error('Filesystem Webfetch save returned a record rejection.');
       const data = WorkspaceWriteDataSchema.parse(rawWrite.data);
-      return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, saved_as: data.target, write: { kind: 'workspace_file', data }, bytes: Buffer.byteLength(text, 'utf8') }));
+      return toolSucceeded(
+        WebfetchDataSchema.parse({
+          ...metadata,
+          saved_as: data.target,
+          write: { kind: 'workspace_file', data },
+          bytes: Buffer.byteLength(text, 'utf8'),
+        }),
+      );
     }
     const text = decodeFetchedText(fetched.body, fetched.exceededMaxBytes, maxBytes);
-    const inlineCap = Math.min(Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1), maxBytes);
+    const inlineCap = Math.min(
+      Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1),
+      maxBytes,
+    );
     const packed = packWebfetchText(metadata, text, inlineCap, fetched.exceededMaxBytes);
     if (packed.absoluteStash !== null) {
       const absolute = join(ctx.projectRoot, packed.absoluteStash);
@@ -340,51 +512,107 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
   }
 }
 
-async function fetchAnalystRecord(input: { url: string; read_mode?: ReadMode; max_bytes?: number }, signal: AbortSignal): Promise<PreparedFetchedRecord> {
+async function fetchAnalystRecord(
+  input: { url: string; read_mode?: ReadMode; max_bytes?: number },
+  signal: AbortSignal,
+): Promise<PreparedFetchedRecord> {
   const url = parseHttpUrl(input.url);
   const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
   const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes, overflow: 'reject' }, signal);
   const headers = headersObject(fetched.response.headers);
-  const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
-  if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
+  const metadata: WebfetchMetadata = {
+    redacted_url: redactUrl(fetched.url.toString()),
+    status: fetched.response.status,
+    headers,
+  };
+  if (!fetched.response.ok)
+    throw new Error(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
   const contentType = headers['content-type'] ?? '';
   const mode = input.read_mode ?? 'auto';
-  const isText = mode === 'text' || (mode === 'auto' && /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
+  const isText =
+    mode === 'text' ||
+    (mode === 'auto' &&
+      /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
   if (!isText) throw new Error('Analyst brief record webfetch requires a text response.');
   return { content: Buffer.from(fetched.body).toString('utf8'), metadata };
 }
 
 export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Object.freeze([
-      defineToolBinder({
-        name: 'websearch',
-        description: 'Search the public web for documentation and data sources.',
-        resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-        inputSchema: () => websearchSchema,
-        executor: (_ctx, args, signal, invocation) => executeToolAction('none', () => websearchCore(args, signal, invocation?.waits.waitExternal)),
-      }),
-      defineToolBinder({
-        name: 'webfetch',
-        description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
-        resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-        inputSchema: () => webfetchSchema,
-        executor: (ctx, args, signal, invocation) => executeToolAction('none', async () => {
-          const analyst = ctx.analystToolContext;
-          if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
-          const preparedContext: ToolContext = { ...analyst, analystPreparation: { records: analyst.analystMutations!.recordMutations, web: { fetchText: (input) => {
-            const pending = fetchAnalystRecord(input, signal);
-            return invocation ? invocation.waits.waitExternal(pending) : pending;
-          } } } };
-          return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
-            action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: { kind: 'intervention_ready', timing: 'before_pre_network_admission_and_immediate_before_mutation' },
+  defineToolBinder({
+    name: 'websearch',
+    description: 'Search the public web for documentation and data sources.',
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => websearchSchema,
+    executor: (_ctx, args, signal, invocation) =>
+      executeToolAction('none', () => websearchCore(args, signal, invocation?.waits.waitExternal)),
+  }),
+  defineToolBinder({
+    name: 'webfetch',
+    description:
+      'Fetch a public HTTP(S) URL with bounded size and private-network protections. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => webfetchSchema,
+    executor: (ctx, args, signal, invocation) =>
+      executeToolAction('none', async () => {
+        const analyst = ctx.analystToolContext;
+        if (!analyst || !args.save_as?.startsWith('record:///'))
+          return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
+        const preparedContext: ToolContext = {
+          ...analyst,
+          analystPreparation: {
+            records: analyst.analystMutations!.recordMutations,
+            web: {
+              fetchText: (input) => {
+                const pending = fetchAnalystRecord(input, signal);
+                return invocation ? invocation.waits.waitExternal(pending) : pending;
+              },
+            },
+          },
+        };
+        return runAuditedAnalystTool(
+          preparedContext,
+          {
+            url: args.url,
+            read_mode: args.read_mode,
+            max_bytes: args.max_bytes,
+            save_as: args.save_as,
+          },
+          {
+            action: 'record.write',
+            safety_class: 'low',
+            target_kind: 'card',
+            getTargetId: (input) => input.save_as,
+            lifecycle: {
+              kind: 'intervention_ready',
+              timing: 'before_pre_network_admission_and_immediate_before_mutation',
+            },
             admitBeforePrepare: admitAnalystRecordWebfetch,
             prepare: prepareAnalystRecordWebfetch,
             mutate: (prepared, input, mutation) => {
-              const outcome = mutation.services.recordMutations.write(input.save_as, prepared.content, ['write', 'webfetch']);
+              const outcome = mutation.services.recordMutations.write(
+                input.save_as,
+                prepared.content,
+                ['write', 'webfetch'],
+              );
               if (outcome.kind === 'denied' || !outcome.success) return outcome;
-               const result = RecordMutationSuccessSchema.parse({ kind: 'applied', data: outcome.data });
-               return { kind: 'returned', success: true, data: WebfetchDataSchema.parse({ ...prepared.metadata, saved_as: result.data.current_url, write: { kind: 'record', data: result.data }, bytes: Buffer.byteLength(prepared.content, 'utf8') }) };
+              const result = RecordMutationSuccessSchema.parse({
+                kind: 'applied',
+                data: outcome.data,
+              });
+              return {
+                kind: 'returned',
+                success: true,
+                data: WebfetchDataSchema.parse({
+                  ...prepared.metadata,
+                  saved_as: result.data.current_url,
+                  write: { kind: 'record', data: result.data },
+                  bytes: Buffer.byteLength(prepared.content, 'utf8'),
+                }),
+              };
             },
-          }, signal).then((executed) => executed.providerOutcome);
-        }),
+          },
+          signal,
+        ).then((executed) => executed.providerOutcome);
       }),
+  }),
 ]);

@@ -1,6 +1,12 @@
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-api.js';
-import { defineToolBinder, executedToolOutcome, MCP_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
+import {
+  defineToolBinder,
+  executedToolOutcome,
+  MCP_RESULT_POLICY_TEMPLATE,
+  type ToolBinder,
+  type ToolExecutionResult,
+} from './invocation.js';
 import {
   toolFailed,
   toolSucceeded,
@@ -9,7 +15,10 @@ import {
 } from '../contracts/index.js';
 import { certifiedPrefixEndpoints, DISCOVERY_RESPONSE_MAX_BYTES } from './response-packer.js';
 import { canonicalJson } from '../schemas/index.js';
-import { projectDynamicForOutbound, redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
+import {
+  projectDynamicForOutbound,
+  redactTextWithStablePrefixesForOutbound,
+} from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 
 const MCP_ERROR_MAX_BYTES = 512;
@@ -21,16 +30,29 @@ function commonPrefixEnd(left: string, right: string): number {
   return end;
 }
 
-function packMcpSuccess(value: unknown): { result: unknown; result_complete: boolean; result_utf8_bytes: number } {
+function packMcpSuccess(value: unknown): {
+  result: unknown;
+  result_complete: boolean;
+  result_utf8_bytes: number;
+} {
   const projected = projectDynamicForOutbound(value);
   const text = canonicalJson(projected);
   const resultUtf8Bytes = Buffer.byteLength(text, 'utf8');
   const complete = { result: value, result_complete: true, result_utf8_bytes: resultUtf8Bytes };
-  if (Buffer.byteLength(settledSuccessBytes(complete), 'utf8') <= DISCOVERY_RESPONSE_MAX_BYTES) return complete;
+  if (Buffer.byteLength(settledSuccessBytes(complete), 'utf8') <= DISCOVERY_RESPONSE_MAX_BYTES)
+    return complete;
 
   const stable = redactTextWithStablePrefixesForOutbound(text);
-  const endpoints = certifiedPrefixEndpoints(stable, commonPrefixEnd(text, stable.text), DISCOVERY_RESPONSE_MAX_BYTES);
-  const candidate = (index: number) => ({ result: text.slice(0, endpoints[index]!), result_complete: false, result_utf8_bytes: resultUtf8Bytes });
+  const endpoints = certifiedPrefixEndpoints(
+    stable,
+    commonPrefixEnd(text, stable.text),
+    DISCOVERY_RESPONSE_MAX_BYTES,
+  );
+  const candidate = (index: number) => ({
+    result: text.slice(0, endpoints[index]!),
+    result_complete: false,
+    result_utf8_bytes: resultUtf8Bytes,
+  });
   if (Buffer.byteLength(settledSuccessBytes(candidate(0)), 'utf8') > DISCOVERY_RESPONSE_MAX_BYTES) {
     throw new Error('MCP result metadata exceeded the complete-result byte limit.');
   }
@@ -38,7 +60,11 @@ function packMcpSuccess(value: unknown): { result: unknown; result_complete: boo
   let high = endpoints.length - 1;
   while (low < high) {
     const middle = low + Math.ceil((high - low) / 2);
-    if (Buffer.byteLength(settledSuccessBytes(candidate(middle)), 'utf8') <= DISCOVERY_RESPONSE_MAX_BYTES) low = middle;
+    if (
+      Buffer.byteLength(settledSuccessBytes(candidate(middle)), 'utf8') <=
+      DISCOVERY_RESPONSE_MAX_BYTES
+    )
+      low = middle;
     else high = middle - 1;
   }
   return candidate(low);
@@ -57,17 +83,25 @@ export interface McpProviderContext {
 export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Object.freeze([
   defineToolBinder({
     name: 'mcp_tool_call',
-    description: 'Call an MCP tool on a configured MCP server. Success data is {result,result_complete,result_utf8_bytes} within a fixed 32,768-byte complete settled envelope. result_utf8_bytes counts the complete outbound-projected canonical JSON source. An incomplete result is a lossy, projection-stable exact UTF-8 prefix of that source, may be shorter or empty, and has no continuation or artifact.',
+    description:
+      'Call an MCP tool on a configured MCP server. Success data is {result,result_complete,result_utf8_bytes} within a fixed 32,768-byte complete settled envelope. result_utf8_bytes counts the complete outbound-projected canonical JSON source. An incomplete result is a lossy, projection-stable exact UTF-8 prefix of that source, may be shorter or empty, and has no continuation or artifact.',
     resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
     inputSchema: () => McpToolCallArgumentsSchema,
     executor: async (ctx, args): Promise<ToolExecutionResult<'none'>> => {
       let value: unknown;
       try {
-        value = await ctx.mcpToolInvocation.invokeTool(args.serverName, args.toolName, args.args ?? {});
+        value = await ctx.mcpToolInvocation.invokeTool(
+          args.serverName,
+          args.toolName,
+          args.args ?? {},
+        );
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
         if (error instanceof McpToolInvocationNotInstalledError) throw error;
-        return executedToolOutcome('none', toolFailed(boundedMcpError(error instanceof Error ? error.message : String(error))));
+        return executedToolOutcome(
+          'none',
+          toolFailed(boundedMcpError(error instanceof Error ? error.message : String(error))),
+        );
       }
       return executedToolOutcome('none', toolSucceeded(packMcpSuccess(value)));
     },

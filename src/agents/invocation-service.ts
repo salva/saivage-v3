@@ -1,4 +1,9 @@
-import { sha256Hex, canonicalValueSha256, type AgentName, type ConversationSessionId } from '../schemas/index.js';
+import {
+  sha256Hex,
+  canonicalValueSha256,
+  type AgentName,
+  type ConversationSessionId,
+} from '../schemas/index.js';
 import type { FreshnessEffects } from '../contracts/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import {
@@ -84,7 +89,12 @@ export type InvocationRequest = InvocationRequestBase &
         preparedContext: PreparedInvocationContext;
         modelParams: { temperature: number; maxTokens?: never };
       }
-    | { preparedCompaction?: never; preparedContext?: never; contextUtilizationFraction?: number; modelParams: { temperature: number; maxTokens: number } }
+    | {
+        preparedCompaction?: never;
+        preparedContext?: never;
+        contextUtilizationFraction?: number;
+        modelParams: { temperature: number; maxTokens: number };
+      }
   );
 
 interface InvocationServiceConfig {
@@ -94,7 +104,11 @@ interface InvocationServiceConfig {
   freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 }
 
-type MutableAdmittedRecord = { readonly identity: Candidate; readonly routeIndex: number; state: AdmittedCandidateAttemptState };
+type MutableAdmittedRecord = {
+  readonly identity: Candidate;
+  readonly routeIndex: number;
+  state: AdmittedCandidateAttemptState;
+};
 
 type AdmittedExecutionRun = {
   purpose: 'primary' | 'internal-summary';
@@ -130,12 +144,17 @@ export class InvocationService {
   }
 
   preparePrimaryRequestAdmission(request: InvocationRequest): OrdinaryPrimaryRequestAdmission {
-    if (request.routePass.kind !== 'ordinary') throw new Error('Ordinary primary-request admission requires an ordinary route pass.');
+    if (request.routePass.kind !== 'ordinary')
+      throw new Error('Ordinary primary-request admission requires an ordinary route pass.');
     assertProviderConversationSourceRows(request.providerConversation);
     const chain = [...request.routePass.candidateChain];
     for (const [index, candidate] of chain.entries())
-      if (chain.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, candidate)))
-        throw new Error(`Ordinary candidate chain contains a duplicate configured identity: ${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}.`);
+      if (
+        chain.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, candidate))
+      )
+        throw new Error(
+          `Ordinary candidate chain contains a duplicate configured identity: ${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}.`,
+        );
     const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
     const capabilityHash = canonicalValueSha256(capabilityRequest);
     const limits = admissionSizeLimits(request);
@@ -151,27 +170,53 @@ export class InvocationService {
         providerConversation: request.providerConversation,
         options,
       });
-      return admissionVerdict(candidate, capabilityRequest, capabilityHash, capabilities, plan, limits);
+      return admissionVerdict(
+        candidate,
+        capabilityRequest,
+        capabilityHash,
+        capabilities,
+        plan,
+        limits,
+      );
     });
     const bindings = executionBindings(request, capabilityRequest, capabilityHash);
-    const execution: OrdinaryAdmittedExecutionInputs = Object.freeze({ capabilityRequest, options });
-    const admitted = candidates.filter((verdict): verdict is Extract<CandidateLocalAdmission, { kind: 'admitted' }> => verdict.kind === 'admitted');
+    const execution: OrdinaryAdmittedExecutionInputs = Object.freeze({
+      capabilityRequest,
+      options,
+    });
+    const admitted = candidates.filter(
+      (verdict): verdict is Extract<CandidateLocalAdmission, { kind: 'admitted' }> =>
+        verdict.kind === 'admitted',
+    );
     if (admitted.length > 0)
       return Object.freeze({
         kind: 'admitted',
         routePass: request.routePass,
         candidates: Object.freeze(candidates),
-        executionAuthority: ordinaryAdmittedExecutionAuthority(admitted.map((verdict) => verdict.candidate)),
+        executionAuthority: ordinaryAdmittedExecutionAuthority(
+          admitted.map((verdict) => verdict.candidate),
+        ),
         bindings,
         execution,
       });
     if (candidates.some((verdict) => verdict.kind === 'projection_too_large'))
-      return Object.freeze({ kind: 'local_compaction_required', routePass: request.routePass, candidates: Object.freeze(candidates), bindings });
-    return Object.freeze({ kind: 'local_admission_failed', routePass: request.routePass, candidates: Object.freeze(candidates), bindings });
+      return Object.freeze({
+        kind: 'local_compaction_required',
+        routePass: request.routePass,
+        candidates: Object.freeze(candidates),
+        bindings,
+      });
+    return Object.freeze({
+      kind: 'local_admission_failed',
+      routePass: request.routePass,
+      candidates: Object.freeze(candidates),
+      bindings,
+    });
   }
 
   preflightPinnedContentPolicyRequest(request: InvocationRequest): PinnedContentPolicyPreflight {
-    if (request.routePass.kind !== 'pinned-content-policy-retry') throw new Error('Pinned content-policy preflight requires a pinned route pass.');
+    if (request.routePass.kind !== 'pinned-content-policy-retry')
+      throw new Error('Pinned content-policy preflight requires a pinned route pass.');
     assertProviderConversationSourceRows(request.providerConversation);
     const candidate = this.registry.assertCandidate(request.routePass.candidate);
     const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
@@ -188,34 +233,76 @@ export class InvocationService {
       providerConversation: request.providerConversation,
       options,
     });
-    const verdict = admissionVerdict(candidate, capabilityRequest, capabilityHash, capabilities, plan, limits);
+    const verdict = admissionVerdict(
+      candidate,
+      capabilityRequest,
+      capabilityHash,
+      capabilities,
+      plan,
+      limits,
+    );
     if (verdict.kind === 'admitted')
-      return Object.freeze({ kind: 'admitted', plan, candidate, capabilityRequest, inputId: request.inputId, options });
+      return Object.freeze({
+        kind: 'admitted',
+        plan,
+        candidate,
+        capabilityRequest,
+        inputId: request.inputId,
+        options,
+      });
     return Object.freeze({ kind: 'rejected', candidate, verdict });
   }
 
-  async executeAdmittedWithRecovery(admission: OrdinaryAdmittedExecution, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+  async executeAdmittedWithRecovery(
+    admission: OrdinaryAdmittedExecution,
+    signal?: AbortSignal,
+  ): Promise<ProviderTurnCompletion> {
     return this.executeWithRecovery(admission, 'primary', signal);
   }
 
-  async executeSummaryWithRecovery(admission: OrdinaryAdmittedExecution, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
-    if (admission.kind !== 'admitted') throw new AdmissionIntegrityError('Internal-summary execution requires an admitted admission object.');
-    if (admission.candidates.length !== 1 || admission.candidates[0]?.kind !== 'admitted' || admission.executionAuthority.admittedCandidateIdentities.length !== 1)
-      throw new AdmissionIntegrityError('Internal-summary execution requires exactly one admitted candidate.');
+  async executeSummaryWithRecovery(
+    admission: OrdinaryAdmittedExecution,
+    signal?: AbortSignal,
+  ): Promise<ProviderTurnCompletion> {
+    if (admission.kind !== 'admitted')
+      throw new AdmissionIntegrityError(
+        'Internal-summary execution requires an admitted admission object.',
+      );
+    if (
+      admission.candidates.length !== 1 ||
+      admission.candidates[0]?.kind !== 'admitted' ||
+      admission.executionAuthority.admittedCandidateIdentities.length !== 1
+    )
+      throw new AdmissionIntegrityError(
+        'Internal-summary execution requires exactly one admitted candidate.',
+      );
     return this.executeWithRecovery(admission, 'internal-summary', signal);
   }
 
-  private async executeWithRecovery(admission: OrdinaryAdmittedExecution, purpose: 'primary' | 'internal-summary', signal?: AbortSignal): Promise<ProviderTurnCompletion> {
-    if (admission.kind !== 'admitted') throw new AdmissionIntegrityError('Ordinary admitted execution requires an admitted admission object.');
+  private async executeWithRecovery(
+    admission: OrdinaryAdmittedExecution,
+    purpose: 'primary' | 'internal-summary',
+    signal?: AbortSignal,
+  ): Promise<ProviderTurnCompletion> {
+    if (admission.kind !== 'admitted')
+      throw new AdmissionIntegrityError(
+        'Ordinary admitted execution requires an admitted admission object.',
+      );
     const records: MutableAdmittedRecord[] = [];
     const plans = new Map<number, CandidateRequestPlan>();
     for (const [routeIndex, verdict] of admission.candidates.entries()) {
       if (verdict.kind !== 'admitted') continue;
-      records.push({ identity: verdict.candidate, routeIndex, state: { kind: 'untried', attempts: 0 } });
+      records.push({
+        identity: verdict.candidate,
+        routeIndex,
+        state: { kind: 'untried', attempts: 0 },
+      });
       plans.set(routeIndex, verdict.plan);
     }
     if (records.length !== admission.executionAuthority.admittedCandidateIdentities.length)
-      throw new AdmissionIntegrityError('Ordinary admitted records do not match the frozen execution authority membership.');
+      throw new AdmissionIntegrityError(
+        'Ordinary admitted records do not match the frozen execution authority membership.',
+      );
     return this.runAdmittedExecution({
       purpose,
       authority: admission.executionAuthority,
@@ -233,9 +320,15 @@ export class InvocationService {
     });
   }
 
-  prepareAdmittedRecovery(args: { suspension: SuspendedAdmittedExecution; request: InvocationRequest }): AdmittedRecoveryPreparation {
+  prepareAdmittedRecovery(args: {
+    suspension: SuspendedAdmittedExecution;
+    request: InvocationRequest;
+  }): AdmittedRecoveryPreparation {
     const { suspension, request } = args;
-    if (request.routePass.kind !== 'ordinary') throw new AdmittedRecoveryIntegrityError('Admitted recovery preparation requires an ordinary route pass.');
+    if (request.routePass.kind !== 'ordinary')
+      throw new AdmittedRecoveryIntegrityError(
+        'Admitted recovery preparation requires an ordinary route pass.',
+      );
     assertProviderConversationSourceRows(request.providerConversation);
     verifySuspendedAdmittedExecution(suspension);
     const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
@@ -257,27 +350,45 @@ export class InvocationService {
         providerConversation: request.providerConversation,
         options,
       });
-      const verdict = admissionVerdict(record.identity, capabilityRequest, capabilityHash, capabilities, plan, limits);
+      const verdict = admissionVerdict(
+        record.identity,
+        capabilityRequest,
+        capabilityHash,
+        capabilities,
+        plan,
+        limits,
+      );
       if (record.state.kind === 'context_failed') {
         if (verdict.kind !== 'admitted')
           throw new ProviderTurnFailure({
             failure_phase: 'provider_attempt',
             provider_exchanges: [...suspension.settledProviderAttempts],
-            originalFailure: recoveryTerminalFailure(suspension, `the mandatory context-failed candidate did not re-admit for the compacted projection (verdict=${verdict.kind})`),
+            originalFailure: recoveryTerminalFailure(
+              suspension,
+              `the mandatory context-failed candidate did not re-admit for the compacted projection (verdict=${verdict.kind})`,
+            ),
             candidate: record.identity,
           });
         plans.push({ routeIndex: record.routeIndex, plan });
         continue;
       }
       if (verdict.kind !== 'admitted')
-        throw new AdmittedRecoveryIntegrityError(`Retained admitted candidate at route index ${record.routeIndex} no longer admits against the strictly smaller compacted projection.`);
+        throw new AdmittedRecoveryIntegrityError(
+          `Retained admitted candidate at route index ${record.routeIndex} no longer admits against the strictly smaller compacted projection.`,
+        );
       plans.push({ routeIndex: record.routeIndex, plan });
     }
     return Object.freeze({
       kind: 'recovery_prepared',
       authority: suspension.authority,
       bindings,
-      records: suspension.records.map((record) => Object.freeze({ identity: record.identity, routeIndex: record.routeIndex, state: Object.freeze({ ...record.state }) })),
+      records: suspension.records.map((record) =>
+        Object.freeze({
+          identity: record.identity,
+          routeIndex: record.routeIndex,
+          state: Object.freeze({ ...record.state }),
+        }),
+      ),
       plans: Object.freeze(plans),
       mandatoryFirstIdentity: suspension.contextFailedIdentity,
       settledProviderAttempts: suspension.settledProviderAttempts,
@@ -286,9 +397,19 @@ export class InvocationService {
     });
   }
 
-  async resumeAdmittedExecution(preparation: AdmittedRecoveryPreparation, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
-    if (preparation.kind !== 'recovery_prepared') throw new AdmittedRecoveryIntegrityError('Admitted recovery resume requires a recovery preparation object.');
-    const records: MutableAdmittedRecord[] = preparation.records.map((record) => ({ identity: record.identity, routeIndex: record.routeIndex, state: record.state }));
+  async resumeAdmittedExecution(
+    preparation: AdmittedRecoveryPreparation,
+    signal?: AbortSignal,
+  ): Promise<ProviderTurnCompletion> {
+    if (preparation.kind !== 'recovery_prepared')
+      throw new AdmittedRecoveryIntegrityError(
+        'Admitted recovery resume requires a recovery preparation object.',
+      );
+    const records: MutableAdmittedRecord[] = preparation.records.map((record) => ({
+      identity: record.identity,
+      routeIndex: record.routeIndex,
+      state: record.state,
+    }));
     const plans = new Map(preparation.plans.map((entry) => [entry.routeIndex, entry.plan]));
     return this.runAdmittedExecution({
       purpose: 'primary',
@@ -307,17 +428,31 @@ export class InvocationService {
     });
   }
 
-  async executePinnedContentPolicyRequest(preflight: PinnedAdmittedContentPolicyRequest, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+  async executePinnedContentPolicyRequest(
+    preflight: PinnedAdmittedContentPolicyRequest,
+    signal?: AbortSignal,
+  ): Promise<ProviderTurnCompletion> {
     const candidate = preflight.candidate;
     try {
       throwIfAborted(signal);
-      const completion = await this.executeAdmittedPlan(preflight.plan, { ...preflight.options, signal }, preflight.capabilityRequest);
-      const attempts = indexProviderExchangeAttempts(preflight.inputId, 0, completion.provider_exchanges);
+      const completion = await this.executeAdmittedPlan(
+        preflight.plan,
+        { ...preflight.options, signal },
+        preflight.capabilityRequest,
+      );
+      const attempts = indexProviderExchangeAttempts(
+        preflight.inputId,
+        0,
+        completion.provider_exchanges,
+      );
       return { ...completion, provider_exchanges: attempts };
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       if (error instanceof ProviderTurnFailure) {
-        const attempts = error.failure_phase === 'provider_attempt' ? indexProviderExchangeAttempts(preflight.inputId, 0, error.provider_exchanges) : [];
+        const attempts =
+          error.failure_phase === 'provider_attempt'
+            ? indexProviderExchangeAttempts(preflight.inputId, 0, error.provider_exchanges)
+            : [];
         throw new ProviderTurnFailure({
           failure_phase: attempts.length > 0 ? 'provider_attempt' : 'pre_provider',
           provider_exchanges: attempts,
@@ -342,23 +477,39 @@ export class InvocationService {
     context: ProviderExchangePublicationContext,
   ): void {
     const hasOk = attempts.some((attempt) => attempt.status === 'ok');
-    if (context.terminalConversationOutputId !== null && hasOk) throw new Error('A terminal conversation output id cannot be published with a successful provider attempt.');
-    if (context.assistantOutputIds.length > 0 && !hasOk) throw new Error('Assistant output ids require a successful provider attempt.');
-    const sessionId = purpose === 'primary' ? ownerSessionId : internalCompactionSummarySessionId(ownerSessionId);
+    if (context.terminalConversationOutputId !== null && hasOk)
+      throw new Error(
+        'A terminal conversation output id cannot be published with a successful provider attempt.',
+      );
+    if (context.assistantOutputIds.length > 0 && !hasOk)
+      throw new Error('Assistant output ids require a successful provider attempt.');
+    const sessionId =
+      purpose === 'primary' ? ownerSessionId : internalCompactionSummarySessionId(ownerSessionId);
     for (const attempt of attempts) {
       if (attempt.attempt_index === undefined)
         throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
       if (attempt.source_input_id !== sourceInputId)
-        throw new Error(`Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`);
+        throw new Error(
+          `Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`,
+        );
       const payload = projectProviderExchangeForPublication(
         attempt as ProviderExchangeAttempt & { attempt_index: number },
         attempt.status === 'ok'
           ? { assistantOutputIds: context.assistantOutputIds, terminalConversationOutputId: null }
-          : { assistantOutputIds: [], terminalConversationOutputId: hasOk ? null : context.terminalConversationOutputId },
+          : {
+              assistantOutputIds: [],
+              terminalConversationOutputId: hasOk ? null : context.terminalConversationOutputId,
+            },
       );
       appendProviderExchangeEntry(this.projectRoot, ownerSessionId, {
         type: 'provider_exchange' as const,
-        data: { session_id: sessionId, source_input_id: sourceInputId, attempt_index: attempt.attempt_index, timestamp: attempt.completed_at, payload },
+        data: {
+          session_id: sessionId,
+          source_input_id: sourceInputId,
+          attempt_index: attempt.attempt_index,
+          timestamp: attempt.completed_at,
+          payload,
+        },
       });
       if (purpose === 'primary') this.freshness.llmExchangeChanged(ownerSessionId);
     }
@@ -397,8 +548,13 @@ export class InvocationService {
       this.refreshRecordStates(run.records);
       let record: MutableAdmittedRecord;
       if (run.mandatoryFirst) {
-        const mandatory = run.records.find((entry) => candidatesEqual(entry.identity, run.mandatoryFirst!));
-        if (!mandatory) throw new AdmittedRecoveryIntegrityError('The mandatory context-failed candidate is not part of the retained admission records.');
+        const mandatory = run.records.find((entry) =>
+          candidatesEqual(entry.identity, run.mandatoryFirst!),
+        );
+        if (!mandatory)
+          throw new AdmittedRecoveryIntegrityError(
+            'The mandatory context-failed candidate is not part of the retained admission records.',
+          );
         run.mandatoryFirst = null;
         record = mandatory;
       } else {
@@ -432,18 +588,39 @@ export class InvocationService {
         if (!this.candidateAvailability.isAvailable(record.identity)) {
           const entry = this.candidateAvailability.getEntry(record.identity);
           const attempts = attemptsOf(record.state);
-          if (entry && entry.state !== 'HEALTHY' && entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)) {
-            record.state = { kind: 'temporarily_unavailable', attempts, untilMs: entry.untilMs, reason: entry.reason };
+          if (
+            entry &&
+            entry.state !== 'HEALTHY' &&
+            entry.reason &&
+            WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)
+          ) {
+            record.state = {
+              kind: 'temporarily_unavailable',
+              attempts,
+              untilMs: entry.untilMs,
+              reason: entry.reason,
+            };
           } else {
-            record.state = { kind: 'exhausted', attempts, lastFailure: lastFailureOf(record.state) };
+            record.state = {
+              kind: 'exhausted',
+              attempts,
+              lastFailure: lastFailureOf(record.state),
+            };
           }
           continue;
         }
       }
       const plan = run.plans.get(record.routeIndex);
-      if (!plan) throw new AdmittedRecoveryIntegrityError(`No admitted plan is retained for route index ${record.routeIndex}.`);
+      if (!plan)
+        throw new AdmittedRecoveryIntegrityError(
+          `No admitted plan is retained for route index ${record.routeIndex}.`,
+        );
       try {
-        const result = await this.executeAdmittedPlan(plan, { ...run.execution.options, signal }, run.execution.capabilityRequest);
+        const result = await this.executeAdmittedPlan(
+          plan,
+          { ...run.execution.options, signal },
+          run.execution.capabilityRequest,
+        );
         run.settled.push(
           ...indexProviderExchangeAttempts(
             run.bindings.inputId,
@@ -464,10 +641,15 @@ export class InvocationService {
     }
   }
 
-  private handleAdmittedAttemptFailure(run: AdmittedExecutionRun, record: MutableAdmittedRecord, err: unknown): unknown {
+  private handleAdmittedAttemptFailure(
+    run: AdmittedExecutionRun,
+    record: MutableAdmittedRecord,
+    err: unknown,
+  ): unknown {
     const signal = run.signal;
     throwIfPublicationOutcomeUnknown(err);
-    if (err instanceof CandidateRequestPlanIntegrityError || err instanceof AdmissionIntegrityError) return err;
+    if (err instanceof CandidateRequestPlanIntegrityError || err instanceof AdmissionIntegrityError)
+      return err;
     if (isAbortFromSignal(err, signal)) return err;
     const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
     if (isAbortFromSignal(originalFailure, signal)) return originalFailure;
@@ -513,7 +695,15 @@ export class InvocationService {
         turnFailure,
         Object.freeze({
           authority: run.authority,
-          records: Object.freeze(run.records.map((entry) => Object.freeze({ identity: entry.identity, routeIndex: entry.routeIndex, state: Object.freeze({ ...entry.state }) }))),
+          records: Object.freeze(
+            run.records.map((entry) =>
+              Object.freeze({
+                identity: entry.identity,
+                routeIndex: entry.routeIndex,
+                state: Object.freeze({ ...entry.state }),
+              }),
+            ),
+          ),
           contextFailedIdentity: record.identity,
           settledProviderAttempts: Object.freeze([...run.settled]),
           deadlineMs: run.deadlineMs,
@@ -548,9 +738,21 @@ export class InvocationService {
       return null;
     }
     if (decision.wait === 'rate-limit') {
-      record.state = { kind: 'retry_waiting', wait: 'rate_limit', attempts, untilMs: decision.availability.untilMs, lastFailure: originalFailure };
+      record.state = {
+        kind: 'retry_waiting',
+        wait: 'rate_limit',
+        attempts,
+        untilMs: decision.availability.untilMs,
+        lastFailure: originalFailure,
+      };
     } else {
-      record.state = { kind: 'retry_waiting', wait: 'standard', attempts, untilMs: Date.now() + decision.retryDelayMs, lastFailure: originalFailure };
+      record.state = {
+        kind: 'retry_waiting',
+        wait: 'standard',
+        attempts,
+        untilMs: Date.now() + decision.retryDelayMs,
+        lastFailure: originalFailure,
+      };
     }
     return null;
   }
@@ -565,20 +767,31 @@ export class InvocationService {
     | { kind: 'none' } {
     const now = Date.now();
     const untried = records.find(
-      (record) => record.state.kind === 'untried' && this.candidateAvailability.isAvailable(record.identity),
+      (record) =>
+        record.state.kind === 'untried' && this.candidateAvailability.isAvailable(record.identity),
     );
-    const standardWaiting = records.find((record) => record.state.kind === 'retry_waiting' && record.state.wait === 'standard');
+    const standardWaiting = records.find(
+      (record) => record.state.kind === 'retry_waiting' && record.state.wait === 'standard',
+    );
     if (standardWaiting && standardWaiting.state.kind === 'retry_waiting') {
       if (untried) return { kind: 'attempt', record: untried };
       return waitUntil(standardWaiting.state.untilMs, now, deadlineMs);
     }
-    const standardReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'standard');
+    const standardReady = records.find(
+      (record) => record.state.kind === 'retry_ready' && record.state.wait === 'standard',
+    );
     if (standardReady) return { kind: 'attempt', record: standardReady };
     if (untried) return { kind: 'attempt', record: untried };
-    const rateReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'rate_limit');
+    const rateReady = records.find(
+      (record) => record.state.kind === 'retry_ready' && record.state.wait === 'rate_limit',
+    );
     if (rateReady) return { kind: 'attempt', record: rateReady };
     const rateWaiting = records
-      .map((record) => (record.state.kind === 'retry_waiting' && record.state.wait === 'rate_limit' ? record.state.untilMs : undefined))
+      .map((record) =>
+        record.state.kind === 'retry_waiting' && record.state.wait === 'rate_limit'
+          ? record.state.untilMs
+          : undefined,
+      )
       .filter((untilMs): untilMs is number => untilMs !== undefined)
       .sort((a, b) => a - b)[0];
     if (rateWaiting !== undefined) return waitUntil(rateWaiting, now, deadlineMs);
@@ -597,12 +810,28 @@ export class InvocationService {
     for (const record of records) {
       const state = record.state;
       if (state.kind === 'retry_waiting' && state.untilMs <= now)
-        record.state = { kind: 'retry_ready', wait: state.wait, attempts: state.attempts, lastFailure: state.lastFailure };
+        record.state = {
+          kind: 'retry_ready',
+          wait: state.wait,
+          attempts: state.attempts,
+          lastFailure: state.lastFailure,
+        };
       else if (state.kind === 'temporarily_unavailable') {
         const entry = this.candidateAvailability.getEntry(record.identity);
         if (!entry || entry.state === 'HEALTHY' || now >= entry.untilMs)
-          record.state = { kind: 'retry_ready', wait: 'standard', attempts: state.attempts, lastFailure: undefined };
-        else record.state = { kind: 'temporarily_unavailable', attempts: state.attempts, untilMs: entry.untilMs, reason: entry.reason };
+          record.state = {
+            kind: 'retry_ready',
+            wait: 'standard',
+            attempts: state.attempts,
+            lastFailure: undefined,
+          };
+        else
+          record.state = {
+            kind: 'temporarily_unavailable',
+            attempts: state.attempts,
+            untilMs: entry.untilMs,
+            reason: entry.reason,
+          };
       }
     }
   }
@@ -613,7 +842,8 @@ function attemptsOf(state: AdmittedCandidateAttemptState): number {
 }
 
 function lastFailureOf(state: AdmittedCandidateAttemptState): unknown {
-  if (state.kind === 'retry_waiting' || state.kind === 'retry_ready' || state.kind === 'exhausted') return state.lastFailure;
+  if (state.kind === 'retry_waiting' || state.kind === 'retry_ready' || state.kind === 'exhausted')
+    return state.lastFailure;
   return null;
 }
 
@@ -626,7 +856,7 @@ function requestedCompletionTokensOf(request: InvocationRequest): number {
 function contextUtilizationFractionOf(request: InvocationRequest): number | null {
   return request.preparedCompaction !== undefined
     ? request.preparedCompaction.contextUtilizationFraction
-    : request.contextUtilizationFraction ?? null;
+    : (request.contextUtilizationFraction ?? null);
 }
 
 function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {
@@ -646,11 +876,25 @@ function admissionVerdict(
   limits: AdmissionSizeLimits,
 ): CandidateLocalAdmission {
   const match = supportsCapabilityRequest(capabilities, capabilityRequest);
-  const verdict: CandidateLocalAdmissionVerdict = classifyCandidateLocalAdmission({ capabilities, match, plan, limits });
-  return Object.freeze({ candidate, capabilityRequest, capabilityRequestSha256: capabilityHash, ...verdict });
+  const verdict: CandidateLocalAdmissionVerdict = classifyCandidateLocalAdmission({
+    capabilities,
+    match,
+    plan,
+    limits,
+  });
+  return Object.freeze({
+    candidate,
+    capabilityRequest,
+    capabilityRequestSha256: capabilityHash,
+    ...verdict,
+  });
 }
 
-function executionBindings(request: InvocationRequest, capabilityRequest: Readonly<CapabilityRequest>, capabilityHash: string): AdmittedExecutionBindings {
+function executionBindings(
+  request: InvocationRequest,
+  capabilityRequest: Readonly<CapabilityRequest>,
+  capabilityHash: string,
+): AdmittedExecutionBindings {
   const requestedCompletionTokens = requestedCompletionTokensOf(request);
   return Object.freeze({
     inputId: request.inputId,
@@ -669,7 +913,10 @@ function executionBindings(request: InvocationRequest, capabilityRequest: Readon
   });
 }
 
-function assertBindingsUnchanged(expected: AdmittedExecutionBindings, actual: AdmittedExecutionBindings): void {
+function assertBindingsUnchanged(
+  expected: AdmittedExecutionBindings,
+  actual: AdmittedExecutionBindings,
+): void {
   const fields: readonly (keyof AdmittedExecutionBindings)[] = [
     'inputId',
     'sessionId',
@@ -688,13 +935,21 @@ function assertBindingsUnchanged(expected: AdmittedExecutionBindings, actual: Ad
     const left = expected[field];
     const right = actual[field];
     if (left !== right)
-      throw new AdmittedRecoveryIntegrityError(`Suspended admitted execution binding '${field}' changed across authoritative compaction ('${String(left)}' != '${String(right)}').`);
+      throw new AdmittedRecoveryIntegrityError(
+        `Suspended admitted execution binding '${field}' changed across authoritative compaction ('${String(left)}' != '${String(right)}').`,
+      );
   }
 }
 
-function recoveryTerminalFailure(suspension: SuspendedAdmittedExecution, detail: string): LlmRequestError {
+function recoveryTerminalFailure(
+  suspension: SuspendedAdmittedExecution,
+  detail: string,
+): LlmRequestError {
   const contextRecord = suspension.records.find((record) => record.state.kind === 'context_failed');
-  if (!contextRecord || contextRecord.state.kind !== 'context_failed') throw new AdmittedRecoveryIntegrityError('Suspended admitted execution lost its context-failed record.');
+  if (!contextRecord || contextRecord.state.kind !== 'context_failed')
+    throw new AdmittedRecoveryIntegrityError(
+      'Suspended admitted execution lost its context-failed record.',
+    );
   const original = contextRecord.state.failure.originalFailure;
   const diagnostics = JSON.stringify(retainedAdmissionStateDiagnostics(suspension));
   if (original instanceof LlmRequestError)
@@ -702,7 +957,12 @@ function recoveryTerminalFailure(suspension: SuspendedAdmittedExecution, detail:
       ...original.failure,
       message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}. ${diagnostics}`,
     });
-  return new LlmRequestError({ kind: 'input_context_exhausted', provider: 'unknown', status: 0, message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}.` });
+  return new LlmRequestError({
+    kind: 'input_context_exhausted',
+    provider: 'unknown',
+    status: 0,
+    message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}.`,
+  });
 }
 
 function waitUntil(

@@ -27,12 +27,15 @@ import type { RestartCapability } from '../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from '../contracts/index.js';
 import type { ConversationFileContext } from '../persistence/index.js';
+import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/runtime-api.js';
 import {
-  compact,
-  shouldCompact,
-  type AutonomousCompactionPolicy,
+  admitSummaryRequest,
+  assertSummarizerCapabilities,
+  buildSummaryRequestInput,
+  SUMMARY_COMPLETION_TOKENS,
+  type SummarizerProviderPort,
+  type SummaryRequestSerialization,
 } from '../runtime/runtime-api.js';
-import { admitSummaryRequest, assertSummarizerCapabilities, buildSummaryRequestInput, SUMMARY_COMPLETION_TOKENS, type SummarizerProviderPort, type SummaryRequestSerialization } from '../runtime/runtime-api.js';
 import { SUMMARY_REFINE_INSTRUCTION } from '../runtime/runtime-api.js';
 import type { CompactorPort } from '../runtime/runtime-api.js';
 import type { LlmInvocationInput } from '../runtime/runtime-api.js';
@@ -45,10 +48,18 @@ import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/runtime-api.js';
-import { ProjectOversight, type OversightClock, type OversightStatus } from './project-oversight.js';
+import {
+  ProjectOversight,
+  type OversightClock,
+  type OversightStatus,
+} from './project-oversight.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 import { createOversightNotificationPort } from './oversight-notification-port.js';
-import { queue_notification, submitNotificationTool, type QueueNotificationToolInput } from '../tools/tool-api.js';
+import {
+  queue_notification,
+  submitNotificationTool,
+  type QueueNotificationToolInput,
+} from '../tools/tool-api.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -83,17 +94,12 @@ interface RuntimeApplicationServices {
   mcpToolInvocation: McpToolInvocationPort;
   fatalPort: ApplicationFatalPort;
   analystSessionId: GlobalConversationSessionId;
-  onOversightOwnerFailure(error:unknown):void;
+  onOversightOwnerFailure(error: unknown): void;
   oversightClock?: OversightClock;
 }
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
-  const {
-    projectRoot,
-    config,
-    cardStore,
-    restartCapability,
-  } = services;
+  const { projectRoot, config, cardStore, restartCapability } = services;
   const eventQueries = new EventQueryService(projectRoot);
   const candidateAvailability = new MemoryCandidateAvailability();
   const conversations: ConversationFileContext = { projectRoot, changes: services.freshness };
@@ -110,7 +116,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const summarizerSerializeRequest = (input: LlmInvocationInput): SummaryRequestSerialization => {
     const maxTokens = input.modelParams.maxTokens;
-    if (maxTokens === undefined) throw new Error('Summary request serialization requires an explicit completion token request.');
+    if (maxTokens === undefined)
+      throw new Error(
+        'Summary request serialization requires an explicit completion token request.',
+      );
     const candidate = registry.assertCandidate(config.compaction.summarizer_candidate);
     const capabilities = registry.getEffectiveCapabilities(candidate);
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
@@ -136,18 +145,20 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     };
   };
   const summarizerProvider: SummarizerProviderPort = {
-    candidate:summarizerCandidate,
+    candidate: summarizerCandidate,
     contextWindowTokens: summarizerCapabilities.contextWindowTokens,
     maxOutputTokens: summarizerCapabilities.maxOutputTokens,
     serializeSummaryRequest: summarizerSerializeRequest,
-    completeTurn: (input, admitted, signal) => executeInternalSummaryTurn(invocationService, input, signal, admitted),
+    completeTurn: (input, admitted, signal) =>
+      executeInternalSummaryTurn(invocationService, input, signal, admitted),
     projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,
         purpose,
         sourceInputId,
         attempts,
-        context),
+        context,
+      ),
   };
   const invariantSummaryInput = buildSummaryRequestInput({
     candidate: summarizerCandidate,
@@ -162,7 +173,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     maxOutputTokens: summarizerCapabilities.maxOutputTokens,
   });
   if (invariantSummaryAdmission.kind !== 'admitted')
-    throw new Error(`The invariant compaction summary request overhead plus ${SUMMARY_COMPLETION_TOKENS} requested output tokens does not fit the configured fixed candidate capacity.`);
+    throw new Error(
+      `The invariant compaction summary request overhead plus ${SUMMARY_COMPLETION_TOKENS} requested output tokens does not fit the configured fixed candidate capacity.`,
+    );
   const compactionPolicy: AutonomousCompactionPolicy = {
     context_utilization_fraction: config.compaction.context_utilization_fraction,
     trigger_fraction: config.compaction.trigger_fraction,
@@ -193,7 +206,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     conversations,
     freshness: services.freshness,
     fatalPort: services.fatalPort,
-    runtimeStatusChanged:(status)=>projectOversight?.runtimeStatusChanged(status),
+    runtimeStatusChanged: (status) => projectOversight?.runtimeStatusChanged(status),
   });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
   const runtimeObservation = Object.freeze({ getStatus: runtimeApi.getStatus.bind(runtimeApi) });
@@ -240,7 +253,20 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         eventQueries,
         captureExecutingLlmSnapshots,
       };
-      const observationToolContext = { agentName:workflows.analyst.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeObservation,queueNotification:(input:QueueNotificationToolInput,signal:AbortSignal)=>queue_notification(context,input,signal),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null };
+      const observationToolContext = {
+        agentName: workflows.analyst.name,
+        projectRoot,
+        store: cardStore,
+        processRunner,
+        eventQueries,
+        runtime: runtimeObservation,
+        queueNotification: (input: QueueNotificationToolInput, signal: AbortSignal) =>
+          queue_notification(context, input, signal),
+        captureExecutingLlmSnapshots,
+        currentProcessPosition: (cardId: string) =>
+          runtimeApi.getActorRuntimeReadModel().cards.find((card) => card.cardId === cardId)
+            ?.processState ?? null,
+      };
       return analystBinding.toolSet.bind({
         scope: 'global',
         agentName: analystBinding.contract.name,
@@ -285,9 +311,15 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       cardStore,
       runtimeCurrent: () => {
         const state = runtimeApi.getRuntimeState();
-        return state === null ? { status: 'stopped' as const, currentCardId: null } : { status: state.status, currentCardId: state.current_card_id };
+        return state === null
+          ? { status: 'stopped' as const, currentCardId: null }
+          : { status: state.status, currentCardId: state.current_card_id };
       },
-      runtimeProjectionChanged: () => services.freshness.agentMembershipChanged({ scope: 'global-session', sessionId: analystSessionId }),
+      runtimeProjectionChanged: () =>
+        services.freshness.agentMembershipChanged({
+          scope: 'global-session',
+          sessionId: analystSessionId,
+        }),
       createInvocationSurface,
       shutdownProcesses,
       fatalPort: services.fatalPort,
@@ -301,22 +333,85 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       categories: ['operator_session'],
       reason,
     });
-  const captureExecutingLlmSnapshots = (): ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot> => {
+  const captureExecutingLlmSnapshots = (): ReadonlyMap<
+    ConversationSessionId,
+    ExecutingLlmSnapshot
+  > => {
     const snapshots = new Map(runtimeSupervisor.captureAutonomousExecutingLlmSnapshots());
     const analystSnapshot = analystRuntimeCache?.executingLlmSnapshot();
     if (analystSnapshot) snapshots.set(analystSnapshot.sessionId, analystSnapshot);
-    const oversightSnapshot=projectOversight?.executingLlmSnapshot();
-    if(oversightSnapshot)snapshots.set(oversightSnapshot.sessionId,oversightSnapshot);
+    const oversightSnapshot = projectOversight?.executingLlmSnapshot();
+    if (oversightSnapshot) snapshots.set(oversightSnapshot.sessionId, oversightSnapshot);
     return snapshots;
   };
-  const oversightSessionId=globalAgentSessionId(workflows.oversight.name);
-  const oversightProvider=createInvocationServiceProvider(invocationService);
-  const projectOversight=new ProjectOversight({enabled:config.oversight.enabled,intervalMs:config.oversight.interval_seconds*1000,agentName:workflows.oversight.name,sessionId:oversightSessionId,serviceEpoch:services.processIdentity.startedAt,clock:services.oversightClock,changed:()=>services.freshness.runtimeChanged(),onOwnerFailure:services.onOversightOwnerFailure,createCheck:()=>{
-    const submitNotification=createOversightNotificationPort({oversight:projectOversight,cards:cardStore,workflows,submitNotification:runtimeApi.submitNotification.bind(runtimeApi)});
-    const observationToolContext={agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeObservation,queueNotification:(input:QueueNotificationToolInput,signal:AbortSignal)=>executeToolAction('none',()=>submitNotificationTool(input,submitNotification,signal)),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null};
-    const surface=oversightBinding.toolSet.bind({scope:'global',agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,mcpToolInvocation:services.mcpToolInvocation,observationToolContext,cardTypeVocabulary:workflows.cardTypeVocabulary});
-    return new OversightSession({sessionId:oversightSessionId,agentName:workflows.oversight.name,surface,provider:oversightProvider,conversations,promptTemplates,modelParams:oversightBinding.contract.model,capabilityRequest:oversightBinding.capabilityRequest,candidateChain:oversightBinding.candidateChain,routeUsableInputTokens:oversightBinding.routeUsableInputTokens,compactionPolicy,compactor,summarizerProvider,runtimeProjectionChanged:()=>services.freshness.agentMembershipChanged({scope:'global-session',sessionId:oversightSessionId}),fatalPort:services.fatalPort,cardTypeVocabulary:workflows.cardTypeVocabulary});
-  }});
+  const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
+  const oversightProvider = createInvocationServiceProvider(invocationService);
+  const projectOversight = new ProjectOversight({
+    enabled: config.oversight.enabled,
+    intervalMs: config.oversight.interval_seconds * 1000,
+    agentName: workflows.oversight.name,
+    sessionId: oversightSessionId,
+    serviceEpoch: services.processIdentity.startedAt,
+    clock: services.oversightClock,
+    changed: () => services.freshness.runtimeChanged(),
+    onOwnerFailure: services.onOversightOwnerFailure,
+    createCheck: () => {
+      const submitNotification = createOversightNotificationPort({
+        oversight: projectOversight,
+        cards: cardStore,
+        workflows,
+        submitNotification: runtimeApi.submitNotification.bind(runtimeApi),
+      });
+      const observationToolContext = {
+        agentName: workflows.oversight.name,
+        projectRoot,
+        store: cardStore,
+        processRunner,
+        eventQueries,
+        runtime: runtimeObservation,
+        queueNotification: (input: QueueNotificationToolInput, signal: AbortSignal) =>
+          executeToolAction('none', () =>
+            submitNotificationTool(input, submitNotification, signal),
+          ),
+        captureExecutingLlmSnapshots,
+        currentProcessPosition: (cardId: string) =>
+          runtimeApi.getActorRuntimeReadModel().cards.find((card) => card.cardId === cardId)
+            ?.processState ?? null,
+      };
+      const surface = oversightBinding.toolSet.bind({
+        scope: 'global',
+        agentName: workflows.oversight.name,
+        projectRoot,
+        store: cardStore,
+        processRunner,
+        mcpToolInvocation: services.mcpToolInvocation,
+        observationToolContext,
+        cardTypeVocabulary: workflows.cardTypeVocabulary,
+      });
+      return new OversightSession({
+        sessionId: oversightSessionId,
+        agentName: workflows.oversight.name,
+        surface,
+        provider: oversightProvider,
+        conversations,
+        promptTemplates,
+        modelParams: oversightBinding.contract.model,
+        capabilityRequest: oversightBinding.capabilityRequest,
+        candidateChain: oversightBinding.candidateChain,
+        routeUsableInputTokens: oversightBinding.routeUsableInputTokens,
+        compactionPolicy,
+        compactor,
+        summarizerProvider,
+        runtimeProjectionChanged: () =>
+          services.freshness.agentMembershipChanged({
+            scope: 'global-session',
+            sessionId: oversightSessionId,
+          }),
+        fatalPort: services.fatalPort,
+        cardTypeVocabulary: workflows.cardTypeVocabulary,
+      });
+    },
+  });
 
   return {
     runtimeApi,
@@ -324,7 +419,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     processRunner,
     captureExecutingLlmSnapshots,
-    getOversightStatus:()=>projectOversight.status(),
+    getOversightStatus: () => projectOversight.status(),
     get analystRuntime() {
       analystRuntimeCache ??= new AnalystRuntime({
         createSession: createAnalystSession,
@@ -339,7 +434,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     closeAnalystAdmission() {
       analystRuntimeCache?.closeAdmission();
     },
-    closeOversightAdmission(){projectOversight.closeAdmission();},
+    closeOversightAdmission() {
+      projectOversight.closeAdmission();
+    },
     cleanupRuntimeForApplicationStop() {
       return runtimeSupervisor.cleanupForApplicationStop();
     },
@@ -348,7 +445,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         ? analystRuntimeCache.cleanupForApplicationStop()
         : Promise.resolve();
     },
-    cleanupOversightForApplicationStop(){return projectOversight.cleanupForApplicationStop();},
+    cleanupOversightForApplicationStop() {
+      return projectOversight.cleanupForApplicationStop();
+    },
     getProviderRoutingReadModel() {
       return buildProviderRoutingReadModel({
         registry,

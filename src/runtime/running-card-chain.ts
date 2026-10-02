@@ -16,7 +16,8 @@ export function selectLinkedRunningChain(cards: LinkedCardReader): readonly Card
     const children = cards.listChildren(parent.id).map((id) => {
       const child = cards.read(id);
       if (!child) throw new Error(`Linked child '${id}' of '${parent.id}' is missing.`);
-      if (cardParentId(child.id) !== parent.id) throw new Error(`Linked child '${id}' does not name '${parent.id}' as its parent.`);
+      if (cardParentId(child.id) !== parent.id)
+        throw new Error(`Linked child '${id}' does not name '${parent.id}' as its parent.`);
       return child;
     });
     linkedChildren.set(parent.id, children);
@@ -28,12 +29,18 @@ export function selectLinkedRunningChain(cards: LinkedCardReader): readonly Card
   let current: CardRecord | undefined = root.lifecycle.status === 'running' ? root : undefined;
   while (current) {
     chain.push(current);
-    const runningChildren = linkedChildren.get(current.id)!.filter((child) => child.lifecycle.status === 'running');
-    if (runningChildren.length > 1) throw new Error(`Running card '${current.id}' has more than one running direct child.`);
+    const runningChildren = linkedChildren
+      .get(current.id)!
+      .filter((child) => child.lifecycle.status === 'running');
+    if (runningChildren.length > 1)
+      throw new Error(`Running card '${current.id}' has more than one running direct child.`);
     current = runningChildren[0];
   }
   const selected = new Set(chain.map((card) => card.id));
   const outside = runningCards.find((card) => !selected.has(card.id));
-  if (outside) throw new Error(`Linked running card '${outside.id}' is outside the unique project-rooted running chain.`);
+  if (outside)
+    throw new Error(
+      `Linked running card '${outside.id}' is outside the unique project-rooted running chain.`,
+    );
   return Object.freeze(chain);
 }

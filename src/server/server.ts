@@ -10,17 +10,62 @@ import type { AppTerminalRegistration } from '../contracts/index.js';
 import type { RuntimeProcessIdentity } from '../runtime/runtime-api.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
 
-interface ServerConfig { host: string; port: number; projectRoot: string; }
-interface CreateServerOptions { environment: Environment; terminal: AppTerminalRegistration; processIdentity: RuntimeProcessIdentity; fatalPort: ApplicationFatalPort; restartPort?: RestartPort; onOversightOwnerFailure(error:unknown):void; }
-export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; mcpManager: McpManager; runtimeApplication: RuntimeApplication; }
-function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
-function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
-function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
+interface ServerConfig {
+  host: string;
+  port: number;
+  projectRoot: string;
+}
+interface CreateServerOptions {
+  environment: Environment;
+  terminal: AppTerminalRegistration;
+  processIdentity: RuntimeProcessIdentity;
+  fatalPort: ApplicationFatalPort;
+  restartPort?: RestartPort;
+  onOversightOwnerFailure(error: unknown): void;
+}
+export interface ServerInstance {
+  fastify: FastifyInstance;
+  config: ServerConfig;
+  saivageConfig: SaivageConfig;
+  mcpManager: McpManager;
+  runtimeApplication: RuntimeApplication;
+}
+function isLocalhost(host: string): boolean {
+  return (
+    host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'
+  );
+}
+function validateDevModeHost(host: string | undefined, apiToken?: string): void {
+  if (apiToken) return;
+  console.warn(
+    '⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' +
+      '   Set SAIVAGE_API_TOKEN to a secure random string for production use.',
+  );
+  const resolvedHost = host ?? '0.0.0.0';
+  if (!isLocalhost(resolvedHost))
+    console.warn(
+      `⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`,
+    );
+}
+function getServerConfig(environment: Environment): ServerConfig {
+  return {
+    host: environment.server.host,
+    port: environment.server.port,
+    projectRoot: environment.projectRoot,
+  };
+}
 
 async function createServer(options: CreateServerOptions): Promise<ServerInstance> {
   const environment = options.environment;
   const serverConfig = getServerConfig(environment);
-  const services = await createServerServices({ environment, terminal: options.terminal, processIdentity: options.processIdentity, fatalPort: options.fatalPort, restartPort: options.restartPort,onOversightOwnerFailure:options.onOversightOwnerFailure });
+  const services = await createServerServices({
+    environment,
+    terminal: options.terminal,
+    processIdentity: options.processIdentity,
+    fatalPort: options.fatalPort,
+    restartPort: options.restartPort,
+    onOversightOwnerFailure: options.onOversightOwnerFailure,
+  });
 
   registerServerRoutes({
     fastify: services.fastify,
@@ -38,7 +83,18 @@ async function createServer(options: CreateServerOptions): Promise<ServerInstanc
     fatalPort: options.fatalPort,
   });
 
-  return { fastify: services.fastify, config: serverConfig, saivageConfig: services.config, mcpManager: services.mcpManager, runtimeApplication: services.runtimeApplication };
+  return {
+    fastify: services.fastify,
+    config: serverConfig,
+    saivageConfig: services.config,
+    mcpManager: services.mcpManager,
+    runtimeApplication: services.runtimeApplication,
+  };
 }
 
-export async function startServer(options: CreateServerOptions): Promise<ServerInstance> { const server = await createServer(options); validateDevModeHost(server.config.host, options.environment.auth.apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
+export async function startServer(options: CreateServerOptions): Promise<ServerInstance> {
+  const server = await createServer(options);
+  validateDevModeHost(server.config.host, options.environment.auth.apiToken);
+  await server.fastify.listen({ host: server.config.host, port: server.config.port });
+  return server;
+}

@@ -1,10 +1,20 @@
-import type { ContextBlock, ProviderToolDefinition, CompiledInvocationToolContract, StaticInvocationPrefix, PreparedInvocationContext, PreparedCompaction } from '../../../contracts/index.js';
+import type {
+  ContextBlock,
+  ProviderToolDefinition,
+  CompiledInvocationToolContract,
+  StaticInvocationPrefix,
+  PreparedInvocationContext,
+  PreparedCompaction,
+} from '../../../contracts/index.js';
 import { canonicalJson } from '../../../schemas/index.js';
 import { sha256Hex, canonicalValueSha256 } from '../../../schemas/index.js';
 import type { ToolResultPolicyTemplate } from '../../../schemas/index.js';
 export type { ContextEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 
-export function compileInvocationToolContract(providerDefinition: ProviderToolDefinition, resultPolicyTemplate: ToolResultPolicyTemplate): CompiledInvocationToolContract {
+export function compileInvocationToolContract(
+  providerDefinition: ProviderToolDefinition,
+  resultPolicyTemplate: ToolResultPolicyTemplate,
+): CompiledInvocationToolContract {
   const providerDefinitionBytes = canonicalJson(providerDefinition);
   const resultPolicyTemplateBytes = canonicalJson(resultPolicyTemplate);
   return Object.freeze({
@@ -16,10 +26,21 @@ export function compileInvocationToolContract(providerDefinition: ProviderToolDe
   });
 }
 
-export const internalToolContractSha256 = (compiledTools: readonly CompiledInvocationToolContract[]): string =>
-  canonicalValueSha256(compiledTools.map((tool) => ({ providerDefinitionBytes: tool.providerDefinitionBytes, resultPolicyTemplateBytes: tool.resultPolicyTemplateBytes })));
+export const internalToolContractSha256 = (
+  compiledTools: readonly CompiledInvocationToolContract[],
+): string =>
+  canonicalValueSha256(
+    compiledTools.map((tool) => ({
+      providerDefinitionBytes: tool.providerDefinitionBytes,
+      resultPolicyTemplateBytes: tool.resultPolicyTemplateBytes,
+    })),
+  );
 
-export function buildStaticInvocationPrefix(instructionText: string, terminalToolNames: readonly string[], compiledTools: readonly CompiledInvocationToolContract[]): StaticInvocationPrefix {
+export function buildStaticInvocationPrefix(
+  instructionText: string,
+  terminalToolNames: readonly string[],
+  compiledTools: readonly CompiledInvocationToolContract[],
+): StaticInvocationPrefix {
   const immutablePrefixBytes = canonicalJson({
     instructionText,
     providerToolDefinitionBytes: compiledTools.map((tool) => tool.providerDefinitionBytes),
@@ -33,21 +54,35 @@ export function buildStaticInvocationPrefix(instructionText: string, terminalToo
   });
 }
 
-export function selectLatestContextBlocks(blocks: readonly ContextBlock[]): readonly ContextBlock[] {
+export function selectLatestContextBlocks(
+  blocks: readonly ContextBlock[],
+): readonly ContextBlock[] {
   const latest = new Map<string, number>();
-  for (const [index, block] of blocks.entries()) if (block.replacement.kind === 'latest_snapshot') latest.set(block.replacement.key, index);
-  return Object.freeze(blocks.filter((block, index) => block.replacement.kind !== 'latest_snapshot' || latest.get(block.replacement.key) === index));
+  for (const [index, block] of blocks.entries())
+    if (block.replacement.kind === 'latest_snapshot') latest.set(block.replacement.key, index);
+  return Object.freeze(
+    blocks.filter(
+      (block, index) =>
+        block.replacement.kind !== 'latest_snapshot' || latest.get(block.replacement.key) === index,
+    ),
+  );
 }
 
-export function buildPreparedInvocationContext(input: Readonly<{
-  instructionText: string;
-  terminalToolNames: readonly string[];
-  compiledTools: readonly CompiledInvocationToolContract[];
-  dynamicBlocks: readonly ContextBlock[];
-  preparedCompaction: PreparedCompaction;
-}>): PreparedInvocationContext {
+export function buildPreparedInvocationContext(
+  input: Readonly<{
+    instructionText: string;
+    terminalToolNames: readonly string[];
+    compiledTools: readonly CompiledInvocationToolContract[];
+    dynamicBlocks: readonly ContextBlock[];
+    preparedCompaction: PreparedCompaction;
+  }>,
+): PreparedInvocationContext {
   return Object.freeze({
-    prefix: buildStaticInvocationPrefix(input.instructionText, input.terminalToolNames, input.compiledTools),
+    prefix: buildStaticInvocationPrefix(
+      input.instructionText,
+      input.terminalToolNames,
+      input.compiledTools,
+    ),
     compiledTools: Object.freeze([...input.compiledTools]),
     internalToolContractSha256: internalToolContractSha256(input.compiledTools),
     dynamicBlocks: Object.freeze([...input.dynamicBlocks]),
@@ -56,8 +91,15 @@ export function buildPreparedInvocationContext(input: Readonly<{
   });
 }
 
-export function assertPreparedContextContinuity(before: PreparedInvocationContext, after: PreparedInvocationContext, identity: string): void {
-  if (before.prefix.immutablePrefixSha256 !== after.prefix.immutablePrefixSha256 || before.prefix.immutablePrefixBytes !== after.prefix.immutablePrefixBytes)
+export function assertPreparedContextContinuity(
+  before: PreparedInvocationContext,
+  after: PreparedInvocationContext,
+  identity: string,
+): void {
+  if (
+    before.prefix.immutablePrefixSha256 !== after.prefix.immutablePrefixSha256 ||
+    before.prefix.immutablePrefixBytes !== after.prefix.immutablePrefixBytes
+  )
     throw new Error(`Prepared invocation prefix changed across ${identity} continuation.`);
   if (before.internalToolContractSha256 !== after.internalToolContractSha256)
     throw new Error(`Prepared internal tool contract changed across ${identity} continuation.`);

@@ -1,23 +1,30 @@
 import type { OperatorApiSuccess } from '../../contracts/index.js';
 import { listControlActions } from '../../persistence/index.js';
 import { redactForOutbound } from '../../redaction/artifact-api.js';
-import { defineOperatorContractHandlers, type OperatorConfigContext, type OperatorProjectContext } from './operator-handler-context.js';
+import {
+  defineOperatorContractHandlers,
+  type OperatorConfigContext,
+  type OperatorProjectContext,
+} from './operator-handler-context.js';
 
-export function buildConfigOperatorContractHandlers(options: OperatorProjectContext & OperatorConfigContext) {
+export function buildConfigOperatorContractHandlers(
+  options: OperatorProjectContext & OperatorConfigContext,
+) {
   return defineOperatorContractHandlers({
     'config.get': () => {
       const effective = options.configAuthority.loadEffective();
-      const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound({ source: 'config', value: effective.config });
+      const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound({
+        source: 'config',
+        value: effective.config,
+      });
       return { body: { config, warnings: [...effective.warnings] } };
     },
     'providers.list': () => {
       return { body: options.providerRoutingReadModelProvider() };
     },
     'controlActions.list': ({ query }) => {
-      const actions: OperatorApiSuccess<'controlActions.list'>['control_actions'] = listControlActions(
-        options.projectRoot,
-        { card_id: query.card_id, since: query.since },
-      );
+      const actions: OperatorApiSuccess<'controlActions.list'>['control_actions'] =
+        listControlActions(options.projectRoot, { card_id: query.card_id, since: query.since });
       return { body: { control_actions: actions, total: actions.length } };
     },
   });

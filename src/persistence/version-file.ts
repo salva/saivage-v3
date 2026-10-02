@@ -16,9 +16,18 @@ const immutableVersionFileIo: ImmutableVersionFileIo = {
   close: closeSync,
 };
 
-export function createImmutableVersionFile(path: string, bytes: Uint8Array, io: ImmutableVersionFileIo = immutableVersionFileIo): void {
+export function createImmutableVersionFile(
+  path: string,
+  bytes: Uint8Array,
+  io: ImmutableVersionFileIo = immutableVersionFileIo,
+): void {
   const descriptor = io.open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-  writeAllExact(descriptor, bytes, io.write, () => new Error(`Write made no progress for '${path}'.`));
+  writeAllExact(
+    descriptor,
+    bytes,
+    io.write,
+    () => new Error(`Write made no progress for '${path}'.`),
+  );
   io.fsync(descriptor);
   io.close(descriptor);
   const directory = io.open(dirname(path), constants.O_RDONLY);

@@ -1,6 +1,10 @@
 export function parseProtocolToolArgs(raw: string):
   | { kind: 'ok'; args: Record<string, unknown> }
-  | { kind: 'violation'; violation: 'tool_args_invalid_json' | 'tool_args_not_object'; detail: string } {
+  | {
+      kind: 'violation';
+      violation: 'tool_args_invalid_json' | 'tool_args_not_object';
+      detail: string;
+    } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);

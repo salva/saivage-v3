@@ -26,7 +26,9 @@ function rawProtocolPreview(raw: string): string {
     : `${redacted.slice(0, RAW_PREVIEW_LIMIT)}...[truncated ${redacted.length - RAW_PREVIEW_LIMIT} chars]`;
 }
 
-export function buildAgentProtocolViolation(input: Omit<AgentProtocolViolation, 'kind' | 'raw_preview'> & { raw: string }): AgentProtocolViolation {
+export function buildAgentProtocolViolation(
+  input: Omit<AgentProtocolViolation, 'kind' | 'raw_preview'> & { raw: string },
+): AgentProtocolViolation {
   return {
     kind: 'agent_protocol_violation',
     session_id: input.session_id,

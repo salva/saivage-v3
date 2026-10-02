@@ -15,7 +15,11 @@ import { projectProviderExchange } from '../agents/artifact-api.js';
 import { projectLoggedEvent } from '../observability/artifact-api.js';
 import { projectControlAction } from '../persistence/index.js';
 import { projectDynamicForOutbound } from './dynamic.js';
-import { projectCardDiff, projectProcessForOutbound, type ProcessOutboundValue } from '../application/index.js';
+import {
+  projectCardDiff,
+  projectProcessForOutbound,
+  type ProcessOutboundValue,
+} from '../application/index.js';
 import { projectEffectiveConfigForOutbound } from '../config/artifact-api.js';
 import { projectToolInvocation } from '../tools/artifact-api.js';
 import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
@@ -41,19 +45,19 @@ type OutboundRedactionResult<Request extends OutboundRedactionRequest> = Request
     ? LoggedEvent
     : Request extends { source: 'control-action' }
       ? ControlActionAuditEntry
-       : Request extends { source: 'card-diff' }
-              ? CardDiffEntry[]
-              : Request extends { source: 'config' }
-                ? OutboundEffectiveSaivageConfig
-                : Request extends { source: 'process-view'; value: infer Value }
-                  ? Value
-                  : Request extends { source: 'tool-invocation' }
-                    ? ToolInvocationProjectionInput
-                    : Request extends { source: 'ws-envelope' }
-                       ? ServerEgressWsEnvelope
-                      : Request extends { source: 'mcp-tools' }
-                          ? McpToolsResponse
-                          : unknown;
+      : Request extends { source: 'card-diff' }
+        ? CardDiffEntry[]
+        : Request extends { source: 'config' }
+          ? OutboundEffectiveSaivageConfig
+          : Request extends { source: 'process-view'; value: infer Value }
+            ? Value
+            : Request extends { source: 'tool-invocation' }
+              ? ToolInvocationProjectionInput
+              : Request extends { source: 'ws-envelope' }
+                ? ServerEgressWsEnvelope
+                : Request extends { source: 'mcp-tools' }
+                  ? McpToolsResponse
+                  : unknown;
 
 type ExactOutboundRedactionRequest<Request extends OutboundRedactionRequest> = Request &
   Record<

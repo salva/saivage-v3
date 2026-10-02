@@ -1,9 +1,16 @@
 import { z } from 'zod';
 
-const cardSegmentSchema = z.string().regex(/^[a-z]+$/u, 'Expected one or more lowercase ASCII letters.');
+const cardSegmentSchema = z
+  .string()
+  .regex(/^[a-z]+$/u, 'Expected one or more lowercase ASCII letters.');
 export const MAX_CARD_DEPTH = 12;
 const nonRootCardIdPattern = new RegExp(`^card-[a-z]+(?:-[a-z]+){0,${MAX_CARD_DEPTH - 1}}$`, 'u');
-export const nonRootCardIdSchema = z.string().regex(nonRootCardIdPattern, `Expected a hierarchical card id with one to ${MAX_CARD_DEPTH} alphabetic segments.`);
+export const nonRootCardIdSchema = z
+  .string()
+  .regex(
+    nonRootCardIdPattern,
+    `Expected a hierarchical card id with one to ${MAX_CARD_DEPTH} alphabetic segments.`,
+  );
 export const cardIdSchema = z.union([z.literal('project'), nonRootCardIdSchema]);
 export type CardId = z.infer<typeof cardIdSchema>;
 
@@ -26,7 +33,9 @@ export function cardIdSegments(id: string): string[] {
   return id === 'project' ? [] : id.slice('card-'.length).split('-');
 }
 
-export function cardDepth(id: string): number { return cardIdSegments(id).length; }
+export function cardDepth(id: string): number {
+  return cardIdSegments(id).length;
+}
 
 export function cardParentId(id: string): string | null {
   const segments = cardIdSegments(id);

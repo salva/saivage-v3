@@ -52,21 +52,59 @@ import { projectHistoricalToolResultForOutbound } from './tool-result-settlement
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 
 export const KNOWN_TOOL_INVOCATION_NAMES = [
-  'create_card', 'cancel_card', 'delete_card', 'reorder_child', 'reopen_card', 'queue_notification',
-  'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server',
-  'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure',
-  'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool',
-  'list_agent_sessions', 'read_agent_session', 'list_cards', 'get_card', 'get_tree',
-  'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version',
-  'read', 'write', 'edit', 'glob', 'grep', 'apply_patch',
-  'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call',
-  'edit_card', 'activate_card', TERMINAL_RESULT_TOOL_NAME,
+  'create_card',
+  'cancel_card',
+  'delete_card',
+  'reorder_child',
+  'reopen_card',
+  'queue_notification',
+  'get_status',
+  'start_project',
+  'pause_runtime',
+  'resume_runtime',
+  'stop_project',
+  'restart_server',
+  'navigate_workspace',
+  'navigate_back',
+  'show_config',
+  'reconfigure',
+  'read_runtime_events',
+  'read_runtime_errors',
+  'read_control_actions',
+  'list_processes_tool',
+  'list_agent_sessions',
+  'read_agent_session',
+  'list_cards',
+  'get_card',
+  'get_tree',
+  'list_card_versions',
+  'get_card_version',
+  'diff_card_versions',
+  'read_record_version',
+  'read',
+  'write',
+  'edit',
+  'glob',
+  'grep',
+  'apply_patch',
+  'run_command',
+  'wait_process',
+  'kill_process',
+  'websearch',
+  'webfetch',
+  'skill',
+  'mcp_tool_call',
+  'edit_card',
+  'activate_card',
+  TERMINAL_RESULT_TOOL_NAME,
 ] as const;
 
-export type KnownToolInvocationName = typeof KNOWN_TOOL_INVOCATION_NAMES[number];
+export type KnownToolInvocationName = (typeof KNOWN_TOOL_INVOCATION_NAMES)[number];
 const knownToolNames = new Set<string>(KNOWN_TOOL_INVOCATION_NAMES);
 
-export function projectToolInvocation(input: ToolInvocationProjectionInput): ToolInvocationProjectionInput {
+export function projectToolInvocation(
+  input: ToolInvocationProjectionInput,
+): ToolInvocationProjectionInput {
   if (!knownToolNames.has(input.identity.toolName)) return projectUnsupportedInvocation(input);
   const toolName = input.identity.toolName as KnownToolInvocationName;
 
@@ -93,32 +131,57 @@ export function projectToolInvocation(input: ToolInvocationProjectionInput): Too
       return { shape: 'call-row', identity, arguments: JSON.stringify(projectedArguments) };
     }
     case 'result-row':
-      return { shape: 'result-row', identity: { ...input.identity }, result: projectOpaqueResult(input.result) };
+      return {
+        shape: 'result-row',
+        identity: { ...input.identity },
+        result: projectOpaqueResult(input.result),
+      };
   }
 }
 
-function projectUnsupportedInvocation(input: ToolInvocationProjectionInput): ToolInvocationProjectionInput {
+function projectUnsupportedInvocation(
+  input: ToolInvocationProjectionInput,
+): ToolInvocationProjectionInput {
   switch (input.shape) {
     case 'complete':
-      return { shape: 'complete', identity: { ...input.identity }, arguments: projectDynamicForOutbound(input.arguments), result: projectOpaqueResult(input.result) };
+      return {
+        shape: 'complete',
+        identity: { ...input.identity },
+        arguments: projectDynamicForOutbound(input.arguments),
+        result: projectOpaqueResult(input.result),
+      };
     case 'call-row': {
       try {
-        return { shape: 'call-row', identity: { ...input.identity }, arguments: JSON.stringify(projectDynamicForOutbound(JSON.parse(input.arguments) as unknown)) };
+        return {
+          shape: 'call-row',
+          identity: { ...input.identity },
+          arguments: JSON.stringify(
+            projectDynamicForOutbound(JSON.parse(input.arguments) as unknown),
+          ),
+        };
       } catch {
-        return { shape: 'call-row', identity: { ...input.identity }, arguments: redactTextForOutbound(input.arguments) };
+        return {
+          shape: 'call-row',
+          identity: { ...input.identity },
+          arguments: redactTextForOutbound(input.arguments),
+        };
       }
     }
     case 'result-row':
-      return { shape: 'result-row', identity: { ...input.identity }, result: projectOpaqueResult(input.result) };
+      return {
+        shape: 'result-row',
+        identity: { ...input.identity },
+        result: projectOpaqueResult(input.result),
+      };
   }
 }
 
 function projectParsedArguments(toolName: KnownToolInvocationName, value: unknown): unknown {
   if (toolName === 'list_cards') return structuredClone(value);
   if (toolName === 'create_card') {
-    const projected=structuredClone(value);
-    return projected && typeof projected==='object' && !Array.isArray(projected)
-      ? copyWithText(projected as Record<string,unknown>,['title','bootstrap_content'])
+    const projected = structuredClone(value);
+    return projected && typeof projected === 'object' && !Array.isArray(projected)
+      ? copyWithText(projected as Record<string, unknown>, ['title', 'bootstrap_content'])
       : projected;
   }
   const parsed = inputSchemaFor(toolName).safeParse(value);
@@ -146,7 +209,11 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'write':
       return { ...input, content: redactTextForOutbound(input['content'] as string) };
     case 'edit':
-      return { ...input, old_string: redactTextForOutbound(input['old_string'] as string), new_string: redactTextForOutbound(input['new_string'] as string) };
+      return {
+        ...input,
+        old_string: redactTextForOutbound(input['old_string'] as string),
+        new_string: redactTextForOutbound(input['new_string'] as string),
+      };
     case 'glob':
       return copyWithText(input, ['pattern']);
     case 'grep':
@@ -164,21 +231,51 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'mcp_tool_call':
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'emit_result':
-      return { outcome: input['outcome'], summary: redactTextForOutbound(input['summary'] as string) };
-    case 'delete_card': case 'reorder_child': case 'reopen_card': case 'get_status': case 'start_project': case 'pause_runtime':
-    case 'resume_runtime': case 'stop_project': case 'restart_server': case 'navigate_back':
-    case 'show_config': case 'read_runtime_events': case 'read_runtime_errors': case 'read_control_actions':
-    case 'list_processes_tool': case 'list_agent_sessions': case 'read_agent_session': case 'list_cards':
-    case 'get_card': case 'get_tree': case 'list_card_versions': case 'get_card_version': case 'diff_card_versions':
-    case 'read_record_version': case 'read': case 'wait_process': case 'kill_process': case 'skill': case 'activate_card':
+      return {
+        outcome: input['outcome'],
+        summary: redactTextForOutbound(input['summary'] as string),
+      };
+    case 'delete_card':
+    case 'reorder_child':
+    case 'reopen_card':
+    case 'get_status':
+    case 'start_project':
+    case 'pause_runtime':
+    case 'resume_runtime':
+    case 'stop_project':
+    case 'restart_server':
+    case 'navigate_back':
+    case 'show_config':
+    case 'read_runtime_events':
+    case 'read_runtime_errors':
+    case 'read_control_actions':
+    case 'list_processes_tool':
+    case 'list_agent_sessions':
+    case 'read_agent_session':
+    case 'list_cards':
+    case 'get_card':
+    case 'get_tree':
+    case 'list_card_versions':
+    case 'get_card_version':
+    case 'diff_card_versions':
+    case 'read_record_version':
+    case 'read':
+    case 'wait_process':
+    case 'kill_process':
+    case 'skill':
+    case 'activate_card':
       return structuredClone(value);
   }
 }
 
 function projectReconfigureArguments(input: Record<string, unknown>): unknown {
   switch (input['action']) {
-    case 'set_agent_model_route':case 'set_model_failover':case 'set_server_setting':return structuredClone(input);
-    default:throw new Error(`Unhandled valid reconfigure action '${String(input['action'])}'.`);
+    case 'set_agent_model_route':
+    case 'set_model_failover':
+    case 'set_server_setting':
+      return structuredClone(input);
+    default:
+      throw new Error(`Unhandled valid reconfigure action '${String(input['action'])}'.`);
   }
 }
 
@@ -186,60 +283,118 @@ function projectOpaqueResult(value: unknown): ToolResult {
   return projectHistoricalToolResultForOutbound(value);
 }
 
-export function projectLiveToolInvocation(input: Extract<ToolInvocationProjectionInput, { shape: 'complete' }>): Extract<ToolInvocationProjectionInput, { shape: 'complete' }> {
+export function projectLiveToolInvocation(
+  input: Extract<ToolInvocationProjectionInput, { shape: 'complete' }>,
+): Extract<ToolInvocationProjectionInput, { shape: 'complete' }> {
   const projectedArguments = knownToolNames.has(input.identity.toolName)
     ? projectParsedArguments(input.identity.toolName as KnownToolInvocationName, input.arguments)
     : projectDynamicForOutbound(input.arguments);
-  return { shape: 'complete', identity: { ...input.identity }, arguments: projectedArguments, result: ToolResultSchema.parse(input.result) };
+  return {
+    shape: 'complete',
+    identity: { ...input.identity },
+    arguments: projectedArguments,
+    result: ToolResultSchema.parse(input.result),
+  };
 }
 
-function copyWithText(input: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+function copyWithText(
+  input: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
   const output = structuredClone(input);
-  for (const key of keys) if (typeof input[key] === 'string') output[key] = redactTextForOutbound(input[key] as string);
+  for (const key of keys)
+    if (typeof input[key] === 'string') output[key] = redactTextForOutbound(input[key] as string);
   return output;
 }
 
 function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
   switch (toolName) {
-    case 'create_card': throw new Error('create_card projection is context-free and does not use a static admission schema.');
-    case 'cancel_card': return z.union([analystCancelCardInputSchema, plannerCancelCardInputSchema]);
-    case 'delete_card': return analystDeleteCardInputSchema;
-    case 'reorder_child': return z.union([analystReorderChildInputSchema, plannerReorderChildInputSchema]);
-    case 'reopen_card': return z.union([analystReopenCardInputSchema, plannerReopenCardInputSchema]);
-    case 'queue_notification': return z.union([queueNotificationInputSchema, plannerQueueNotificationInputSchema]);
-    case 'get_status': case 'start_project': case 'pause_runtime': case 'resume_runtime': case 'stop_project':
-    case 'restart_server': case 'navigate_back': case 'show_config':
+    case 'create_card':
+      throw new Error(
+        'create_card projection is context-free and does not use a static admission schema.',
+      );
+    case 'cancel_card':
+      return z.union([analystCancelCardInputSchema, plannerCancelCardInputSchema]);
+    case 'delete_card':
+      return analystDeleteCardInputSchema;
+    case 'reorder_child':
+      return z.union([analystReorderChildInputSchema, plannerReorderChildInputSchema]);
+    case 'reopen_card':
+      return z.union([analystReopenCardInputSchema, plannerReopenCardInputSchema]);
+    case 'queue_notification':
+      return z.union([queueNotificationInputSchema, plannerQueueNotificationInputSchema]);
+    case 'get_status':
+    case 'start_project':
+    case 'pause_runtime':
+    case 'resume_runtime':
+    case 'stop_project':
+    case 'restart_server':
+    case 'navigate_back':
+    case 'show_config':
       return emptyToolInputSchema;
-    case 'list_agent_sessions':return listAgentSessionsInputSchema;
-    case 'navigate_workspace': return navigateWorkspaceInputSchema;
-    case 'reconfigure': return reconfigureParamsSchema;
-    case 'read_runtime_events': return readRuntimeEventsInputSchema;
-    case 'read_runtime_errors': return readRuntimeErrorsInputSchema;
-    case 'read_control_actions': return readControlActionsInputSchema;
-    case 'list_processes_tool': return listProcessesInputSchema;
-    case 'read_agent_session': return readAgentSessionInputSchema;
-    case 'list_cards': throw new Error('list_cards projection is context-free and does not use a static admission schema.');
-    case 'get_card': return getCardInputSchema;
-    case 'get_tree': return getTreeInputSchema;
-    case 'list_card_versions': return listCardVersionsInputSchema;
-    case 'get_card_version': return getCardVersionInputSchema;
-    case 'diff_card_versions': return diffCardVersionsInputSchema;
-    case 'read_record_version': return readRecordVersionInputSchema;
-    case 'read': return readWorkspaceInputSchema;
-    case 'write': return writeWorkspaceInputSchema;
-    case 'edit': return editWorkspaceInputSchema;
-    case 'glob': return globWorkspaceInputSchema;
-    case 'grep': return grepWorkspaceInputSchema;
-    case 'apply_patch': return applyPatchInputSchema;
-    case 'run_command': return runCommandInputSchema;
-    case 'wait_process': return waitProcessInputSchema;
-    case 'kill_process': return killProcessInputSchema;
-    case 'websearch': return websearchInputSchema;
-    case 'webfetch': return WebfetchInvocationSchema;
-    case 'skill': return skillInputSchema;
-    case 'mcp_tool_call': return McpToolCallArgumentsSchema;
-    case 'edit_card': return plannerEditCardInputSchema;
-    case 'activate_card': return activateCardArgumentsSchema;
-    case 'emit_result': return emitResultArgumentsSchema;
+    case 'list_agent_sessions':
+      return listAgentSessionsInputSchema;
+    case 'navigate_workspace':
+      return navigateWorkspaceInputSchema;
+    case 'reconfigure':
+      return reconfigureParamsSchema;
+    case 'read_runtime_events':
+      return readRuntimeEventsInputSchema;
+    case 'read_runtime_errors':
+      return readRuntimeErrorsInputSchema;
+    case 'read_control_actions':
+      return readControlActionsInputSchema;
+    case 'list_processes_tool':
+      return listProcessesInputSchema;
+    case 'read_agent_session':
+      return readAgentSessionInputSchema;
+    case 'list_cards':
+      throw new Error(
+        'list_cards projection is context-free and does not use a static admission schema.',
+      );
+    case 'get_card':
+      return getCardInputSchema;
+    case 'get_tree':
+      return getTreeInputSchema;
+    case 'list_card_versions':
+      return listCardVersionsInputSchema;
+    case 'get_card_version':
+      return getCardVersionInputSchema;
+    case 'diff_card_versions':
+      return diffCardVersionsInputSchema;
+    case 'read_record_version':
+      return readRecordVersionInputSchema;
+    case 'read':
+      return readWorkspaceInputSchema;
+    case 'write':
+      return writeWorkspaceInputSchema;
+    case 'edit':
+      return editWorkspaceInputSchema;
+    case 'glob':
+      return globWorkspaceInputSchema;
+    case 'grep':
+      return grepWorkspaceInputSchema;
+    case 'apply_patch':
+      return applyPatchInputSchema;
+    case 'run_command':
+      return runCommandInputSchema;
+    case 'wait_process':
+      return waitProcessInputSchema;
+    case 'kill_process':
+      return killProcessInputSchema;
+    case 'websearch':
+      return websearchInputSchema;
+    case 'webfetch':
+      return WebfetchInvocationSchema;
+    case 'skill':
+      return skillInputSchema;
+    case 'mcp_tool_call':
+      return McpToolCallArgumentsSchema;
+    case 'edit_card':
+      return plannerEditCardInputSchema;
+    case 'activate_card':
+      return activateCardArgumentsSchema;
+    case 'emit_result':
+      return emitResultArgumentsSchema;
   }
 }

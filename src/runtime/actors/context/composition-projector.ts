@@ -8,10 +8,19 @@ import {
   type AgentMessage,
   type ConversationSessionId,
 } from '../../../schemas/index.js';
-import { loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity, type LoggedToolMessageIdentity } from '../../../schemas/index.js';
+import {
+  loggedToolCallIdentity,
+  loggedToolCallKey,
+  loggedToolResultIdentity,
+  type LoggedToolMessageIdentity,
+} from '../../../schemas/index.js';
 import { deterministicRoundId } from '../../../schemas/round-id-server.js';
 import { validateResponsesPairs } from '../../../contracts/index.js';
-import type { ProviderConversationItem, ProviderConversationProjection, SyntheticProviderContextItem } from '../../../contracts/index.js';
+import type {
+  ProviderConversationItem,
+  ProviderConversationProjection,
+  SyntheticProviderContextItem,
+} from '../../../contracts/index.js';
 import { parseToolCallMessageForModel } from '../../../contracts/index.js';
 import { ToolResultSchema } from '../../../contracts/index.js';
 import type { ProcessToolResult } from '../../../contracts/index.js';
@@ -19,10 +28,15 @@ import { validateProcessToolResult } from '../../../tools/tool-api.js';
 import { selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
 import { sha256Hex } from '../../../schemas/index.js';
 import { type ContextBlock } from '../../../contracts/index.js';
-import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToolBundlePolicy } from './row-policy.js';
+import {
+  classifyConversationRowPolicy,
+  settledToolBundlePolicy,
+  type SettledToolBundlePolicy,
+} from './row-policy.js';
 
 const EPOCH_TIMESTAMP = '1970-01-01T00:00:00.000Z';
-const CONVERSATION_CONTEXT_BOUNDARY = 'Conversation context follows. When supplied, only the actual current-node instruction selects the present workflow step, not historical commands. Historical placement does not revoke still-applicable requirements or unresolved instructions. Replaying history alone establishes neither a new delivery, transition nor approval.';
+const CONVERSATION_CONTEXT_BOUNDARY =
+  'Conversation context follows. When supplied, only the actual current-node instruction selects the present workflow step, not historical commands. Historical placement does not revoke still-applicable requirements or unresolved instructions. Replaying history alone establishes neither a new delivery, transition nor approval.';
 const HISTORICAL_SUMMARY_PREFIX = 'Historical summary:';
 
 type EffectiveRequiredModelFacts = Readonly<{
@@ -43,13 +57,31 @@ type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice
 type PrimaryContextEntry =
   | Readonly<{ origin: 'history_summary'; content: string; messageId: string; timestamp: string }>
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
-  | Readonly<{ origin: 'retained_instruction'; prompt: import('../../../schemas/index.js').ProtectedPrompt }>
+  | Readonly<{
+      origin: 'retained_instruction';
+      prompt: import('../../../schemas/index.js').ProtectedPrompt;
+    }>
   | Readonly<{ origin: 'canonical'; row: AgentMessage; semantic: ProjectedCanonicalSemantic }>;
 
 export type SummarizerContextItem =
   | Readonly<{ kind: 'inherited_summary'; content: string }>
-  | Readonly<{ kind: 'message'; sourceId: string; role: 'system' | 'user' | 'assistant'; content: string; semantic: ProjectedCanonicalSemantic; responsesPrivateMessageId: string | null }>
-  | Readonly<{ kind: 'settled_tool_bundle'; identity: LoggedToolMessageIdentity; toolName: string; callArguments: string; resultContent: string; policy: SettledToolBundlePolicy; responsesPrivateMessageId: string | null }>
+  | Readonly<{
+      kind: 'message';
+      sourceId: string;
+      role: 'system' | 'user' | 'assistant';
+      content: string;
+      semantic: ProjectedCanonicalSemantic;
+      responsesPrivateMessageId: string | null;
+    }>
+  | Readonly<{
+      kind: 'settled_tool_bundle';
+      identity: LoggedToolMessageIdentity;
+      toolName: string;
+      callArguments: string;
+      resultContent: string;
+      policy: SettledToolBundlePolicy;
+      responsesPrivateMessageId: string | null;
+    }>
   | Readonly<{ kind: 'evidence'; sourceId: string; evidence: ContextEvidence }>;
 
 export type ComposedContextProjection = Readonly<{
@@ -82,42 +114,103 @@ export function composeContextProjection(args: {
   const dynamic = selectVerifiedLatestDynamicBlocks(args.dynamicBlocks);
   validateResponsesPairs(args.sourceSessionId, [...args.uncoveredRows]);
   const settledBundles = groupSettledToolBundles(args.uncoveredRows);
-  const selection = selectRepeatedEventOccurrences(args.uncoveredRows, args.effectiveHistory?.requiredModelFacts ?? null);
+  const selection = selectRepeatedEventOccurrences(
+    args.uncoveredRows,
+    args.effectiveHistory?.requiredModelFacts ?? null,
+  );
 
   const primary: PrimaryContextEntry[] = [];
   const summarizer: SummarizerContextItem[] = [];
   for (const block of dynamic) primary.push({ origin: 'dynamic', block });
   if (args.effectiveHistory) {
-    primary.push({ origin: 'history_summary', content: args.effectiveHistory.summaryText, messageId: args.effectiveHistory.historyMessageId, timestamp: args.effectiveHistory.historyTimestamp });
+    primary.push({
+      origin: 'history_summary',
+      content: args.effectiveHistory.summaryText,
+      messageId: args.effectiveHistory.historyMessageId,
+      timestamp: args.effectiveHistory.historyTimestamp,
+    });
     summarizer.push({ kind: 'inherited_summary', content: args.effectiveHistory.summaryText });
   }
   if (selection.recovery?.kind === 'inherited_slot') {
-    primary.push({ origin: 'canonical', row: recoveryNoticeFromInheritedSlot(args.sourceSessionId, args.effectiveHistory!.requiredModelFacts.latestRecovery!), semantic: 'recovery_notice' });
-    summarizer.push(inheritedRecoveryMessageItem(args.effectiveHistory!.requiredModelFacts.latestRecovery!));
+    primary.push({
+      origin: 'canonical',
+      row: recoveryNoticeFromInheritedSlot(
+        args.sourceSessionId,
+        args.effectiveHistory!.requiredModelFacts.latestRecovery!,
+      ),
+      semantic: 'recovery_notice',
+    });
+    summarizer.push(
+      inheritedRecoveryMessageItem(args.effectiveHistory!.requiredModelFacts.latestRecovery!),
+    );
   }
   if (selection.refusal?.kind === 'inherited_slot') {
-    primary.push({ origin: 'canonical', row: refusalNoticeFromInheritedSlot(args.sourceSessionId, args.effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!), semantic: 'refusal_notice' });
-    summarizer.push(inheritedRefusalMessageItem(args.sourceSessionId, args.effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!));
+    primary.push({
+      origin: 'canonical',
+      row: refusalNoticeFromInheritedSlot(
+        args.sourceSessionId,
+        args.effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!,
+      ),
+      semantic: 'refusal_notice',
+    });
+    summarizer.push(
+      inheritedRefusalMessageItem(
+        args.sourceSessionId,
+        args.effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!,
+      ),
+    );
   }
   if (selection.recovery?.kind === 'row') {
     const row = selection.recovery.row;
-    if (row.content !== MODEL_RECOVERY_NOTICE_TEXT) throw new Error(`Recovery notice '${row.id}' does not carry the exact canonical recovery warning.`);
-    primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'system', MODEL_RECOVERY_NOTICE_TEXT), semantic: 'recovery_notice' });
-    summarizer.push({ kind: 'message', sourceId: row.id, role: 'system', content: MODEL_RECOVERY_NOTICE_TEXT, semantic: 'recovery_notice', responsesPrivateMessageId: null });
+    if (row.content !== MODEL_RECOVERY_NOTICE_TEXT)
+      throw new Error(
+        `Recovery notice '${row.id}' does not carry the exact canonical recovery warning.`,
+      );
+    primary.push({
+      origin: 'canonical',
+      row: syntheticProjectionRow(row, 'system', MODEL_RECOVERY_NOTICE_TEXT),
+      semantic: 'recovery_notice',
+    });
+    summarizer.push({
+      kind: 'message',
+      sourceId: row.id,
+      role: 'system',
+      content: MODEL_RECOVERY_NOTICE_TEXT,
+      semantic: 'recovery_notice',
+      responsesPrivateMessageId: null,
+    });
   }
   if (selection.refusal?.kind === 'row') {
     const row = selection.refusal.row;
     const content = contentPolicyRefusalProjectionText(args.sourceSessionId, row.id);
-    primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'user', content), semantic: 'refusal_notice' });
-    summarizer.push({ kind: 'message', sourceId: row.id, role: 'user', content, semantic: 'refusal_notice', responsesPrivateMessageId: null });
+    primary.push({
+      origin: 'canonical',
+      row: syntheticProjectionRow(row, 'user', content),
+      semantic: 'refusal_notice',
+    });
+    summarizer.push({
+      kind: 'message',
+      sourceId: row.id,
+      role: 'user',
+      content,
+      semantic: 'refusal_notice',
+      responsesPrivateMessageId: null,
+    });
   }
-  if (args.effectiveHistory) for (const prompt of args.effectiveHistory.protectedPrompts) primary.push({ origin: 'retained_instruction', prompt });
+  if (args.effectiveHistory)
+    for (const prompt of args.effectiveHistory.protectedPrompts)
+      primary.push({ origin: 'retained_instruction', prompt });
   for (const row of args.uncoveredRows) {
     const policy = classifyConversationRowPolicy(row);
     if (policy.kind === 'structural') {
       const behavior = policy.projection.behavior;
-      if (behavior === 'activation_boundary' || behavior === 'provider_failure' || behavior === 'responses_private') {
-        if (behavior === 'responses_private') primary.push({ origin: 'canonical', row, semantic: 'direct' });
+      if (
+        behavior === 'activation_boundary' ||
+        behavior === 'provider_failure' ||
+        behavior === 'responses_private'
+      ) {
+        if (behavior === 'responses_private')
+          primary.push({ origin: 'canonical', row, semantic: 'direct' });
         continue;
       }
       continue;
@@ -128,20 +221,59 @@ export function composeContextProjection(args: {
         const identity = requireToolResultIdentity(row);
         const bundle = settledBundles.get(loggedToolCallKey(identity));
         if (!bundle) throw new Error(`Tool result '${row.id}' has no settled bundle.`);
-        if (bundle.policy.settledAudience === 'evidence_only') summarizer.push({ kind: 'evidence', sourceId: bundle.call.id, evidence: bundle.policy.evidence });
-        else summarizer.push({ kind: 'settled_tool_bundle', identity, toolName: bundle.call.tool!, callArguments: bundle.callArguments, resultContent: row.content, policy: bundle.policy, responsesPrivateMessageId: bundle.responsesPrivateMessageId });
+        if (bundle.policy.settledAudience === 'evidence_only')
+          summarizer.push({
+            kind: 'evidence',
+            sourceId: bundle.call.id,
+            evidence: bundle.policy.evidence,
+          });
+        else
+          summarizer.push({
+            kind: 'settled_tool_bundle',
+            identity,
+            toolName: bundle.call.tool!,
+            callArguments: bundle.callArguments,
+            resultContent: row.content,
+            policy: bundle.policy,
+            responsesPrivateMessageId: bundle.responsesPrivateMessageId,
+          });
       }
       continue;
     }
     if (policy.projection.rendering === 'code_owned_retry_text') {
-      primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'user', CONTENT_POLICY_RETRY_TEXT), semantic: 'retry_notice' });
-      summarizer.push({ kind: 'message', sourceId: row.id, role: 'user', content: CONTENT_POLICY_RETRY_TEXT, semantic: 'retry_notice', responsesPrivateMessageId: null });
+      primary.push({
+        origin: 'canonical',
+        row: syntheticProjectionRow(row, 'user', CONTENT_POLICY_RETRY_TEXT),
+        semantic: 'retry_notice',
+      });
+      summarizer.push({
+        kind: 'message',
+        sourceId: row.id,
+        role: 'user',
+        content: CONTENT_POLICY_RETRY_TEXT,
+        semantic: 'retry_notice',
+        responsesPrivateMessageId: null,
+      });
       continue;
     }
     primary.push({ origin: 'canonical', row, semantic: 'direct' });
-    if (row.context_policy.kind !== 'content') throw new Error(`Conversation row '${row.id}' is missing its content policy.`);
-    if (row.context_policy.audience === 'evidence_only') summarizer.push({ kind: 'evidence', sourceId: row.id, evidence: row.context_policy.evidence });
-    else summarizer.push({ kind: 'message', sourceId: row.id, role: messageRoleOf(row), content: row.content, semantic: 'direct', responsesPrivateMessageId: row.provider_projection?.private_message_id ?? null });
+    if (row.context_policy.kind !== 'content')
+      throw new Error(`Conversation row '${row.id}' is missing its content policy.`);
+    if (row.context_policy.audience === 'evidence_only')
+      summarizer.push({
+        kind: 'evidence',
+        sourceId: row.id,
+        evidence: row.context_policy.evidence,
+      });
+    else
+      summarizer.push({
+        kind: 'message',
+        sourceId: row.id,
+        role: messageRoleOf(row),
+        content: row.content,
+        semantic: 'direct',
+        responsesPrivateMessageId: row.provider_projection?.private_message_id ?? null,
+      });
   }
 
   return Object.freeze({
@@ -153,37 +285,75 @@ export function composeContextProjection(args: {
   });
 }
 
-export function providerConversationFromComposedContext(composed: ComposedContextProjection): ProviderConversationProjection {
+export function providerConversationFromComposedContext(
+  composed: ComposedContextProjection,
+): ProviderConversationProjection {
   const messages: ProviderConversationItem[] = [];
   let boundaryEmitted = false;
   for (const entry of composed.primary) {
     if (entry.origin !== 'dynamic' && !boundaryEmitted) {
-      messages.push(syntheticProviderContext('system', CONVERSATION_CONTEXT_BOUNDARY, 'context_boundary', `${composed.sourceSessionId}:context-boundary`));
+      messages.push(
+        syntheticProviderContext(
+          'system',
+          CONVERSATION_CONTEXT_BOUNDARY,
+          'context_boundary',
+          `${composed.sourceSessionId}:context-boundary`,
+        ),
+      );
       boundaryEmitted = true;
     }
     if (entry.origin === 'history_summary')
-      messages.push(syntheticProviderContext('system', `${HISTORICAL_SUMMARY_PREFIX}\n${entry.content}`, 'history_summary', entry.messageId));
+      messages.push(
+        syntheticProviderContext(
+          'system',
+          `${HISTORICAL_SUMMARY_PREFIX}\n${entry.content}`,
+          'history_summary',
+          entry.messageId,
+        ),
+      );
     if (entry.origin === 'dynamic') {
-      if (entry.block.role === 'tool') throw new Error(`Dynamic context block '${entry.block.id}' cannot use the tool role in a provider request.`);
-      messages.push(syntheticProviderContext(entry.block.role, entry.block.content, 'dynamic', entry.block.id));
+      if (entry.block.role === 'tool')
+        throw new Error(
+          `Dynamic context block '${entry.block.id}' cannot use the tool role in a provider request.`,
+        );
+      messages.push(
+        syntheticProviderContext(entry.block.role, entry.block.content, 'dynamic', entry.block.id),
+      );
     }
     if (entry.origin === 'retained_instruction') {
       const message = entry.prompt.message;
-      if (message.role === 'tool') throw new Error(`Retained instruction '${message.id}' cannot use the tool role.`);
-      messages.push(syntheticProviderContext(message.role, message.content, 'retained_instruction', `${entry.prompt.source.segmentVersion}:${entry.prompt.source.rowIndex}:${message.id}`));
+      if (message.role === 'tool')
+        throw new Error(`Retained instruction '${message.id}' cannot use the tool role.`);
+      messages.push(
+        syntheticProviderContext(
+          message.role,
+          message.content,
+          'retained_instruction',
+          `${entry.prompt.source.segmentVersion}:${entry.prompt.source.rowIndex}:${message.id}`,
+        ),
+      );
     }
     if (entry.origin === 'canonical') {
-      if (entry.semantic === 'recovery_notice') messages.push(syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id));
-      else if (entry.semantic === 'refusal_notice') messages.push(syntheticProviderContext('user', entry.row.content, 'refusal_notice', entry.row.id));
-      else if (entry.semantic === 'retry_notice') messages.push(syntheticProviderContext('user', entry.row.content, 'retry_notice', entry.row.id));
+      if (entry.semantic === 'recovery_notice')
+        messages.push(
+          syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id),
+        );
+      else if (entry.semantic === 'refusal_notice')
+        messages.push(
+          syntheticProviderContext('user', entry.row.content, 'refusal_notice', entry.row.id),
+        );
+      else if (entry.semantic === 'retry_notice')
+        messages.push(
+          syntheticProviderContext('user', entry.row.content, 'retry_notice', entry.row.id),
+        );
       else messages.push(projectProcessResultForPrimary(entry.row));
     }
   }
   return { sourceSessionId: composed.sourceSessionId, messages };
 }
 
-type PrimaryProcessToolResult = Omit<ProcessToolResult, 'stdout_url' | 'stderr_url'>
-  & Partial<Pick<ProcessToolResult, 'stdout_url' | 'stderr_url'>>;
+type PrimaryProcessToolResult = Omit<ProcessToolResult, 'stdout_url' | 'stderr_url'> &
+  Partial<Pick<ProcessToolResult, 'stdout_url' | 'stderr_url'>>;
 
 const PROCESS_TOOLS = new Set(['run_command', 'wait_process', 'kill_process']);
 
@@ -197,7 +367,8 @@ function projectProcessResultForPrimary(row: AgentMessage): AgentMessage {
   if (done && data.stdout_complete) delete projected.stdout_url;
   if (done && data.stderr_complete) delete projected.stderr_url;
   const content = canonicalJson({ success: true, data: projected });
-  if (row.context_policy.kind !== 'tool_result') throw new Error(`Process result '${row.id}' is missing its tool-result policy.`);
+  if (row.context_policy.kind !== 'tool_result')
+    throw new Error(`Process result '${row.id}' is missing its tool-result policy.`);
   return agentMessageSchema.parse({
     ...row,
     content,
@@ -214,11 +385,18 @@ function syntheticProviderContext(
   origin: SyntheticProviderContextItem['origin'],
   blockIdentity: string,
 ): SyntheticProviderContextItem {
-  return Object.freeze({ kind: 'synthetic_context', role, content, origin, block_identity: blockIdentity });
+  return Object.freeze({
+    kind: 'synthetic_context',
+    role,
+    content,
+    origin,
+    block_identity: blockIdentity,
+  });
 }
 
 export function projectedCanonicalRowContent(row: AgentMessage): string {
-  if (row.kind === 'content_policy_refusal') return contentPolicyRefusalProjectionText(row.session_id, row.id);
+  if (row.kind === 'content_policy_refusal')
+    return contentPolicyRefusalProjectionText(row.session_id, row.id);
   if (row.kind === 'content_policy_retry') return CONTENT_POLICY_RETRY_TEXT;
   if (row.kind === 'model_recovered') return MODEL_RECOVERY_NOTICE_TEXT;
   return row.content;
@@ -231,15 +409,32 @@ export function currentCoveredRequiredFactRows(args: {
 }): readonly AgentMessage[] {
   const selection = selectRepeatedEventOccurrences(args.uncoveredRows, args.requiredModelFacts);
   const rows: AgentMessage[] = [];
-  if (selection.recovery?.kind === 'inherited_slot') rows.push(recoveryNoticeFromInheritedSlot(args.sourceSessionId, args.requiredModelFacts.latestRecovery!));
-  if (selection.refusal?.kind === 'inherited_slot') rows.push(refusalNoticeFromInheritedSlot(args.sourceSessionId, args.requiredModelFacts.latestContentPolicyRefusal!));
+  if (selection.recovery?.kind === 'inherited_slot')
+    rows.push(
+      recoveryNoticeFromInheritedSlot(
+        args.sourceSessionId,
+        args.requiredModelFacts.latestRecovery!,
+      ),
+    );
+  if (selection.refusal?.kind === 'inherited_slot')
+    rows.push(
+      refusalNoticeFromInheritedSlot(
+        args.sourceSessionId,
+        args.requiredModelFacts.latestContentPolicyRefusal!,
+      ),
+    );
   return Object.freeze(rows);
 }
 
-function selectVerifiedLatestDynamicBlocks(blocks: readonly ContextBlock[]): readonly ContextBlock[] {
+function selectVerifiedLatestDynamicBlocks(
+  blocks: readonly ContextBlock[],
+): readonly ContextBlock[] {
   for (const block of blocks) {
     if (block.replacement.kind !== 'latest_snapshot') continue;
-    if (sha256Hex(block.content) !== block.replacement.contentSha256) throw new Error(`Dynamic context block '${block.id}' replacement hash does not commit to its exact content.`);
+    if (sha256Hex(block.content) !== block.replacement.contentSha256)
+      throw new Error(
+        `Dynamic context block '${block.id}' replacement hash does not commit to its exact content.`,
+      );
   }
   return selectLatestContextBlocks(blocks);
 }
@@ -250,7 +445,8 @@ function groupSettledToolBundles(rows: readonly AgentMessage[]): Map<string, Set
   for (const row of rows) {
     if (row.kind === 'tool_call') {
       const key = loggedToolCallKey(requireToolCallIdentity(row));
-      if (openCalls.has(key) || settled.has(key)) throw new Error(`Tool call '${row.id}' repeats the composite identity of an earlier call.`);
+      if (openCalls.has(key) || settled.has(key))
+        throw new Error(`Tool call '${row.id}' repeats the composite identity of an earlier call.`);
       openCalls.set(key, row);
       continue;
     }
@@ -261,20 +457,30 @@ function groupSettledToolBundles(rows: readonly AgentMessage[]): Map<string, Set
     if (!call) throw new Error(`Tool result '${row.id}' settles no prior unmatched tool call.`);
     openCalls.delete(key);
     const embedded = parseToolCallMessageForModel(JSON.parse(call.content));
-    settled.set(key, Object.freeze({
-      call,
-      result: row,
-      policy: settledToolBundlePolicy(call, row),
-      callArguments: embedded.arguments,
-      responsesPrivateMessageId: call.provider_projection?.private_message_id ?? null,
-    }));
+    settled.set(
+      key,
+      Object.freeze({
+        call,
+        result: row,
+        policy: settledToolBundlePolicy(call, row),
+        callArguments: embedded.arguments,
+        responsesPrivateMessageId: call.provider_projection?.private_message_id ?? null,
+      }),
+    );
   }
   return settled;
 }
 
-function selectRepeatedEventOccurrences(rows: readonly AgentMessage[], facts: EffectiveRequiredModelFacts | null): RepeatedEventSelection {
-  let recovery: RepeatedEventSelection['recovery'] = facts?.latestRecovery ? { kind: 'inherited_slot' } : null;
-  let refusal: RepeatedEventSelection['refusal'] = facts?.latestContentPolicyRefusal ? { kind: 'inherited_slot' } : null;
+function selectRepeatedEventOccurrences(
+  rows: readonly AgentMessage[],
+  facts: EffectiveRequiredModelFacts | null,
+): RepeatedEventSelection {
+  let recovery: RepeatedEventSelection['recovery'] = facts?.latestRecovery
+    ? { kind: 'inherited_slot' }
+    : null;
+  let refusal: RepeatedEventSelection['refusal'] = facts?.latestContentPolicyRefusal
+    ? { kind: 'inherited_slot' }
+    : null;
   for (const row of rows) {
     if (row.kind === 'model_recovered') recovery = { kind: 'row', row };
     if (row.kind === 'content_policy_refusal') refusal = { kind: 'row', row };
@@ -282,24 +488,48 @@ function selectRepeatedEventOccurrences(rows: readonly AgentMessage[], facts: Ef
   return { recovery, refusal };
 }
 
-function recoveryNoticeId(selection: RepeatedEventSelection, effectiveHistory: EffectiveCompactedHistoryFacts | null): string | null {
+function recoveryNoticeId(
+  selection: RepeatedEventSelection,
+  effectiveHistory: EffectiveCompactedHistoryFacts | null,
+): string | null {
   if (selection.recovery?.kind === 'row') return selection.recovery.row.id;
-  if (selection.recovery?.kind === 'inherited_slot') return effectiveHistory!.requiredModelFacts.latestRecovery!.sourceMessageId;
+  if (selection.recovery?.kind === 'inherited_slot')
+    return effectiveHistory!.requiredModelFacts.latestRecovery!.sourceMessageId;
   return null;
 }
 
-function refusalNoticeId(selection: RepeatedEventSelection, effectiveHistory: EffectiveCompactedHistoryFacts | null): string | null {
+function refusalNoticeId(
+  selection: RepeatedEventSelection,
+  effectiveHistory: EffectiveCompactedHistoryFacts | null,
+): string | null {
   if (selection.refusal?.kind === 'row') return selection.refusal.row.id;
-  if (selection.refusal?.kind === 'inherited_slot') return effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!.markerId;
+  if (selection.refusal?.kind === 'inherited_slot')
+    return effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!.markerId;
   return null;
 }
 
-function syntheticProjectionRow(row: AgentMessage, role: 'system' | 'user', content: string): AgentMessage {
-  return agentMessageSchema.parse({ ...row, role, kind: 'text', content, context_policy: DURABLE_PRIMARY_CONTENT_POLICY });
+function syntheticProjectionRow(
+  row: AgentMessage,
+  role: 'system' | 'user',
+  content: string,
+): AgentMessage {
+  return agentMessageSchema.parse({
+    ...row,
+    role,
+    kind: 'text',
+    content,
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
+  });
 }
 
-function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>): AgentMessage {
-  if (slot.sourceMessageId !== `${slot.activationInputId}:model-recovered`) throw new Error(`Inherited recovery fact '${slot.sourceMessageId}' does not match its activation identity.`);
+function recoveryNoticeFromInheritedSlot(
+  sourceSessionId: ConversationSessionId,
+  slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>,
+): AgentMessage {
+  if (slot.sourceMessageId !== `${slot.activationInputId}:model-recovered`)
+    throw new Error(
+      `Inherited recovery fact '${slot.sourceMessageId}' does not match its activation identity.`,
+    );
   return agentMessageSchema.parse({
     id: slot.sourceMessageId,
     session_id: sourceSessionId,
@@ -314,7 +544,10 @@ function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId,
   });
 }
 
-function refusalNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>): AgentMessage {
+function refusalNoticeFromInheritedSlot(
+  sourceSessionId: ConversationSessionId,
+  slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>,
+): AgentMessage {
   return agentMessageSchema.parse({
     id: slot.markerId,
     session_id: sourceSessionId,
@@ -329,12 +562,31 @@ function refusalNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, 
   });
 }
 
-function inheritedRecoveryMessageItem(slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>): Extract<SummarizerContextItem, { kind: 'message' }> {
-  return { kind: 'message', sourceId: slot.sourceMessageId, role: 'system', content: MODEL_RECOVERY_NOTICE_TEXT, semantic: 'recovery_notice', responsesPrivateMessageId: null };
+function inheritedRecoveryMessageItem(
+  slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>,
+): Extract<SummarizerContextItem, { kind: 'message' }> {
+  return {
+    kind: 'message',
+    sourceId: slot.sourceMessageId,
+    role: 'system',
+    content: MODEL_RECOVERY_NOTICE_TEXT,
+    semantic: 'recovery_notice',
+    responsesPrivateMessageId: null,
+  };
 }
 
-function inheritedRefusalMessageItem(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>): Extract<SummarizerContextItem, { kind: 'message' }> {
-  return { kind: 'message', sourceId: slot.markerId, role: 'user', content: contentPolicyRefusalProjectionText(sourceSessionId, slot.markerId), semantic: 'refusal_notice', responsesPrivateMessageId: null };
+function inheritedRefusalMessageItem(
+  sourceSessionId: ConversationSessionId,
+  slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>,
+): Extract<SummarizerContextItem, { kind: 'message' }> {
+  return {
+    kind: 'message',
+    sourceId: slot.markerId,
+    role: 'user',
+    content: contentPolicyRefusalProjectionText(sourceSessionId, slot.markerId),
+    semantic: 'refusal_notice',
+    responsesPrivateMessageId: null,
+  };
 }
 
 function messageRoleOf(row: AgentMessage): 'system' | 'user' | 'assistant' {

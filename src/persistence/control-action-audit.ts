@@ -4,7 +4,10 @@ import type { ControlActionAuditEntry } from '../schemas/index.js';
 import { appendAppLogEntry, readAppLogEntries } from './app-log.js';
 import { projectControlAction } from './control-action-outbound.js';
 
-export function listControlActions(projectRoot: string, filters?: { card_id?: string; since?: string }): ControlActionAuditEntry[] {
+export function listControlActions(
+  projectRoot: string,
+  filters?: { card_id?: string; since?: string },
+): ControlActionAuditEntry[] {
   return readAppLogEntries(projectRoot, 'control_action')
     .map((entry) => entry.data)
     .map((entry) => projectControlAction(entry))
@@ -15,7 +18,10 @@ export function listControlActions(projectRoot: string, filters?: { card_id?: st
 
 export function recordControlAction(
   projectRoot: string,
-  prepareEntry: () => Omit<ControlActionAuditEntry, 'id' | 'created_at'> & { id?: string; created_at?: string },
+  prepareEntry: () => Omit<ControlActionAuditEntry, 'id' | 'created_at'> & {
+    id?: string;
+    created_at?: string;
+  },
 ): ControlActionAuditEntry {
   return appendAppLogEntry(projectRoot, 'control_action', () => {
     const entry = prepareEntry();

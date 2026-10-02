@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { loggedEventSchema, controlActionAuditEntrySchema } from '../schemas/index.js';
 
 const eventEntrySchema = z.object({ type: z.literal('event'), data: loggedEventSchema }).strict();
-const controlEntrySchema = z.object({ type: z.literal('control_action'), data: controlActionAuditEntrySchema }).strict();
+const controlEntrySchema = z
+  .object({ type: z.literal('control_action'), data: controlActionAuditEntrySchema })
+  .strict();
 
 export const appLogEntrySchema = z.discriminatedUnion('type', [
   eventEntrySchema,

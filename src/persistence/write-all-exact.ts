@@ -1,9 +1,4 @@
-type ExactWrite = (
-  descriptor: number,
-  bytes: Uint8Array,
-  offset: number,
-  length: number,
-) => number;
+type ExactWrite = (descriptor: number, bytes: Uint8Array, offset: number, length: number) => number;
 
 export function writeAllExact(
   descriptor: number,

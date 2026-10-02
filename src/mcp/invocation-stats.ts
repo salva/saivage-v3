@@ -1,6 +1,11 @@
 import type { EventLog } from '../observability/index.js';
 
-export interface McpInvocationStat { total: number; success: number; error: number; lastInvokedAt?: string }
+export interface McpInvocationStat {
+  total: number;
+  success: number;
+  error: number;
+  lastInvokedAt?: string;
+}
 
 export class McpInvocationStatsRecorder {
   private readonly stats = new Map<string, McpInvocationStat>();
@@ -17,14 +22,25 @@ export class McpInvocationStatsRecorder {
     this.stats.set(key, current);
   }
 
-  publish(server: string, tool: string, success: boolean, durationMs: number, operationError?: unknown): void {
+  publish(
+    server: string,
+    tool: string,
+    success: boolean,
+    durationMs: number,
+    operationError?: unknown,
+  ): void {
     this.eventLogger.appendEventPrepared(() => ({
       kind: 'mcp_tool_invocation',
       server,
       tool,
       success,
       duration_ms: durationMs,
-      ...(operationError === undefined ? {} : { error: operationError instanceof Error ? operationError.message : String(operationError) }),
+      ...(operationError === undefined
+        ? {}
+        : {
+            error:
+              operationError instanceof Error ? operationError.message : String(operationError),
+          }),
     }));
   }
 

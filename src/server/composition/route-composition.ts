@@ -29,7 +29,11 @@ export function registerServerRoutes(options: {
   workflows: CompiledRuntimeWorkflows;
   fatalPort: ApplicationFatalPort;
 }): void {
-  const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager,
+  const serverAvailabilityProvider = () =>
+    buildServerAvailability({
+      projectRoot: options.projectRoot,
+      runtimeApplication: options.runtimeApplication,
+      mcpManager: options.mcpManager,
     });
 
   registerOperatorContractRoutes({
@@ -41,7 +45,8 @@ export function registerServerRoutes(options: {
     serverAvailabilityProvider,
     configAuthority: options.configAuthority,
     saivageConfig: options.saivageConfig,
-    providerRoutingReadModelProvider: () => options.runtimeApplication.getProviderRoutingReadModel(),
+    providerRoutingReadModelProvider: () =>
+      options.runtimeApplication.getProviderRoutingReadModel(),
     restartCapability: options.restartCapability,
     authPolicy: options.authPolicy,
     eventLogger: options.eventLogger,

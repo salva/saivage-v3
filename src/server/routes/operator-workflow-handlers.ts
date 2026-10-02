@@ -1,4 +1,7 @@
-import { projectWorkflowPresentation, type CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
+import {
+  projectWorkflowPresentation,
+  type CompiledRuntimeWorkflows,
+} from '../../runtime/runtime-api.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 
 export function buildWorkflowOperatorContractHandlers(workflows: CompiledRuntimeWorkflows) {
@@ -7,7 +10,10 @@ export function buildWorkflowOperatorContractHandlers(workflows: CompiledRuntime
       const workflow = workflows.cardTypes.get(params.cardType);
       return workflow
         ? { body: projectWorkflowPresentation(workflow) }
-        : { statusCode: 404, body: { error: 'workflow_type_not_found', card_type: params.cardType } };
+        : {
+            statusCode: 404,
+            body: { error: 'workflow_type_not_found', card_type: params.cardType },
+          };
     },
   });
 }

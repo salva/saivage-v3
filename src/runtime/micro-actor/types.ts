@@ -3,7 +3,9 @@ export type CompiledActorTransition = {
   readonly reenter: boolean;
 };
 
-export type CompiledActorState<Transition extends CompiledActorTransition = CompiledActorTransition> = {
+export type CompiledActorState<
+  Transition extends CompiledActorTransition = CompiledActorTransition,
+> = {
   readonly on: ReadonlyMap<string, Transition>;
   readonly isTerminal: boolean;
   readonly isParked: boolean;

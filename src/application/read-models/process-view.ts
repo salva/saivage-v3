@@ -4,8 +4,10 @@ import type { ProcessRecord } from '../../runtime/runtime-api.js';
 import { toContainedRelativePath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 
 export function buildProcessView(projectRoot: string, record: ProcessRecord): ProcessView {
-  const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
-  const logUrl = (path: string | null | undefined) => path ? workUrlFromAbsolutePath(projectRoot, path) : null;
+  const safePath = (path: string | null | undefined) =>
+    path ? toContainedRelativePath(projectRoot, path) : null;
+  const logUrl = (path: string | null | undefined) =>
+    path ? workUrlFromAbsolutePath(projectRoot, path) : null;
   const process: ProcessView = {
     id: record.id,
     status: record.status,

@@ -5,7 +5,10 @@ export function projectLoggedEvent(event: LoggedEvent): LoggedEvent {
   const parsed = loggedEventSchema.parse(event);
   switch (parsed.kind) {
     case 'runtime_diagnostic':
-      return loggedEventSchema.parse({ ...parsed, error_message: redactTextForOutbound(parsed.error_message) });
+      return loggedEventSchema.parse({
+        ...parsed,
+        error_message: redactTextForOutbound(parsed.error_message),
+      });
     case 'mcp_tool_invocation':
       return loggedEventSchema.parse({
         ...parsed,
@@ -28,18 +31,30 @@ export function projectLoggedEvent(event: LoggedEvent): LoggedEvent {
   }
 }
 
-function projectCurrentState(code: string, state: Record<string, unknown>): Record<string, unknown> {
+function projectCurrentState(
+  code: string,
+  state: Record<string, unknown>,
+): Record<string, unknown> {
   switch (code) {
     case 'contract_response_violation': {
       assertExactKeys(state, ['failureCode', 'operation', 'statusCode']);
-      if (typeof state.operation !== 'string' || typeof state.failureCode !== 'string' || !Number.isInteger(state.statusCode)) {
+      if (
+        typeof state.operation !== 'string' ||
+        typeof state.failureCode !== 'string' ||
+        !Number.isInteger(state.statusCode)
+      ) {
         throw new Error('contract_response_violation currentState has invalid fields.');
       }
-      return { operation: state.operation, statusCode: state.statusCode, failureCode: state.failureCode };
+      return {
+        operation: state.operation,
+        statusCode: state.statusCode,
+        failureCode: state.failureCode,
+      };
     }
     case 'invalid_enum_value': {
       assertExactKeys(state, ['field', 'value']);
-      if (typeof state.field !== 'string') throw new Error('invalid_enum_value currentState.field must be a string.');
+      if (typeof state.field !== 'string')
+        throw new Error('invalid_enum_value currentState.field must be a string.');
       return { field: state.field, value: projectDynamicForOutbound(state.value) };
     }
     default:

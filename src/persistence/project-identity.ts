@@ -9,7 +9,10 @@ const projectIdentitySchema = projectConfigSchema.strict();
 
 export function parseProjectIdentity(raw: unknown, path: string): ProjectConfig {
   const parsed = projectIdentitySchema.safeParse(raw);
-  if (!parsed.success) throw new Error(`Project identity is invalid at '${path}': ${parsed.error.issues[0]?.message ?? 'schema mismatch'}.`);
+  if (!parsed.success)
+    throw new Error(
+      `Project identity is invalid at '${path}': ${parsed.error.issues[0]?.message ?? 'schema mismatch'}.`,
+    );
   return parsed.data;
 }
 
@@ -29,16 +32,37 @@ export function projectIdentityDigest(project: Pick<ProjectConfig, 'id' | 'creat
   return sha256Hex(JSON.stringify({ id: project.id, created_at: project.created_at }));
 }
 
-export function createProjectIdentity(projectRoot: string, name: string, publicationTemporaryId?: PublicationTemporaryIdFactory): ProjectConfig {
-    const owner = saivageRoot(projectRoot);
-    try { mkdirSync(owner); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; const stat = lstatSync(owner); if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Project state owner '${owner}' must be a real directory.`); }
-    const path = projectIdentityFile(projectRoot);
-    if (readProjectIdentity(projectRoot)) throw new Error(`Project identity already exists at '${path}'.`);
-    const stamp = new Date().toISOString();
-    const project = parseProjectIdentity({
-      id: 'project', name, context: '', goals_summary: '', constraints: [], planner_enabled: true,
-      created_at: stamp, updated_at: stamp,
-    }, path);
-    replaceFile(path, Buffer.from(`${JSON.stringify(project, null, 2)}\n`), publicationTemporaryId);
-    return project;
+export function createProjectIdentity(
+  projectRoot: string,
+  name: string,
+  publicationTemporaryId?: PublicationTemporaryIdFactory,
+): ProjectConfig {
+  const owner = saivageRoot(projectRoot);
+  try {
+    mkdirSync(owner);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    const stat = lstatSync(owner);
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new Error(`Project state owner '${owner}' must be a real directory.`);
+  }
+  const path = projectIdentityFile(projectRoot);
+  if (readProjectIdentity(projectRoot))
+    throw new Error(`Project identity already exists at '${path}'.`);
+  const stamp = new Date().toISOString();
+  const project = parseProjectIdentity(
+    {
+      id: 'project',
+      name,
+      context: '',
+      goals_summary: '',
+      constraints: [],
+      planner_enabled: true,
+      created_at: stamp,
+      updated_at: stamp,
+    },
+    path,
+  );
+  replaceFile(path, Buffer.from(`${JSON.stringify(project, null, 2)}\n`), publicationTemporaryId);
+  return project;
 }

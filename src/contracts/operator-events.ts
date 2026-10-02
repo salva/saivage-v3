@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { ConversationSessionIdSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
+import {
+  ConversationSessionIdSchema,
+  cardIdSchema,
+  positiveSafeIntegerSchema,
+  recordNameSchema,
+} from '../schemas/index.js';
 
 const LiveSyncUnscopedResourceSchema = z.literal('runtime');
 const LiveSyncCardRecordNameSchema = recordNameSchema;
@@ -161,10 +166,12 @@ export const ConnectedStatusContentSchema = z
   })
   .strict();
 
-const ConnectedStatusEnvelopeSchema = z.object({
-  type: z.literal('status'),
-  content: ConnectedStatusContentSchema,
-}).strict();
+const ConnectedStatusEnvelopeSchema = z
+  .object({
+    type: z.literal('status'),
+    content: ConnectedStatusContentSchema,
+  })
+  .strict();
 
 export const MAX_WS_FRAME_BYTES = 1_048_576;
 export const ServerEgressWsEnvelopeSchema = ConnectedStatusEnvelopeSchema;

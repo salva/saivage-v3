@@ -4,20 +4,55 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
-import { publishInitialProjectRuntime, startApp, withDirectMutationComposition, type StartInputs } from './boot/index.js';
-import { findProjectRoot, resetOwnedGeneratedRoots, readProjectIdentity, readProjectCardOrAssertInitialPublicationAllowed, initializeAndValidateCurrentGeneratedState } from './persistence/index.js';
+import {
+  publishInitialProjectRuntime,
+  startApp,
+  withDirectMutationComposition,
+  type StartInputs,
+} from './boot/index.js';
+import {
+  findProjectRoot,
+  resetOwnedGeneratedRoots,
+  readProjectIdentity,
+  readProjectCardOrAssertInitialPublicationAllowed,
+  initializeAndValidateCurrentGeneratedState,
+} from './persistence/index.js';
 import { readRuntimeLockStatus } from './runtime/runtime-api.js';
 import { OperatorRuntimeHttpClient } from './application/index.js';
-import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate, replaceConfigYaml, createResolvedConfigAuthority } from './config/index.js';
+import {
+  DEFAULT_SYSTEM_TEMPLATE,
+  resolveSystemTemplate,
+  replaceConfigYaml,
+  createResolvedConfigAuthority,
+} from './config/index.js';
 import { SAIVAGE_VERSION } from './version.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
 
 const fatalPort = createApplicationFatalPort();
 
-function loadCanonicalWorkflows(projectRoot:string){const path=join(projectRoot,'.saivage','saivage.yaml');const authority=createResolvedConfigAuthority({path,interpolationEnvironment:process.env,projectRoot});return authority.loadEffective().workflows;}
+function loadCanonicalWorkflows(projectRoot: string) {
+  const path = join(projectRoot, '.saivage', 'saivage.yaml');
+  const authority = createResolvedConfigAuthority({
+    path,
+    interpolationEnvironment: process.env,
+    projectRoot,
+  });
+  return authority.loadEffective().workflows;
+}
 
-interface InitInputs { readonly profile?: string }
-type Command = 'init' | 'start' | 'status' | 'pause' | 'resume' | 'stop' | 'restart_server' | 'reset' | 'help';
+interface InitInputs {
+  readonly profile?: string;
+}
+type Command =
+  | 'init'
+  | 'start'
+  | 'status'
+  | 'pause'
+  | 'resume'
+  | 'stop'
+  | 'restart_server'
+  | 'reset'
+  | 'help';
 type ParsedCommand =
   | { readonly command: 'init'; readonly inputs: InitInputs }
   | { readonly command: 'start'; readonly inputs: StartInputs }
@@ -43,8 +78,17 @@ Usage:
       canonical runtime.lock manually and retry.
   saivage help
 `;
-function parseSingletonOptions(args: readonly string[], options: Record<string, { readonly type: 'string' | 'boolean' }>): Record<string, string | boolean | undefined> {
-  const parsed = parseArgs({ args: [...args], options, allowPositionals: false, strict: true, tokens: true });
+function parseSingletonOptions(
+  args: readonly string[],
+  options: Record<string, { readonly type: 'string' | 'boolean' }>,
+): Record<string, string | boolean | undefined> {
+  const parsed = parseArgs({
+    args: [...args],
+    options,
+    allowPositionals: false,
+    strict: true,
+    tokens: true,
+  });
   const seen = new Set<string>();
   for (const token of parsed.tokens) {
     if (token.kind !== 'option') continue;
@@ -65,25 +109,40 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
   }
   if (command === 'start') {
     const values = parseSingletonOptions(rest, {
-      host: { type: 'string' }, port: { type: 'string' }, config: { type: 'string' },
-      'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' },
+      host: { type: 'string' },
+      port: { type: 'string' },
+      config: { type: 'string' },
+      'project-root': { type: 'string' },
+      'create-runtime': { type: 'boolean' },
     });
-    return { command, inputs: {
-      host: values['host'] as string | undefined,
-      port: values['port'] as string | undefined,
-      config: values['config'] as string | undefined,
-      projectRoot: values['project-root'] as string | undefined,
-      createRuntime: values['create-runtime'] === true,
-    } };
+    return {
+      command,
+      inputs: {
+        host: values['host'] as string | undefined,
+        port: values['port'] as string | undefined,
+        config: values['config'] as string | undefined,
+        projectRoot: values['project-root'] as string | undefined,
+        createRuntime: values['create-runtime'] === true,
+      },
+    };
   }
-  const commandsWithoutOptions = new Set(['status', 'pause', 'resume', 'stop', 'restart_server', 'reset', 'help']);
+  const commandsWithoutOptions = new Set([
+    'status',
+    'pause',
+    'resume',
+    'stop',
+    'restart_server',
+    'reset',
+    'help',
+  ]);
   if (!commandsWithoutOptions.has(command)) throw new Error(`Unknown command: ${command}`);
   parseSingletonOptions(rest, {});
   return { command: command as Exclude<Command, 'init' | 'start'> };
 }
 function materializePromptTree(sourceRoot: string, destinationRoot: string): void {
   for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
-    if (entry.isDirectory()) materializePromptTree(join(sourceRoot, entry.name), join(destinationRoot, entry.name));
+    if (entry.isDirectory())
+      materializePromptTree(join(sourceRoot, entry.name), join(destinationRoot, entry.name));
     else if (entry.isFile()) {
       const destination = join(destinationRoot, entry.name);
       if (existsSync(destination)) continue;
@@ -97,31 +156,54 @@ async function handleInit(options: InitInputs): Promise<void> {
   withDirectMutationComposition(projectRoot, 'init', fatalPort, (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
     const template = resolveSystemTemplate(options.profile ?? DEFAULT_SYSTEM_TEMPLATE);
-    const configPath=join(canonicalProjectRoot,'.saivage','saivage.yaml');
+    const configPath = join(canonicalProjectRoot, '.saivage', 'saivage.yaml');
     let configurationMaterialized = false;
-    if(!existsSync(configPath)){
-      materializePromptTree(template.promptRoot,join(canonicalProjectRoot,'.saivage','config','prompts'));
-      writeFileSync(join(canonicalProjectRoot,'.saivage','config','template.json'),JSON.stringify({template:template.name,saivage_version:SAIVAGE_VERSION}));
-      replaceConfigYaml(configPath,structuredClone(template.config));
+    if (!existsSync(configPath)) {
+      materializePromptTree(
+        template.promptRoot,
+        join(canonicalProjectRoot, '.saivage', 'config', 'prompts'),
+      );
+      writeFileSync(
+        join(canonicalProjectRoot, '.saivage', 'config', 'template.json'),
+        JSON.stringify({ template: template.name, saivage_version: SAIVAGE_VERSION }),
+      );
+      replaceConfigYaml(configPath, structuredClone(template.config));
       configurationMaterialized = true;
     }
-    const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
-    if (readProjectIdentity(canonicalProjectRoot) === null) composition.createAndBindProjectIdentity();
+    const workflows = loadCanonicalWorkflows(canonicalProjectRoot);
+    if (readProjectIdentity(canonicalProjectRoot) === null)
+      composition.createAndBindProjectIdentity();
     const projectCard = readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot);
     if (projectCard === null) {
       publishInitialProjectRuntime(canonicalProjectRoot, workflows);
     }
     initializeAndValidateCurrentGeneratedState(canonicalProjectRoot, workflows);
-    console.log(projectCard === null ? `Project layout initialized at ${canonicalProjectRoot}` : `Project layout already exists at ${canonicalProjectRoot}`);
-    console.log(configurationMaterialized ? `Configuration materialized from template ${template.name}` : 'Existing configuration preserved');
+    console.log(
+      projectCard === null
+        ? `Project layout initialized at ${canonicalProjectRoot}`
+        : `Project layout already exists at ${canonicalProjectRoot}`,
+    );
+    console.log(
+      configurationMaterialized
+        ? `Configuration materialized from template ${template.name}`
+        : 'Existing configuration preserved',
+    );
   });
 }
-async function handleStart(inputs: StartInputs): Promise<void> { const app = await startApp(inputs); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
-async function handleRuntimeControl(command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server'): Promise<void> {
+async function handleStart(inputs: StartInputs): Promise<void> {
+  const app = await startApp(inputs);
+  console.log(
+    `Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`,
+  );
+}
+async function handleRuntimeControl(
+  command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server',
+): Promise<void> {
   const projectRoot = findProjectRoot();
   if (projectRoot === null) throw new Error('Not in a Saivage project');
   const lock = readRuntimeLockStatus(projectRoot);
-  if (lock.kind === 'indeterminate' || lock.kind === 'malformed') throw new Error(`Lifecycle lock ${lock.kind}: ${lock.detail}. ${lock.repairInstruction}`);
+  if (lock.kind === 'indeterminate' || lock.kind === 'malformed')
+    throw new Error(`Lifecycle lock ${lock.kind}: ${lock.detail}. ${lock.repairInstruction}`);
   if (lock.kind === 'missing' || lock.kind === 'dead') {
     if (command === 'status') {
       console.log('Service: stopped (no live owner)');
@@ -138,34 +220,86 @@ async function handleRuntimeControl(command: 'status' | 'pause' | 'resume' | 'st
   const endpoint = lock.record.control_endpoint;
   if (endpoint === null) throw new Error('active lifecycle owner; runtime control unavailable');
   const client = new OperatorRuntimeHttpClient();
-  if (command === 'status') { console.log(JSON.stringify(await client.getRuntimeStatus(endpoint))); return; }
-  if (command === 'pause') { console.log(JSON.stringify(await client.pauseRuntime(endpoint))); return; }
-  if (command === 'resume') { console.log(JSON.stringify(await client.resumeRuntime(endpoint))); return; }
-  if (command === 'stop') { console.log(JSON.stringify(await client.stopProject(endpoint))); return; }
-  if (endpoint.auth === 'disabled') throw new Error('restart unavailable: operator authentication disabled');
+  if (command === 'status') {
+    console.log(JSON.stringify(await client.getRuntimeStatus(endpoint)));
+    return;
+  }
+  if (command === 'pause') {
+    console.log(JSON.stringify(await client.pauseRuntime(endpoint)));
+    return;
+  }
+  if (command === 'resume') {
+    console.log(JSON.stringify(await client.resumeRuntime(endpoint)));
+    return;
+  }
+  if (command === 'stop') {
+    console.log(JSON.stringify(await client.stopProject(endpoint)));
+    return;
+  }
+  if (endpoint.auth === 'disabled')
+    throw new Error('restart unavailable: operator authentication disabled');
   const token = process.env.SAIVAGE_API_TOKEN;
-  if (!token || token.trim() === '') throw new Error('Live service requires bearer authentication; set a non-blank SAIVAGE_API_TOKEN.');
+  if (!token || token.trim() === '')
+    throw new Error(
+      'Live service requires bearer authentication; set a non-blank SAIVAGE_API_TOKEN.',
+    );
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const confirmation = await prompt.question('Type RESTART SERVER to confirm: ');
-    if (confirmation !== 'RESTART SERVER') throw new Error('Server restart confirmation was not provided.');
-  } finally { prompt.close(); }
+    if (confirmation !== 'RESTART SERVER')
+      throw new Error('Server restart confirmation was not provided.');
+  } finally {
+    prompt.close();
+  }
   console.log(JSON.stringify(await client.restartServer(endpoint)));
 }
 async function handleReset(): Promise<void> {
   const projectRoot = process.cwd();
   withDirectMutationComposition(projectRoot, 'bound', fatalPort, (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
-    const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
+    const workflows = loadCanonicalWorkflows(canonicalProjectRoot);
     const generatedRoots = resetOwnedGeneratedRoots(canonicalProjectRoot);
     console.log('Reset will remove these exact generated roots as whole trees:');
     for (const target of generatedRoots) console.log(`- ${target}`);
     console.log('The lifecycle-lock namespace and every path outside these roots are preserved.');
     for (const target of generatedRoots) rmSync(target, { recursive: true, force: true });
     publishInitialProjectRuntime(canonicalProjectRoot, workflows);
-    console.log('Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.');
+    console.log(
+      'Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.',
+    );
   });
 }
-function handleHelp(): void { console.log(USAGE); }
-export async function run(args: string[]): Promise<void> { const parsed = parseCommand(args); switch (parsed.command) { case 'init': await handleInit(parsed.inputs); break; case 'start': await handleStart(parsed.inputs); break; case 'status': case 'resume': case 'pause': case 'stop': case 'restart_server': await handleRuntimeControl(parsed.command); break; case 'reset': await handleReset(); break; case 'help': handleHelp(); break; } }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) { run(process.argv).catch((err: unknown) => { if (err instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(err); console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }
+function handleHelp(): void {
+  console.log(USAGE);
+}
+export async function run(args: string[]): Promise<void> {
+  const parsed = parseCommand(args);
+  switch (parsed.command) {
+    case 'init':
+      await handleInit(parsed.inputs);
+      break;
+    case 'start':
+      await handleStart(parsed.inputs);
+      break;
+    case 'status':
+    case 'resume':
+    case 'pause':
+    case 'stop':
+    case 'restart_server':
+      await handleRuntimeControl(parsed.command);
+      break;
+    case 'reset':
+      await handleReset();
+      break;
+    case 'help':
+      handleHelp();
+      break;
+  }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  run(process.argv).catch((err: unknown) => {
+    if (err instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(err);
+    console.error(`Fatal error: ${(err as Error).message}`);
+    process.exit(1);
+  });
+}

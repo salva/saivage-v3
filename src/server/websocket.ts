@@ -11,8 +11,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema,
-} from '../contracts/index.js';
+import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema } from '../contracts/index.js';
 import type { ServerEgressWsEnvelope } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/artifact-api.js';
@@ -29,7 +28,8 @@ export function sendToClient(ws: WebSocket, event: ServerEgressWsEnvelope): void
     if (ws.readyState === ws.OPEN) {
       ws.send(serializeOutboundEnvelope(event));
     }
-  } catch { void 0;
+  } catch {
+    void 0;
   }
 }
 
@@ -46,45 +46,50 @@ interface RegisterWebSocketOptions {
   liveSyncSocket: LiveSyncSocket;
 }
 
-export function registerWebSocket(fastify: FastifyInstance,
+export function registerWebSocket(
+  fastify: FastifyInstance,
   options: RegisterWebSocketOptions,
 ): void {
   const liveSyncSocket = options.liveSyncSocket;
-  fastify.get(
-    '/ws',
-    { websocket: true },
-    (ws: WebSocket, request: FastifyRequest) => {
-      if (!checkAuth(options.authPolicy, request)) {
-        rejectUnauthorizedWebSocket(ws);
-        return;
-      }
+  fastify.get('/ws', { websocket: true }, (ws: WebSocket, request: FastifyRequest) => {
+    if (!checkAuth(options.authPolicy, request)) {
+      rejectUnauthorizedWebSocket(ws);
+      return;
+    }
 
-      liveSyncSocket.add(ws);
+    liveSyncSocket.add(ws);
 
-      sendToClient(ws, buildConnectedEnvelope({
+    sendToClient(
+      ws,
+      buildConnectedEnvelope({
         timestamp: new Date().toISOString(),
         clientCount: liveSyncSocket.clientCount(),
-      }));
+      }),
+    );
 
-      ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
-        if (!liveSyncSocket.isAdmissionOpen()) return;
-        let input: unknown;
-        try {
-          const bytes = Buffer.isBuffer(raw) ? raw : Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw);
-          input = JSON.parse(bytes.toString('utf-8'));
-        } catch {
-          ws.close(1008, 'Invalid live-sync frame');
-          return;
-        }
-        if (!liveSyncSocket.handleClientFrame(ws, input)) ws.close(1008, 'Invalid live-sync frame');
-      });
-
-      ws.on('close', () => {
-        liveSyncSocket.delete(ws);
-      });
-
-      ws.on('error', () => {
-        liveSyncSocket.delete(ws);
-      });
+    ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+      if (!liveSyncSocket.isAdmissionOpen()) return;
+      let input: unknown;
+      try {
+        const bytes = Buffer.isBuffer(raw)
+          ? raw
+          : Array.isArray(raw)
+            ? Buffer.concat(raw)
+            : Buffer.from(raw);
+        input = JSON.parse(bytes.toString('utf-8'));
+      } catch {
+        ws.close(1008, 'Invalid live-sync frame');
+        return;
+      }
+      if (!liveSyncSocket.handleClientFrame(ws, input)) ws.close(1008, 'Invalid live-sync frame');
     });
+
+    ws.on('close', () => {
+      liveSyncSocket.delete(ws);
+    });
+
+    ws.on('error', () => {
+      liveSyncSocket.delete(ws);
+    });
+  });
 }

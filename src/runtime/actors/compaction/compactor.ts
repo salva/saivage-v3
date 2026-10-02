@@ -8,7 +8,12 @@ import {
   type CompactionSuccessorIdentity,
   type ConversationFileContext,
 } from '../../../persistence/session-api.js';
-import { compactedHistorySchema, coveredSourceGroupsSha256, foldDispositionCommitment, type AgentMessage, type CompactedHistory,
+import {
+  compactedHistorySchema,
+  coveredSourceGroupsSha256,
+  foldDispositionCommitment,
+  type AgentMessage,
+  type CompactedHistory,
 } from '../../../schemas/index.js';
 import {
   deriveRequiredModelFacts,
@@ -25,29 +30,50 @@ import type { ProviderConversationProjection, ToolDefinition } from '../../../co
 import type { PreparedLlmInvocationInput } from '../llm-invocation.js';
 import type { PreparedCompaction } from '../../../contracts/index.js';
 import { providerConversationProjection } from '../conversation-session.js';
-import { classifyConversationRounds, estimateMessageTokens,
-} from './round-classifier.js';
+import { classifyConversationRounds, estimateMessageTokens } from './round-classifier.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
-import { createSequentialRefineAccumulator, SummaryConstructionLimitError } from './refine-accumulator.js';
-import { SUMMARY_OUTPUT_TARGET_BYTES, SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
+import {
+  createSequentialRefineAccumulator,
+  SummaryConstructionLimitError,
+} from './refine-accumulator.js';
+import {
+  SUMMARY_OUTPUT_TARGET_BYTES,
+  SummaryResultValidationError,
+  type SummarizerProviderPort,
+} from './summarizer.js';
 import { ProviderTurnFailure } from '../../../contracts/index.js';
 import { LlmRequestError } from '../../../contracts/index.js';
 import { versionFilename } from '../../../persistence/index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
 export type AutonomousCompactionPolicy = {
-  context_utilization_fraction: number; trigger_fraction: number;
+  context_utilization_fraction: number;
+  trigger_fraction: number;
   tail_fraction: number;
   snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };
 
-export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[], routeUsableInputTokens: number, requestedCompletionTokens: number,
+export function prepareCompaction(
+  config: AutonomousCompactionPolicy,
+  systemPrompt: string,
+  tools: readonly ToolDefinition[],
+  routeUsableInputTokens: number,
+  requestedCompletionTokens: number,
 ): PreparedCompaction {
   const B = routeUsableInputTokens;
-  if (!Number.isInteger(B) || B <= 0) throw new Error('routeUsableInputTokens must be a positive integer.');
-  if (!Number.isFinite(config.context_utilization_fraction) || !(config.context_utilization_fraction > 0 && config.context_utilization_fraction <= 1)) throw new Error('compaction.context_utilization_fraction must be finite, > 0 and <= 1.');
-  if (!(config.trigger_fraction > 0 && config.trigger_fraction <= 1)) throw new Error('compaction.trigger_fraction must be > 0 and <= 1.');
-  if (!(config.tail_fraction >= 0 && config.tail_fraction <= config.trigger_fraction)) throw new Error('compaction.tail_fraction must satisfy 0 <= tail_fraction <= trigger_fraction.');
+  if (!Number.isInteger(B) || B <= 0)
+    throw new Error('routeUsableInputTokens must be a positive integer.');
+  if (
+    !Number.isFinite(config.context_utilization_fraction) ||
+    !(config.context_utilization_fraction > 0 && config.context_utilization_fraction <= 1)
+  )
+    throw new Error('compaction.context_utilization_fraction must be finite, > 0 and <= 1.');
+  if (!(config.trigger_fraction > 0 && config.trigger_fraction <= 1))
+    throw new Error('compaction.trigger_fraction must be > 0 and <= 1.');
+  if (!(config.tail_fraction >= 0 && config.tail_fraction <= config.trigger_fraction))
+    throw new Error(
+      'compaction.tail_fraction must satisfy 0 <= tail_fraction <= trigger_fraction.',
+    );
   const requested = requestedCompletionTokens;
   if (!Number.isInteger(requested) || requested < 1)
     throw new Error('compaction requestedCompletionTokens must be a positive integer.');
@@ -98,7 +124,10 @@ export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
+export type CompactionStrategy =
+  | 'preventive'
+  | 'authoritative_context_recovery'
+  | 'local_exact_admission';
 export type CompactionProgressCallbacks = Readonly<{
   foldStarted(): void;
   foldCompleted(): void;
@@ -144,12 +173,19 @@ export class CompactionSummaryConstructionError extends Error {
     cause: unknown;
   }) {
     const measurements = [
-      args.summaryBytes !== undefined && args.summaryBytes !== null ? `summary_bytes=${args.summaryBytes}` : null,
-      args.summaryTargetBytes !== undefined ? `summary_target_bytes=${args.summaryTargetBytes}` : null,
+      args.summaryBytes !== undefined && args.summaryBytes !== null
+        ? `summary_bytes=${args.summaryBytes}`
+        : null,
+      args.summaryTargetBytes !== undefined
+        ? `summary_target_bytes=${args.summaryTargetBytes}`
+        : null,
       args.projectionTokens !== undefined ? `projection_tokens=${args.projectionTokens}` : null,
       args.projectionCeiling !== undefined ? `projection_ceiling=${args.projectionCeiling}` : null,
     ].filter((value): value is string => value !== null);
-    super(`Compaction summary construction failed: reason=${args.reason}, invocation_count=${args.invocationCount}, invocation_limit=${args.invocationLimit ?? 16}, correction_count=${args.correctionCount}, correction_limit=1${measurements.length ? `, ${measurements.join(', ')}` : ''}.`, { cause: args.cause });
+    super(
+      `Compaction summary construction failed: reason=${args.reason}, invocation_count=${args.invocationCount}, invocation_limit=${args.invocationLimit ?? 16}, correction_count=${args.correctionCount}, correction_limit=1${measurements.length ? `, ${measurements.join(', ')}` : ''}.`,
+      { cause: args.cause },
+    );
     this.name = 'CompactionSummaryConstructionError';
     this.reason = args.reason;
     this.invocationCount = args.invocationCount;
@@ -192,25 +228,47 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(
     args.input.providerConversation,
   );
-  const rejectedComposedProviderConversationBytes = composedProviderConversationBytes(args.input.providerConversation);
+  const rejectedComposedProviderConversationBytes = composedProviderConversationBytes(
+    args.input.providerConversation,
+  );
   if (!segment) {
     if (args.strategy === 'preventive')
       throw new Error(`Conversation '${sessionId}' has no current segment to compact.`);
-    return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens, smallestCandidateEstimatedProviderMessageTokens: null };
+    return {
+      kind: 'no_smaller_projection',
+      rejectedEstimatedProviderMessageTokens,
+      smallestCandidateEstimatedProviderMessageTokens: null,
+    };
   }
   const conversation = segment.conversation;
   assertFreshCompactionProjection(args.input, conversation);
   const sourceRows = conversation.sourceRows;
-  const sourceGenesis: CompactedGenesisSeed | null = segment.genesis.kind === 'compacted_segment_genesis'
-    ? { id: segment.genesis.id, timestamp: segment.genesis.timestamp, history: segment.genesis.compaction, sourceVersion: segment.genesis.source.version }
-    : null;
+  const sourceGenesis: CompactedGenesisSeed | null =
+    segment.genesis.kind === 'compacted_segment_genesis'
+      ? {
+          id: segment.genesis.id,
+          timestamp: segment.genesis.timestamp,
+          history: segment.genesis.compaction,
+          sourceVersion: segment.genesis.source.version,
+        }
+      : null;
   const sourceVersion = segment.entry.version;
   const inheritedHistory = sourceGenesis?.history ?? null;
-  const operationProtection = selectConversationProtection({ inherited: inheritedHistory?.protectedPrompts ?? [], rows: sourceRows, sourceVersion, cutoffCount: sourceRows.length });
+  const operationProtection = selectConversationProtection({
+    inherited: inheritedHistory?.protectedPrompts ?? [],
+    rows: sourceRows,
+    sourceVersion,
+    cutoffCount: sourceRows.length,
+  });
   const classified = classifyConversationRounds(conversation);
   const successorIdentity = allocateSuccessorIdentity(segment.entry.version);
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
-  const endpoints = selectedCoverageEndpoints(conversation, classified, budget.tailBudgetTokens, budget.snap);
+  const endpoints = selectedCoverageEndpoints(
+    conversation,
+    classified,
+    budget.tailBudgetTokens,
+    budget.snap,
+  );
   const summaries = createSequentialRefineAccumulator({
     conversation,
     inheritedHistory,
@@ -226,7 +284,9 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const candidateFor = async (cutoffCount: number): Promise<Candidate | null> => {
     if (cutoffCount === 0) return null;
     if (cutoffCount <= summaries.materializedThrough)
-      throw new Error(`Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${summaries.materializedThrough}.`);
+      throw new Error(
+        `Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${summaries.materializedThrough}.`,
+      );
     const summaryText = await summaries.materializeThrough(cutoffCount);
     return candidateFromSummary(cutoffCount, summaryText);
   };
@@ -234,14 +294,35 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const candidateFromSummary = (cutoffCount: number, summaryText: string): Candidate => {
     args.signal.throwIfAborted();
     const coveredRows = sourceRows.slice(0, cutoffCount);
-    const successor = buildSuccessorHistory({ conversation, sessionId, sourceVersion, sourceGenesis, coveredRows, summaryText });
-    validateCompactedHistorySuccessor({ source: conversation, sourceGenesis, sourceVersion, successor, coveredRows });
+    const successor = buildSuccessorHistory({
+      conversation,
+      sessionId,
+      sourceVersion,
+      sourceGenesis,
+      coveredRows,
+      summaryText,
+    });
+    validateCompactedHistorySuccessor({
+      source: conversation,
+      sourceGenesis,
+      sourceVersion,
+      successor,
+      coveredRows,
+    });
     const cutoffSourceIndex = coveredRows.length - 1;
     const tail = sourceRows.slice(coveredRows.length);
-    const seed: CompactedGenesisSeed = { id: successorIdentity.genesisId, timestamp: successorIdentity.timestamp, history: successor, sourceVersion };
+    const seed: CompactedGenesisSeed = {
+      id: successorIdentity.genesisId,
+      timestamp: successorIdentity.timestamp,
+      history: successor,
+      sourceVersion,
+    };
     const { inherited } = successorContinuation(conversation, coveredRows);
     const prospective = validateConversation(sessionId, tail, inherited, seed);
-    const providerConversation = providerConversationProjection(prospective, args.input.preparedContext.dynamicBlocks);
+    const providerConversation = providerConversationProjection(
+      prospective,
+      args.input.preparedContext.dynamicBlocks,
+    );
     const estimatedProviderMessageTokens = estimateProviderConversationTokens(providerConversation);
     smallestCandidateEstimatedProviderMessageTokens =
       smallestCandidateEstimatedProviderMessageTokens === null
@@ -266,8 +347,18 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       const evaluated = await candidateFor(endpoint);
       if (!evaluated) continue;
       completed.push(evaluated);
-      if (args.strategy === 'authoritative_context_recovery' && isTokenReduction(evaluated)) { candidate = evaluated; break; }
-      if (args.strategy === 'preventive' && isPreventiveCandidate(evaluated) && evaluated.estimatedProviderMessageTokens <= budget.triggerMessageThreshold) { candidate = evaluated; break; }
+      if (args.strategy === 'authoritative_context_recovery' && isTokenReduction(evaluated)) {
+        candidate = evaluated;
+        break;
+      }
+      if (
+        args.strategy === 'preventive' &&
+        isPreventiveCandidate(evaluated) &&
+        evaluated.estimatedProviderMessageTokens <= budget.triggerMessageThreshold
+      ) {
+        candidate = evaluated;
+        break;
+      }
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       if (args.signal.aborted && error === args.signal.reason) throw error;
@@ -280,7 +371,12 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   }
 
   candidate ??= selectQualifying(completed);
-  if (!candidate && expectedFailure === null && completed.length > 0 && summaries.canCorrectLatestFold) {
+  if (
+    !candidate &&
+    expectedFailure === null &&
+    completed.length > 0 &&
+    summaries.canCorrectLatestFold
+  ) {
     const obstruction = finalObstruction(completed.at(-1)!);
     if (obstruction) {
       try {
@@ -288,14 +384,18 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
         const corrected = candidateFromSummary(summaries.materializedThrough, correctedSummary);
         completed.push(corrected);
         candidate = selectQualifying([corrected]);
-        if (!candidate && args.strategy === 'preventive') expectedFailure = obstructionFor(corrected);
+        if (!candidate && args.strategy === 'preventive')
+          expectedFailure = obstructionFor(corrected);
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
         if (args.signal.aborted && error === args.signal.reason) throw error;
-        if (!(error instanceof ProviderTurnFailure) &&
-            !(error instanceof SummaryResultValidationError) &&
-            !(error instanceof SummaryConstructionLimitError) &&
-            !(error instanceof ProjectionObstruction)) throw error;
+        if (
+          !(error instanceof ProviderTurnFailure) &&
+          !(error instanceof SummaryResultValidationError) &&
+          !(error instanceof SummaryConstructionLimitError) &&
+          !(error instanceof ProjectionObstruction)
+        )
+          throw error;
         expectedFailure = error;
       }
     }
@@ -303,12 +403,26 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
 
   if (!candidate) {
     if (expectedFailure instanceof ProviderTurnFailure) throw expectedFailure;
-    if (expectedFailure instanceof SummaryResultValidationError || expectedFailure instanceof SummaryConstructionLimitError)
-      throw constructionFailure(expectedFailure, summaries.invocationCount, summaries.correctionCount);
+    if (
+      expectedFailure instanceof SummaryResultValidationError ||
+      expectedFailure instanceof SummaryConstructionLimitError
+    )
+      throw constructionFailure(
+        expectedFailure,
+        summaries.invocationCount,
+        summaries.correctionCount,
+      );
     if (expectedFailure instanceof ProjectionObstruction)
-      throw constructionFailure(expectedFailure, summaries.invocationCount, summaries.correctionCount);
+      throw constructionFailure(
+        expectedFailure,
+        summaries.invocationCount,
+        summaries.correctionCount,
+      );
     if (args.strategy === 'preventive') {
-      const obstruction = completed.length > 0 ? obstructionFor(completed.at(-1)!) : new ProjectionObstruction('request_context_capacity');
+      const obstruction =
+        completed.length > 0
+          ? obstructionFor(completed.at(-1)!)
+          : new ProjectionObstruction('request_context_capacity');
       throw constructionFailure(obstruction, summaries.invocationCount, summaries.correctionCount);
     }
     return {
@@ -320,18 +434,29 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   args.signal.throwIfAborted();
   let published: ValidatedConversation;
   try {
-    published = publishCompactedConversationSegment(args.conversations, sessionId, {
-      identity: successorIdentity,
-      history: candidate.history,
-      cutoffSourceIndex: candidate.cutoffSourceIndex,
-      cutoffMessageId: candidate.cutoffMessageId,
-      continuation: successorContinuation(conversation, sourceRows.slice(0, candidate.cutoffSourceIndex + 1)).continuation,
-    }, args.publication);
+    published = publishCompactedConversationSegment(
+      args.conversations,
+      sessionId,
+      {
+        identity: successorIdentity,
+        history: candidate.history,
+        cutoffSourceIndex: candidate.cutoffSourceIndex,
+        cutoffMessageId: candidate.cutoffMessageId,
+        continuation: successorContinuation(
+          conversation,
+          sourceRows.slice(0, candidate.cutoffSourceIndex + 1),
+        ).continuation,
+      },
+      args.publication,
+    );
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     throw new CompactionAppendError(error);
   }
-  const providerConversation = providerConversationProjection(published, args.input.preparedContext.dynamicBlocks);
+  const providerConversation = providerConversationProjection(
+    published,
+    args.input.preparedContext.dynamicBlocks,
+  );
   return {
     kind: 'compacted',
     providerConversation,
@@ -343,21 +468,35 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   }
 
   function isPreventiveCandidate(value: Candidate): boolean {
-    return isTokenReduction(value) && value.estimatedProviderMessageTokens <= budget.canonicalMessageHardCeiling;
+    return (
+      isTokenReduction(value) &&
+      value.estimatedProviderMessageTokens <= budget.canonicalMessageHardCeiling
+    );
   }
 
   function selectQualifying(values: readonly Candidate[]): Candidate | null {
-    const qualifying = values.filter((value) => args.strategy === 'preventive'
-      ? isPreventiveCandidate(value)
-      : args.strategy === 'authoritative_context_recovery'
-        ? isTokenReduction(value)
-        : value.composedProviderConversationBytes < rejectedComposedProviderConversationBytes);
+    const qualifying = values.filter((value) =>
+      args.strategy === 'preventive'
+        ? isPreventiveCandidate(value)
+        : args.strategy === 'authoritative_context_recovery'
+          ? isTokenReduction(value)
+          : value.composedProviderConversationBytes < rejectedComposedProviderConversationBytes,
+    );
     if (args.strategy === 'authoritative_context_recovery') return qualifying[0] ?? null;
     return qualifying.reduce<Candidate | null>((best, value) => {
       if (!best) return value;
-      const valueSize = args.strategy === 'local_exact_admission' ? value.composedProviderConversationBytes : value.estimatedProviderMessageTokens;
-      const bestSize = args.strategy === 'local_exact_admission' ? best.composedProviderConversationBytes : best.estimatedProviderMessageTokens;
-      return valueSize < bestSize || (valueSize === bestSize && value.cutoffSourceIndex > best.cutoffSourceIndex) ? value : best;
+      const valueSize =
+        args.strategy === 'local_exact_admission'
+          ? value.composedProviderConversationBytes
+          : value.estimatedProviderMessageTokens;
+      const bestSize =
+        args.strategy === 'local_exact_admission'
+          ? best.composedProviderConversationBytes
+          : best.estimatedProviderMessageTokens;
+      return valueSize < bestSize ||
+        (valueSize === bestSize && value.cutoffSourceIndex > best.cutoffSourceIndex)
+        ? value
+        : best;
     }, null);
   }
 
@@ -366,11 +505,25 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   }
 
   function obstructionFor(value: Candidate): ProjectionObstruction {
-    if (args.strategy === 'preventive' && value.estimatedProviderMessageTokens > budget.canonicalMessageHardCeiling)
-      return new ProjectionObstruction('residual_capacity', value.estimatedProviderMessageTokens, budget.canonicalMessageHardCeiling);
-    if (args.strategy === 'local_exact_admission' && value.composedProviderConversationBytes >= rejectedComposedProviderConversationBytes)
+    if (
+      args.strategy === 'preventive' &&
+      value.estimatedProviderMessageTokens > budget.canonicalMessageHardCeiling
+    )
+      return new ProjectionObstruction(
+        'residual_capacity',
+        value.estimatedProviderMessageTokens,
+        budget.canonicalMessageHardCeiling,
+      );
+    if (
+      args.strategy === 'local_exact_admission' &&
+      value.composedProviderConversationBytes >= rejectedComposedProviderConversationBytes
+    )
       return new ProjectionObstruction('no_reduction');
-    return new ProjectionObstruction('no_reduction', value.estimatedProviderMessageTokens, rejectedEstimatedProviderMessageTokens - 1);
+    return new ProjectionObstruction(
+      'no_reduction',
+      value.estimatedProviderMessageTokens,
+      rejectedEstimatedProviderMessageTokens - 1,
+    );
   }
 }
 
@@ -386,11 +539,18 @@ class ProjectionObstruction extends Error {
 }
 
 function isExpectedRecoveryFailure(error: unknown): boolean {
-  if (error instanceof SummaryResultValidationError || error instanceof SummaryConstructionLimitError) return true;
-  return error instanceof ProviderTurnFailure && error.originalFailure instanceof LlmRequestError &&
+  if (
+    error instanceof SummaryResultValidationError ||
+    error instanceof SummaryConstructionLimitError
+  )
+    return true;
+  return (
+    error instanceof ProviderTurnFailure &&
+    error.originalFailure instanceof LlmRequestError &&
     (error.originalFailure.failure.kind === 'output_token_limit_exceeded' ||
       error.originalFailure.failure.kind === 'input_context_exhausted' ||
-      error.originalFailure.failure.kind === 'content_policy');
+      error.originalFailure.failure.kind === 'content_policy')
+  );
 }
 
 function constructionFailure(
@@ -399,10 +559,30 @@ function constructionFailure(
   correctionCount: number,
 ): CompactionSummaryConstructionError {
   if (cause instanceof SummaryResultValidationError)
-    return new CompactionSummaryConstructionError({ reason: cause.reason, invocationCount, correctionCount, summaryBytes: cause.summaryBytes, summaryTargetBytes: SUMMARY_OUTPUT_TARGET_BYTES, cause });
+    return new CompactionSummaryConstructionError({
+      reason: cause.reason,
+      invocationCount,
+      correctionCount,
+      summaryBytes: cause.summaryBytes,
+      summaryTargetBytes: SUMMARY_OUTPUT_TARGET_BYTES,
+      cause,
+    });
   if (cause instanceof SummaryConstructionLimitError)
-    return new CompactionSummaryConstructionError({ reason: cause.reason, invocationCount: cause.invocationCount, invocationLimit: cause.invocationLimit, correctionCount, cause });
-  return new CompactionSummaryConstructionError({ reason: cause.reason, invocationCount, correctionCount, projectionTokens: cause.projectionTokens, projectionCeiling: cause.projectionCeiling, cause });
+    return new CompactionSummaryConstructionError({
+      reason: cause.reason,
+      invocationCount: cause.invocationCount,
+      invocationLimit: cause.invocationLimit,
+      correctionCount,
+      cause,
+    });
+  return new CompactionSummaryConstructionError({
+    reason: cause.reason,
+    invocationCount,
+    correctionCount,
+    projectionTokens: cause.projectionTokens,
+    projectionCeiling: cause.projectionCeiling,
+    cause,
+  });
 }
 
 function allocateSuccessorIdentity(sourceVersion: number): CompactionSuccessorIdentity {
@@ -435,16 +615,26 @@ function selectedCoverageEndpoints(
     if (snap === 'keep_straddler_verbatim') firstRetained = index;
     break;
   }
-  const desiredBase = classified.preamble.length + closed.slice(0, firstRetained).reduce((count, round) => count + round.rows.length, 0);
+  const desiredBase =
+    classified.preamble.length +
+    closed.slice(0, firstRetained).reduce((count, round) => count + round.rows.length, 0);
   const base = conversation.safeSourcePrefixEnds.includes(desiredBase) ? desiredBase : 0;
   const furthest = conversation.safeSourcePrefixEnds.at(-1) ?? 0;
-  const endpoints = [base, furthest].filter((value, index, values) => value > 0 && (index === 0 || value > values[index - 1]!));
+  const endpoints = [base, furthest].filter(
+    (value, index, values) => value > 0 && (index === 0 || value > values[index - 1]!),
+  );
   return Object.freeze(endpoints);
 }
 
-function assertFreshCompactionProjection(input: PreparedLlmInvocationInput, conversation: ValidatedConversation): void {
+function assertFreshCompactionProjection(
+  input: PreparedLlmInvocationInput,
+  conversation: ValidatedConversation,
+): void {
   const fresh = providerConversationProjection(conversation, input.preparedContext.dynamicBlocks);
-  if (providerConversationFingerprint(fresh) !== providerConversationFingerprint(input.providerConversation))
+  if (
+    providerConversationFingerprint(fresh) !==
+    providerConversationFingerprint(input.providerConversation)
+  )
     throw new Error(
       `Compaction rejected provider projection is stale: it is not the exact effective projection of the freshly read conversation '${conversation.sourceSessionId}'.`,
     );
@@ -453,16 +643,32 @@ function assertFreshCompactionProjection(input: PreparedLlmInvocationInput, conv
 function providerConversationFingerprint(projection: ProviderConversationProjection): string {
   return JSON.stringify([
     projection.sourceSessionId,
-    projection.messages.map((item) => item.kind === 'synthetic_context'
-      ? [item.kind, item.origin, item.block_identity, item.role, item.content]
-      : [item.id, item.role, item.kind, item.content, item.tool ?? null, item.tool_call_id ?? null]),
+    projection.messages.map((item) =>
+      item.kind === 'synthetic_context'
+        ? [item.kind, item.origin, item.block_identity, item.role, item.content]
+        : [
+            item.id,
+            item.role,
+            item.kind,
+            item.content,
+            item.tool ?? null,
+            item.tool_call_id ?? null,
+          ],
+    ),
   ]);
 }
 
 function composedProviderConversationBytes(projection: ProviderConversationProjection): number {
-  return Buffer.byteLength(JSON.stringify(projection.messages.map((item) => item.kind === 'synthetic_context'
-    ? [item.kind, item.origin, item.block_identity, item.role, item.content]
-    : [item.id, item.role, item.kind, item.content])), 'utf8');
+  return Buffer.byteLength(
+    JSON.stringify(
+      projection.messages.map((item) =>
+        item.kind === 'synthetic_context'
+          ? [item.kind, item.origin, item.block_identity, item.role, item.content]
+          : [item.id, item.role, item.kind, item.content],
+      ),
+    ),
+    'utf8',
+  );
 }
 
 function buildSuccessorHistory(args: {
@@ -473,15 +679,32 @@ function buildSuccessorHistory(args: {
   coveredRows: readonly AgentMessage[];
   summaryText: string;
 }): CompactedHistory {
-  const protection = selectConversationProtection({ inherited: args.sourceGenesis?.history.protectedPrompts ?? [], rows: args.conversation.sourceRows, sourceVersion: args.sourceVersion, cutoffCount: args.coveredRows.length });
-  const selection = selectAtomicCoveredSourceGroups(args.conversation, args.coveredRows, protection.protectedCoveredIds);
+  const protection = selectConversationProtection({
+    inherited: args.sourceGenesis?.history.protectedPrompts ?? [],
+    rows: args.conversation.sourceRows,
+    sourceVersion: args.sourceVersion,
+    cutoffCount: args.coveredRows.length,
+  });
+  const selection = selectAtomicCoveredSourceGroups(
+    args.conversation,
+    args.coveredRows,
+    protection.protectedCoveredIds,
+  );
   return compactedHistorySchema.parse({
     summaryText: args.summaryText,
     protectedPrompts: protection.protectedPrompts,
     source: args.sourceGenesis
-      ? { kind: 'prior_genesis_plus_current_rows', priorGenesisId: args.sourceGenesis.id, priorHistoryHash: canonicalValueSha256(args.sourceGenesis.history), groups: selection.groups }
+      ? {
+          kind: 'prior_genesis_plus_current_rows',
+          priorGenesisId: args.sourceGenesis.id,
+          priorHistoryHash: canonicalValueSha256(args.sourceGenesis.history),
+          groups: selection.groups,
+        }
       : { kind: 'current_rows', groups: selection.groups },
-    dispositionCommitment: foldDispositionCommitment(args.sourceGenesis?.history.dispositionCommitment ?? null, selection.dispositions),
+    dispositionCommitment: foldDispositionCommitment(
+      args.sourceGenesis?.history.dispositionCommitment ?? null,
+      selection.dispositions,
+    ),
     coverageCommitment: {
       sourceSessionId: args.sessionId,
       sourceVersion: args.sourceVersion,
@@ -491,7 +714,10 @@ function buildSuccessorHistory(args: {
       protectedPromptsSha256: canonicalValueSha256(protection.protectedPrompts),
     },
     requiredModelFacts: deriveRequiredModelFacts({
-      inherited: args.sourceGenesis?.history.requiredModelFacts ?? { latestRecovery: null, latestContentPolicyRefusal: null },
+      inherited: args.sourceGenesis?.history.requiredModelFacts ?? {
+        latestRecovery: null,
+        latestContentPolicyRefusal: null,
+      },
       coveredRows: args.coveredRows,
       source: args.conversation,
     }),
@@ -501,25 +727,46 @@ function buildSuccessorHistory(args: {
 function successorContinuation(
   conversation: ValidatedConversation,
   coveredRows: readonly AgentMessage[],
-): { inherited: InheritedConversationActivation | undefined; continuation: ConversationContinuation } {
+): {
+  inherited: InheritedConversationActivation | undefined;
+  continuation: ConversationContinuation;
+} {
   const cutoffId = coveredRows.at(-1)!.id;
-  const round = conversation.rounds.find((candidate) => candidate.rows.some((row) => row.id === cutoffId));
+  const round = conversation.rounds.find((candidate) =>
+    candidate.rows.some((row) => row.id === cutoffId),
+  );
   if (!round) throw new Error('Compaction cutoff does not identify a validated canonical round.');
   const coveredIds = new Set(coveredRows.map((row) => row.id));
   const fullyCovered = round.rows.every((row) => coveredIds.has(row.id));
   if (fullyCovered && round.state === 'closed')
     return { inherited: undefined, continuation: { kind: 'between_rounds' } };
-  const activation = round.activation.source === 'row'
-    ? { marker_id: round.activation.message.id, input_id: JSON.parse(round.activation.message.content).input_id as string }
-    : { marker_id: round.activation.marker_id, input_id: round.activation.input_id };
+  const activation =
+    round.activation.source === 'row'
+      ? {
+          marker_id: round.activation.message.id,
+          input_id: JSON.parse(round.activation.message.content).input_id as string,
+        }
+      : { marker_id: round.activation.marker_id, input_id: round.activation.input_id };
   const activeSegmentKind = coveredSegmentKinds(round, coveredIds).at(-1) ?? 'initial';
   return {
-    inherited: { markerId: activation.marker_id, inputId: activation.input_id, activeSegmentKind, startOrdinal: 0 },
-    continuation: { kind: 'inherited_open_round', activation, active_segment_kind: activeSegmentKind },
+    inherited: {
+      markerId: activation.marker_id,
+      inputId: activation.input_id,
+      activeSegmentKind,
+      startOrdinal: 0,
+    },
+    continuation: {
+      kind: 'inherited_open_round',
+      activation,
+      active_segment_kind: activeSegmentKind,
+    },
   };
 }
 
-function coveredSegmentKinds(round: SourceRound, coveredIds: ReadonlySet<string>): ('initial' | 'repair')[] {
+function coveredSegmentKinds(
+  round: SourceRound,
+  coveredIds: ReadonlySet<string>,
+): ('initial' | 'repair')[] {
   const kinds: ('initial' | 'repair')[] = [];
   for (const segment of round.segments) {
     if (segment.rows.some((row) => coveredIds.has(row.id))) kinds.push(segment.kind);
@@ -531,8 +778,15 @@ function estimateProviderConversationTokens(projection: ProviderConversationProj
   return projection.messages.reduce((sum, item) => sum + estimateProviderItemTokens(item), 0);
 }
 
-function estimateProviderItemTokens(item: ProviderConversationProjection['messages'][number]): number {
+function estimateProviderItemTokens(
+  item: ProviderConversationProjection['messages'][number],
+): number {
   return item.kind === 'synthetic_context'
-    ? Math.max(1, estimateUtf8Tokens(`${item.role} ${item.kind} ${item.origin} ${item.block_identity} ${item.content}`))
+    ? Math.max(
+        1,
+        estimateUtf8Tokens(
+          `${item.role} ${item.kind} ${item.origin} ${item.block_identity} ${item.content}`,
+        ),
+      )
     : estimateMessageTokens(item);
 }

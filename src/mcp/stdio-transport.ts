@@ -1,23 +1,48 @@
 import * as readline from 'node:readline';
 import { TimeoutError, TransportError } from './errors.js';
-import { CLIENT_NAME, CLIENT_VERSION, MCP_DISCOVERY_TIMEOUT_MS, MCP_PROTOCOL_VERSION, type McpJsonRpcRequest, type McpToolDefinition } from './protocol.js';
+import {
+  CLIENT_NAME,
+  CLIENT_VERSION,
+  MCP_DISCOVERY_TIMEOUT_MS,
+  MCP_PROTOCOL_VERSION,
+  type McpJsonRpcRequest,
+  type McpToolDefinition,
+} from './protocol.js';
 import type { McpServerHandle } from './server-registry.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
 
-interface MessageIdSource { next(): number | string }
+interface MessageIdSource {
+  next(): number | string;
+}
 
 function safeWrite(stream: NodeJS.WritableStream, data: string, serverName: string): void {
   if (stream.writable) {
-    try { stream.write(data); }
-    catch (err) { throw new TransportError(serverName, `stdio write failed (process may have exited early): ${err instanceof Error ? err.message : String(err)}`); }
+    try {
+      stream.write(data);
+    } catch (err) {
+      throw new TransportError(
+        serverName,
+        `stdio write failed (process may have exited early): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   } else {
-    throw new TransportError(serverName, 'Process stdin is not writable (process exited before discovery/invocation)');
+    throw new TransportError(
+      serverName,
+      'Process stdin is not writable (process exited before discovery/invocation)',
+    );
   }
 }
 
-function readJsonRpcResponse(rl: readline.Interface, requestId: number | string, signal: AbortSignal): Promise<Record<string, unknown> | null> {
+function readJsonRpcResponse(
+  rl: readline.Interface,
+  requestId: number | string,
+  signal: AbortSignal,
+): Promise<Record<string, unknown> | null> {
   return new Promise((resolve) => {
-    const onAbort = () => { cleanup(); resolve(null); };
+    const onAbort = () => {
+      cleanup();
+      resolve(null);
+    };
     let lineHandler: ((line: string) => void) | null = null;
     let closeHandler: (() => void) | null = null;
     const cleanup = () => {
@@ -25,17 +50,28 @@ function readJsonRpcResponse(rl: readline.Interface, requestId: number | string,
       if (lineHandler) rl.removeListener('line', lineHandler);
       if (closeHandler) rl.removeListener('close', closeHandler);
     };
-    if (signal.aborted) { resolve(null); return; }
+    if (signal.aborted) {
+      resolve(null);
+      return;
+    }
     signal.addEventListener('abort', onAbort);
     lineHandler = (line: string) => {
       if (!line.trim()) return;
       try {
         const msg = JSON.parse(line) as Record<string, unknown>;
-        if (msg.id === requestId && typeof msg.jsonrpc === 'string') { cleanup(); resolve(msg); }
-      } catch { /* skip non-JSON stdout */ }
+        if (msg.id === requestId && typeof msg.jsonrpc === 'string') {
+          cleanup();
+          resolve(msg);
+        }
+      } catch {
+        /* skip non-JSON stdout */
+      }
     };
     rl.on('line', lineHandler);
-    closeHandler = () => { cleanup(); resolve(null); };
+    closeHandler = () => {
+      cleanup();
+      resolve(null);
+    };
     rl.on('close', closeHandler);
   });
 }
@@ -44,13 +80,24 @@ async function closeReadline(rl: readline.Interface, wasClosed: () => boolean): 
   rl.close();
   if (wasClosed()) return;
   await new Promise<void>((resolve) => {
-    const onClose = () => { clearTimeout(fallback); resolve(); };
-    const fallback = setTimeout(() => { rl.removeListener('close', onClose); resolve(); }, 100);
+    const onClose = () => {
+      clearTimeout(fallback);
+      resolve();
+    };
+    const fallback = setTimeout(() => {
+      rl.removeListener('close', onClose);
+      resolve();
+    }, 100);
     rl.once('close', onClose);
   });
 }
 
-export async function discoverStdioTools(input: { serverName: string; handle?: McpServerHandle; ids: MessageIdSource; signal: AbortSignal }): Promise<McpToolDefinition[]> {
+export async function discoverStdioTools(input: {
+  serverName: string;
+  handle?: McpServerHandle;
+  ids: MessageIdSource;
+  signal: AbortSignal;
+}): Promise<McpToolDefinition[]> {
   const { serverName: name, handle, ids, signal } = input;
   if (!handle?.process) throw new Error('Server process is not running');
   const proc = handle.process;
@@ -61,15 +108,33 @@ export async function discoverStdioTools(input: { serverName: string; handle?: M
   signal.addEventListener('abort', () => abortController.abort(), { once: true });
   const timeoutId = setTimeout(() => abortController.abort(), MCP_DISCOVERY_TIMEOUT_MS);
   let rlClosed = false;
-  rl.once('close', () => { rlClosed = true; });
+  rl.once('close', () => {
+    rlClosed = true;
+  });
   try {
     const initId = ids.next();
-    const initReq: McpJsonRpcRequest = { jsonrpc: '2.0', id: initId, method: 'initialize', params: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: CLIENT_NAME, version: CLIENT_VERSION } } };
+    const initReq: McpJsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: initId,
+      method: 'initialize',
+      params: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: CLIENT_NAME, version: CLIENT_VERSION },
+      },
+    };
     safeWrite(proc.stdin, JSON.stringify(initReq) + '\n', name);
     const initResponse = await readJsonRpcResponse(rl, initId, abortController.signal);
     if (!initResponse) throw new Error('Server did not respond to initialize request');
-    if (initResponse.error) { const err = initResponse.error as { message: string; code: number }; throw new Error(`Initialize failed: ${err.message} (code ${err.code})`); }
-    safeWrite(proc.stdin, JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n', name);
+    if (initResponse.error) {
+      const err = initResponse.error as { message: string; code: number };
+      throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
+    }
+    safeWrite(
+      proc.stdin,
+      JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n',
+      name,
+    );
     let cursor: string | undefined;
     let firstPage = true;
     do {
@@ -80,9 +145,17 @@ export async function discoverStdioTools(input: { serverName: string; handle?: M
       safeWrite(proc.stdin, JSON.stringify(listReq) + '\n', name);
       const listResponse = await readJsonRpcResponse(rl, listId, abortController.signal);
       if (!listResponse) throw new Error('Server did not respond to tools/list request');
-      if (listResponse.error) { const err = listResponse.error as { message: string; code: number }; throw new Error(`tools/list failed: ${err.message} (code ${err.code})`); }
-      const result = listResponse.result as (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string }) | undefined;
-      if (result && Array.isArray(result.tools)) { tools.push(...result.tools); cursor = result.nextCursor; } else cursor = undefined;
+      if (listResponse.error) {
+        const err = listResponse.error as { message: string; code: number };
+        throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
+      }
+      const result = listResponse.result as
+        | (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string })
+        | undefined;
+      if (result && Array.isArray(result.tools)) {
+        tools.push(...result.tools);
+        cursor = result.nextCursor;
+      } else cursor = undefined;
     } while (cursor);
     return tools;
   } finally {
@@ -91,19 +164,35 @@ export async function discoverStdioTools(input: { serverName: string; handle?: M
   }
 }
 
-export async function invokeStdioTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
+export async function invokeStdioTool(input: {
+  serverName: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  handle?: McpServerHandle;
+  timeoutMs: number;
+  ids: MessageIdSource;
+  signal: AbortSignal;
+}): Promise<unknown> {
   const { serverName, toolName, args, handle, timeoutMs, ids, signal } = input;
   const proc = handle?.process;
-  if (!proc?.stdin || !proc.stdout) throw new TransportError(serverName, 'Process has no stdin/stdout pipes');
+  if (!proc?.stdin || !proc.stdout)
+    throw new TransportError(serverName, 'Process has no stdin/stdout pipes');
   const rl = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
   const abortController = new AbortController();
   signal.addEventListener('abort', () => abortController.abort(), { once: true });
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
   let rlClosed = false;
-  rl.once('close', () => { rlClosed = true; });
+  rl.once('close', () => {
+    rlClosed = true;
+  });
   try {
     const requestId = ids.next();
-    const request: McpJsonRpcRequest = { jsonrpc: '2.0', id: requestId, method: 'tools/call', params: { name: toolName, arguments: args } };
+    const request: McpJsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'tools/call',
+      params: { name: toolName, arguments: args },
+    };
     safeWrite(proc.stdin, JSON.stringify(request) + '\n', serverName);
     const response = await readJsonRpcResponse(rl, requestId, abortController.signal);
     if (!response) {

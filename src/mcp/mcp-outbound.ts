@@ -1,7 +1,4 @@
-import {
-  McpToolsResponseSchema,
-  type McpToolsResponse,
-} from '../contracts/index.js';
+import { McpToolsResponseSchema, type McpToolsResponse } from '../contracts/index.js';
 import type { InternalMcpToolsReadModel } from './status-projection.js';
 
 export function projectMcpToolsForOutbound(value: InternalMcpToolsReadModel): McpToolsResponse {

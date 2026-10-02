@@ -1,6 +1,16 @@
-import { sha256Hex, canonicalJson, canonicalValueSha256, type AgentName } from '../schemas/index.js';
+import {
+  sha256Hex,
+  canonicalJson,
+  canonicalValueSha256,
+  type AgentName,
+} from '../schemas/index.js';
 import { candidatesEqual, type Candidate } from './provider-candidate.js';
-import type { CapabilitySkipReason, CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities } from './provider-capabilities.js';
+import type {
+  CapabilitySkipReason,
+  CapabilityRequest,
+  CapabilityMatch,
+  EffectiveProviderCapabilities,
+} from './provider-capabilities.js';
 import type { CandidateRequestPlan, LlmCompleteOptions } from './provider-request.js';
 import type { ProviderTurnFailure } from './provider-turn.js';
 import type { ProviderExchangeAttempt } from './provider-exchange.js';
@@ -9,9 +19,14 @@ import { utf8SafeSlice } from '../utils/index.js';
 import { usableInputTokens } from './context-budget.js';
 
 type CandidateIdentity = Candidate;
-const DEFAULT_CONTEXT_UTILIZATION_FRACTION = 0.80;
+const DEFAULT_CONTEXT_UTILIZATION_FRACTION = 0.8;
 
-export const candidateIdentitySha256 = (identity: CandidateIdentity): string => canonicalValueSha256({ provider: identity.provider, account: identity.account, model: identity.model });
+export const candidateIdentitySha256 = (identity: CandidateIdentity): string =>
+  canonicalValueSha256({
+    provider: identity.provider,
+    account: identity.account,
+    model: identity.model,
+  });
 
 type CandidateIneligibleReason =
   | Readonly<{ kind: 'capability_mismatch'; reasons: readonly CapabilitySkipReason[] }>
@@ -53,7 +68,10 @@ export function classifyCandidateLocalAdmission(args: {
   limits: AdmissionSizeLimits;
 }): CandidateLocalAdmissionVerdict {
   if (!args.match.supported)
-    return { kind: 'candidate_ineligible', reason: { kind: 'capability_mismatch', reasons: [...new Set(args.match.reasons)] } };
+    return {
+      kind: 'candidate_ineligible',
+      reason: { kind: 'capability_mismatch', reasons: [...new Set(args.match.reasons)] },
+    };
   if (args.capabilities.contextWindowTokens === undefined)
     return { kind: 'candidate_ineligible', reason: { kind: 'missing_context_window' } };
   if (args.capabilities.maxOutputTokens === undefined)
@@ -87,7 +105,9 @@ export type OrdinaryAdmittedExecutionAuthority = Readonly<{
   admittedCandidateIdentitiesSha256: string;
 }>;
 
-export const ordinaryAdmittedExecutionAuthority = (identities: readonly CandidateIdentity[]): OrdinaryAdmittedExecutionAuthority =>
+export const ordinaryAdmittedExecutionAuthority = (
+  identities: readonly CandidateIdentity[],
+): OrdinaryAdmittedExecutionAuthority =>
   Object.freeze({
     kind: 'ordinary',
     admittedCandidateIdentities: Object.freeze([...identities]),
@@ -116,7 +136,10 @@ export type OrdinaryPrimaryRequestAdmission =
       bindings: AdmittedExecutionBindings;
     }>;
 
-export type OrdinaryAdmittedExecution = Extract<OrdinaryPrimaryRequestAdmission, { kind: 'admitted' }>;
+export type OrdinaryAdmittedExecution = Extract<
+  OrdinaryPrimaryRequestAdmission,
+  { kind: 'admitted' }
+>;
 
 export type AdmittedExecutionBindings = Readonly<{
   inputId: string;
@@ -140,20 +163,49 @@ export type OrdinaryAdmittedExecutionInputs = Readonly<{
 }>;
 
 export type PinnedContentPolicyPreflight =
-  | Readonly<{ kind: 'admitted'; plan: CandidateRequestPlan; candidate: Candidate; capabilityRequest: Readonly<CapabilityRequest>; inputId: string; options: LlmCompleteOptions }>
+  | Readonly<{
+      kind: 'admitted';
+      plan: CandidateRequestPlan;
+      candidate: Candidate;
+      capabilityRequest: Readonly<CapabilityRequest>;
+      inputId: string;
+      options: LlmCompleteOptions;
+    }>
   | Readonly<{
       kind: 'rejected';
       candidate: Candidate;
-      verdict: Extract<CandidateLocalAdmission, { kind: 'candidate_ineligible' | 'projection_too_large' }>;
+      verdict: Extract<
+        CandidateLocalAdmission,
+        { kind: 'candidate_ineligible' | 'projection_too_large' }
+      >;
     }>;
 
-export type PinnedAdmittedContentPolicyRequest = Extract<PinnedContentPolicyPreflight, { kind: 'admitted' }>;
+export type PinnedAdmittedContentPolicyRequest = Extract<
+  PinnedContentPolicyPreflight,
+  { kind: 'admitted' }
+>;
 
 export type AdmittedCandidateAttemptState =
   | Readonly<{ kind: 'untried'; attempts: 0 }>
-  | Readonly<{ kind: 'temporarily_unavailable'; attempts: number; untilMs: number; reason: string | undefined }>
-  | Readonly<{ kind: 'retry_waiting'; wait: 'standard' | 'rate_limit'; attempts: number; untilMs: number; lastFailure: unknown }>
-  | Readonly<{ kind: 'retry_ready'; wait: 'standard' | 'rate_limit'; attempts: number; lastFailure: unknown }>
+  | Readonly<{
+      kind: 'temporarily_unavailable';
+      attempts: number;
+      untilMs: number;
+      reason: string | undefined;
+    }>
+  | Readonly<{
+      kind: 'retry_waiting';
+      wait: 'standard' | 'rate_limit';
+      attempts: number;
+      untilMs: number;
+      lastFailure: unknown;
+    }>
+  | Readonly<{
+      kind: 'retry_ready';
+      wait: 'standard' | 'rate_limit';
+      attempts: number;
+      lastFailure: unknown;
+    }>
   | Readonly<{ kind: 'context_failed'; attempts: number; failure: ProviderTurnFailure }>
   | Readonly<{ kind: 'exhausted'; attempts: number; lastFailure: unknown | null }>;
 
@@ -222,8 +274,18 @@ type AdmissionCandidateDiagnostic = Readonly<{
 }>;
 
 type AdmissionDiagnostics = Readonly<{
-  verdictCounts: Readonly<{ admitted: number; projection_too_large: number; candidate_ineligible: number }>;
-  reasonCounts: Readonly<{ capability_mismatch: number; missing_context_window: number; missing_max_output: number; max_output_too_small: number; nonpositive_usable_input: number }>;
+  verdictCounts: Readonly<{
+    admitted: number;
+    projection_too_large: number;
+    candidate_ineligible: number;
+  }>;
+  reasonCounts: Readonly<{
+    capability_mismatch: number;
+    missing_context_window: number;
+    missing_max_output: number;
+    max_output_too_small: number;
+    nonpositive_usable_input: number;
+  }>;
   verdictSummarySha256: string;
   candidates: readonly AdmissionCandidateDiagnostic[];
   omittedCandidateCount: number;
@@ -245,13 +307,23 @@ const verdictSummary = (candidates: readonly CandidateLocalAdmission[]): string 
       identity: candidateIdentitySha256(verdict.candidate),
       kind: verdict.kind,
       ...(verdict.kind === 'candidate_ineligible' ? { reason: verdict.reason.kind } : {}),
-      ...(verdict.kind === 'projection_too_large' ? { estimatedInputTokens: verdict.estimatedInputTokens } : {}),
+      ...(verdict.kind === 'projection_too_large'
+        ? { estimatedInputTokens: verdict.estimatedInputTokens }
+        : {}),
     })),
   );
 
-export function projectAdmissionDiagnostics(candidates: readonly CandidateLocalAdmission[]): AdmissionDiagnostics {
+export function projectAdmissionDiagnostics(
+  candidates: readonly CandidateLocalAdmission[],
+): AdmissionDiagnostics {
   const verdictCounts = { admitted: 0, projection_too_large: 0, candidate_ineligible: 0 };
-  const reasonCounts = { capability_mismatch: 0, missing_context_window: 0, missing_max_output: 0, max_output_too_small: 0, nonpositive_usable_input: 0 };
+  const reasonCounts = {
+    capability_mismatch: 0,
+    missing_context_window: 0,
+    missing_max_output: 0,
+    max_output_too_small: 0,
+    nonpositive_usable_input: 0,
+  };
   const displayed: AdmissionCandidateDiagnostic[] = [];
   for (const [routeIndex, verdict] of candidates.entries()) {
     verdictCounts[verdict.kind] += 1;
@@ -293,8 +365,13 @@ type RetainedAdmissionStateDiagnostics = Readonly<{
   stateCounts: Readonly<Record<AdmittedCandidateAttemptStateKind, number>>;
 }>;
 
-export function retainedAdmissionStateDiagnostics(suspension: SuspendedAdmittedExecution): RetainedAdmissionStateDiagnostics {
-  const stateCounts = Object.fromEntries(STATE_KINDS.map((kind) => [kind, 0])) as Record<AdmittedCandidateAttemptStateKind, number>;
+export function retainedAdmissionStateDiagnostics(
+  suspension: SuspendedAdmittedExecution,
+): RetainedAdmissionStateDiagnostics {
+  const stateCounts = Object.fromEntries(STATE_KINDS.map((kind) => [kind, 0])) as Record<
+    AdmittedCandidateAttemptStateKind,
+    number
+  >;
   for (const record of suspension.records) stateCounts[record.state.kind] += 1;
   return Object.freeze({
     candidate_scope: 'retained_original_admission_state',
@@ -309,7 +386,13 @@ export class LocalExactAdmissionError extends Error {
   readonly localCompactionAttempted: boolean;
   readonly diagnostics: AdmissionDiagnostics;
   readonly recovery: RetainedAdmissionStateDiagnostics | null;
-  constructor(args: { localCompactionAttempted: boolean; diagnostics: AdmissionDiagnostics; recovery?: RetainedAdmissionStateDiagnostics; constructionDiagnostic?: string; cause?: unknown }) {
+  constructor(args: {
+    localCompactionAttempted: boolean;
+    diagnostics: AdmissionDiagnostics;
+    recovery?: RetainedAdmissionStateDiagnostics;
+    constructionDiagnostic?: string;
+    cause?: unknown;
+  }) {
     super(
       `Ordinary exact admission failed (local_compaction_attempted=${args.localCompactionAttempted}): verdicts=${JSON.stringify(args.diagnostics.verdictCounts)}, reasons=${JSON.stringify(args.diagnostics.reasonCounts)}, candidates=${args.diagnostics.candidates.length}, omitted=${args.diagnostics.omittedCandidateCount}, verdict_summary_sha256=${args.diagnostics.verdictSummarySha256}${args.recovery ? `, recovery=${JSON.stringify(args.recovery)}` : ''}${args.constructionDiagnostic ? `, ${args.constructionDiagnostic}` : ''}`,
       { cause: args.cause },
@@ -324,39 +407,70 @@ export class LocalExactAdmissionError extends Error {
 export function verifySuspendedAdmittedExecution(suspension: SuspendedAdmittedExecution): void {
   const authority = suspension.authority;
   const identities = authority.admittedCandidateIdentities;
-  if (identities.length === 0) throw new AdmittedRecoveryIntegrityError('Suspended admitted execution carries an empty authority membership.');
+  if (identities.length === 0)
+    throw new AdmittedRecoveryIntegrityError(
+      'Suspended admitted execution carries an empty authority membership.',
+    );
   if (authority.admittedCandidateIdentitiesSha256 !== canonicalValueSha256([...identities]))
-    throw new AdmittedRecoveryIntegrityError('Suspended admitted execution authority hash does not match its membership.');
+    throw new AdmittedRecoveryIntegrityError(
+      'Suspended admitted execution authority hash does not match its membership.',
+    );
   for (const [index, identity] of identities.entries())
-    if (identities.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, identity)))
-      throw new AdmittedRecoveryIntegrityError('Suspended admitted execution authority membership contains a duplicate identity.');
+    if (
+      identities.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, identity))
+    )
+      throw new AdmittedRecoveryIntegrityError(
+        'Suspended admitted execution authority membership contains a duplicate identity.',
+      );
   if (suspension.records.length !== identities.length)
-    throw new AdmittedRecoveryIntegrityError(`Suspended admitted execution carries ${suspension.records.length} records for ${identities.length} authority members.`);
+    throw new AdmittedRecoveryIntegrityError(
+      `Suspended admitted execution carries ${suspension.records.length} records for ${identities.length} authority members.`,
+    );
   let lastRouteIndex = -1;
   for (const [index, record] of suspension.records.entries()) {
     if (!candidatesEqual(record.identity, identities[index]!))
-      throw new AdmittedRecoveryIntegrityError(`Suspended admitted execution record ${index} does not match authority member ${index}.`);
+      throw new AdmittedRecoveryIntegrityError(
+        `Suspended admitted execution record ${index} does not match authority member ${index}.`,
+      );
     if (record.routeIndex <= lastRouteIndex)
-      throw new AdmittedRecoveryIntegrityError('Suspended admitted execution records are not in strictly increasing route order.');
+      throw new AdmittedRecoveryIntegrityError(
+        'Suspended admitted execution records are not in strictly increasing route order.',
+      );
     lastRouteIndex = record.routeIndex;
   }
   const contextFailed = suspension.records.filter(
-    (record): record is Readonly<AdmittedCandidateExecutionRecord> & { state: Extract<AdmittedCandidateAttemptState, { kind: 'context_failed' }> } => record.state.kind === 'context_failed',
+    (
+      record,
+    ): record is Readonly<AdmittedCandidateExecutionRecord> & {
+      state: Extract<AdmittedCandidateAttemptState, { kind: 'context_failed' }>;
+    } => record.state.kind === 'context_failed',
   );
   if (contextFailed.length !== 1)
-    throw new AdmittedRecoveryIntegrityError(`Suspended admitted execution requires exactly one context-failed record, found ${contextFailed.length}.`);
+    throw new AdmittedRecoveryIntegrityError(
+      `Suspended admitted execution requires exactly one context-failed record, found ${contextFailed.length}.`,
+    );
   const contextFailedRecord = contextFailed[0]!;
   if (!candidatesEqual(contextFailedRecord.identity, suspension.contextFailedIdentity))
-    throw new AdmittedRecoveryIntegrityError('Suspended admitted execution context-failed identity does not match its record.');
+    throw new AdmittedRecoveryIntegrityError(
+      'Suspended admitted execution context-failed identity does not match its record.',
+    );
   const failure = contextFailedRecord.state.failure;
   if (failure.failure_phase !== 'provider_attempt' || !(failure.originalFailure instanceof Error))
-    throw new AdmittedRecoveryIntegrityError('Suspended admitted execution context-failed record carries no authoritative provider failure.');
+    throw new AdmittedRecoveryIntegrityError(
+      'Suspended admitted execution context-failed record carries no authoritative provider failure.',
+    );
   for (const [index, attempt] of suspension.settledProviderAttempts.entries()) {
     if (attempt.source_input_id !== suspension.bindings.inputId)
-      throw new AdmittedRecoveryIntegrityError(`Suspended settled provider attempt ${index} is not indexed under input '${suspension.bindings.inputId}'.`);
+      throw new AdmittedRecoveryIntegrityError(
+        `Suspended settled provider attempt ${index} is not indexed under input '${suspension.bindings.inputId}'.`,
+      );
     if (attempt.attempt_index !== index)
-      throw new AdmittedRecoveryIntegrityError(`Suspended settled provider attempt ${index} carries attempt_index ${attempt.attempt_index}.`);
+      throw new AdmittedRecoveryIntegrityError(
+        `Suspended settled provider attempt ${index} carries attempt_index ${attempt.attempt_index}.`,
+      );
   }
   if (!Number.isFinite(suspension.deadlineMs) || suspension.deadlineMs <= 0)
-    throw new AdmittedRecoveryIntegrityError('Suspended admitted execution carries an invalid unavailability deadline.');
+    throw new AdmittedRecoveryIntegrityError(
+      'Suspended admitted execution carries an invalid unavailability deadline.',
+    );
 }

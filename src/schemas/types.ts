@@ -1,15 +1,28 @@
 import type { ConversationSessionId } from './conversation-session-id.js';
 import type { CardTypeName } from './card-type-name.js';
 
+export const cardStatusValues = [
+  'backlog',
+  'running',
+  'blocked',
+  'changed',
+  'stopped',
+  'done',
+  'failed',
+  'cancelled',
+] as const;
+export type CardStatus = (typeof cardStatusValues)[number];
 
-export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'stopped', 'done', 'failed', 'cancelled'] as const;
-export type CardStatus = typeof cardStatusValues[number];
-
-
-export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child'] as const;
-export type CardAction = typeof cardActionValues[number];
+export const cardActionValues = [
+  'card.start',
+  'card.create',
+  'card.cancel',
+  'card.delete',
+  'card.reorder_child',
+] as const;
+export type CardAction = (typeof cardActionValues)[number];
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
-export type Urgency = typeof urgencyValues[number];
+export type Urgency = (typeof urgencyValues)[number];
 export type CreatedBy = import('./agent-name.js').AgentName | 'runtime:bootstrap';
 type NoteAuthor = 'user' | 'runtime' | import('./agent-name.js').AgentName;
 type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
@@ -24,31 +37,74 @@ export interface CardNotification {
 }
 
 export interface CardRecord {
-  id: string; type: CardTypeName; title: string;
-  child_membership: string[]; active_child_order: string[];
-  subtype: null; priority: number; urgency: Urgency; created_by: CreatedBy;
-  created_at: string; updated_at: string; version_seq: number; assigned_to: null; depends_on: string[];
-  lifecycle: CardLifecycleState; metrics: null;
-  estimate: null; started_at: null;
-  duration_ms: null; status_text: string | null; status_text_updated_at: string | null;
-  status_text_author_session_id: null; latest_self_report: null; metadata: null;
+  id: string;
+  type: CardTypeName;
+  title: string;
+  child_membership: string[];
+  active_child_order: string[];
+  subtype: null;
+  priority: number;
+  urgency: Urgency;
+  created_by: CreatedBy;
+  created_at: string;
+  updated_at: string;
+  version_seq: number;
+  assigned_to: null;
+  depends_on: string[];
+  lifecycle: CardLifecycleState;
+  metrics: null;
+  estimate: null;
+  started_at: null;
+  duration_ms: null;
+  status_text: string | null;
+  status_text_updated_at: string | null;
+  status_text_author_session_id: null;
+  latest_self_report: null;
+  metadata: null;
   pending_notifications: CardNotification[];
 }
 export type OutboundCardRecord = Omit<CardRecord, 'pending_notifications'>;
 
 export const CARD_RECORD_FIELDS = [
-  'id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'priority', 'urgency', 'created_by', 'created_at',
-  'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'lifecycle', 'metrics', 'estimate',
-  'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id',
-  'latest_self_report', 'metadata', 'pending_notifications',
+  'id',
+  'type',
+  'child_membership',
+  'active_child_order',
+  'title',
+  'subtype',
+  'priority',
+  'urgency',
+  'created_by',
+  'created_at',
+  'updated_at',
+  'version_seq',
+  'assigned_to',
+  'depends_on',
+  'lifecycle',
+  'metrics',
+  'estimate',
+  'started_at',
+  'duration_ms',
+  'status_text',
+  'status_text_updated_at',
+  'status_text_author_session_id',
+  'latest_self_report',
+  'metadata',
+  'pending_notifications',
 ] as const satisfies readonly (keyof CardRecord)[];
 
-type TupleDuplicate<Values extends readonly PropertyKey[], Seen = never> =
-  Values extends readonly [infer Head extends PropertyKey, ...infer Tail extends readonly PropertyKey[]]
-    ? Head extends Seen ? Head : TupleDuplicate<Tail, Seen | Head>
-    : never;
+type TupleDuplicate<Values extends readonly PropertyKey[], Seen = never> = Values extends readonly [
+  infer Head extends PropertyKey,
+  ...infer Tail extends readonly PropertyKey[],
+]
+  ? Head extends Seen
+    ? Head
+    : TupleDuplicate<Tail, Seen | Head>
+  : never;
 type AssertNever<Value extends never> = Value;
-type _CardRecordFieldsHaveNoMissingKeys = AssertNever<Exclude<keyof CardRecord, typeof CARD_RECORD_FIELDS[number]>>;
+type _CardRecordFieldsHaveNoMissingKeys = AssertNever<
+  Exclude<keyof CardRecord, (typeof CARD_RECORD_FIELDS)[number]>
+>;
 type _CardRecordFieldsHaveNoDuplicates = AssertNever<TupleDuplicate<typeof CARD_RECORD_FIELDS>>;
 
 export interface CardOperatorSummary {
@@ -58,21 +114,111 @@ export interface CardOperatorSummary {
   completedAt: string | null;
   stale: boolean;
 }
-export interface CardView { card: OutboundCardRecord; logical_path: string | null; status: CardStatus; parent: string | null; operator_summary: CardOperatorSummary; }
-export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
-export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; planner_enabled: boolean; created_at: string; updated_at: string; }
+export interface CardView {
+  card: OutboundCardRecord;
+  logical_path: string | null;
+  status: CardStatus;
+  parent: string | null;
+  operator_summary: CardOperatorSummary;
+}
+export interface ControlActionAuditEntry {
+  id: string;
+  actor: NoteAuthor;
+  surface: ControlActionSurface;
+  action: string;
+  target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
+  target_id: string | null;
+  params_summary: string;
+  safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment';
+  outcome: 'ok' | 'error' | 'denied';
+  outcome_summary: string;
+  error?: string;
+  created_at: string;
+}
+export interface ProjectConfig {
+  id: 'project';
+  name: string;
+  context: string;
+  goals_summary: string;
+  constraints: string[];
+  planner_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
-export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
+export interface AnalystIssue {
+  summary: string;
+  severity?: (typeof analystIssueSeverityValues)[number];
+  evidence_path?: string;
+}
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'content_policy_retry' | 'content_policy_refusal' | 'model_recovered' | 'provider_private';
-interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
-interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
-export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; context_policy: import('./context-policy.js').RowContextPolicy; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
-export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
-export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id: string; updated_at: string; }
-export interface SkillIndexEntry { name: string; file: string; target_agents: import('./agent-name.js').AgentName[]; }
-
+export type MessageKind =
+  | 'text'
+  | 'activity'
+  | 'tool_call'
+  | 'tool_result'
+  | 'model_issue'
+  | 'model_repair'
+  | 'content_policy_retry'
+  | 'content_policy_refusal'
+  | 'model_recovered'
+  | 'provider_private';
+interface EntityLink {
+  entity_type: 'card' | 'process' | 'artifact' | 'attachment';
+  entity_id: string;
+  label?: string;
+}
+interface OpenAIResponsesProviderProjection {
+  kind: 'openai_responses';
+  source_input_id: string;
+  private_message_id: string;
+  projection_kind: 'assistant_message' | 'assistant_tool_call';
+}
+export interface AgentMessage {
+  id: string;
+  session_id: ConversationSessionId;
+  role: MessageRole;
+  kind: MessageKind;
+  content: string;
+  context_policy: import('./context-policy.js').RowContextPolicy;
+  round_id: string;
+  message_index: number;
+  block_index: number;
+  tool?: string;
+  tool_call_id?: string;
+  timestamp: string;
+  links?: EntityLink[];
+  model_spec?: string;
+  requested_model_spec?: string;
+  provider_projection?: OpenAIResponsesProviderProjection;
+}
+export type RuntimeStatus =
+  | 'stopped'
+  | 'starting'
+  | 'running'
+  | 'pausing'
+  | 'paused'
+  | 'closing'
+  | 'error';
+export interface RuntimeState {
+  status: RuntimeStatus;
+  project_id: 'project';
+  pid: number;
+  started_at: string;
+  current_card_id: string;
+  updated_at: string;
+}
+export interface SkillIndexEntry {
+  name: string;
+  file: string;
+  target_agents: import('./agent-name.js').AgentName[];
+}
 
 export { type EventKind } from './event-catalog.js';
-export type { ErrorEvent, LoggedEvent, LoggedEventByKind, RuntimeActionableErrorEvent } from './event-catalog.js';
+export type {
+  ErrorEvent,
+  LoggedEvent,
+  LoggedEventByKind,
+  RuntimeActionableErrorEvent,
+} from './event-catalog.js';

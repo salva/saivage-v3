@@ -6,100 +6,149 @@ import { cardTypeNameSchema } from './card-type-name.js';
 // ── Zod Schemas ───────────────────────────────────────────────
 
 // Routing profile
-const routingProfileSchema = z.object({
-  preferred: z.array(z.string()).default([]),
-  allowed: z.array(z.string()).default([]),
-}).strict();
+const routingProfileSchema = z
+  .object({
+    preferred: z.array(z.string()).default([]),
+    allowed: z.array(z.string()).default([]),
+  })
+  .strict();
 
 const modelEquivalentsSchema = z.array(z.array(z.string()));
 
 const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 export const systemTemplateNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
-const recordWritePatternSchema = z.string().regex(/^[a-z*][a-z0-9*-]{0,63}\.md$/u, 'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.');
-const modelRouteSchema = z.object({
-  candidates: z.array(z.string().min(1)).min(1).optional(),
-  profile: namedIdentifierSchema.optional(),
-  temperature: z.number().min(0).max(2),
-  max_tokens: z.number().int().positive(),
-}).strict().superRefine((route, ctx) => {
-  if ((route.candidates === undefined) === (route.profile === undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'exactly one of candidates or profile is required' });
-});
-const modelsSectionSchema = z.object({
-  routes: z.record(namedIdentifierSchema, modelRouteSchema),
-  profiles: z.record(namedIdentifierSchema, routingProfileSchema).default({}),
-  equivalents: modelEquivalentsSchema.default([]),
-  failover: z.record(z.string(), z.array(z.string().min(1))).default({}),
-}).strict();
+const recordWritePatternSchema = z
+  .string()
+  .regex(
+    /^[a-z*][a-z0-9*-]{0,63}\.md$/u,
+    'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.',
+  );
+const modelRouteSchema = z
+  .object({
+    candidates: z.array(z.string().min(1)).min(1).optional(),
+    profile: namedIdentifierSchema.optional(),
+    temperature: z.number().min(0).max(2),
+    max_tokens: z.number().int().positive(),
+  })
+  .strict()
+  .superRefine((route, ctx) => {
+    if ((route.candidates === undefined) === (route.profile === undefined))
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'exactly one of candidates or profile is required',
+      });
+  });
+const modelsSectionSchema = z
+  .object({
+    routes: z.record(namedIdentifierSchema, modelRouteSchema),
+    profiles: z.record(namedIdentifierSchema, routingProfileSchema).default({}),
+    equivalents: modelEquivalentsSchema.default([]),
+    failover: z.record(z.string(), z.array(z.string().min(1))).default({}),
+  })
+  .strict();
 
 // Provider capabilities
-export const providerCapabilitySchema = z.object({
-  transportProtocol: z.enum(['openai-chat-completions', 'openai-codex-backend', 'openai-responses']).optional(),
-  toolsMode: z.enum(['native', 'unsupported']).optional(),
-  exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']).optional(),
-  responsesReasoning: z.object({ effort: z.enum(['minimal', 'low', 'medium', 'high']).optional() }).strict().optional(),
-  contextWindowTokens: z.number().int().positive().optional(),
-  maxOutputTokens: z.number().int().positive().optional(),
-  quirks: z.array(z.string()).optional(),
-}).strict();
+export const providerCapabilitySchema = z
+  .object({
+    transportProtocol: z
+      .enum(['openai-chat-completions', 'openai-codex-backend', 'openai-responses'])
+      .optional(),
+    toolsMode: z.enum(['native', 'unsupported']).optional(),
+    exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']).optional(),
+    responsesReasoning: z
+      .object({ effort: z.enum(['minimal', 'low', 'medium', 'high']).optional() })
+      .strict()
+      .optional(),
+    contextWindowTokens: z.number().int().positive().optional(),
+    maxOutputTokens: z.number().int().positive().optional(),
+    quirks: z.array(z.string()).optional(),
+  })
+  .strict();
 
 // Provider account
-const providerAccountSchema = z.object({
-  priority: z.number().int().optional(),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
-  authProfile: z.string().optional(),
-  models: z.array(z.string()).optional(),
-  capabilities: providerCapabilitySchema.optional(),
-}).strict();
+const providerAccountSchema = z
+  .object({
+    priority: z.number().int().optional(),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().optional(),
+    authProfile: z.string().optional(),
+    models: z.array(z.string()).optional(),
+    capabilities: providerCapabilitySchema.optional(),
+  })
+  .strict();
 
 // Provider entry
-const providerEntrySchema = z.object({
-  priority: z.number().int().optional(),
-  models: z.array(z.string()).optional(),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
-  authProfile: z.string().optional(),
-  capabilities: providerCapabilitySchema.optional(),
-  modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
-  accounts: z.record(z.string(), providerAccountSchema).optional(),
-}).strict();
+const providerEntrySchema = z
+  .object({
+    priority: z.number().int().optional(),
+    models: z.array(z.string()).optional(),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().optional(),
+    authProfile: z.string().optional(),
+    capabilities: providerCapabilitySchema.optional(),
+    modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
+    accounts: z.record(z.string(), providerAccountSchema).optional(),
+  })
+  .strict();
 
 // Server section
-const serverSectionSchema = z.object({
-  port: z.number().int().positive().default(8080),
-  host: z.string().default('0.0.0.0'),
-}).strict();
+const serverSectionSchema = z
+  .object({
+    port: z.number().int().positive().default(8080),
+    host: z.string().default('0.0.0.0'),
+  })
+  .strict();
 
-const candidateSchema = z.object({
-  provider: z.string().min(1),
-  account: z.union([z.string().min(1), z.literal(null)]),
-  model: z.string().min(1),
-}).strict();
+const candidateSchema = z
+  .object({
+    provider: z.string().min(1),
+    account: z.union([z.string().min(1), z.literal(null)]),
+    model: z.string().min(1),
+  })
+  .strict();
 
-const compactionSectionSchema = z.object({
-  enabled: z.literal(true),
-  context_utilization_fraction: z.number().positive().max(1).default(0.80),
-  trigger_fraction: z.number().positive().max(1).default(0.90),
-  tail_fraction: z.number().nonnegative().max(1).default(0.25),
-  snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']).default('keep_straddler_verbatim'),
-  summarizer_candidate: candidateSchema,
-}).strict().superRefine(validateCompaction);
+const compactionSectionSchema = z
+  .object({
+    enabled: z.literal(true),
+    context_utilization_fraction: z.number().positive().max(1).default(0.8),
+    trigger_fraction: z.number().positive().max(1).default(0.9),
+    tail_fraction: z.number().nonnegative().max(1).default(0.25),
+    snap: z
+      .enum(['keep_straddler_verbatim', 'compact_straddler'])
+      .default('keep_straddler_verbatim'),
+    summarizer_candidate: candidateSchema,
+  })
+  .strict()
+  .superRefine(validateCompaction);
 
-const oversightSectionSchema = z.object({
-  enabled: z.boolean(),
-  agent: agentNameSchema,
-  interval_seconds: z.number().positive().refine(
-    (seconds) => Number.isFinite(seconds * 1000) && seconds * 1000 > 0,
-    'interval_seconds must convert to a finite positive millisecond duration',
-  ),
-}).strict();
+const oversightSectionSchema = z
+  .object({
+    enabled: z.boolean(),
+    agent: agentNameSchema,
+    interval_seconds: z
+      .number()
+      .positive()
+      .refine(
+        (seconds) => Number.isFinite(seconds * 1000) && seconds * 1000 > 0,
+        'interval_seconds must convert to a finite positive millisecond duration',
+      ),
+  })
+  .strict();
 
-function validateCompaction(value: {
-  trigger_fraction: number;
-  tail_fraction: number;
-}, ctx: z.RefinementCtx): void {
-  if (value.tail_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tail_fraction'], message: 'tail_fraction must be <= trigger_fraction' });
+function validateCompaction(
+  value: {
+    trigger_fraction: number;
+    tail_fraction: number;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.tail_fraction > value.trigger_fraction)
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['tail_fraction'],
+      message: 'tail_fraction must be <= trigger_fraction',
+    });
 }
 
 function isHttpUrl(value: string): boolean {
@@ -112,160 +161,259 @@ function isHttpUrl(value: string): boolean {
 }
 
 // MCP Server entry
-const stdioMcpServerSchema = z.object({
-  transport: z.literal('stdio'),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  disabled: z.boolean().default(false),
-  autostart: z.boolean().default(true),
-}).strict();
+const stdioMcpServerSchema = z
+  .object({
+    transport: z.literal('stdio'),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    disabled: z.boolean().default(false),
+    autostart: z.boolean().default(true),
+  })
+  .strict();
 
-const streamableHttpMcpServerSchema = z.object({
-  transport: z.literal('streamable-http'),
-  url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
-  disabled: z.boolean().default(false),
-  autostart: z.boolean().default(true),
-}).strict();
+const streamableHttpMcpServerSchema = z
+  .object({
+    transport: z.literal('streamable-http'),
+    url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
+    disabled: z.boolean().default(false),
+    autostart: z.boolean().default(true),
+  })
+  .strict();
 
-const mcpServerEntrySchema = z.discriminatedUnion('transport', [stdioMcpServerSchema, streamableHttpMcpServerSchema]);
+const mcpServerEntrySchema = z.discriminatedUnion('transport', [
+  stdioMcpServerSchema,
+  streamableHttpMcpServerSchema,
+]);
 
 const processTerminalPortSchema = z.enum(['DONE', 'BLOCKED', 'FAILED']);
-const staticPromptDeclarationSchema = z.object({ reference: namedIdentifierSchema, compactable: z.boolean().optional().default(true) }).strict();
-const durablePromptDeclarationSchema = z.object({ reference: namedIdentifierSchema, compactable: z.boolean().optional().default(true), compaction_key: z.string().min(1).optional() }).strict().superRefine((value, ctx) => {
-  if (value.compaction_key !== undefined && value.compactable) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['compaction_key'], message: 'compaction_key is allowed only when compactable is false' });
-});
-const processEntrySchema = z.object({
-  node: z.string(),
-  prompt: durablePromptDeclarationSchema.optional(),
-}).strict();
-const stoppedProcessEntrySchema = z.object({
-  node: z.string(),
-  prompt: durablePromptDeclarationSchema,
-}).strict();
-const promotionSchema = z.union([z.literal('current'), z.object({ latest_node: namedIdentifierSchema }).strict()]);
+const staticPromptDeclarationSchema = z
+  .object({ reference: namedIdentifierSchema, compactable: z.boolean().optional().default(true) })
+  .strict();
+const durablePromptDeclarationSchema = z
+  .object({
+    reference: namedIdentifierSchema,
+    compactable: z.boolean().optional().default(true),
+    compaction_key: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.compaction_key !== undefined && value.compactable)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['compaction_key'],
+        message: 'compaction_key is allowed only when compactable is false',
+      });
+  });
+const processEntrySchema = z
+  .object({
+    node: z.string(),
+    prompt: durablePromptDeclarationSchema.optional(),
+  })
+  .strict();
+const stoppedProcessEntrySchema = z
+  .object({
+    node: z.string(),
+    prompt: durablePromptDeclarationSchema,
+  })
+  .strict();
+const promotionSchema = z.union([
+  z.literal('current'),
+  z.object({ latest_node: namedIdentifierSchema }).strict(),
+]);
 const processEdgeTargetSchema = z.union([
   z.object({ node: namedIdentifierSchema }).strict(),
-  z.object({ terminal: processTerminalPortSchema, promote: promotionSchema, export_records: z.array(recordNameSchema) }).strict(),
+  z
+    .object({
+      terminal: processTerminalPortSchema,
+      promote: promotionSchema,
+      export_records: z.array(recordNameSchema),
+    })
+    .strict(),
 ]);
-const pendingNotificationsEdgeSchema = z.object({
-  node: namedIdentifierSchema,
-  prompt: durablePromptDeclarationSchema,
-}).strict();
-const processEdgeSchema = z.object({
-  target: processEdgeTargetSchema,
-  prompt: durablePromptDeclarationSchema.optional(),
-  pending_notifications: pendingNotificationsEdgeSchema.optional(),
-}).strict();
-const processNodeSchema = z.object({
-  agent: agentNameSchema,
-  prompt: staticPromptDeclarationSchema,
-  correction_prompt: durablePromptDeclarationSchema,
-  records: z.record(recordNameSchema, z.object({ mode: z.enum(['clean', 'continue']), gate: z.enum(['exists', 'updated']) }).strict()).default({}),
-  descendant_context: z.object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() }).strict().optional(),
-  edges: z.record(outcomeIdentifierSchema, processEdgeSchema),
-}).strict();
-const cardProcessSchema = z.object({
-  notification_recipient: agentNameSchema,
-  entries: z.object({
-    BACKLOG: processEntrySchema,
-    CHANGED: processEntrySchema,
-    BLOCKED: processEntrySchema,
-    STOPPED: stoppedProcessEntrySchema,
-  }).strict(),
-  nodes: z.record(z.string(), processNodeSchema),
-}).strict();
+const pendingNotificationsEdgeSchema = z
+  .object({
+    node: namedIdentifierSchema,
+    prompt: durablePromptDeclarationSchema,
+  })
+  .strict();
+const processEdgeSchema = z
+  .object({
+    target: processEdgeTargetSchema,
+    prompt: durablePromptDeclarationSchema.optional(),
+    pending_notifications: pendingNotificationsEdgeSchema.optional(),
+  })
+  .strict();
+const processNodeSchema = z
+  .object({
+    agent: agentNameSchema,
+    prompt: staticPromptDeclarationSchema,
+    correction_prompt: durablePromptDeclarationSchema,
+    records: z
+      .record(
+        recordNameSchema,
+        z
+          .object({ mode: z.enum(['clean', 'continue']), gate: z.enum(['exists', 'updated']) })
+          .strict(),
+      )
+      .default({}),
+    descendant_context: z
+      .object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() })
+      .strict()
+      .optional(),
+    edges: z.record(outcomeIdentifierSchema, processEdgeSchema),
+  })
+  .strict();
+const cardProcessSchema = z
+  .object({
+    notification_recipient: agentNameSchema,
+    entries: z
+      .object({
+        BACKLOG: processEntrySchema,
+        CHANGED: processEntrySchema,
+        BLOCKED: processEntrySchema,
+        STOPPED: stoppedProcessEntrySchema,
+      })
+      .strict(),
+    nodes: z.record(z.string(), processNodeSchema),
+  })
+  .strict();
 
-const recordDefinitionSchema = z.object({
-  format: z.literal('markdown'),
-  schema: z.string().regex(/^[a-z][a-z0-9-]{0,63}\.v[1-9][0-9]*$/u),
-  bootstrap: z.boolean(),
-}).strict();
-const cardTypeWorkflowSchema = z.object({
-  permitted_child_types: z.array(cardTypeNameSchema),
-  records: z.record(recordNameSchema, recordDefinitionSchema),
-  workflow: cardProcessSchema,
-}).strict();
-const cardTypesSchema = z.record(cardTypeNameSchema, cardTypeWorkflowSchema).superRefine((cardTypes, ctx) => {
-  if (!Object.prototype.hasOwnProperty.call(cardTypes, 'project')) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['project'], message: "card_types must contain the reserved 'project' entry" });
-  }
-  for (const [cardType, source] of Object.entries(cardTypes)) {
-    const seen = new Set<string>();
-    source.permitted_child_types.forEach((childType, index) => {
-      const path = [cardType, 'permitted_child_types', index];
-      if (childType === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: "permitted_child_types cannot contain the reserved 'project' type" });
-      if (seen.has(childType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: `duplicate permitted child type '${childType}'` });
-      seen.add(childType);
-      if (!Object.prototype.hasOwnProperty.call(cardTypes, childType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: `permitted child type '${childType}' has no card_types entry` });
-    });
-  }
-});
+const recordDefinitionSchema = z
+  .object({
+    format: z.literal('markdown'),
+    schema: z.string().regex(/^[a-z][a-z0-9-]{0,63}\.v[1-9][0-9]*$/u),
+    bootstrap: z.boolean(),
+  })
+  .strict();
+const cardTypeWorkflowSchema = z
+  .object({
+    permitted_child_types: z.array(cardTypeNameSchema),
+    records: z.record(recordNameSchema, recordDefinitionSchema),
+    workflow: cardProcessSchema,
+  })
+  .strict();
+const cardTypesSchema = z
+  .record(cardTypeNameSchema, cardTypeWorkflowSchema)
+  .superRefine((cardTypes, ctx) => {
+    if (!Object.prototype.hasOwnProperty.call(cardTypes, 'project')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['project'],
+        message: "card_types must contain the reserved 'project' entry",
+      });
+    }
+    for (const [cardType, source] of Object.entries(cardTypes)) {
+      const seen = new Set<string>();
+      source.permitted_child_types.forEach((childType, index) => {
+        const path = [cardType, 'permitted_child_types', index];
+        if (childType === 'project')
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: "permitted_child_types cannot contain the reserved 'project' type",
+          });
+        if (seen.has(childType))
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: `duplicate permitted child type '${childType}'`,
+          });
+        seen.add(childType);
+        if (!Object.prototype.hasOwnProperty.call(cardTypes, childType))
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: `permitted child type '${childType}' has no card_types entry`,
+          });
+      });
+    }
+  });
 
-const agentDefinitionSchema = z.object({
-  prompt: staticPromptDeclarationSchema,
-  tools: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u)),
-  model_route: namedIdentifierSchema,
-  skills: z.boolean(),
-  session: z.enum(['global', 'card']),
-  can_create_children: z.boolean(),
-  record_writes: z.array(recordWritePatternSchema),
-}).strict();
+const agentDefinitionSchema = z
+  .object({
+    prompt: staticPromptDeclarationSchema,
+    tools: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u)),
+    model_route: namedIdentifierSchema,
+    skills: z.boolean(),
+    session: z.enum(['global', 'card']),
+    can_create_children: z.boolean(),
+    record_writes: z.array(recordWritePatternSchema),
+  })
+  .strict();
 
-const effectiveRoutingProfileSchema = z.object({
-  preferred: z.array(z.string()),
-  allowed: z.array(z.string()),
-}).strict();
-const effectiveModelsSectionSchema = z.object({
-  routes: z.record(namedIdentifierSchema, modelRouteSchema),
-  profiles: z.record(namedIdentifierSchema, effectiveRoutingProfileSchema),
-  equivalents: z.array(z.array(z.string())),
-  failover: z.record(z.string(), z.array(z.string())),
-}).strict();
+const effectiveRoutingProfileSchema = z
+  .object({
+    preferred: z.array(z.string()),
+    allowed: z.array(z.string()),
+  })
+  .strict();
+const effectiveModelsSectionSchema = z
+  .object({
+    routes: z.record(namedIdentifierSchema, modelRouteSchema),
+    profiles: z.record(namedIdentifierSchema, effectiveRoutingProfileSchema),
+    equivalents: z.array(z.array(z.string())),
+    failover: z.record(z.string(), z.array(z.string())),
+  })
+  .strict();
 const outboundEffectiveProviderAccountSchema = providerAccountSchema.omit({ baseUrl: true });
 const outboundEffectiveProviderEntrySchema = providerEntrySchema
   .omit({ baseUrl: true, accounts: true })
   .extend({ accounts: z.record(z.string(), outboundEffectiveProviderAccountSchema).optional() });
-const effectiveServerSectionSchema = z.object({
-  port: z.number().int().positive(),
-  host: z.string(),
-}).strict();
-const effectiveCompactionSectionSchema = z.object({
-  enabled: z.literal(true),
-  context_utilization_fraction: z.number().positive().max(1),
-  trigger_fraction: z.number().positive().max(1),
-  tail_fraction: z.number().nonnegative().max(1),
-  snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
-  summarizer_candidate: candidateSchema,
-}).strict().superRefine(validateCompaction);
-const effectiveStdioMcpServerSchema = z.object({
-  transport: z.literal('stdio'),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  disabled: z.boolean(),
-  autostart: z.boolean(),
-}).strict();
-const effectiveStreamableHttpMcpServerSchema = z.object({
-  transport: z.literal('streamable-http'),
-  url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
-  disabled: z.boolean(),
-  autostart: z.boolean(),
-}).strict();
-const effectiveMcpServerEntrySchema = z.discriminatedUnion('transport', [effectiveStdioMcpServerSchema, effectiveStreamableHttpMcpServerSchema]);
+const effectiveServerSectionSchema = z
+  .object({
+    port: z.number().int().positive(),
+    host: z.string(),
+  })
+  .strict();
+const effectiveCompactionSectionSchema = z
+  .object({
+    enabled: z.literal(true),
+    context_utilization_fraction: z.number().positive().max(1),
+    trigger_fraction: z.number().positive().max(1),
+    tail_fraction: z.number().nonnegative().max(1),
+    snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
+    summarizer_candidate: candidateSchema,
+  })
+  .strict()
+  .superRefine(validateCompaction);
+const effectiveStdioMcpServerSchema = z
+  .object({
+    transport: z.literal('stdio'),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    disabled: z.boolean(),
+    autostart: z.boolean(),
+  })
+  .strict();
+const effectiveStreamableHttpMcpServerSchema = z
+  .object({
+    transport: z.literal('streamable-http'),
+    url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
+    disabled: z.boolean(),
+    autostart: z.boolean(),
+  })
+  .strict();
+const effectiveMcpServerEntrySchema = z.discriminatedUnion('transport', [
+  effectiveStdioMcpServerSchema,
+  effectiveStreamableHttpMcpServerSchema,
+]);
 // ── Full Config Schema ────────────────────────────────────────
 
-export const saivageConfigSchema = z.object({
-  agents: z.record(agentNameSchema, agentDefinitionSchema),
-  analyst_agent: agentNameSchema,
-  oversight: oversightSectionSchema,
-  models: modelsSectionSchema,
-  providers: z.record(z.string(), providerEntrySchema).default({}),
-  server: serverSectionSchema.default({}),
-  compaction: compactionSectionSchema,
-  card_types: cardTypesSchema.optional(),
-  mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
-}).strict();
+export const saivageConfigSchema = z
+  .object({
+    agents: z.record(agentNameSchema, agentDefinitionSchema),
+    analyst_agent: agentNameSchema,
+    oversight: oversightSectionSchema,
+    models: modelsSectionSchema,
+    providers: z.record(z.string(), providerEntrySchema).default({}),
+    server: serverSectionSchema.default({}),
+    compaction: compactionSectionSchema,
+    card_types: cardTypesSchema.optional(),
+    mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
+  })
+  .strict();
 
 const effectiveSaivageConfigShape = {
   agents: z.record(agentNameSchema, agentDefinitionSchema),
@@ -281,10 +429,12 @@ const effectiveSaivageConfigShape = {
 
 export const effectiveSaivageConfigSchema = z.object(effectiveSaivageConfigShape).strict();
 
-export const outboundEffectiveSaivageConfigSchema = z.object({
-  ...effectiveSaivageConfigShape,
-  providers: z.record(z.string(), outboundEffectiveProviderEntrySchema),
-}).strict();
+export const outboundEffectiveSaivageConfigSchema = z
+  .object({
+    ...effectiveSaivageConfigShape,
+    providers: z.record(z.string(), outboundEffectiveProviderEntrySchema),
+  })
+  .strict();
 
 // ── Derived Types ─────────────────────────────────────────────
 

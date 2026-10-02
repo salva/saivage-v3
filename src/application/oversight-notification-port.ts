@@ -10,7 +10,8 @@ export function createOversightNotificationPort(input: {
   submitNotification: NotificationSubmissionPort;
 }): NotificationSubmissionPort {
   return async (cardId, notification, urgency, signal) => {
-    if (!signal) throw new Error('Oversight notification requires the exact check cancellation signal.');
+    if (!signal)
+      throw new Error('Oversight notification requires the exact check cancellation signal.');
     input.oversight.assertEffectAdmission(signal);
     const card = input.cards.read(cardId);
     if (card) {

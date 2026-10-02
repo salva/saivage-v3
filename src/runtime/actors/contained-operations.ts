@@ -33,7 +33,9 @@ export class ContainedOperations {
     this.#track(this.#operations, wrapper, false);
 
     let acknowledgeDelivery!: () => void;
-    const delivery = new Promise<void>((resolve) => { acknowledgeDelivery = resolve; });
+    const delivery = new Promise<void>((resolve) => {
+      acknowledgeDelivery = resolve;
+    });
     this.#consumers.add(delivery);
     this.#deliveryAcknowledgements.push(() => {
       acknowledgeDelivery();
@@ -65,7 +67,9 @@ export class ContainedOperations {
     return wrapper;
   }
 
-  consume<ConsumerResult>(consume: () => ConsumerResult | Promise<ConsumerResult>): Promise<ConsumerResult> {
+  consume<ConsumerResult>(
+    consume: () => ConsumerResult | Promise<ConsumerResult>,
+  ): Promise<ConsumerResult> {
     const acknowledge = this.#deliveryAcknowledgements.shift();
     if (!acknowledge) throw new Error('No contained operation is awaiting consumer delivery.');
     let result: Promise<ConsumerResult>;
@@ -90,7 +94,6 @@ export class ContainedOperations {
     if (controller && !controller.signal.aborted) controller.abort(this.#reason);
   }
 
-
   cancelAndSettle(reason: unknown, controller: AbortController | null): void {
     this.#settleAfterCancellation = true;
     this.closeAdmission(reason);
@@ -98,11 +101,15 @@ export class ContainedOperations {
   }
 
   async join(): Promise<
-    | { status: 'joined' }
-    | { status: 'external_dependency_abandoned'; abandonedCount: number }
+    { status: 'joined' } | { status: 'external_dependency_abandoned'; abandonedCount: number }
   > {
-    if (this.#admissionOpen) throw new Error('Contained operation admission must be closed before join.');
-    await Promise.all([...this.#operations, ...this.#consumers].map((operation) => operation.catch(() => undefined)));
+    if (this.#admissionOpen)
+      throw new Error('Contained operation admission must be closed before join.');
+    await Promise.all(
+      [...this.#operations, ...this.#consumers].map((operation) =>
+        operation.catch(() => undefined),
+      ),
+    );
     if (this.#failure !== undefined) throw this.#failure;
     await Promise.resolve();
     return this.#abandonedRaw.size === 0
@@ -112,7 +119,10 @@ export class ContainedOperations {
 
   #track(set: Set<Promise<unknown>>, operation: Promise<unknown>, recordFailure: boolean): void {
     set.add(operation);
-    if (recordFailure) void operation.catch((error) => { this.#failure ??= error; });
+    if (recordFailure)
+      void operation.catch((error) => {
+        this.#failure ??= error;
+      });
     void operation.finally(() => set.delete(operation)).catch(() => undefined);
   }
 }

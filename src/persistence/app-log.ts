@@ -7,7 +7,14 @@ import {
   type AppLogEntryOfType,
   type AppLogEntryType,
 } from '../contracts/index.js';
-import { admitGrowingFileTail, appendEnvelope, serializeGrowingEnvelope, publishFirstEnvelope, readCanonicalBytesOrMissing, consumeGrowingRows } from './growing-file.js';
+import {
+  admitGrowingFileTail,
+  appendEnvelope,
+  serializeGrowingEnvelope,
+  publishFirstEnvelope,
+  readCanonicalBytesOrMissing,
+  consumeGrowingRows,
+} from './growing-file.js';
 import { appLogFile, saivageLogsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
@@ -25,12 +32,18 @@ function validateAppLogEntries(path: string, entries: readonly AppLogEntry[]): v
 }
 
 export function readAppLogEntries(projectRoot: string): AppLogEntry[];
-export function readAppLogEntries<T extends AppLogEntryType>(projectRoot: string, type: T): AppLogEntryOfType<T>[];
+export function readAppLogEntries<T extends AppLogEntryType>(
+  projectRoot: string,
+  type: T,
+): AppLogEntryOfType<T>[];
 export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): AppLogEntry[] {
   const path = appLogFile(projectRoot);
   const bytes = readCanonicalBytesOrMissing(path);
   if (bytes === null) return [];
-  const entries = consumeGrowingRows(path, bytes, appLogEntrySchema, (rows) => { validateAppLogEntries(path, rows); return rows; });
+  const entries = consumeGrowingRows(path, bytes, appLogEntrySchema, (rows) => {
+    validateAppLogEntries(path, rows);
+    return rows;
+  });
   return type === undefined ? entries : entries.filter((entry) => entry.type === type);
 }
 
@@ -45,19 +58,22 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
   context: AppLogPublicationContext = {},
 ): AppLogEntryOfType<T> {
   const candidate = prepareEntry();
-  if (candidate.type !== entryType) throw new Error(`App-log preparation returned '${candidate.type}' for '${entryType}'.`);
+  if (candidate.type !== entryType)
+    throw new Error(`App-log preparation returned '${candidate.type}' for '${entryType}'.`);
   appLogEntrySchema.parse(candidate);
   const bytes = serializeGrowingEnvelope([candidate]);
   const path = appLogFile(projectRoot);
   admitGrowingFileTail(path, appLogEntrySchema, (rows) => validateAppLogEntries(path, rows));
   const result = appendEnvelope(path, bytes);
   switch (result.kind) {
-    case 'appended': return candidate;
+    case 'appended':
+      return candidate;
     case 'missing':
       // App log may be the first log writer and owns these exact directory creations/admissions.
       for (const owner of [saivageRoot(projectRoot), saivageLogsRoot(projectRoot)]) {
-        try { mkdirSync(owner); }
-        catch (error) {
+        try {
+          mkdirSync(owner);
+        } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         }
       }

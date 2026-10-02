@@ -9,21 +9,27 @@ const commonRequestShape = {
   stream: z.boolean(),
   offered_tools_count: z.number().int().nonnegative(),
 };
-const genericRequestParamsSchema = z.object({
-  ...commonRequestShape,
-  temperature: z.number(),
-  max_tokens: z.number(),
-}).strict();
+const genericRequestParamsSchema = z
+  .object({
+    ...commonRequestShape,
+    temperature: z.number(),
+    max_tokens: z.number(),
+  })
+  .strict();
 const codexRequestParamsSchema = z.object(commonRequestShape).strict();
-const responsesRequestParamsSchema = z.object({
-  ...commonRequestShape,
-  max_output_tokens: z.number().int().positive().optional(),
-  include: z.array(z.string()).optional(),
-  store: z.boolean().optional(),
-  reasoning_keys: z.array(z.string()),
-}).strict();
+const responsesRequestParamsSchema = z
+  .object({
+    ...commonRequestShape,
+    max_output_tokens: z.number().int().positive().optional(),
+    include: z.array(z.string()).optional(),
+    store: z.boolean().optional(),
+    reasoning_keys: z.array(z.string()),
+  })
+  .strict();
 
-export function projectProviderExchange(exchange: ProviderExchangePayload): ProviderExchangePayload {
+export function projectProviderExchange(
+  exchange: ProviderExchangePayload,
+): ProviderExchangePayload {
   const parsed = providerExchangePayloadSchema.parse(exchange);
   const base = {
     contract_id: parsed.contract_id,
@@ -42,22 +48,26 @@ export function projectProviderExchange(exchange: ProviderExchangePayload): Prov
     terminal_tool_fired: parsed.terminal_tool_fired,
   };
 
-  return providerExchangePayloadSchema.parse(parsed.status === 'ok' ? {
-    ...base,
-    status: 'ok',
-    ...(parsed.finish_reason !== undefined ? { finish_reason: parsed.finish_reason } : {}),
-    ...(parsed.token_usage !== undefined ? { token_usage: parsed.token_usage } : {}),
-    assistant_output_ids: [...parsed.assistant_output_ids],
-  } : {
-    ...base,
-    status: 'error',
-    terminal_conversation_output_id: parsed.terminal_conversation_output_id,
-    error: {
-      name: parsed.error.name,
-      message: redactTextForOutbound(parsed.error.message),
-      ...(parsed.error.status !== undefined ? { status: parsed.error.status } : {}),
-    },
-  });
+  return providerExchangePayloadSchema.parse(
+    parsed.status === 'ok'
+      ? {
+          ...base,
+          status: 'ok',
+          ...(parsed.finish_reason !== undefined ? { finish_reason: parsed.finish_reason } : {}),
+          ...(parsed.token_usage !== undefined ? { token_usage: parsed.token_usage } : {}),
+          assistant_output_ids: [...parsed.assistant_output_ids],
+        }
+      : {
+          ...base,
+          status: 'error',
+          terminal_conversation_output_id: parsed.terminal_conversation_output_id,
+          error: {
+            name: parsed.error.name,
+            message: redactTextForOutbound(parsed.error.message),
+            ...(parsed.error.status !== undefined ? { status: parsed.error.status } : {}),
+          },
+        },
+  );
 }
 
 function projectRequestParams(
@@ -65,9 +75,12 @@ function projectRequestParams(
   value: Record<string, unknown>,
 ): Record<string, unknown> {
   switch (transport) {
-    case 'generic': return projectEndpoint(genericRequestParamsSchema.parse(value));
-    case 'codex': return projectEndpoint(codexRequestParamsSchema.parse(value));
-    case 'openai-responses': return projectEndpoint(responsesRequestParamsSchema.parse(value));
+    case 'generic':
+      return projectEndpoint(genericRequestParamsSchema.parse(value));
+    case 'codex':
+      return projectEndpoint(codexRequestParamsSchema.parse(value));
+    case 'openai-responses':
+      return projectEndpoint(responsesRequestParamsSchema.parse(value));
   }
 }
 

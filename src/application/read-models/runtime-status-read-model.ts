@@ -19,7 +19,7 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
     started_at: status.startedAt,
     pid: status.pid,
     actorRuntime: inputs.runtimeApi.getActorRuntimeReadModel(),
-    oversight:inputs.oversight,
+    oversight: inputs.oversight,
     restart_server_available: inputs.restartCapability.available,
     serverAvailability: inputs.serverAvailability,
   };

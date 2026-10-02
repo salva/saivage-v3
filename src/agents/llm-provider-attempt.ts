@@ -32,10 +32,7 @@ export async function executeLlmProviderAttempt(args: {
       plan.request.requestHash,
       actualHash,
     );
-  const match = supportsCapabilityRequest(
-    plan.capabilities,
-    args.capabilityRequest,
-  );
+  const match = supportsCapabilityRequest(plan.capabilities, args.capabilityRequest);
   if (!match.supported)
     throw new AdmissionIntegrityError(
       `Admitted candidate request plan for ${plan.candidate.provider}/${plan.candidate.account ?? '_implicit'}/${plan.candidate.model} no longer supports its bound capability request: ${match.reasons.join(', ')}.`,

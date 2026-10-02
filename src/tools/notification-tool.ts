@@ -1,4 +1,9 @@
-import { toolFailed, toolSucceeded, type NotificationUrgency, type ToolActionOutcome } from '../contracts/index.js';
+import {
+  toolFailed,
+  toolSucceeded,
+  type NotificationUrgency,
+  type ToolActionOutcome,
+} from '../contracts/index.js';
 import { projectNotificationSubmission } from '../application/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
@@ -16,7 +21,14 @@ export async function submitNotificationTool(
   signal: AbortSignal,
 ): Promise<ToolActionOutcome> {
   const result = projectNotificationSubmission(
-    await queueNotification(input.card_id, input.kind, input.body, input.urgency, submitNotification, signal),
+    await queueNotification(
+      input.card_id,
+      input.kind,
+      input.body,
+      input.urgency,
+      submitNotification,
+      signal,
+    ),
     input.body,
   );
   return result.success ? toolSucceeded(result.data) : toolFailed(result.error, result.data);

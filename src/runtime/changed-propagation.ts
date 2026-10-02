@@ -31,11 +31,17 @@ function originSummary(origin: ChangeOrigin): string {
   return sanitizeAnalystText(`${issueSummary}${origin.note ? `\n${origin.note}` : ''}`, 1000);
 }
 
-function ancestorPathIncludingEdited(store: Pick<CardService, 'getAncestors'>, editedCardId: string): string[] {
+function ancestorPathIncludingEdited(
+  store: Pick<CardService, 'getAncestors'>,
+  editedCardId: string,
+): string[] {
   return [editedCardId, ...store.getAncestors(editedCardId).reverse()];
 }
 
-function ancestorPathExcludingEdited(store: Pick<CardService, 'getAncestors'>, editedCardId: string): string[] {
+function ancestorPathExcludingEdited(
+  store: Pick<CardService, 'getAncestors'>,
+  editedCardId: string,
+): string[] {
   return store.getAncestors(editedCardId).reverse();
 }
 
@@ -77,7 +83,11 @@ function notifyOnce(
   }
 }
 
-function analystRecordEditedCardAndAncestorRecipients(store: PropagationStore, path: readonly string[], editedCardId: string): string[] {
+function analystRecordEditedCardAndAncestorRecipients(
+  store: PropagationStore,
+  path: readonly string[],
+  editedCardId: string,
+): string[] {
   const recipients = [editedCardId];
   for (const cardId of path) {
     const card = store.read(cardId);
@@ -88,7 +98,10 @@ function analystRecordEditedCardAndAncestorRecipients(store: PropagationStore, p
   return recipients;
 }
 
-function analystRecordAncestorRecipients(store: PropagationStore, path: readonly string[]): string[] {
+function analystRecordAncestorRecipients(
+  store: PropagationStore,
+  path: readonly string[],
+): string[] {
   const recipients: string[] = [];
   for (const cardId of path) {
     const card = store.read(cardId);
@@ -99,7 +112,12 @@ function analystRecordAncestorRecipients(store: PropagationStore, path: readonly
   return recipients;
 }
 
-export function propagateChange(store: CardService, editedCardId: string, origin: ChangeOrigin, notifyCard: (cardId: string, notification: CardNotification) => void): ChangedPropagation {
+export function propagateChange(
+  store: CardService,
+  editedCardId: string,
+  origin: ChangeOrigin,
+  notifyCard: (cardId: string, notification: CardNotification) => void,
+): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
@@ -107,12 +125,22 @@ export function propagateChange(store: CardService, editedCardId: string, origin
   const { flipped, firstRunningCardId } = flipRestingCardsAlongPath(store, path, FLIPPABLE_RESTING);
 
   const summary = originSummary(origin);
-  notifyOnce(firstRunningCardId ? [editedCardId, firstRunningCardId] : [editedCardId], notifyCard, origin.kind, summary);
+  notifyOnce(
+    firstRunningCardId ? [editedCardId, firstRunningCardId] : [editedCardId],
+    notifyCard,
+    origin.kind,
+    summary,
+  );
 
   return { flipped };
 }
 
-export function propagateAnalystRecordEdit(store: PropagationStore, editedCardId: string, origin: ChangeOrigin, notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
+export function propagateAnalystRecordEdit(
+  store: PropagationStore,
+  editedCardId: string,
+  origin: ChangeOrigin,
+  notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult,
+): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
@@ -121,7 +149,9 @@ export function propagateAnalystRecordEdit(store: PropagationStore, editedCardId
   const effect = analystRecordEditEffect(edited.lifecycle.status);
 
   if (effect === null) {
-    throw new Error(`Analyst record edit propagation does not support target card status '${edited.lifecycle.status}'.`);
+    throw new Error(
+      `Analyst record edit propagation does not support target card status '${edited.lifecycle.status}'.`,
+    );
   }
   if (edited.lifecycle.status === 'running') {
     flipped = [];
@@ -138,7 +168,10 @@ export function propagateAnalystRecordEdit(store: PropagationStore, editedCardId
     const path = ancestorPathIncludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
     notifyRecipients = analystRecordEditedCardAndAncestorRecipients(store, path, editedCardId);
-  } else throw new Error(`Analyst record edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`);
+  } else
+    throw new Error(
+      `Analyst record edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`,
+    );
 
   const summary = originSummary(origin);
   notifyOnce(notifyRecipients, notifyCard, origin.kind, summary);
@@ -146,7 +179,11 @@ export function propagateAnalystRecordEdit(store: PropagationStore, editedCardId
   return { flipped };
 }
 
-function changeNotification(cardId: string, kind: ChangeOrigin['kind'], summary: string): CardNotification {
+function changeNotification(
+  cardId: string,
+  kind: ChangeOrigin['kind'],
+  summary: string,
+): CardNotification {
   const createdAt = new Date().toISOString();
   return {
     id: `change:${cardId}:${createdAt}:${randomUUID()}`,

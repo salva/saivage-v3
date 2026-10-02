@@ -7,9 +7,7 @@ interface McpArgumentValidationFailure {
   diagnostics: Array<Record<string, unknown>>;
 }
 
-type McpArgumentValidationResult =
-  | { ok: true }
-  | ({ ok: false } & McpArgumentValidationFailure);
+type McpArgumentValidationResult = { ok: true } | ({ ok: false } & McpArgumentValidationFailure);
 
 export type CachedMcpArgumentValidator =
   | { ok: true; fingerprint: string; validate: ValidateFunction }

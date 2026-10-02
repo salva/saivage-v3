@@ -32,23 +32,86 @@ export function cardNamespace(projectRoot: string, cardId: string): string {
   return path;
 }
 
-export function cardChildrenRoot(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'children'); }
-export function cardConversationsRoot(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'conversations'); }
-export function cardConversationRoot(projectRoot: string, cardId: string, agentName: string): string { return join(cardConversationsRoot(projectRoot, cardId), agentName); }
-export function cardConversationVersionIndexFile(projectRoot: string, cardId: string, agentName: string): string { return join(cardConversationRoot(projectRoot, cardId, agentName), 'index.json'); }
-export function cardConversationVersionsRoot(projectRoot: string, cardId: string, agentName: string): string { return join(cardConversationRoot(projectRoot, cardId, agentName), 'versions'); }
-export function cardConversationVersionFile(projectRoot: string, cardId: string, agentName: string, filename: string): string { return join(cardConversationVersionsRoot(projectRoot, cardId, agentName), filename); }
+export function cardChildrenRoot(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'children');
+}
+export function cardConversationsRoot(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'conversations');
+}
+export function cardConversationRoot(
+  projectRoot: string,
+  cardId: string,
+  agentName: string,
+): string {
+  return join(cardConversationsRoot(projectRoot, cardId), agentName);
+}
+export function cardConversationVersionIndexFile(
+  projectRoot: string,
+  cardId: string,
+  agentName: string,
+): string {
+  return join(cardConversationRoot(projectRoot, cardId, agentName), 'index.json');
+}
+export function cardConversationVersionsRoot(
+  projectRoot: string,
+  cardId: string,
+  agentName: string,
+): string {
+  return join(cardConversationRoot(projectRoot, cardId, agentName), 'versions');
+}
+export function cardConversationVersionFile(
+  projectRoot: string,
+  cardId: string,
+  agentName: string,
+  filename: string,
+): string {
+  return join(cardConversationVersionsRoot(projectRoot, cardId, agentName), filename);
+}
 
-export function cardStreamFile(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'card.jsonl'); }
-export function cardRecordStreamFile(projectRoot: string, cardId: string, definition: { readonly filename: RecordName }): string { return join(cardNamespace(projectRoot, cardId), recordStreamFilename(definition.filename)); }
-export function globalAgentConversationRoot(projectRoot: string, agentName:string): string { return join(globalAgentConversationsRoot(projectRoot), agentName); }
-export function globalAgentConversationVersionIndexFile(projectRoot: string, agentName:string): string { return join(globalAgentConversationRoot(projectRoot, agentName), 'index.json'); }
-export function globalAgentConversationVersionsRoot(projectRoot: string, agentName:string): string { return join(globalAgentConversationRoot(projectRoot, agentName), 'versions'); }
-export function globalAgentConversationVersionFile(projectRoot: string, agentName:string, filename:string): string { return join(globalAgentConversationVersionsRoot(projectRoot, agentName), filename); }
+export function cardStreamFile(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'card.jsonl');
+}
+export function cardRecordStreamFile(
+  projectRoot: string,
+  cardId: string,
+  definition: { readonly filename: RecordName },
+): string {
+  return join(cardNamespace(projectRoot, cardId), recordStreamFilename(definition.filename));
+}
+export function globalAgentConversationRoot(projectRoot: string, agentName: string): string {
+  return join(globalAgentConversationsRoot(projectRoot), agentName);
+}
+export function globalAgentConversationVersionIndexFile(
+  projectRoot: string,
+  agentName: string,
+): string {
+  return join(globalAgentConversationRoot(projectRoot, agentName), 'index.json');
+}
+export function globalAgentConversationVersionsRoot(
+  projectRoot: string,
+  agentName: string,
+): string {
+  return join(globalAgentConversationRoot(projectRoot, agentName), 'versions');
+}
+export function globalAgentConversationVersionFile(
+  projectRoot: string,
+  agentName: string,
+  filename: string,
+): string {
+  return join(globalAgentConversationVersionsRoot(projectRoot, agentName), filename);
+}
 
-export function providerExchangeFile(projectRoot: string, sessionId: ConversationSessionId): string {
+export function providerExchangeFile(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+): string {
   const { agentName, cardId } = conversationSessionIdentity(sessionId);
-  return join(cardId === null ? globalAgentConversationRoot(projectRoot, agentName) : cardConversationRoot(projectRoot, cardId, agentName), 'provider-exchange.jsonl');
+  return join(
+    cardId === null
+      ? globalAgentConversationRoot(projectRoot, agentName)
+      : cardConversationRoot(projectRoot, cardId, agentName),
+    'provider-exchange.jsonl',
+  );
 }
 
 export function saivageLogsRoot(projectRoot: string): string {

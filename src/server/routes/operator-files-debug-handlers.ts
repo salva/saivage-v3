@@ -3,11 +3,24 @@ import type { CardService } from '../../cards/store-api.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 import { projectCompiledGraphs } from '../../runtime/runtime-api.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
-import { defineOperatorContractHandlers, type OperatorProjectContext } from './operator-handler-context.js';
+import {
+  defineOperatorContractHandlers,
+  type OperatorProjectContext,
+} from './operator-handler-context.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 
-export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService; configAuthority: ResolvedConfigAuthority; workflows: CompiledRuntimeWorkflows }) {
-  const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, options.cardServiceProvider, options.configAuthority);
+export function buildFilesDebugOperatorContractHandlers(
+  options: OperatorProjectContext & {
+    cardServiceProvider: () => CardService;
+    configAuthority: ResolvedConfigAuthority;
+    workflows: CompiledRuntimeWorkflows;
+  },
+) {
+  const fileReadModel = new WorkspaceFileReadModelService(
+    options.projectRoot,
+    options.cardServiceProvider,
+    options.configAuthority,
+  );
 
   return defineOperatorContractHandlers({
     'files.list': ({ query }) => fileReadModel.listFiles(query.path || '.'),
@@ -19,7 +32,13 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
         return {
           body: {
             status: 'ok' as const,
-            checks: [{ name: 'cards_loadable' as const, passed: true as const, details: 'Cards loaded successfully.' as const }],
+            checks: [
+              {
+                name: 'cards_loadable' as const,
+                passed: true as const,
+                details: 'Cards loaded successfully.' as const,
+              },
+            ],
             issues: [],
           },
         };
@@ -32,7 +51,13 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
         return {
           body: {
             status: 'issues_found' as const,
-            checks: [{ name: 'cards_loadable' as const, passed: false as const, details: 'Cards failed to load.' as const }],
+            checks: [
+              {
+                name: 'cards_loadable' as const,
+                passed: false as const,
+                details: 'Cards failed to load.' as const,
+              },
+            ],
             issues: [{ severity: 'error' as const, message: 'Cards failed to load.' as const }],
           },
         };

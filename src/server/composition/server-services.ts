@@ -2,7 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/index.js';
 import type { AppTerminalRegistration } from '../../contracts/index.js';
 import type { RestartCapability, RestartPort } from '../../contracts/index.js';
-import { createRuntimeApplication, validateConfiguredGlobalConversation, type RuntimeApplication } from '../../application/index.js';
+import {
+  createRuntimeApplication,
+  validateConfiguredGlobalConversation,
+  type RuntimeApplication,
+} from '../../application/index.js';
 import { CardService } from '../../cards/store-api.js';
 import type { Environment } from '../../config/index.js';
 import { createMcpToolInvocationInstallation, McpManager } from '../../mcp/manager-api.js';
@@ -40,7 +44,7 @@ export async function createServerServices(input: {
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
   restartPort?: RestartPort;
-  onOversightOwnerFailure(error:unknown):void;
+  onOversightOwnerFailure(error: unknown): void;
 }): Promise<ServerServices> {
   const { environment, terminal } = input;
   const projectRoot = environment.projectRoot;
@@ -49,7 +53,8 @@ export async function createServerServices(input: {
   const restartPort = input.restartPort;
   let restartCapability: RestartCapability;
   if (authPolicy.authEnabled) {
-    if (!restartPort) throw new Error('Authenticated server requires an application-owned restart port.');
+    if (!restartPort)
+      throw new Error('Authenticated server requires an application-owned restart port.');
     restartCapability = Object.freeze({ available: true, port: restartPort });
   } else {
     restartCapability = Object.freeze({ available: false });
@@ -69,7 +74,8 @@ export async function createServerServices(input: {
   const fastify = await createFastifyApp(environment, input.fatalPort);
   terminal.registerCleanupLeaf('fastify', () => fastify.close());
   fastify.addHook('onRequest', async (_request, reply) => {
-    if (terminal.isApplicationClosing()) await reply.code(503).send({ error: 'application_closing' });
+    if (terminal.isApplicationClosing())
+      await reply.code(503).send({ error: 'application_closing' });
   });
 
   const liveSyncSocket = new LiveSyncSocket();
@@ -79,30 +85,59 @@ export async function createServerServices(input: {
   const cardStore = new CardService(projectRoot, workflows, syncHub);
 
   const processRegistry = new ManagedProcessGroupRegistry();
-  const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards',
+  const runtimeProcessRootScope = processRegistry.createContainerScope(
+    processRegistry.rootScope,
+    'runtime-cards',
   );
-  const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions',
+  const analystProcessRootScope = processRegistry.createContainerScope(
+    processRegistry.rootScope,
+    'analyst-sessions',
   );
-  const mcpProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers',
+  const mcpProcessRootScope = processRegistry.createContainerScope(
+    processRegistry.rootScope,
+    'mcp-servers',
   );
   const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartCapability, fatalPort: input.fatalPort,
+  const runtimeApplication = createRuntimeApplication({
+    projectRoot,
+    processIdentity: input.processIdentity,
+    config,
+    workflows,
+    providerRegistry,
+    configAuthority: environment.configAuthority,
+    cardStore,
+    freshness: syncHub,
+    processRunner,
+    runtimeProcessRootScope,
+    analystProcessRootScope,
+    mcpToolInvocation: mcpToolInvocationInstallation.port,
+    restartCapability,
+    fatalPort: input.fatalPort,
     analystSessionId,
-    onOversightOwnerFailure:input.onOversightOwnerFailure,
+    onOversightOwnerFailure: input.onOversightOwnerFailure,
   });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
-  terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission(),
+  terminal.registerAdmissionCloser('process-admission', () =>
+    runtimeApplication.processRunner.closeLaunchAdmission(),
   );
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
-  terminal.registerAdmissionCloser('oversight',()=>runtimeApplication.closeOversightAdmission());
-  terminal.registerCleanupLeaf('runtime', () => runtimeApplication.cleanupRuntimeForApplicationStop(),
+  terminal.registerAdmissionCloser('oversight', () => runtimeApplication.closeOversightAdmission());
+  terminal.registerCleanupLeaf('runtime', () =>
+    runtimeApplication.cleanupRuntimeForApplicationStop(),
   );
-  terminal.registerCleanupLeaf('analyst', () => runtimeApplication.cleanupAnalystForApplicationStop(),
+  terminal.registerCleanupLeaf('analyst', () =>
+    runtimeApplication.cleanupAnalystForApplicationStop(),
   );
-  terminal.registerCleanupLeaf('oversight',()=>runtimeApplication.cleanupOversightForApplicationStop());
+  terminal.registerCleanupLeaf('oversight', () =>
+    runtimeApplication.cleanupOversightForApplicationStop(),
+  );
 
-  const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner, mcpProcessRootScope, eventLogger,
+  const mcpManager = new McpManager({
+    configAuthority: environment.configAuthority,
+    processRunner,
+    mcpProcessRootScope,
+    eventLogger,
   });
   terminal.registerAdmissionCloser('mcp', () => mcpManager.closeAdmission());
   terminal.registerCleanupLeaf('mcp', () => mcpManager.cleanupForApplicationStop());
@@ -112,10 +147,23 @@ export async function createServerServices(input: {
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
-  if (!mcpReconciliation.converged) throw new Error('MCP startup did not converge to persisted configuration.');
+  if (!mcpReconciliation.converged)
+    throw new Error('MCP startup did not converge to persisted configuration.');
   fastify.log.info('MCP manager started');
   mcpToolInvocationInstallation.installer.install(mcpManager);
 
-  return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy, restartCapability, workflows,
+  return {
+    projectRoot,
+    config,
+    fastify,
+    eventLogger,
+    cardStore,
+    runtimeApplication,
+    mcpManager,
+    liveSyncSocket,
+    syncHub,
+    authPolicy,
+    restartCapability,
+    workflows,
   };
 }

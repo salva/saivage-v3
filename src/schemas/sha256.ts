@@ -18,7 +18,9 @@ export function sha256Hex(input: string | Uint8Array): string {
   const view = new DataView(padded.buffer);
   view.setUint32(padded.length - 4, bitLength >>> 0);
   view.setUint32(padded.length - 8, Math.floor(bitLength / 0x100000000));
-  const h = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const h = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ];
   const w = new Int32Array(64);
   const rotr = (value: number, bits: number) => (value >>> bits) | (value << (32 - bits));
   for (let offset = 0; offset < padded.length; offset += 64) {
@@ -36,10 +38,23 @@ export function sha256Hex(input: string | Uint8Array): string {
       const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
       const maj = (a & b) ^ (a & c) ^ (b & c);
       const temp2 = (s0 + maj) | 0;
-      hh = g; g = f; f = e; e = (d + temp1) | 0; d = c; c = b; b = a; a = (temp1 + temp2) | 0;
+      hh = g;
+      g = f;
+      f = e;
+      e = (d + temp1) | 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) | 0;
     }
-    h[0] = (h[0]! + a) | 0; h[1] = (h[1]! + b) | 0; h[2] = (h[2]! + c) | 0; h[3] = (h[3]! + d) | 0;
-    h[4] = (h[4]! + e) | 0; h[5] = (h[5]! + f) | 0; h[6] = (h[6]! + g) | 0; h[7] = (h[7]! + hh) | 0;
+    h[0] = (h[0]! + a) | 0;
+    h[1] = (h[1]! + b) | 0;
+    h[2] = (h[2]! + c) | 0;
+    h[3] = (h[3]! + d) | 0;
+    h[4] = (h[4]! + e) | 0;
+    h[5] = (h[5]! + f) | 0;
+    h[6] = (h[6]! + g) | 0;
+    h[7] = (h[7]! + hh) | 0;
   }
   return h.map((word) => (word >>> 0).toString(16).padStart(8, '0')).join('');
 }

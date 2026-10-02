@@ -16,8 +16,8 @@ describe('durable growing-schema and writer inventory', () => {
     expect(Array.from(appLogContract.matchAll(/type: z\.literal\('([^']+)'\)/g), (match) => match[1])).toEqual(['event', 'control_action']);
     expect(appLogContract).not.toContain('card_deleted');
     expect(appLogContract).not.toMatch(/from ['"]node:|from ['"]\.\.\/persistence\//);
-    expect(messages).toMatch(/entityLinkSchema = z\.object\([\s\S]*?\)\.strict\(\)/);
-    expect(messages).toMatch(/agentMessageSchema = z\.object\([\s\S]*?\)\.strict\(\)\.superRefine/);
+    expect(messages).toMatch(/entityLinkSchema = z\s*\.object\([\s\S]*?\)\s*\.strict\(\)/);
+    expect(messages).toMatch(/agentMessageSchema = z\s*\.object\([\s\S]*?\)\s*\.strict\(\)\s*\.superRefine/);
 
     expect(appLog).toContain('serializeGrowingEnvelope');
     expect(conversations).toContain("type: 'conversation-segment'");

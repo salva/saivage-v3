@@ -159,8 +159,8 @@ function detached(fragment) {
 
 const SOURCE_MUTATIONS = [
   ['historical declaration', verifyErrorShapeDocs, 'src/contracts/historical-version-not-found.ts', "HistoricalVersionNotFoundErrorSchema = historicalVersionNotFoundSchema(\n  'card',\n  cardIdSchema,\n)"],
-  ['history union', verifyErrorShapeDocs, 'src/contracts/operator-api-runtime-cards.ts', 'CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema])'],
-  ['diff union', verifyErrorShapeDocs, 'src/contracts/operator-api-runtime-cards.ts', 'CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema])'],
+  ['history union', verifyErrorShapeDocs, 'src/contracts/operator-api-runtime-cards.ts', 'CardHistoryEntryNotFoundUnionSchema = z.union([\n  CardNotFoundErrorSchema,\n  HistoricalVersionNotFoundErrorSchema,\n])'],
+  ['diff union', verifyErrorShapeDocs, 'src/contracts/operator-api-runtime-cards.ts', 'CardDiffNotFoundUnionSchema = z.union([\n  CardNotFoundErrorSchema,\n  HistoricalVersionNotFoundErrorSchema,\n])'],
   ['history route union reference', verifyErrorShapeDocs, 'src/contracts/operator-api-runtime-cards.ts', '404: CardHistoryEntryNotFoundUnionSchema'],
   ['diff route union reference', verifyErrorShapeDocs, 'src/contracts/operator-api-runtime-cards.ts', '404: CardDiffNotFoundUnionSchema'],
   ['history handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'getHistoryEntry(params.id, params.version)'],
@@ -171,7 +171,7 @@ const SOURCE_MUTATIONS = [
   ['history exact row', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'catalog.value.rows[version - 1]'],
   ['history exact version', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'row.version === version'],
   ['history version absence', verifyErrorShapeDocs, 'src/cards/card-service.ts', "{ kind: 'version-not-found', version }"],
-  ['diff service selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', "kind:'version-not-found' as const,version,side"],
+  ['diff service selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', "kind: 'version-not-found' as const, version, side"],
   ['Analyst busy declaration', verifyErrorShapeDocs, 'src/contracts/operator-api-chats.ts', "error: z.literal('analyst_turn_busy')"],
   ['Analyst busy frozen constant', verifyErrorShapeDocs, 'src/contracts/operator-api-chats.ts', 'ANALYST_TURN_BUSY_ERROR = Object.freeze('],
   ['Analyst busy REST mapping', verifyErrorShapeDocs, 'src/server/routes/operator-chat-handlers.ts', 'statusCode: 409, body: ANALYST_TURN_BUSY_ERROR'],
@@ -200,20 +200,20 @@ const SOURCE_MUTATIONS = [
   ['logged-event query comparison', verifyClosedVocabularyDocs, 'src/application/event-query-service.ts', 'event.kind === query.kind'],
   ['logged-event route pass-through', verifyClosedVocabularyDocs, 'src/server/routes/operator-events-handlers.ts', 'readModel.queryEvents(query)'],
   ['logged-event tool vocabulary', verifyClosedVocabularyDocs, 'src/tools/global-observation-tools.ts', 'eventKindValues'],
-  ['logged-event tool query', verifyClosedVocabularyDocs, 'src/tools/global-observation-tools.ts', "queryEvents({selection:'newest_tail'"],
+  ['logged-event tool query', verifyClosedVocabularyDocs, 'src/tools/global-observation-tools.ts', "queryEvents({\n            selection: 'newest_tail'"],
   ['classic template registry member', verifyToolContractDocs, 'src/config/system-templates/registry.ts', 'CLASSIC_TEMPLATE,'],
   ['typed template registry member', verifyToolContractDocs, 'src/config/system-templates/registry.ts', 'CLASSIC_TYPED_TEMPLATE'],
   ['classic template name', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', "name: 'classic'"],
   ['typed template name', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', "name: 'classic-typed'"],
-  ['classic materialization', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', 'agents:structuredClone(CLASSIC_AGENTS)'],
-  ['typed materialization', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', 'agents:structuredClone(AGENTS)'],
+  ['classic materialization', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', 'agents: structuredClone(CLASSIC_AGENTS)'],
+  ['typed materialization', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', 'agents: structuredClone(AGENTS)'],
   ...['classic', 'classic-typed'].flatMap((template) => {
     const path = `src/config/system-templates/${template}/template.ts`;
     return [
-      [`${template} Analyst tool set`, verifyToolContractDocs, path, "analyst: Object.freeze({ prompt: prompt('analyst'), tools: Object.freeze(['create_card'"],
-      [`${template} Planner tool set`, verifyToolContractDocs, path, "planner: Object.freeze({ prompt: prompt('planner'), tools: Object.freeze(['create_card'"],
-      [`${template} Reviewer tool set`, verifyToolContractDocs, path, "reviewer: Object.freeze({ prompt: prompt('reviewer'), tools: Object.freeze(['read'"],
-      [`${template} Executor tool set`, verifyToolContractDocs, path, "executor: Object.freeze({ prompt: prompt('executor'), tools: Object.freeze(['read'"],
+      [`${template} Analyst tool set`, verifyToolContractDocs, path, "analyst: Object.freeze({\n    prompt: prompt('analyst'),\n    tools: Object.freeze([\n      'create_card'"],
+      [`${template} Planner tool set`, verifyToolContractDocs, path, "planner: Object.freeze({\n    prompt: prompt('planner'),\n    tools: Object.freeze([\n      'create_card'"],
+      [`${template} Reviewer tool set`, verifyToolContractDocs, path, "reviewer: Object.freeze({\n    prompt: prompt('reviewer'),\n    tools: Object.freeze([\n      'read'"],
+      [`${template} Executor tool set`, verifyToolContractDocs, path, "executor: Object.freeze({\n    prompt: prompt('executor'),\n    tools: Object.freeze([\n      'read'"],
     ];
   }),
   ['known projected tools', verifyToolContractDocs, 'src/tools/tool-invocation-outbound.ts', 'KNOWN_TOOL_INVOCATION_NAMES'],
@@ -233,7 +233,7 @@ const SOURCE_MUTATIONS = [
   ['card depth regex use', verifyIdentityGrammarDocs, 'src/schemas/card-id.ts', '${MAX_CARD_DEPTH - 1}'],
   ['card depth message use', verifyIdentityGrammarDocs, 'src/schemas/card-id.ts', '${MAX_CARD_DEPTH} alphabetic segments'],
   ['CardService over-limit depth use', verifyIdentityGrammarDocs, 'src/cards/card-service.ts', 'depth > MAX_CARD_DEPTH'],
-  ['CardService leaf depth use', verifyIdentityGrammarDocs, 'src/cards/card-service.ts', 'depth===MAX_CARD_DEPTH'],
+  ['CardService leaf depth use', verifyIdentityGrammarDocs, 'src/cards/card-service.ts', 'depth === MAX_CARD_DEPTH'],
   ['CardService depth messages', verifyIdentityGrammarDocs, 'src/cards/card-service.ts', '${MAX_CARD_DEPTH}.'],
   ['canonical Files depth stop', verifyIdentityGrammarDocs, 'src/application/read-models/canonical-card-files-read-model.ts', 'depth === MAX_CARD_DEPTH'],
   ['session pattern', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', '/^agent:([a-z][a-z0-9-]{0,63}):(.+)$/u'],
@@ -249,18 +249,18 @@ const SOURCE_MUTATIONS = [
   ['session identity parser name', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', 'function conversationSessionIdentity('],
   ['session global constructor name', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', 'function globalAgentSessionId('],
   ['session card constructor name', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', 'function cardAgentSessionId('],
-  ['session validation grouping', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', "match !== null && agentNameSchema.safeParse(match[1]).success && (match[2] === 'global' || cardIdSchema.safeParse(match[2]).success)"],
+  ['session validation grouping', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', "match !== null &&\n      agentNameSchema.safeParse(match[1]).success &&\n      (match[2] === 'global' || cardIdSchema.safeParse(match[2]).success)"],
   ['backend from query field', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'from: canonicalPositiveSafeIntegerStringSchema'],
   ['backend to query field', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'to: diffPivotSchema.optional()'],
   ['backend pivot ordered variants', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', "diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema])"],
-  ['backend strict query shape', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict()'],
+  ['backend strict query shape', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'CardDiffQuerySchema = z\n  .object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() })\n  .strict()'],
   ['backend numeric regex', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', '/^[1-9][0-9]*$/'],
   ['backend numeric refinement', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success'],
   ['backend numeric transform', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', '.transform(Number)'],
-  ['backend read-model mapping', verifyCardDiffPivotDocs, 'src/application/read-models/cards-read-model.ts', 'fromVersion: query.from, toVersion: query.to'],
+  ['backend read-model mapping', verifyCardDiffPivotDocs, 'src/application/read-models/cards-read-model.ts', 'fromVersion: query.from,\n      toVersion: query.to'],
   ['backend service numeric meaning', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "typeof pivots.toVersion === 'number' ? pivots.toVersion"],
   ['backend service catalog', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)'],
-  ['backend service current artifact', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "pivots.toVersion===undefined||pivots.toVersion==='current'?catalog.value.head"],
+  ['backend service current artifact', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "pivots.toVersion === undefined || pivots.toVersion === 'current'\n        ? catalog.value.head"],
   ...[
     ['UI previous-owner abort', 'diffOwner?.controller.abort()'],
     ['UI accepted card key', 'cardHistoryDiffKey.value?.cardId === key.cardId'],
@@ -344,6 +344,8 @@ describe('documentation value contracts', () => {
     expect(new Set(uses).size).toBe(uses.length);
     for (const [family, verify] of families) {
       const result = verify({ projectRoot: process.cwd() });
+      expect(result.failures).toEqual([]);
+      expect(result.ok).toBe(true);
       const expectedClaims = Object.entries(EXPECTED_CATALOG).filter(([, [candidate]]) => candidate === family).map(([key]) => key).sort();
       const expectedPaths = [...new Set(Object.entries(EXPECTED_CATALOG).filter(([, [candidate]]) => candidate === family).flatMap(([, [, paths]]) => paths))].sort();
       const expectedBlocks = EXPECTED_MANIFEST.filter(([, blockFamilies]) => blockFamilies.includes(family)).map(([key]) => key).sort();
@@ -535,7 +537,7 @@ describe('documentation value contracts', () => {
     ['errors', verifyErrorShapeDocs, 'src/contracts/operator-api-core.ts', "z.literal('Unauthorized')", "z.literal('FixtureUnauthorized')"],
     ['vocabularies', verifyClosedVocabularyDocs, 'src/schemas/types.ts', "'backlog',", "'fixture_backlog',"],
     ['constants', verifySourceConstantDocs, 'src/runtime/card-process/card-process-config.ts', 'EMIT_RESULT_SUMMARY_MAX_CHARS = 2000', 'EMIT_RESULT_SUMMARY_MAX_CHARS = 2001'],
-    ['tools', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', "'read', 'write', 'edit'", "'fixture_read', 'write', 'edit'"],
+    ['tools', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', "'read',\n      'write',\n      'edit'", "'fixture_read',\n      'write',\n      'edit'"],
     ['identities', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', '^agent:', '^fixture-agent:'],
     ['pivots', verifyCardDiffPivotDocs, 'web/src/api/client.ts', 'from: String(key.fromSeq)', 'from: String(key.fromSeq + 1)'],
   ])('%s family detects a representative source mutation', (_family, verify, path, before, after) => {

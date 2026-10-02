@@ -50,6 +50,7 @@ describe('verify-doc-routes operator contract discovery', () => {
       'src/contracts/operator-api-mcp.ts',
       'src/contracts/operator-api-processes.ts',
       'src/contracts/operator-api-runtime-cards.ts',
+      'src/contracts/operator-api-workflows.ts',
     ]);
     expect(discoverOperatorContractSourceFiles(projectRoot)).toContain('src/contracts/operator-api-core.ts');
     expect(routeSources).not.toContain('src/contracts/operator-api-core.ts');

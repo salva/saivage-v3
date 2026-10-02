@@ -103,7 +103,11 @@ export class ManagedProcessGroupRegistry {
     return this.allocateScope(parent, 'container', label, null);
   }
 
-  createDirectScope(parent: ManagedProcessScope, label: string, category: ProcessCategory): ManagedProcessScope {
+  createDirectScope(
+    parent: ManagedProcessScope,
+    label: string,
+    category: ProcessCategory,
+  ): ManagedProcessScope {
     this.assertScope(parent, 'container');
     return this.allocateScope(parent, 'direct', label, category);
   }
@@ -120,10 +124,13 @@ export class ManagedProcessGroupRegistry {
 
   launch(input: ManagedProcessLaunch): ChildProcess {
     if (!this.launchAdmissionOpen) throw new Error('Managed process launch admission is closed.');
-    if (this.groups.has(input.groupId)) throw new Error(`Managed process group '${input.groupId}' already exists.`);
+    if (this.groups.has(input.groupId))
+      throw new Error(`Managed process group '${input.groupId}' already exists.`);
     const scope = this.assertScope(input.directScope, 'direct');
     if (scope.category !== input.category) {
-      throw new Error(`Managed process scope category '${scope.category}' does not authorize '${input.category}'.`);
+      throw new Error(
+        `Managed process scope category '${scope.category}' does not authorize '${input.category}'.`,
+      );
     }
 
     const child = this.platform.spawn(input.file, input.args, { ...input.options, detached: true });
@@ -151,64 +158,136 @@ export class ManagedProcessGroupRegistry {
     scope.groups.set(input.groupId, record);
     child.once('exit', () => {
       record.leaderExited = true;
-      queueMicrotask(() => { void this.observeNaturalAbsence(record); });
+      queueMicrotask(() => {
+        void this.observeNaturalAbsence(record);
+      });
     });
     return child;
   }
 
-  async terminateGroup(input: { groupId: string; directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+  async terminateGroup(input: {
+    groupId: string;
+    directScope: ManagedProcessScope;
+    category: ProcessCategory;
+    reason: string;
+    graceMs?: number;
+  }): Promise<ProcessStopReport> {
     const scope = this.assertScope(input.directScope, 'direct', false);
-    if (scope.category !== input.category) throw new Error(`Managed process scope category '${scope.category}' does not authorize '${input.category}'.`);
+    if (scope.category !== input.category)
+      throw new Error(
+        `Managed process scope category '${scope.category}' does not authorize '${input.category}'.`,
+      );
     const group = this.groups.get(input.groupId);
     if (!group) return { selected: [], stopped: [], failed: [] };
     if (group.directScope !== input.directScope || group.category !== input.category) {
-      throw new Error(`Managed process group '${input.groupId}' is not bound to the invoking direct scope and category.`);
+      throw new Error(
+        `Managed process group '${input.groupId}' is not bound to the invoking direct scope and category.`,
+      );
     }
-    return this.terminateRecords([group], input.reason, input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS);
+    return this.terminateRecords(
+      [group],
+      input.reason,
+      input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS,
+    );
   }
 
-  closeAndTerminateDirectScope(input: { directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+  closeAndTerminateDirectScope(input: {
+    directScope: ManagedProcessScope;
+    category: ProcessCategory;
+    reason: string;
+    graceMs?: number;
+  }): Promise<ProcessStopReport> {
     const scope = this.assertScope(input.directScope, 'direct');
-    if (scope.category !== input.category) throw new Error(`Managed process scope category '${scope.category}' does not authorize '${input.category}'.`);
+    if (scope.category !== input.category)
+      throw new Error(
+        `Managed process scope category '${scope.category}' does not authorize '${input.category}'.`,
+      );
     scope.open = false;
     const selected = [...scope.groups.values()];
     if (selected.length === 0) {
       this.retireDirectScope(scope);
       return Promise.resolve({ selected: [], stopped: [], failed: [] });
     }
-    return this.terminateRecords(selected, input.reason, input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS);
+    return this.terminateRecords(
+      selected,
+      input.reason,
+      input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS,
+    );
   }
 
-  terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
+  terminateScopeTree(input: {
+    rootScope: ManagedProcessScope;
+    categories: readonly ProcessCategory[];
+    reason: string;
+    graceMs?: number;
+  }): Promise<ProcessStopReport> {
     this.requireKnownScope(input.rootScope);
     const categories = new Set(input.categories);
-    const selected = [...this.groups.values()].filter((group) => categories.has(group.category) && this.isDescendant(group.directScope, input.rootScope));
-    return this.terminateRecords(selected, input.reason, input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS);
+    const selected = [...this.groups.values()].filter(
+      (group) =>
+        categories.has(group.category) && this.isDescendant(group.directScope, input.rootScope),
+    );
+    return this.terminateRecords(
+      selected,
+      input.reason,
+      input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS,
+    );
   }
 
-  private allocateScope(parent: ManagedProcessScope | null, kind: 'container', label: string, category: null): ManagedProcessScope;
-  private allocateScope(parent: ManagedProcessScope, kind: 'direct', label: string, category: ProcessCategory): ManagedProcessScope;
-  private allocateScope(parent: ManagedProcessScope | null, kind: ScopeRecord['kind'], label: string, category: ProcessCategory | null): ManagedProcessScope {
+  private allocateScope(
+    parent: ManagedProcessScope | null,
+    kind: 'container',
+    label: string,
+    category: null,
+  ): ManagedProcessScope;
+  private allocateScope(
+    parent: ManagedProcessScope,
+    kind: 'direct',
+    label: string,
+    category: ProcessCategory,
+  ): ManagedProcessScope;
+  private allocateScope(
+    parent: ManagedProcessScope | null,
+    kind: ScopeRecord['kind'],
+    label: string,
+    category: ProcessCategory | null,
+  ): ManagedProcessScope {
     const scope = Object.freeze({}) as ManagedProcessScope;
-    const record: ScopeRecord = kind === 'container'
-      ? { scope, parent, kind, label, category: null, open: true }
-      : { scope, parent, kind, label, category: category!, open: true, groups: new Map() };
+    const record: ScopeRecord =
+      kind === 'container'
+        ? { scope, parent, kind, label, category: null, open: true }
+        : { scope, parent, kind, label, category: category!, open: true, groups: new Map() };
     this.scopes.set(scope, record);
     return scope;
   }
 
   private requireKnownScope(scope: ManagedProcessScope): ScopeRecord {
     const record = this.scopes.get(scope);
-    if (!record) throw new Error('Managed process scope capability was not allocated by this registry.');
+    if (!record)
+      throw new Error('Managed process scope capability was not allocated by this registry.');
     return record;
   }
 
-  private assertScope(scope: ManagedProcessScope, kind: 'container', requireOpen?: boolean): ContainerScopeRecord;
-  private assertScope(scope: ManagedProcessScope, kind: 'direct', requireOpen?: boolean): DirectScopeRecord;
-  private assertScope(scope: ManagedProcessScope, kind: ScopeRecord['kind'], requireOpen = true): ScopeRecord {
+  private assertScope(
+    scope: ManagedProcessScope,
+    kind: 'container',
+    requireOpen?: boolean,
+  ): ContainerScopeRecord;
+  private assertScope(
+    scope: ManagedProcessScope,
+    kind: 'direct',
+    requireOpen?: boolean,
+  ): DirectScopeRecord;
+  private assertScope(
+    scope: ManagedProcessScope,
+    kind: ScopeRecord['kind'],
+    requireOpen = true,
+  ): ScopeRecord {
     const record = this.requireKnownScope(scope);
-    if (record.kind !== kind) throw new Error(`Managed process scope '${record.label}' is not a ${kind} scope.`);
-    if (requireOpen && !record.open) throw new Error(`Managed process scope '${record.label}' is closed.`);
+    if (record.kind !== kind)
+      throw new Error(`Managed process scope '${record.label}' is not a ${kind} scope.`);
+    if (requireOpen && !record.open)
+      throw new Error(`Managed process scope '${record.label}' is closed.`);
     return record;
   }
 
@@ -281,12 +360,19 @@ export class ManagedProcessGroupRegistry {
   }
 
   private retireDirectScope(record: DirectScopeRecord): void {
-    if (record.groups.size !== 0) throw new Error(`Managed process scope '${record.label}' cannot retire with live groups.`);
-    if (this.scopes.get(record.scope) !== record) throw new Error(`Managed process scope '${record.label}' identity diverged before retirement.`);
+    if (record.groups.size !== 0)
+      throw new Error(`Managed process scope '${record.label}' cannot retire with live groups.`);
+    if (this.scopes.get(record.scope) !== record)
+      throw new Error(
+        `Managed process scope '${record.label}' identity diverged before retirement.`,
+      );
     this.scopes.delete(record.scope);
   }
 
-  private async waitForAbsence(record: GroupRecord, timeoutMs: number): Promise<'absent' | 'live' | 'ambiguous'> {
+  private async waitForAbsence(
+    record: GroupRecord,
+    timeoutMs: number,
+  ): Promise<'absent' | 'live' | 'ambiguous'> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const result = this.probe(record);
@@ -296,17 +382,34 @@ export class ManagedProcessGroupRegistry {
     }
   }
 
-  private async terminateRecords(records: readonly GroupRecord[], reason: string, graceMs: number): Promise<ProcessStopReport> {
-    const report: ProcessStopReport = { selected: records.map((record) => record.groupId), stopped: [], failed: [] };
+  private async terminateRecords(
+    records: readonly GroupRecord[],
+    reason: string,
+    graceMs: number,
+  ): Promise<ProcessStopReport> {
+    const report: ProcessStopReport = {
+      selected: records.map((record) => record.groupId),
+      stopped: [],
+      failed: [],
+    };
     const candidates: GroupRecord[] = [];
     for (const record of records) {
       if (record.state === 'unverifiable') {
-        report.failed.push({ groupId: record.groupId, state: 'unverifiable', diagnostic: record.diagnostic! });
+        report.failed.push({
+          groupId: record.groupId,
+          state: 'unverifiable',
+          diagnostic: record.diagnostic!,
+        });
         continue;
       }
       const initial = this.probe(record);
       if (initial === 'absent') report.stopped.push(record.groupId);
-      else if (initial === 'ambiguous') report.failed.push({ groupId: record.groupId, state: 'unverifiable', diagnostic: record.diagnostic! });
+      else if (initial === 'ambiguous')
+        report.failed.push({
+          groupId: record.groupId,
+          state: 'unverifiable',
+          diagnostic: record.diagnostic!,
+        });
       else candidates.push(record);
     }
 
@@ -314,39 +417,69 @@ export class ManagedProcessGroupRegistry {
       record.state = 'terminating';
       record.terminationReason = reason;
       if (!this.signal(record, 'SIGTERM')) {
-        report.failed.push({ groupId: record.groupId, state: 'unverifiable', diagnostic: record.diagnostic! });
+        report.failed.push({
+          groupId: record.groupId,
+          state: 'unverifiable',
+          diagnostic: record.diagnostic!,
+        });
       }
     }
 
-    const afterTerm = await Promise.all(candidates.map(async (record) => {
-      if (record.state === 'unverifiable') return 'ambiguous' as const;
-      return this.waitForAbsence(record, graceMs);
-    }));
+    const afterTerm = await Promise.all(
+      candidates.map(async (record) => {
+        if (record.state === 'unverifiable') return 'ambiguous' as const;
+        return this.waitForAbsence(record, graceMs);
+      }),
+    );
     const killCandidates: GroupRecord[] = [];
     afterTerm.forEach((result, index) => {
       const record = candidates[index]!;
       if (result === 'absent') report.stopped.push(record.groupId);
       else if (result === 'ambiguous') {
-        if (!report.failed.some((failure) => failure.groupId === record.groupId)) report.failed.push({ groupId: record.groupId, state: 'unverifiable', diagnostic: record.diagnostic! });
+        if (!report.failed.some((failure) => failure.groupId === record.groupId))
+          report.failed.push({
+            groupId: record.groupId,
+            state: 'unverifiable',
+            diagnostic: record.diagnostic!,
+          });
       } else killCandidates.push(record);
     });
 
     for (const record of killCandidates) {
-      if (!this.signal(record, 'SIGKILL')) report.failed.push({ groupId: record.groupId, state: 'unverifiable', diagnostic: record.diagnostic! });
+      if (!this.signal(record, 'SIGKILL'))
+        report.failed.push({
+          groupId: record.groupId,
+          state: 'unverifiable',
+          diagnostic: record.diagnostic!,
+        });
     }
-    const afterKill = await Promise.all(killCandidates.map(async (record) => {
-      if (record.state === 'unverifiable') return 'ambiguous' as const;
-      return this.waitForAbsence(record, MANAGED_PROCESS_POST_KILL_VERIFICATION_MS);
-    }));
+    const afterKill = await Promise.all(
+      killCandidates.map(async (record) => {
+        if (record.state === 'unverifiable') return 'ambiguous' as const;
+        return this.waitForAbsence(record, MANAGED_PROCESS_POST_KILL_VERIFICATION_MS);
+      }),
+    );
     afterKill.forEach((result, index) => {
       const record = killCandidates[index]!;
       if (result === 'absent') report.stopped.push(record.groupId);
       else if (result === 'ambiguous') {
-        if (!report.failed.some((failure) => failure.groupId === record.groupId)) report.failed.push({ groupId: record.groupId, state: 'unverifiable', diagnostic: record.diagnostic! });
+        if (!report.failed.some((failure) => failure.groupId === record.groupId))
+          report.failed.push({
+            groupId: record.groupId,
+            state: 'unverifiable',
+            diagnostic: record.diagnostic!,
+          });
       } else {
         record.state = 'active';
-        if (record.leaderExited) queueMicrotask(() => { void this.observeNaturalAbsence(record); });
-        report.failed.push({ groupId: record.groupId, state: 'unconfirmed', diagnostic: 'Process group remained live after SIGTERM and SIGKILL.' });
+        if (record.leaderExited)
+          queueMicrotask(() => {
+            void this.observeNaturalAbsence(record);
+          });
+        report.failed.push({
+          groupId: record.groupId,
+          state: 'unconfirmed',
+          diagnostic: 'Process group remained live after SIGTERM and SIGKILL.',
+        });
       }
     });
     return report;

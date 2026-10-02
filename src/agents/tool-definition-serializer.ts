@@ -38,15 +38,29 @@ function assertProjectableEntry(tool: unknown, index: number): ProjectedFields {
   }
   const fnObj = fn as { name?: unknown; description?: unknown; parameters?: unknown };
   if (typeof fnObj.name !== 'string' || fnObj.name.length === 0) {
-    throw new Error(`tool-definition-serializer: tools[${index}].function.name must be a non-empty string`);
+    throw new Error(
+      `tool-definition-serializer: tools[${index}].function.name must be a non-empty string`,
+    );
   }
   if (typeof fnObj.description !== 'string' || fnObj.description.length === 0) {
-    throw new Error(`tool-definition-serializer: tools[${index}].function.description must be a non-empty string`);
+    throw new Error(
+      `tool-definition-serializer: tools[${index}].function.description must be a non-empty string`,
+    );
   }
-  if (fnObj.parameters === null || typeof fnObj.parameters !== 'object' || Array.isArray(fnObj.parameters)) {
-    throw new Error(`tool-definition-serializer: tools[${index}].function.parameters must be a JSON-schema object`);
+  if (
+    fnObj.parameters === null ||
+    typeof fnObj.parameters !== 'object' ||
+    Array.isArray(fnObj.parameters)
+  ) {
+    throw new Error(
+      `tool-definition-serializer: tools[${index}].function.parameters must be a JSON-schema object`,
+    );
   }
-  return { name: fnObj.name, description: fnObj.description, parameters: fnObj.parameters as Record<string, unknown> };
+  return {
+    name: fnObj.name,
+    description: fnObj.description,
+    parameters: fnObj.parameters as Record<string, unknown>,
+  };
 }
 
 function assertNonEmpty(tools: readonly unknown[]): void {
@@ -64,7 +78,9 @@ function deepFreezeJson<T>(value: T): T {
   return Object.freeze(value);
 }
 
-export function serializeToolsForChat(tools: readonly RuntimeToolEntry[]): readonly WireToolDefinitionChat[] {
+export function serializeToolsForChat(
+  tools: readonly RuntimeToolEntry[],
+): readonly WireToolDefinitionChat[] {
   assertNonEmpty(tools);
   const wire = tools.map((tool, i) => {
     const projected = assertProjectableEntry(tool, i);
@@ -81,7 +97,9 @@ export function serializeToolsForChat(tools: readonly RuntimeToolEntry[]): reado
   return Object.freeze(wire);
 }
 
-export function serializeToolsForCodex(tools: readonly RuntimeToolEntry[]): readonly WireToolDefinitionCodex[] {
+export function serializeToolsForCodex(
+  tools: readonly RuntimeToolEntry[],
+): readonly WireToolDefinitionCodex[] {
   assertNonEmpty(tools);
   const wire = tools.map((tool, i) => {
     const projected = assertProjectableEntry(tool, i);

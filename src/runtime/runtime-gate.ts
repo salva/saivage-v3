@@ -1,7 +1,12 @@
 export class RuntimeGate {
   #open = true;
   #pauseRequested = false;
-  #parked: { resolve: () => void; reject: (reason: unknown) => void; signal: AbortSignal; onAbort: () => void } | null = null;
+  #parked: {
+    resolve: () => void;
+    reject: (reason: unknown) => void;
+    signal: AbortSignal;
+    onAbort: () => void;
+  } | null = null;
   #onParked: (() => void) | null = null;
 
   get isOpen(): boolean {
@@ -32,7 +37,10 @@ export class RuntimeGate {
     const parked = this.#parked;
     this.#parked = null;
     this.#onParked = null;
-    if (parked) { parked.signal.removeEventListener('abort', parked.onAbort); parked.resolve(); }
+    if (parked) {
+      parked.signal.removeEventListener('abort', parked.onAbort);
+      parked.resolve();
+    }
   }
 
   waitUntilOpen(signal: AbortSignal): Promise<void> {
@@ -41,8 +49,14 @@ export class RuntimeGate {
     if (this.#parked) throw new Error('RuntimeGate supports exactly one parked frontier.');
     return new Promise((resolve, reject) => {
       const waiter = {
-        resolve: () => { cleanup(); resolve(); },
-        reject: (reason: unknown) => { cleanup(); reject(reason); },
+        resolve: () => {
+          cleanup();
+          resolve();
+        },
+        reject: (reason: unknown) => {
+          cleanup();
+          reject(reason);
+        },
         signal,
         onAbort: () => waiter.reject(signal.reason),
       };

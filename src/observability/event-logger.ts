@@ -18,7 +18,6 @@ function nextEventId(): string {
 
 // ── Filter Type ──────────────────────────────────────────────
 
-
 // ── Event Input Type ─────────────────────────────────────────
 
 /**
@@ -38,34 +37,47 @@ type AppendEventInput = LoggedEvent extends infer Event
 
 export interface EventLog {
   appendEvent(event: AppendEventInput, context?: AppLogPublicationContext): LoggedEvent;
-  appendEventPrepared(prepareEvent: () => AppendEventInput, context?: AppLogPublicationContext): LoggedEvent;
+  appendEventPrepared(
+    prepareEvent: () => AppendEventInput,
+    context?: AppLogPublicationContext,
+  ): LoggedEvent;
 }
 
 export function createEventLog(projectRoot: string): EventLog {
-  const appendPrepared = (prepareEvent: () => AppendEventInput, context: AppLogPublicationContext = {}): LoggedEvent => {
-    const entry = appendAppLogEntry(projectRoot, 'event', () => {
-      const event = prepareEvent();
-      return {
-        type: 'event',
-        data: redactForOutbound({ source: 'logged-event', value: loggedEventSchema.parse({
-          ...event,
-          id: event.id ?? nextEventId(),
-          timestamp: event.timestamp ?? new Date().toISOString(),
-        }) }),
-      };
-    }, context);
+  const appendPrepared = (
+    prepareEvent: () => AppendEventInput,
+    context: AppLogPublicationContext = {},
+  ): LoggedEvent => {
+    const entry = appendAppLogEntry(
+      projectRoot,
+      'event',
+      () => {
+        const event = prepareEvent();
+        return {
+          type: 'event',
+          data: redactForOutbound({
+            source: 'logged-event',
+            value: loggedEventSchema.parse({
+              ...event,
+              id: event.id ?? nextEventId(),
+              timestamp: event.timestamp ?? new Date().toISOString(),
+            }),
+          }),
+        };
+      },
+      context,
+    );
     return entry.data;
   };
   return {
+    /**
+     * Append an event to the log. The event gets an auto-generated id and
+     * timestamp if not already provided. Returns the full event object.
+     */
+    appendEvent(event: AppendEventInput, context: AppLogPublicationContext = {}): LoggedEvent {
+      return appendPrepared(() => event, context);
+    },
 
-  /**
-   * Append an event to the log. The event gets an auto-generated id and
-   * timestamp if not already provided. Returns the full event object.
-   */
-  appendEvent(event: AppendEventInput, context: AppLogPublicationContext = {}): LoggedEvent {
-    return appendPrepared(() => event, context);
-  },
-
-  appendEventPrepared: appendPrepared,
+    appendEventPrepared: appendPrepared,
   };
 }

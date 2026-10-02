@@ -1,4 +1,12 @@
-import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, type Stats } from 'node:fs';
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+  type Stats,
+} from 'node:fs';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import {
   buildScopedPathUrl,
@@ -6,11 +14,20 @@ import {
   type OperatorApiHandlerResult,
   type WorkspaceFilesListResponse,
 } from '../../contracts/index.js';
-import { hasParentPathSegment, isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
+import {
+  hasParentPathSegment,
+  isReadBlocked,
+  isRedacted,
+  resolveContainedProjectPath,
+  workUrlFromAbsolutePath,
+} from '../../workspace/index.js';
 import { redactForOutbound } from '../../redaction/artifact-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/index.js';
-import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
+import {
+  CanonicalCardFilesReadModel,
+  type CanonicalCardFilesReader,
+} from './canonical-card-files-read-model.js';
 import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 
@@ -28,8 +45,8 @@ interface ResolvedRequestPathBase {
   realTargetProjectRelativePath?: string;
 }
 type ResolvedRequestPath =
-  | ResolvedRequestPathBase & { safe: true; policyRelativePath: string }
-  | ResolvedRequestPathBase & { safe: false; reason: string };
+  | (ResolvedRequestPathBase & { safe: true; policyRelativePath: string })
+  | (ResolvedRequestPathBase & { safe: false; reason: string });
 
 type FilesAdmission =
   | { kind: 'generic' }
@@ -47,7 +64,12 @@ function statIfPresent(path: string): Stats | null {
   try {
     return statSync(path);
   } catch (error) {
-    if (typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as NodeJS.ErrnoException).code === 'ENOENT'
+    )
+      return null;
     throw error;
   }
 }
@@ -57,7 +79,11 @@ function isContainedPath(parent: string, candidate: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-function isReservedCardPath(candidate: string, lexicalCardRoot: string, realCardRoot: string): boolean {
+function isReservedCardPath(
+  candidate: string,
+  lexicalCardRoot: string,
+  realCardRoot: string,
+): boolean {
   return isContainedPath(lexicalCardRoot, candidate) || isContainedPath(realCardRoot, candidate);
 }
 
@@ -76,21 +102,29 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 
 function parseRecordContentRequest(requestedPath: string): RecordContentRequest {
   let parsed: ReturnType<typeof parseScopedPathUrl>;
-  try { parsed = parseScopedPathUrl(requestedPath, 'record'); }
-  catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
-  if (parsed.hadFragment || parsed.segments.length !== 1 || !parsed.query) return { kind: 'invalid', error: 'Invalid record URL.' };
-  for (const key of parsed.query.keys()) if (key !== 'card' && key !== 'v') return { kind: 'invalid', error: 'Invalid record URL.' };
-  if (parsed.query.getAll('card').length !== 1 || parsed.query.getAll('v').length > 1) return { kind: 'invalid', error: 'Invalid record URL.' };
+  try {
+    parsed = parseScopedPathUrl(requestedPath, 'record');
+  } catch {
+    return { kind: 'invalid', error: 'Invalid record URL.' };
+  }
+  if (parsed.hadFragment || parsed.segments.length !== 1 || !parsed.query)
+    return { kind: 'invalid', error: 'Invalid record URL.' };
+  for (const key of parsed.query.keys())
+    if (key !== 'card' && key !== 'v') return { kind: 'invalid', error: 'Invalid record URL.' };
+  if (parsed.query.getAll('card').length !== 1 || parsed.query.getAll('v').length > 1)
+    return { kind: 'invalid', error: 'Invalid record URL.' };
   const filename = parsed.segments[0]!;
   const rawCardId = parsed.query.get('card');
   if (!rawCardId) return { kind: 'invalid', error: 'Record URL requires card.' };
   const parsedCardId = cardIdSchema.safeParse(rawCardId);
   if (!parsedCardId.success) return { kind: 'invalid', error: 'Invalid record URL.' };
   const rawVersion = parsed.query.get('v');
-  if (rawVersion === null) return { kind: 'valid', cardId: parsedCardId.data, filename, version: null };
+  if (rawVersion === null)
+    return { kind: 'valid', cardId: parsedCardId.data, filename, version: null };
   if (!/^[1-9]\d*$/u.test(rawVersion)) return { kind: 'invalid', error: 'Invalid record version.' };
   const version = Number(rawVersion);
-  if (!Number.isSafeInteger(version) || version < 1) return { kind: 'invalid', error: 'Invalid record version.' };
+  if (!Number.isSafeInteger(version) || version < 1)
+    return { kind: 'invalid', error: 'Invalid record version.' };
   return { kind: 'valid', cardId: parsedCardId.data, filename, version };
 }
 
@@ -107,7 +141,9 @@ export class WorkspaceFileReadModelService {
 
   private isSelectedConfig(absolutePath: string): boolean {
     const authorityPath = resolve(this.configAuthority.path);
-    return absolutePath === authorityPath || realpathSync(absolutePath) === realpathSync(authorityPath);
+    return (
+      absolutePath === authorityPath || realpathSync(absolutePath) === realpathSync(authorityPath)
+    );
   }
 
   private resolveRequestedPath(requestedPath: string): ResolvedRequestPath {
@@ -116,44 +152,117 @@ export class WorkspaceFileReadModelService {
       try {
         parsed = parseScopedPathUrl(requestedPath, 'work');
       } catch (err) {
-        return { safe: false, absolutePath: '', responsePath: requestedPath, reason: err instanceof Error ? err.message : String(err), kind: 'work' };
+        return {
+          safe: false,
+          absolutePath: '',
+          responsePath: requestedPath,
+          reason: err instanceof Error ? err.message : String(err),
+          kind: 'work',
+        };
       }
-      if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) return { safe: false, absolutePath: '', responsePath: requestedPath, reason: 'Invalid work URL.', kind: 'work' };
-      const resolved = resolveContainedProjectPath(this.projectRoot, `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`);
+      if (
+        parsed.query !== null ||
+        parsed.hadFragment ||
+        buildScopedPathUrl('work', parsed.segments) !== requestedPath
+      )
+        return {
+          safe: false,
+          absolutePath: '',
+          responsePath: requestedPath,
+          reason: 'Invalid work URL.',
+          kind: 'work',
+        };
+      const resolved = resolveContainedProjectPath(
+        this.projectRoot,
+        `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`,
+      );
       if (!resolved.safe) {
-        if (!resolved.reason) throw new Error('Unsafe contained path is missing its rejection reason.');
-        return { safe: false, absolutePath: resolved.absolutePath, responsePath: requestedPath, reason: resolved.reason, kind: 'work' };
+        if (!resolved.reason)
+          throw new Error('Unsafe contained path is missing its rejection reason.');
+        return {
+          safe: false,
+          absolutePath: resolved.absolutePath,
+          responsePath: requestedPath,
+          reason: resolved.reason,
+          kind: 'work',
+        };
       }
-      if (!resolved.relativePath) throw new Error('Safe contained path is missing its project-relative identity.');
-      return { safe: true, absolutePath: resolved.absolutePath, responsePath: requestedPath, policyRelativePath: resolved.relativePath, realTargetProjectRelativePath: resolved.realTargetProjectRelativePath, kind: 'work' };
+      if (!resolved.relativePath)
+        throw new Error('Safe contained path is missing its project-relative identity.');
+      return {
+        safe: true,
+        absolutePath: resolved.absolutePath,
+        responsePath: requestedPath,
+        policyRelativePath: resolved.relativePath,
+        realTargetProjectRelativePath: resolved.realTargetProjectRelativePath,
+        kind: 'work',
+      };
     }
     const resolved = resolveContainedProjectPath(this.projectRoot, requestedPath);
     if (!resolved.safe) {
-      if (!resolved.reason) throw new Error('Unsafe contained path is missing its rejection reason.');
-      return { safe: false, absolutePath: resolved.absolutePath, responsePath: resolved.relativePath ?? requestedPath, reason: resolved.reason, kind: 'project' };
+      if (!resolved.reason)
+        throw new Error('Unsafe contained path is missing its rejection reason.');
+      return {
+        safe: false,
+        absolutePath: resolved.absolutePath,
+        responsePath: resolved.relativePath ?? requestedPath,
+        reason: resolved.reason,
+        kind: 'project',
+      };
     }
-    if (!resolved.relativePath) throw new Error('Safe contained path is missing its project-relative identity.');
-    return { safe: true, absolutePath: resolved.absolutePath, responsePath: resolved.relativePath, policyRelativePath: resolved.relativePath, realTargetProjectRelativePath: resolved.realTargetProjectRelativePath, kind: 'project' };
+    if (!resolved.relativePath)
+      throw new Error('Safe contained path is missing its project-relative identity.');
+    return {
+      safe: true,
+      absolutePath: resolved.absolutePath,
+      responsePath: resolved.relativePath,
+      policyRelativePath: resolved.relativePath,
+      realTargetProjectRelativePath: resolved.realTargetProjectRelativePath,
+      kind: 'project',
+    };
   }
 
-  private isBlockedPath(path: { policyRelativePath: string; realTargetProjectRelativePath?: string }): boolean {
-    return isReadBlocked(path.policyRelativePath)
-      || (path.realTargetProjectRelativePath !== undefined && isReadBlocked(path.realTargetProjectRelativePath));
+  private isBlockedPath(path: {
+    policyRelativePath: string;
+    realTargetProjectRelativePath?: string;
+  }): boolean {
+    return (
+      isReadBlocked(path.policyRelativePath) ||
+      (path.realTargetProjectRelativePath !== undefined &&
+        isReadBlocked(path.realTargetProjectRelativePath))
+    );
   }
 
-  private isRedactedPath(path: { policyRelativePath: string; realTargetProjectRelativePath?: string }): boolean {
-    return isRedacted(path.policyRelativePath)
-      || (path.realTargetProjectRelativePath !== undefined && isRedacted(path.realTargetProjectRelativePath));
+  private isRedactedPath(path: {
+    policyRelativePath: string;
+    realTargetProjectRelativePath?: string;
+  }): boolean {
+    return (
+      isRedacted(path.policyRelativePath) ||
+      (path.realTargetProjectRelativePath !== undefined &&
+        isRedacted(path.realTargetProjectRelativePath))
+    );
   }
 
-  private isWorkPath(path: { kind: 'project' | 'work'; policyRelativePath: string; realTargetProjectRelativePath?: string }): boolean {
-    const inWorkNamespace = (candidate: string): boolean => candidate === SAIVAGE_WORK_RELATIVE_DIR || candidate.startsWith(`${SAIVAGE_WORK_RELATIVE_DIR}/`);
-    return path.kind === 'work'
-      || inWorkNamespace(path.policyRelativePath)
-      || (path.realTargetProjectRelativePath !== undefined && inWorkNamespace(path.realTargetProjectRelativePath));
+  private isWorkPath(path: {
+    kind: 'project' | 'work';
+    policyRelativePath: string;
+    realTargetProjectRelativePath?: string;
+  }): boolean {
+    const inWorkNamespace = (candidate: string): boolean =>
+      candidate === SAIVAGE_WORK_RELATIVE_DIR ||
+      candidate.startsWith(`${SAIVAGE_WORK_RELATIVE_DIR}/`);
+    return (
+      path.kind === 'work' ||
+      inWorkNamespace(path.policyRelativePath) ||
+      (path.realTargetProjectRelativePath !== undefined &&
+        inWorkNamespace(path.realTargetProjectRelativePath))
+    );
   }
 
-  private classifyAllowedNonCardAlias(policyRelativePath: string): 'generic' | 'reserved-card' | 'indeterminate' {
+  private classifyAllowedNonCardAlias(
+    policyRelativePath: string,
+  ): 'generic' | 'reserved-card' | 'indeterminate' {
     const lexicalProjectRoot = resolve(this.projectRoot);
     let realProjectRoot: string;
     try {
@@ -173,7 +282,9 @@ export class WorkspaceFileReadModelService {
       if (isReservedCardPath(expandedPath, lexicalCardRoot, realCardRoot)) return 'reserved-card';
 
       const root = parse(expandedPath).root;
-      const components = relative(root, expandedPath).split(sep).filter((component) => component.length > 0);
+      const components = relative(root, expandedPath)
+        .split(sep)
+        .filter((component) => component.length > 0);
       let prefix = root;
       let restarted = false;
 
@@ -192,7 +303,8 @@ export class WorkspaceFileReadModelService {
           continue;
         }
 
-        if (expansions >= MAX_CLASSIFIER_SYMLINK_EXPANSIONS || followedLinks.has(componentPath)) return 'indeterminate';
+        if (expansions >= MAX_CLASSIFIER_SYMLINK_EXPANSIONS || followedLinks.has(componentPath))
+          return 'indeterminate';
         followedLinks.add(componentPath);
         expansions += 1;
 
@@ -222,13 +334,22 @@ export class WorkspaceFileReadModelService {
     responsePath: string,
     allowCanonicalCardDispatch: boolean,
   ): FilesAdmission {
-    if (!requestedLexicalPath) return { kind: 'rejected', reason: 'Path is required.', responsePath };
+    if (!requestedLexicalPath)
+      return { kind: 'rejected', reason: 'Path is required.', responsePath };
     if (hasParentPathSegment(requestedLexicalPath)) {
-      return { kind: 'rejected', reason: 'Path traversal detected. Use of ".." is not allowed.', responsePath };
+      return {
+        kind: 'rejected',
+        reason: 'Path traversal detected. Use of ".." is not allowed.',
+        responsePath,
+      };
     }
 
     const projectRoot = resolve(this.projectRoot);
-    const absolutePath = resolve(requestedLexicalPath.startsWith('/') ? requestedLexicalPath : resolve(projectRoot, requestedLexicalPath));
+    const absolutePath = resolve(
+      requestedLexicalPath.startsWith('/')
+        ? requestedLexicalPath
+        : resolve(projectRoot, requestedLexicalPath),
+    );
     if (!isContainedPath(projectRoot, absolutePath)) {
       return { kind: 'rejected', reason: 'Path is outside the project root.', responsePath };
     }
@@ -249,20 +370,30 @@ export class WorkspaceFileReadModelService {
 
     const aliasClassification = this.classifyAllowedNonCardAlias(rel);
     if (aliasClassification === 'reserved-card') return { kind: 'reserved-card' };
-    if (aliasClassification === 'indeterminate') return { kind: 'rejected', reason: CANNOT_RESOLVE_REASON, responsePath };
+    if (aliasClassification === 'indeterminate')
+      return { kind: 'rejected', reason: CANNOT_RESOLVE_REASON, responsePath };
     return { kind: 'generic' };
   }
 
   private admitRequestedPath(requestedPath: string): FilesAdmission {
-    if (!requestedPath.startsWith('work:///')) return this.admitLexicalProjectPath(requestedPath, requestedPath, true);
+    if (!requestedPath.startsWith('work:///'))
+      return this.admitLexicalProjectPath(requestedPath, requestedPath, true);
 
     let parsed;
     try {
       parsed = parseScopedPathUrl(requestedPath, 'work');
     } catch (error) {
-      return { kind: 'rejected', reason: error instanceof Error ? error.message : String(error), responsePath: requestedPath };
+      return {
+        kind: 'rejected',
+        reason: error instanceof Error ? error.message : String(error),
+        responsePath: requestedPath,
+      };
     }
-    if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) {
+    if (
+      parsed.query !== null ||
+      parsed.hadFragment ||
+      buildScopedPathUrl('work', parsed.segments) !== requestedPath
+    ) {
       return { kind: 'rejected', reason: 'Invalid work URL.', responsePath: requestedPath };
     }
     const derivedProjectPath = `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`;
@@ -279,46 +410,122 @@ export class WorkspaceFileReadModelService {
 
   listFiles(requestedPath = '.'): WorkspaceFilesListResult {
     const admission = this.admitRequestedPath(requestedPath);
-    if (admission.kind === 'rejected') return { statusCode: 403, body: { error: admission.reason } };
+    if (admission.kind === 'rejected')
+      return { statusCode: 403, body: { error: admission.reason } };
     if (admission.kind === 'reserved-card') return this.reservedListResult(requestedPath);
     const resolvedPath = this.resolveRequestedPath(requestedPath);
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
-    if (this.isBlockedPath(resolvedPath)) return { statusCode: 403, body: { error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.` } };
+    if (this.isBlockedPath(resolvedPath))
+      return {
+        statusCode: 403,
+        body: {
+          error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.`,
+        },
+      };
     const { absolutePath, responsePath, kind } = resolvedPath;
     const pathStat = statIfPresent(absolutePath);
-    if (!pathStat) return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
-    if (!pathStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is not a directory', path: responsePath } };
-    const files = readdirSync(absolutePath).flatMap((entry: string): WorkspaceFilesListResponse['files'] => {
-      const entryAbsolutePath = join(absolutePath, entry);
-      const lexicalEntryPath = relative(resolve(this.projectRoot), entryAbsolutePath).split(sep).join('/');
-      if (kind === 'project' && resolvedPath.policyRelativePath === '.saivage' && entry === 'cards' && lexicalEntryPath === SAIVAGE_CARDS_RELATIVE_DIR) {
-        const row = this.canonicalCards.syntheticCardsRow();
-        return row ? [row] : [];
-      }
-      const childAdmission = this.admitLexicalProjectPath(lexicalEntryPath, lexicalEntryPath, false);
-      if (childAdmission.kind !== 'generic') return [];
-      const containedEntry = resolveContainedProjectPath(this.projectRoot, lexicalEntryPath);
-      if (!containedEntry.safe || !containedEntry.relativePath) return [];
-      const entryPolicyPath = { policyRelativePath: containedEntry.relativePath, realTargetProjectRelativePath: containedEntry.realTargetProjectRelativePath };
-      if (this.isBlockedPath(entryPolicyPath)) return [];
-      const entryStat = statIfPresent(containedEntry.absolutePath);
-      if (!entryStat) return [];
-      return [{ name: entry, path: kind === 'work' ? workUrlFromAbsolutePath(this.projectRoot, containedEntry.absolutePath) : containedEntry.relativePath, type: entryStat.isDirectory() ? 'directory' : 'file', size: entryStat.isFile() ? entryStat.size : undefined, modifiedAt: entryStat.mtime.toISOString() }];
-    });
+    if (!pathStat)
+      return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
+    if (!pathStat.isDirectory())
+      return { statusCode: 400, body: { error: 'Path is not a directory', path: responsePath } };
+    const files = readdirSync(absolutePath).flatMap(
+      (entry: string): WorkspaceFilesListResponse['files'] => {
+        const entryAbsolutePath = join(absolutePath, entry);
+        const lexicalEntryPath = relative(resolve(this.projectRoot), entryAbsolutePath)
+          .split(sep)
+          .join('/');
+        if (
+          kind === 'project' &&
+          resolvedPath.policyRelativePath === '.saivage' &&
+          entry === 'cards' &&
+          lexicalEntryPath === SAIVAGE_CARDS_RELATIVE_DIR
+        ) {
+          const row = this.canonicalCards.syntheticCardsRow();
+          return row ? [row] : [];
+        }
+        const childAdmission = this.admitLexicalProjectPath(
+          lexicalEntryPath,
+          lexicalEntryPath,
+          false,
+        );
+        if (childAdmission.kind !== 'generic') return [];
+        const containedEntry = resolveContainedProjectPath(this.projectRoot, lexicalEntryPath);
+        if (!containedEntry.safe || !containedEntry.relativePath) return [];
+        const entryPolicyPath = {
+          policyRelativePath: containedEntry.relativePath,
+          realTargetProjectRelativePath: containedEntry.realTargetProjectRelativePath,
+        };
+        if (this.isBlockedPath(entryPolicyPath)) return [];
+        const entryStat = statIfPresent(containedEntry.absolutePath);
+        if (!entryStat) return [];
+        return [
+          {
+            name: entry,
+            path:
+              kind === 'work'
+                ? workUrlFromAbsolutePath(this.projectRoot, containedEntry.absolutePath)
+                : containedEntry.relativePath,
+            type: entryStat.isDirectory() ? 'directory' : 'file',
+            size: entryStat.isFile() ? entryStat.size : undefined,
+            modifiedAt: entryStat.mtime.toISOString(),
+          },
+        ];
+      },
+    );
     return { body: { path: responsePath, files } };
   }
 
   readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
-    if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
+    if (!requestedPath)
+      return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
     if (requestedPath.startsWith('record:///')) {
       const request = parseRecordContentRequest(requestedPath);
-      if (request.kind === 'invalid') return { statusCode: 400, body: { error: request.error, path: requestedPath } };
+      if (request.kind === 'invalid')
+        return { statusCode: 400, body: { error: request.error, path: requestedPath } };
       {
-        const result=request.version===null?this.records().readRecordCurrent(request.cardId,request.filename):this.records().readRecordVersion(request.cardId,request.filename,request.version);
-        if(result.kind!=='found'||!result.value.projection)return request.version===null?{statusCode:404,body:{error:'Closed record not found.',path:requestedPath}}:{statusCode:404,body:{error:'workspace_historical_version_not_found',path:requestedPath,historical:{error:'historical_version_not_found',resource:'authored_record',owner_id:`${request.cardId}/${request.filename}`,version:request.version}}};
-        const record=result.value.projection;
-        const effective=record.artifact.state==='open'?record.artifact.draft:record.artifact.accepted;if(!effective)return { statusCode: 404, body: { error: 'Record content not found.', path: requestedPath } };
-        return { body: { path: request.version===null?record.currentUrl:record.versionUrl, size: Buffer.byteLength(effective.content), contentType: 'text/markdown', content: effective.content, redacted: false, sensitivity: 'normal', version: request.version??record.headVersion, modifiedAt: record.artifact.state==='open'?record.artifact.draft!.updated_at:record.artifact.accepted!.committed_at } };
+        const result =
+          request.version === null
+            ? this.records().readRecordCurrent(request.cardId, request.filename)
+            : this.records().readRecordVersion(request.cardId, request.filename, request.version);
+        if (result.kind !== 'found' || !result.value.projection)
+          return request.version === null
+            ? { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } }
+            : {
+                statusCode: 404,
+                body: {
+                  error: 'workspace_historical_version_not_found',
+                  path: requestedPath,
+                  historical: {
+                    error: 'historical_version_not_found',
+                    resource: 'authored_record',
+                    owner_id: `${request.cardId}/${request.filename}`,
+                    version: request.version,
+                  },
+                },
+              };
+        const record = result.value.projection;
+        const effective =
+          record.artifact.state === 'open' ? record.artifact.draft : record.artifact.accepted;
+        if (!effective)
+          return {
+            statusCode: 404,
+            body: { error: 'Record content not found.', path: requestedPath },
+          };
+        return {
+          body: {
+            path: request.version === null ? record.currentUrl : record.versionUrl,
+            size: Buffer.byteLength(effective.content),
+            contentType: 'text/markdown',
+            content: effective.content,
+            redacted: false,
+            sensitivity: 'normal',
+            version: request.version ?? record.headVersion,
+            modifiedAt:
+              record.artifact.state === 'open'
+                ? record.artifact.draft!.updated_at
+                : record.artifact.accepted!.committed_at,
+          },
+        };
       }
     }
     const admission = this.admitRequestedPath(requestedPath);
@@ -330,14 +537,36 @@ export class WorkspaceFileReadModelService {
     if (admission.kind === 'reserved-card') return this.reservedContentResult(requestedPath);
     const resolvedPath = this.resolveRequestedPath(requestedPath);
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
-    if (this.isBlockedPath(resolvedPath)) return { statusCode: 403, body: { error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.`, path: resolvedPath.responsePath } };
+    if (this.isBlockedPath(resolvedPath))
+      return {
+        statusCode: 403,
+        body: {
+          error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.`,
+          path: resolvedPath.responsePath,
+        },
+      };
     const { absolutePath, responsePath } = resolvedPath;
     const fileStat = statIfPresent(absolutePath);
-    if (!fileStat) return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
-    if (fileStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is a directory', path: responsePath } };
-    if (fileStat.size > MAX_FILE_SIZE_BYTES) return { statusCode: 413, body: { error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`, path: responsePath, size: fileStat.size, maxSize: MAX_FILE_SIZE_BYTES } };
+    if (!fileStat)
+      return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
+    if (fileStat.isDirectory())
+      return { statusCode: 400, body: { error: 'Path is a directory', path: responsePath } };
+    if (fileStat.size > MAX_FILE_SIZE_BYTES)
+      return {
+        statusCode: 413,
+        body: {
+          error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`,
+          path: responsePath,
+          size: fileStat.size,
+          maxSize: MAX_FILE_SIZE_BYTES,
+        },
+      };
     const rawBuffer = readFileSync(absolutePath);
-    if (isBinaryBuffer(rawBuffer)) return { statusCode: 415, body: { error: 'Binary or non-text file cannot be previewed.', path: responsePath } };
+    if (isBinaryBuffer(rawBuffer))
+      return {
+        statusCode: 415,
+        body: { error: 'Binary or non-text file cannot be previewed.', path: responsePath },
+      };
     if (this.isSelectedConfig(absolutePath)) {
       const effective = this.configAuthority.loadEffective();
       const projected = redactForOutbound({ source: 'config', value: effective.config });
@@ -354,7 +583,15 @@ export class WorkspaceFileReadModelService {
     }
     const redacted = this.isWorkPath(resolvedPath) || this.isRedactedPath(resolvedPath);
     const content = rawBuffer.toString('utf-8');
-    return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: redacted ? redactTextForOutbound(content) : content, redacted, sensitivity: redacted ? 'sensitive-redacted' : 'normal' } };
+    return {
+      body: {
+        path: responsePath,
+        size: fileStat.size,
+        contentType: 'text/plain',
+        content: redacted ? redactTextForOutbound(content) : content,
+        redacted,
+        sensitivity: redacted ? 'sensitive-redacted' : 'normal',
+      },
+    };
   }
-
 }
