@@ -103,9 +103,15 @@ focused execution coverage of their actual semantic owners.
 Both root and web dependencies must be installed before `npm run lint` or
 `npm run validate:routine`; both installs retain development dependencies so
 the validation toolchain remains available. The lint profile runs the
-export-consumer guard before stamp-producer, ESLint, backend
-import-boundary, and web-component boundary checks. A fresh dual `npm ci` is
-required for CI setup, not before every ordinary local command invocation.
+export-consumer guard, stamp-producer guard, ESLint, backend import-boundary
+checks, web-component boundary check, then `npm run format`, in that order.
+The formatter checks only `src/` using the existing Prettier settings.
+The existing `lint-guards` CI job runs this lint profile and is enforced by
+`validation-required` under its existing applies/skipped semantics.
+`validate:routine` remains typecheck, export-consumer guard,
+canonical-persistence drift, then `docs:verify`; it does not run Jest or lint.
+A fresh dual `npm ci` is required for CI setup, not before every ordinary local
+command invocation.
 
 ## CI topology
 

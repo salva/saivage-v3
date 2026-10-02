@@ -168,7 +168,7 @@ Routine validation does not run these build checks.
 | Profile | Runs | Use for |
 | --- | --- | --- |
 | `npm run validate:docs` | `docs:verify` (docs build + all drift guards); excludes `npm test` and `web:test:operator-smoke` | Documentation-only changes |
-| `npm run validate:routine` | typecheck, `check:export-consumers`, canonical-persistence drift, `docs:verify` | Routine backend/runtime changes (no Jest) |
+| `npm run validate:routine` | typecheck, `check:export-consumers`, canonical-persistence drift, `docs:verify` | Routine backend/runtime changes (no Jest or lint) |
 | `npm run validate:ui-smoke` | `npm run web:test:operator-smoke` | Quick UI/operator smoke |
 | `npm run validate:ui` | web typecheck, complete `web:test`, operator browser smoke | Web UI changes |
 | `npm run validate:release` | typecheck, build, non-E2E Jest, backend E2E, operator smoke, docs | Release sign-off |
@@ -193,6 +193,13 @@ web:test:operator-smoke`, `npm run lint`, `npm run test:import-boundaries`,
 `npm run audit:security`, and `npm run deps:review`. Root and web
 dependencies must be installed before `npm run check:export-consumers`,
 `npm run lint`, or `npm run validate:routine`.
+
+`npm run lint` runs the export-consumer guard, stamp-producer guard, ESLint,
+backend import-boundary checks, web-component boundary check, then
+`npm run format`, in that order. The formatter checks only `src/` with the
+existing Prettier settings. The existing CI `lint-guards` job enforces this
+profile through `validation-required` under its applies/skipped semantics;
+`validate:routine` does not run lint or Jest.
 
 CI notes: the always-run `routine-docs` job clean-installs both root and web
 dependencies before `validate:routine` and `validate:docs`; `backend-jest-build`

@@ -45,7 +45,7 @@ const PACKAGE_SCRIPTS = {
   'deps:review': 'npm run audit:security:all && npm run deps:freshness',
   'check:export-consumers': 'node scripts/check-export-consumers.js',
   'test:import-boundaries': 'node scripts/check-import-boundaries.cjs --self-test && node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs',
-  lint: 'npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && npm run test:import-boundaries && node scripts/check-web-component-boundaries.cjs',
+  lint: 'npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && npm run test:import-boundaries && node scripts/check-web-component-boundaries.cjs && npm run format',
   'web:typecheck': 'cd web && npm run typecheck',
   'web:test': 'cd web && npm run test',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
