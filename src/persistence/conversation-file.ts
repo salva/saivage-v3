@@ -26,6 +26,7 @@ import {
 } from './canonical-conversation-artifacts.js';
 import {
   appendRequiredEnvelope,
+  publishFirstEnvelope,
   consumeGrowingFile,
   readCanonicalBytes,
   type GrowingFileIo,
@@ -41,7 +42,6 @@ import {
   globalAgentConversationVersionsRoot,
 } from './layout.js';
 import { replaceFile, type PublicationTemporaryIdFactory } from './replace-file.js';
-import { createImmutableVersionFile, serializeStrictJson } from './version-file.js';
 import { versionFilename } from './version-index.js';
 
 export interface ConversationFileContext {
@@ -412,6 +412,9 @@ function segmentEnvelope(rows: readonly (ConversationSegmentGenesis | AgentMessa
   if (!rows.length) throw new Error('Conversation envelope requires at least one row.');
   return Buffer.from(`${JSON.stringify({ version: 3, type: 'conversation-segment', rows })}\n`);
 }
+function serializeStrictJson(value: unknown): Buffer {
+  return Buffer.from(`${JSON.stringify(value)}\n`);
+}
 function visibleMessageId(rows: readonly AgentMessage[]): string | null {
   return rows.filter((row) => row.kind !== 'provider_private').at(-1)?.id ?? null;
 }
@@ -456,7 +459,11 @@ export function appendConversationBatch(
       current_version: 1,
       current_filename: filename,
     });
-    createImmutableVersionFile(target.versionPath(filename), segmentEnvelope([genesis, ...parsed]));
+    publishFirstEnvelope(
+      target.versionPath(filename),
+      segmentEnvelope([genesis, ...parsed]),
+      options.publicationTemporaryId,
+    );
     publishIndex(target.indexPath, next, options.publicationTemporaryId);
     segmentVersion = 1;
   } else {
@@ -499,7 +506,7 @@ export type CompactionSuccessorIdentity = Readonly<{
 }>;
 
 interface CompactionPublicationIo {
-  readonly createImmutableVersionFile: typeof createImmutableVersionFile;
+  readonly publishFirstEnvelope: typeof publishFirstEnvelope;
   readonly replaceFile: typeof replaceFile;
 }
 
@@ -514,7 +521,7 @@ export function publishCompactedConversationSegment(
   compaction: ConversationCompactionPublication,
   options: CompactionPublicationOptions = {},
 ): ValidatedConversation {
-  const io = options.io ?? { createImmutableVersionFile, replaceFile };
+  const io = options.io ?? { publishFirstEnvelope, replaceFile };
   const target = location(conversations.projectRoot, sessionId);
   const current = readSegment(conversations.projectRoot, sessionId);
   if (!current) throw new Error(`Conversation '${sessionId}' has no source segment to compact.`);
@@ -626,7 +633,11 @@ export function publishCompactedConversationSegment(
     history: compaction.history,
     sourceVersion: current.entry.version,
   });
-  io.createImmutableVersionFile(target.versionPath(filename), segmentEnvelope([genesis, ...rows]));
+  io.publishFirstEnvelope(
+    target.versionPath(filename),
+    segmentEnvelope([genesis, ...rows]),
+    options.temporary,
+  );
   io.replaceFile(target.indexPath, serializeStrictJson(next), options.temporary);
   conversations.changes?.conversationChanged({
     session_id: sessionId,

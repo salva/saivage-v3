@@ -15,7 +15,8 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { validateCompactedHistorySuccessor, type ValidatedConversation } from '../../src/contracts/conversation-validation.js';
-import { createImmutableVersionFile } from '../../src/persistence/version-file.js';
+import { publishFirstEnvelope } from '../../src/persistence/growing-file.js';
+import { publicationWitness, type PublicationFault } from '../helpers/segment-publication-io.js';
 import { replaceFile } from '../../src/persistence/replace-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
@@ -328,7 +329,21 @@ describe('compaction fallback, successor identity, and internal summary identity
     initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
-      const result = await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('identity summary') }), readConversation(root, SESSION));
+      const publicationTrace: string[] = []; let preparedEnvelope: Buffer | undefined; let selectedPath = '';
+      const factory = jest.fn(() => `00000000-0000-4000-8000-${String(publicationTrace.length).padStart(12, '0')}`);
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { publicationTrace.push('hint'); }, agentMembershipChanged() { publicationTrace.push('membership'); } } }, input: invocation(readConversation(root, SESSION)), summarizerProvider: summarizer({ calls: [], summaryOf: constantSummary('identity summary') }), signal: new AbortController().signal, publication: {
+        temporary: factory,
+        io: {
+          publishFirstEnvelope: (path, bytes, temporary) => {
+            selectedPath = path; preparedEnvelope = bytes; publicationTrace.push('segment-start');
+            publishFirstEnvelope(path, bytes, temporary); publicationTrace.push('segment-done');
+          },
+          replaceFile: (path, bytes, temporary) => {
+            publicationTrace.push('index-start'); replaceFile(path, bytes, temporary); publicationTrace.push('index-done');
+          },
+        },
+      } });
+      publicationTrace.push('returned');
       if (result.kind !== 'compacted') throw new Error('expected compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.genesis.kind).toBe('compacted_segment_genesis');
@@ -337,54 +352,52 @@ describe('compaction fallback, successor identity, and internal summary identity
       const historyRow = result.providerConversation.messages.find((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary');
       if (!historyRow || historyRow.kind !== 'synthetic_context' || historyRow.origin !== 'history_summary') throw new Error('expected synthetic compacted history');
       expect(historyRow.block_identity).toBe(`${genesis!.id}:compacted-history`);
+      expect(publicationTrace).toEqual(['segment-start', 'segment-done', 'index-start', 'index-done', 'hint', 'returned']);
+      expect(factory).toHaveBeenCalledTimes(2);
+      expect(selectedPath).toBe(join(root, '.saivage', 'cards', 'project', 'conversations', 'planner', 'versions', segment.entry.filename));
+      expect(preparedEnvelope).toEqual(segment.bytes);
+      expect(JSON.parse(preparedEnvelope!.toString()).rows[0].id).toBe(genesis!.id);
       expect(result.providerConversation).toEqual(providerConversationProjection(segment.conversation, []));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('escapes PublicationOutcomeUnknownError from immutable creation and index replacement without wrapping or retry', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'compaction-unknown-outcome-'));
-    initProjectTree(root);
+  it.each([
+    ['segment', 'temp-open'], ['segment', 'write'], ['segment', 'file-fsync'], ['segment', 'file-close'],
+    ['segment', 'rename'], ['segment', 'rename-effect-throw'], ['segment', 'parent-open'], ['segment', 'parent-fsync'], ['segment', 'parent-close'],
+    ['index', 'temp-open'], ['index', 'rename'], ['index', 'parent-fsync'],
+  ] satisfies Array<['segment' | 'index', PublicationFault]>)('stops compactor at actual %s %s publication failure, preserving its identity', async (owner, phase) => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-publication-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
-      const creationAttempts: number[] = [];
-      const creation = () => {
-        creationAttempts.push(1);
-        throw new PublicationOutcomeUnknownError();
-      };
-      await expect(compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('s') }), readConversation(root, SESSION), {
-        io: { createImmutableVersionFile: creation, replaceFile: () => { throw new Error('index must not be written after an unknown creation outcome'); } },
-      })).rejects.toBeInstanceOf(PublicationOutcomeUnknownError);
-      expect(creationAttempts).toHaveLength(1);
-      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
-
-      const indexAttempts: number[] = [];
-      await expect(compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('s') }), readConversation(root, SESSION), {
-        io: { createImmutableVersionFile: (path, bytes) => createImmutableVersionFile(path, bytes), replaceFile: () => { indexAttempts.push(1); throw new PublicationOutcomeUnknownError(); } },
-      })).rejects.toBeInstanceOf(PublicationOutcomeUnknownError);
-      expect(indexAttempts).toHaveLength(1);
-      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
-      expect(() => replaceFile(join(root, '.saivage', 'unused-probe'), Buffer.from('x'))).toBeDefined();
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
-  it.each(['parent-open', 'parent-fsync', 'parent-close'])('never publishes the compacted index after immutable %s failure', async (phase) => {
-    const root = mkdtempSync(join(tmpdir(), 'compaction-segment-directory-')); initProjectTree(root);
-    try {
-      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
-      const failure = new Error(phase); const trace: string[] = []; let opens = 0; let indexes = 0;
-      const op = (name: string) => { trace.push(name); if (name === phase) throw failure; };
-      await expect(compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('s') }), readConversation(root, SESSION), {
-        io: {
-          createImmutableVersionFile: (path, bytes) => createImmutableVersionFile(path, bytes, {
-            open() { opens += 1; op(opens === 1 ? 'file-open' : 'parent-open'); return opens; },
-            write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { op('write'); return length; }) as never,
-            fsync(fd) { op(fd === 1 ? 'file-fsync' : 'parent-fsync'); }, close(fd) { op(fd === 1 ? 'file-close' : 'parent-close'); },
-          }),
-          replaceFile: () => { indexes += 1; },
-        },
-      })).rejects.toMatchObject({ name: 'CompactionAppendError', cause: failure });
-      expect(indexes).toBe(0); expect(trace.at(-1)).toBe(phase); expect(trace.filter((entry) => entry === phase)).toHaveLength(1);
-      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+      const source = readConversation(root, SESSION);
+      const witness = publicationWitness(phase); const effects: string[] = []; const calls: SummaryCall[] = [];
+      let classified: unknown; let segmentAttempts = 0; let indexAttempts = 0; const allocated: string[] = [];
+      const temporary = () => { const id = `00000000-0000-4000-8000-${String(allocated.length + 1).padStart(12, '0')}`; allocated.push(id); return id; };
+      const preserve = (publish: () => void) => { try { publish(); } catch (error) { classified = error; throw error; } };
+      let thrown: unknown;
+      try {
+        await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { effects.push('hint'); }, agentMembershipChanged() { effects.push('membership'); } } }, input: invocation(source), summarizerProvider: summarizer({ calls, summaryOf: constantSummary('s') }), signal: new AbortController().signal, publication: {
+          temporary,
+          io: {
+            publishFirstEnvelope: (path, bytes, factory) => {
+              segmentAttempts++; effects.push('segment');
+              preserve(() => publishFirstEnvelope(path, bytes, factory, owner === 'segment' ? witness.io : undefined));
+            },
+            replaceFile: (path, bytes, factory) => {
+              indexAttempts++; effects.push('index');
+              preserve(() => replaceFile(path, bytes, factory, witness.io));
+            },
+          },
+        } });
+      } catch (error) { thrown = error; }
+      const fatal = ['rename', 'rename-effect-throw', 'parent-open', 'parent-fsync', 'parent-close'].includes(phase);
+      if (fatal) { expect(thrown).toBe(classified); expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError); expect((thrown as Error).cause).toBe(witness.failure); }
+      else { expect(classified).toBe(witness.failure); expect(thrown).toMatchObject({ name: 'CompactionAppendError', cause: witness.failure }); }
+      expect(segmentAttempts).toBe(1); expect(indexAttempts).toBe(owner === 'index' ? 1 : 0);
+      expect(effects).toEqual(owner === 'index' ? ['segment', 'index'] : ['segment']);
+      expect(allocated).toHaveLength(owner === 'index' ? 2 : 1);
+      expect(witness.trace.at(-1)).toBe(phase === 'rename-effect-throw' ? 'rename' : phase);
+      expect(calls).toHaveLength(1); // No fallback/summary work after failed publication.
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

@@ -75,6 +75,15 @@ describe('publication fatal owner boundaries', () => {
     expectFatalOwner('llm-conversation');
   });
 
+  it('delivers actual segment rename uncertainty through compactor to LLMActor before progress clear, index, hints, provider, or settlement', () => {
+    const root = mkdtempSync(join(tmpdir(), 'publication-llm-segment-')); roots.push(root);
+    const marker = join(root, 'marker'); writeFileSync(marker, '');
+    const result = child('llm-segment-compaction', marker);
+    expect(result.status).toBe(1); expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(diagnosticWithCause('segment rename uncertain'));
+    expect(readFileSync(marker, 'utf8')).toBe('enteredrename');
+  });
+
   it('exits ProcessRunner chunk ownership before another chunk or terminal settlement', () => {
     expectFatalOwner('process-chunk', diagnosticWithCause('unknown transfer'));
   });

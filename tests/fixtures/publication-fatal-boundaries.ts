@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, fstatSync, fsyncSync, mkdtempSync, openSync } from 'node:fs';
+import { appendFileSync, closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, renameSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
@@ -11,7 +11,13 @@ import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
 import type { Environment } from '../../src/config/environment.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
-import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
+import { compact, prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
+import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
+import { publishFirstEnvelope } from '../../src/persistence/growing-file.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
+import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
+import type { AgentMessage } from '../../src/schemas/index.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
@@ -121,24 +127,53 @@ if (mode === 'card-node-task' || mode === 'card-node-task-late') {
   mark('after-uncertainty');
 }
 
-if (mode === 'llm-conversation') {
+if (mode === 'llm-conversation' || mode === 'llm-segment-compaction') {
   if (!path) throw new Error('marker path required');
   appendFileSync(path, 'entered');
-  const root = mkdtempSync(join(tmpdir(), 'publication-llm-owner-'));
+  const root = mode === 'llm-segment-compaction' ? dirname(path) : mkdtempSync(join(tmpdir(), 'publication-llm-owner-'));
   initProjectTree(root);
+  const sessionId = 'agent:planner:project' as const;
+  const actualPublication = mode === 'llm-segment-compaction';
+  let uncertain = false;
+  if (actualPublication) {
+    const rows: AgentMessage[] = [1, 2, 3].flatMap((ordinal) => {
+      const timestamp = `2026-08-18T00:0${ordinal}:00.000Z`;
+      return [
+        { id: `activation-${ordinal}`, session_id: sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp },
+        { id: `text-${ordinal}`, session_id: sessionId, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(12_000), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp },
+      ] as AgentMessage[];
+    });
+    appendConversationBatch({ projectRoot: root }, rows);
+  }
+  const replacement: ReplacementFileIo = {
+    open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    rename(from, to) {
+      renameSync(from, to); // Model a syscall whose effect commits before it throws.
+      uncertain = true;
+      appendFileSync(path, 'rename');
+      throw new Error('segment rename uncertain');
+    },
+  };
   const actor = new ConversationLLMActor({
     purpose:{kind:'autonomous-card',cardId:'project'},
     gate: new RuntimeGate(),
     fatalPort,
     agentId: 'agent:planner:project',
-    provider: scriptedAdmissionProvider(async () => { throw new PublicationOutcomeUnknownError(); }),
-    conversations: { projectRoot: root },
-    compactor: { shouldCompact: () => false, compact: async () => { throw new Error('not reached'); } },
-    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('not reached'); },completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
+    provider: scriptedAdmissionProvider(async () => { if (actualPublication) appendFileSync(path, 'provider'); throw new PublicationOutcomeUnknownError(); }),
+    conversations: { projectRoot: root, changes: { conversationChanged() { if (uncertain) appendFileSync(path, 'hint'); }, agentMembershipChanged() { if (uncertain) appendFileSync(path, 'membership'); } } },
+    runtimeProjectionChanged() { if (uncertain) appendFileSync(path, 'progress-clear'); },
+    compactor: {
+      shouldCompact: () => actualPublication,
+      compact: async (args) => compact({ ...args, publication: { io: {
+        publishFirstEnvelope: (target, bytes, temporary) => publishFirstEnvelope(target, bytes, temporary, replacement),
+        replaceFile: () => { appendFileSync(path, 'index'); throw new Error('not reached'); },
+      } } }),
+    },
+    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges() { if (uncertain) appendFileSync(path, 'summary'); } },
   });
   const policy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' as const };
   const preparedCompaction = prepareCompaction(policy, 'system', [], 8_000, 2_000);
-  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
+   void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: actualPublication ? providerConversationProjection(readConversation(root, sessionId), []) : { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
 }
 
 if (mode === 'process-chunk') {

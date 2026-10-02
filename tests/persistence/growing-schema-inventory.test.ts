@@ -21,7 +21,7 @@ describe('durable growing-schema and writer inventory', () => {
 
     expect(appLog).toContain('serializeGrowingEnvelope');
     expect(conversations).toContain("type: 'conversation-segment'");
-    expect(conversations).toContain('createImmutableVersionFile');
+    expect(conversations).toContain('publishFirstEnvelope');
     expect(conversations).toContain('appendRequiredEnvelope');
     for (const owner of [appLog]) {
       expect(owner).toContain('publishFirstEnvelope');
