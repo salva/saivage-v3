@@ -10,12 +10,14 @@ vi.mock('../../api/client', async (importOriginal) => ({
   getAgentSession: vi.fn(),
   getCardAgentSessions: vi.fn(),
   getAgentConversation: vi.fn(),
+  getAgentConversationVersion: vi.fn(),
   getAgentLlmExchange: vi.fn(),
 }));
 
 import {
   OperatorApiError,
   getAgentConversation,
+  getAgentConversationVersion,
   getAgentLlmExchange,
   getAgentSession,
   getCardAgentSessions,
@@ -87,6 +89,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     vi.mocked(getAgentSession).mockReset();
     vi.mocked(getCardAgentSessions).mockReset();
     vi.mocked(getAgentConversation).mockReset();
+    vi.mocked(getAgentConversationVersion).mockReset();
     vi.mocked(getAgentLlmExchange).mockReset();
     vi.mocked(getAgentSession).mockResolvedValue({ session });
   });
@@ -104,6 +107,22 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.sessionsLoaded).toBe(true);
     expect(store.sessionsError).toBeNull();
     expect(store.sessionsRefreshError).toBe('refresh failed');
+  });
+
+  it('exposes accepted response metadata and reads explicit current-equal versions without changing the current reader', async () => {
+    const store = useAgentStore();
+    const owner = store.beginConversationSelection(S1);
+    vi.mocked(getAgentConversation).mockResolvedValue(conversation([]));
+    await store.fetchConversation(owner);
+    expect(store.conversationSegmentVersion).toBe(1);
+    vi.mocked(getAgentConversationVersion).mockResolvedValue({ session_id: S1, version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: entry.timestamp, segment_context: null, entries: [entry] });
+    await store.selectConversationVersion(owner, 1);
+    expect(getAgentConversationVersion).toHaveBeenCalledWith(S1, 1, expect.any(AbortSignal));
+    expect(store.selectedConversationVersion?.entries).toEqual([entry]);
+    expect(store.entries).toEqual([]);
+    await store.selectConversationVersion(owner, null);
+    expect(store.selectedConversationVersion).toBeNull();
+    expect(store.conversationSegmentVersion).toBe(1);
   });
 
   it('keeps inventory, conversation, and exchange request state independent', async () => {

@@ -22,6 +22,8 @@ const lifecycle = vi.hoisted(() => ({
 const api = vi.hoisted(() => ({
   getAgentConversation: vi.fn(),
   getAgentSession: vi.fn(),
+  getAgentConversationVersion: vi.fn(),
+  listAgentConversationVersions: vi.fn(),
 }));
 const live = vi.hoisted(() => ({
   connectionState: null as Ref<'connected' | 'connecting' | 'offline' | 'unauthorized'> | null,
@@ -51,6 +53,8 @@ vi.mock('../api/client', async (importOriginal) => ({
   listAgentSessions: vi.fn(async () => ({ sessions: [makeSession('agent:planner:project'), makeSession('agent:reviewer:project')] })),
   getAgentConversation: api.getAgentConversation,
   getAgentSession: api.getAgentSession,
+  getAgentConversationVersion: api.getAgentConversationVersion,
+  listAgentConversationVersions: api.listAgentConversationVersions,
   getAgentLlmExchange: vi.fn(),
   getCard: vi.fn(async () => ({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
   getCardAgentSessions: vi.fn(async () => ({ sessions: [] })),
@@ -59,8 +63,16 @@ vi.mock('../api/client', async (importOriginal) => ({
   listCardRecords: vi.fn(async () => ({ card_id: 'project', records: [] })),
 }));
 
-function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
-  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', status: 'inactive' as const, activity: 'idle' as const, compaction: null };
+function makeSession(id: string) {
+  return { id, agent_name: id.split(':')[1], session_scope: id.endsWith(':global') ? 'global' as const : 'card' as const, card_id: id.endsWith(':global') ? null : 'project', started_at: '2026-01-01T00:00:00.000Z', status: 'inactive' as const, activity: 'idle' as const, compaction: null };
+}
+
+function activation(sessionId: AgentConversationEntry['session_id'], suffix: string): AgentConversationEntry {
+  const timestamp = '2026-10-02T12:00:00.000Z';
+  return { ...textEntry(`${sessionId}:activation:${suffix}`, 0), session_id: sessionId, role: 'system', kind: 'activity', timestamp,
+    context_policy: { kind: 'structural', behavior: 'activation_boundary' },
+    content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: 'project' }), input_id: '11111111-1111-4111-8111-111111111111', timestamp }),
+  };
 }
 
 function textEntry(id: string, messageIndex: number): AgentConversationEntry {
@@ -99,14 +111,14 @@ function deferred<T>() {
 
 let evidenceLookups = 0;
 let centerScrolls = 0;
-let originalQuerySelector: typeof Element.prototype.querySelector;
+let originalQuerySelectorAll: typeof Element.prototype.querySelectorAll;
 let originalScrollIntoView: typeof HTMLElement.prototype.scrollIntoView | undefined;
 
 function installViewportModel(): void {
-  originalQuerySelector = Element.prototype.querySelector;
-  Element.prototype.querySelector = function <E extends Element = Element>(selectors: string): E | null {
-    if (selectors.startsWith('[data-entry-id=')) evidenceLookups += 1;
-    return originalQuerySelector.call(this, selectors) as E | null;
+  originalQuerySelectorAll = Element.prototype.querySelectorAll;
+  Element.prototype.querySelectorAll = function <E extends Element = Element>(selectors: string): NodeListOf<E> {
+    if (selectors === '[data-entry-id]') evidenceLookups += 1;
+    return originalQuerySelectorAll.call(this, selectors) as NodeListOf<E>;
   };
   originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
   HTMLElement.prototype.scrollIntoView = function (options?: ScrollIntoViewOptions | boolean): void {
@@ -132,10 +144,13 @@ function installViewportModel(): void {
 async function mountConversation(entryId: string) {
   const pinia = createPinia();
   setActivePinia(pinia);
+  const router = makeRouter();
+  await router.push('/agents/agent:planner:project');
+  await router.isReady();
   const wrapper = mount(AgentConversationView, {
     props: { sessionId: 'agent:planner:project', entryId },
     global: {
-      plugins: [pinia],
+      plugins: [pinia, router],
       stubs: {
         ContextBlock: {
           props: ['entry'],
@@ -170,13 +185,14 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       return response([]);
     });
     api.getAgentSession.mockImplementation(async (sessionId: 'agent:planner:project' | 'agent:reviewer:project') => ({ session: makeSession(sessionId) }));
+    api.listAgentConversationVersions.mockResolvedValue({ versions: [] });
     evidenceLookups = 0;
     centerScrolls = 0;
     installViewportModel();
   });
 
   afterEach(() => {
-    Element.prototype.querySelector = originalQuerySelector;
+    Element.prototype.querySelectorAll = originalQuerySelectorAll;
     if (originalScrollIntoView) HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     delete (HTMLElement.prototype as { scrollHeight?: unknown }).scrollHeight;
@@ -186,11 +202,9 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
   it('has keyed children, view-local evidence targeting, and no eager exchange fetch', () => {
     expect(conversationsFacetSource).toContain(':key="selectedSessionId"');
     expect(agentConversationSource).toContain(':key="props.sessionId"');
-    expect(agentConversationSource).toContain('[entries, loading, conversationRefreshing]');
     expect(rawPanelSource).not.toContain('watch(');
     expect(rawPanelSource).not.toContain('maybeFetch');
     expect(conversationsFacetSource).toContain(':entry-id="entryId"');
-    expect(agentConversationSource).toContain('[data-entry-id=');
   });
 
   it('presents the gated first transcript as waiting until acknowledgement loads its baseline', async () => {
@@ -461,6 +475,116 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await flushPromises();
     expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:agent:reviewer:project', 'clear:agent:reviewer:project']);
     expect(store.selectedConversationSessionId).toBeNull();
+    wrapper.unmount();
+  });
+
+  it.each([
+    ['agent:planner:project', '0123456789abcdef'],
+    ['agent:oversight:global', '11111111-1111-4111-8111-111111111111'],
+  ] as const)('mounts real opaque markers through cold exact routing, reload, same-session switches and Back: %s', async (sessionId, suffix) => {
+    const first = activation(sessionId, suffix);
+    const second = activation(sessionId, sessionId.endsWith(':global') ? '22222222-2222-4222-8222-222222222222' : 'fedcba9876543210');
+    api.getAgentConversationVersion.mockImplementation(async (_id: string, version: number) => ({ session_id: sessionId, version, segment_context: null, entries: [version === 1 ? first : second] }));
+    const router = makeRouter();
+    const link = { name: 'agent-detail', params: { id: sessionId }, query: { segment: '1', entry: first.id } };
+    await router.push(link);
+    const pinia = createPinia();
+    let wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(first.id);
+    expect(wrapper.get('[data-testid="activation-index"]').text()).toContain('segment 1 (exact selection)');
+    expect(wrapper.get('details.version-history').attributes()).toHaveProperty('open');
+    wrapper.unmount();
+    wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(first.id);
+    await router.push({ ...link, query: { segment: '2', entry: second.id } });
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(second.id);
+    useAgentStore(pinia).entries = [textEntry('background-current', 1)];
+    useAgentStore(pinia).conversationError = 'Current reader failed';
+    useAgentStore(pinia).conversationLoading = true;
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(second.id);
+    expect(wrapper.text()).not.toContain('Current reader failed');
+    router.back();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(first.id);
+    await router.push({ ...link, query: { segment: '1', entry: ' opaque "[] # % target ' } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('not found in the selected exact segment');
+    expect(router.currentRoute.value.query.entry).toBe(' opaque "[] # % target ');
+    expect(wrapper.find('.targeted-conversation-entry').exists()).toBe(false);
+    const uuid = '33333333-3333-4333-8333-333333333333';
+    api.getAgentConversationVersion.mockResolvedValue({ session_id: sessionId, version: 2, segment_context: null, entries: [{ ...textEntry(uuid, 0), session_id: sessionId }] });
+    await router.push({ ...link, query: { segment: '2', entry: uuid } });
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(uuid);
+    for (const entry of ['', ['a', 'b']]) {
+      await router.push({ ...link, query: { segment: '2', entry } });
+      await flushPromises();
+      expect(wrapper.find('.targeted-conversation-entry').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+    }
+    const calls = api.getAgentConversationVersion.mock.calls.length;
+    for (const segment of ['0', 'no', '1.5', '9007199254740992', ['1', '2']]) {
+      await router.push({ ...link, query: { segment, entry: first.id } });
+      await flushPromises();
+      expect(wrapper.text()).toContain('Invalid segment selection');
+    }
+    expect(api.getAgentConversationVersion.mock.calls).toHaveLength(calls);
+    wrapper.unmount();
+  });
+
+  it('fences same-session exact requests, including current-equal selection, and distinguishes failed reads', async () => {
+    const late = deferred<unknown>();
+    api.getAgentConversationVersion.mockImplementation((_id: string, version: number) => version === 1 ? late.promise : Promise.resolve({ session_id: 'agent:planner:project', version, segment_context: null, entries: [] }));
+    const router = makeRouter();
+    await router.push('/agents/agent:planner:project?segment=1&entry=unknown');
+    const pinia = createPinia();
+    const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await router.push('/agents/agent:planner:project?segment=2&entry=unknown');
+    await flushPromises();
+    late.resolve({ session_id: 'agent:planner:project', version: 1, entries: [activation('agent:planner:project', '0123456789abcdef')], segment_context: null });
+    await flushPromises();
+    expect(useAgentStore(pinia).selectedConversationVersion?.version).toBe(2);
+    expect(wrapper.text()).toContain('not found in the selected exact segment');
+    api.getAgentConversationVersion.mockRejectedValueOnce(new OperatorApiError('agents.conversationVersions.get', 404, { error: 'historical_version_not_found', resource: 'conversation', owner_id: 'agent:planner:project', version: 3 }));
+    await router.push('/agents/agent:planner:project?segment=3&entry=unknown');
+    await flushPromises();
+    expect(wrapper.text()).toContain('This exact segment is not available');
+    expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+    api.getAgentConversationVersion.mockRejectedValueOnce(new Error('segment read failed'));
+    await router.push('/agents/agent:planner:project?segment=4&entry=unknown');
+    await flushPromises();
+    expect(wrapper.text()).toContain('segment read failed');
+    wrapper.unmount();
+  });
+
+  it('keeps inherited continuation separate from entries and rejects a malformed claimed marker visibly', async () => {
+    const marker = activation('agent:planner:project', '0123456789abcdef');
+    const context = {
+      kind: 'compacted', source_version: 1, covered_through_message_id: 'old-row', summary_text: 'Prior context',
+      protected_prompts: [], continuation: { kind: 'inherited_open_round', activation: { marker_id: marker.id, input_id: '11111111-1111-4111-8111-111111111111' }, active_segment_kind: 'assistant' },
+    };
+    api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 2, entries: [], segment_context: context });
+    const router = makeRouter();
+    await router.push('/agents/agent:planner:project?segment=2');
+    const pinia = createPinia();
+    const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Continuation context');
+    expect(wrapper.text()).toContain(marker.id);
+    expect(wrapper.get('[data-testid="activation-index"]').text()).toContain('No activation markers retained in this segment');
+    expect(wrapper.find('.activation-marker').exists()).toBe(false);
+    api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 1, entries: [{ ...marker, content: '{"event":"activation_open"}' }], segment_context: null });
+    await router.push('/agents/agent:planner:project?segment=1&entry=unknown');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Malformed activation_open');
+    expect(wrapper.text()).not.toContain('No activation markers retained');
+    expect(wrapper.text()).not.toContain('requested conversation entry was not found');
     wrapper.unmount();
   });
 });

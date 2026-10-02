@@ -4,6 +4,8 @@ import { projectDynamicForOutbound, redactTextForOutbound } from '../redaction/i
 export function projectLoggedEvent(event: LoggedEvent): LoggedEvent {
   const parsed = loggedEventSchema.parse(event);
   switch (parsed.kind) {
+    case 'operator_runtime_control':
+      return parsed;
     case 'runtime_diagnostic':
       return loggedEventSchema.parse({
         ...parsed,

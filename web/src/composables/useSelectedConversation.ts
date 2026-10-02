@@ -1,12 +1,12 @@
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, watch, type Ref } from 'vue';
 import type { ConversationSessionId } from '../api/contracts';
 import { useAgentStore } from '../stores/agents';
 import { useSyncStore } from '../stores/sync';
 
-export function useSelectedConversation(sessionId: ConversationSessionId): {
+export function useSelectedConversation(sessionId: ConversationSessionId, version?: Ref<number | null>): {
   reload(): Promise<void>;
   fetchVersions(): Promise<void>;
-  selectVersion(version: number): Promise<void>;
+  selectVersion(version: number | null): Promise<void>;
 } {
   const agentStore = useAgentStore();
   const syncStore = useSyncStore();
@@ -16,6 +16,7 @@ export function useSelectedConversation(sessionId: ConversationSessionId): {
 
   onMounted(() => {
     token = agentStore.beginConversationSelection(sessionId);
+    if (version) watch(version, (value) => { void agentStore.selectConversationVersion(token, value); }, { immediate: true });
     close = syncStore.openConversation(sessionId, (frame) => {
       acknowledged = true;
       return Promise.all([
@@ -37,7 +38,7 @@ export function useSelectedConversation(sessionId: ConversationSessionId): {
     return agentStore.fetchConversationVersions(token);
   }
 
-  function selectVersion(version: number): Promise<void> {
+  function selectVersion(version: number | null): Promise<void> {
     return agentStore.selectConversationVersion(token, version);
   }
 

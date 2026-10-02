@@ -77,6 +77,9 @@ The control room has **Cockpit**, **Files**, and **System**. The card cockpit
 keeps its tree and **Overview**, **Conversations**, **Records & History**, and
 **Evidence** facets together; the Analyst panel stays available for steering. Submitted [workspace focus](docs/spec/system-specification.md) is advisory context captured at Send, not continuous observation of the screen.
 See the authoritative [operator UI contracts](docs/spec/operator-ui-contracts.md).
+For selected-segment activation markers and bounded direct-control Events, see
+[exact evidence navigation](docs/runbook/index.md#open-exact-activation-evidence);
+the new durable event kind requires [stopped reset-only adoption](docs/runbook/index.md#direct-runtime-control-event-adoption).
 Analyst submissions use REST only (`POST /api/chat`); WebSocket carries live observation subscriptions and freshness hints, not submissions or turn acknowledgements.
 
 ```bash

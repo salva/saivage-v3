@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route, type TestInfo } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
-import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId, retainedInstructionContext } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 
@@ -9,6 +9,12 @@ const executor = `agent:executor:${smokeCardId}`;
 const reviewer = `agent:reviewer:${smokeCardId}`;
 const marker = '99999999-9999-4999-8999-999999999999';
 const now = '2026-09-28T12:00:00.000Z';
+
+function activationRow(sessionId: string, suffix: string) {
+  return { id: `${sessionId}:activation:${suffix}`, session_id: sessionId, role: 'system', kind: 'activity',
+    content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: smokeCardId }), input_id: '11111111-1111-4111-8111-111111111111', timestamp: now }),
+    context_policy: { kind: 'structural', behavior: 'activation_boundary' }, round_id: 'r-pre-11111111111141118111111111111111', message_index: 0, block_index: 0, timestamp: now };
+}
 
 async function setup(page: Page, chatBack = false) {
   await seedTokenBeforeNavigation(page, token);
@@ -73,12 +79,12 @@ test('card conversations retain cockpit context through automatic, explicit, fac
   const executorEvidence = page.getByTestId('facet-evidence').locator('.evidence-record').filter({ hasText: executor });
   await executorEvidence.getByRole('button', { name: 'Load segment catalog' }).click();
   await executorEvidence.getByRole('link', { name: /Segment 1/ }).click();
-  await expect(page).toHaveURL(`/agents/${executor}`);
+  await expect(page).toHaveURL(`/agents/${executor}?segment=1`);
   await expect(expandedSibling).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(new RegExp('facet=evidence'));
   await page.goForward();
-  await expect(page).toHaveURL(`/agents/${executor}`);
+  await expect(page).toHaveURL(`/agents/${executor}?segment=1`);
 
   await screenshot(page, testInfo, 'cockpit-conversation-1440x900.png');
   expect(rest.unknown).toEqual([]);
@@ -113,7 +119,7 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   await screenshot(page, testInfo, 'cockpit-conversation-900x700.png');
 
   await page.goto(`/agents/${encodeURIComponent(executor)}?entry=88888888-8888-4888-8888-888888888888`);
-  await expect(page.getByText('The requested conversation entry was not found in this session.')).toBeVisible();
+  await expect(page.getByText('The requested conversation entry was not found in the current segment.')).toBeVisible();
 
   await page.route(`**/api/cards/${smokeCardId}`, async (route: Route) => {
     await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Card not found', cardId: smokeCardId }) });
@@ -142,5 +148,94 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   await expect(page).toHaveURL(`/cards/${smokeCardId}`);
   await sendAnalyst(page, 'Back three');
   await expect(page).toHaveURL('/files');
+  expect(rest.unknown).toEqual([]);
+});
+
+for (const sessionId of [executor, 'agent:oversight:global']) {
+  test(`real marker-only exact navigation, reload, Back and current updates: ${sessionId}`, async ({ page }, testInfo) => {
+    const rest = await setup(page);
+    const global = sessionId.endsWith(':global');
+    const first = activationRow(sessionId, global ? '11111111-1111-4111-8111-111111111111' : '0123456789abcdef');
+    const second = activationRow(sessionId, global ? '22222222-2222-4222-8222-222222222222' : 'fedcba9876543210');
+    let currentReads = 0;
+    let updated = false;
+    await page.route('**/api/agents/*/conversation**', async (route) => {
+      const url = new URL(route.request().url());
+      const id = decodeURIComponent(url.pathname.split('/')[3]!);
+      if (id !== sessionId) return route.fallback();
+      const version = url.pathname.endsWith('/versions/1') ? 1 : url.pathname.endsWith('/versions/2') ? 2 : null;
+      if (version) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversationVersions.get', 200, {
+        session_id: id, version, entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', published_at: now,
+        segment_context: version === 1 ? null : retainedInstructionContext(id), entries: [version === 1 ? first : second],
+      })) });
+      if (url.pathname.endsWith('/versions')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversationVersions.list', 200, {
+        session_id: id, versions: [
+          { entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', version: 1, published_at: now, genesis_kind: 'ordinary', source_version: null },
+          { entry_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', version: 2, published_at: now, genesis_kind: 'compacted', source_version: 1 },
+        ], total: 2,
+      })) });
+      currentReads++;
+      const row = updated ? second : first;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, {
+        session_id: id, segment_version: updated ? 2 : 1, segment_context: updated ? retainedInstructionContext(id) : null, entries: [row], cursor: { segment_version: updated ? 2 : 1, message_id: row.id },
+      })) });
+    });
+    const target = () => page.locator('.conv-rounds .targeted-conversation-entry');
+    if (!global) {
+      await page.goto(`/cards/${smokeCardId}`);
+      const tab = page.getByTestId('cockpit-facet-nav').getByRole('link', { name: 'Conversations', exact: true });
+      await tab.focus();
+      await tab.press('Enter');
+      await expect(page).toHaveURL(`/agents/${sessionId}`);
+      await expect(page.getByTestId('activation-index')).toContainText('Activation entry recorded');
+      await expect(page.locator('.conv-rounds [data-entry-id]')).toHaveAttribute('data-entry-id', first.id);
+      const open = page.getByRole('link', { name: 'Open entry', exact: true });
+      await open.focus();
+      await open.press('Enter');
+    } else {
+      await page.goto(`/agents/${encodeURIComponent(sessionId)}?segment=1&entry=${encodeURIComponent(first.id)}`);
+      await expect(page.getByTestId('session-global-header')).toContainText('Global session');
+    }
+    await expect(target()).toHaveAttribute('data-entry-id', first.id);
+    await expect(target()).toBeFocused();
+    expect(new URL(page.url()).searchParams.get('entry')).toBe(first.id);
+    await page.reload();
+    await expect(target()).toHaveAttribute('data-entry-id', first.id);
+    const segment2 = page.getByRole('button', { name: /Segment 2/ });
+    await segment2.focus();
+    await segment2.press('Enter');
+    const open = page.getByRole('link', { name: 'Open entry', exact: true });
+    await open.focus();
+    await open.press('Enter');
+    await expect(target()).toHaveAttribute('data-entry-id', second.id);
+    const reads = currentReads;
+    updated = true;
+    await page.evaluate((id) => {
+      window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 2, visible_message_id: 'new-current-marker' });
+    }, sessionId);
+    await expect.poll(() => currentReads).toBeGreaterThan(reads);
+    await expect(target()).toHaveAttribute('data-entry-id', second.id);
+    await expect(page.getByTestId('activation-index')).toContainText('segment 2 (exact selection)');
+    await page.goBack(); // segment 2 without entry
+    await page.goBack(); // exact segment 1 marker
+    await expect(target()).toHaveAttribute('data-entry-id', first.id);
+    expect(new URL(page.url()).searchParams.get('entry')).toBe(first.id);
+    await screenshot(page, testInfo, `activation-${global ? 'global' : 'card'}-exact.png`);
+    expect(rest.unknown).toEqual([]);
+  });
+}
+
+test('System Events shows scheduled restart evidence without replacement readiness', async ({ page }, testInfo) => {
+  const rest = await setup(page);
+  await page.route('**/api/events?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('events.list', 200, {
+    events: [{ id: '11111111-1111-4111-8111-111111111111', timestamp: now, kind: 'operator_runtime_control', actor: 'operator', surface: 'operator_api', result: { operation: 'restart_server', outcome: 'restart_scheduled' } }], total: 1,
+  })) }));
+  await page.goto('/system');
+  const events = page.getByRole('button', { name: 'Events', exact: true });
+  await events.focus();
+  await events.press('Enter');
+  await expect(page.locator('.events-summary')).toHaveText('Restart scheduled — shutdown and replacement readiness not established');
+  await expect(page.locator('.events-panel')).toContainText('pre-handler denials, thrown failures and transport loss have no promised row');
+  await screenshot(page, testInfo, 'runtime-control-event.png');
   expect(rest.unknown).toEqual([]);
 });

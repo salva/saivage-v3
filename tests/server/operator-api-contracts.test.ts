@@ -477,7 +477,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   it('accepts only exact canonical event and Debug error rows with matching totals', () => {
     const error = allRepresentativeLoggedEvents[0]!;
     expect(parseOperatorResponse('debug.errors', 200, { errors: [error], total: 1 })).toEqual({ errors: [error], total: 1 });
-    expect(parseOperatorResponse('events.list', 200, { events: allRepresentativeLoggedEvents, total: 3 }).events).toHaveLength(3);
+    expect(parseOperatorResponse('events.list', 200, { events: allRepresentativeLoggedEvents, total: 4 }).events).toHaveLength(4);
 
     for (const invalid of [
       { errors: [{ ...error, error_message: 1 }], total: 1 },

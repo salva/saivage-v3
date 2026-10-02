@@ -123,7 +123,6 @@ describe('read-only positive checklist', () => {
     expect(analystChatPanelSource).toContain('Pause auto-scroll');
     expect(debugAgentDetailSource).toContain('Pause auto-scroll');
     expect(agentTimelineSource).not.toContain('modelLabel');
-    expect(agentConversationSource).toContain('useAgentTimeline(entries)');
     expect(debugAgentDetailSource).toContain('useAgentTimeline(entries)');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 

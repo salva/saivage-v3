@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
+import { EventQueryService } from '../../src/application/event-query-service.js';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
@@ -36,6 +37,7 @@ describe('restart_server', () => {
         data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
       });
       expect(listControlActions(projectRoot)).toEqual([]);
+      expect(new EventQueryService(projectRoot).queryEvents().total).toBe(0);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
@@ -47,6 +49,7 @@ describe('restart_server', () => {
         error: 'restart unavailable: operator authentication disabled',
       });
       expect(listControlActions(projectRoot)).toEqual([]);
+      expect(new EventQueryService(projectRoot).queryEvents().total).toBe(0);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

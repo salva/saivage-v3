@@ -22,6 +22,7 @@ export interface TimelineRound {
   position: number;
   entries: AgentConversationEntry[];
   texts: AgentConversationEntry[];
+  activations: AgentConversationEntry[];
   diagnostics: AgentConversationEntry[];
   toolPairs: ToolPair[];
   items: ToolListItem[];

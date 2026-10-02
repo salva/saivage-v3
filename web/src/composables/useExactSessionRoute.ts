@@ -5,8 +5,6 @@ import { getAgentSession, OperatorApiError } from '../api/client';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import { createOwnedFetch } from '../stores/owned-fetch';
 
-const ENTRY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function useExactSessionRoute() {
   const route = useRoute();
   const parsed = computed(() => route.name === 'agent-detail'
@@ -15,7 +13,14 @@ export function useExactSessionRoute() {
   const sessionId = computed(() => parsed.value.kind === 'valid' ? parsed.value.sessionId : null);
   const entryId = computed(() => {
     const value = route.query.entry;
-    return typeof value === 'string' && ENTRY_ID.test(value) ? value : null;
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  });
+  const segment = computed(() => {
+    const value = route.query.segment;
+    if (value === undefined) return { kind: 'current' as const };
+    if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value)))
+      return { kind: 'invalid' as const };
+    return { kind: 'exact' as const, version: Number(value) };
   });
   const summary = ref<AgentSession | null>(null);
   const request = createOwnedFetch();
@@ -40,5 +45,5 @@ export function useExactSessionRoute() {
   watch(sessionId, resolve, { immediate: true });
   onBeforeUnmount(request.cancel);
 
-  return { parsed, sessionId, entryId, summary, loading, error, resolve };
+  return { parsed, sessionId, entryId, segment, summary, loading, error, resolve };
 }

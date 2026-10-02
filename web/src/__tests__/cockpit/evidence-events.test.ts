@@ -7,6 +7,7 @@ import ActionsPanel from '../../components/system/ActionsPanel.vue';
 import CardEvidenceFacet from '../../components/cockpit/CardEvidenceFacet.vue';
 import { useEventsStore } from '../../stores/events';
 import { useSystemResourcesStore } from '../../stores/systemResources';
+import { agentSession } from './fixtures';
 
 const api = vi.hoisted(() => ({
   listEvents: vi.fn(),
@@ -143,6 +144,19 @@ describe('evidence facet and system sections', () => {
     wrapper.unmount();
   });
 
+  it('carries the exact numeric segment from Evidence into its session link', async () => {
+    api.getCardAgentSessions.mockResolvedValue({ sessions: [agentSession('agent:executor:card-a')] });
+    api.listAgentConversationVersions.mockResolvedValue({ versions: [{ entry_id: 'catalog-entry', version: 7, genesis_kind: 'compacted' }] });
+    const pinia = createPinia();
+    const wrapper = mount(CardEvidenceFacet, { props: { cardId: 'card-a' }, global: { plugins: [pinia], stubs: { RouterLink: { name: 'RouterLink', template: '<a><slot /></a>', props: ['to'] } } } });
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text() === 'Load segment catalog')!.trigger('click');
+    await flushPromises();
+    const link = wrapper.findAllComponents({ name: 'RouterLink' }).find((link) => link.text().includes('Segment 7'))!;
+    expect(link.props('to')).toEqual({ name: 'agent-detail', params: { id: 'agent:executor:card-a' }, query: { segment: '7' } });
+    wrapper.unmount();
+  });
+
   it('observes process-local provider availability with explicit refresh', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -170,6 +184,32 @@ describe('evidence facet and system sections', () => {
     await wrapper.get('[data-testid="providers-refresh"]').trigger('click');
     await flushPromises();
     expect(api.listProviders).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it('renders each bounded direct-control outcome truthfully with no synthetic card links', async () => {
+    const results = [
+      { operation: 'pause_runtime', outcome: 'returned', runtime_status: 'pausing' },
+      { operation: 'resume_runtime', outcome: 'returned', runtime_status: 'running' },
+      { operation: 'stop_project', outcome: 'returned', status: 'stopped', contained: true },
+      { operation: 'stop_project', outcome: 'returned', status: 'stopped', contained: false },
+      { operation: 'restart_server', outcome: 'restart_scheduled' },
+      ...['pause_runtime', 'resume_runtime', 'stop_project'].map((operation) => ({ operation, outcome: 'rejected', reason: 'body_not_allowed' })),
+      { operation: 'restart_server', outcome: 'rejected', reason: 'restart_unavailable' },
+    ];
+    api.listEvents.mockResolvedValue({ events: results.map((result, index) => ({ id: String(index), kind: 'operator_runtime_control', actor: 'operator', surface: 'operator_api', timestamp: '2026-10-02T12:00:00.000Z', result })), total: results.length });
+    const wrapper = mount(EventsPanel, { props: { scope: { cardId: null } }, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const summaries = wrapper.findAll('.events-summary').map((row) => row.text());
+    expect(summaries).toEqual([
+      'Pause returned runtime status: pausing', 'Resume returned runtime status: running',
+      'Stop returned stopped; execution contained (contained: true)',
+      'Stop returned stopped; execution not newly contained (contained: false)',
+      'Restart scheduled — shutdown and replacement readiness not established',
+      'pause_runtime rejected: request body not allowed', 'resume_runtime rejected: request body not allowed', 'stop_project rejected: request body not allowed', 'restart_server rejected: restart unavailable',
+    ]);
+    expect(wrapper.find('.events-card-link').exists()).toBe(false);
+    expect(wrapper.text()).toContain('pre-handler denials, thrown failures and transport loss have no promised row');
     wrapper.unmount();
   });
 

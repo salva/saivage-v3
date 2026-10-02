@@ -83,6 +83,7 @@ describe('runtime ledger contract deletions', () => {
       'runtime_diagnostic',
       'runtime_actionable_error',
       'mcp_tool_invocation',
+      'operator_runtime_control',
     ]);
   });
 

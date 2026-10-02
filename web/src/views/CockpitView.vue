@@ -37,7 +37,7 @@
           <p>This session is global: it is not owned by a card flow.</p>
         </header>
         <div class="global-session-reader" aria-label="Exact session reader">
-          <AgentConversationView :key="globalSession.id" :session-id="globalSession.id" :entry-id="exactRoute.entryId.value" />
+          <AgentConversationView :key="globalSession.id" :session-id="globalSession.id" :entry-id="exactRoute.entryId.value" :segment-version="exactRoute.segment.value.kind === 'exact' ? exactRoute.segment.value.version : null" :invalid-segment="exactRoute.segment.value.kind === 'invalid'" />
         </div>
       </template>
 
@@ -90,6 +90,8 @@
             :detail="subjectDetail"
             :selected-session-id="exactRoute.sessionId.value"
             :entry-id="exactRoute.entryId.value"
+            :segment-version="exactRoute.segment.value.kind === 'exact' ? exactRoute.segment.value.version : null"
+            :invalid-segment="exactRoute.segment.value.kind === 'invalid'"
             :rail-admitted="!!subjectDetail"
           />
         </template>

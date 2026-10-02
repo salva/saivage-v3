@@ -266,6 +266,60 @@ Rollback after rollout is another complete stopped reset-only operation, never a
 
 The current app log and event filters use the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies). Do not restore logs with outer identity/time fields or obsolete lanes or event kinds. For explicit event inspection, use the authenticated `/api/events` query or the Analyst `read_runtime_events` tool. Debug has no Timeline. Dashboard is current-state-only and is not the command, activation, actionable-error, or recovery ledger.
 
+### Open exact activation evidence
+
+Open a card participant in Conversations or a global participant in System. The ordinary
+exact-session reader shows **Activation entries — this segment** for the accepted current
+segment; Card Evidence's segment catalog opens the selected numeric segment directly.
+Use **Open entry** to focus the actual recorded marker, including a marker-only round.
+Share the router-built `/agents/:id?segment=N&entry=ID` link for that exact source;
+reload and Back retain it. `segment` must be a scalar decimal `[1-9][0-9]*` representing
+a positive safe integer. Without it, the current segment is selected. Entry IDs are
+opaque nonempty scalar strings, including composite activation IDs: preserve them exactly
+and let the router encode them; do not extract a UUID, trim or decode again. Empty or
+nonscalar entry values supply no target. Invalid segment, unavailable exact segment,
+failed read and missing entry within an accepted segment are distinct; none searches
+other segments or substitutes current. Historical inspection remains selected through
+current arrivals. The special identity-resolved Analyst inspector is unchanged and does
+not promise this ordinary-reader activation index.
+
+**Activation entry recorded** proves entry publication only, not provider invocation,
+current execution, completion, duration or an old workflow node. Coverage is markers
+retained in one segment, not every activation: compaction may omit earlier entries.
+**No activation markers retained in this segment** is not never activated. Inherited
+open-round genesis is continuation context, not a second activation or a new timestamp/location.
+
+Direct Pause/Resume/Stop/Restart API requests (including delegated CLI calls reaching
+those handlers) have bounded informational `operator_runtime_control.result` evidence
+in System Events or `/api/events`, not Actions or Errors. Pause/Resume record the already
+returned runtime status, Stop the exact stopped/contained result, Restart only scheduling;
+explicit body/capability handler rejections record only their fixed reason. A returned
+`pausing` is not paused; `contained:false` is not newly contained; restart scheduled
+does not establish acknowledged shutdown, exit 75, replacement startup or readiness.
+These global rows have no card association and are absent from card-filtered Events.
+Status reads, authentication/routing/schema denial before handler entry, thrown runtime
+failures and transport loss have no promised row. Analyst controls and restart confirmation
+retain their conversation/tool evidence without duplicate direct-control events; Actions
+remains the bounded audited Analyst mutation surface with readable historical Planner rows.
+Missing events or an HTTP failure prove neither no effect nor permission to repeat a command.
+An event append may fail after the control effect; it is not retried or undone. For Restart,
+append precedes installation of the response-finish acknowledgement, so a failed append
+does not acknowledge restart. Publication uncertainty remains fatal before any follow-up.
+
+### Direct runtime-control event adoption
+
+The `operator_runtime_control` discriminator changes the durable event contract without
+an envelope-version bump. Adoption is **stopped reset-only**, not a compatible mixed-version
+upgrade: follow [Storage and interruption](#storage-and-interruption)'s separately
+authorized irreversible whole-generated-state reset procedure. Stop the exact service,
+positively verify/reconfirm no owner/process, obtain explicit reset authorization, and
+successfully create the full stopped target-project backup before resetting all four
+generated roots with the identified current binary. Preserve configuration, credentials,
+identity, operator inputs, prompts, skills, instructions, source and canonical docs;
+then start the matching build with project execution stopped.
+No migration, old-format reader, stream rewrite, format probing or binary-only rollback over new event rows is supported.
+Source completion or deployment approval authorizes no reset or service action.
+
 Apply this named incompatible app-log and workflow/config cutover to each affected deployment in this exact order:
 
 1. Identify and stop the matching service, verify no process owns the target, and resolve only a positively abandoned exact lifecycle lock by the documented manual procedure.
@@ -299,7 +353,7 @@ Ordinary history and Files retain outer publication identity/time and require nu
 
 Missing/dead `status` reports stopped and missing/dead `stop` succeeds with `{status:'stopped',contained:false}`; dead also prints manual abandoned-lock repair. Missing/dead `pause` and `resume` fail no-live. Indeterminate/malformed fail closed. Every existing lock still blocks lifecycle acquisition and is never automatically removed or taken over.
 
-`saivage stop` delegates to `POST /api/runtime/stop-project`. Project Stop is a runtime halt, not cancellation: it never calls `cancel_card` and does not itself write a card/root outcome, ToolResult, provider round, or Stop event. It synchronously publishes intervention-rejecting `closing`, freezes all owners, interrupts child and owner callers, and aborts/disposes processors before awaiting joins. A near-terminal result or cancellation may therefore be abandoned; its durable append may already exist or may be absent. Exact continuation fences prevent any post-freeze publication or release. Complete quiescence returns `{status:'stopped',contained:true}`; this `stopped` status admits later Analyst intervention, while no live runtime returns `contained:false`. Failed halt remains intervention-rejecting `error`, rejects repeated Stop with the retained failure, and requires service restart. After successful halt, Run completely selects the linked running chain and processes each card leaf-to-root by stabilizing its eligible sessions and immediately publishing it stopped, then activates only project through STOPPED. Descendants remain stopped until ordinary activation by their immediate parent. Unmatched parent `activate_card` receives ordinary interrupted outcome-unknown settlement even if its child is terminal; no child result or old graph node is replayed. During an uninterrupted run, continuation belongs to each live parent waiting on and resuming after its immediate child. Natural root completion occurs only after that ownership fully unwinds and a strict pre-publication selection is exactly `[project]`; invalid durable topology leaves the root running and publishes no terminal root version. It finishes process-local stopped after valid publication and never rediscovers or relaunches a durable leaf. The server, Analyst, MCP resources, and lifecycle lock remain live. Pause is cooperative: `pausing` rejects intervention until the one parked frontier settles and the single status becomes `paused`; Resume changes it to intervention-rejecting `running`.
+`saivage stop` delegates to `POST /api/runtime/stop-project`. Project Stop is a runtime halt, not cancellation: it never calls `cancel_card` and does not itself write a card/root outcome, ToolResult, or provider round. The direct transport handler separately records its bounded returned outcome as `operator_runtime_control`, not an internal Stop lifecycle event. It synchronously publishes intervention-rejecting `closing`, freezes all owners, interrupts child and owner callers, and aborts/disposes processors before awaiting joins. A near-terminal result or cancellation may therefore be abandoned; its durable append may already exist or may be absent. Exact continuation fences prevent any post-freeze publication or release. Complete quiescence returns `{status:'stopped',contained:true}`; this `stopped` status admits later Analyst intervention, while no live runtime returns `contained:false`. Failed halt remains intervention-rejecting `error`, rejects repeated Stop with the retained failure, and requires service restart. After successful halt, Run completely selects the linked running chain and processes each card leaf-to-root by stabilizing its eligible sessions and immediately publishing it stopped, then activates only project through STOPPED. Descendants remain stopped until ordinary activation by their immediate parent. Unmatched parent `activate_card` receives ordinary interrupted outcome-unknown settlement even if its child is terminal; no child result or old graph node is replayed. During an uninterrupted run, continuation belongs to each live parent waiting on and resuming after its immediate child. Natural root completion occurs only after that ownership fully unwinds and a strict pre-publication selection is exactly `[project]`; invalid durable topology leaves the root running and publishes no terminal root version. It finishes process-local stopped after valid publication and never rediscovers or relaunches a durable leaf. The server, Analyst, MCP resources, and lifecycle lock remain live. Pause is cooperative: `pausing` rejects intervention until the one parked frontier settles and the single status becomes `paused`; Resume changes it to intervention-rejecting `running`.
 
 For exact notification calls already holding a known enqueue result, the preceding general abort/dispose summary has one owner-preserving ordering: Stop first installs cancel-and-settle/no-continuation ownership, then aborts, waits for the node consumer to append that matching result and clean its surface, and finally disposes/joins its LLM. The receipt never waits for or certifies complete halt. A failed later cleanup rejects Stop and retains the frozen error graph without changing that matched result. Nonretained external dependencies keep ordinary abandonment behavior.
 
@@ -323,7 +377,7 @@ Analyst record mutation is also conjunctive admission, not possession of `write`
 
 ## Storage and interruption
 
-Runtime state, actor snapshots, recovery diagnostics, provider availability, and lifecycle-control audits are not durable files. Card state/history/tombstone and each authored record use exact append-only `card.jsonl` and collision-free `record-<stem>.jsonl` streams beneath the card namespace; one logical mutation appends one strict envelope and one complete fold derives current, history, and selected versions. Card and record versions are rows of that stream, not separate files. Conversation indexes name indexed segments and the exact growing current head.
+Runtime state, actor snapshots, recovery diagnostics, and provider availability are not durable files. Direct transport control request outcomes are bounded app-log events, not durable runtime state or a complete lifecycle-control audit. Card state/history/tombstone and each authored record use exact append-only `card.jsonl` and collision-free `record-<stem>.jsonl` streams beneath the card namespace; one logical mutation appends one strict envelope and one complete fold derives current, history, and selected versions. Card and record versions are rows of that stream, not separate files. Conversation indexes name indexed segments and the exact growing current head.
 
 All five growing JSONL families—card, authored record, app log, provider evidence, and current conversation—permit the exact consuming owner to discard only an identifiable unterminated final physical suffix after full schema and semantic validation of a nonempty complete prefix. Ordinary runtime/API/tool reads as well as existing selected startup reads can perform this truncation. A parseable JSON suffix without its terminating LF is still torn; interrupted UTF-8 in that discarded suffix is permissible. Empty/no-prefix files and every complete malformed envelope, unsupported format, invalid row, identity/transition/duplicate-ID error, or commitment mismatch remain unchanged and fail. Required missing or unreadable state also fails; optional missing streams retain their specified empty/absent meaning. Stay stopped after failed startup, and do not manually truncate, retain a readable prefix, rewrite rows, or selectively repair generated state.
 

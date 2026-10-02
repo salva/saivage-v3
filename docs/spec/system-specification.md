@@ -1066,7 +1066,7 @@ Complete malformed or invalid canonical data remains unchanged and fails.
 There are no repositories, caches, queues, registries, transactions, scans, orphan handling, or compatibility readers.
 
 The application log `.saivage/logs/app.jsonl` contains only event and control-action rows and uses the [exact app-log vocabularies](#exact-app-log-vocabularies).
-Identity and time exist only in each lane payload, and the derived error set is both runtime kinds plus failed MCP invocations.
+Identity and time exist only in each lane payload. Error membership is explicitly `runtime_diagnostic`, `runtime_actionable_error`, and failed `mcp_tool_invocation`; informational `operator_runtime_control` rows, including rejections, are not Errors.
 The writer's sole boundary accepts the project root, lane, and synchronous preparation closure.
 It first performs identity/time construction, centralized outbound redaction or audit projection, authoritative validation, and serialization.
 It then reads exact bytes for tail admission: on a clean newline-terminated stream only the final envelope is validated, without a whole-history uniqueness preflight. A torn tail instead requires the owner's full retained-prefix semantic validation and permitted truncation before append; present empty or no-prefix files fail unchanged. A missing target is admissible.
@@ -1078,7 +1078,7 @@ After admission the owner directly opens the exact target with ordinary `O_WRONL
 <!-- saivage:value-contract:app-log-contract:start -->
 ```text
 vocabulary.app-log-type = {"members":["control_action","event"]}
-vocabulary.logged-event-kind = {"members":["mcp_tool_invocation","runtime_actionable_error","runtime_diagnostic"]}
+vocabulary.logged-event-kind = {"members":["mcp_tool_invocation","operator_runtime_control","runtime_actionable_error","runtime_diagnostic"]}
 ```
 <!-- saivage:value-contract:app-log-contract:end -->
 
@@ -1113,6 +1113,27 @@ Every operation performs exactly one complete strict read of the event lane befo
 `total` is the filtered count before slicing.
 `GET /api/debug/errors` returns the complete event-derived error projection and is the System Errors section's only event-derived input; the UI's broader event reading goes through `GET /api/events`.
 There is no Debug Timeline, `/api/debug/timeline`, dedicated error lane, ErrorLog, session filter, or `since` filter.
+The ordinary exact-session conversation reader has a separate browser-local **Activation entries — this segment** index over already returned public system/activity `activation_open` rows. A marker records entry publication, not a successful provider call, current liveness, completion, duration, or a named workflow node. The index preserves physical source order and recorded session, marker, input, configured agent, optional card, and time identities. Activity-only marker rounds remain rendered transcript anchors. Coverage is only the accepted current segment or one explicitly selected indexed segment; an empty index means **No activation markers retained in this segment**, not never activated. Compacted inherited-open-round context is not another entry and supplies no fabricated timestamp or location. No predecessor search, all-history enumeration, cross-session merge, durable index, or extra activation API exists. The identity-resolved Analyst inspector exception is unchanged and is outside this ordinary-reader coverage.
+
+`/agents/:id` accepts optional `segment=<positive safe integer>` and `entry=<opaque row ID>`. Segment query syntax is a scalar decimal string matching `[1-9][0-9]*` whose numeric value is safe; absence selects current, while malformed selection is explicitly invalid and makes no version-content request. An explicit version selects the exact version response even when equal to current; Card Evidence segment links retain that number. An entry target is any nonempty scalar router-decoded string, preserved verbatim without trimming, normalization, prefix parsing, or extra decoding; missing, empty, or nonscalar values supply no target. Router-built links preserve composite marker IDs and ordinary UUID rows under this one rule. Unknown entries are missing only in the successfully accepted selected/current segment. Missing segment, failed read, and missing entry are distinct; reload, same-session changes and Back preserve selection without substituting another source. Historical content stays separate from current updates in one exclusive reader.
+
+### Direct runtime-control evidence
+
+Direct operator transport handlers append one `operator_runtime_control` event at each known-return or explicit handler-rejection branch, with ordinary event ID/time, `actor:'operator'`, `surface:'operator_api'`, and one strict operation-discriminated `result`:
+
+| `result.operation` | Bounded recorded result |
+| --- | --- |
+| `pause_runtime`, `resume_runtime` | `outcome:'returned'`, `runtime_status` from the already built status response |
+| `stop_project` | `outcome:'returned'`, `status:'stopped'`, exact returned `contained` boolean |
+| `restart_server` | `outcome:'restart_scheduled'` after scheduling returns |
+| `pause_runtime`, `resume_runtime`, `stop_project` body rejection | `outcome:'rejected'`, `reason:'body_not_allowed'` |
+| `restart_server` capability denial | `outcome:'rejected'`, `reason:'restart_unavailable'` |
+
+These global events contain no synthetic card/session association, request body, credentials, headers, arbitrary error, or runtime snapshot. Delegated CLI requests reaching these handlers are included without distinct client attribution. There is no direct Run handler. Status reads, authentication/routing/schema rejection before handler entry, thrown runtime failures, and transport loss have no promised row. Analyst tool controls, Analyst restart confirmation, Planner operations, startup recovery, and internal transitions create no duplicate events here; their respective conversation/lifecycle evidence remains separate.
+
+Publication is one post-effect append attempt immediately before returning the existing response, not a transaction. Its timestamp is observation/publication time, not command duration. A returned `pausing` is not paused; `contained:false` is not newly contained. Known append failure propagates without another event, reread, retry, rollback, or undo: the principal effect may already have occurred. Publication uncertainty reaches the fatal boundary unchanged before any follow-up. Missing evidence or HTTP failure never authorizes repeating a command. Restart ordering is schedule, event append, finish-acknowledgement installation, then response; failed append installs no acknowledgement. **Restart scheduled** proves neither acknowledged shutdown, exit 75, replacement startup, nor readiness.
+
+Adding this durable event discriminator requires [stopped reset-only adoption](../runbook/index.md#direct-runtime-control-event-adoption), not mixed-version operation, migration, or binary-only rollback over new rows. No envelope-version bump is implied; source implementation authorizes no deployment or reset.
 Missing app-log state yields empty results.
 Every full read validates the complete event/control stream and rejects repeated logical IDs within that stream before lane filtering.
 Any incomplete content, duplicate, complete malformed canonical envelope, or invalid row fails the whole explicit read with HTTP 500 and returns no valid prefix; bytes remain unchanged.

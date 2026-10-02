@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { actionableErrorEnvelopeSchema } from './actionable-error.js';
 import { cardIdSchema } from './card-id.js';
+import { runtimeStatusSchema } from './validators.js';
 
 const eventBaseShape = {
   id: z.string().min(1),
@@ -39,10 +40,64 @@ const mcpToolInvocationEventSchema = z
   })
   .strict();
 
+const bodyRejectedShape = {
+  outcome: z.literal('rejected'),
+  reason: z.literal('body_not_allowed'),
+};
+const operatorRuntimeControlEventSchema = z
+  .object({
+    ...eventBaseShape,
+    kind: z.literal('operator_runtime_control'),
+    actor: z.literal('operator'),
+    surface: z.literal('operator_api'),
+    result: z.union([
+      z
+        .object({
+          operation: z.literal('pause_runtime'),
+          outcome: z.literal('returned'),
+          runtime_status: runtimeStatusSchema,
+        })
+        .strict(),
+      z
+        .object({
+          operation: z.literal('resume_runtime'),
+          outcome: z.literal('returned'),
+          runtime_status: runtimeStatusSchema,
+        })
+        .strict(),
+      z
+        .object({
+          operation: z.literal('stop_project'),
+          outcome: z.literal('returned'),
+          status: z.literal('stopped'),
+          contained: z.boolean(),
+        })
+        .strict(),
+      z
+        .object({ operation: z.literal('restart_server'), outcome: z.literal('restart_scheduled') })
+        .strict(),
+      z
+        .object({
+          operation: z.enum(['pause_runtime', 'resume_runtime', 'stop_project']),
+          ...bodyRejectedShape,
+        })
+        .strict(),
+      z
+        .object({
+          operation: z.literal('restart_server'),
+          outcome: z.literal('rejected'),
+          reason: z.literal('restart_unavailable'),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+
 export const loggedEventSchema = z.discriminatedUnion('kind', [
   runtimeDiagnosticEventSchema,
   runtimeActionableErrorEventSchema,
   mcpToolInvocationEventSchema,
+  operatorRuntimeControlEventSchema,
 ]);
 
 export type LoggedEvent = z.infer<typeof loggedEventSchema>;
@@ -57,12 +112,14 @@ export const eventKindValues = [
   'runtime_diagnostic',
   'runtime_actionable_error',
   'mcp_tool_invocation',
+  'operator_runtime_control',
 ] as const satisfies readonly EventKind[];
 
 const eventSeverity = {
   runtime_diagnostic: 'error',
   runtime_actionable_error: 'error',
   mcp_tool_invocation: 'info',
+  operator_runtime_control: 'info',
 } as const satisfies Record<EventKind, SeverityLevel>;
 
 export function getEventSeverity(kind: EventKind): SeverityLevel {
@@ -84,5 +141,9 @@ export type ErrorEvent =
   | (McpToolInvocationEvent & { success: false });
 
 export function isErrorEvent(event: LoggedEvent): event is ErrorEvent {
-  return event.kind !== 'mcp_tool_invocation' || !event.success;
+  return (
+    event.kind === 'runtime_diagnostic' ||
+    event.kind === 'runtime_actionable_error' ||
+    (event.kind === 'mcp_tool_invocation' && !event.success)
+  );
 }

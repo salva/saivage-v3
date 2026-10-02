@@ -21,6 +21,8 @@
         :key="selectedSessionId"
         :session-id="selectedSessionId"
         :entry-id="entryId"
+        :segment-version="segmentVersion"
+        :invalid-segment="invalidSegment"
       />
     </section>
   </div>
@@ -40,6 +42,8 @@ defineProps<{
   detail: CardDetail | null;
   selectedSessionId: ConversationSessionId | null;
   entryId: string | null;
+  segmentVersion?: number | null;
+  invalidSegment?: boolean;
   railAdmitted: boolean;
 }>();
 

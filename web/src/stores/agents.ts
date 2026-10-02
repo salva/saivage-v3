@@ -45,6 +45,7 @@ export const useAgentStore = defineStore('agents', () => {
   const conversationWarning = ref<string | null>(null);
   const conversationUnauthorized = ref(false);
   const conversationSegmentContext = ref<AgentConversationResponse['segment_context']>(null);
+  const conversationSegmentVersion = ref<number | null>(null);
   const conversationVersions = ref<AgentConversationVersionListResponse['versions']>([]);
   const conversationVersionsLoading = ref(false);
   const conversationVersionsError = ref<string | null>(null);
@@ -52,6 +53,8 @@ export const useAgentStore = defineStore('agents', () => {
   const selectedConversationVersionLoading = ref(false);
   const selectedConversationVersionError = ref<string | null>(null);
   let activeConversationToken: ConversationSelectionToken | null = null;
+  let versionRequest = 0;
+  let versionController: AbortController | null = null;
   const conversationIds = new WeakMap<object, ConversationSessionId>();
   let sessionSummaryController: AbortController | null = null;
   let sessionSummaryFlight: Promise<void> | null = null;
@@ -77,6 +80,7 @@ export const useAgentStore = defineStore('agents', () => {
       conversationUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
     },
     onAccepted({ acceptedEntries, response }) {
+      conversationSegmentVersion.value = response.segment_version;
       conversationSegmentContext.value = response.segment_context;
       conversationWarning.value = acceptedEntries.some((entry) => entry.kind === 'model_issue')
         ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
@@ -238,6 +242,9 @@ export const useAgentStore = defineStore('agents', () => {
     sessions.value = [];
   }
   function beginConversationSelection(id: ConversationSessionId): ConversationSelectionToken {
+    ++versionRequest;
+    versionController?.abort();
+    conversationSegmentVersion.value = null;
     conversation.reset();
     const token = Object.freeze({}) as ConversationSelectionToken;
     conversationIds.set(token, id);
@@ -327,28 +334,36 @@ export const useAgentStore = defineStore('agents', () => {
       conversationVersionsError.value = error instanceof Error ? error.message : String(error);
     } finally { if (token === activeConversationToken) conversationVersionsLoading.value = false; }
   }
-  async function selectConversationVersion(token: ConversationSelectionToken, version: number): Promise<void> {
+  async function selectConversationVersion(token: ConversationSelectionToken, version: number | null): Promise<void> {
     if (token !== activeConversationToken) return;
     const id = conversationIds.get(token)!;
-    if (conversation.cursor.value?.segment_version === version) {
-      selectedConversationVersion.value = null;
-      selectedConversationVersionError.value = null;
-      return;
-    }
+    const request = ++versionRequest;
+    versionController?.abort();
+    selectedConversationVersion.value = null;
+    selectedConversationVersionError.value = null;
+    selectedConversationVersionLoading.value = false;
+    if (version === null) return;
+    const controller = new AbortController();
+    versionController = controller;
     selectedConversationVersionLoading.value = true;
     try {
-      const response = await getAgentConversationVersion(id, version);
-      if (token !== activeConversationToken) return;
+      const response = await getAgentConversationVersion(id, version, controller.signal);
+      if (token !== activeConversationToken || request !== versionRequest) return;
       selectedConversationVersion.value = response;
       selectedConversationVersionError.value = null;
     } catch (error) {
-      if (token !== activeConversationToken) return;
+      if (token !== activeConversationToken || request !== versionRequest || abortError(error)) return;
       selectedConversationVersion.value = null;
-      selectedConversationVersionError.value = error instanceof Error ? error.message : String(error);
-    } finally { if (token === activeConversationToken) selectedConversationVersionLoading.value = false; }
+      selectedConversationVersionError.value = error instanceof OperatorApiError && error.isNotFound
+        ? 'This exact segment is not available. No replacement is searched.'
+        : error instanceof Error ? error.message : String(error);
+    } finally { if (token === activeConversationToken && request === versionRequest) selectedConversationVersionLoading.value = false; }
   }
   function clearConversationSelection(token: ConversationSelectionToken) {
     if (token !== activeConversationToken) return;
+    ++versionRequest;
+    versionController?.abort();
+    conversationSegmentVersion.value = null;
     conversation.reset();
     sessionSummaryController?.abort();
     sessionSummaryController = null;
@@ -463,6 +478,7 @@ export const useAgentStore = defineStore('agents', () => {
     conversationRefreshError,
     conversationUnauthorized,
     conversationSegmentContext,
+    conversationSegmentVersion,
     conversationVersions,
     conversationVersionsLoading,
     conversationVersionsError,

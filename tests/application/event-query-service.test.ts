@@ -4,11 +4,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
+import { createEventLog } from '../../src/observability/event-logger.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe('EventQueryService', () => {
+  it('includes direct controls in Events but never Errors or card-filtered Events', () => {
+    const root = mkdtempSync(join(tmpdir(), 'event-query-')); roots.push(root);
+    const log = createEventLog(root);
+    for (const result of [
+      { operation: 'pause_runtime', outcome: 'returned', runtime_status: 'pausing' },
+      { operation: 'restart_server', outcome: 'rejected', reason: 'restart_unavailable' },
+    ] as const) log.appendEvent({ kind: 'operator_runtime_control', actor: 'operator', surface: 'operator_api', result });
+    log.appendEvent({ kind: 'runtime_diagnostic', card_id: 'project', error_message: 'failure' });
+    log.appendEvent({ kind: 'runtime_actionable_error', actionable_error: { code: 'fix', message: 'failure', nextAction: 'fix' } });
+    log.appendEvent({ kind: 'mcp_tool_invocation', server: 's', tool: 't', success: false, duration_ms: 1 });
+    const service = new EventQueryService(root);
+    expect(service.queryEvents().total).toBe(5);
+    expect(service.queryEvents({ kind: 'operator_runtime_control' }).total).toBe(2);
+    expect(service.queryEvents({ card_id: 'project' }).events.map(event => event.kind)).toEqual(['runtime_diagnostic']);
+    expect(service.queryEvents({ kind: 'operator_runtime_control', card_id: 'project' }).total).toBe(0);
+    expect(service.queryErrors().errors.map(event => event.kind)).toEqual(['runtime_diagnostic', 'runtime_actionable_error', 'mcp_tool_invocation']);
+  });
   it('defaults to oldest 50 and returns a chronological newest tail', () => {
     const root = mkdtempSync(join(tmpdir(), 'event-query-')); roots.push(root);
     for (let index = 0; index < 55; index++) appendAppLogEntry(root, 'event', () => ({ type: 'event', data: { kind: 'runtime_diagnostic', id: `evt-${index}`, timestamp: new Date(index).toISOString(), error_message: `failure ${index}`, card_id: index % 2 ? 'card-a' : 'project' } }));

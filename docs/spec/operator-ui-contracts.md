@@ -220,6 +220,34 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ## 6. Conversation readers
 
+- `/agents/:id?segment=N&entry=ID` selects one exact indexed segment and optionally
+  its exact row. `segment` is a scalar decimal `[1-9][0-9]*` with a positive safe
+  integer value; absence selects current. Invalid values render **Invalid segment
+  selection** without a version-content request or current fallback. Explicit selection
+  reads the requested version even when equal to current and opens Segment history.
+  `entry` is any nonempty scalar router-decoded string, preserved verbatim: no trim,
+  case folding, extra decoding, UUID restriction, prefix parsing, or reconstructed ID.
+  Missing, empty, or nonscalar values give no target; unknown opaque IDs reach ordinary
+  missing-entry presentation. Vue Router builds encoded query values.
+- **Activation entries — this segment** projects already returned public markers in
+  physical source order and labels each **Activation entry recorded**, configured
+  participant and recorded time, with copyable recorded identities and **Open entry**.
+  Every link carries the observed numeric segment and full marker row ID; marker-only
+  rounds render actual escaped transcript anchors, focused/highlighted by exact identity.
+  Coverage says **Markers retained in this segment only; earlier entries may have been
+  compacted. Entry does not prove a provider call or completion.** Empty accepted coverage
+  says **No activation markers retained in this segment**. Claimed malformed markers
+  produce explicit projection failure, not empty coverage. Inherited-open-round genesis
+  is **Continuation context**, not a new marker, inferred node, timestamp or location;
+  omitted markers are not searched for. This index applies only to the ordinary exact
+  reader, not the unchanged identity-resolved Analyst inspector exception.
+- Current loading/error/retained-stale state follows the current reader; an accepted
+  explicit segment is independent of current refresh failures and arrivals. Missing exact
+  segment, failed read, and entry absent within a successfully accepted segment are distinct.
+  Entry-only links report absence only **in the current segment**. Route changes retarget
+  even without content changes; cold load, reload and Back retain exact selection.
+  Historical inspection is not stolen by live hints or auto-scroll. No stitched transcript,
+  second conversation owner, catalog crawl, adjacent-version guess or all-history search exists.
 - One focused exact session reader exists (shared store selection with
   owner-local request lifetimes and teardown before a newer selection).
   System session opening, evidence links, and card participant selection all
@@ -296,7 +324,8 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   promise retention; there is no terminate control or process-history cache.
 - Evidence is a source-labeled navigation index: card-version, per-record
   revision, and per-session segment catalogs open on demand with exact links
-  into their owning readers and coverage labels. The card events tail uses
+  into their owning readers and coverage labels. A session segment link includes
+  `segment=N`, rather than merely opening the session's current content. The card events tail uses
   `GET /api/events` with `selection:'newest_tail'`, limit 50, offset 0, and
   the card filter; explicit oldest-page browsing uses contract-valid
   offset/limit. Each response is a fresh bounded observation with returned
@@ -308,6 +337,17 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ## 9. System surface
 
+- Events presents informational `operator_runtime_control` rows with their bounded
+  `result`: **Pause/Resume returned runtime status: …**, **Stop returned stopped;
+  execution contained (contained: true)** or **execution not newly contained
+  (contained: false)**, **Restart scheduled — shutdown and replacement readiness not
+  established**, or the explicit body-not-allowed/restart-unavailable rejection.
+  These global rows have no synthetic card link and are excluded from Errors and
+  card-filtered Events. Errors explicitly includes runtime diagnostics, actionable
+  errors and failed MCP invocations only. Direct controls record known handler returns
+  and explicit handler rejections; status reads, pre-handler denials, thrown failures
+  and transport loss have no promised row. Missing evidence does not authorize repeating
+  a command. Analyst tool evidence remains in conversations, not duplicate control events.
 - System consolidates State, Operator observation, Participants (global and
   cross-card inventory), Errors, Events (no card filter), Processes, MCP,
   Provider availability, Configuration, Installed workflows/bindings,
@@ -324,7 +364,8 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   configuration and installed workflow/model/tool bindings are labeled
   separately; no editor, prompt-body viewer, or hot reload exists. Actions
   show retained settled actor/target/time/result rows without guaranteed
-  audit completeness. Oversight appears as an ordinary global participant
+  audit completeness: only the bounded audited Analyst mutation surface currently
+  produces them, while historical Planner rows remain readable. Oversight appears as an ordinary global participant
   conversation with epoch diagnostics (waiting/checking/unavailable) and no
   manual check, configuration editor, or trigger.
 

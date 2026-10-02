@@ -13,6 +13,10 @@
           {{ round.kind }}<span class="round-position"> — turn {{ round.position }}</span>
         </header>
         <ContextBlock v-for="entry in round.texts" :key="entry.id" :entry="entry" />
+        <div v-for="entry in round.activations" :key="entry.id" :data-entry-id="entry.id" tabindex="-1" class="activation-marker">
+          <strong>Activation entry recorded</strong>
+          <pre>{{ entry.content }}</pre>
+        </div>
         <DiagnosticRow v-for="entry in round.diagnostics" :key="entry.id" :entry="entry" />
         <template v-for="item in round.items" :key="itemKey(item)">
           <ToolGroupRow
@@ -64,6 +68,8 @@ function isAuthorBoundary(index: number): boolean {
   flex-direction: column;
   gap: 12px;
 }
+.activation-marker { padding: 8px; border: 1px solid var(--border); font-size: 12px; color: var(--text); }
+.activation-marker pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 .round-card {
   display: flex;
   flex-direction: column;

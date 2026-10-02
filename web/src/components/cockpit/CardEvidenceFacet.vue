@@ -54,7 +54,7 @@
           </template>
           <ol v-else class="evidence-list">
             <li v-for="version in segmentCatalogs[session.id]?.versions ?? []" :key="version.entry_id">
-              <router-link :to="{ name: 'agent-detail', params: { id: session.id } }">Segment {{ version.version }}<span class="evidence-genesis mono"> · {{ version.genesis_kind }}</span></router-link>
+              <router-link :to="{ name: 'agent-detail', params: { id: session.id }, query: { segment: String(version.version) } }">Segment {{ version.version }}<span class="evidence-genesis mono"> · {{ version.genesis_kind }}</span></router-link>
             </li>
           </ol>
         </div>

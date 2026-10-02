@@ -13,6 +13,17 @@ import { CardService } from '../helpers/canonical-project.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 describe('analyst runtime tools', () => {
+  it('does not duplicate direct operator events for Analyst controls', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-controls-'));
+    try {
+      const context = { ...controlContext(), projectRoot, eventLogger: createEventLog(projectRoot) } as ToolContext;
+      await pause_runtime(context, {});
+      await resume_runtime({ ...context, runtime: controlContext({ getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })) }).runtime }, {});
+      await stop_project(context, {});
+      await start_project(context, {});
+      expect(new EventQueryService(projectRoot).queryEvents().total).toBe(0);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
   async function invokeObservation(name: string, context: GlobalObservationToolContext, args: unknown) {
     const binder = globalObservationToolBinders.find((candidate) => candidate.name === name)!;
     return (await binder.bind(context).executor(args, new AbortController().signal)).providerOutcome;

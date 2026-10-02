@@ -26,6 +26,7 @@
       <button v-else-if="state.mode === 'newest_tail' && state.total !== null && state.events.length < state.total" type="button" class="events-command events-older" @click="browse(0)">Browse from the oldest page</button>
     </template>
     <p class="events-note">Events are a bounded retained observation with no invalidation, polling, or replay. Use Refresh to request a new bounded read.</p>
+    <p v-if="!scope.cardId" class="events-note">Direct runtime controls record only known handler returns and explicit handler rejections. Status reads, pre-handler denials, thrown failures and transport loss have no promised row. Missing evidence does not authorize repeating a command; restart scheduled does not prove shutdown or replacement readiness.</p>
   </section>
 </template>
 
@@ -62,15 +63,34 @@ const coverageLabel = computed(() => {
 function fmtTime(ts: string): string { return formatRecentTimestamp(ts); }
 
 function eventSummary(event: EventRow): string {
-  if (event.kind === 'runtime_diagnostic') return `${event.phase ? `${event.phase}: ` : ''}${event.error_message}`;
-  if (event.kind === 'runtime_actionable_error') return `${event.actionable_error.code}: ${event.actionable_error.message}`;
-  return `${event.server}:${event.tool} ${event.success ? 'succeeded' : 'failed'} in ${event.duration_ms}ms${event.error ? ` — ${event.error}` : ''}`;
+  switch (event.kind) {
+    case 'runtime_diagnostic': return `${event.phase ? `${event.phase}: ` : ''}${event.error_message}`;
+    case 'runtime_actionable_error': return `${event.actionable_error.code}: ${event.actionable_error.message}`;
+    case 'mcp_tool_invocation': return `${event.server}:${event.tool} ${event.success ? 'succeeded' : 'failed'} in ${event.duration_ms}ms${event.error ? ` — ${event.error}` : ''}`;
+    case 'operator_runtime_control': {
+      const result = event.result;
+      if (result.outcome === 'rejected') return `${result.operation} rejected: ${result.reason === 'body_not_allowed' ? 'request body not allowed' : 'restart unavailable'}`;
+      switch (result.operation) {
+        case 'pause_runtime': return `Pause returned runtime status: ${result.runtime_status}`;
+        case 'resume_runtime': return `Resume returned runtime status: ${result.runtime_status}`;
+        case 'stop_project': return `Stop returned stopped; ${result.contained ? 'execution contained' : 'execution not newly contained'} (contained: ${result.contained})`;
+        case 'restart_server': return 'Restart scheduled — shutdown and replacement readiness not established';
+        default: return assertNever(result);
+      }
+    }
+    default: return assertNever(event);
+  }
 }
 
+function assertNever(value: never): never { throw new Error(`Unsupported event: ${String(value)}`); }
+
 function cardReference(event: EventRow): string | null {
-  if (event.kind === 'runtime_diagnostic') return event.card_id ?? event.goal_id ?? null;
-  if (event.kind === 'runtime_actionable_error') return event.actionable_error.cardId ?? null;
-  return null;
+  switch (event.kind) {
+    case 'runtime_diagnostic': return event.card_id ?? event.goal_id ?? null;
+    case 'runtime_actionable_error': return event.actionable_error.cardId ?? null;
+    case 'mcp_tool_invocation': case 'operator_runtime_control': return null;
+    default: return assertNever(event);
+  }
 }
 </script>
 

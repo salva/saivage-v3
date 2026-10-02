@@ -278,6 +278,8 @@ closing the browser is not represented as cancellation of the shared turn. Other
 
 **F30 — Should — Evidence of intervention.** Let the operator inspect retained settled
 control-action evidence with its recorded actor, target, time, and ok/denied/error result.
+The current producer is the bounded audited Analyst mutation surface; valid historical
+Planner rows remain evidence. Actions is not complete mutation or runtime-control history.
 Check an admitted effect followed by caller disposal: its successful audit is not relabelled
 as failed. Missing audit evidence proves neither no action nor permission to repeat it.
 
@@ -324,6 +326,10 @@ busy; a nominal due time is not a guaranteed check. No manual Oversight trigger 
 selected work across card versions, record revisions, and session segments. Check an
 hours-long scenario: identify source and coverage of each sequence and reach its evidence;
 timestamp proximity does not establish cross-resource causal or atomic order.
+Check a marker-only session segment: **Activation entry recorded** remains visible and
+opens its real transcript row, but proves neither provider invocation nor completion.
+The activation index covers one selected session/segment, not every prior activation;
+compacted inherited continuation is context, not another entry.
 
 **F37 — Should — Interval catch-up through the Analyst.** Through the Analyst conversation,
 obtain relevant available changes and current outcome over an operator-supplied horizon
@@ -336,6 +342,9 @@ participates in framing or answering. See N2.
 with its kinds, timestamps, scopes, and bounded coverage, and relate exact referenced
 cards/sessions where supplied. Check non-card events and missing evidence: events are
 not a comprehensive run ledger or a replay of WebSocket invalidations. See N2.
+Check direct-control outcomes: returned `pausing` is not paused, Stop preserves both
+`contained` results, and restart scheduled is not replacement readiness. Handler rejections
+are informational evidence, not runtime errors; missing events do not prove no effect.
 
 ### I. Find, trust, and use the information
 
@@ -347,6 +356,10 @@ Preserve the exact supplied identity; never normalize identity, guess, or search
 for a replacement. Check cold deep links, rapid selection changes, malformed IDs, and
 missing targets for each resource against its authoritative contract: score whether exact
 selection is preserved and its prescribed invalid/not-found outcome is honestly presented.
+Check a Card Evidence segment link and an activation link through cold load, reload,
+same-session changes and Back: the exact numeric segment and unchanged opaque marker ID
+remain selected. Invalid segment, unavailable exact segment, failed read and entry missing
+within an accepted segment are distinct, with no search elsewhere or fallback to current.
 Malformed Cards routes make no detail request and share the same **Card not found**
 presentation as typed detail 404s; malformed direct Agent routes instead show a
 distinct invalid-session state without mounting detail. These per-resource
@@ -419,7 +432,9 @@ All other F-numbers remain unchanged.
 - **N2 — Catch-up (F37–F38):** card/record history, conversation segments, retained app
   events/errors, and control-action rows provide bounded evidence. There is no complete
   durable Run/global activity ledger, durable actor cursor, or “last visit” contract.
-  Existing UI has no event timeline consumer. Catch-up is Analyst-mediated with
+  Card Evidence and System Events consume bounded retained events; the ordinary exact
+  conversation reader indexes activation markers in just its selected segment. Neither
+  is a Debug Timeline, all-history index, or global chronology. Catch-up is Analyst-mediated with
    operator-supplied horizons; no operator-visit state tracking viewing/reading over time or dedicated UI catch-up surface
   is built. A new ledger, guaranteed digest, or alert service is not authorized.
 - **N3 — Broad discovery (F41):** no global card index or complete browser inventory is

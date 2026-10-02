@@ -3,6 +3,7 @@ import { parseToolCallMessage } from '../persistedToolCall';
 import { parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, ToolPair } from './types';
 import { groupToolPairs } from '../tool-friendly';
+import { activationEntry } from './activation';
 
 type TimelineEntry = AgentConversationEntry;
 
@@ -49,7 +50,7 @@ function isDisplayTextEntry(entry: TimelineEntry): boolean {
 }
 
 function hasVisibleRoundContent(round: TimelineRound): boolean {
-  return round.texts.length > 0 || round.diagnostics.length > 0 || round.items.length > 0;
+  return round.activations.length > 0 || round.texts.length > 0 || round.diagnostics.length > 0 || round.items.length > 0;
 }
 
 function roundOrderKey(entries: IndexedTimelineEntry[]): [number, string, string] {
@@ -122,6 +123,7 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
       position: idx + 1,
       entries: sorted,
       texts: sorted.filter(isDisplayTextEntry),
+      activations: roundEntries.map(({ entry }) => entry).filter((entry) => activationEntry(entry) !== null),
       diagnostics: sorted.filter(
         (entry) =>
           entry.kind === 'model_issue' ||

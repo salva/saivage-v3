@@ -12,6 +12,7 @@ import type {
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import { SAIVAGE_VERSION } from '../../version.js';
+import { createEventLog } from '../../observability/index.js';
 
 type RuntimeCardOperatorHandlerOptions = OperatorProjectContext &
   OperatorRuntimeProviderContext &
@@ -36,6 +37,7 @@ export function buildRuntimeCardOperatorContractHandlers(
   options: RuntimeCardOperatorHandlerOptions,
 ) {
   const { projectRoot } = options;
+  const eventLog = createEventLog(projectRoot);
   let cardsReadModel: CardsReadModelService | null = null;
   const getCardsReadModel = () => {
     cardsReadModel ??= new CardsReadModelService(
@@ -83,9 +85,17 @@ export function buildRuntimeCardOperatorContractHandlers(
     },
     'runtime.pause': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
-      if (rejection) return rejection;
+      if (rejection) {
+        eventLog.appendEvent({
+          kind: 'operator_runtime_control',
+          actor: 'operator',
+          surface: 'operator_api',
+          result: { operation: 'pause_runtime', outcome: 'rejected', reason: 'body_not_allowed' },
+        });
+        return rejection;
+      }
       options.runtimeApplication.runtimeApi.pause();
-      return {
+      const response = {
         body: buildRuntimeStatusReadModel({
           runtimeApi: options.runtimeApplication.runtimeApi,
           serverAvailability: options.serverAvailabilityProvider(),
@@ -93,12 +103,31 @@ export function buildRuntimeCardOperatorContractHandlers(
           oversight: options.runtimeApplication.getOversightStatus(),
         }),
       };
+      eventLog.appendEvent({
+        kind: 'operator_runtime_control',
+        actor: 'operator',
+        surface: 'operator_api',
+        result: {
+          operation: 'pause_runtime',
+          outcome: 'returned',
+          runtime_status: response.body.runtime,
+        },
+      });
+      return response;
     },
     'runtime.resume': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
-      if (rejection) return rejection;
+      if (rejection) {
+        eventLog.appendEvent({
+          kind: 'operator_runtime_control',
+          actor: 'operator',
+          surface: 'operator_api',
+          result: { operation: 'resume_runtime', outcome: 'rejected', reason: 'body_not_allowed' },
+        });
+        return rejection;
+      }
       options.runtimeApplication.runtimeApi.resume();
-      return {
+      const response = {
         body: buildRuntimeStatusReadModel({
           runtimeApi: options.runtimeApplication.runtimeApi,
           serverAvailability: options.serverAvailabilityProvider(),
@@ -106,14 +135,55 @@ export function buildRuntimeCardOperatorContractHandlers(
           oversight: options.runtimeApplication.getOversightStatus(),
         }),
       };
+      eventLog.appendEvent({
+        kind: 'operator_runtime_control',
+        actor: 'operator',
+        surface: 'operator_api',
+        result: {
+          operation: 'resume_runtime',
+          outcome: 'returned',
+          runtime_status: response.body.runtime,
+        },
+      });
+      return response;
     },
     stop_project: async ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
-      if (rejection) return rejection;
-      return { body: await options.runtimeApplication.runtimeApi.stopProject() };
+      if (rejection) {
+        eventLog.appendEvent({
+          kind: 'operator_runtime_control',
+          actor: 'operator',
+          surface: 'operator_api',
+          result: { operation: 'stop_project', outcome: 'rejected', reason: 'body_not_allowed' },
+        });
+        return rejection;
+      }
+      const body = await options.runtimeApplication.runtimeApi.stopProject();
+      eventLog.appendEvent({
+        kind: 'operator_runtime_control',
+        actor: 'operator',
+        surface: 'operator_api',
+        result: {
+          operation: 'stop_project',
+          outcome: 'returned',
+          status: body.status,
+          contained: body.contained,
+        },
+      });
+      return { body };
     },
     restart_server: ({ reply }) => {
-      if (!options.restartCapability.available)
+      if (!options.restartCapability.available) {
+        eventLog.appendEvent({
+          kind: 'operator_runtime_control',
+          actor: 'operator',
+          surface: 'operator_api',
+          result: {
+            operation: 'restart_server',
+            outcome: 'rejected',
+            reason: 'restart_unavailable',
+          },
+        });
         return {
           statusCode: 403,
           body: {
@@ -121,8 +191,15 @@ export function buildRuntimeCardOperatorContractHandlers(
             message: 'restart unavailable: operator authentication disabled',
           },
         };
+      }
       const restartPort = options.restartCapability.port;
       restartPort.schedule();
+      eventLog.appendEvent({
+        kind: 'operator_runtime_control',
+        actor: 'operator',
+        surface: 'operator_api',
+        result: { operation: 'restart_server', outcome: 'restart_scheduled' },
+      });
       reply.raw.once('finish', () => {
         void restartPort.acknowledge();
       });

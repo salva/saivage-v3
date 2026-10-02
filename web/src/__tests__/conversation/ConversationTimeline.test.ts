@@ -14,7 +14,7 @@ function emptyTimeline(overrides: Partial<AgentTimeline> = {}): AgentTimeline {
 
 function round(id: string, kind: TimelineRound['kind']): TimelineRound {
   return {
-    id, kind, position: 1, entries: [], texts: [], diagnostics: [], toolPairs: [], items: [],
+    id, kind, position: 1, entries: [], texts: [], activations: [], diagnostics: [], toolPairs: [], items: [],
   };
 }
 

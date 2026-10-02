@@ -138,7 +138,7 @@ export const analystRuntimeToolBinders: readonly ToolBinder<ToolContext, any>[] 
   defineToolBinder({
     name: 'read_control_actions',
     description:
-      'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.',
+      'Read retained settled control-action entries for the bounded audited Analyst mutation surface. Historical entries remain readable regardless of recorded actor. This is not a complete mutation or runtime-control history; inspect conversations and runtime events for their respective evidence.',
     resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
     inputSchema: () => readControlActionsInputSchema,
     executor: (ctx, args) =>

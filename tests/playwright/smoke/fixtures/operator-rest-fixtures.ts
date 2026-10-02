@@ -157,7 +157,7 @@ function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
 
-function retainedInstructionContext(sessionId: string) {
+export function retainedInstructionContext(sessionId: string) {
   const instruction = { id: 'retained-smoke-instruction', session_id: sessionId, role: 'user', kind: 'text', content: 'Preserve this exact operator constraint.', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: false, compaction_key: 'smoke.constraint' }, round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: now };
   return { kind: 'compacted', source_version: 1, covered_through_message_id: instruction.id, summary_text: 'Earlier work was compacted.', source_kind: 'current_rows', prior_genesis_id: null, prior_history_hash: null, covered_group_count: 1, protected_prompts: [{ source: { segment_version: 1, row_index: 1 }, message: instruction }], dispositions: { sha256: 'a'.repeat(64), count: 1, summarized: 0, evidence_only: 0, superseded: 0, protected: 1 }, coverage: { source_session_id: sessionId, source_version: 1, covered_through_message_id: instruction.id, covered_source_groups_sha256: 'b'.repeat(64), accumulated_summary_sha256: 'c'.repeat(64), protected_prompts_sha256: 'd'.repeat(64) }, required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null }, continuation: { kind: 'between_rounds' } };
 }
@@ -282,6 +282,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         session_id: sessionId,
         versions: [{ entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', version: 1, published_at: now, genesis_kind: 'ordinary', source_version: null }],
         total: 1,
+      }));
+    }
+    if (request.method() === 'GET' && /\/api\/agents\/[^/]+\/conversation\/versions\/1$/.test(url.pathname)) {
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3]!);
+      return json(route, parseOperatorResponse('agents.conversationVersions.get', 200, {
+        session_id: sessionId, version: 1, entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', published_at: now,
+        segment_context: null, entries: [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')],
       }));
     }
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.split('/').length === 4) {

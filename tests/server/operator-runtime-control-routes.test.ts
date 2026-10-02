@@ -9,6 +9,7 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildRuntimeCardOperatorContractHandlers } from '../../src/server/routes/operator-runtime-card-handlers.js';
 import { createEventLog } from '../../src/observability/index.js';
+import { EventQueryService } from '../../src/application/event-query-service.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,7 +62,7 @@ describe('runtime-control route request contracts', () => {
       serverAvailabilityProvider: () => serverAvailability,
       restartCapability: { available: true, port: { schedule, acknowledge } },
     });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog('.'), fatalPort: testApplicationFatalPort }).mount(fastify, operatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, operatorApiContracts, handlers);
     await fastify.ready();
   });
 
@@ -91,6 +92,15 @@ describe('runtime-control route request contracts', () => {
     const status = await fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: 'Bearer route-token' } });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({ runtime: 'stopped', restart_server_available: true, serverAvailability });
+    expect(new EventQueryService(projectRoot).queryEvents().total).toBe(0);
+  });
+
+  it('does not record requests denied by authentication', async () => {
+    for (const url of [...routes.map(([url]) => url), '/api/runtime/restart-server']) {
+      expect((await fastify.inject({ method: 'POST', url })).statusCode).toBe(401);
+    }
+    expect(new EventQueryService(projectRoot).queryEvents().total).toBe(0);
+    expect(pause).not.toHaveBeenCalled(); expect(resume).not.toHaveBeenCalled(); expect(stopProject).not.toHaveBeenCalled(); expect(schedule).not.toHaveBeenCalled();
   });
 
   it.each(routes)('accepts an absent body for %s', async (url, control) => {
@@ -102,6 +112,7 @@ describe('runtime-control route request contracts', () => {
 
     expect(response.statusCode).toBe(200);
     expect(control).toHaveBeenCalledWith();
+    expect(new EventQueryService(projectRoot).queryEvents().events).toEqual([expect.objectContaining({ kind: 'operator_runtime_control', result: expect.objectContaining({ outcome: 'returned' }) })]);
     expect(observedHeaders.at(-1)).toMatchObject({ authorization: 'Bearer route-token', accept: 'application/json', 'x-runtime-test': 'ordinary' });
     expect(observedHeaders.at(-1)).not.toHaveProperty('content-type');
   });
@@ -119,6 +130,7 @@ describe('runtime-control route request contracts', () => {
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ error: 'ValidationError' });
       expect(control).not.toHaveBeenCalled();
+      expect(new EventQueryService(projectRoot).queryEvents().events).toEqual([expect.objectContaining({ kind: 'operator_runtime_control', result: expect.objectContaining({ outcome: 'rejected', reason: 'body_not_allowed' }) })]);
     },
   );
 
@@ -143,6 +155,8 @@ describe('runtime-control route request contracts', () => {
       expect(response.statusCode).toBe(400);
     }
     expect(schedule).not.toHaveBeenCalled();
+
+    expect(new EventQueryService(projectRoot).queryEvents().total).toBe(0);
 
     const response = await fastify.inject({
       method: 'POST',
