@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { uuidV4Schema } from './uuid.js';
 
 import { sha256Hex } from './sha256.js';
 import { cardActionValues, cardStatusValues, urgencyValues } from './types.js';
@@ -27,7 +28,7 @@ const noteAuthorSchema = z.union([z.literal('user'), z.literal('runtime'), agent
 const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z
   .object({
-    id: z.string().min(1),
+    id: uuidV4Schema,
     content: z.string().min(1),
     created_at: z.string().datetime(),
     source: z.string().min(1).optional(),
@@ -58,7 +59,7 @@ const cardRecordShape = {
   status_text_author_session_id: z.null(),
   latest_self_report: z.null(),
   metadata: z.null(),
-  pending_notifications: z.array(cardNotificationSchema),
+  pending_notifications: z.array(uuidV4Schema),
 };
 const { pending_notifications: _pendingNotificationsSchema, ...outboundCardRecordShape } =
   cardRecordShape;
@@ -105,10 +106,7 @@ function refineCardCommon(
 }
 function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.RefinementCtx): void {
   refineCardCommon(card, ctx);
-  if (
-    new Set(card.pending_notifications.map((notification) => notification.id)).size !==
-    card.pending_notifications.length
-  )
+  if (new Set(card.pending_notifications).size !== card.pending_notifications.length)
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Notification ids must be unique per card.',
@@ -133,6 +131,12 @@ export const outboundCardRecordSchema: z.ZodType<import('./types.js').OutboundCa
 export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() =>
   z.object(cardRecordShape).strict().superRefine(refineCardLifecycle),
 );
+const {
+  version_seq: _version,
+  updated_at: _updated,
+  ...ordinaryCardShape
+} = outboundCardRecordShape;
+export const ordinaryCardPayloadSchema = z.object(ordinaryCardShape).strict();
 export const cardViewSchema: z.ZodType<import('./types.js').CardView> = z
   .object({
     card: outboundCardRecordSchema,

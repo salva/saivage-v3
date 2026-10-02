@@ -654,8 +654,8 @@ function normalizeBackendPivot(key, value) {
     const meanings = claimObject(object.meanings, ['numeric', 'omitted', 'current'], `${key}.meanings`);
     normalized.meanings = {
       numeric: claimLiteral(meanings.numeric, 'historical-version', `${key}.meanings.numeric`),
-      omitted: claimLiteral(meanings.omitted, 'current-artifact', `${key}.meanings.omitted`),
-      current: claimLiteral(meanings.current, 'current-artifact', `${key}.meanings.current`),
+      omitted: claimLiteral(meanings.omitted, 'current-projection', `${key}.meanings.omitted`),
+      current: claimLiteral(meanings.current, 'current-projection', `${key}.meanings.current`),
     };
   }
   return normalized;
@@ -896,7 +896,7 @@ function selectCardNotFoundUnion(projectRoot, unionName, operation) {
   const service = 'src/cards/card-service.ts';
   const { ast: serviceAst } = sourceAst(projectRoot, service);
   requireNodeFragments(namedFunction(serviceAst, operation === 'cards.history.get' ? 'readCardVersion' : 'diffCardVersions', service), serviceAst, operation === 'cards.history.get'
-    ? ['readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "if (catalog.kind === 'card-not-found') return catalog", 'catalog.value.rows[version - 1]', 'row.version === version', "{ kind: 'version-not-found', version }"]
+    ? ['readCommittedCardVersion(this.projectRoot, id, version, instrumentation)', "if (catalog.kind === 'card-not-found') return catalog", 'const row = catalog.value', 'row.version === version', "{ kind: 'version-not-found', version }"]
     : ["kind: 'version-not-found' as const, version, side"], `${operation} CardService selection`);
   return errorValue([card, historical]);
 }
@@ -1252,10 +1252,10 @@ function selectBackendPivot(projectRoot, side) {
   requireSourceFragments(projectRoot, contract, ['canonicalPositiveSafeIntegerStringSchema = z\n  .string()\n  .regex(/^[1-9][0-9]*$/)', '.superRefine((raw, ctx)', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', '.transform(Number)', "diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema])", 'CardDiffQuerySchema = z\n  .object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() })\n  .strict()'], 'backend diff query');
   requireSourceFragments(projectRoot, 'src/server/routes/operator-runtime-card-handlers.ts', ["'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query)"], 'backend diff handler');
   requireSourceFragments(projectRoot, 'src/application/read-models/cards-read-model.ts', ['diffCard(\n    id: string,\n    query:', 'fromVersion: query.from,\n      toVersion: query.to'], 'backend diff read-model mapping');
-  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "typeof pivots.toVersion === 'number' ? pivots.toVersion : catalog.value.head.version", "pivots.toVersion === undefined || pivots.toVersion === 'current'\n        ? catalog.value.head"], 'backend diff service meanings');
+  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", 'readCommittedCardCurrent(this.projectRoot, id, instrumentation)', "typeof pivots.toVersion === 'number'\n        ? pivots.toVersion", 'current.value.card.version_seq', 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation)', "{ kind: 'current', version_seq: to, history_version: current.value.artifact.version }", "{ kind: 'version', version: to }"], 'backend diff service meanings');
   return side === 'from'
     ? { field: 'from', presence: 'required', variants: [{ kind: 'canonical-positive-safe-integer' }], mapping: 'fromVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number' }
-    : { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-artifact', current: 'current-artifact' } };
+    : { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-projection', current: 'current-projection' } };
 }
 function selectUiDiff(projectRoot) {
   const clientPath = 'web/src/api/client.ts';

@@ -36,7 +36,7 @@ function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
 }
 
 describe('publication fatal owner boundaries', () => {
-  it.each(['read-owned-card', 'read-owned-record', 'read-owned-provider', 'read-owned-conversation', 'read-owned-log', 'log-append-torn'])('exits real REST %s ownership before response, diagnostic, or later effects', (mode) => {
+  it.each(['read-owned-provider', 'read-owned-conversation', 'read-owned-log', 'log-append-torn'])('exits real REST %s ownership before response, diagnostic, or later effects', (mode) => {
     expectFatalOwner(mode, diagnosticWithCause('truncate uncertain'));
   });
   it.each(['card-node-task', 'card-node-task-late'])('exits raw CardProcess %s ownership even after wrapper cancellation without later effects', (mode) => {

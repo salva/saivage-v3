@@ -5,6 +5,8 @@ import {
   CARD_RECORD_FIELDS,
   cardIdSchema,
   cardRecordSchema,
+  ordinaryCardPayloadSchema,
+  cardNotificationSchema,
   cardVersionChangeSchema,
   nonRootCardIdSchema,
   positiveSafeIntegerSchema,
@@ -16,18 +18,65 @@ import {
 
 export { cardVersionChangeSchema } from '../schemas/index.js';
 
+export const cardArtifactReferenceSchema = z
+  .object({ entry_id: uuidV4Schema, version: positiveSafeIntegerSchema })
+  .strict();
+export type CardArtifactReference = z.infer<typeof cardArtifactReferenceSchema>;
+export const cardHeadSchema = z
+  .object({
+    format_version: z.literal(1),
+    kind: z.literal('card-head'),
+    card_id: cardIdSchema,
+    version_seq: positiveSafeIntegerSchema,
+    updated_at: z.string().datetime(),
+    ordinary: cardArtifactReferenceSchema,
+    pending: z.array(uuidV4Schema),
+  })
+  .strict()
+  .superRefine((head, ctx) => {
+    if (
+      head.ordinary.version > head.version_seq ||
+      new Set(head.pending).size !== head.pending.length
+    )
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid card head selection.' });
+  });
+type CardHead = z.infer<typeof cardHeadSchema>;
+export const cardMailboxMessageSchema = z
+  .object({
+    format_version: z.literal(1),
+    kind: z.literal('card-message'),
+    card_id: cardIdSchema,
+    notification: cardNotificationSchema,
+  })
+  .strict();
+
+export function ordinaryCardPayload(card: CardRecord): z.infer<typeof ordinaryCardPayloadSchema> {
+  const { version_seq, updated_at, pending_notifications, ...payload } = card;
+  return payload;
+}
+
 export const cardVersionArtifactSchema = z
   .object({
-    format_version: z.literal(4),
+    format_version: z.literal(1),
     kind: z.literal('card-version'),
     entry_id: uuidV4Schema,
     card_id: cardIdSchema,
     version: positiveSafeIntegerSchema,
     committed_at: z.string().datetime(),
-    card: cardRecordSchema,
+    card: ordinaryCardPayloadSchema,
+    predecessor: cardArtifactReferenceSchema.nullable(),
     change: cardVersionChangeSchema.nullable(),
   })
   .strict()
+  .transform((artifact) => ({
+    ...artifact,
+    card: cardRecordSchema.parse({
+      ...artifact.card,
+      version_seq: artifact.version,
+      updated_at: artifact.committed_at,
+      pending_notifications: [],
+    }),
+  }))
   .superRefine((artifact, ctx) => {
     if (artifact.card.id !== artifact.card_id || artifact.card.version_seq !== artifact.version)
       ctx.addIssue({
@@ -40,6 +89,20 @@ export const cardVersionArtifactSchema = z
         message: 'Only card version 1 has a null change.',
         path: ['change'],
       });
+    if (
+      (artifact.version === 1) !== (artifact.predecessor === null) ||
+      (artifact.predecessor !== null && artifact.predecessor.version >= artifact.version) ||
+      artifact.change?.kind === 'notification_enqueue' ||
+      artifact.change?.kind === 'notification_remove' ||
+      artifact.change?.kind === 'delete' ||
+      artifact.change?.changed_fields.includes('pending_notifications') ||
+      (artifact.change !== null && artifact.change.changed_at !== artifact.committed_at)
+    )
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid ordinary history linkage or change.',
+      });
+    if (artifact.version === 1) validateInitialCard(artifact.card, artifact.card_id);
     if (
       artifact.change &&
       (artifact.change.entry_id !== artifact.entry_id ||
@@ -55,22 +118,34 @@ export const cardVersionArtifactSchema = z
 
 export const cardTombstoneArtifactSchema = z
   .object({
-    format_version: z.literal(4),
+    format_version: z.literal(1),
     kind: z.literal('card-tombstone'),
     entry_id: uuidV4Schema,
     card_id: nonRootCardIdSchema,
     version: positiveSafeIntegerSchema,
     committed_at: z.string().datetime(),
     prior_card_version: positiveSafeIntegerSchema,
-    final_card: cardRecordSchema,
+    prior_updated_at: z.string().datetime(),
+    final_card: ordinaryCardPayloadSchema,
+    predecessor: cardArtifactReferenceSchema,
     change: cardVersionChangeSchema,
   })
   .strict()
+  .transform((artifact) => ({
+    ...artifact,
+    final_card: cardRecordSchema.parse({
+      ...artifact.final_card,
+      version_seq: artifact.prior_card_version,
+      updated_at: artifact.prior_updated_at,
+      pending_notifications: [],
+    }),
+  }))
   .superRefine((artifact, ctx) => {
     if (
       artifact.final_card.id !== artifact.card_id ||
       artifact.final_card.version_seq !== artifact.prior_card_version ||
-      artifact.version !== artifact.prior_card_version + 1
+      artifact.version !== artifact.prior_card_version + 1 ||
+      artifact.predecessor.version > artifact.prior_card_version
     )
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -110,8 +185,8 @@ export interface CardVersionListEntry {
   readonly change: CardVersionChange | null;
 }
 
-export interface CardStreamFold {
-  readonly rows: readonly CardArtifact[];
+export interface CurrentCardSelection {
+  readonly selection: CardHead;
   readonly head: CardArtifact;
   readonly current: { readonly card: CardRecord; readonly committed_at: string };
   readonly tombstone: CardTombstoneArtifact | null;
@@ -142,46 +217,6 @@ function actualDelta(prior: CardRecord, next: CardRecord): string[] {
 function requireSame(path: string, left: unknown, right: unknown, message: string): void {
   if (!valuesEqual(left, right)) fail(path, message);
 }
-function rowCard(row: CardArtifact): CardRecord {
-  return row.kind === 'card-version' ? row.card : row.final_card;
-}
-
-export function validateCardStream(
-  rows: readonly CardArtifact[],
-  path: string,
-  cardId: string,
-): CardStreamFold {
-  if (rows.length === 0) fail(path, 'must contain at least one row.');
-  for (const [index, row] of rows.entries()) {
-    if (row.card_id !== cardId) fail(path, `row ${index + 1} has the wrong card identity.`);
-    if (row.version !== index + 1) fail(path, 'must have contiguous ascending versions.');
-    if (index > 0 && rows[index - 1]!.kind === 'card-tombstone')
-      fail(path, 'must not continue past a tombstone row.');
-  }
-  const first = rows[0]!;
-  if (first.kind !== 'card-version') fail(path, 'must begin with the initial card version.');
-  validateInitialCard(first.card, path);
-  for (const [index, row] of rows.entries()) {
-    if (index === 0) continue;
-    const prior = rows[index - 1]!;
-    if (row.kind === 'card-tombstone') {
-      if (cardId === 'project') fail(path, 'cannot tombstone the project card.');
-      if (!valuesEqual(rowCard(prior), row.final_card))
-        fail(path, 'tombstone final card must equal the prior current card.');
-      continue;
-    }
-    validateCardTransition(rowCard(prior), row.card, row.change!, path);
-  }
-  const head = rows.at(-1)!;
-  const tombstone = head.kind === 'card-tombstone' ? head : null;
-  return Object.freeze({
-    rows: Object.freeze([...rows]),
-    head,
-    current: { card: rowCard(head), committed_at: head.committed_at },
-    tombstone,
-  });
-}
-
 function requireChange(
   path: string,
   change: CardVersionChange,
@@ -302,11 +337,15 @@ export function validateCardTransition(
   next: CardRecord,
   change: CardVersionChange,
   path: string,
+  linkage: 'live' | 'history' = 'live',
 ): void {
   if (
     change.card_id !== next.id ||
     change.resulting_version !== next.version_seq ||
-    next.version_seq !== prior.version_seq + 1
+    change.changed_at !== next.updated_at ||
+    (linkage === 'live'
+      ? next.version_seq !== prior.version_seq + 1
+      : next.version_seq <= prior.version_seq)
   )
     fail(path, 'has inconsistent change linkage');
   for (const field of ['id', 'type', 'created_at', 'created_by', 'depends_on'] as const)
@@ -330,7 +369,7 @@ export function validateCardTransition(
       if (
         after.length !== before.length + 1 ||
         !valuesEqual(after.slice(0, -1), before) ||
-        before.some((item) => item.id === after.at(-1)!.id)
+        before.includes(after.at(-1)!)
       )
         fail(path, 'has an invalid notification enqueue');
       requireChange(
@@ -351,7 +390,7 @@ export function validateCardTransition(
     case 'notification_remove': {
       const survivors = next.pending_notifications;
       const expected = prior.pending_notifications.filter((candidate) =>
-        survivors.some((survivor) => survivor.id === candidate.id),
+        survivors.includes(candidate),
       );
       if (
         survivors.length >= prior.pending_notifications.length ||

@@ -41,7 +41,7 @@
         <section v-if="detail">
           <h3>Card publication</h3>
           <p>Card revision {{ detail.version_seq }} · updated {{ fmtDate(detail.updated_at) }}</p>
-          <p>Card revision counts card publications; it is not a measure of work completed.</p>
+          <p>Card revision counts all mutations, including private queue selection changes; not every revision is retained ordinary history. It is not a measure of work completed.</p>
         </section>
 
         <section>

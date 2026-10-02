@@ -378,6 +378,7 @@ current built `saivage reset` to replace the complete four generated roots whole
 while preserving configuration, credentials, operator inputs, source,
 and documentation; start only the current binary and repeat Stage 6
 verification. Reset permanently destroys generated cards, records, conversations, and history.
+The current card/record representation uses exact owner heads selecting immutable ordinary/accepted predecessors and current-only mailbox pointers/drafts. Older card/record streams are unsupported; source approval is not permission to adopt this format over retained generated state. Follow the same complete stopped-reset procedure with separately confirmed loss authorization. Unreferenced files remain ignored forever during normal operation; do not inspect or selectively clean them. Startup does not certify every historical document or implement check-once trust.
 There is no migration, selective repair, stream
 reconstruction, orphan adoption, or mixed-version rollback.
 

@@ -58,9 +58,11 @@ describe('Analyst corrections on CHANGED in production composition', () => {
             const result = JSON.parse(last.content);
             expect(result).toMatchObject({ success: true, data: { state: 'closed', propagation: { ok: true } } });
             const current = cards.readRecordCurrent('project', previous.record);
-            expect(current).toMatchObject({ kind: 'found', value: { projection: { headVersion: result.data.head_version, artifact: { state: 'closed', accepted: { content: previous.content, writer_agent: 'analyst' } } } } });
-            expect(result.data.version_url).toBe(`record:///${previous.record}?card=project&v=${result.data.head_version}`);
-            if (previous.record === 'brief.md') acceptedHeads.push(result.data.head_version);
+            expect(current).toMatchObject({ kind: 'found', value: { projection: { revision: result.data.revision, state: 'closed', accepted: { content: previous.content, writer_agent: 'analyst' } } } });
+            expect(result.data.accepted_version_url).toBe(`record:///${previous.record}?card=project&v=${result.data.revision}`);
+            expect(result.data.current_url).toBe(`record:///${previous.record}?card=project`);
+            expect(result.data).not.toHaveProperty('head_entry_id');
+            if (previous.record === 'brief.md') acceptedHeads.push(result.data.revision);
             expect(cards.read('project')!.lifecycle.status).toBe('changed');
           } else expect(cards.read('project')!.lifecycle.status).toBe('blocked');
           const next = corrections[correctionTurns++];
@@ -107,9 +109,9 @@ describe('Analyst corrections on CHANGED in production composition', () => {
       expect(acceptedHeads).toHaveLength(3); expect(acceptedHeads[1]).toBeGreaterThan(acceptedHeads[0]!); expect(acceptedHeads[2]).toBeGreaterThan(acceptedHeads[1]!);
       expect(cards.read('project')!.lifecycle.status).toBe('changed');
       expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
-      expect(cards.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { artifact: { accepted: { content: finalBrief } } } } });
+      expect(cards.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { accepted: { content: finalBrief } } } });
       for (const [index, head] of acceptedHeads.entries()) {
-        expect(cards.readRecordVersion('project', 'brief.md', head)).toMatchObject({ kind: 'found', value: { projection: { artifact: { state: 'closed', accepted: { content: corrections[index]!.content } } } } });
+        expect(cards.readRecordVersion('project', 'brief.md', head)).toMatchObject({ kind: 'found', value: { projection: { artifact: { accepted: { content: corrections[index]!.content } } } } });
       }
       expect(readConversation(root, 'agent:executor:project').physicalRows).toEqual(activationRows);
       const rows = readConversation(root, 'agent:analyst:global').physicalRows;

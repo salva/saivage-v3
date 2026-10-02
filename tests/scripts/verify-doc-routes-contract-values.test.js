@@ -122,7 +122,7 @@ const INVENTED_SHAPES = {
   'identity.card': { alternatives: [{ kind: 'literal', value: 'root-fixture' }, { kind: 'pattern', source: '^fixture$' }], pattern: { source: '^fixture$', flags: 'u', anchored: true }, segment: { source: '^x+$', flags: 'u', anchored: true }, stem: 'fixture', separator: '.', minimumSegments: 2, maximumSegments: 7 },
   'identity.conversation-session': { inputGuard: 'string', pattern: { source: '^fixture:(.+)$', flags: 'u', anchored: true }, captures: [{ index: 4, meaning: 'fixture-agent' }, { index: 8, meaning: 'fixture-scope' }], nullTest: 'fixture !== null', agentParser: 'FixtureAgentParser', scopeAlternatives: ['fixture-global', 'FixtureScopeParser'], constructors: [{ name: 'fixtureGlobal', template: '`fixture:${agent}:global`' }, { name: 'fixtureScoped', template: '`fixture:${agent}:${scope}`' }], identityParser: 'fixtureIdentity', operators: ['&&', '||'], grouping: 'fixture && (other || final)' },
   'pivot.cards-diff-from': { field: 'from', presence: 'required', variants: [{ kind: 'canonical-positive-safe-integer' }], mapping: 'fromVersion', regex: '^fixture-from$', refinement: 'fixtureFromRefinement', transform: 'Number' },
-  'pivot.cards-diff-to': { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^fixture-to$', refinement: 'fixtureToRefinement', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-artifact', current: 'current-artifact' } },
+  'pivot.cards-diff-to': { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^fixture-to$', refinement: 'fixtureToRefinement', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-projection', current: 'current-projection' } },
   'pivot.ui-cards-diff-current-request': { key: [{ name: 'fixtureCard', type: 'FixtureCard' }, { name: 'fixtureFrom', type: 'FixtureFrom' }], selection: { construction: { cardId: 'fixtureCard', fromSeq: 'fixtureFrom', to: 'current' }, frozen: true, startArgument: 'fixtureKey' }, request: { operation: 'cards.diff', params: { id: 'fixture.id' }, query: { from: 'fixture.from', to: 'fixture.to' }, signal: 'forwarded' }, currentness: { abortPreviousOwner: true, freshOwner: ['fixture-controller', 'fixture-promise'], fences: ['fixture-success', 'fixture-rejection', 'fixture-finally'], selectionGuards: ['fixture-card-guard', 'fixture-version-guard'], acceptedSideCondition: ['fixture-card-match', 'fixture-version-match'], retainedKey: 'fixture-original-key' }, reuse: { refresh: 'fixture-refresh', retry: 'fixture-retry', invalidationGates: ['fixture-scope', 'fixture-visible'], reconnectGates: ['fixture-key', 'fixture-freshness'] } },
 };
 
@@ -167,9 +167,9 @@ const SOURCE_MUTATIONS = [
   ['history handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'getHistoryEntry(params.id, params.version)'],
   ['diff handler pass-through', verifyErrorShapeDocs, 'src/server/routes/operator-runtime-card-handlers.ts', 'diffCard(params.id, query)'],
   ['historical read-model serialization', verifyErrorShapeDocs, 'src/application/read-models/cards-read-model.ts', "body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version"],
-  ['history catalog selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)'],
+  ['history committed predecessor selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'readCommittedCardVersion(this.projectRoot, id, version, instrumentation)'],
   ['history card absence', verifyErrorShapeDocs, 'src/cards/card-service.ts', "if (catalog.kind === 'card-not-found') return catalog"],
-  ['history exact row', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'catalog.value.rows[version - 1]'],
+  ['history exact sparse artifact', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'const row = catalog.value'],
   ['history exact version', verifyErrorShapeDocs, 'src/cards/card-service.ts', 'row.version === version'],
   ['history version absence', verifyErrorShapeDocs, 'src/cards/card-service.ts', "{ kind: 'version-not-found', version }"],
   ['diff service selection', verifyErrorShapeDocs, 'src/cards/card-service.ts', "kind: 'version-not-found' as const, version, side"],
@@ -260,9 +260,9 @@ const SOURCE_MUTATIONS = [
   ['backend numeric refinement', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success'],
   ['backend numeric transform', verifyCardDiffPivotDocs, 'src/contracts/operator-api-runtime-cards.ts', '.transform(Number)'],
   ['backend read-model mapping', verifyCardDiffPivotDocs, 'src/application/read-models/cards-read-model.ts', 'fromVersion: query.from,\n      toVersion: query.to'],
-  ['backend service numeric meaning', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "typeof pivots.toVersion === 'number' ? pivots.toVersion"],
-  ['backend service catalog', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)'],
-  ['backend service current artifact', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "pivots.toVersion === undefined || pivots.toVersion === 'current'\n        ? catalog.value.head"],
+  ['backend service numeric meaning', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "typeof pivots.toVersion === 'number'\n        ? pivots.toVersion"],
+  ['backend service current owner', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'readCommittedCardCurrent(this.projectRoot, id, instrumentation)'],
+  ['backend service tagged current projection', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "{ kind: 'current', version_seq: to, history_version: current.value.artifact.version }"],
   ...[
     ['UI previous-owner abort', 'diffOwner?.controller.abort()'],
     ['UI accepted card key', 'cardHistoryDiffKey.value?.cardId === key.cardId'],

@@ -65,7 +65,7 @@ describe('planner control provider ownership delegation', () => {
     const activateChild = jest.fn<PlannerControlProviderContext['parentControl']['activateChild']>(async ({ childCardId }) => ({ status: 'done' as const, summary: childCardId, result: workflowResult('DONE',childCardId) }));
     const cancelChild = jest.fn(async ({ childCardId }: { childCardId: string; reason: string }) => ({ card_id: childCardId, status: 'cancelled' as const, cancelled_card_ids: [childCardId] }));
     const reopenChild = jest.fn(({ childCardId }: { childCardId: string }) => ({ card_id: childCardId, status: 'changed' as const }));
-    const submitNotification = jest.fn<() => Promise<NotificationSubmissionResult>>(async () => ({ queued: true, cardId: CHILD, notificationId: 'unused', interruption: { status: 'not_requested' } }));
+    const submitNotification = jest.fn<() => Promise<NotificationSubmissionResult>>(async () => ({ queued: true, cardId: CHILD, notificationId: '00000000-0000-4000-8000-000000000001', interruption: { status: 'not_requested' } }));
     const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild, reopenChild }, submitNotification,childCreationTypes:new Set(),childActivationTypes:new Set(['code']),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
     return { store, activateChild, cancelChild, reopenChild, submitNotification, surface };
   }
@@ -130,8 +130,8 @@ describe('planner control provider ownership delegation', () => {
   });
 
   it.each([
-    [{ queued: true as const, cardId: CHILD, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'exact-id', body: 'body', interruption: { status: 'not_requested' } } }],
-    [{ queued: true as const, cardId: CHILD, notificationId: 'pending-id', interruption: { status: 'pending_tool_settlement' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'pending-id', body: 'body', interruption: { status: 'pending_tool_settlement' } } }],
+    [{ queued: true as const, cardId: CHILD, notificationId: '00000000-0000-4000-8000-000000000001', interruption: { status: 'not_requested' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: '00000000-0000-4000-8000-000000000001', body: 'body', interruption: { status: 'not_requested' } } }],
+    [{ queued: true as const, cardId: CHILD, notificationId: '00000000-0000-4000-8000-000000000002', interruption: { status: 'pending_tool_settlement' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: '00000000-0000-4000-8000-000000000002', body: 'body', interruption: { status: 'pending_tool_settlement' } } }],
     [{ queued: false as const, reason: 'missing_card' as const, cardId: CHILD }, { success: false, error: `Card '${CHILD}' not found.`, data: { queued: false, reason: 'missing_card', card_id: CHILD } }],
     [{ queued: false as const, reason: 'terminal_card' as const, cardId: CHILD, status: 'cancelled' as const }, { success: false, error: `Cannot queue notification for terminal card '${CHILD}' in status 'cancelled'.`, data: { queued: false, reason: 'terminal_card', card_id: CHILD, status: 'cancelled' } }],
     [{ queued: false as const, reason: 'activation_closed' as const, cardId: CHILD }, { success: false, error: `Cannot queue notification for card '${CHILD}': its current activation is closed to new notifications.`, data: { queued: false, reason: 'activation_closed', card_id: CHILD } }],
@@ -194,7 +194,7 @@ describe('planner control provider ownership delegation', () => {
       else if (status === 'failed') store.commitActivationOutcome(child.id, { status, summary: 'failed', result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
       else store.commitActivationOutcome(child.id, { status, summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
     }
-    const provider = bindPlannerControl({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, submitNotification: async () => ({ queued: true, cardId: 'project', notificationId: 'unused', interruption: { status: 'not_requested' } }), childCreationTypes: new Set(['code']), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
+    const provider = bindPlannerControl({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, submitNotification: async () => ({ queued: true, cardId: 'project', notificationId: '00000000-0000-4000-8000-000000000001', interruption: { status: 'not_requested' } }), childCreationTypes: new Set(['code']), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     return { store, child: store.read(child.id)!, surface };
   }
@@ -246,7 +246,7 @@ describe('planner control provider ownership delegation', () => {
     const updated = { ...blocked, title: 'Corrected', lifecycle: { status: 'changed' } } as CardRecord;
     const setStatus = jest.fn();
     const store = { read: jest.fn(() => blocked), editCard: jest.fn(() => updated), setStatus };
-    const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName: 'planner', projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store: store as unknown as CardService, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, submitNotification: async () => ({ queued: true, cardId: CHILD, notificationId: 'unused', interruption: { status: 'not_requested' } }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
+    const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName: 'planner', projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store: store as unknown as CardService, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, submitNotification: async () => ({ queued: true, cardId: CHILD, notificationId: '00000000-0000-4000-8000-000000000001', interruption: { status: 'not_requested' } }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
     await expect(invokeEdit(surface, { card_id: CHILD, title: 'Corrected' })).resolves.toMatchObject({ success: true, data: { card: { status: 'changed' } } });
     expect(store.editCard).toHaveBeenCalledTimes(1);
     expect(setStatus).not.toHaveBeenCalled();

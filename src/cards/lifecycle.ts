@@ -1,5 +1,6 @@
 import {
   cardNotificationSchema,
+  uuidV4Schema,
   valuesEqual,
   type CardNotification,
   type CardRecord,
@@ -110,9 +111,9 @@ export function enqueueCardNotification(
       `Cannot queue notification for terminal card '${card.id}' in status '${card.lifecycle.status}'.`,
     );
   const parsed = cardNotificationSchema.parse(notification);
-  if (card.pending_notifications.some((candidate) => candidate.id === parsed.id))
+  if (card.pending_notifications.includes(parsed.id))
     throw new Error(`Notification '${parsed.id}' already exists on card '${card.id}'.`);
-  return { ...card, pending_notifications: [...card.pending_notifications, parsed] };
+  return { ...card, pending_notifications: [...card.pending_notifications, parsed.id] };
 }
 
 export function removeCardNotifications(
@@ -121,16 +122,14 @@ export function removeCardNotifications(
 ): CardRecord {
   if (notificationIds.length === 0)
     throw new Error('Notification removal requires at least one id.');
+  for (const id of notificationIds) uuidV4Schema.parse(id);
   const selected = new Set(notificationIds);
   if (selected.size !== notificationIds.length)
     throw new Error('Notification removal ids must be unique.');
-  for (const id of selected)
-    if (!card.pending_notifications.some((notification) => notification.id === id))
-      throw new Error(`Notification '${id}' is not pending on card '${card.id}'.`);
   return {
     ...card,
     pending_notifications: card.pending_notifications.filter(
-      (notification) => !selected.has(notification.id),
+      (notification) => !selected.has(notification),
     ),
   };
 }

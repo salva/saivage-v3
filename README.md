@@ -121,6 +121,8 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 ## Notable current behaviors
 
+- Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. Adoption is [reset-only](docs/runbook/index.md#storage-and-interruption), never migration or implicit deployment permission.
+
 - Provider-exchange evidence now belongs to each exact conversation session rather
   than the app log; adopting this layout from an existing three-lane app log is a
   **reset-only, history-losing cutover**, not a same-format upgrade. Source
@@ -141,13 +143,13 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   [storage and cutover rules](docs/runbook/index.md#storage-and-interruption)
   ([prompt contract](docs/architecture/prompts.md),
   [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
-  Card stream v5, artifact rows and Files wrappers at format 4 are a separate
+  Card/record format-1 heads and immutable predecessor documents are a separate
   reset-only adoption boundary; this source change does not authorize deployment
   over retained history, retained-history conversion, reconstruction, or reset.
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)
   check by default; its only project effect is an evidenced notification.
-- All five growing JSONL families use exact owner-at-use reads that may discard
+- The three remaining growing JSONL families (conversation, app log, provider evidence) use exact owner-at-use reads that may discard
   only a torn final suffix after full retained-prefix validation. Complete
   corruption remains strict, older conversation segments remain immutable,
   and uncertain truncation is fatal. See the

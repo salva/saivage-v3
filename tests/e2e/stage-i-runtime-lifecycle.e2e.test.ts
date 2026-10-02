@@ -18,7 +18,8 @@ import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
-import { cardStreamFile } from '../../src/persistence/layout.js';
+import { cardHeadFile } from '../../src/persistence/layout.js';
+import { readCommittedCardArtifactCatalog } from '../../src/persistence/card-files.js';
 import { CardActivationOwner } from '../../src/runtime/actors/card-activation-owner.js';
 import type { CardProcessActor } from '../../src/runtime/actors/card-process-actor.js';
 
@@ -244,11 +245,11 @@ describe('Stage-I runtime lifecycle E2E', () => {
     cards.setStatus('project', 'running');
     cards.setStatus(leaf.id, 'running');
     const rootBefore = cards.read('project')!;
-    const bytesBefore = readFileSync(cardStreamFile(projectRoot, 'project'));
+    const bytesBefore = readFileSync(cardHeadFile(projectRoot, 'project'));
     const { internals, owner } = installRootSettlementOwner(runtime, rootBefore);
 
     await expect(internals.settleResult(owner, terminalOutcome())).rejects.toThrow(`Linked running card '${leaf.id}' is outside the unique project-rooted running chain.`);
-    expect(readFileSync(cardStreamFile(projectRoot, 'project'))).toEqual(bytesBefore);
+    expect(readFileSync(cardHeadFile(projectRoot, 'project'))).toEqual(bytesBefore);
     expect(cards.read('project')).toMatchObject({ version_seq: rootBefore.version_seq, lifecycle: { status: 'running' } });
   });
 
@@ -265,8 +266,10 @@ describe('Stage-I runtime lifecycle E2E', () => {
 
     await expect(internals.settleResult(owner, terminalOutcome())).resolves.toBeUndefined();
     expect(cards.read('project')).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'done' } });
-    const stream = readFileSync(cardStreamFile(projectRoot, 'project'), 'utf8');
-    expect(stream.match(/"kind":"terminal"/g)).toHaveLength(1);
+    const catalog = readCommittedCardArtifactCatalog(projectRoot, 'project');
+    if (catalog.kind !== 'found') throw new Error('Expected project history.');
+    const history = catalog.value.rows;
+    expect(history.filter((row) => row.change?.kind === 'terminal')).toHaveLength(1);
   });
 });
 

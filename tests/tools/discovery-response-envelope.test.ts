@@ -38,7 +38,7 @@ const envelopeBytes = (data: unknown): number => Buffer.byteLength(canonicalJson
 const UNICODE = 'Ünïcödé-ßtrïng-🚀-';
 
 function analystSurface(cards: CardService, projectRoot: string, cardTypeVocabulary: readonly string[] = ['project', 'goal', 'code']) {
-  const context = { cardTypeVocabulary, store: cards, projectRoot, cardId: 'project', sessionId: 'agent:analyst:global', actor: 'analyst', runtime: { notifyCard: () => ({ ok: true, notificationId: 'n' }) } } as unknown as ToolContext;
+  const context = { cardTypeVocabulary, store: cards, projectRoot, cardId: 'project', sessionId: 'agent:analyst:global', actor: 'analyst', runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
   return buildInvocationSurfaceFixture('analyst', [
     bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary }),
     bindToolProvider('card-version', cardVersionToolBinders, { store: cards }),
@@ -55,7 +55,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const wide = 80;
     for (let index = 0; index < wide; index += 1) {
       const child = cards.create({ type: 'goal', parent: 'project', title: `${UNICODE}title-${index}-${'ß'.repeat(40)}`, bootstrap_content: 'brief', priority: index, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      if (index % 5 === 0) cards.enqueueNotification(child.id, { id: `n-${index}`, content: `${UNICODE}notification ${'ñ'.repeat(200)}`, created_at: '2026-08-18T00:00:00.000Z' });
+      if (index % 5 === 0) cards.enqueueNotification(child.id, { id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, content: `${UNICODE}notification ${'ñ'.repeat(200)}`, created_at: '2026-08-18T00:00:00.000Z' });
       if (index % 7 === 0) cards.editCard(child.id, { title: `${UNICODE}edited-${index}-${'ü'.repeat(60)}` }, 'analyst');
     }
     const surface = analystSurface(cards, projectRoot);
@@ -119,7 +119,8 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     expect(slice.next_offset_bytes).toBe(slice.utf8_bytes);
     expect(content.startsWith(slice.content)).toBe(true);
 
-    const versioned = await invokeTestTool(surface, 'read', { path: `record:///status.md?card=${encodeURIComponent(child.id)}&v=2`, response_bytes: 600, position: { kind: 'text', byte_offset: 10 } });
+    const accepted = cards.closeRecord(child.id, 'status.md', 'executor');
+    const versioned = await invokeTestTool(surface, 'read', { path: `record:///status.md?card=${encodeURIComponent(child.id)}&v=${accepted.accepted!.source_version}`, response_bytes: 600, position: { kind: 'text', byte_offset: 10 } });
     expect(envelopeBytes(versioned.data)).toBeLessThanOrEqual(600);
     const versionedSlice = (versioned.data as { content: { offset_bytes: number; content: string; utf8_bytes: number } }).content;
     expect(versionedSlice.offset_bytes).toBe(10);
@@ -240,7 +241,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
       expect(description).toContain('plaintext TextSlice');
       expect(description).toContain('not hex encoded');
     }
-    const workspaceContext = { projectRoot: root, cardId: 'project', actor: 'analyst', store: new CardService(root), runtime: { notifyCard: () => ({ ok: true, notificationId: 'n' }) } } as unknown as ToolContext;
+    const workspaceContext = { projectRoot: root, cardId: 'project', actor: 'analyst', store: new CardService(root), runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
     const workspaceSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('workspace', analystWorkspaceToolBinders, workspaceContext)]);
     for (const name of ['read', 'glob', 'grep']) {
       const binder = analystWorkspaceToolBinders.find((candidate) => candidate.name === name)!;

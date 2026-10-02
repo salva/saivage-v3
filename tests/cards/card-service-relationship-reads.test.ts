@@ -8,7 +8,7 @@ import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonic
 import { cardRecordSchema, type CardRecord } from '../../src/schemas/index.js';
 import { cardVersionChangeSchema } from '../../src/schemas/index.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';
-import { cardStreamFile } from '../../src/persistence/layout.js';
+import { cardHeadFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -38,10 +38,7 @@ function publishLinked(root: string, parent: CardRecord, dependsOn: string[]): {
 }
 
 function corruptCurrent(root: string, id: string): void {
-  const path = cardStreamFile(root, id);
-  const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n');
-  envelopes[envelopes.length - 1] = '{bad json}';
-  writeFileSync(path, `${envelopes.join('\n')}\n`);
+  writeFileSync(cardHeadFile(root, id), '{bad json}');
 }
 
 describe('CardService scoped relationship reads', () => {
@@ -52,7 +49,7 @@ describe('CardService scoped relationship reads', () => {
     const tombstoned = cards.create(input('project'));
     expect(cards.reorderChildren('project', [first.id, tombstoned.id, second.id])).toEqual({ ok: true, changed: 2 });
     cards.deleteSubtrees([tombstoned.id], () => true, 'analyst');
-    const path = cardStreamFile(root, 'project');
+    const path = cardHeadFile(root, 'project');
     const before = readFileSync(path);
     const version = cards.read('project')!.version_seq;
 
@@ -71,7 +68,7 @@ describe('CardService scoped relationship reads', () => {
     const { root, cards } = project();
     const [first, firstTombstone, second, secondTombstone, third] = Array.from({ length: 5 }, () => cards.create(input('project')));
     cards.deleteSubtrees([firstTombstone.id, secondTombstone.id], () => true, 'analyst');
-    const path = cardStreamFile(root, 'project');
+    const path = cardHeadFile(root, 'project');
     const beforeIdentity = readFileSync(path);
 
     expect(cards.reorderChildren('project', [first.id, second.id, third.id])).toEqual({ ok: true, changed: 0 });
@@ -118,7 +115,7 @@ describe('CardService scoped relationship reads', () => {
 
   it('visits each reached descendant membership fold once',()=>{
     const {root,cards}=project();const parent=cards.create(input('project','goal'));const first=cards.create(input(parent.id,'goal'));const nested=cards.create(input(first.id));const second=cards.create(input(parent.id));const paths:string[]=[];
-    const tree=cards.readCardInspectionTree(parent.id,1,{onRead:(path)=>paths.push(path)});expect(tree).toMatchObject({kind:'found',value:[{card:{id:parent.id},activeDescendantCount:3},{card:{id:first.id},activeDescendantCount:1},{card:{id:second.id},activeDescendantCount:0}]});for(const id of ['project',parent.id,first.id,nested.id,second.id])expect(paths.filter((path)=>path===cardStreamFile(root,id))).toHaveLength(1);
+    const tree=cards.readCardInspectionTree(parent.id,1,{onRead:(path)=>paths.push(path)});expect(tree).toMatchObject({kind:'found',value:[{card:{id:parent.id},activeDescendantCount:3},{card:{id:first.id},activeDescendantCount:1},{card:{id:second.id},activeDescendantCount:0}]});for(const id of ['project',parent.id,first.id,nested.id,second.id])expect(paths.filter((path)=>path===cardHeadFile(root,id))).toHaveLength(1);
   });
 
   it('returns operation-specific absence for well-formed inactive targets and rejects every malformed ID', () => {

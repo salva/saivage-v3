@@ -21,24 +21,16 @@ const { ContractRuntime } = await import('../../src/server/contract-runtime.js')
 const { AuthPolicy } = await import('../../src/server/auth-policy.js');
 const { z } = await import('zod');
 const { appendAppLogEntry, readAppLogEntries } = await import('../../src/persistence/app-log.js');
-const { appLogFile, cardStreamFile, cardRecordStreamFile, cardConversationVersionFile, providerExchangeFile } = await import('../../src/persistence/layout.js');
+const { appLogFile, cardConversationVersionFile, providerExchangeFile } = await import('../../src/persistence/layout.js');
 const { appendConversationBatch, readCurrentConversationSegment } = await import('../../src/persistence/conversation-file.js');
 const { agentMessageSchema } = await import('../../src/schemas/index.js');
 const { AgentOperatorReadModelService } = await import('../../src/application/read-models/agent-operator-read-model.js');
-const { preflightAnalystRecordWrite } = await import('../../src/application/record-mutation-service.js');
-const { testRecordDefinition } = await import('../helpers/record-definitions.js');
 const { appendProviderExchangeEntry, readLatestProviderExchangePayload } = await import('../../src/persistence/provider-exchange-log.js');
 initProjectTree(root);
 const store = new CardService(root);
 const model = new AgentOperatorReadModelService(root, store.workflows, () => new Map());
 let consume: () => unknown;
-if (mode === 'read-owned-card') {
-  fs.appendFileSync(cardStreamFile(root, 'project'), 'suffix');
-  consume = () => model.getSession('agent:planner:project');
-} else if (mode === 'read-owned-record') {
-  fs.appendFileSync(cardRecordStreamFile(root, 'project', testRecordDefinition('brief.md', 'project')), 'suffix');
-  consume = () => preflightAnalystRecordWrite(store, { path: 'record:///brief.md?card=project', operation: 'write', surface: 'analyst', agentName: 'analyst', requiredTools: ['write'] });
-} else if (mode === 'read-owned-provider') {
+if (mode === 'read-owned-provider') {
   const owner = 'agent:planner:project' as const; const timestamp = '2026-08-11T00:00:00.000Z';
   appendProviderExchangeEntry(root, owner, { type: 'provider_exchange', data: { session_id: owner, source_input_id: 'first', attempt_index: 0, timestamp, payload: { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model: 'test', source_input_id: 'first', attempt_index: 0, request_params: {}, started_at: timestamp, completed_at: timestamp, status: 'ok', terminal_tool_fired: null, assistant_output_ids: [] } } });
   fs.appendFileSync(providerExchangeFile(root, owner), 'suffix');

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../helpers/canonical-project.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
-import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { cardRecordHeadFile, cardHeadFile } from '../../src/persistence/layout.js';
+import { readCommittedCardArtifactCatalog } from '../../src/persistence/card-files.js';
 import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
@@ -18,7 +19,7 @@ function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: strin
 function row(session_id: ConversationSessionId, id: string) { return { id, session_id, role: 'user' as const, kind: 'text' as const, content: id, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } as const, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' }; }
 
 describe('reset-only hierarchical card storage', () => {
-  it('survives restart with exact streams, records, conversations, reorder, and safe deletion', () => {
+  it('survives restart with exact heads, records, conversations, reorder, and safe deletion', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-hierarchy-e2e-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const goal = cards.create(input('project', 'goal'));
@@ -26,22 +27,22 @@ describe('reset-only hierarchical card storage', () => {
     const dependent = cards.create(input(goal.id, 'code', [dependency.id]));
     const retainedTombstone = cards.create(input(goal.id));
     const survivor = cards.create(input('project', 'code', [dependency.id]));
-    expect(readFileSync(cardStreamFile(root, goal.id), 'utf8')).toContain('"kind":"card-version"');
-    expect(readFileSync(cardRecordStreamFile(root, dependency.id, testRecordDefinition('brief.md')), 'utf8')).toContain('"kind":"authored-record-version"');
+    expect(readFileSync(cardHeadFile(root, goal.id), 'utf8')).toContain('"kind":"card-head"');
+    expect(readFileSync(cardRecordHeadFile(root, dependency.id, testRecordDefinition('brief.md')), 'utf8')).toContain('"kind":"record-head"');
     cards.openRecord(dependency.id, 'status.md'); const editedStatus = cards.editRecord(dependency.id, 'status.md', 'status'); cards.closeRecord(dependency.id, 'status.md', 'executor');
     const dependencySession = parseConversationSessionId(`agent:executor:${dependency.id}`);
     appendConversationBatch({ projectRoot: root }, [row(dependencySession, 'message')]);
-    const dependencyStreamBefore = readFileSync(cardStreamFile(root, dependency.id), 'utf8');
-    const dependentStreamBefore = readFileSync(cardStreamFile(root, dependent.id), 'utf8');
+    const dependencyStreamBefore = readFileSync(cardHeadFile(root, dependency.id), 'utf8');
+    const dependentStreamBefore = readFileSync(cardHeadFile(root, dependent.id), 'utf8');
     const goalVersionBefore = cards.read(goal.id)!.version_seq;
     expect(cards.reorderChildren(goal.id, [dependency.id, retainedTombstone.id, dependent.id])).toEqual({ ok: true, changed: 2 });
     cards.deleteSubtrees([retainedTombstone.id], () => true, 'analyst');
-    const parentBeforeIdentity = readFileSync(cardStreamFile(root, goal.id));
+    const parentBeforeIdentity = readFileSync(cardHeadFile(root, goal.id));
     expect(cards.reorderChildren(goal.id, [dependency.id, dependent.id])).toEqual({ ok: true, changed: 0 });
-    expect(readFileSync(cardStreamFile(root, goal.id))).toEqual(parentBeforeIdentity);
+    expect(readFileSync(cardHeadFile(root, goal.id))).toEqual(parentBeforeIdentity);
     expect(cards.reorderChildren(goal.id, [dependent.id, dependency.id])).toEqual({ ok: true, changed: 2 });
-    expect(readFileSync(cardStreamFile(root, dependency.id), 'utf8')).toBe(dependencyStreamBefore);
-    expect(readFileSync(cardStreamFile(root, dependent.id), 'utf8')).toBe(dependentStreamBefore);
+    expect(readFileSync(cardHeadFile(root, dependency.id), 'utf8')).toBe(dependencyStreamBefore);
+    expect(readFileSync(cardHeadFile(root, dependent.id), 'utf8')).toBe(dependentStreamBefore);
     const reordered = new CardService(root);
     expect(reordered.read(goal.id)).toMatchObject({
       version_seq: goalVersionBefore + 2,
@@ -58,8 +59,10 @@ describe('reset-only hierarchical card storage', () => {
     const filesResult = files.list(childrenPath);
     if ('statusCode' in filesResult) throw new Error('Expected Files child directory.');
     expect(filesResult.body.files.map(({ name }) => name)).toEqual([dependent.id.split('-').at(-1), dependency.id.split('-').at(-1)]);
-    const parentRows = readFileSync(cardStreamFile(root, goal.id), 'utf8').trimEnd().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ format_version: number; card: { child_membership: string[]; active_child_order: string[] }; change: { kind: string; changed_fields: string[] } | null }> }).rows);
-    expect(parentRows.every((artifact) => artifact.format_version === 4)).toBe(true);
+    const catalog = readCommittedCardArtifactCatalog(root, goal.id);
+    if (catalog.kind !== 'found') throw new Error('Expected goal history.');
+    const parentRows = catalog.value.rows.filter((row) => row.kind === 'card-version');
+    expect(parentRows.every((artifact) => artifact.format_version === 1)).toBe(true);
     const linkRows = parentRows.filter((artifact) => artifact.change?.kind === 'child_link');
     expect(linkRows.map((artifact) => artifact.card.child_membership)).toEqual([
       [dependency.id], [dependency.id, dependent.id], [dependency.id, dependent.id, retainedTombstone.id],

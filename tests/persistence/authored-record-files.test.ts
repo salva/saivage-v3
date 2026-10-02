@@ -1,213 +1,426 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
-import { createHash } from 'node:crypto';
-import { projectIdentityDigest } from '../../src/persistence/index.js';
-import { closeSync, existsSync, fsyncSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { randomUUID } from 'node:crypto';
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { AuthoredRecordNotFoundError, classifyCurrentAuthoredRecord, initializeAuthoredRecord, openAuthoredRecord, readCurrentAuthoredRecord } from '../../src/persistence/authored-record-files.js';
-import { readGrowingRows } from '../helpers/growing-rows.js';
-import { authoredRecordVersionArtifactSchema, type AuthoredRecordVersionArtifact } from '../../src/persistence/canonical-record-artifacts.js';
-import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
-import type { RecordDefinition } from '../../src/schemas/index.js';
-import type { CanonicalReadInstrumentation,GrowingFileIo } from '../../src/persistence/growing-file.js';
+import {
+  acceptAuthoredRecord,
+  classifyCurrentAuthoredRecord,
+  openAuthoredRecord,
+} from '../../src/persistence/authored-record-files.js';
+import {
+  cardAcceptedRecordFile,
+  cardAcceptedRecordsRoot,
+  cardRecordHeadFile,
+  cardHeadFile,
+} from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
+import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
-
+afterEach(() => {
+  jest.restoreAllMocks();
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
 function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-'));
+  const root = mkdtempSync(join(tmpdir(), 'saivage-record-head-'));
   roots.push(root);
   initProjectTree(root);
   const cards = new CardService(root);
-  const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-  return { cards, card, root };
+  const card = cards.create({
+    type: 'code',
+    parent: 'project',
+    title: 'card',
+    bootstrap_content: 'brief',
+    priority: 0,
+    urgency: 'normal',
+    created_by: 'analyst',
+    depends_on: [],
+  });
+  return { root, cards, card };
 }
+function current(cards: CardService, cardId: string, name: string) {
+  const result = cards.readRecordCurrent(cardId, name);
+  if (result.kind !== 'found' || !result.value.projection) throw new Error('Missing test record.');
+  return result.value.projection;
+}
+function history(cards: CardService, cardId: string, name: string) {
+  const result = cards.readRecordHistory(cardId, name);
+  if (result.kind !== 'found') throw new Error('Missing test card.');
+  return result.value.catalog.versions;
+}
+const definition = {
+  filename: 'status.md',
+  format: 'markdown' as const,
+  schema: 'work-status.v1',
+  declared: true,
+  bootstrap: false,
+};
 
-function statusDefinition(overrides: Partial<RecordDefinition> = {}): RecordDefinition { return { filename: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, declared: true, ...overrides }; }
-function streamPath(root: string, cardId: string, filename: string): string { return cardRecordStreamFile(root, cardId, { filename: filename as never }); }
-function recordRows(root: string, cardId: string, definition: RecordDefinition): AuthoredRecordVersionArtifact[] { return readGrowingRows(cardRecordStreamFile(root, cardId, definition), authoredRecordVersionArtifactSchema); }
-function current(cards:CardService,cardId:string,name:string){const result=cards.readRecordCurrent(cardId,name);if(result.kind!=='found'||!result.value.projection)throw new AuthoredRecordNotFoundError();return result.value.projection;}
-function historical(cards:CardService,cardId:string,name:string,version:number){const result=cards.readRecordVersion(cardId,name,version);if(result.kind!=='found')throw new AuthoredRecordNotFoundError();return result.value.projection;}
-
-describe('authored record exact streams', () => {
-  it('preserves identity JSON bytes and exact UTF-8 record content hashes', () => {
-    const identity = { id: 'project' as const, created_at: '2026-10-01T00:00:00.000Z' };
-    expect(projectIdentityDigest(identity)).toBe(createHash('sha256').update(JSON.stringify(identity)).digest('hex'));
-    const { cards, card, root } = setup(); const content = 'é\r\n{"b":2, "A":1}\n😀';
-    cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', content);
-    const rows = recordRows(root, card.id, statusDefinition());
-    expect(rows.at(-1)!.draft!.content_sha256).toBe(createHash('sha256').update(content, 'utf8').digest('hex'));
-    expect(rows.at(-1)!.draft!.content).toBe(content);
-    const accepted = recordRows(root, card.id, statusDefinition({ filename: 'brief.md', schema: 'card-brief.v1', bootstrap: true }))[0]!.accepted!;
-    expect(accepted.content_sha256).toBe(createHash('sha256').update(accepted.content, 'utf8').digest('hex'));
+describe('exact record heads and accepted predecessor chains', () => {
+  it('publishes bootstrap acceptance with actual initial ordinary provenance and leaves optional heads absent', () => {
+    const { root, cards, card } = setup();
+    const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
+    expect(current(cards, card.id, 'brief.md')).toMatchObject({
+      revision: 1,
+      state: 'closed',
+      draft: null,
+      accepted: {
+        content: 'brief',
+        card_version_seq: 1,
+        card_history: ordinary,
+        writer_agent: 'runtime:bootstrap',
+      },
+    });
+    expect(existsSync(cardRecordHeadFile(root, card.id, definition))).toBe(false);
+    expect(classifyCurrentAuthoredRecord(root, card, definition)).toEqual({ kind: 'empty' });
+    expect(
+      classifyCurrentAuthoredRecord(root, card, {
+        ...definition,
+        filename: 'notes.md',
+        declared: false,
+      }),
+    ).toEqual({ kind: 'unclaimed' });
   });
-
-  it('current and writer reads discard a valid torn final suffix', () => {
-    const { cards, card, root } = setup(); cards.openRecord(card.id, 'status.md'); const path = streamPath(root, card.id, 'status.md'); const prefix = readFileSync(path);
-    writeFileSync(path, Buffer.concat([prefix, Buffer.from([0xe2, 0x82])])); expect(current(cards, card.id, 'status.md').headVersion).toBe(1); expect(readFileSync(path)).toEqual(prefix);
-    writeFileSync(path, Buffer.concat([prefix, Buffer.from('suffix')])); cards.editRecord(card.id, 'status.md', 'new content'); expect(current(cards, card.id, 'status.md').headVersion).toBe(2);
-  });
-
-  it('an illegal complete record transition blocks truncation and writer admission', () => {
-    const { cards, card, root } = setup(); cards.openRecord(card.id, 'status.md'); const path = streamPath(root, card.id, 'status.md'); const first = readFileSync(path);
-    const before = Buffer.concat([first, first, Buffer.from('suffix')]); writeFileSync(path, before);
-    expect(() => current(cards, card.id, 'status.md')).toThrow(); expect(() => cards.editRecord(card.id, 'status.md', 'new content')).toThrow(); expect(readFileSync(path)).toEqual(before);
-  });
-  it('reads one active path and one record stream for each complete record operation',()=>{
-    const {cards,card,root}=setup();cards.openRecord(card.id,'status.md');const expected=[cardStreamFile(root,'project'),cardStreamFile(root,card.id),streamPath(root,card.id,'status.md')];
-    for(const read of [(i:CanonicalReadInstrumentation)=>cards.readRecordCurrent(card.id,'status.md',i),(i:CanonicalReadInstrumentation)=>cards.readRecordHistory(card.id,'status.md',i),(i:CanonicalReadInstrumentation)=>cards.readRecordVersion(card.id,'status.md',1,i),(i:CanonicalReadInstrumentation)=>cards.diffRecordVersions(card.id,'status.md',{from:1,to:1},i)]){const paths:string[]=[];read({onRead:(path)=>paths.push(path)});expect(paths).toEqual(expected);}
-  });
-
-  it('publishes the bootstrap record as one nonempty first envelope and creates no optional or dynamic stream', () => {
-    const { cards, card, root } = setup();
-    expect(existsSync(streamPath(root, card.id, 'brief.md'))).toBe(true);
-    const firstEnvelope = readFileSync(streamPath(root, card.id, 'brief.md'), 'utf8').trimEnd().split('\n');
-    expect(firstEnvelope).toHaveLength(1);
-    const brief = readCurrentAuthoredRecord(root, card, statusDefinition({ filename: 'brief.md', schema: 'card-brief.v1', bootstrap: true }));
-    expect(brief).toMatchObject({ headVersion: 1, artifact: { state: 'closed', accepted: { writer_agent: 'runtime:bootstrap', content: 'brief' } } });
-    expect(existsSync(streamPath(root, card.id, 'status.md'))).toBe(false);
-    expect(existsSync(streamPath(root, card.id, 'review.md'))).toBe(false);
-    expect(cards.readRecordCurrent(card.id,'status.md')).toMatchObject({kind:'found',value:{projection:null}});
-  });
-
-  it('classifies a missing declared stream as empty and a missing undeclared stream as unclaimed without creating files', () => {
-    const { card, root } = setup();
-    const declared = statusDefinition();
-    const dynamic = statusDefinition({ filename: 'notes.md', schema: 'authored-record.v1', declared: false });
-    expect(classifyCurrentAuthoredRecord(root, card, declared)).toEqual({ kind: 'empty' });
-    expect(classifyCurrentAuthoredRecord(root, card, dynamic)).toEqual({ kind: 'unclaimed' });
-    expect(existsSync(streamPath(root, card.id, 'status.md'))).toBe(false);
-    expect(existsSync(streamPath(root, card.id, 'notes.md'))).toBe(false);
-  });
-
-  it('publishes dynamic first publication directly with no empty file', () => {
-    const { card, root } = setup();
-    const dynamic = statusDefinition({ filename: 'notes.md', schema: 'authored-record.v1', declared: false });
-    const opened = openAuthoredRecord(root, card, dynamic);
-    const path = streamPath(root, card.id, 'notes.md');
-    expect(opened).toMatchObject({ headVersion: 1, artifact: { state: 'open' } });
-    expect(existsSync(path)).toBe(true);
-    expect(readFileSync(path).byteLength).toBeGreaterThan(0);
-    expect(readFileSync(path).at(-1)).toBe(0x0a);
-    expect(classifyCurrentAuthoredRecord(root, card, dynamic)).toMatchObject({ kind: 'present', projection: { headVersion: 1 } });
-  });
-
-  it('publishes one envelope per open, edit, close, discard, and reopen mutation with contiguous versions and singular URLs', () => {
-    const { cards, card, root } = setup();
-    const admitted=cards.readRecordCurrent(card.id,'status.md');if(admitted.kind!=='found')throw new Error('missing card');const definition=admitted.value.definition;
-    const path = streamPath(root, card.id, 'status.md');
-    const opened = cards.openRecord(card.id, 'status.md');
-    expect(opened).toMatchObject({ headVersion: 1, currentUrl: `record:///status.md?card=${encodeURIComponent(card.id)}`, versionUrl: `record:///status.md?card=${encodeURIComponent(card.id)}&v=1`, artifact: { state: 'open' } });
-    expect(readFileSync(path, 'utf8').trimEnd().split('\n')).toHaveLength(1);
-
-    const edited = cards.editRecord(card.id, 'status.md', 'closed content');
-    const earlierCardVersion = cards.read(card.id)!.version_seq;
-    const advanced = cards.editCard(card.id, { title: 'advanced before close' }, 'planner');
-    expect(advanced.version_seq).toBe(earlierCardVersion + 1);
+  it('retains only accepted sparse versions; mutable edits count A→B→A and discard clears no accepted history', () => {
+    const { root, cards, card } = setup();
+    expect(cards.openRecord(card.id, 'status.md')).toMatchObject({
+      revision: 1,
+      acceptedVersionUrl: null,
+      state: 'open',
+    });
+    const openedBytes = readFileSync(cardRecordHeadFile(root, card.id, definition));
+    expect(cards.openRecord(card.id, 'status.md').revision).toBe(1);
+    expect(readFileSync(cardRecordHeadFile(root, card.id, definition))).toEqual(openedBytes);
+    cards.editRecord(card.id, 'status.md', 'A');
+    cards.editRecord(card.id, 'status.md', 'B');
+    cards.editRecord(card.id, 'status.md', 'A');
+    expect(current(cards, card.id, 'status.md').revision).toBe(4);
+    expect(history(cards, card.id, 'status.md')).toEqual([]);
     const closed = cards.closeRecord(card.id, 'status.md', 'executor');
-    expect(closed.headVersion).toBe(3);
-    expect(closed.artifact.accepted?.content).toBe('closed content');
-    expect(closed.artifact.accepted?.card_version_seq).toBe(advanced.version_seq);
-    expect(closed.artifact.accepted?.card_version_seq).not.toBe(earlierCardVersion);
-    expect(historical(cards,card.id,'status.md',1).artifact.state).toBe('open');
-    expect(current(cards,card.id,'status.md').artifact).toEqual(closed.artifact);
-
-    const reopened = cards.openRecord(card.id, 'status.md');
-    expect(reopened.artifact.accepted).toEqual(closed.artifact.accepted);
-    const discarded = cards.discardRecord(card.id, 'status.md', 'not needed');
-    expect(discarded).toMatchObject({ headVersion: 5, artifact: { state: 'discarded', accepted: closed.artifact.accepted } });
-    expect(cards.openRecord(card.id, 'status.md').headVersion).toBe(6);
-
-    const rows = recordRows(root, card.id, definition);
-    expect(rows.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(rows.map(({ state }) => state)).toEqual(['open', 'open', 'closed', 'open', 'discarded', 'open']);
-    expect(readFileSync(path, 'utf8').trimEnd().split('\n')).toHaveLength(6);
-  });
-
-  it('treats opening an already-open record as a no-op that appends nothing', () => {
-    const { cards, card, root } = setup();
+    expect(closed).toMatchObject({
+      revision: 5,
+      state: 'closed',
+      acceptedVersionUrl: `record:///status.md?card=${card.id}&v=5`,
+      accepted: { content: 'A' },
+    });
+    const first = history(cards, card.id, 'status.md')[0]!;
+    const firstBytes = readFileSync(cardAcceptedRecordFile(root, card.id, first.entry_id));
     cards.openRecord(card.id, 'status.md');
-    const path = streamPath(root, card.id, 'status.md');
-    const before = readFileSync(path);
-    const reopened = cards.openRecord(card.id, 'status.md');
-    expect(reopened.headVersion).toBe(1);
-    expect(readFileSync(path)).toEqual(before);
+    cards.editRecord(card.id, 'status.md', 'later draft');
+    cards.discardRecord(card.id, 'status.md');
+    expect(current(cards, card.id, 'status.md')).toMatchObject({
+      revision: 8,
+      state: 'closed',
+      draft: null,
+      accepted: closed.accepted,
+    });
+    const next = cards.acceptRecord(card.id, 'status.md', 'accepted B', 'analyst');
+    expect(next.revision).toBe(9);
+    expect(history(cards, card.id, 'status.md').map((entry) => entry.version)).toEqual([5, 9]);
+    expect(history(cards, card.id, 'status.md')[1]!.predecessor).toEqual({
+      entry_id: first.entry_id,
+      version: 5,
+    });
+    expect(readFileSync(cardAcceptedRecordFile(root, card.id, first.entry_id))).toEqual(firstBytes);
+    for (const gap of [1, 2, 3, 4, 6, 7, 8])
+      expect(cards.readRecordVersion(card.id, 'status.md', gap)).toEqual({
+        kind: 'version-not-found',
+        version: gap,
+      });
   });
-
-  it('uses typed absence only for unknown cards, empty current records, and unlisted history', () => {
-    const { cards, card } = setup();
-    expect(cards.readRecordCurrent('card-z','status.md')).toEqual({kind:'card-not-found'});
-    expect(cards.readRecordCurrent(card.id,'status.md')).toMatchObject({kind:'found',value:{projection:null}});
-    expect(cards.readRecordVersion(card.id,'status.md',7)).toEqual({kind:'version-not-found',version:7});
-  });
-
-  it.each(['malformed', 'empty', 'nonstream'] as const)('fails fast on a %s record stream without mutation', (fault) => {
-    const { cards, card, root } = setup();
+  it('keeps present empty heads distinct from missing optional or generic heads', () => {
+    const { root, cards, card } = setup();
     cards.openRecord(card.id, 'status.md');
-    const path = streamPath(root, card.id, 'status.md');
-    if (fault === 'malformed') writeFileSync(path, 'complete malformed record\n');
-    else if (fault === 'empty') writeFileSync(path, '');
-    else writeFileSync(path, `${JSON.stringify({ hello: 'world' })}\n`);
-    const before = readFileSync(path);
-    expect(() => cards.readRecordCurrent(card.id, 'status.md')).toThrow();
-    expect(() => cards.editRecord(card.id, 'status.md', 'content')).toThrow();
+    cards.discardRecord(card.id, 'status.md');
+    expect(current(cards, card.id, 'status.md')).toMatchObject({
+      revision: 2,
+      state: 'empty',
+      draft: null,
+      accepted: null,
+      acceptedVersionUrl: null,
+    });
+    expect(classifyCurrentAuthoredRecord(root, card, definition)).toMatchObject({
+      kind: 'present',
+    });
+    const dynamic = {
+      ...definition,
+      filename: 'card.md',
+      schema: 'authored-record.v1',
+      declared: false,
+    };
+    const before = readFileSync(cardHeadFile(root, card.id));
+    openAuthoredRecord(root, card, dynamic);
+    expect(existsSync(cardRecordHeadFile(root, card.id, dynamic))).toBe(true);
+    expect(readFileSync(cardHeadFile(root, card.id))).toEqual(before);
+  });
+  it('captures observed queue-only mutation revision and real ordinary UUID separately at acceptance', () => {
+    const { root, cards, card } = setup();
+    const notification = {
+      id: randomUUID(),
+      content: 'notice',
+      created_at: new Date().toISOString(),
+    };
+    cards.enqueueNotification(card.id, notification);
+    cards.removeNotifications(card.id, [notification.id]);
+    const accepted = cards.acceptRecord(card.id, 'status.md', 'accepted', 'analyst');
+    const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
+    expect(accepted).toMatchObject({
+      revision: 1,
+      accepted: { card_version_seq: 3, card_history: ordinary },
+    });
+    expect(ordinary.version).toBe(1);
+  });
+  it('preserves crash-left draft after owner recreation and rejects explicit Analyst acceptance', () => {
+    const { root, cards, card } = setup();
+    cards.openRecord(card.id, 'status.md');
+    cards.editRecord(card.id, 'status.md', 'unfinished');
+    const restarted = new CardService(root);
+    expect(current(restarted, card.id, 'status.md')).toMatchObject({
+      revision: 2,
+      state: 'open',
+      draft: { content: 'unfinished' },
+    });
+    expect(() => restarted.acceptRecord(card.id, 'status.md', 'replacement', 'analyst')).toThrow(
+      /draft/,
+    );
+    expect(history(restarted, card.id, 'status.md')).toEqual([]);
+    expect(restarted.closeRecord(card.id, 'status.md', 'executor').accepted?.content).toBe(
+      'unfinished',
+    );
+  });
+  it('consumes selected current only and detects corrupt or missing predecessors at history use without fallback', () => {
+    const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'B', 'analyst');
+    const first = history(cards, card.id, 'status.md')[0]!;
+    const path = cardAcceptedRecordFile(root, card.id, first.entry_id);
+    writeFileSync(path, '{broken');
+    expect(current(cards, card.id, 'status.md').accepted?.content).toBe('B');
+    expect(cards.readRecordVersion(card.id, 'status.md', 2).kind).toBe('found');
     expect(() => cards.readRecordVersion(card.id, 'status.md', 1)).toThrow();
+    expect(() => history(cards, card.id, 'status.md')).toThrow();
+    unlinkSync(path);
+    expect(() => cards.readRecordVersion(card.id, 'status.md', 1)).toThrow();
+  });
+  it.each([
+    'head-identity',
+    'accepted-identity',
+    'link-order',
+    'selected-missing',
+    'head-malformed',
+    'head-utf8',
+  ] as const)('fails strictly at exact consumed %s without rewriting', (fault) => {
+    const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    const headPath = cardRecordHeadFile(root, card.id, definition);
+    const head = JSON.parse(readFileSync(headPath, 'utf8'));
+    const acceptedPath = cardAcceptedRecordFile(root, card.id, head.accepted.entry_id);
+    let path = headPath;
+    if (fault === 'head-identity') {
+      head.record_name = 'other.md';
+      writeFileSync(path, JSON.stringify(head));
+    }
+    if (fault === 'head-malformed') writeFileSync(path, '{broken');
+    if (fault === 'head-utf8') writeFileSync(path, Buffer.from([0xff]));
+    if (fault === 'selected-missing') {
+      unlinkSync(acceptedPath);
+    }
+    if (fault === 'accepted-identity' || fault === 'link-order') {
+      path = acceptedPath;
+      const accepted = JSON.parse(readFileSync(path, 'utf8'));
+      if (fault === 'accepted-identity') accepted.record_name = 'other.md';
+      else accepted.predecessor = { entry_id: randomUUID(), version: accepted.version };
+      writeFileSync(path, JSON.stringify(accepted));
+    }
+    const before = readFileSync(path);
+    expect(() => current(cards, card.id, 'status.md')).toThrow();
+    expect(() => cards.acceptRecord(card.id, 'status.md', 'B', 'analyst')).toThrow();
     expect(readFileSync(path)).toEqual(before);
   });
-
-  it('an unusable exact directory stream fails at read, including through a symlink', () => {
-    const definition = statusDefinition({ filename: 'notes.md', declared: false });
-    const dirStream = setup(); mkdirSync(streamPath(dirStream.root, dirStream.card.id, 'notes.md')); expect(() => classifyCurrentAuthoredRecord(dirStream.root, dirStream.card, definition)).toThrow();
-    const linked = setup(); const target = streamPath(linked.root, linked.card.id, 'notes.md'); mkdirSync(`${target}-dir`); symlinkSync(`${target}-dir`, target); expect(() => classifyCurrentAuthoredRecord(linked.root, linked.card, definition)).toThrow();
+  it('tags current draft diff separately from immutable accepted selectors', () => {
+    const { cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    cards.openRecord(card.id, 'status.md');
+    cards.editRecord(card.id, 'status.md', 'B');
+    expect(
+      cards.diffRecordVersions(card.id, 'status.md', { from: 1, to: 'current' }),
+    ).toMatchObject({
+      kind: 'found',
+      value: {
+        from: { accepted: { content: 'A' }, draft: null },
+        to: { draft: { content: 'B' }, accepted: { content: 'A' } },
+        target: { kind: 'current', revision: 3, accepted_version: 1 },
+      },
+    });
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 1, to: 1 })).toMatchObject({
+      kind: 'found',
+      value: { target: { kind: 'version', version: 1 } },
+    });
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 1, to: 2 })).toEqual({
+      kind: 'version-not-found',
+      version: 2,
+      side: 'to',
+    });
   });
-
-  it('rejects streams that violate the fold contract', () => {
-    const { card, root } = setup();
-    const definition = statusDefinition({ filename: 'brief2.md', schema: 'card-brief.v1', bootstrap: true, declared: true });
-    expect(() => openAuthoredRecord(root, card, definition)).toThrow(/bootstrap/);
-    const bootstrap = initializeAuthoredRecord(root, card.id, definition, 'bootstrap content');
-    expect(bootstrap?.headVersion).toBe(1);
-    const wrongIdentity = statusDefinition({ filename: 'status.md' });
-    writeFileSync(streamPath(root, card.id, 'status.md'), '');
-    expect(() => classifyCurrentAuthoredRecord(root, card, wrongIdentity)).toThrow(/empty/);
-  });
-
-  it('maps configured bootstrap and dynamic card.md records onto record-card.jsonl and never touches card authority', () => {
-    const { cards, card, root } = setup();
-    const configuredCardMd = statusDefinition({ filename: 'card.md', schema: 'card-doc.v1', bootstrap: true });
-    const bootstrap = initializeAuthoredRecord(root, card.id, configuredCardMd, 'card.md bootstrap');
-    expect(bootstrap?.versionUrl).toBe(`record:///card.md?card=${encodeURIComponent(card.id)}&v=1`);
-    expect(existsSync(streamPath(root, card.id, 'card.md'))).toBe(true);
-    expect(streamPath(root, card.id, 'card.md')).not.toBe(cardStreamFile(root, card.id));
-
-    const other = cards.create({ type: 'code', parent: 'project', title: 'other', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    const dynamicCardMd = statusDefinition({ filename: 'card.md', declared: false });
-    expect(classifyCurrentAuthoredRecord(root, other, dynamicCardMd)).toEqual({ kind: 'unclaimed' });
-    const otherCardAuthority = cardStreamFile(root, other.id);
-    const before = readFileSync(otherCardAuthority);
-    const opened = openAuthoredRecord(root, other, dynamicCardMd);
-    expect(opened).toMatchObject({ headVersion: 1, artifact: { state: 'open', accepted: null } });
-    expect(existsSync(streamPath(root, other.id, 'card.md'))).toBe(true);
-    expect(readFileSync(otherCardAuthority)).toEqual(before);
-  });
-
-  it('propagates append outcome-unknown without reread, retry, or stream change', () => {
-    const { card, root } = setup();
-    const definition = statusDefinition({ filename: 'status.md', declared: true });
-    const cardsWithIo = new CardService(root, undefined, {
-      open: openSync,
-      write: (() => { const failure = new Error('simulated append failure') as NodeJS.ErrnoException; failure.code = 'EIO'; throw failure; }) as typeof writeSync,
+  it('stops immediately on uncertain head selection after accepted publication without follow-up reads', () => {
+    const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
+    const headPath = cardRecordHeadFile(root, card.id, definition);
+    const before = readFileSync(headPath);
+    const calls: string[] = [];
+    const io: ReplacementFileIo = {
+      open: (...args) => {
+        calls.push('open');
+        return openSync(...args);
+      },
+      write: writeSync,
       fsync: fsyncSync,
       close: closeSync,
-    } satisfies GrowingFileIo);
-    cardsWithIo.openRecord(card.id, 'status.md');
-    const path = streamPath(root, card.id, 'status.md');
-    const before = readFileSync(path);
-    expect(() => cardsWithIo.editRecord(card.id, 'status.md', 'content')).toThrow(PublicationOutcomeUnknownError);
-    expect(readFileSync(path)).toEqual(before);
-    expect(recordRows(root, card.id, definition)).toHaveLength(1);
+      rename: (from, to) => {
+        calls.push('rename');
+        if (to === headPath) throw new Error('head rename failed');
+        renameSync(from, to);
+      },
+    };
+    expect(() => acceptAuthoredRecord(root, card, definition, 'B', 'analyst', io)).toThrow(
+      PublicationOutcomeUnknownError,
+    );
+    expect(calls.at(-1)).toBe('rename');
+    expect(readFileSync(headPath)).toEqual(before);
+    expect(current(cards, card.id, 'status.md').accepted?.content).toBe('A');
+    expect(history(cards, card.id, 'status.md')).toHaveLength(1);
+  });
+  it.each([
+    'temporary-open',
+    'write',
+    'file-sync',
+    'file-close',
+    'rename',
+    'parent-open',
+    'parent-sync',
+    'parent-close',
+  ] as const)('ends accepted publication on %s failure before selecting a record head', (fault) => {
+    const { root, card } = setup();
+    const calls: string[] = [];
+    const parents = new Set<number>();
+    const error = new Error(`accepted ${fault} failed`);
+    const step = (name: string) => {
+      calls.push(name);
+      if (name === fault) throw error;
+    };
+    const acceptedRoot = cardAcceptedRecordsRoot(root, card.id);
+    const io: ReplacementFileIo = {
+      open: (path, flags) => {
+        const parent = path === acceptedRoot;
+        step(parent ? 'parent-open' : 'temporary-open');
+        const fd = openSync(path, flags);
+        if (parent) parents.add(fd);
+        return fd;
+      },
+      write: ((...args: Parameters<typeof writeSync>) => {
+        step('write');
+        return writeSync(...args);
+      }) as typeof writeSync,
+      fsync: (fd) => {
+        step(parents.has(fd) ? 'parent-sync' : 'file-sync');
+        fsyncSync(fd);
+      },
+      close: (fd) => {
+        step(parents.has(fd) ? 'parent-close' : 'file-close');
+        closeSync(fd);
+      },
+      rename: (from, to) => {
+        step('rename');
+        renameSync(from, to);
+      },
+    };
+    expect(() =>
+      acceptAuthoredRecord(root, card, definition, 'new acceptance', 'analyst', io),
+    ).toThrow(
+      fault.startsWith('parent-') || fault === 'rename' ? PublicationOutcomeUnknownError : error,
+    );
+    expect(calls.at(-1)).toBe(fault);
+    expect(existsSync(cardRecordHeadFile(root, card.id, definition))).toBe(false);
+    expect(classifyCurrentAuthoredRecord(root, card, definition)).toEqual({ kind: 'empty' });
+  });
+  it('refuses temporary collision without replacing it or creating a head', () => {
+    const { root, card } = setup();
+    const temp = '11111111-1111-4111-8111-111111111111';
+    const path = cardRecordHeadFile(root, card.id, definition);
+    const temporaryPath = join(
+      root,
+      '.saivage',
+      'cards',
+      'project',
+      'children',
+      'a',
+      'records',
+      `.record-status.json.${temp}.saivage-tmp`,
+    );
+    writeFileSync(temporaryPath, 'collision');
+    const temporary = () => temp;
+    expect(() => openAuthoredRecord(root, card, definition, undefined, temporary)).toThrow();
+    expect(existsSync(path)).toBe(false);
+    expect(readFileSync(temporaryPath, 'utf8')).toBe('collision');
+  });
+  it.each([
+    { operation: 'open', offset: 1, unknown: false },
+    { operation: 'write', offset: 2, unknown: false },
+    { operation: 'fsync', offset: 3, unknown: false },
+    { operation: 'close', offset: 4, unknown: false },
+    { operation: 'rename', offset: 5, unknown: true },
+    { operation: 'open', offset: 6, unknown: true },
+    { operation: 'fsync', offset: 7, unknown: true },
+    { operation: 'close', offset: 8, unknown: true },
+  ])('ends record head selection at $operation stage $offset without hints or further effects', ({ operation, offset, unknown }) => {
+    for (const mutation of ['accept', 'close'] as const) {
+      const { root, cards, card } = setup();
+      cards.acceptRecord(card.id, 'status.md', 'baseline', 'analyst');
+      if (mutation === 'close') {
+        cards.openRecord(card.id, 'status.md');
+        cards.editRecord(card.id, 'status.md', 'unfinished');
+      }
+      const headPath = cardRecordHeadFile(root, card.id, definition);
+      const before = readFileSync(headPath);
+      const operations: string[] = [];
+      const fault = new Error('record head publication failed');
+      const hit = (name: string) => {
+        operations.push(name);
+        if (operations.length === 8 + offset) { expect(name).toBe(operation); throw fault; }
+      };
+      const io: ReplacementFileIo = {
+        open: (...args) => { hit('open'); return openSync(...args); },
+        write: ((...args: Parameters<typeof writeSync>) => { hit('write'); return writeSync(...args); }) as typeof writeSync,
+        fsync: fd => { hit('fsync'); fsyncSync(fd); },
+        close: fd => { hit('close'); closeSync(fd); },
+        rename: (from, to) => { hit('rename'); renameSync(from, to); },
+      };
+      const freshness = { cardProjectionChanged: jest.fn(), runtimeChanged: jest.fn(), agentMembershipChanged: jest.fn() };
+      const failing = new CardService(root, freshness, io);
+      let caught: unknown;
+      try {
+        if (mutation === 'accept') failing.acceptRecord(card.id, 'status.md', 'new accepted', 'analyst');
+        else failing.closeRecord(card.id, 'status.md', 'executor');
+      } catch (error) { caught = error; }
+      if (unknown) expect(caught).toBeInstanceOf(PublicationOutcomeUnknownError);
+      else expect(caught).toBe(fault);
+      expect(operations).toHaveLength(8 + offset);
+      for (const effect of Object.values(freshness)) expect(effect).not.toHaveBeenCalled();
+      if (offset <= 5) expect(readFileSync(headPath)).toEqual(before);
+    }
   });
 });

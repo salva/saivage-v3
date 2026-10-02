@@ -22,7 +22,7 @@ describe('capability-based configurable card-type semantics',()=>{
     const cards=new CardService(root,compileProjectWorkflows(config));
     const plan=cards.create({type:'initiative',parent:'project',title:'Plan',bootstrap_content:'plan',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
     const work=cards.create({type:'task',parent:plan.id,title:'Work',bootstrap_content:'work',priority:0,urgency:'normal',created_by:'analyst',depends_on:[]});
-    const notify=jest.fn((_cardId:string)=>({ok:true as const,notificationId:'notification'}));
+    const notify=jest.fn((_cardId:string,notice:Parameters<CardService['enqueueNotification']>[1])=>({ok:true as const,notificationId:notice.id}));
     propagateAnalystRecordEdit(cards,work.id,{kind:'analyst_edit',summary:'updated'},notify);
     expect(notify.mock.calls.map(([cardId])=>cardId)).toEqual([plan.id,'project']);
     expect(notify.mock.calls.map(([cardId])=>cardId)).not.toContain(work.id);

@@ -96,12 +96,12 @@ function installDefaultFixtureApi(): void {
     card_id: cardId,
     record: {
       name,
-      head_version: 1,
-      head_entry_id: '11111111-1111-4111-8111-111111111111',
+      revision: 1,
+      current_url: `record:///${name}?card=${cardId}`,
+      accepted_version_url: `record:///${name}?card=${cardId}&v=1`,
       state: 'closed',
-      accepted: { source_version: 1, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: '2026-09-24T12:00:00.000Z', writer_agent: 'analyst', card_version_seq: 1, content: 'Complete the represented work.', content_sha256: 'a'.repeat(64), size_bytes: 30 },
+      accepted: { source_version: 1, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: '2026-09-24T12:00:00.000Z', writer_agent: 'analyst', card_version_seq: 1, card_history_version: 1, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Complete the represented work.', content_sha256: 'a'.repeat(64), size_bytes: 30 },
       draft: null,
-      discarded: null,
       effective_content_source: 'accepted',
     },
   }));

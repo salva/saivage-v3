@@ -2,18 +2,20 @@ export { appendAppLogEntry, readAppLogEntries } from './app-log.js';
 export type { AppLogPublicationContext } from './app-log.js';
 export {
   AuthoredRecordNotFoundError,
+  acceptAuthoredRecord,
   classifyCurrentAuthoredRecord,
   closeOpenAuthoredRecord,
   discardOpenAuthoredRecord,
   editOpenAuthoredRecord,
   listAuthoredRecordVersions,
   openAuthoredRecord,
-  projectAuthoredRecordArtifact,
   readCurrentAuthoredRecord,
+  readAuthoredRecordVersion,
 } from './authored-record-files.js';
 export type {
   CurrentAuthoredRecordClassification,
   RecordProjection,
+  AcceptedRecordProjection,
 } from './authored-record-files.js';
 export { cardVersionChangeSchema } from './canonical-card-artifacts.js';
 export type {
@@ -44,6 +46,9 @@ export {
   readCardDetail,
   readCardHierarchy,
   readCommittedCardArtifactCatalog,
+  readCommittedCardCurrent,
+  readCommittedCardVersion,
+  readPendingCardNotifications,
   readLinkedChildren,
   readLinkedChildrenProjection,
 } from './card-files.js';
@@ -68,7 +73,7 @@ export { listControlActions, recordControlAction } from './control-action-audit.
 export { initializeAndValidateCurrentGeneratedState } from './current-generated-graph.js';
 export { findProjectRoot } from './discovery.js';
 export { readProjectCardOrAssertInitialPublicationAllowed } from './generated-state.js';
-export type { CanonicalReadInstrumentation, GrowingFileIo } from './growing-file.js';
+export type { CanonicalReadInstrumentation } from './growing-file.js';
 export {
   SAIVAGE_CARDS_RELATIVE_DIR,
   SAIVAGE_WORK_RELATIVE_DIR,

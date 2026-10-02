@@ -30,6 +30,7 @@ type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 import type { CardLifecycleState } from './lifecycle.js';
 
 export interface CardNotification {
+  /** Fresh UUID v4 shared by publication, receipt, and selected delivery removal. */
   id: string;
   content: string;
   created_at: string;
@@ -61,7 +62,7 @@ export interface CardRecord {
   status_text_author_session_id: null;
   latest_self_report: null;
   metadata: null;
-  pending_notifications: CardNotification[];
+  pending_notifications: string[];
 }
 export type OutboundCardRecord = Omit<CardRecord, 'pending_notifications'>;
 

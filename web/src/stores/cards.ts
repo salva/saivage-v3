@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import type {
   CardDetail,
   CardDiffRow,
+  CardDiffResponse,
   CardHierarchyRecord,
   CardHistoryEntry,
   CardHistoryHeader,
@@ -207,6 +208,7 @@ export const useCardStore = defineStore('cards', () => {
   const cardHistoryEntryError = ref<DetailErrorState | null>(null);
   let entryOwner: RequestOwner | null = null;
   const cardHistoryDiff = ref<CardDiffRow[]>([]);
+  const cardHistoryDiffTarget = ref<CardDiffResponse['to'] | null>(null);
   const cardHistoryDiffKey = ref<CurrentCardDiffKey | null>(null);
   const cardHistoryDiffLoading = ref(false);
   const cardHistoryDiffError = ref<DetailErrorState | null>(null);
@@ -577,7 +579,7 @@ export const useCardStore = defineStore('cards', () => {
           accepted: effective
             ? {
                 kind: 'content',
-                version: response.record.head_version,
+                version: response.record.revision,
                 committedAt: committedAt!,
                 content: effective.content,
               }
@@ -703,52 +705,20 @@ export const useCardStore = defineStore('cards', () => {
     });
     return promise;
   }
-  function currentAsSelected(current: CardRecordContentResponse): RecordVersionContentResponse {
-    const record = current.record;
-    const published_at =
-      record.state === 'open'
-        ? record.draft!.updated_at
-        : record.state === 'closed'
-          ? record.accepted!.committed_at
-          : record.discarded!.discarded_at;
-    return {
-      card_id: current.card_id,
-      name: record.name,
-      version: record.head_version,
-      entry_id: record.head_entry_id,
-      published_at,
-      artifact: {
-        state: record.state,
-        published_at,
-        accepted: record.accepted,
-        draft: record.draft,
-        discarded: record.discarded,
-      },
-    };
-  }
   function selectRecordVersion(name: LiveSyncCardRecordName, version: number): Promise<void> {
     const id = selectedCardId.value;
     const prior = cardRecords.value[name];
     if (!id || !prior) throw new Error(`Record '${name}' is not selected.`);
     abortRequestOwner(recordVersionOwners, name);
     abortRequestOwner(recordDiffOwners, name);
-    if (prior.current?.record.head_version === version) {
-      const selected = currentAsSelected(prior.current);
-      const diff: RecordDiffResponse = {
-        card_id: id,
-        name,
-        from: version,
-        to: version,
-        view: 'effective',
-        hunks: [],
-      };
+    if (prior.history && !prior.history.versions.some((entry) => entry.version === version)) {
       cardRecords.value = withKey(cardRecords.value, name, {
         ...prior,
         selectedVersion: version,
-        selected,
+        selected: null,
         selectedLoading: false,
-        selectedError: null,
-        diff,
+        selectedError: `Accepted version ${version} not found`,
+        diff: null,
         diffLoading: false,
         diffError: null,
       });
@@ -909,6 +879,7 @@ export const useCardStore = defineStore('cards', () => {
     cardHistoryEntryLoading.value = false;
     cardHistoryEntryError.value = null;
     cardHistoryDiff.value = [];
+    cardHistoryDiffTarget.value = null;
     cardHistoryDiffKey.value = null;
     cardHistoryDiffLoading.value = false;
     cardHistoryDiffError.value = null;
@@ -964,6 +935,7 @@ export const useCardStore = defineStore('cards', () => {
         )
           return;
         cardHistoryDiff.value = response.diff;
+        cardHistoryDiffTarget.value = response.to;
         cardHistoryDiffKey.value = key;
         cardHistoryDiffError.value = null;
         cardHistoryDiffFreshness.value = fresh();
@@ -999,7 +971,21 @@ export const useCardStore = defineStore('cards', () => {
     return promise;
   }
   function selectCardHistoryVersion(cardId: string, version: number): Promise<void> {
+    entryOwner?.controller.abort();
+    diffOwner?.controller.abort();
+    cardHistoryEntry.value = null;
+    cardHistoryEntryError.value = null;
+    cardHistoryDiffError.value = null;
+    cardHistoryDiff.value = [];
+    cardHistoryDiffTarget.value = null;
+    cardHistoryDiffKey.value = null;
     cardHistorySelectedVersion.value = version;
+    if (cardHistoryAccepted.value && !cardHistory.value.some((entry) => entry.version === version)) {
+      cardHistoryEntryError.value = { kind: 'not-found', status: 404, message: `Historical version ${version} not found` };
+      cardHistoryEntryLoading.value = false;
+      cardHistoryDiffLoading.value = false;
+      return Promise.resolve();
+    }
     const key = Object.freeze({ cardId, fromSeq: version, to: 'current' as const });
     return Promise.all([startEntry(cardId, version), startDiff(key, null)]).then(() => undefined);
   }
@@ -1092,6 +1078,7 @@ export const useCardStore = defineStore('cards', () => {
     cardHistoryEntryLoading,
     cardHistoryEntryError,
     cardHistoryDiff,
+    cardHistoryDiffTarget,
     cardHistoryDiffKey,
     cardHistoryDiffLoading,
     cardHistoryDiffError,

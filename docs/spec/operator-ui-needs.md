@@ -134,6 +134,7 @@ from observed execution; named agents and record declarations are not hard-coded
 versions, publication times, available ordinary change summaries/fields/actors, a selected
 snapshot, and its difference from current. Check an attributed update and null change
 metadata: the latter yields no inferred author or cause. Record revisions remain separate.
+Retained card evidence contains ordinary snapshots only; records retain accepted evidence plus the sole current draft, not historical drafts. Pending selection is current-only: delivered conversation bodies remain readable, but the UI promises neither a queue audit nor physical erasure. Current mutation revision and sparse historical source selectors must be distinguishable, with no fabricated locator for a queue-only revision or draft.
 
 ### C. Understand activity in its work context
 
@@ -323,7 +324,7 @@ busy; a nominal due time is not a guaranteed check. No manual Oversight trigger 
 ### H. Regain orientation over time
 
 **F36 — Must — Scoped chronology.** Navigate the available chronological evidence for
-selected work across card versions, record revisions, and session segments. Check an
+selected work across retained ordinary card versions, accepted record revisions, current drafts, and session segments. Sparse mutation revisions are not automatically selectable history; exact absent selectors must show honest local errors. Accepted provenance must distinguish observed current card revision from the ordinary historical link. Check an
 hours-long scenario: identify source and coverage of each sequence and reach its evidence;
 timestamp proximity does not establish cross-resource causal or atomic order.
 Check a marker-only session segment: **Activation entry recorded** remains visible and

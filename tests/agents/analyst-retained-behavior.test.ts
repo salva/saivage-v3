@@ -50,10 +50,10 @@ describe('audited Analyst mutation settlement', () => {
 
   it('uses the production Analyst notification owner and shared snake-case body projection',async()=>{
     const test=harness();initProjectTree(test.root);
-    const submit=jest.fn(async()=>({queued:true as const,cardId:'project',notificationId:'notice-analyst',interruption:{status:'not_requested' as const}}));
+    const submit=jest.fn(async(_cardId:string,notification:{id:string})=>({queued:true as const,cardId:'project',notificationId:notification.id,interruption:{status:'not_requested' as const}}));
     (test.context as any).analystMutations=createAnalystMutationServices({store:new CardService(test.root),configAuthority:{} as never,notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:submit,cancelCard:async()=>{throw new Error('unused cancel');}});
     const result=await queue_notification(test.context,{card_id:'project',kind:'finding',body:'token=analyst-secret',urgency:'normal'},new AbortController().signal);
-    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true,card_id:'project',notification_id:'notice-analyst',body:'token=[REDACTED]',interruption:{status:'not_requested'}}});
+    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true,card_id:'project',notification_id:submit.mock.calls[0]![1].id,body:'token=[REDACTED]',interruption:{status:'not_requested'}}});
     expect(submit).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toEqual([expect.objectContaining({action:'notification.queue',outcome:'ok',params_summary:expect.not.stringContaining('analyst-secret')})]);
   });

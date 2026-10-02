@@ -11,16 +11,14 @@ import { startApp, type App } from '../../src/boot/app.js';
 import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { providerExchangeFile } from '../../src/persistence/layout.js';
+import { readCommittedCardCurrent } from '../../src/persistence/card-files.js';
+import { CardService } from '../helpers/canonical-project.js';
 
 const CLI = join(process.cwd(), 'src', 'cli.ts');
 const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const TOKEN = 'disposable-e2e-token';
 const roots: string[] = [];
 const apps = new Set<App>();
-
-function readCurrentArtifact(streamPath: string): string {
-  return readFileSync(streamPath, 'utf8').trimEnd().split('\n').at(-1)!;
-}
 
 type ChatMessage = { role: string; content: string; tool_call_id?: string };
 type ChatRequest = {
@@ -538,7 +536,7 @@ describe('disposable production-composition smoke', () => {
       else if (reviewerCalls === 2) toolCall(response, 401, 'emit_result', { outcome: 'approved', summary: 'Verifier summary must not be promoted.' });
       else if (reviewerCalls === 3) {
         const cards = app!.server.runtimeApplication.cardStore;
-        const status=cards.readRecordCurrent('project','status.md');rootStatusClosedBeforeReview = status.kind==='found'&&status.value.projection?.artifact.accepted?.content === 'Recovered plan with closed child evidence.';
+        const status=cards.readRecordCurrent('project','status.md');rootStatusClosedBeforeReview = status.kind==='found'&&status.value.projection?.accepted?.content === 'Recovered plan with closed child evidence.';
         toolCall(response, 402, 'write', { path: 'record:///review.md?card=project', content: 'Root review after closed plan status.' });
       } else if (reviewerCalls === 4) toolCall(response, 403, 'emit_result', { outcome: 'approved', summary: 'Root review approved.' });
       else throw new Error(`Unexpected Reviewer call ${reviewerCalls}: ${last?.content.slice(0, 500)}`);
@@ -549,7 +547,7 @@ describe('disposable production-composition smoke', () => {
       const freshInitOutput = runCli(root, 'init');
       expect(freshInitOutput).toContain(`Project layout initialized at ${root}`);
       expect(freshInitOutput).toContain('Configuration materialized from template classic');
-      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"id":"project"');
+      expect(readCommittedCardCurrent(root, 'project')).toMatchObject({ kind: 'found', value: { card: { id: 'project' } } });
       writeFileSync(join(root, 'compaction-source-a.txt'), `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`);
       writeFileSync(join(root, 'compaction-source-b.txt'), `Refreshed unresolved task after first compaction. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`);
       writeFileSync(join(root, 'compaction-source-c.txt'), `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(31_000)}`);
@@ -576,7 +574,7 @@ describe('disposable production-composition smoke', () => {
         throw new Error(`Missing Analyst tool invocation: ${JSON.stringify(edited)} conversation=${JSON.stringify(conversation.body)} urls=${JSON.stringify(providerUrls)} offered=${JSON.stringify([...offeredTools])} counts=${JSON.stringify({ analystPlan, executorCalls, reviewerCalls })}`);
       }
       expect(edited.toolInvocations[0].result.success).toBe(true);
-      expect(app.server.runtimeApplication.cardStore.readRecordCurrent('project','brief.md')).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Disposable Analyst bootstrap edit.'}}}}});
+      expect(app.server.runtimeApplication.cardStore.readRecordCurrent('project','brief.md')).toMatchObject({kind:'found',value:{projection:{accepted:{content:'Disposable Analyst bootstrap edit.'}}}});
       await chat(app, 'Create the permitted code child under project.');
       expect(app.server.runtimeApplication.cardStore.read('card-a')).toMatchObject({ type: 'code', lifecycle: { status: 'backlog' } });
       const narrowed = await chat(app, 'Attempt a goal under the code parent; it must be narrowed away.');
@@ -657,8 +655,8 @@ describe('disposable production-composition smoke', () => {
       expect(postResetInitOutput).toContain('Existing configuration preserved');
       const resetConfig = readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf8');
       expect(resetConfig).toContain('model_route: executor');
-      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"status":"backlog"');
-      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'record-brief.jsonl'))).toContain('runtime:bootstrap');
+      expect(readCommittedCardCurrent(root, 'project')).toMatchObject({ kind: 'found', value: { card: { lifecycle: { status: 'backlog' } } } });
+      expect(new CardService(root).readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { accepted: { writer_agent: 'runtime:bootstrap' } } } });
     } finally {
       if (app) await stop(app);
       await new Promise<void>((resolve) => provider.close(() => resolve()));

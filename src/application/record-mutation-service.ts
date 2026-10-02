@@ -133,7 +133,7 @@ export function admitRecordMutation(
     });
   }
   const current = classification.kind === 'present' ? classification.projection : null;
-  if (request.surface === 'analyst' && current?.artifact.state === 'open')
+  if (request.surface === 'analyst' && current?.state === 'open')
     return failure({
       kind: 'rejected',
       error: 'Record already has an open workflow draft.',
@@ -141,7 +141,7 @@ export function admitRecordMutation(
         code: 'record_open_conflict',
         card_id: parsed.cardId,
         name: parsed.name,
-        current_head: current.headVersion,
+        current_head: current.revision,
         operation: request.operation,
       },
     });
@@ -175,8 +175,8 @@ export function mutateRecord(
   const admitted = admitRecordMutation(store, request);
   if ('kind' in admitted) return admitted;
   const { parsed, current } = admitted;
-  const currentHead = current?.headVersion ?? null;
-  const effective = current ? effectiveRecordContent(current.artifact) : null;
+  const currentHead = current?.revision ?? null;
+  const effective = current ? effectiveRecordContent(current) : null;
   let nextContent: string;
   if (request.operation === 'edit') {
     if (!effective)
@@ -244,22 +244,22 @@ export function mutateRecord(
         operation: request.operation,
       },
     });
-  if (current?.artifact.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
-  const edited = store.editRecord(parsed.cardId, parsed.name, nextContent);
-  const result =
-    request.surface === 'analyst'
-      ? store.closeRecord(parsed.cardId, parsed.name, request.agentName)
-      : edited;
+  let result: RecordProjection;
+  if (request.surface === 'analyst')
+    result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, request.agentName);
+  else {
+    if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
+    result = store.editRecord(parsed.cardId, parsed.name, nextContent);
+  }
   const success: RecordMutationSuccess = {
     kind: 'applied',
     data: {
       card_id: parsed.cardId,
       name: parsed.name,
       state: request.surface === 'analyst' ? 'closed' : 'open',
-      head_version: result.headVersion,
-      head_entry_id: result.artifact.entry_id,
+      revision: result.revision,
       current_url: result.currentUrl,
-      version_url: result.versionUrl,
+      accepted_version_url: result.acceptedVersionUrl,
       bytes: Buffer.byteLength(nextContent),
       written: true,
       surface: request.surface,

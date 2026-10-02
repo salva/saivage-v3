@@ -41,7 +41,7 @@ const historyEntryId = '11111111-1111-4111-8111-111111111111';
 const historyChange = { summary: 'status -> running', changed_fields: ['lifecycle'] as const, actor: null };
 const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: historyEntryId, version: 2, published_at: now, artifact_kind: 'card-version', change: historyChange }], total: 1 });
 const historyEntry = parseOperatorResponse('cards.history.get', 200, { card_id: smokeCardId, version: 2, entry_id: historyEntryId, published_at: now, artifact: { kind: 'card-version', card: priorCard, change: historyChange } });
-const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: outboundCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
+const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: { kind: 'current', version_seq: 3, history_version: 3 }, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: outboundCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 
 const projectCard = {
   id: 'project',
@@ -247,7 +247,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname.startsWith(`/api/cards/${smokeCardId}/records/`)) {
       const name=decodeURIComponent(url.pathname.split('/').at(-1) ?? 'brief.md');
       const content=`Synthetic ${name} content`;
-      return json(route, parseOperatorResponse('cards.records.get',200,{card_id:smokeCardId,record:{name,head_version:1,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,writer_agent:'runtime:bootstrap',card_version_seq:1,content,content_sha256:'a'.repeat(64),size_bytes:content.length},draft:null,discarded:null,effective_content_source:'accepted'}}));
+      return json(route, parseOperatorResponse('cards.records.get',200,{card_id:smokeCardId,record:{name,revision:1,current_url:`record:///${name}?card=${smokeCardId}`,accepted_version_url:`record:///${name}?card=${smokeCardId}&v=1`,state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,writer_agent:'runtime:bootstrap',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content,content_sha256:'a'.repeat(64),size_bytes:content.length},draft:null,effective_content_source:'accepted'}}));
     }
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, historyList);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);

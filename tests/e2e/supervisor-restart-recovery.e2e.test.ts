@@ -8,7 +8,7 @@ import type { App } from '../../src/boot/app.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import { cardStreamFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { cardHeadFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 import { MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
 import {
@@ -107,12 +107,12 @@ describe('Supervisor restart full-chain recovery', () => {
         expect.objectContaining({ change: expect.objectContaining({ change_reason: 'recovery stopped lifecycle' }) }),
       ]);
       const versions = chain.map((id) => versionEntries(cards, id));
-      const bytes = chain.map((id) => readFileSync(cardStreamFile(projectRoot, id)));
+      const bytes = chain.map((id) => readFileSync(cardHeadFile(projectRoot, id)));
       apps.delete(app); await app.stop();
       const restarted = await startProductionApp(projectRoot, TOKEN); apps.add(restarted);
       await assertStoppedBeforeRun(restarted, chain, () => providerRequests, 0);
       expect(chain.map((id) => versionEntries(cards, id))).toEqual(versions);
-      expect(chain.map((id) => readFileSync(cardStreamFile(projectRoot, id)))).toEqual(bytes);
+      expect(chain.map((id) => readFileSync(cardHeadFile(projectRoot, id)))).toEqual(bytes);
     } finally { await closeServer(provider); }
   }, 60_000);
 
@@ -189,11 +189,11 @@ describe('Supervisor restart full-chain recovery', () => {
       for (const [id, version] of [['project', before.project], ['card-a', before.child]] as const) {
         expect(versionEntries(cards, id).filter((entry) => entry.version > version).map((entry) => entry.change?.change_reason)).toEqual(['recovery stopped lifecycle']);
       }
-      const settled = ['project', 'card-a'].map((id) => readFileSync(cardStreamFile(projectRoot, id)));
+      const settled = ['project', 'card-a'].map((id) => readFileSync(cardHeadFile(projectRoot, id)));
       apps.delete(app); await app.stop();
       app = await startProductionApp(projectRoot, TOKEN); apps.add(app);
       await assertStoppedBeforeRun(app, ['project', 'card-a'], () => ({ analystRequests, rootRequests, childRequests }), counts);
-      expect(['project', 'card-a'].map((id) => readFileSync(cardStreamFile(projectRoot, id)))).toEqual(settled);
+      expect(['project', 'card-a'].map((id) => readFileSync(cardHeadFile(projectRoot, id)))).toEqual(settled);
       expect(readConversation(projectRoot, 'agent:executor:card-a').physicalRows.filter((row) => row.id === `${heldChildInput}:model-recovered`)).toHaveLength(1);
       expect((await postStartProject(appOrigin(app), TOKEN)).status).toBe(200);
       await waitFor(() => cards.read('project')?.lifecycle.status === 'blocked' && cards.read('card-a')?.lifecycle.status === 'done', 'STOPPED root and child to complete');
@@ -355,14 +355,14 @@ describe('Supervisor restart full-chain recovery', () => {
       expect(readConversation(projectRoot, 'agent:executor:card-a').physicalRows.filter((row) => row.id === `${preKillChildInput}:model-recovered`)).toHaveLength(1);
       const recoveredVersion = (id: string) => versionEntries(new CardService(projectRoot, compileProjectWorkflows(config, { projectRoot })), id);
       const settledVersions = { project: recoveredVersion('project'), child: recoveredVersion('card-a') };
-      const settledBytes = { project: readFileSync(cardStreamFile(projectRoot, 'project')), child: readFileSync(cardStreamFile(projectRoot, 'card-a')) };
+      const settledBytes = { project: readFileSync(cardHeadFile(projectRoot, 'project')), child: readFileSync(cardHeadFile(projectRoot, 'card-a')) };
       const settledRows = { project: readConversation(projectRoot, 'agent:planner:project').physicalRows, child: readConversation(projectRoot, 'agent:executor:card-a').physicalRows };
       apps.delete(secondApp); await secondApp.stop(); secondApp = null;
       secondApp = await startProductionApp(projectRoot, TOKEN); apps.add(secondApp);
       expect(recoveryCalls).toEqual(['card-a', 'project']);
       await assertStoppedBeforeRun(secondApp, ['project', 'card-a'], () => ({ analystRequests, rootRequests, childRequests }), beforeRunCounters);
       expect({ project: recoveredVersion('project'), child: recoveredVersion('card-a') }).toEqual(settledVersions);
-      expect({ project: readFileSync(cardStreamFile(projectRoot, 'project')), child: readFileSync(cardStreamFile(projectRoot, 'card-a')) }).toEqual(settledBytes);
+      expect({ project: readFileSync(cardHeadFile(projectRoot, 'project')), child: readFileSync(cardHeadFile(projectRoot, 'card-a')) }).toEqual(settledBytes);
       expect({ project: readConversation(projectRoot, 'agent:planner:project').physicalRows, child: readConversation(projectRoot, 'agent:executor:card-a').physicalRows }).toEqual(settledRows);
       const secondStarted = await postStartProject(appOrigin(secondApp), TOKEN);
       expect(secondStarted.status).toBe(200);

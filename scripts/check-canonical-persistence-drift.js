@@ -30,7 +30,6 @@ const retiredIdentifiers = [
   'cardVersionIndexFile',
   'cardVersionsRoot',
   'cardVersionFile',
-  'cardRecordsRoot',
   'cardRecordRoot',
   'cardRecordVersionIndexFile',
   'cardRecordVersionsRoot',
@@ -94,7 +93,7 @@ const cardRecordDocRules = [
   },
   {
     label: 'optional existing-empty card/record authority',
-    positive: /\bstrict(?:ly)? empty\b|\bempty-index\b|\bempty history\b|(?:optional|record|declared)[^.\n]{0,4}index(?:es)?[^.\n]{0,30}\bempty\b|empty (?:optional|record|declared)[^.\n]{0,30}index/giu,
+    positive: /\bstrict(?:ly)? empty\b|\bempty-index\b|(?:optional|record|declared)[^.\n]{0,4}index(?:es)?[^.\n]{0,30}\bempty\b|empty (?:optional|record|declared)[^.\n]{0,30}index/giu,
     negated: [negatedBefore(String.raw`strict(?:ly)? empty`), negatedBefore(String.raw`empty-index`), negatedBefore(String.raw`empty history`), negatedBefore(String.raw`empty (?:optional|record|declared)[^.\n]{0,30}index`)],
   },
   {
@@ -144,7 +143,7 @@ const cardRecordDocRules = [
   },
   {
     label: 'head-token/prior-head mutation authority',
-    positive: /\bexpected_head\b|\bmutation_url\b|expected-head|prior[- ]head|head tokens?|selected heads?\b|predecessor fallback|predecessor is promoted|selects? exactly (?:its|the) head|\bshortening [^.\n]{0,20}index\b|\bopens? a predecessor\b/giu,
+    positive: /\bexpected_head\b|\bmutation_url\b|expected-head|prior[- ]head|head tokens?|predecessor fallback|predecessor is promoted|\bshortening [^.\n]{0,20}index\b/giu,
     negated: [
       negatedBefore(String.raw`head tokens?`, 60),
       /never teach[^.\n]{0,80}?head tokens?/giu,
@@ -155,7 +154,7 @@ const cardRecordDocRules = [
   },
   {
     label: 'retired card/record historical-unavailability and unindexed-artifact language',
-    positive: /historical-unavailable|typed local historical|\bunindexed files?\b|\bdeclared namespaces?\b|\brecords? root\b|non-current files?/giu,
+    positive: /historical-unavailable|typed local historical|\bdeclared namespaces?\b/giu,
     negated: [],
   },
 ];
@@ -212,21 +211,11 @@ for (const path of paths) {
 }
 
 const layout = existsSync('src/persistence/layout.ts') ? readFileSync('src/persistence/layout.ts', 'utf8') : '';
-if (!/function cardStreamFile/u.test(layout) || !layout.includes("'card.jsonl'")) violation('src/persistence/layout.ts: missing exact card.jsonl stream path helper');
-const recordName = existsSync('src/schemas/record-name.ts') ? readFileSync('src/schemas/record-name.ts', 'utf8') : '';
-if (!/function recordStreamFilename/u.test(recordName) || !recordName.includes('`record-${') || !recordName.includes('.jsonl`')) violation('src/schemas/record-name.ts: missing record-<stem>.jsonl stream filename helper');
-
-const requiredDocPhrases = [
-  ['docs/spec/system-specification.md', ['card.jsonl', 'record-<stem>.jsonl']],
-  ['docs/architecture/system-architecture.md', ['card.jsonl', 'record-<stem>.jsonl']],
-  ['docs/runbook/index.md', ['card.jsonl', 'record-<stem>.jsonl']],
-  ['docs/spec/operator-ui-contracts.md', ['one strict stream']],
-];
-for (const [doc, phrases] of requiredDocPhrases) {
-  if (!existsSync(doc)) { violation(`${doc}: required canonical document missing`); continue; }
-  const content = readFileSync(doc, 'utf8');
-  for (const phrase of phrases) if (!content.includes(phrase)) violation(`${doc}: missing required exact-stream assertion '${phrase}'`);
+for (const [helper, component] of [['cardHeadFile', 'card-head.json'], ['cardHistoryRoot', 'card-history'], ['cardMailboxRoot', 'mailbox'], ['cardAcceptedRecordsRoot', 'accepted']]) {
+  if (!new RegExp(`function ${helper}\\b`, 'u').test(layout) || !layout.includes(`'${component}'`)) violation(`src/persistence/layout.ts: missing exact owner path helper ${helper}`);
 }
+const recordName = existsSync('src/schemas/record-name.ts') ? readFileSync('src/schemas/record-name.ts', 'utf8') : '';
+if (!/function recordHeadFilename/u.test(recordName) || !recordName.includes('`record-${') || !recordName.includes('.json`')) violation('src/schemas/record-name.ts: missing record-<stem>.json head filename helper');
 
 const guide = existsSync('README-IF-YOU-ARE-AN-AI.md') ? readFileSync('README-IF-YOU-ARE-AN-AI.md', 'utf8') : '';
 for (const required of [

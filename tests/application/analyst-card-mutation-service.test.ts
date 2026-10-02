@@ -27,7 +27,7 @@ function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): Card
   }
 }
 
-function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] })), submitNotification: (...args: any[]) => any = jest.fn(async (cardId: string) => ({ queued: true as const, cardId, notificationId: 'notification', interruption: { status: 'not_requested' as const } }))) {
+function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] })), submitNotification: (...args: any[]) => any = jest.fn(async (cardId: string, notification: { id: string }) => ({ queued: true as const, cardId, notificationId: notification.id, interruption: { status: 'not_requested' as const } }))) {
   if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
   return createAnalystMutationServices({ store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, submitNotification, cancelCard });
 }
@@ -111,7 +111,7 @@ describe('analyst stopped card mutations', () => {
       const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunning(card.id);
-      const service = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'n' })).recordMutations;
+      const service = testAnalystMutationServices(root, cards, (_id, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
 
       expect(service.write(`record:///brief.md?card=${card.id}`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
       expect(cards.read(card.id)).toMatchObject({ lifecycle: { status: 'stopped' } });
@@ -128,7 +128,7 @@ describe('analyst child reorder propagation', () => {
     const getAncestors = jest.fn(() => [] as string[]);
     const setStatus = jest.fn();
     const store = { read: jest.fn(() => parent), listChildren: jest.fn(() => []), reorderChildren, getAncestors, setStatus } as unknown as CardService;
-    const notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'notification' }));
+    const notifyCard = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
     const service = services(store, notifyCard).cards;
     return { service, reorderChildren, getAncestors, setStatus, notifyCard };
   }
@@ -168,7 +168,7 @@ describe('analyst child reorder propagation', () => {
       cards.deleteSubtrees([tombstone.id], () => true, 'analyst');
       cards.setStatus('project', 'running');
       cards.commitActivationOutcome('project', { status: 'done', summary: 'done', result: workflowResult('DONE', 'done') }, '2026-08-15T00:00:00.000Z');
-      const notifyCard = jest.fn<(cardId: string) => { ok: true; notificationId: string }>(() => ({ ok: true, notificationId: 'notification' }));
+      const notifyCard = jest.fn((cardId: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
       const mutations = testAnalystMutationServices(root, cards, notifyCard).cards;
       const versionBeforeIdentity = cards.read('project')!.version_seq;
 
@@ -199,7 +199,7 @@ describe('analyst card reopen', () => {
       const cards = new CardService(root);
       const target = cards.create({ type: 'code', parent: 'project', title: status, bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       settle(cards, target.id, status);
-      const notifyCard = jest.fn<(cardId: string) => { ok: true; notificationId: string }>(() => ({ ok: true, notificationId: 'notification' }));
+      const notifyCard = jest.fn((cardId: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
       const outcome = testAnalystMutationServices(root, cards, notifyCard).cards.reopen(target.id);
       expect(outcome).toMatchObject({ kind: 'returned', success: true, data: { card: { id: target.id, lifecycle: { status: 'changed' } }, status: 'changed' } });
       expect(cards.read(target.id)?.lifecycle.status).toBe('changed');
@@ -217,7 +217,7 @@ describe('analyst card reopen', () => {
       settle(cards, target.id, 'blocked');
       settle(cards, goal.id, 'failed');
       cards.setStatus('project', 'running');
-      const notifyCard = jest.fn<(cardId: string) => { ok: true; notificationId: string }>(() => ({ ok: true, notificationId: 'notification' }));
+      const notifyCard = jest.fn((cardId: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
       expect(testAnalystMutationServices(root, cards, notifyCard).cards.reopen(target.id)).toMatchObject({ kind: 'returned', success: true });
       expect(cards.read(target.id)?.lifecycle.status).toBe('changed');
       expect(cards.read(goal.id)?.lifecycle.status).toBe('changed');
@@ -236,7 +236,7 @@ describe('analyst card reopen', () => {
       settle(cards, target.id, 'done');
       settle(cards, goal.id, 'blocked');
       settle(cards, 'project', 'failed');
-      expect(testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'notification' })).cards.reopen(target.id)).toMatchObject({ kind: 'returned', success: true });
+      expect(testAnalystMutationServices(root, cards, (_id, notification) => ({ ok: true, notificationId: notification.id })).cards.reopen(target.id)).toMatchObject({ kind: 'returned', success: true });
       expect([target.id, goal.id, 'project'].map((id) => cards.read(id)?.lifecycle.status)).toEqual(['changed', 'changed', 'changed']);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -310,7 +310,7 @@ describe('analyst card reopen', () => {
 });
 
 describe('Analyst record publication', () => {
-  it('publishes open, edit, and close versions and returns the next optimistic URL', () => {
+  it('accepts directly once and returns reusable current and immutable accepted URLs', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-record-'));
     try {
       initProjectTree(root);
@@ -318,10 +318,10 @@ describe('Analyst record publication', () => {
       const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: '# Goal\nOriginal\n# Instructions\nOriginal\n# Acceptance Criteria\nOriginal', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       const finalContent = '# Goal\nFinal\n# Instructions\nFinal\n# Acceptance Criteria\nFinal';
       const result = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations.edit(`record:///brief.md?card=${target.id}`, 'Original', 'Final', true);
-      expect(result).toMatchObject({ kind: 'returned', success: true, data: { card_id: target.id, name: 'brief.md', state: 'closed', head_version: 4, current_url: `record:///brief.md?card=${target.id}`, version_url: `record:///brief.md?card=${target.id}&v=4`, bytes: Buffer.byteLength(finalContent), written: true, surface: 'analyst', propagation: { ok: true } } });
-      expect(current(cards,target.id,'brief.md').artifact.accepted?.content).toBe(finalContent);
-      expect(historical(cards,target.id,'brief.md',2).artifact.state).toBe('open');
-      expect(historical(cards,target.id,'brief.md',3).artifact.draft?.content).toBe(finalContent);
+      expect(result).toMatchObject({ kind: 'returned', success: true, data: { card_id: target.id, name: 'brief.md', state: 'closed', revision: 2, current_url: `record:///brief.md?card=${target.id}`, accepted_version_url: `record:///brief.md?card=${target.id}&v=2`, bytes: Buffer.byteLength(finalContent), written: true, surface: 'analyst', propagation: { ok: true } } });
+      expect(current(cards,target.id,'brief.md').accepted?.content).toBe(finalContent);
+      expect(historical(cards,target.id,'brief.md',2).artifact.accepted.content).toBe(finalContent);
+      expect(cards.readRecordVersion(target.id,'brief.md',3)).toEqual({kind:'version-not-found',version:3});
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -333,8 +333,8 @@ describe('Analyst record publication', () => {
       const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: 'Original', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
       const open = cards.openRecord(target.id, 'brief.md');
-      expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.headVersion } });
-      expect(current(cards,target.id,'brief.md').headVersion).toBe(open.headVersion);
+      expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.revision } });
+      expect(current(cards,target.id,'brief.md').revision).toBe(open.revision);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -346,7 +346,7 @@ describe('other Analyst mutation facets', () => {
       initProjectTree(root);
       const cards = new CardService(root);
       const target = cards.create({ type: 'code', parent: 'project', title: 'Queued', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      cards.enqueueNotification(target.id, { id: 'private-direct-id', content: 'private direct body', created_at: '2026-09-09T00:00:00.000Z' });
+      cards.enqueueNotification(target.id, { id: '11111111-1111-4111-8111-111111111111', content: 'private direct body', created_at: '2026-09-09T00:00:00.000Z' });
       const view = cardViewSchema.parse(toCardView(cards, cards.read(target.id)!));
       expect(view.card).not.toHaveProperty('pending_notifications');
       expect(JSON.stringify(view)).not.toMatch(/private-direct-id|private direct body/);
@@ -355,14 +355,14 @@ describe('other Analyst mutation facets', () => {
 
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
-    const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn(() => ({ ok: true as const, notificationId: 'unused' })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
+    const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn((_id, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
     expect(bundle.config.apply({ kind: 'set_server_setting', key: 'host', value: '127.0.0.1' })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });
 
   it('relies on the notification owner result without a separate card read', async () => {
     const read = jest.fn();
-    const submitNotification = jest.fn<NotificationSubmissionPort>(async (cardId) => ({ queued: true, cardId, notificationId: 'queued', interruption: { status: 'not_requested' } }));
+    const submitNotification = jest.fn<NotificationSubmissionPort>(async (cardId, notification) => ({ queued: true, cardId, notificationId: notification.id, interruption: { status: 'not_requested' } }));
     const bundle = services({ read } as unknown as CardService, undefined, undefined, submitNotification);
     const signal = new AbortController().signal;
     const before = Date.now();
@@ -382,8 +382,8 @@ describe('other Analyst mutation facets', () => {
 
   it.each([
     {
-      result: { queued: true as const, cardId: FIRST, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } },
-      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: 'exact-id', body: 'body', interruption: { status: 'not_requested' } } },
+      result: { queued: true as const, cardId: FIRST, notificationId: '00000000-0000-4000-8000-000000000001', interruption: { status: 'not_requested' as const } },
+      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: '00000000-0000-4000-8000-000000000001', body: 'body', interruption: { status: 'not_requested' } } },
     },
     {
       result: { queued: false as const, reason: 'missing_card' as const, cardId: FIRST },
@@ -411,12 +411,13 @@ describe('other Analyst mutation facets', () => {
       const target = cards.create({ type: 'code', parent: 'project', title: 'Queued blocked', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       cards.setStatus(target.id, 'running');
       cards.commitActivationOutcome(target.id, { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-09-09T00:00:00.000Z');
-      cards.enqueueNotification(target.id, { id: 'private-id', content: 'private body', created_at: '2026-09-09T00:00:01.000Z' });
-      const outcome = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'propagated' })).cards.reopen(target.id);
+      cards.enqueueNotification(target.id, { id: '11111111-1111-4111-8111-111111111111', content: 'private body', created_at: '2026-09-09T00:00:01.000Z' });
+      const outcome = testAnalystMutationServices(root, cards, (_id, notification) => ({ ok: true, notificationId: notification.id })).cards.reopen(target.id);
       if (outcome.kind !== 'returned' || !outcome.success) throw new Error('Expected successful reopen.');
       const view = cardViewSchema.parse(outcome.data);
       expect(view.card).not.toHaveProperty('pending_notifications');
-      expect(cards.read(target.id)?.pending_notifications).toEqual([expect.objectContaining({ id: 'private-id', content: 'private body' })]);
+      expect(cards.read(target.id)?.pending_notifications).toEqual(['11111111-1111-4111-8111-111111111111']);
+      expect(cards.readPendingNotifications(target.id)).toEqual([expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111', content: 'private body' })]);
       expect(() => cardViewSchema.parse({ ...view, card: { ...view.card, pending_notifications: [] } })).toThrow();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -432,8 +433,8 @@ describe('other Analyst mutation facets', () => {
       const closed = cards.closeRecord(card.id, 'brief.md', 'analyst');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
       expect(service.edit(`record:///brief.md?card=${card.id}`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
-      expect(current(cards,card.id,'brief.md').artifact.accepted?.content).toContain('Newest');
-      expect(current(cards,card.id,'brief.md').artifact.accepted?.content).not.toContain('Fresh current');
+      expect(current(cards,card.id,'brief.md').accepted?.content).toContain('Newest');
+      expect(current(cards,card.id,'brief.md').accepted?.content).not.toContain('Fresh current');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -452,20 +453,20 @@ describe('other Analyst mutation facets', () => {
       const fullReplacement = `${initial}\nRecovery note.`;
       expect(service.edit(target, initial, fullReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { card_id: child.id, name: 'brief.md', bytes: Buffer.byteLength(fullReplacement), written: true, propagation: { ok: true } } });
       expect(cards.read(child.id)!.lifecycle.status).toBe('changed');
-      expect(current(cards,child.id,'brief.md').artifact.accepted?.content).toBe(fullReplacement);
+      expect(current(cards,child.id,'brief.md').accepted?.content).toBe(fullReplacement);
 
       const terminalCard = cards.create({ type: 'code', parent: 'project', title: 'Terminal edit', bootstrap_content: initial, priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       const terminalTarget = `record:///brief.md?card=${terminalCard.id}`;
       const terminalReplacement = 'Recovery note.\nSecond note.';
       expect(service.edit(terminalTarget, 'Terminal', terminalReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { propagation: { ok: true } } });
-      const settled = current(cards,terminalCard.id,'brief.md').artifact.accepted?.content;
+      const settled = current(cards,terminalCard.id,'brief.md').accepted?.content;
       expect(settled?.endsWith(terminalReplacement)).toBe(true);
 
       const freshTarget = `record:///brief.md?card=${terminalCard.id}`;
       expect(service.edit(freshTarget, 'stale missing value', 'no', false)).toMatchObject({ kind: 'returned', success: false, data: { code: 'record_edit_old_string_not_found' } });
-      expect(current(cards,terminalCard.id,'brief.md').artifact.accepted?.content).toBe(settled);
+      expect(current(cards,terminalCard.id,'brief.md').accepted?.content).toBe(settled);
       expect(service.edit(freshTarget, '#', 'changed', false)).toMatchObject({ kind: 'returned', success: false, data: { code: 'record_edit_old_string_multiple_matches' } });
-      expect(current(cards,terminalCard.id,'brief.md').artifact.accepted?.content).toBe(settled);
+      expect(current(cards,terminalCard.id,'brief.md').accepted?.content).toBe(settled);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

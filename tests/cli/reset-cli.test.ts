@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { run } from '../../src/cli.js';
-import { readCard } from '../../src/persistence/card-files.js';
+import { readCard, readCommittedCardArtifactCatalog } from '../../src/persistence/card-files.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { stringify } from 'yaml';
@@ -81,20 +81,18 @@ describe('CLI reset generated-root boundary', () => {
 
     for (const marker of markers) expect(existsSync(marker)).toBe(false);
     expect(readCard(root, 'project')).toMatchObject({ id: 'project', type: 'project', lifecycle: { status: 'backlog' }, version_seq: 1 });
-    const streamPath = join(root, '.saivage', 'cards', 'project', 'card.jsonl');
-    const streamText = readFileSync(streamPath, 'utf8');
-    expect(streamText.trimEnd().split('\n')).toHaveLength(1);
-    const envelope = JSON.parse(streamText) as { version: number; type: string; rows: unknown[] };
-    expect(envelope).toEqual({ version: 1, type: 'rows', rows: [envelope.rows[0]] });
-    const rootArtifact = envelope.rows[0] as { kind: string; card_id: string; version: number; change: unknown; card: Record<string, unknown> };
-    expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 4, card_id: 'project', version: 1, change: null });
+    const catalog = readCommittedCardArtifactCatalog(root, 'project');
+    if (catalog.kind !== 'found') throw new Error('Expected initialized project.');
+    expect(catalog.value.rows).toHaveLength(1);
+    const rootArtifact = catalog.value.head;
+    if (rootArtifact.kind !== 'card-version') throw new Error('Expected initial snapshot.');
+    expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 1, card_id: 'project', version: 1, change: null, predecessor: null });
     expect(Object.keys(rootArtifact.card)).toEqual([
       'id', 'type', 'child_membership', 'active_child_order', 'title', 'lifecycle', 'subtype', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
       'version_seq', 'assigned_to', 'depends_on', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text',
       'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications',
     ]);
     expect(rootArtifact.card.lifecycle).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });
-    expect(streamText).toBe(`${JSON.stringify(envelope)}\n`);
     for (const [path, bytes] of preserved) expect(readFileSync(join(root, path), 'utf8')).toBe(bytes);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
     expect(existsSync(join(root, '.saivage', 'agents', 'conversations'))).toBe(true);

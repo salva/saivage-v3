@@ -79,7 +79,7 @@ function notifyOnce(
   for (const cardId of recipients) {
     if (notified.has(cardId)) continue;
     notified.add(cardId);
-    notifyCard(cardId, changeNotification(cardId, kind, summary));
+    notifyCard(cardId, changeNotification(kind, summary));
   }
 }
 
@@ -179,14 +179,10 @@ export function propagateAnalystRecordEdit(
   return { flipped };
 }
 
-function changeNotification(
-  cardId: string,
-  kind: ChangeOrigin['kind'],
-  summary: string,
-): CardNotification {
+function changeNotification(kind: ChangeOrigin['kind'], summary: string): CardNotification {
   const createdAt = new Date().toISOString();
   return {
-    id: `change:${cardId}:${createdAt}:${randomUUID()}`,
+    id: randomUUID(),
     content: `Card changed: ${summary}`,
     created_at: createdAt,
     source: kind === 'analyst_correction' ? 'analyst_correction' : 'card_changed',

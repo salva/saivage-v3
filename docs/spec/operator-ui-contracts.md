@@ -189,16 +189,19 @@ Plain resource reads cancel their pending request when their owner departs. Supe
   does not hide the objective, recorded result, or other usable records, and
   Retry does not reload unrelated successful records. Parent-detail 404 tears
   down card-owned reads.
-- Selected card/record history is already a row in one strict stream: a
-  failed history or selected-version request is an ordinary selection-local
+- Selected card/record history is a committed immutable ordinary/accepted predecessor document: a
+  failed history or exact sparse selected-version request is an ordinary selection-local
   error that preserves accepted current and metadata state, never a separate
   availability state.
 - Card versions expose publication facts and current-relative differences.
   Null change metadata means attribution unavailable; no author or cause is
   inferred. Record revisions keep their own sequences. Overview explains that
-  card revision counts card publications while each record has its own revision
+  card revision counts all card mutations, including enqueue/removal, while each record has its own revision
   sequence, and neither measures work completed. When displayed, record head
   revision and accepted source revision remain distinct.
+- Catalogs contain only retained ordinary card or accepted record entries; totals count entries, not maximum revisions. Current revision need not have a selectable artifact. Explicit absent selectors show a local error, never a first-entry/nearest fallback. Current draft is not synthesized into history and has no immutable locator; current record URLs remain reusable, with nullable `accepted_version_url` separately linking latest acceptance.
+- Card diffs tag their target as `{kind:'version',version}` or `{kind:'current',version_seq,history_version}`. Record current-side diffs tag mutable revision separately from immutable accepted sides. Redaction precedes comparison. Files `card.json` projects current head metadata and selected ordinary content; `card.json?v=N` projects exact immutable history. Sizes/hashes/times describe those virtual bytes, never physical heads/history/mailbox files.
+- Accepted provenance displays observed `card_version_seq` separately from `card_history_version` and its immutable ordinary locator. Queue-only current revisions never become fabricated historical URLs. Current draft and latest accepted content remain visibly distinct. Pending-only mailbox reachability promises neither a queue audit nor physical erasure; delivered conversation text remains independently readable, and private mailbox paths/bodies never leak through Files.
 - A lifecycle result is neutrally labeled **Recorded result**, with its summary
   quoted through the existing bounded one-liner and complete JSON/provenance one
   disclosure away. **No result recorded** makes no progress claim. For `done`,

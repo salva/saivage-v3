@@ -159,8 +159,7 @@ export class CardsReadModelService {
       return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     const records = result.value.definitions.map(
       ({ definition: { filename, format, schema, bootstrap }, classification }) => {
-        const entry =
-          classification.kind === 'present' ? classification.projection.artifact : undefined;
+        const entry = classification.kind === 'present' ? classification.projection : undefined;
         return {
           name: filename,
           format,
@@ -168,8 +167,9 @@ export class CardsReadModelService {
           bootstrap,
           current: entry
             ? {
-                head_version: entry.version,
-                head_entry_id: entry.entry_id,
+                revision: entry.revision,
+                current_url: entry.currentUrl,
+                accepted_version_url: entry.acceptedVersionUrl,
                 state: entry.state,
                 accepted_source_version: entry.accepted?.source_version ?? null,
                 draft_present: entry.draft !== null,
@@ -213,10 +213,7 @@ export class CardsReadModelService {
       entry_id: entry.entry_id,
       version: entry.version,
       published_at: entry.published_at,
-      state: entry.state,
-      accepted_source_version: entry.accepted?.source_version ?? null,
-      draft_present: entry.draft !== null,
-      discarded_at: entry.discarded?.discarded_at ?? null,
+      version_url: `record:///${encodeURIComponent(name)}?card=${encodeURIComponent(id)}&v=${entry.version}`,
     }));
     return { body: { card_id: id, name, versions, total: versions.length } };
   }
@@ -245,6 +242,7 @@ export class CardsReadModelService {
         card_id: id,
         name,
         version,
+        version_url: projection.versionUrl,
         entry_id: projection.artifact.entry_id,
         published_at: projection.artifact.published_at,
         artifact: projectRecordArtifact(projection.artifact),
@@ -279,15 +277,15 @@ export class CardsReadModelService {
           version: result.version,
         },
       };
-    const to = result.value.to.headVersion;
+    const to = result.value.target;
     const view = query.view ?? 'effective';
-    const before = recordView(projectRecordArtifact(result.value.from.artifact), view);
+    const before = recordView(projectRecord(result.value.from), view);
     if (before === null)
       return {
         statusCode: 400,
         body: { error: 'record_diff_view_unavailable', card_id: id, name, side: 'from', view },
       };
-    const after = recordView(projectRecordArtifact(result.value.to.artifact), view);
+    const after = recordView(projectRecord(result.value.to), view);
     if (after === null)
       return {
         statusCode: 400,
@@ -390,46 +388,52 @@ export class CardsReadModelService {
       };
     const diff = projectCardDiff(result.diff);
     return {
-      body: CardDiffResponseSchema.parse({ diff, from: result.from, to: result.to, card_id: id }),
+      body: CardDiffResponseSchema.parse({
+        diff,
+        from: result.from,
+        to: result.target,
+        card_id: id,
+      }),
     };
   }
 }
 
 function projectRecordArtifact(artifact: AuthoredRecordVersionArtifact) {
   return {
-    state: artifact.state,
     published_at: artifact.published_at,
-    accepted: artifact.accepted
-      ? { ...artifact.accepted, content: redactTextForOutbound(artifact.accepted.content) }
-      : null,
-    draft: artifact.draft
-      ? { ...artifact.draft, content: redactTextForOutbound(artifact.draft.content) }
-      : null,
-    discarded: artifact.discarded
-      ? { ...artifact.discarded, reason: redactTextForOutbound(artifact.discarded.reason) }
-      : null,
+    accepted: projectAccepted(artifact.accepted),
+  };
+}
+function projectAccepted(accepted: NonNullable<RecordProjection['accepted']>) {
+  const { card_history, ...fields } = accepted;
+  return {
+    ...fields,
+    card_history_version: card_history.version,
+    card_history_entry_id: card_history.entry_id,
+    content: redactTextForOutbound(accepted.content),
   };
 }
 function projectRecord(projection: RecordProjection) {
-  const artifact = projectRecordArtifact(projection.artifact);
   return {
     name: projection.filename,
-    head_version: projection.headVersion,
-    head_entry_id: projection.artifact.entry_id,
-    state: projection.artifact.state,
-    accepted: artifact.accepted,
-    draft: artifact.draft,
-    discarded: artifact.discarded,
+    revision: projection.revision,
+    current_url: projection.currentUrl,
+    accepted_version_url: projection.acceptedVersionUrl,
+    state: projection.state,
+    accepted: projection.accepted ? projectAccepted(projection.accepted) : null,
+    draft: projection.draft
+      ? { ...projection.draft, content: redactTextForOutbound(projection.draft.content) }
+      : null,
     effective_content_source:
-      projection.artifact.state === 'open'
+      projection.state === 'open'
         ? ('draft' as const)
-        : projection.artifact.accepted
+        : projection.accepted
           ? ('accepted' as const)
           : null,
   };
 }
 function recordView(
-  artifact: ReturnType<typeof projectRecordArtifact>,
+  artifact: ReturnType<typeof projectRecord>,
   view: 'effective' | 'accepted' | 'draft',
 ): string | null {
   if (view === 'accepted') return artifact.accepted?.content ?? null;

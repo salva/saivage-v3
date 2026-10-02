@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, fsyncSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdtempSync, openSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { CardService } from '../helpers/canonical-project.js';
 import type { LiveSyncInvalidateFrame } from '../../src/contracts/index.js';
-import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -79,7 +79,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     expect(flush()).toEqual(versionFrames(parent.id, 'project'));
   });
 
-  it('orders link and real-reorder effects strictly after their successful append', () => {
+  it('orders link and real-reorder effects strictly after their successful head publication', () => {
     const events: string[] = [];
     const freshness = {
       cardProjectionChanged(effect: { scope: string }) { events.push(`effect:${effect.scope}`); },
@@ -87,9 +87,9 @@ describe('CardService scoped mutation-to-frame effects', () => {
       agentMembershipChanged() { events.push('effect:membership'); },
     };
     const io = {
-      open(path: string, flags: number, mode?: number) { events.push('publication:open'); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
-      write: writeSync, fsync: fsyncSync, close: closeSync,
-    } as unknown as GrowingFileIo;
+      open(path: string, flags: number) { if (path.includes('.card-head.json.')) events.push('publication:open'); return openSync(path, flags); },
+      write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync,
+    } as unknown as ReplacementFileIo;
     const service = new CardService(root, freshness, io);
 
     const first = service.create(input());
@@ -119,7 +119,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
     const draft = cards.openRecord(child.id, 'status.md');
     const working = cards.editRecord(child.id, 'status.md', 'working');
-    cards.discardRecord(child.id, 'status.md', 'not ready');
+    cards.discardRecord(child.id, 'status.md');
     expect(flush()).toEqual([]);
 
     const next = cards.openRecord(child.id, 'status.md');
@@ -147,7 +147,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     ]);
   });
 
-  it('emits no hint for no-op and outcome-unknown append failure', () => {
+  it('emits no hint for no-op and outcome-unknown head publication failure', () => {
     const child = cards.create(input());
     const sibling = cards.create(input());
     flush(); clear();
@@ -156,10 +156,11 @@ describe('CardService scoped mutation-to-frame effects', () => {
     expect(flush()).toEqual([]);
 
     const failure = new Error('injected append failure');
-    const failingIo: GrowingFileIo = {
+    const failingIo: ReplacementFileIo = {
       open: openSync,
       write: writeSync,
-      fsync(fd) { fsyncSync(fd); throw failure; },
+      fsync: fsyncSync,
+      rename(from, to) { renameSync(from, to); if (String(to).endsWith('card-head.json')) throw failure; },
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
@@ -167,12 +168,13 @@ describe('CardService scoped mutation-to-frame effects', () => {
     expect(flush()).toEqual([]);
   });
 
-  it('emits no link or membership effects when the parent append is outcome-unknown', () => {
+  it('emits no link or membership effects when the parent head publication is outcome-unknown', () => {
     const failure = new Error('injected link append failure');
-    const failingIo: GrowingFileIo = {
+    const failingIo: ReplacementFileIo = {
       open: openSync,
       write: writeSync,
-      fsync(fd) { fsyncSync(fd); throw failure; },
+      fsync: fsyncSync,
+      rename(from, to) { renameSync(from, to); if (String(to).endsWith('/project/card-head.json')) throw failure; },
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
@@ -193,9 +195,9 @@ describe('CardService scoped mutation-to-frame effects', () => {
       agentMembershipChanged() { events.push('effect:membership'); },
     };
     const io = {
-      open(path: string, flags: number, mode?: number) { events.push('publication:open'); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
-      write: writeSync, fsync: fsyncSync, close: closeSync,
-    } as unknown as GrowingFileIo;
+      open(path: string, flags: number) { if (path.includes('.card-head.json.')) events.push('publication:open'); return openSync(path, flags); },
+      write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync,
+    } as unknown as ReplacementFileIo;
     const service = new CardService(root, freshness, io);
     const originalRead = service.read.bind(service);
     jest.spyOn(service, 'read').mockImplementation((id) => { events.push('business:read'); return originalRead(id); });
@@ -234,15 +236,12 @@ describe('CardService scoped mutation-to-frame effects', () => {
       agentMembershipChanged() { events.push('effect:membership'); },
     };
     const io = {
-      open(path: string, flags: number, mode?: number) { publications += 1; events.push(`publication:${publications}:open`); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
-      write(fd: number, buffer: Uint8Array, offset?: number, length?: number, position?: number | null) {
-        events.push(`publication:${publications}:write`);
-        if (publications === 2) throw failure;
-        return writeSync(fd, buffer, offset as number, length as number, position as number | null);
-      },
+      open(path: string, flags: number) { if (path.includes('.card-head.json.')) { publications += 1; events.push(`publication:${publications}:open`); } return openSync(path, flags); },
+      write: writeSync,
+      rename(from: string, to: string) { renameSync(from, to); if (to.endsWith('card-head.json')) { events.push(`publication:${publications}:write`); if (publications === 2) throw failure; } },
       fsync: fsyncSync,
       close: closeSync,
-    } as unknown as GrowingFileIo;
+    } as unknown as ReplacementFileIo;
     const service = new CardService(root, freshness, io);
     const originalRead = service.read.bind(service);
     jest.spyOn(service, 'read').mockImplementation((id) => { events.push('business:read'); return originalRead(id); });
@@ -269,44 +268,45 @@ describe('CardService scoped mutation-to-frame effects', () => {
       cardProjectionChanged() {
         if (!once) return;
         once = false;
-        cards.enqueueNotification(child.id, { id: 'during-status', content: 'new note', created_at: '2026-09-09T00:00:00.000Z' });
+        cards.enqueueNotification(child.id, { id: '11111111-1111-4111-8111-111111111111', content: 'new note', created_at: '2026-09-09T00:00:00.000Z' });
       },
       runtimeChanged() {}, agentMembershipChanged() {},
     });
     const before = cards.read(child.id)!.version_seq;
     const edited = service.editCard(child.id, { title: 'revised' }, 'planner');
     expect(edited.version_seq).toBe(before + 3);
-    expect(edited.pending_notifications.map((note) => note.id)).toEqual(['during-status']);
-    expect(cards.read(child.id)).toMatchObject({ version_seq: before + 3, pending_notifications: [{ id: 'during-status' }] });
+    expect(edited.pending_notifications).toEqual(['11111111-1111-4111-8111-111111111111']);
+    expect(cards.read(child.id)).toMatchObject({ version_seq: before + 3, pending_notifications: ['11111111-1111-4111-8111-111111111111'] });
   });
 
   it('fresh-folds enqueue across activation, reorder and selected-ID removal', () => {
     const first = cards.create(input());
     const second = cards.create(input());
     const initial = cards.read('project')!.version_seq;
-    cards.enqueueNotification('project', { id: 'first', content: 'first', created_at: '2026-09-09T00:00:00.000Z' });
+    cards.enqueueNotification('project', { id: '11111111-1111-4111-8111-111111111111', content: 'first', created_at: '2026-09-09T00:00:00.000Z' });
     cards.setStatus('project', 'running');
     cards.reorderChildren('project', [second.id, first.id]);
-    cards.enqueueNotification('project', { id: 'second', content: 'second', created_at: '2026-09-09T00:00:01.000Z' });
-    cards.removeNotifications('project', ['first']);
+    cards.enqueueNotification('project', { id: '22222222-2222-4222-8222-222222222222', content: 'second', created_at: '2026-09-09T00:00:01.000Z' });
+    cards.removeNotifications('project', ['11111111-1111-4111-8111-111111111111']);
     const current = cards.read('project')!;
     expect(current.version_seq).toBe(initial + 5);
-    expect(current.pending_notifications.map((item) => item.id)).toEqual(['second']);
+    expect(current.pending_notifications).toEqual(['22222222-2222-4222-8222-222222222222']);
     expect(current.active_child_order).toEqual([second.id, first.id]);
     expect(current.lifecycle.status).toBe('running');
   });
 
-  it('emits no record hint when close reports an outcome-unknown append failure', () => {
+  it('emits no record hint when close reports an outcome-unknown record head publication failure', () => {
     const child = cards.create(input());
     const draft = cards.openRecord(child.id, 'status.md');
     const edited = cards.editRecord(child.id, 'status.md', 'review');
     flush(); clear();
 
     const failure = new Error('injected record close failure');
-    const failingIo: GrowingFileIo = {
+    const failingIo: ReplacementFileIo = {
       open: openSync,
       write: writeSync,
-      fsync(fd) { fsyncSync(fd); throw failure; },
+      fsync: fsyncSync,
+      rename(from, to) { renameSync(from, to); if (String(to).endsWith('/record-status.json')) throw failure; },
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
@@ -319,9 +319,9 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const child = cards.create(input());
     const draft = cards.openRecord(child.id, 'status.md');
     flush(); clear();
-    const missingIo: GrowingFileIo = {
+    const missingIo: ReplacementFileIo = {
       open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
-      write: writeSync, fsync: fsyncSync, close: closeSync,
+      write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync,
     };
     const missingCards = new CardService(root, hub, missingIo);
     expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow('missing');

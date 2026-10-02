@@ -90,7 +90,7 @@ describe('record URL failures in production composition', () => {
       expect({ analystCalls, cardCalls }).toEqual({ analystCalls: 2, cardCalls: 4 });
       expect(cards.read('project')!.lifecycle.status).toBe('done');
       const record = cards.readRecordCurrent('project', 'status.md');
-      expect(record).toMatchObject({ kind: 'found', value: { projection: { artifact: { state: 'closed', accepted: { content } } } } });
+      expect(record).toMatchObject({ kind: 'found', value: { projection: { state: 'closed', accepted: { content } } } });
       const rows = readConversation(root, 'agent:executor:project').physicalRows;
       const results = rows.filter((row) => row.kind === 'tool_result');
       expect(results.map((row) => row.tool_call_id)).toEqual(['bad-write', 'good-write', 'bad-edit', 'done']);

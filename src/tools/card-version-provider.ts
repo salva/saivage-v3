@@ -74,7 +74,7 @@ export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderCont
     defineToolBinder({
       name: 'read_record_version',
       description:
-        'Read exactly one immutable authored-record version row by exact version. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.',
+        'Read one retained immutable accepted record by exact sparse source version. Draft revisions are not historical versions. Record content uses a plaintext TextSlice with UTF-8 byte offsets and is not hex encoded.',
       resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE,
       inputSchema: () => readRecordVersionInputSchema,
       executor: (ctx, args) =>
@@ -241,6 +241,8 @@ function diffCardVersions(
     entry_id: result.fromArtifact.entry_id,
     artifact_sha256: canonicalValueSha256(projectCardArtifactForOutbound(result.fromArtifact)),
   };
+  if (result.toArtifact === null)
+    throw new Error('Immutable card diff requires a historical target.');
   const toIdentity = {
     entry_id: result.toArtifact.entry_id,
     artifact_sha256: canonicalValueSha256(projectCardArtifactForOutbound(result.toArtifact)),
@@ -292,27 +294,11 @@ function readRecordVersion(
     });
   const projection = result.value.projection;
   const artifact = projection.artifact;
-  const selected = (() => {
-    if (artifact.state === 'open')
-      return {
-        content: artifact.draft!.content,
-        content_source: 'draft' as const,
-        content_sha256: artifact.draft!.content_sha256,
-      };
-    if (artifact.state === 'closed')
-      return {
-        content: artifact.accepted!.content,
-        content_source: 'accepted' as const,
-        content_sha256: artifact.accepted!.content_sha256,
-      };
-    return artifact.accepted !== null
-      ? {
-          content: artifact.accepted.content,
-          content_source: 'accepted' as const,
-          content_sha256: artifact.accepted.content_sha256,
-        }
-      : { content: '', content_source: 'none' as const, content_sha256: null };
-  })();
+  const selected = {
+    content: artifact.accepted.content,
+    content_source: 'accepted' as const,
+    content_sha256: artifact.accepted.content_sha256,
+  };
   const totalBytes = utf8ByteLength(selected.content);
   const evidenceSha256 = selected.content_sha256 ?? sha256Hex('');
   const locator = `${projection.versionUrl}#entry=${artifact.entry_id}`;
@@ -326,7 +312,6 @@ function readRecordVersion(
       version: artifact.version,
       entry_id: artifact.entry_id,
       version_url: projection.versionUrl,
-      state: artifact.state,
       content_source: selected.content_source,
       content_sha256: selected.content_sha256,
       total_bytes: totalBytes,

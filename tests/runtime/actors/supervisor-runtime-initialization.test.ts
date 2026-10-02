@@ -14,7 +14,7 @@ import { TEST_SAIVAGE_CONFIG } from '../../helpers/test-saivage-config.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
-import { cardConversationVersionFile, cardStreamFile } from '../../../src/persistence/layout.js';
+import { cardConversationVersionFile, cardHeadFile } from '../../../src/persistence/layout.js';
 import { ACTIVITY_ROW_POLICY, toolCallRowPolicy } from '../../helpers/row-policy-fixtures.js';
 import { MODEL_RECOVERY_NOTICE_TEXT, type CardConversationSessionId } from '../../../src/schemas/index.js';
 
@@ -76,7 +76,7 @@ describe('Supervisor initialization lifecycle', () => {
     chain.forEach((id) => cards.setStatus(id, 'running'));
     seedInterruptedSession(root, `agent:planner:${middle.id}`, 'pending_call');
     seedInterruptedSession(root, `agent:executor:${leaf.id}`, 'pending_provider');
-    const beforeSibling = readFileSync(cardStreamFile(root, sibling.id));
+    const beforeSibling = readFileSync(cardHeadFile(root, sibling.id));
     const events: string[] = [];
     const originalStop = cards.stopRunning.bind(cards);
     jest.spyOn(cards, 'stopRunning').mockImplementation((id) => { events.push(`stop:${id}`); return originalStop(id); });
@@ -99,17 +99,17 @@ describe('Supervisor initialization lifecycle', () => {
     expect(readConversation(root, `agent:quality-inspector:${middle.id}`).physicalRows).toHaveLength(0);
     expect(readConversation(root, `agent:planner:${middle.id}`).physicalRows.map((row) => row.kind).slice(-2)).toEqual(['tool_result', 'model_recovered']);
     expect(readConversation(root, `agent:executor:${leaf.id}`).physicalRows.at(-1)).toMatchObject({ kind: 'model_recovered', content: MODEL_RECOVERY_NOTICE_TEXT });
-    expect(readFileSync(cardStreamFile(root, sibling.id))).toEqual(beforeSibling);
+    expect(readFileSync(cardHeadFile(root, sibling.id))).toEqual(beforeSibling);
     expect(runtime.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(runtime.getActorRuntimeReadModel().cards).toEqual([]);
     expect(runtime.captureAutonomousExecutingLlmSnapshots().size).toBe(0);
     expect(status).toHaveBeenCalledTimes(1);
-    const bytes = chain.map((id) => readFileSync(cardStreamFile(root, id)));
+    const bytes = chain.map((id) => readFileSync(cardHeadFile(root, id)));
     const sessionBytes = readConversation(root, `agent:planner:${middle.id}`).physicalRows;
     const second = createSupervisorRuntimeApi({ actorStore: cards, workflows, conversations: { projectRoot: root }, runtimeGate: new RuntimeGate(), fatalPort: testApplicationFatalPort } as never);
     await second.start();
     expect(events).toHaveLength(7);
-    expect(chain.map((id) => readFileSync(cardStreamFile(root, id)))).toEqual(bytes);
+    expect(chain.map((id) => readFileSync(cardHeadFile(root, id)))).toEqual(bytes);
     expect(readConversation(root, `agent:planner:${middle.id}`).physicalRows).toEqual(sessionBytes);
   });
 
@@ -162,12 +162,12 @@ describe('Supervisor initialization lifecycle', () => {
     expect(cards.read('project')?.lifecycle.status).toBe('running');
     const noticeRows = readConversation(roots.at(-1)!, `agent:executor:${child.id}`).physicalRows;
     expect(noticeRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
-    const childBytes = readFileSync(cardStreamFile(roots.at(-1)!, child.id));
+    const childBytes = readFileSync(cardHeadFile(roots.at(-1)!, child.id));
     stop.mockRestore();
     const next = createSupervisorRuntimeApi({ actorStore: cards, workflows: TEST_RUNTIME_WORKFLOWS, conversations: { projectRoot: roots.at(-1)! }, runtimeGate: new RuntimeGate(), fatalPort: testApplicationFatalPort } as never);
     await next.start();
     expect(cards.read('project')?.lifecycle.status).toBe('stopped');
-    expect(readFileSync(cardStreamFile(roots.at(-1)!, child.id))).toEqual(childBytes);
+    expect(readFileSync(cardHeadFile(roots.at(-1)!, child.id))).toEqual(childBytes);
     expect(readConversation(roots.at(-1)!, `agent:executor:${child.id}`).physicalRows).toEqual(noticeRows);
   });
   it('rejects intervention and public status before successful initialization', () => {

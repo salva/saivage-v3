@@ -58,7 +58,7 @@ jest.unstable_mockModule('node:fs', () => ({
 }));
 
 const { CardService } = await import('../helpers/canonical-project.js');
-const { cardStreamFile } = await import('../../src/persistence/layout.js');
+const { cardHeadFile } = await import('../../src/persistence/layout.js');
 const { initProjectTree } = await import('../helpers/canonical-project.js');
 
 const roots: string[] = [];
@@ -101,7 +101,7 @@ describe('direct child namespace claims', () => {
     childrenPath = join(root, '.saivage', 'cards', 'project', 'children');
     injectedCandidatePath = join(childrenPath, 'a');
     injectedFailure = Object.assign(new Error('candidate denied'), { code: 'EACCES' });
-    const parentBytes = realFs.readFileSync(cardStreamFile(root, 'project'));
+    const parentBytes = realFs.readFileSync(cardHeadFile(root, 'project'));
     const appendOperations: string[] = [];
     const io = {
       open: ((...args: unknown[]) => { appendOperations.push('open'); return Reflect.apply(realFs.openSync, undefined, args); }) as typeof realFs.openSync,
@@ -109,6 +109,7 @@ describe('direct child namespace claims', () => {
       write: ((...args: unknown[]) => { appendOperations.push('write'); return Reflect.apply(realFs.writeSync, undefined, args); }) as typeof realFs.writeSync,
       fsync: ((...args: unknown[]) => { appendOperations.push('fsync'); return Reflect.apply(realFs.fsyncSync, undefined, args); }) as typeof realFs.fsyncSync,
       close: ((...args: unknown[]) => { appendOperations.push('close'); return Reflect.apply(realFs.closeSync, undefined, args); }) as typeof realFs.closeSync,
+      rename: realFs.renameSync,
     };
     const cardChanged = jest.fn();
     const runtimeChanged = jest.fn();
@@ -120,7 +121,7 @@ describe('direct child namespace claims', () => {
     expect(candidateMkdirPaths).toEqual([injectedCandidatePath]);
     expect(realFs.existsSync(join(childrenPath, 'b'))).toBe(false);
     expect(realFs.existsSync(injectedCandidatePath)).toBe(false);
-    expect(realFs.readFileSync(cardStreamFile(root, 'project'))).toEqual(parentBytes);
+    expect(realFs.readFileSync(cardHeadFile(root, 'project'))).toEqual(parentBytes);
     expect(appendOperations).toEqual([]);
     expect(cardChanged).not.toHaveBeenCalled();
     expect(runtimeChanged).not.toHaveBeenCalled();
@@ -133,15 +134,16 @@ describe('direct child namespace claims', () => {
     initProjectTree(root);
     childrenPath = join(root, '.saivage', 'cards', 'project', 'children');
     const strandedCandidate = join(childrenPath, 'a');
-    const parentPath = cardStreamFile(root, 'project');
+    const parentPath = cardHeadFile(root, 'project');
     const linkFailure = Object.assign(new Error('parent link open denied'), { code: 'EACCES' });
     const linkOperations: string[] = [];
     const failingLinkIo = {
-      open: ((path: string) => { linkOperations.push(`open:${path}`); if (path === parentPath) throw linkFailure; throw new Error(`Unexpected append target '${path}'.`); }) as typeof realFs.openSync,
+      open: ((path: string) => { linkOperations.push(`open:${path}`); throw linkFailure; }) as typeof realFs.openSync,
       stat: ((descriptor: number) => { linkOperations.push('stat'); return realFs.fstatSync(descriptor); }) as typeof realFs.fstatSync,
       write: ((...args: Parameters<typeof realFs.writeSync>) => { linkOperations.push('write'); return Reflect.apply(realFs.writeSync, undefined, args); }) as typeof realFs.writeSync,
       fsync: ((...args: Parameters<typeof realFs.fsyncSync>) => { linkOperations.push('fsync'); return Reflect.apply(realFs.fsyncSync, undefined, args); }) as typeof realFs.fsyncSync,
       close: ((...args: Parameters<typeof realFs.closeSync>) => { linkOperations.push('close'); return Reflect.apply(realFs.closeSync, undefined, args); }) as typeof realFs.closeSync,
+      rename: realFs.renameSync,
     };
     const cardChanged = jest.fn();
     const runtimeChanged = jest.fn();
@@ -153,7 +155,8 @@ describe('direct child namespace claims', () => {
     } catch (error) { caught = error; }
 
     expect(caught).toBe(linkFailure);
-    expect(linkOperations).toEqual([`open:${parentPath}`]);
+    expect(linkOperations).toHaveLength(1);
+    expect(linkOperations[0]).toContain('/project/card-history/.');
     expect(cardChanged).not.toHaveBeenCalled();
     expect(runtimeChanged).not.toHaveBeenCalled();
     expect(membershipChanged).not.toHaveBeenCalled();

@@ -231,7 +231,7 @@ function getCard(
     const result = store.listDeclaredRecordMetadata(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
     card = result.value.card;
-    sectionItems = recordMetadataItems(result.value.definitions);
+    sectionItems = recordMetadataItems(result.value.card.id, result.value.definitions);
   } else {
     const result = store.getCardDetail(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
@@ -289,6 +289,7 @@ function getCard(
 }
 
 function recordMetadataItems(
+  cardId: string,
   entries: Extract<CardDeclaredRecordMetadataResult, { kind: 'found' }>['value']['definitions'],
 ): Array<Record<string, unknown>> {
   return [...entries].map(({ definition, classification }) => {
@@ -297,18 +298,18 @@ function recordMetadataItems(
       return {
         name: definition.filename,
         format: definition.format,
-        state: record.artifact.state,
-        head_version: record.headVersion,
-        head_entry_id: record.artifact.entry_id,
-        version_url: record.versionUrl,
+        state: record.state,
+        revision: record.revision,
+        current_url: record.currentUrl,
+        accepted_version_url: record.acceptedVersionUrl,
       };
     return {
       name: definition.filename,
       format: definition.format,
       state: 'absent' as const,
-      head_version: null,
-      head_entry_id: null,
-      version_url: null,
+      revision: null,
+      current_url: `record:///${encodeURIComponent(definition.filename)}?card=${encodeURIComponent(cardId)}`,
+      accepted_version_url: null,
     };
   });
 }

@@ -1,9 +1,9 @@
 <template>
   <div class="records-facet" data-testid="facet-records">
-    <CardRecordsSection :card-id="cardId" />
+    <CardRecordsSection :card-id="cardId" :record-refinement="recordRefinement" />
     <details class="records-history" open>
       <summary class="records-history-summary">Card versions &amp; publication history</summary>
-      <CardHistoryPanel :card-id="cardId" :initial-version="recordRefinement?.version ?? null" />
+      <CardHistoryPanel :card-id="cardId" :initial-version="recordRefinement?.record ? null : recordRefinement?.version ?? null" />
     </details>
   </div>
 </template>

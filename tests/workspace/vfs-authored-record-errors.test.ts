@@ -10,7 +10,7 @@ describe('VFS authored-record summaries', () => {
   it('projects only concrete absence as empty metadata and propagates strict failures', async () => {
     const absent = await listScopedPath({ projectRoot: '/tmp', agent: { cardId: 'project', agentName: 'analyst' }, fail, records: records(() => undefined) as never }, 'record:///project');
     expect(absent.kind).toBe('records');
-    if (absent.kind === 'records') expect(absent.records.every((record) => record.state === 'absent' && record.head_version === null)).toBe(true);
+    if (absent.kind === 'records') expect(absent.records.every((record) => record.state === 'absent' && record.revision === null)).toBe(true);
 
     const hostile = new Error('HOSTILE_VFS_RECORD_READ');
     await expect(listScopedPath({ projectRoot: '/tmp', agent: { cardId: 'project', agentName: 'analyst' }, fail, records: records(() => { throw hostile; }) as never }, 'record:///project')).rejects.toBe(hostile);
@@ -18,6 +18,6 @@ describe('VFS authored-record summaries', () => {
 
   it('resolves a valid absent current target with deterministic metadata and empty content',()=>{
     const definition={filename:'notes.md' as const,format:'markdown' as const,schema:'authored-record.v1',bootstrap:false,declared:false};const reader={...records(()=>undefined),readRecordCurrent:()=>({kind:'found' as const,value:{card:{} as never,definition,projection:null}})};
-    expect(resolveScopedPath({projectRoot:'/tmp',agent:{cardId:'project',agentName:'analyst'},fail,records:reader as never},'record:///notes.md?card=project','read')).toMatchObject({kind:'record',recordKind:'document',cardId:'project',filename:'notes.md',format:'markdown',schema:'authored-record.v1',state:'absent',headVersion:null,versionUrl:null,content:'',committedAt:null,size:0,currentSelection:true});
+    expect(resolveScopedPath({projectRoot:'/tmp',agent:{cardId:'project',agentName:'analyst'},fail,records:reader as never},'record:///notes.md?card=project','read')).toMatchObject({kind:'record',recordKind:'document',cardId:'project',filename:'notes.md',format:'markdown',schema:'authored-record.v1',state:'absent',revision:null,acceptedVersionUrl:null,content:'',committedAt:null,size:0,currentSelection:true});
   });
 });

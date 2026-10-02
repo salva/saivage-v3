@@ -54,7 +54,7 @@ const snapshot = {
 };
 for (const [path, ledger] of ledgers) {
   const segments = path.split(sep);
-  if (path.endsWith(`${sep}card.jsonl`)) snapshot.cardStreamOpens[path] = ledger.opens;
+  if (path.endsWith(`${sep}card-head.json`)) snapshot.cardStreamOpens[path] = ledger.opens;
   else if (segments.includes('conversations')) {
     if (basename(path) === 'index.json') snapshot.conversationIndexReads[path] = { ...ledger };
     else if (segments.includes('versions')) snapshot.conversationSegmentOpens += ledger.opens + ledger.readFileCalls;

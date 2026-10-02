@@ -394,8 +394,9 @@ export async function readProject(
       name: record.name,
       format: record.format,
       state: record.state,
-      head_version: record.head_version,
-      version_url: record.version_url,
+      revision: record.revision,
+      current_url: record.current_url,
+      accepted_version_url: record.accepted_version_url,
     }));
     const { data } = packCollectionData({
       cap,
@@ -419,9 +420,9 @@ export async function readProject(
       name: resolved.filename,
       format: resolved.format,
       state: resolved.state,
-      head_version: resolved.headVersion,
+      revision: resolved.revision,
       version: resolved.version,
-      version_url: resolved.versionUrl,
+      accepted_version_url: resolved.acceptedVersionUrl,
       committed_at: resolved.committedAt,
       total_bytes: resolved.size,
     };

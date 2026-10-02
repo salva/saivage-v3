@@ -18,9 +18,11 @@ import {
   readCurrentAuthoredRecord,
   editOpenAuthoredRecord,
   classifyCurrentAuthoredRecord,
-  projectAuthoredRecordArtifact,
   AuthoredRecordNotFoundError,
   listAuthoredRecordVersions,
+  readAuthoredRecordVersion,
+  acceptAuthoredRecord,
+  type AcceptedRecordProjection,
   type CurrentAuthoredRecordClassification,
   type RecordProjection,
   effectiveRecordContent,
@@ -34,6 +36,9 @@ import {
   readCardDetail,
   readCardHierarchy,
   readCommittedCardArtifactCatalog,
+  readCommittedCardCurrent,
+  readCommittedCardVersion,
+  readPendingCardNotifications,
   readActiveCardPath,
   readActiveCardSubtree,
   cardDiffValue,
@@ -48,7 +53,7 @@ import {
   type CardVersionChange,
   type CardVersionListEntry,
   type CanonicalReadInstrumentation,
-  type GrowingFileIo,
+  type ReplacementFileIo,
 } from '../persistence/index.js';
 import { genericRecordDefinition, type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../contracts/index.js';
@@ -95,8 +100,15 @@ type CardVersionDiffResult =
       readonly kind: 'found';
       readonly from: number;
       readonly to: number;
+      readonly target:
+        | { readonly kind: 'version'; readonly version: number }
+        | {
+            readonly kind: 'current';
+            readonly version_seq: number;
+            readonly history_version: number;
+          };
       readonly fromArtifact: CardArtifact;
-      readonly toArtifact: CardArtifact;
+      readonly toArtifact: CardArtifact | null;
       readonly diff: CardDiffEntry[];
     }
   | { readonly kind: 'card-not-found' }
@@ -117,9 +129,11 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function diffArtifacts(from: CardArtifact, to: CardArtifact): CardDiffEntry[] {
+function diffArtifacts(
+  from: CardArtifact,
+  after: ReturnType<typeof cardDiffValue>,
+): CardDiffEntry[] {
   const before = cardDiffValue(from);
-  const after = cardDiffValue(to);
   const lifecyclePosition = CARD_RECORD_FIELDS.indexOf('title') + 1;
   const cardFields: readonly (keyof CardRecord)[] = [
     ...CARD_RECORD_FIELDS.slice(0, lifecyclePosition),
@@ -149,7 +163,7 @@ function versionChange(
       : kind === 'delete'
         ? { changed_by_actor: agentName!, changed_by_surface: 'runtime' }
         : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
-  const changedAt = kind === 'terminal' ? next?.status_text_updated_at : new Date().toISOString();
+  const changedAt = next === null ? new Date().toISOString() : next.updated_at;
   if (!changedAt) throw new Error('Terminal card change requires status_text_updated_at.');
   const terminalSummary =
     kind === 'terminal'
@@ -226,7 +240,7 @@ type CardRecordVersionResult =
   | CardTargetRead<{
       readonly card: CardRecord;
       readonly definition: RecordDefinition;
-      readonly projection: RecordProjection;
+      readonly projection: AcceptedRecordProjection;
     }>
   | { readonly kind: 'version-not-found'; readonly version: number };
 type CardRecordDiffSelectionResult =
@@ -235,6 +249,9 @@ type CardRecordDiffSelectionResult =
       readonly definition: RecordDefinition;
       readonly from: RecordProjection;
       readonly to: RecordProjection;
+      readonly target:
+        | { kind: 'version'; version: number }
+        | { kind: 'current'; revision: number; accepted_version: number | null };
     }>
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' };
@@ -272,7 +289,7 @@ export class CardService {
       FreshnessEffects,
       'cardProjectionChanged' | 'runtimeChanged' | 'agentMembershipChanged'
     > = NO_FRESHNESS_EFFECTS,
-    private readonly cardAppendIo?: GrowingFileIo,
+    private readonly cardPublicationIo?: ReplacementFileIo,
   ) {}
 
   private recordDefinitionFor(card: CardRecord, filename: string): RecordDefinition {
@@ -426,16 +443,21 @@ export class CardService {
     instrumentation?: CanonicalReadInstrumentation,
   ): CardRecordVersionResult {
     positiveSafeIntegerSchema.parse(version);
-    const history = this.readRecordHistory(cardId, filename, instrumentation);
-    if (history.kind === 'card-not-found') return history;
-    const row = history.value.catalog.versions[version - 1];
-    if (!row || row.version !== version) return { kind: 'version-not-found', version };
+    const admitted = this.admittedRecord(cardId, filename, instrumentation);
+    if (!admitted) return { kind: 'card-not-found' };
+    const projection = readAuthoredRecordVersion(
+      this.projectRoot,
+      admitted.card,
+      admitted.definition,
+      version,
+      instrumentation,
+    );
+    if (!projection) return { kind: 'version-not-found', version };
     return {
       kind: 'found',
       value: {
-        card: history.value.card,
-        definition: history.value.definition,
-        projection: projectAuthoredRecordArtifact(history.value.definition, row),
+        ...admitted,
+        projection,
       },
     };
   }
@@ -447,30 +469,47 @@ export class CardService {
   ): CardRecordDiffSelectionResult {
     positiveSafeIntegerSchema.parse(pivots.from);
     if (typeof pivots.to === 'number') positiveSafeIntegerSchema.parse(pivots.to);
-    const history = this.readRecordHistory(cardId, filename, instrumentation);
-    if (history.kind === 'card-not-found') return history;
-    const to =
+    const admitted = this.admittedRecord(cardId, filename, instrumentation);
+    if (!admitted) return { kind: 'card-not-found' };
+    const current =
       typeof pivots.to === 'number'
-        ? pivots.to
-        : (history.value.catalog.versions.at(-1)?.version ?? 0);
+        ? null
+        : readCurrentAuthoredRecord(
+            this.projectRoot,
+            admitted.card,
+            admitted.definition,
+            instrumentation,
+          );
+    const to = typeof pivots.to === 'number' ? pivots.to : (current?.revision ?? 0);
     if (pivots.from > to) return { kind: 'invalid-pivots', from: pivots.from, to };
     const select = (version: number, side: 'from' | 'to') => {
-      const artifact = history.value.catalog.versions[version - 1];
-      return !artifact || artifact.version !== version
-        ? { kind: 'version-not-found' as const, version, side }
-        : projectAuthoredRecordArtifact(history.value.definition, artifact);
+      const projection = readAuthoredRecordVersion(
+        this.projectRoot,
+        admitted.card,
+        admitted.definition,
+        version,
+        instrumentation,
+      );
+      return !projection ? { kind: 'version-not-found' as const, version, side } : projection;
     };
     const from = select(pivots.from, 'from');
     if ('kind' in from) return from;
-    const toProjection = select(to, 'to');
+    const toProjection = current ?? select(to, 'to');
     if ('kind' in toProjection) return toProjection;
     return {
       kind: 'found',
       value: {
-        card: history.value.card,
-        definition: history.value.definition,
+        ...admitted,
         from,
         to: toProjection,
+        target:
+          typeof pivots.to === 'number'
+            ? { kind: 'version', version: pivots.to }
+            : {
+                kind: 'current',
+                revision: toProjection.revision,
+                accepted_version: toProjection.accepted?.source_version ?? null,
+              },
       },
     };
   }
@@ -520,7 +559,7 @@ export class CardService {
   }
   openRecord(cardId: string, filename: string): RecordProjection {
     const a = this.admitWrite(cardId, filename);
-    return openAuthoredRecord(this.projectRoot, a.card, a.definition, this.cardAppendIo);
+    return openAuthoredRecord(this.projectRoot, a.card, a.definition, this.cardPublicationIo);
   }
   editRecord(cardId: string, filename: string, content: string): RecordProjection {
     const a = this.admitWrite(cardId, filename);
@@ -529,7 +568,7 @@ export class CardService {
       a.card,
       a.definition,
       content,
-      this.cardAppendIo,
+      this.cardPublicationIo,
     );
   }
   closeRecord(cardId: string, filename: string, agentName: AgentName): RecordProjection {
@@ -539,7 +578,7 @@ export class CardService {
       a.card,
       a.definition,
       agentName,
-      this.cardAppendIo,
+      this.cardPublicationIo,
     );
     this.freshness.cardProjectionChanged({
       resource: 'cards',
@@ -549,14 +588,36 @@ export class CardService {
     });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, reason: string): RecordProjection {
+  acceptRecord(
+    cardId: string,
+    filename: string,
+    content: string,
+    agentName: AgentName,
+  ): RecordProjection {
+    const a = this.admitWrite(cardId, filename);
+    const accepted = acceptAuthoredRecord(
+      this.projectRoot,
+      a.card,
+      a.definition,
+      content,
+      agentName,
+      this.cardPublicationIo,
+    );
+    this.freshness.cardProjectionChanged({
+      resource: 'cards',
+      scope: 'record',
+      card_id: cardId,
+      record_name: filename,
+    });
+    return accepted;
+  }
+  discardRecord(cardId: string, filename: string): RecordProjection {
     const a = this.admitWrite(cardId, filename);
     return discardOpenAuthoredRecord(
       this.projectRoot,
       a.card,
       a.definition,
-      reason,
-      this.cardAppendIo,
+      this.cardPublicationIo,
     );
   }
 
@@ -579,10 +640,10 @@ export class CardService {
     return readCanonicalCardHierarchy(this.projectRoot, id, instrumentation);
   }
   getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataProjection> {
-    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id);
+    const catalog = readCommittedCardCurrent(this.projectRoot, id);
     if (catalog.kind === 'card-not-found') return catalog;
-    const head = catalog.value.head;
-    const card = head.kind === 'card-version' ? head.card : head.final_card;
+    const head = catalog.value.artifact;
+    const card = catalog.value.card;
     if (head.kind === 'card-tombstone')
       return {
         kind: 'found',
@@ -598,7 +659,7 @@ export class CardService {
           );
         return [];
       }
-      const effective = effectiveRecordContent(classification.projection.artifact);
+      const effective = effectiveRecordContent(classification.projection);
       return effective
         ? [
             {
@@ -632,9 +693,9 @@ export class CardService {
     instrumentation?: CanonicalReadInstrumentation,
   ): CardVersionContentResult {
     positiveSafeIntegerSchema.parse(version);
-    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation);
+    const catalog = readCommittedCardVersion(this.projectRoot, id, version, instrumentation);
     if (catalog.kind === 'card-not-found') return catalog;
-    const row = catalog.value.rows[version - 1];
+    const row = catalog.value;
     return row && row.version === version
       ? { kind: 'found', value: clone(row) }
       : { kind: 'version-not-found', version };
@@ -647,13 +708,21 @@ export class CardService {
     positiveSafeIntegerSchema.parse(pivots.fromVersion);
     if (pivots.toVersion !== undefined && pivots.toVersion !== 'current')
       positiveSafeIntegerSchema.parse(pivots.toVersion);
-    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation);
-    if (catalog.kind === 'card-not-found') return catalog;
-    const to = typeof pivots.toVersion === 'number' ? pivots.toVersion : catalog.value.head.version;
+    const current = readCommittedCardCurrent(this.projectRoot, id, instrumentation);
+    if (current.kind === 'card-not-found') return current;
+    const to =
+      typeof pivots.toVersion === 'number'
+        ? pivots.toVersion
+        : current.value.artifact.kind === 'card-tombstone'
+          ? current.value.artifact.version
+          : current.value.card.version_seq;
     const from = pivots.fromVersion;
     if (from > to) return { kind: 'invalid-pivots', from, to };
     const select = (version: number, side: 'from' | 'to') => {
-      const row = catalog.value.rows[version - 1];
+      const selected = readCommittedCardVersion(this.projectRoot, id, version, instrumentation);
+      if (selected.kind === 'card-not-found')
+        throw new Error(`Card '${id}' disappeared during synchronous diff.`);
+      const row = selected.value;
       return row && row.version === version
         ? row
         : { kind: 'version-not-found' as const, version, side };
@@ -662,26 +731,38 @@ export class CardService {
     if ('side' in fromArtifact) return fromArtifact;
     const toArtifact =
       pivots.toVersion === undefined || pivots.toVersion === 'current'
-        ? catalog.value.head
+        ? current.value.artifact.kind === 'card-tombstone'
+          ? current.value.artifact
+          : null
         : select(to, 'to');
-    if ('side' in toArtifact) return toArtifact;
+    if (toArtifact && 'side' in toArtifact) return toArtifact;
     return {
       kind: 'found',
       from,
       to,
+      target: toArtifact
+        ? { kind: 'version', version: to }
+        : { kind: 'current', version_seq: to, history_version: current.value.artifact.version },
       fromArtifact: clone(fromArtifact),
       toArtifact: clone(toArtifact),
-      diff: clone(diffArtifacts(fromArtifact, toArtifact)),
+      diff: clone(
+        diffArtifacts(
+          fromArtifact,
+          toArtifact
+            ? cardDiffValue(toArtifact)
+            : {
+                deleted: current.value.artifact.kind === 'card-tombstone',
+                card: current.value.card,
+              },
+        ),
+      ),
     };
   }
   readCommittedCardHead(
     id: string,
     instrumentation?: CanonicalReadInstrumentation,
-  ): CardTargetRead<CardArtifact> {
-    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation);
-    return catalog.kind === 'card-not-found'
-      ? catalog
-      : { kind: 'found', value: clone(catalog.value.head) };
+  ): CardTargetRead<CanonicalCardProjection> {
+    return clone(readCommittedCardCurrent(this.projectRoot, id, instrumentation));
   }
   listCardInspectionRows(
     instrumentation?: CanonicalReadInstrumentation,
@@ -767,7 +848,7 @@ export class CardService {
       `linked child ${card.id}`,
       'child linked',
     );
-    publishCardVersion(this.projectRoot, linked, linkChange, this.cardAppendIo);
+    publishCardVersion(this.projectRoot, linked, linkChange, this.cardPublicationIo);
     this.publishCardVersionEffects(linkChange, cardParentId(freshParent.id), true);
     this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id });
     return clone(card);
@@ -781,10 +862,18 @@ export class CardService {
     reason: string,
     summary = summarizeChangedFields(fields),
     agentName?: AgentName,
+    notification?: CardNotification,
   ): CardRecord {
     const parsed = cardRecordSchema.parse(candidate);
     const change = versionChange(existing, parsed, kind, fields, summary, reason, agentName);
-    publishCardVersion(this.projectRoot, parsed, change, this.cardAppendIo);
+    publishCardVersion(
+      this.projectRoot,
+      parsed,
+      change,
+      this.cardPublicationIo,
+      undefined,
+      notification,
+    );
     this.publishCardVersionEffects(change, cardParentId(existing.id), fields.includes('lifecycle'));
     return clone(candidate);
   }
@@ -879,12 +968,15 @@ export class CardService {
       ['pending_notifications'],
       'notification enqueued',
       'notification enqueued',
+      undefined,
+      notification,
     );
   }
   removeNotifications(id: string, notificationIds: readonly string[]): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
     const next = removeCardNotifications(card, notificationIds);
+    if (next.pending_notifications.length === card.pending_notifications.length) return card;
     return this.publishVersion(
       card,
       { ...next, updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 },
@@ -893,6 +985,9 @@ export class CardService {
       'notifications delivered',
       'notifications delivered',
     );
+  }
+  readPendingNotifications(id: string): CardNotification[] {
+    return readPendingCardNotifications(this.projectRoot, id);
   }
 
   commitActivationOutcome(
@@ -955,7 +1050,7 @@ export class CardService {
       ...existing,
       ...terminal,
       pending_notifications: [],
-      updated_at: new Date().toISOString(),
+      updated_at: settledAt,
       version_seq: existing.version_seq + 1,
     };
     return this.publishVersion(
@@ -1081,7 +1176,7 @@ export class CardService {
         'analyst subtree deletion',
         agentName,
       );
-      publishCardTombstone(this.projectRoot, id, card, change, this.cardAppendIo);
+      publishCardTombstone(this.projectRoot, id, card, change, this.cardPublicationIo);
       this.publishCardVersionEffects(change, cardParentId(card.id), true, recordNames);
       this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id });
     }

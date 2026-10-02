@@ -33,12 +33,12 @@
         <dt>Schema</dt><dd>{{ descriptor.schema }}</dd>
         <template v-if="slot?.current">
           <dt>Artifact state</dt><dd>{{ artifactState }}</dd>
-          <dt>Head revision</dt><dd>{{ slot.current.record.head_version }}</dd>
+          <dt>Head revision</dt><dd>{{ slot.current.record.revision }}</dd>
           <dt>Accepted source revision</dt><dd>{{ slot.current.record.accepted?.source_version ?? 'none' }}</dd>
           <dt>Effective content</dt><dd>{{ stateLabel }}</dd>
         </template>
       </dl>
-      <p>Card revision counts card publications. Each record has its own revision sequence; neither measures work completed.</p>
+      <p>Card revision counts all mutations, including private queue selection changes. Each record has its own mutable revision sequence; accepted history can be sparse. Neither measures work completed.</p>
     </details>
   </div>
 </template>
@@ -75,7 +75,7 @@ const artifactState = computed(() => {
   const state = props.slot?.current?.record.state;
   if (state === 'open') return 'Open (draft)';
   if (state === 'closed') return 'Closed (accepted)';
-  if (state === 'discarded') return 'Discarded';
+  if (state === 'empty') return 'Empty';
   return 'Not yet published';
 });
 </script>

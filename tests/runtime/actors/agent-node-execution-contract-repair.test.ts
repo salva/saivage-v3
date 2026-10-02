@@ -103,9 +103,9 @@ function harness(args: {
     processPrompts: new Map([['work', { text: 'perform the current work' }], ['correct', { text: 'correct the result' }]]),
   };
   const selectNotifications: () => Array<{ id: string; content: string }> = args.terminalVariant === 'pending'
-    ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
+    ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([{ id: '00000000-0000-4000-8000-000000000001', content: 'operator context' }]).mockReturnValue([])
     : args.terminalVariant === 'stale' && args.executeContinuationHook
-      ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([]).mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
+      ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([]).mockReturnValueOnce([{ id: '00000000-0000-4000-8000-000000000001', content: 'operator context' }]).mockReturnValue([])
       : () => [];
   const removeNotifications=jest.fn(() => { events.push('remove-notifications'); });
   const input = {
@@ -119,7 +119,7 @@ function harness(args: {
     cardId: 'project',
     store: {
       read: (id: string) => id === 'card-a' ? { id, lifecycle: { status: 'running' } } : card,
-      readRecordCurrent: (_cardId: string, name: string) => { events.push(`read-record:${name}`); return { kind: 'found', value: { projection: { headVersion: 1, currentUrl: `record:///${name}?card=project`, versionUrl: `record:///${name}?card=project&v=1`, artifact: { state: 'open', accepted: null, draft: { content: 'draft' } } } } }; },
+      readRecordCurrent: (_cardId: string, name: string) => { events.push(`read-record:${name}`); return { kind: 'found', value: { projection: { revision: 1, currentUrl: `record:///${name}?card=project`, acceptedVersionUrl: null, state: 'open', accepted: null, draft: { content: 'draft' } } } }; },
       discardRecord: (_cardId: string, name: string) => { events.push(`discard-record:${name}`); if (name === 'beta.md' && args.discardError) throw args.discardError; },
       listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
     },
@@ -407,7 +407,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
       expect.objectContaining({ role: 'user', content: expect.stringMatching(/^\n\nValidation errors:\n- .+\n\nCorrective attempts remaining before this node fails: 15\.$/us) }),
     ]);
     if(terminalVariant==='pending'||terminalVariant==='stale'){
-      expect(test.removeNotifications).toHaveBeenCalledWith(['notice-1']);
+      expect(test.removeNotifications).toHaveBeenCalledWith(['00000000-0000-4000-8000-000000000001']);
       expect(test.events.indexOf('append:rejected')).toBeLessThan(test.events.indexOf('remove-notifications'));
     }
   });

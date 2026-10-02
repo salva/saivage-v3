@@ -11,7 +11,7 @@ export function cardBootstrapForPrompt(
     throw new Error(
       `Bootstrap record '${card.id}/${workflow.bootstrapRecord.name}' is unavailable.`,
     );
-  const accepted = result.value.projection.artifact.accepted;
+  const accepted = result.value.projection.accepted;
   if (!accepted)
     throw new Error(
       `Bootstrap record '${card.id}/${workflow.bootstrapRecord.name}' has no accepted content.`,

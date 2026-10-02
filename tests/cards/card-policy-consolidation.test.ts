@@ -5,14 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { assertSetStatusAdmission, isSetStatusTransition } from '../../src/cards/lifecycle.js';
-import { publishCardVersion } from '../../src/persistence/card-files.js';
-import { cardArtifactSchema, cardVersionChangeSchema, validateCardTransition, type CardArtifact } from '../../src/persistence/canonical-card-artifacts.js';
-import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { publishCardVersion, readCommittedCardArtifactCatalog } from '../../src/persistence/card-files.js';
+import { cardVersionChangeSchema, validateCardTransition, type CardArtifact } from '../../src/persistence/canonical-card-artifacts.js';
+import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { CARD_RECORD_FIELDS, cardRecordSchema, type CardLifecycleState, type CardRecord, type CardStatus } from '../../src/schemas/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
-import { readGrowingRows } from '../helpers/growing-rows.js';
-import { cardStreamFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -55,12 +53,14 @@ function statusChange(cardId: string, version: number, target: CardStatus, reaso
 
 function transition(template: CardRecord, from: CardStatus, to: CardStatus, reason?: string): void {
   const prior = cardInStatus(template, from);
-  const next = cardInStatus(prior, to, 2);
+  const next = { ...cardInStatus(prior, to, 2), updated_at: '2026-09-03T00:00:00.000Z' };
   validateCardTransition(prior, next, statusChange(prior.id, 2, to, reason), 'test-card-stream');
 }
 
 function rows(root: string, cardId: string): CardArtifact[] {
-  return readGrowingRows(cardStreamFile(root, cardId), cardArtifactSchema);
+  const catalog = readCommittedCardArtifactCatalog(root, cardId);
+  if (catalog.kind !== 'found') throw new Error('Missing card catalog.');
+  return [...catalog.value.rows];
 }
 
 describe('card field ordering policy', () => {
@@ -76,15 +76,15 @@ describe('card field ordering policy', () => {
   it('retains terminal and cancellation changed-field order', () => {
     const { root, cards } = fixture();
     const terminal = cards.create(childInput('project', 'terminal'));
-    cards.enqueueNotification(terminal.id, { id: 'terminal-note', content: 'note', created_at: '2026-09-02T00:00:00.000Z' });
+    cards.enqueueNotification(terminal.id, { id: randomUUID(), content: 'note', created_at: '2026-09-02T00:00:00.000Z' });
     cards.setStatus(terminal.id, 'running');
     cards.commitActivationOutcome(terminal.id, { status: 'done', summary: 'done', result: workflowResult('DONE', 'done') }, '2026-09-03T00:00:00.000Z');
-    expect(rows(root, terminal.id).at(-1)!.change?.changed_fields).toEqual(['lifecycle', 'status_text', 'status_text_updated_at', 'pending_notifications']);
+    expect(rows(root, terminal.id).at(-1)!.change?.changed_fields).toEqual(['lifecycle', 'status_text', 'status_text_updated_at']);
 
     const cancelled = cards.create(childInput('project', 'cancelled'));
-    cards.enqueueNotification(cancelled.id, { id: 'cancel-note', content: 'note', created_at: '2026-09-02T00:00:00.000Z' });
+    cards.enqueueNotification(cancelled.id, { id: randomUUID(), content: 'note', created_at: '2026-09-02T00:00:00.000Z' });
     cards.setStatus(cancelled.id, 'cancelled');
-    expect(rows(root, cancelled.id).at(-1)!.change?.changed_fields).toEqual(['lifecycle', 'pending_notifications']);
+    expect(rows(root, cancelled.id).at(-1)!.change?.changed_fields).toEqual(['lifecycle']);
   });
 
   it('derives exact relationship deltas from the centralized field inventory', () => {
@@ -166,8 +166,8 @@ describe('generic set-status policy', () => {
 
 describe('reorder publication boundary', () => {
   function appendIo() {
-    const calls = { open: jest.fn(), stat: jest.fn(), write: jest.fn(), fsync: jest.fn(), close: jest.fn() };
-    return { calls, io: calls as unknown as GrowingFileIo };
+    const calls = { open: jest.fn(), rename: jest.fn(), write: jest.fn(), fsync: jest.fn(), close: jest.fn() };
+    return { calls, io: calls as unknown as ReplacementFileIo };
   }
 
   function reorderChange(parent: CardRecord) {

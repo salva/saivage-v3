@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
-import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { cardRecordHeadFile, cardHeadFile, cardHistoryFile } from '../../src/persistence/layout.js';
 import type { CanonicalReadInstrumentation } from '../../src/persistence/growing-file.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-definitions.js';
@@ -15,21 +15,22 @@ const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 const input=(parent:string,title:string,type:'goal'|'code'='goal')=>({type,parent,title,bootstrap_content:`${title} token=secret`,priority:0,urgency:'normal' as const,created_by:'analyst' as const,depends_on:[]});
 const paths=()=>{const value:string[]=[];const instrumentation:CanonicalReadInstrumentation={onRead:(path)=>value.push(path)};return{value,instrumentation};};
+const cardPaths=(root:string,id:string)=>{const path=cardHeadFile(root,id);const head=JSON.parse(readFileSync(path,'utf8'));return[path,cardHistoryFile(root,id,head.ordinary.entry_id)];};
 
 describe('exact Card operator resources',()=>{
   it('projects one ordered active hierarchy slice without child links or descendant reads',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);
     const parent=cards.create(input('project','Parent'));const grandchild=cards.create(input(parent.id,'Grandchild','code'));
     const removed=cards.create(input('project','Removed'));const removedDescendant=cards.create(input(removed.id,'Removed descendant','code'));
-    cards.deleteSubtrees([removed.id],()=>true);writeFileSync(cardStreamFile(root,removedDescendant.id),'{descendant-must-not-be-read}\n');
+    cards.deleteSubtrees([removed.id],()=>true);writeFileSync(cardHeadFile(root,removedDescendant.id),'{descendant-must-not-be-read}\n');
     const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});const read=paths();const response=model.getChildren('project',read.instrumentation);
     expect(response.body).toEqual({parent:{id:'project',title:expect.any(String),type:'project',status:'backlog',permitted_child_types:['goal','architecture','code','test','doc','data','research','ops']},children:[{id:parent.id,title:'Parent',type:'goal',status:'backlog',permitted_child_types:['goal','architecture','code','test','doc','data','research','ops']}]});
     expect(Object.keys((response.body as {children:object[]}).children[0]!)).toEqual(['id','title','type','status','permitted_child_types']);
-    expect(read.value).toContain(cardStreamFile(root,'project')); expect(read.value).toContain(cardStreamFile(root,parent.id)); expect(read.value).toContain(cardStreamFile(root,removed.id));
-    expect(read.value.filter((path)=>path===cardStreamFile(root,'project'))).toHaveLength(1);
-    expect(read.value.filter((path)=>path===cardStreamFile(root,parent.id))).toHaveLength(1);
-    expect(read.value.filter((path)=>path===cardStreamFile(root,removed.id))).toHaveLength(1);
-    expect(read.value).not.toContain(cardStreamFile(root,grandchild.id));expect(read.value).not.toContain(cardStreamFile(root,removedDescendant.id));
+    expect(read.value).toContain(cardHeadFile(root,'project')); expect(read.value).toContain(cardHeadFile(root,parent.id)); expect(read.value).toContain(cardHeadFile(root,removed.id));
+    expect(read.value.filter((path)=>path===cardHeadFile(root,'project'))).toHaveLength(1);
+    expect(read.value.filter((path)=>path===cardHeadFile(root,parent.id))).toHaveLength(1);
+    expect(read.value.filter((path)=>path===cardHeadFile(root,removed.id))).toHaveLength(1);
+    expect(read.value).not.toContain(cardHeadFile(root,grandchild.id));expect(read.value).not.toContain(cardHeadFile(root,removedDescendant.id));
   });
 
   it('proves an exact nested card through membership with one ancestor-chain read and no sibling reads',()=>{
@@ -38,9 +39,9 @@ describe('exact Card operator resources',()=>{
     const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});const read=paths();
 
     expect(model.getCard(target.id,read.instrumentation).body).toMatchObject({card:{id:target.id}});
-    expect(read.value).toEqual([cardStreamFile(root,'project'),cardStreamFile(root,parent.id),cardStreamFile(root,target.id)]);
-    expect(read.value).not.toContain(cardStreamFile(root,sibling.id));
-    expect(read.value).not.toContain(cardStreamFile(root,other.id));
+    expect(read.value).toEqual([...cardPaths(root,'project'),...cardPaths(root,parent.id),...cardPaths(root,target.id)]);
+    expect(read.value).not.toContain(cardHeadFile(root,sibling.id));
+    expect(read.value).not.toContain(cardHeadFile(root,other.id));
   });
 
   it('projects empty compiled child policy and fails fast when a card workflow is missing',()=>{
@@ -57,25 +58,25 @@ describe('exact Card operator resources',()=>{
     const detailRead=paths();const detail=model.getCard(card.id,detailRead.instrumentation);
     expect(detail.body).toMatchObject({card:{id:card.id,title:'Target'}});expect(detail.body).not.toHaveProperty('records');
     for(const field of ['children','depends_on','assigned_to','started_at','records','notes','pending_notifications','operator_summary'])expect((detail.body as {card:object}).card).not.toHaveProperty(field);
-    expect(detailRead.value.every((path)=>path.endsWith('card.jsonl'))).toBe(true);
+    expect(detailRead.value).toEqual([...cardPaths(root,'project'),...cardPaths(root,card.id)]);
     const descriptorRead=paths();const descriptors=model.listRecords(card.id,descriptorRead.instrumentation);
     expect(descriptors.body).toMatchObject({card_id:card.id,records:expect.arrayContaining([expect.objectContaining({name:'brief.md',bootstrap:true})])});
-    const recordPaths=descriptorRead.value.filter((path)=>path.endsWith('.jsonl')&&!path.endsWith('card.jsonl'));
-    expect(new Set(recordPaths)).toEqual(new Set(testRecordDefinitions('goal').map((definition)=>cardRecordStreamFile(root,card.id,definition))));
+    const recordPaths=descriptorRead.value.filter((path)=>/\/records\/record-/.test(path));
+    expect(new Set(recordPaths)).toEqual(new Set(testRecordDefinitions('goal').map((definition)=>cardRecordHeadFile(root,card.id,definition))));
     const recordRead=paths();const record=model.getRecord(card.id,'brief.md',recordRead.instrumentation);
-    expect(record.body).toMatchObject({card_id:card.id,record:{name:'brief.md',head_version:1,state:'closed',accepted:{content:'Target token=[REDACTED]'},effective_content_source:'accepted'}});
-    expect(recordRead.value.filter((path)=>path===cardRecordStreamFile(root,card.id,testRecordDefinition('brief.md','goal')))).toHaveLength(1);
+    expect(record.body).toMatchObject({card_id:card.id,record:{name:'brief.md',revision:1,state:'closed',accepted:{content:'Target token=[REDACTED]'},effective_content_source:'accepted'}});
+    expect(recordRead.value.filter((path)=>path===cardRecordHeadFile(root,card.id,testRecordDefinition('brief.md','goal')))).toHaveLength(1);
   });
 
   it('diffs projected record views without disclosing raw secret changes',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
     const secrets=['sentinel-alpha-SEC1','sentinel-bravo-SEC1','sentinel-charlie-SEC1','sentinel-delta-SEC1'];
+    cards.acceptRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[0]}`,'analyst');
     cards.openRecord(card.id,'status.md');
-    cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[0]}`);
     cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[1]}`);
-    const draft=model.diffRecord(card.id,'status.md',{from:2,to:3,view:'draft'});
-    const effective=model.diffRecord(card.id,'status.md',{from:2,to:3,view:'effective'});
-    expect(draft.body).toMatchObject({view:'draft',hunks:[]});
+    const draft=model.diffRecord(card.id,'status.md',{from:1,to:'current',view:'draft'});
+    const effective=model.diffRecord(card.id,'status.md',{from:1,to:'current',view:'effective'});
+    expect(draft).toMatchObject({statusCode:400,body:{error:'record_diff_view_unavailable',side:'from',view:'draft'}});
     expect(effective.body).toMatchObject({view:'effective',hunks:[]});
 
     cards.closeRecord(card.id,'status.md');
@@ -87,7 +88,7 @@ describe('exact Card operator resources',()=>{
 
     cards.openRecord(card.id,'status.md');
     cards.editRecord(card.id,'status.md',`mode=changed\ntoken=${secrets[3]}`);
-    const safeChange=model.diffRecord(card.id,'status.md',{from:6,to:9,view:'effective'});
+    const safeChange=model.diffRecord(card.id,'status.md',{from:7,to:'current',view:'effective'});
     expect(safeChange.body).toMatchObject({view:'effective',hunks:[{old_lines:2,new_lines:2,lines:['-mode=steady','-token=[REDACTED]','+mode=changed','+token=[REDACTED]']}]});
     const serialized=JSON.stringify([draft,effective,accepted,safeChange]);
     for(const secret of secrets)expect(serialized).not.toContain(secret);
@@ -104,24 +105,21 @@ describe('exact Card operator resources',()=>{
     expect(JSON.stringify(selected.body.artifact)).not.toMatch(/change_reason|changed_at|changed_by_surface|resulting_version/);
   });
 
-  it('keeps queue-only versions generic and projects mixed cancellation as ordinary metadata only', () => {
+  it('omits queue-only history and projects cancellation as ordinary metadata only', () => {
     const root=mkdtempSync(join(tmpdir(),'saivage-card-public-history-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
-    cards.enqueueNotification(card.id,{id:'private-notification-id',content:'private notification body',created_at:'2026-09-09T00:00:00.000Z',source:'test'});
-    cards.removeNotifications(card.id,['private-notification-id']);
-    cards.enqueueNotification(card.id,{id:'second-private-id',content:'second private body',created_at:'2026-09-09T00:00:01.000Z',source:'test'});
+    cards.enqueueNotification(card.id,{id:'11111111-1111-4111-8111-111111111111',content:'private notification body',created_at:'2026-09-09T00:00:00.000Z',source:'test'});
+    cards.removeNotifications(card.id,['11111111-1111-4111-8111-111111111111']);
+    cards.enqueueNotification(card.id,{id:'22222222-2222-4222-8222-222222222222',content:'second private body',created_at:'2026-09-09T00:00:01.000Z',source:'test'});
     cards.setStatus(card.id,'cancelled');
     const history=model.listHistory(card.id);
     if ('statusCode' in history) throw new Error('Expected history.');
-    expect(history.body.versions).toHaveLength(5);
-    expect(history.body.versions.map(({change})=>change)).toEqual([null,null,null,null,{summary:'status -> cancelled',changed_fields:['lifecycle'],actor:null}]);
+    expect(history.body.versions.map(({version})=>version)).toEqual([1,5]);
+    expect(history.body.versions.map(({change})=>change)).toEqual([null,{summary:'status -> cancelled',changed_fields:['lifecycle'],actor:null}]);
     const selected=model.getHistoryEntry(card.id,2);
-    if ('statusCode' in selected) throw new Error('Expected selected history.');
-    expect(selected.body.artifact.change).toBeNull();
-    if (selected.body.artifact.kind !== 'card-version') throw new Error('Expected card version.');
-    expect(selected.body.artifact.card).not.toHaveProperty('pending_notifications');
-    const diff=model.diffCard(card.id,{from:1,to:2});
+    expect(selected).toMatchObject({statusCode:404,body:{error:'historical_version_not_found',version:2}});
+    const diff=model.diffCard(card.id,{from:1,to:'current'});
     if ('statusCode' in diff) throw new Error('Expected diff.');
-    expect(diff.body.diff.map(({field})=>field)).toEqual(['updated_at','version_seq']);
+    expect(diff.body.to).toEqual({kind:'current',version_seq:5,history_version:5});
     const mixed=model.getHistoryEntry(card.id,5);if('statusCode'in mixed)throw new Error('Expected mixed selected history.');
     expect(mixed.body.artifact.change).toEqual({summary:'status -> cancelled',changed_fields:['lifecycle'],actor:null});
     expect(JSON.stringify([history,selected,mixed,diff])).not.toMatch(/private-notification-id|private notification body|second-private-id|second private body|notification_enqueue|notification_remove|pending_notifications|notifications delivered/);
@@ -133,10 +131,10 @@ describe('exact Card operator resources',()=>{
     expect(()=>model.getRecord(card.id,'UNKNOWN.md')).toThrow();
     expect(model.getRecord(card.id,'status.md')).toEqual({statusCode:404,body:{error:'card_record_not_found',cardId:card.id,name:'status.md'}});
     cards.openRecord(card.id,'status.md');
-    expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',head_version:1,state:'open',draft:{content:''},effective_content_source:'draft'}}});
-    cards.discardRecord(card.id,'status.md','not needed');
-    expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',head_version:2,state:'discarded',accepted:null,draft:null,effective_content_source:null}}});
-    unlinkSync(cardRecordStreamFile(root,card.id,testRecordDefinition('brief.md','goal')));
+    expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',revision:1,state:'open',draft:{content:''},effective_content_source:'draft'}}});
+    cards.discardRecord(card.id,'status.md');
+    expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',revision:2,state:'empty',accepted:null,draft:null,effective_content_source:null}}});
+    unlinkSync(cardRecordHeadFile(root,card.id,testRecordDefinition('brief.md','goal')));
     expect(()=>model.getRecord(card.id,'brief.md')).toThrow();
     cards.deleteSubtrees([card.id],()=>true);
     for(const read of [()=>model.getCard(card.id),()=>model.listRecords(card.id),()=>model.getRecord(card.id,'status.md')]) expect(read()).toEqual({statusCode:404,body:{error:'Card not found',cardId:card.id}});

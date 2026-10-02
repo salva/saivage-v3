@@ -19,7 +19,7 @@ import {
 } from '../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
-import { cardConversationsRoot, cardStreamFile } from '../../src/persistence/layout.js';
+import { cardConversationsRoot, cardHeadFile } from '../../src/persistence/layout.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 
 const roots: string[] = [];
@@ -190,7 +190,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     publishMarker(projectRoot, cardAgentSessionId('executor', code.id));
     const snapshot = runReadCountChild(projectRoot);
     expect(Object.keys(snapshot.cardStreamOpens).sort()).toEqual(
-      ['project', goal.id, code.id].map((cardId) => cardStreamFile(projectRoot, cardId)).sort(),
+      ['project', goal.id, code.id].map((cardId) => cardHeadFile(projectRoot, cardId)).sort(),
     );
     for (const opens of Object.values(snapshot.cardStreamOpens)) expect(opens).toBe(1);
     expect(snapshot.conversationSegmentOpens).toBe(0);

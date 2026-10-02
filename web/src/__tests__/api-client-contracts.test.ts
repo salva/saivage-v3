@@ -197,7 +197,7 @@ describe('operator API client contracts after S06 mutation removal', () => {
     const diffResponse = {
       card_id: 'card-a',
       from: 2,
-      to: 7,
+      to: { kind: 'current', version_seq: 7, history_version: 4 },
       diff: [{ field: 'metadata', before: { nested: [null, true] }, after: ['new', 3] }],
     };
     const fetchMock = vi.fn()
@@ -216,7 +216,7 @@ describe('operator API client contracts after S06 mutation removal', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       card_id: 'card-a',
       from: 2,
-      to: 7,
+      to: { kind: 'current', version_seq: 7, history_version: 4 },
       diff: [{ field: 'title', after: 'new' }],
     }), { status: 200, headers: { 'content-type': 'application/json' } })));
 

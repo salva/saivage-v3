@@ -6,8 +6,8 @@ import type {
   WorkspaceFileContentResult,
   WorkspaceFilesListResult,
 } from './workspace-file-read-model.js';
-import type { CardArtifact } from '../../persistence/index.js';
-import { projectCardArtifactForOutbound } from './card-outbound.js';
+import type { CardArtifact, CanonicalCardProjection } from '../../persistence/index.js';
+import { projectCardArtifactForOutbound, projectCardRecordForOutbound } from './card-outbound.js';
 
 const CARDS_ROOT = '.saivage/cards';
 const MAX_FILE_SIZE_BYTES = 1_048_576;
@@ -98,7 +98,7 @@ function projectCardDocument(artifact: CardArtifact): unknown {
   const projected = projectCardArtifactForOutbound(artifact);
   if (artifact.kind === 'card-version') {
     return {
-      format_version: 4,
+      format_version: 1,
       entry_id: artifact.entry_id,
       card_id: artifact.card_id,
       version: artifact.version,
@@ -107,7 +107,7 @@ function projectCardDocument(artifact: CardArtifact): unknown {
     };
   }
   return {
-    format_version: 4,
+    format_version: 1,
     entry_id: artifact.entry_id,
     card_id: artifact.card_id,
     version: artifact.version,
@@ -117,12 +117,26 @@ function projectCardDocument(artifact: CardArtifact): unknown {
   };
 }
 
-function cardVirtualDocument(artifact: CardArtifact): string {
-  return `${JSON.stringify(sortJson(projectCardDocument(artifact)), null, 2)}\n`;
+function cardVirtualDocument(value: CardArtifact | CanonicalCardProjection): string {
+  const document =
+    'artifact' in value && value.artifact.kind !== 'card-tombstone'
+      ? {
+          kind: 'card-current',
+          card_id: value.card.id,
+          version_seq: value.card.version_seq,
+          history_version: value.artifact.version,
+          updated_at: value.card.updated_at,
+          card: projectCardRecordForOutbound(value.card),
+        }
+      : projectCardDocument('artifact' in value ? value.artifact : value);
+  return `${JSON.stringify(sortJson(document), null, 2)}\n`;
 }
 
-function cardContent(path: string, artifact: CardArtifact): WorkspaceFileContentResult {
-  const content = cardVirtualDocument(artifact);
+function cardContent(
+  path: string,
+  value: CardArtifact | CanonicalCardProjection,
+): WorkspaceFileContentResult {
+  const content = cardVirtualDocument(value);
   const size = Buffer.byteLength(content);
   if (size > MAX_FILE_SIZE_BYTES)
     return {
@@ -142,8 +156,18 @@ function cardContent(path: string, artifact: CardArtifact): WorkspaceFileContent
       content,
       redacted: true,
       sensitivity: 'sensitive-redacted',
-      version: artifact.version,
-      modifiedAt: artifact.committed_at,
+      version:
+        'artifact' in value
+          ? value.artifact.kind === 'card-tombstone'
+            ? value.artifact.version
+            : value.card.version_seq
+          : value.version,
+      modifiedAt:
+        'artifact' in value
+          ? value.artifact.kind === 'card-tombstone'
+            ? value.artifact.committed_at
+            : value.card.updated_at
+          : value.committed_at,
     },
   };
 }
@@ -193,7 +217,7 @@ export class CanonicalCardFilesReadModel {
     const projection = this.cards().getCanonicalCardFilesMetadata(parsed.cardId);
     if (projection.kind === 'card-not-found')
       return { statusCode: 404, body: { error: 'Path not found', path } };
-    const cardDocument = cardVirtualDocument(projection.value.card.artifact);
+    const cardDocument = cardVirtualDocument(projection.value.card);
     return {
       body: {
         path,
@@ -206,7 +230,10 @@ export class CanonicalCardFilesReadModel {
             path: `${path}/card.json`,
             type: 'file' as const,
             size: Buffer.byteLength(cardDocument),
-            modifiedAt: projection.value.card.artifact.committed_at,
+            modifiedAt:
+              projection.value.card.artifact.kind === 'card-tombstone'
+                ? projection.value.card.artifact.committed_at
+                : projection.value.card.card.updated_at,
           },
           ...projection.value.recordFiles.map((file) => ({
             name: file.slot,
@@ -231,8 +258,7 @@ export class CanonicalCardFilesReadModel {
         if (result.kind === 'card-not-found' || !result.value.projection)
           return { statusCode: 404, body: { error: 'File not found', path } };
         const record = result.value.projection;
-        const effective =
-          record.artifact.state === 'open' ? record.artifact.draft : record.artifact.accepted;
+        const effective = record.state === 'open' ? record.draft : record.accepted;
         if (!effective) return { statusCode: 404, body: { error: 'File not found', path } };
         const bytes = Buffer.from(effective.content);
         if (bytes.byteLength > MAX_FILE_SIZE_BYTES)
@@ -254,11 +280,9 @@ export class CanonicalCardFilesReadModel {
             content,
             redacted: true,
             sensitivity: 'sensitive-redacted',
-            version: record.headVersion,
+            version: record.revision,
             modifiedAt:
-              record.artifact.state === 'open'
-                ? record.artifact.draft!.updated_at
-                : record.artifact.accepted!.committed_at,
+              record.state === 'open' ? record.draft!.updated_at : record.accepted!.committed_at,
           },
         };
       }

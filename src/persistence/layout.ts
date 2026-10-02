@@ -1,5 +1,10 @@
 import { join } from 'node:path';
-import { cardIdSegments, recordStreamFilename, type RecordName } from '../schemas/index.js';
+import {
+  cardIdSegments,
+  recordHeadFilename,
+  uuidV4Schema,
+  type RecordName,
+} from '../schemas/index.js';
 import { conversationSessionIdentity, type ConversationSessionId } from '../schemas/index.js';
 
 const SAIVAGE_RELATIVE_DIR = '.saivage';
@@ -68,15 +73,44 @@ export function cardConversationVersionFile(
   return join(cardConversationVersionsRoot(projectRoot, cardId, agentName), filename);
 }
 
-export function cardStreamFile(projectRoot: string, cardId: string): string {
-  return join(cardNamespace(projectRoot, cardId), 'card.jsonl');
+export function cardHeadFile(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'card-head.json');
 }
-export function cardRecordStreamFile(
+export function cardHistoryRoot(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'card-history');
+}
+export function cardHistoryFile(projectRoot: string, cardId: string, entryId: string): string {
+  return join(cardHistoryRoot(projectRoot, cardId), `${uuidV4Schema.parse(entryId)}.json`);
+}
+export function cardMailboxRoot(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'mailbox');
+}
+export function cardMailboxFile(
+  projectRoot: string,
+  cardId: string,
+  notificationId: string,
+): string {
+  return join(cardMailboxRoot(projectRoot, cardId), `${uuidV4Schema.parse(notificationId)}.json`);
+}
+export function cardRecordsRoot(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'records');
+}
+export function cardAcceptedRecordsRoot(projectRoot: string, cardId: string): string {
+  return join(cardRecordsRoot(projectRoot, cardId), 'accepted');
+}
+export function cardRecordHeadFile(
   projectRoot: string,
   cardId: string,
   definition: { readonly filename: RecordName },
 ): string {
-  return join(cardNamespace(projectRoot, cardId), recordStreamFilename(definition.filename));
+  return join(cardRecordsRoot(projectRoot, cardId), recordHeadFilename(definition.filename));
+}
+export function cardAcceptedRecordFile(
+  projectRoot: string,
+  cardId: string,
+  entryId: string,
+): string {
+  return join(cardAcceptedRecordsRoot(projectRoot, cardId), `${uuidV4Schema.parse(entryId)}.json`);
 }
 export function globalAgentConversationRoot(projectRoot: string, agentName: string): string {
   return join(globalAgentConversationsRoot(projectRoot), agentName);

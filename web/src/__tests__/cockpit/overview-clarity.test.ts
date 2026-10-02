@@ -37,10 +37,10 @@ vi.mock('../../stores/sync', () => ({
 
 const now = '2026-09-28T10:00:00.000Z';
 const descriptors = [
-  { name: 'mission-custom.md', format: 'markdown' as const, schema: 'mission.v1', bootstrap: true, current: { head_version: 5, head_entry_id: '11111111-1111-4111-8111-111111111111', state: 'open' as const, accepted_source_version: 2, draft_present: true } },
-  { name: 'constraints.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_version: 3, head_entry_id: '22222222-2222-4222-8222-222222222222', state: 'closed' as const, accepted_source_version: 2, draft_present: false } },
+  { name: 'mission-custom.md', format: 'markdown' as const, schema: 'mission.v1', bootstrap: true, current: { revision: 5, current_url: 'record:///mission-custom.md?card=card-a', accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2', state: 'open' as const, accepted_source_version: 2, draft_present: true } },
+  { name: 'constraints.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 3, current_url: 'record:///constraints.md?card=card-a', accepted_version_url: 'record:///constraints.md?card=card-a&v=2', state: 'closed' as const, accepted_source_version: 2, draft_present: false } },
   { name: 'source-notes.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: null },
-  { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_version: 1, head_entry_id: '33333333-3333-4333-8333-333333333333', state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
+  { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 1, current_url: 'record:///review-custom.md?card=card-a', accepted_version_url: 'record:///review-custom.md?card=card-a&v=1', state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
 ];
 
 function acceptedArtifact(name: string, content: string, headVersion = 3, sourceVersion = 2) {
@@ -48,12 +48,12 @@ function acceptedArtifact(name: string, content: string, headVersion = 3, source
     card_id: 'card-a',
     record: {
       name,
-      head_version: headVersion,
-      head_entry_id: '11111111-1111-4111-8111-111111111111',
+      revision: headVersion,
+      current_url: `record:///${name}?card=card-a`,
+      accepted_version_url: `record:///${name}?card=card-a&v=${sourceVersion}`,
       state: 'closed' as const,
-      accepted: { source_version: sourceVersion, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
+      accepted: { source_version: sourceVersion, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, card_history_version: 1, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
       draft: null,
-      discarded: null,
       effective_content_source: 'accepted' as const,
     },
   };
@@ -64,12 +64,12 @@ function draftArtifact(content: string) {
     card_id: 'card-a',
     record: {
       name: 'mission-custom.md',
-      head_version: 5,
-      head_entry_id: '11111111-1111-4111-8111-111111111111',
+      revision: 5,
+      current_url: 'record:///mission-custom.md?card=card-a',
+      accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2',
       state: 'open' as const,
-      accepted: { source_version: 2, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, content: 'Earlier accepted objective', content_sha256: 'a'.repeat(64), size_bytes: 26 },
+      accepted: { source_version: 2, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, card_history_version: 1, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective', content_sha256: 'a'.repeat(64), size_bytes: 26 },
       draft: { opened_at: now, updated_at: now, content, content_sha256: 'b'.repeat(64) },
-      discarded: null,
       effective_content_source: 'draft' as const,
     },
   };

@@ -383,7 +383,7 @@ export class AgentNodeExecution {
             if (stale) {
               const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId);
               recordFinalizationBegun = true;
-              this.discardWrittenRecords(writtenRecords, 'stale_descendant_context');
+              this.discardWrittenRecords(writtenRecords);
               this.prepareRecordRequirements(node);
               recordFinalizationBegun = false;
               const refreshed = this.captureReviewerPair(
@@ -564,10 +564,7 @@ export class AgentNodeExecution {
     if (!recordFinalizationBegun) {
       try {
         recordFinalizationBegun = true;
-        this.discardWrittenRecords(
-          writtenRecords,
-          signal.aborted ? 'activation_cancelled' : `activation_${cleanupStatus}`,
-        );
+        this.discardWrittenRecords(writtenRecords);
       } catch (error) {
         if (error instanceof PublicationOutcomeUnknownError) throw error;
         primaryCompletion = { kind: 'failure', reason: error };
@@ -935,14 +932,13 @@ export class AgentNodeExecution {
       if (result.kind === 'card-not-found')
         throw new Error(`Card '${this.deps.cardId}' not found.`);
       const current = result.value.projection;
-      if (current?.artifact.state === 'open')
-        this.deps.store.discardRecord(this.deps.cardId, name, 'clean_node_entry');
+      if (current?.state === 'open') this.deps.store.discardRecord(this.deps.cardId, name);
       this.deps.store.openRecord(this.deps.cardId, name);
     }
   }
   private captureRecordHead(filename: string): number | null {
     const result = this.deps.store.readRecordCurrent(this.deps.cardId, filename);
-    return result.kind === 'found' ? (result.value.projection?.headVersion ?? null) : null;
+    return result.kind === 'found' ? (result.value.projection?.revision ?? null) : null;
   }
   private validateRecords(
     node: CompiledNodeContract,
@@ -961,7 +957,7 @@ export class AgentNodeExecution {
       }
       if (required.gate === 'updated') {
         const before = baseline.get(filename) ?? null;
-        if (candidate.headVersion <= (before ?? 0)) {
+        if (candidate.revision <= (before ?? 0)) {
           violations.push(
             `Required record '${candidate.currentUrl}' must be updated after this node began.`,
           );
@@ -987,8 +983,8 @@ export class AgentNodeExecution {
           `Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`,
         );
       const candidate = candidates.get(filename)!;
-      if (candidate.artifact.state !== 'open') {
-        const snapshot = candidate.artifact.accepted;
+      if (candidate.state !== 'open') {
+        const snapshot = candidate.accepted;
         if (!snapshot)
           throw new Error(
             `Accepted candidate '${this.deps.cardId}/${filename}' has no accepted content.`,
@@ -1000,10 +996,10 @@ export class AgentNodeExecution {
         });
         continue;
       }
-      if (!candidate.artifact.draft || candidate.artifact.draft.content.trim().length === 0)
+      if (!candidate.draft || candidate.draft.content.trim().length === 0)
         throw new Error(`Accepted open candidate '${this.deps.cardId}/${filename}' is empty.`);
       const closed = this.deps.store.closeRecord(this.deps.cardId, filename, node.agent.name);
-      const snapshot = closed.artifact.accepted!;
+      const snapshot = closed.accepted!;
       accepted.push({
         name: filename,
         url: `${closed.currentUrl}&v=${snapshot.source_version}`,
@@ -1019,11 +1015,7 @@ export class AgentNodeExecution {
       if (result.kind !== 'found' || !result.value.projection)
         throw new Error(`Written record '${this.deps.cardId}/${filename}' is missing.`);
       const current = result.value.projection;
-      if (
-        current.artifact.state !== 'open' ||
-        !current.artifact.draft ||
-        current.artifact.draft.content.trim().length === 0
-      )
+      if (current.state !== 'open' || !current.draft || current.draft.content.trim().length === 0)
         throw new Error(
           `Written record '${this.deps.cardId}/${filename}' is not a non-empty open draft.`,
         );
@@ -1031,14 +1023,13 @@ export class AgentNodeExecution {
     }
     return accepted;
   }
-  private discardWrittenRecords(writtenRecords: Set<string>, reason: string): void {
+  private discardWrittenRecords(writtenRecords: Set<string>): void {
     const names = [...writtenRecords].sort();
     writtenRecords.clear();
     for (const filename of names) {
       const result = this.deps.store.readRecordCurrent(this.deps.cardId, filename);
       const current = result.kind === 'found' ? result.value.projection : null;
-      if (current?.artifact.state === 'open')
-        this.deps.store.discardRecord(this.deps.cardId, filename, reason);
+      if (current?.state === 'open') this.deps.store.discardRecord(this.deps.cardId, filename);
     }
   }
   private directChildren(cardId: string): CardRecord[] {
@@ -1111,10 +1102,7 @@ function readCandidate(
   const result = store.readRecordCurrent(cardId, filename);
   if (result.kind === 'card-not-found' || !result.value.projection) return null;
   const current = result.value.projection;
-  const selected =
-    current.artifact.state === 'open'
-      ? current.artifact.draft?.content
-      : current.artifact.accepted?.content;
+  const selected = current.state === 'open' ? current.draft?.content : current.accepted?.content;
   return selected?.trim() ? current : null;
 }
 function firstIncompleteDescendant(
@@ -1138,7 +1126,7 @@ function acceptedRecordVersion(
 ): ReviewerSnapshot['includedRecordVersions'][number] {
   const result = store.readRecordCurrent(cardId, filename);
   const record = result.kind === 'found' ? result.value.projection : null;
-  return { cardId, filename, sourceVersion: record?.artifact.accepted?.source_version ?? null };
+  return { cardId, filename, sourceVersion: record?.accepted?.source_version ?? null };
 }
 function promptText(process: CompiledCardTypeWorkflow, promptId: ProcessPromptId): string {
   const prompt = process.processPrompts.get(promptId);

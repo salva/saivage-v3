@@ -504,8 +504,7 @@ export class WorkspaceFileReadModelService {
                 },
               };
         const record = result.value.projection;
-        const effective =
-          record.artifact.state === 'open' ? record.artifact.draft : record.artifact.accepted;
+        const effective = record.state === 'open' ? record.draft : record.accepted;
         if (!effective)
           return {
             statusCode: 404,
@@ -513,17 +512,18 @@ export class WorkspaceFileReadModelService {
           };
         return {
           body: {
-            path: request.version === null ? record.currentUrl : record.versionUrl,
+            path:
+              request.version === null
+                ? record.currentUrl
+                : `${record.currentUrl}&v=${request.version}`,
             size: Buffer.byteLength(effective.content),
             contentType: 'text/markdown',
             content: effective.content,
             redacted: false,
             sensitivity: 'normal',
-            version: request.version ?? record.headVersion,
+            version: request.version ?? record.revision,
             modifiedAt:
-              record.artifact.state === 'open'
-                ? record.artifact.draft!.updated_at
-                : record.artifact.accepted!.committed_at,
+              record.state === 'open' ? record.draft!.updated_at : record.accepted!.committed_at,
           },
         };
       }

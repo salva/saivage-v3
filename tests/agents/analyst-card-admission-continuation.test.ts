@@ -55,7 +55,7 @@ function harness() {
     projectRoot, actor: 'analyst', surface: 'web-chat', sessionId: 'agent:analyst:global', store: cards,
     cardTypeVocabulary: [...cards.workflows.cardTypes.keys()],
     interventionReadiness: { assertInterventionReady: readiness },
-    analystMutations: testAnalystMutationServices(projectRoot, cards, () => ({ ok: true, notificationId: 'fixture-notification' })),
+    analystMutations: testAnalystMutationServices(projectRoot, cards, (_id, notification) => ({ ok: true, notificationId: notification.id })),
   } as unknown as ToolContext;
   const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('analyst-card', analystCardToolBinders, context)]);
   return { projectRoot, cards, readiness, surface, currentCardId: null as string | null };

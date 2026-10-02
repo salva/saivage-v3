@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { initializeConversation, readConversation, readCurrentConversationSegment, type ConversationFileContext } from '../../../src/persistence/conversation-file.js';
-import { canonicalJson, type ConversationSessionId } from '../../../src/schemas/index.js';
+import { canonicalJson, type CardNotification, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows, describeNodeResultContract, type CompiledNodeContract } from '../../../src/runtime/card-process/card-process-config.js';
 import { defineTool, executedToolOutcome, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
@@ -95,8 +95,8 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
     workflows = { ...compiled, agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false }, contract: compiledNode.agent, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], routeUsableInputTokens: 20_000, capabilityRequest: {} }]]) } as never;
     promptTemplates = createPromptTemplateRegistry(compiled) as never;
   }
-  const selectNotifications = jest.fn(() => []);
-  const removeNotifications = jest.fn(() => undefined);
+  const selectNotifications = jest.fn((): CardNotification[] => []);
+  const removeNotifications = jest.fn((_ids: readonly string[]) => undefined);
   const input = {
     card,
     activationId: 'activation-1',
@@ -109,8 +109,8 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
     workflows: { cardTypes: new Map([[cardType, { bootstrapRecord: { name: 'brief.md' } }]]) },
     readRecordCurrent: jest.fn((_cardId: string, name: string) => {
       events.push('read-record');
-      if (name === 'brief.md') return { kind: 'found', value: { projection: { headVersion: 1, currentUrl: `record:///brief.md?card=${cardId}`, artifact: { state: 'open', accepted: { content: 'FULL ACCEPTED BRIEF\nwith all configured content' }, draft: { content: 'draft' } } } } };
-      return { kind: 'found', value: { projection: statusRecordOpened ? { headVersion: 1, currentUrl: `record:///status.md?card=${cardId}`, artifact: { state: 'open', accepted: null, draft: null } } : null } };
+      if (name === 'brief.md') return { kind: 'found', value: { projection: { revision: 1, currentUrl: `record:///brief.md?card=${cardId}`, state: 'open', accepted: { content: 'FULL ACCEPTED BRIEF\nwith all configured content' }, draft: { content: 'draft' } } } };
+      return { kind: 'found', value: { projection: statusRecordOpened ? { revision: 1, currentUrl: `record:///status.md?card=${cardId}`, state: 'open', accepted: null, draft: {content:''} } : null } };
     }),
 
     discardRecord: jest.fn(() => { events.push('discard-record'); }),
@@ -154,6 +154,39 @@ function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[
 }
 
 describe('AgentNodeExecution static preparation', () => {
+  it('publishes selected notification bodies before exact-ID removal and leaves later equal-body arrivals selected', async () => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'unused' }, 'project', true);
+    const first: CardNotification = { id: '11111111-1111-4111-8111-111111111111', content: 'selected mailbox context', created_at: '2026-10-02T00:00:00.000Z', source: 'analyst_correction' };
+    const later = { ...first, id: '22222222-2222-4222-8222-222222222222' };
+    let pending = [first];
+    test.selectNotifications.mockImplementation(() => [...pending]);
+    test.onConversationChanged(() => {
+      if (readConversation(test.projectRoot, test.sessionId).sourceRows.some(row => row.content === first.content) && pending.length === 1) pending.push(later);
+    });
+    test.removeNotifications.mockImplementation(ids => {
+      expect(readConversation(test.projectRoot, test.sessionId).sourceRows.filter(row => row.content === first.content)).toHaveLength(1);
+      expect(ids).toEqual([first.id]);
+      pending = pending.filter(message => !ids.includes(message.id));
+    });
+    await expect(test.run()).rejects.toThrow('turn sentinel');
+    expect(test.removeNotifications).toHaveBeenCalledTimes(1);
+    expect(pending).toEqual([later]);
+  });
+
+  it('does not remove pending pointers or continue after notification conversation publication uncertainty', async () => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'unused' }, 'project', true);
+    const notice: CardNotification = { id: '11111111-1111-4111-8111-111111111111', content: 'may be delivered again', created_at: '2026-10-02T00:00:00.000Z' };
+    test.selectNotifications.mockReturnValue([notice]);
+    const failure = new PublicationOutcomeUnknownError();
+    test.onConversationChanged(() => {
+      if (readConversation(test.projectRoot, test.sessionId).sourceRows.some(row => row.content === notice.content)) throw failure;
+    });
+    await expect(test.run()).rejects.toBe(failure);
+    expect(test.removeNotifications).not.toHaveBeenCalled();
+    expect(test.llm.turn).not.toHaveBeenCalled();
+    expect(test.cleanupReasons).toEqual([]);
+  });
+
   it('delivers identical static and prepared-node bytes when their declarations explicitly disable compactability', async () => {
     const ordinary = harness({ kind: 'capacity', systemPrompt: 'unused' }, 'project', true);
     const protectedDeclaration = harness({ kind: 'capacity', systemPrompt: 'unused' }, 'project', true, true);

@@ -36,14 +36,15 @@ describe('card inspection authored-record summaries', () => {
     const cards = new CardService(root);
     const normalSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] })]);
     const result = await invokeTestTool(normalSurface, 'get_card', { id: 'project', section: 'records' });
-    const data = result.data as { content: { items: Array<{ name: string; state: string; head_version: number | null; head_entry_id: string | null; version_url: string | null }> } };
+    const data = result.data as { content: { items: Array<{ name: string; state: string; revision: number | null; current_url: string; accepted_version_url: string | null }> } };
     expect(data.content.items.map(({ name }) => name)).toEqual(['brief.md', 'status.md', 'review.md']);
     expect(data.content.items.filter((item) => item.state === 'absent')).toHaveLength(2);
     const brief = data.content.items[0]!;
     expect(brief.state).toBe('closed');
-    expect(brief.head_version).toBe(1);
-    expect(brief.head_entry_id).toMatch(/^[0-9a-f-]{36}$/u);
-    expect(brief.version_url).toBe(`record:///brief.md?card=project&v=1`);
+    expect(brief.revision).toBe(1);
+    expect(brief.current_url).toBe(`record:///brief.md?card=project`);
+    expect(brief.accepted_version_url).toBe(`record:///brief.md?card=project&v=1`);
+    expect(brief).not.toHaveProperty('head_entry_id');
 
     const hostile = new Error('HOSTILE_CARD_INSPECTION_READ');
     cards.listDeclaredRecordMetadata = (() => { throw hostile; }) as CardService['listDeclaredRecordMetadata'];

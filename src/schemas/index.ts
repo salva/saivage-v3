@@ -48,7 +48,7 @@ export { cardTypeNameSchema, parseCardTypeName, type CardTypeName } from './card
 export {
   recordNameSchema,
   parseRecordName,
-  recordStreamFilename,
+  recordHeadFilename,
   type RecordName,
 } from './record-name.js';
 export {
@@ -129,6 +129,7 @@ export {
   positiveSafeIntegerSchema,
   urgencySchema,
   cardRecordSchema,
+  ordinaryCardPayloadSchema,
   outboundCardRecordSchema,
   cardViewSchema,
   controlActionAuditEntrySchema,

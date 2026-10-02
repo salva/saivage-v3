@@ -10,7 +10,8 @@ import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
-import { cardStreamFile } from '../../../src/persistence/layout.js';
+import { cardHeadFile, cardMailboxFile } from '../../../src/persistence/layout.js';
+import { uuidV4Schema } from '../../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
@@ -88,7 +89,7 @@ function owner(supervisor: ReturnType<typeof createSupervisorRuntimeApi>): CardA
 }
 
 function notification() {
-  return { id: 'closed-notification', content: 'must not be enqueued', created_at: '2026-09-09T00:00:01.000Z', source: 'test' };
+  return { id: '00000000-0000-4000-8000-000000000001', content: 'must not be enqueued', created_at: '2026-09-09T00:00:01.000Z', source: 'test' };
 }
 
 function unverifiableProcessPlatform(): ManagedProcessPlatform {
@@ -151,7 +152,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect((await h.supervisor.startProject()).started).toBe(true);
     await waitFor(()=>reviewCalls>=3||h.supervisor.getStatus().status==='stopped'||h.supervisor.getStatus().status==='error');
     expect({rootCalls,draftCalls,reviewCalls,status:h.supervisor.getStatus().status}).toMatchObject({reviewCalls:3,status:'running'});
-    await expect(h.supervisor.submitNotification(archId,{id:'architecture-urgent',content:'reassess architecture',created_at:'2026-09-09T00:00:02.000Z'},'urgent')).resolves.toEqual({queued:true,cardId:archId,notificationId:'architecture-urgent',interruption:{status:'interrupted',stopped_card_ids:[archId]}});
+    await expect(h.supervisor.submitNotification(archId,{id:'00000000-0000-4000-8000-000000000002',content:'reassess architecture',created_at:'2026-09-09T00:00:02.000Z'},'urgent')).resolves.toEqual({queued:true,cardId:archId,notificationId:'00000000-0000-4000-8000-000000000002',interruption:{status:'interrupted',stopped_card_ids:[archId]}});
     await waitFor(()=>h.cards.read(archId)?.lifecycle.status==='done');
     expect(resumedDraftInput).toContain('reassess architecture');
     expect(rootCalls).toBe(3);
@@ -202,13 +203,13 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const childId=h.cards.listChildren(goalId)[0];
     if(!childId)throw new Error('Planner did not link backlog child.');
     expect(h.cards.read(childId)?.lifecycle.status).toBe('backlog');
-    if(terminal==='blocked')h.cards.enqueueNotification(goalId,{id:'retained-direct',content:'prior direct note',created_at:'2026-09-09T00:00:01.000Z'});
+    if(terminal==='blocked')h.cards.enqueueNotification(goalId,{id:'00000000-0000-4000-8000-000000000003',content:'prior direct note',created_at:'2026-09-09T00:00:01.000Z'});
     const before=h.cards.read(goalId)!;
-    await expect(h.supervisor.submitNotification(childId,{id:`real-${terminal}`,content:'urgent backlog child',created_at:'2026-09-09T00:00:02.000Z'},'urgent')).resolves.toEqual({queued:true,cardId:childId,notificationId:`real-${terminal}`,interruption:{status:'interrupted',stopped_card_ids:[competitorId]}});
+    await expect(h.supervisor.submitNotification(childId,{id:'00000000-0000-4000-8000-000000000004',content:'urgent backlog child',created_at:'2026-09-09T00:00:02.000Z'},'urgent')).resolves.toEqual({queued:true,cardId:childId,notificationId:'00000000-0000-4000-8000-000000000004',interruption:{status:'interrupted',stopped_card_ids:[competitorId]}});
     await rootRecovered.promise;
     expect(rootInput).toContain(`descendant '${childId}' needs attention through immediate child '${goalId}' (status observed when queued: ${terminal})`);
     expect(h.cards.read(goalId)).toEqual(before);
-    expect(h.cards.read(childId)?.pending_notifications.map((note)=>note.id)).toEqual([`real-${terminal}`]);
+    expect(h.cards.read(childId)?.pending_notifications).toEqual(['00000000-0000-4000-8000-000000000004']);
     await h.supervisor.stopProject();
   },15000);
   it('lets each exact parent elect ordinary activation along an inactive urgent descendant path', async () => {
@@ -235,7 +236,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     targetId=h.cards.create({ type:'code',parent:goalId,title:'Leaf',bootstrap_content:'Brief',priority:0,urgency:'normal',created_by:'analyst',depends_on:[] }).id;
     expect((await h.supervisor.startProject()).started).toBe(true);
     await rootEntered.promise;
-    await expect(h.supervisor.submitNotification(targetId,{ id:'inactive-path', content:'prompt leaf repair', created_at:'2026-09-09T00:00:03.000Z' },'urgent')).resolves.toEqual({ queued:true,cardId:targetId,notificationId:'inactive-path',interruption:{status:'interrupted',stopped_card_ids:[]} });
+    await expect(h.supervisor.submitNotification(targetId,{ id:'00000000-0000-4000-8000-000000000005', content:'prompt leaf repair', created_at:'2026-09-09T00:00:03.000Z' },'urgent')).resolves.toEqual({ queued:true,cardId:targetId,notificationId:'00000000-0000-4000-8000-000000000005',interruption:{status:'interrupted',stopped_card_ids:[]} });
     await targetEntered.promise;
     expect(rootCalls).toBe(2);
     expect(goalCalls).toBe(1);
@@ -266,7 +267,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     childId = h.cards.create({ type: 'code', parent: 'project', title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstLeafEntered.promise;
-    await expect(h.supervisor.submitNotification(childId, { id: 'redispatch-leaf', content: 'correct the active leaf', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: childId, notificationId: 'redispatch-leaf', interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
+    await expect(h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-000000000006', content: 'correct the active leaf', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: childId, notificationId: '00000000-0000-4000-8000-000000000006', interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
     await secondLeafEntered.promise;
     expect(plannerCalls).toBe(2);
     expect(leafCalls).toBe(2);
@@ -307,7 +308,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
       expect(urgentSettled).toBe(false);
       return result;
     });
-    await expect(h.supervisor.submitNotification('project', { id: `launch-${action}`, content: 'launch context', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: `launch-${action}`, interruption: action === 'stop' ? { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: ['project'] } : { status: 'interrupted', stopped_card_ids: ['project'] } });
+    await expect(h.supervisor.submitNotification('project', { id: '00000000-0000-4000-8000-000000000007', content: 'launch context', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: '00000000-0000-4000-8000-000000000007', interruption: action === 'stop' ? { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: ['project'] } : { status: 'interrupted', stopped_card_ids: ['project'] } });
     if (stopped) {
       await stopped;
       expect(urgentSettled).toBe(true);
@@ -370,12 +371,12 @@ describe('Supervisor notification admission at terminal ownership', () => {
       await releaseJoin.promise;
       return result;
     });
-    const submitted = h.supervisor.submitNotification('project', { id: `root-${action}`, content: 'interrupt', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent');
+    const submitted = h.supervisor.submitNotification('project', { id: '00000000-0000-4000-8000-000000000008', content: 'interrupt', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent');
     await joinEntered.promise;
     const stopping = action === 'stop' ? h.supervisor.stopProject() : null;
     if (action === 'pause') h.supervisor.pause();
     releaseJoin.resolve();
-    await expect(submitted).resolves.toEqual({ queued: true, cardId: 'project', notificationId: `root-${action}`, interruption: action === 'stop' ? { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } : { status: 'interrupted', stopped_card_ids: ['project'] } });
+    await expect(submitted).resolves.toEqual({ queued: true, cardId: 'project', notificationId: '00000000-0000-4000-8000-000000000008', interruption: action === 'stop' ? { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } : { status: 'interrupted', stopped_card_ids: ['project'] } });
     if (stopping) {
       await expect(stopping).resolves.toEqual({ status: 'stopped', contained: true });
       expect(h.supervisor.getActorRuntimeReadModel().cards).toEqual([]);
@@ -421,7 +422,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     });
     const rootVersions = h.cards.listCardVersions('project');
     if (rootVersions.kind !== 'found') throw new Error('Expected root history.');
-    await expect(h.supervisor.submitNotification('project', { id: 'root-replacement', content: 'urgent root context', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: 'root-replacement', interruption: { status: 'interrupted', stopped_card_ids: [childId, 'project'] } });
+    await expect(h.supervisor.submitNotification('project', { id: '00000000-0000-4000-8000-000000000009', content: 'urgent root context', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: '00000000-0000-4000-8000-000000000009', interruption: { status: 'interrupted', stopped_card_ids: [childId, 'project'] } });
     await replacementEntered.promise;
     expect(owner(h.supervisor)).not.toBe(prior);
     expect(oldJoined).toBe(true);
@@ -433,7 +434,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const versions = h.cards.listCardVersions('project');
     if (versions.kind !== 'found') throw new Error('Expected root history.');
     const reasons = versions.value.slice(rootVersions.value.length).map((version) => version.change?.change_reason);
-    expect(reasons).toEqual(['notification enqueued', 'recovery stopped lifecycle', 'STOPPED activation', 'notifications delivered']);
+    expect(reasons).toEqual(['recovery stopped lifecycle', 'STOPPED activation']);
+    expect(h.cards.read('project')?.pending_notifications).toEqual([]);
     const rootRows = readConversation(h.projectRoot, 'agent:planner:project').sourceRows;
     expect(rootRows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'root-child')).toHaveLength(1);
     expect(rootRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'root-child')).toHaveLength(1);
@@ -455,10 +457,10 @@ describe('Supervisor notification admission at terminal ownership', () => {
     h.cards.commitActivationOutcome(blocked.id, { status: 'blocked', summary: 'waiting', result: workflowResult('BLOCKED', 'waiting') }, '2026-09-09T00:00:00.000Z');
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstEntered.promise;
-    await expect(h.supervisor.submitNotification(blocked.id, { id: 'direct-live-blocked', content: 'urgent blocked card', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: blocked.id, notificationId: 'direct-live-blocked', interruption: { status: 'interrupted', stopped_card_ids: [] } });
+    await expect(h.supervisor.submitNotification(blocked.id, { id: '00000000-0000-4000-8000-00000000000a', content: 'urgent blocked card', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: blocked.id, notificationId: '00000000-0000-4000-8000-00000000000a', interruption: { status: 'interrupted', stopped_card_ids: [] } });
     await recovered.promise;
     expect(h.cards.read(blocked.id)?.lifecycle.status).toBe('blocked');
-    expect(h.cards.read(blocked.id)?.pending_notifications.map((note) => note.id)).toEqual(['direct-live-blocked']);
+    expect(h.cards.read(blocked.id)?.pending_notifications).toEqual(['00000000-0000-4000-8000-00000000000a']);
     await h.supervisor.stopProject();
   }, 15000);
   it('enqueues every eligible inactive ancestor bottom-up through the real running boundary', async () => {
@@ -480,9 +482,17 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const appended: string[] = [];
     const original = h.cards.enqueueNotification.bind(h.cards);
     jest.spyOn(h.cards, 'enqueueNotification').mockImplementation((...args) => { appended.push(args[0]); return original(...args); });
-    await expect(h.supervisor.submitNotification(target.id, { id: 'bottom-up', content: 'urgent leaf', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: 'bottom-up', interruption: { status: 'interrupted', stopped_card_ids: [] } });
+    await expect(h.supervisor.submitNotification(target.id, { id: '00000000-0000-4000-8000-00000000000b', content: 'urgent leaf', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: '00000000-0000-4000-8000-00000000000b', interruption: { status: 'interrupted', stopped_card_ids: [] } });
     expect(appended).toEqual([target.id, parent.id, 'project']);
-    expect(h.cards.read(parent.id)?.pending_notifications[0]?.content).toContain(`immediate child '${target.id}'`);
+    const messages = [target.id, parent.id].flatMap(cardId => h.cards.readPendingNotifications(cardId).map(notification => {
+      expect(uuidV4Schema.parse(notification.id)).toBe(notification.id);
+      const head = JSON.parse(readFileSync(cardHeadFile(h.projectRoot, cardId), 'utf8'));
+      expect(head.pending).toContain(notification.id);
+      expect(JSON.parse(readFileSync(cardMailboxFile(h.projectRoot, cardId, notification.id), 'utf8'))).toMatchObject({ card_id: cardId, notification });
+      return notification;
+    }));
+    expect(new Set(messages.map(message => message.id)).size).toBe(messages.length);
+    expect(h.cards.readPendingNotifications(parent.id)[0]?.content).toContain(`immediate child '${target.id}'`);
     await recovered.promise;
     expect(recoveryInput.includes(`descendant '${target.id}' needs attention through immediate child '${parent.id}'`)).toBe(true);
     expect(h.cards.read(parent.id)?.lifecycle.status).toBe('backlog');
@@ -517,7 +527,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect((await h.supervisor.startProject()).started).toBe(true);
     await competingEntered.promise;
     const rootBefore = h.cards.read('project')!;
-    await expect(h.supervisor.submitNotification(target.id, { id: 'nearest-goal', content: 'urgent target', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: 'nearest-goal', interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
+    await expect(h.supervisor.submitNotification(target.id, { id: '00000000-0000-4000-8000-00000000000c', content: 'urgent target', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: '00000000-0000-4000-8000-00000000000c', interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
     await goalRecovered.promise;
     expect(recipientInput.includes(`descendant '${target.id}' needs attention through immediate child '${target.id}'`)).toBe(true);
     expect(h.cards.read('project')).toEqual(rootBefore);
@@ -547,9 +557,9 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await claimEntered.promise;
     await waitFor(() => owner(h.supervisor).terminalWinner === 'result');
     const rootBefore = h.cards.read('project')!;
-    await expect(h.supervisor.submitNotification(child.id, { id: 'claimed-ancestor', content: 'do not steal owner', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: child.id, notificationId: 'claimed-ancestor', interruption: { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } });
+    await expect(h.supervisor.submitNotification(child.id, { id: '00000000-0000-4000-8000-00000000000d', content: 'do not steal owner', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: child.id, notificationId: '00000000-0000-4000-8000-00000000000d', interruption: { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } });
     expect(h.cards.read('project')).toEqual(rootBefore);
-    expect(h.cards.read(child.id)?.pending_notifications.map((note) => note.id)).toEqual(['claimed-ancestor']);
+    expect(h.cards.read(child.id)?.pending_notifications).toEqual(['00000000-0000-4000-8000-00000000000d']);
     held.resolve();
     await waitFor(() => h.supervisor.getStatus().status === 'stopped');
     expect(h.cards.read('project')?.lifecycle.status).toBe('failed');
@@ -585,11 +595,11 @@ describe('Supervisor notification admission at terminal ownership', () => {
     competitorId = h.cards.create({ type: 'code', parent: 'project', title: 'Competitor', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
     h.cards.setStatus(blockedId, 'running');
     h.cards.commitActivationOutcome(blockedId, { status: 'blocked', summary: 'waiting', result: workflowResult('BLOCKED', 'waiting') }, '2026-09-09T00:00:00.000Z');
-    h.cards.enqueueNotification(blockedId, { id: 'earlier-direct', content: 'retained direct note', created_at: '2026-09-09T00:00:01.000Z' });
+    h.cards.enqueueNotification(blockedId, { id: '00000000-0000-4000-8000-00000000000e', content: 'retained direct note', created_at: '2026-09-09T00:00:01.000Z' });
     const blockedBefore = h.cards.read(blockedId)!;
     expect((await h.supervisor.startProject()).started).toBe(true);
     await competingEntered.promise;
-    await expect(h.supervisor.submitNotification(descendant.id, { id: `skip-blocked-${choice}`, content: 'urgent original', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: descendant.id, notificationId: `skip-blocked-${choice}`, interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
+    await expect(h.supervisor.submitNotification(descendant.id, { id: '00000000-0000-4000-8000-00000000000f', content: 'urgent original', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: descendant.id, notificationId: '00000000-0000-4000-8000-00000000000f', interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
     await recoveryEntered.promise;
     expect(recoveryInput.includes(`descendant '${descendant.id}' needs attention through immediate child '${blockedId}' (status observed when queued: blocked)`)).toBe(true);
     expect(h.cards.read(blockedId)).toEqual(blockedBefore);
@@ -608,18 +618,18 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const target = h.cards.create({ type: 'code', parent: parent.id, title: 'Backlog', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     h.cards.setStatus(parent.id, 'running');
     h.cards.commitActivationOutcome(parent.id, { status, summary: 'prior outcome', result: workflowResult(status === 'blocked' ? 'BLOCKED' : 'FAILED', 'prior outcome') }, '2026-09-09T00:00:00.000Z');
-    if (status === 'blocked') h.cards.enqueueNotification(parent.id, { id: 'prior-blocked', content: 'direct earlier note', created_at: '2026-09-09T00:00:01.000Z' });
+    if (status === 'blocked') h.cards.enqueueNotification(parent.id, { id: '00000000-0000-4000-8000-000000000010', content: 'direct earlier note', created_at: '2026-09-09T00:00:01.000Z' });
     const prior = h.cards.read(parent.id)!;
-    await expect(h.supervisor.submitNotification(target.id, { id: `resting-${status}`, content: 'act on backlog', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: `resting-${status}`, interruption: { status: 'not_applicable' } });
+    await expect(h.supervisor.submitNotification(target.id, { id: '00000000-0000-4000-8000-000000000011', content: 'act on backlog', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: '00000000-0000-4000-8000-000000000011', interruption: { status: 'not_applicable' } });
     expect(h.cards.read(parent.id)).toEqual(prior);
     expect(h.cards.read('project')?.pending_notifications).toHaveLength(1);
-    expect(h.cards.read('project')?.pending_notifications[0]?.content).toContain(`descendant '${target.id}' needs attention through immediate child '${parent.id}' (status observed when queued: ${status})`);
-    expect(h.cards.read(target.id)?.pending_notifications.map((note) => note.id)).toEqual([`resting-${status}`]);
+    expect(h.cards.readPendingNotifications('project')[0]?.content).toContain(`descendant '${target.id}' needs attention through immediate child '${parent.id}' (status observed when queued: ${status})`);
+    expect(h.cards.read(target.id)?.pending_notifications).toEqual(['00000000-0000-4000-8000-000000000011']);
     expect(h.supervisor.getActorRuntimeReadModel().cards).toEqual([]);
     if (status === 'blocked') {
-      expect(h.supervisor.notifyCard(parent.id, { id: 'direct-blocked', content: 'direct target remains open', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: 'direct-blocked' });
-      await expect(h.supervisor.submitNotification(parent.id, { id: 'urgent-direct-blocked', content: 'direct urgent target', created_at: '2026-09-09T00:00:04.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'not_applicable' } });
-      expect(h.cards.read(parent.id)?.pending_notifications.map((note) => note.id)).toEqual(['prior-blocked', 'direct-blocked', 'urgent-direct-blocked']);
+      expect(h.supervisor.notifyCard(parent.id, { id: '00000000-0000-4000-8000-000000000012', content: 'direct target remains open', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000012' });
+      await expect(h.supervisor.submitNotification(parent.id, { id: '00000000-0000-4000-8000-000000000013', content: 'direct urgent target', created_at: '2026-09-09T00:00:04.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'not_applicable' } });
+      expect(h.cards.read(parent.id)?.pending_notifications).toEqual(['00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013']);
     }
   }, 15000);
 
@@ -633,10 +643,10 @@ describe('Supervisor notification admission at terminal ownership', () => {
     }
     const parentBefore = h.cards.read(parent.id)!;
     const projectBefore = h.cards.read('project')!;
-    await expect(h.supervisor.submitNotification(child.id, { id: 'target-only', content: 'known urgent', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: child.id, notificationId: 'target-only', interruption: { status: 'not_applicable' } });
+    await expect(h.supervisor.submitNotification(child.id, { id: '00000000-0000-4000-8000-000000000014', content: 'known urgent', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: child.id, notificationId: '00000000-0000-4000-8000-000000000014', interruption: { status: 'not_applicable' } });
     expect(h.cards.read(parent.id)).toEqual(parentBefore);
     expect(h.cards.read('project')).toEqual(projectBefore);
-    expect(h.cards.read(child.id)?.pending_notifications.map((note) => note.id)).toEqual(['target-only']);
+    expect(h.cards.read(child.id)?.pending_notifications).toEqual(['00000000-0000-4000-8000-000000000014']);
     expect(h.supervisor.getActorRuntimeReadModel().cards).toEqual([]);
   }, 15000);
   it.each(['decline', 'reopen'] as const)('routes a failed-parent backlog descendant across the skipped parent when root chooses to %s', async (choice) => {
@@ -670,7 +680,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect((await h.supervisor.startProject()).started).toBe(true);
     await competingEntered.promise;
     const priorGoal = h.cards.read(goalId)!;
-    await expect(h.supervisor.submitNotification(descendant.id, { id: `skip-failed-${choice}`, content: 'urgent backlog descendant', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: descendant.id, notificationId: `skip-failed-${choice}`, interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
+    await expect(h.supervisor.submitNotification(descendant.id, { id: '00000000-0000-4000-8000-000000000015', content: 'urgent backlog descendant', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: descendant.id, notificationId: '00000000-0000-4000-8000-000000000015', interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
     await recoveryEntered.promise;
     expect(rootInputs[1]).toContain(descendant.id);
     expect(rootInputs[1]).toContain(goalId);
@@ -795,7 +805,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     });
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstEntered.promise;
-    await expect(h.supervisor.submitNotification(child.id, { id: 'join-failed', content: 'known enqueue', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).rejects.toBe(failure);
+    await expect(h.supervisor.submitNotification(child.id, { id: '00000000-0000-4000-8000-000000000016', content: 'known enqueue', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).rejects.toBe(failure);
     await waitFor(() => h.supervisor.getStatus().status === 'error');
     expect(calls).toBe(1);
     expect(h.cards.read(child.id)?.pending_notifications).toHaveLength(1);
@@ -820,7 +830,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstEntered.promise;
     h.supervisor.pause();
-    await expect(h.supervisor.submitNotification(child.id, { id: 'paused-preclaim', content: 'retain note', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } });
+    await expect(h.supervisor.submitNotification(child.id, { id: '00000000-0000-4000-8000-000000000017', content: 'retain note', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } });
     expect(owner(h.supervisor).processor.processPosition()).toMatchObject({ kind: 'node', executionOrdinal: 0 });
     expect(calls).toBe(1);
     releaseFirst.resolve();
@@ -862,7 +872,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     });
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstEntered.promise;
-    const submit = h.supervisor.submitNotification(child.id, { id: `postclaim-${next}`, content: 'queued during join', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent');
+    const submit = h.supervisor.submitNotification(child.id, { id: '00000000-0000-4000-8000-000000000018', content: 'queued during join', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent');
     await oldJoined.promise;
     h.supervisor.pause();
     expect(h.supervisor.getStatus().status).toBe('pausing');
@@ -920,7 +930,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     });
     expect((await h.supervisor.startProject()).started).toBe(true);
     await firstEntered.promise;
-    const submit = h.supervisor.submitNotification(childId, { id: `stop-${point}`, content: 'stop race', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent');
+    const submit = h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-000000000019', content: 'stop race', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent');
     await oldJoined.promise;
     if (point === 'guarded') {
       stop = h.supervisor.stopProject();
@@ -970,7 +980,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await firstEntered.promise;
     const recordPreparation = jest.spyOn(h.cards, 'readRecordCurrent');
     const before = readConversation(h.projectRoot, 'agent:planner:project').sourceRows.length;
-    const submit = h.supervisor.submitNotification(child.id, { id: 'node-urgent', content: 'Attend to inactive child', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent');
+    const submit = h.supervisor.submitNotification(child.id, { id: '00000000-0000-4000-8000-00000000001a', content: 'Attend to inactive child', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent');
     await oldJoined.promise;
     expect(owner(h.supervisor).processor.processPosition()).toMatchObject({ kind: 'node', executionOrdinal: 1 });
     expect(calls).toBe(1);
@@ -979,9 +989,9 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(readConversation(h.projectRoot, 'agent:planner:project').sourceRows.slice(before).map((row) => row.kind)).toEqual(['model_issue']);
     expect(recordPreparation).not.toHaveBeenCalled();
     releaseOldJoin.resolve();
-    await expect(submit).resolves.toEqual({ queued: true, cardId: child.id, notificationId: 'node-urgent', interruption: { status: 'interrupted', stopped_card_ids: [] } });
+    await expect(submit).resolves.toEqual({ queued: true, cardId: child.id, notificationId: '00000000-0000-4000-8000-00000000001a', interruption: { status: 'interrupted', stopped_card_ids: [] } });
     await successorEntered.promise;
-    expect(successorInput.includes(`Urgent notification 'node-urgent' for descendant '${child.id}'`)).toBe(true);
+    expect(successorInput.includes(`Urgent notification '00000000-0000-4000-8000-00000000001a' for descendant '${child.id}'`)).toBe(true);
     expect(calls).toBe(2);
     await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   }, 15000);
@@ -1036,9 +1046,9 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const note = enqueue.mock.calls[0]![1];
     expect(submit).toHaveBeenCalledWith(child.id, note, 'urgent', check.signal);
     expect(enqueue.mock.calls.map(([id]) => id)).toEqual([child.id, 'project']);
-    expect(h.cards.read(child.id)?.pending_notifications).toEqual([note]);
+    expect(h.cards.read(child.id)?.pending_notifications).toEqual([note.id]);
     expect(h.cards.read('project')?.pending_notifications).toHaveLength(1);
-    expect(h.cards.read('project')?.pending_notifications[0]?.content).toContain(note.id);
+    expect(h.cards.readPendingNotifications('project')[0]?.content).toContain(note.id);
     // Ordinal progression and the real LLM join prove the old consumer acknowledged;
     // the successor has not prepared records/session input or called the provider.
     expect(prior.processor.processPosition()).toMatchObject({ kind: 'node', executionOrdinal: 1 });
@@ -1058,7 +1068,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(prior.urgentSettlement).toBeNull();
     expect(successorInput).toContain(note.id);
     expect(successorInput).toContain(`descendant '${child.id}'`);
-    expect(h.cards.read(child.id)?.pending_notifications).toEqual([note]);
+    expect(h.cards.read(child.id)?.pending_notifications).toEqual([note.id]);
     expect(enqueue).toHaveBeenCalledTimes(2);
     expect(interrupt).toHaveBeenCalledTimes(1);
     expect(calls).toBe(2);
@@ -1155,8 +1165,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
     if (!started.started) throw new Error('Expected project start.');
     await childProviderEntered.promise;
 
-    const submitted = await h.supervisor.submitNotification(childId, { id: 'urgent-id', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
-    expect(submitted).toEqual({ queued: true, cardId: childId, notificationId: 'urgent-id', interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
+    const submitted = await h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-00000000001b', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
+    expect(submitted).toEqual({ queued: true, cardId: childId, notificationId: '00000000-0000-4000-8000-00000000001b', interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
     expect(h.cards.read(childId)).toMatchObject({ lifecycle: { status: 'stopped' } });
     const versions = h.cards.listCardVersions(childId);
     if (versions.kind !== 'found') throw new Error('Expected child version stream.');
@@ -1199,7 +1209,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     if (!started.started) throw new Error('Expected project start.');
     await leafProviderEntered.promise;
 
-    await expect(h.supervisor.submitNotification(goalId, { id: 'deep-urgent', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: goalId, notificationId: 'deep-urgent', interruption: { status: 'interrupted', stopped_card_ids: [leafId, goalId] } });
+    await expect(h.supervisor.submitNotification(goalId, { id: '00000000-0000-4000-8000-00000000001c', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: goalId, notificationId: '00000000-0000-4000-8000-00000000001c', interruption: { status: 'interrupted', stopped_card_ids: [leafId, goalId] } });
     expect(h.cards.read(leafId)).toMatchObject({ lifecycle: { status: 'stopped' } });
     expect(h.cards.read(goalId)).toMatchObject({ lifecycle: { status: 'stopped' } });
     expect(plannerCalls.get(`agent:planner:${goalId}`)).toBe(1);
@@ -1229,7 +1239,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
         const rows = readConversation(h.projectRoot, target.session_id).sourceRows;
         if (rows.at(-1)?.kind !== 'tool_call') return;
         armed = false;
-        submission = h.supervisor.submitNotification(childId, { id: 'parked-boundary', content: 'interrupt before tool entry', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
+        submission = h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-00000000001d', content: 'interrupt before tool entry', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
       },
       agentMembershipChanged(): void {},
     };
@@ -1272,9 +1282,9 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return result;
     });
 
-    await expect(h.supervisor.submitNotification(childId, { id: 'stale-capture', content: 'retain only as queued context', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: childId, notificationId: 'stale-capture', interruption: { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } });
+    await expect(h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-00000000001e', content: 'retain only as queued context', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: childId, notificationId: '00000000-0000-4000-8000-00000000001e', interruption: { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } });
     expect(interrupt).not.toHaveBeenCalled();
-    expect(h.cards.read(childId)?.pending_notifications.map((item) => item.id)).toContain('stale-capture');
+    expect(h.cards.read(childId)?.pending_notifications).toContain('00000000-0000-4000-8000-00000000001e');
     await h.supervisor.stopProject();
   });
 
@@ -1301,9 +1311,9 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return result;
     });
 
-    await expect(h.supervisor.submitNotification(childId, { id: 'pause-during-enqueue', content: 'queued before pause suppression', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: childId, notificationId: 'pause-during-enqueue', interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } });
+    await expect(h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-00000000001f', content: 'queued before pause suppression', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: childId, notificationId: '00000000-0000-4000-8000-00000000001f', interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } });
     expect(interrupt).not.toHaveBeenCalled();
-    expect(h.cards.read(childId)?.pending_notifications.map((item) => item.id)).toContain('pause-during-enqueue');
+    expect(h.cards.read(childId)?.pending_notifications).toContain('00000000-0000-4000-8000-00000000001f');
     await h.supervisor.stopProject();
   });
 
@@ -1325,7 +1335,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const stopRunning = jest.spyOn(h.cards, 'stopRunning');
     jest.spyOn(h.cards, 'enqueueNotification').mockImplementation(() => { throw new PublicationOutcomeUnknownError(); });
 
-    await expect(h.supervisor.submitNotification(childId, { id: 'unknown-enqueue', content: 'uncertain', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).rejects.toBe(testApplicationFatalDelivery);
+    await expect(h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-000000000020', content: 'uncertain', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).rejects.toBe(testApplicationFatalDelivery);
     expect(interrupt).not.toHaveBeenCalled();
     expect(stopRunning).not.toHaveBeenCalled();
   });
@@ -1351,10 +1361,10 @@ describe('Supervisor notification admission at terminal ownership', () => {
     if (!started.started) throw new Error('Expected project start.');
     await childWaiting.promise;
 
-    await expect(h.supervisor.submitNotification(childId, { id: 'urgent-before-process-failure', content: 'queued but not contained', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).rejects.toThrow('unverifiable: Process-group probe failed: process ownership cannot be verified');
+    await expect(h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-000000000021', content: 'queued but not contained', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).rejects.toThrow('unverifiable: Process-group probe failed: process ownership cannot be verified');
     await waitFor(() => h.supervisor.getStatus().status === 'error');
 
-    expect(h.cards.read(childId)?.pending_notifications.map((item) => item.id)).toContain('urgent-before-process-failure');
+    expect(h.cards.read(childId)?.pending_notifications).toContain('00000000-0000-4000-8000-000000000021');
     expect(h.cards.read(childId)?.lifecycle.status).toBe('running');
     const versions = h.cards.listCardVersions(childId);
     if (versions.kind !== 'found') throw new Error('Expected child version stream.');
@@ -1392,11 +1402,11 @@ describe('Supervisor notification admission at terminal ownership', () => {
       return joined;
     });
 
-    const submission = h.supervisor.submitNotification(childId, { id: 'halt-race', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
+    const submission = h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-000000000022', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
     await interruptionJoinEntered.promise;
     const stopping = h.supervisor.stopProject();
     releaseInterruptionJoin.resolve();
-    await expect(submission).resolves.toMatchObject({ queued: true, notificationId: 'halt-race', interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } });
+    await expect(submission).resolves.toMatchObject({ queued: true, notificationId: '00000000-0000-4000-8000-000000000022', interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } });
     await expect(stopping).resolves.toEqual({ status: 'stopped', contained: true });
     expect(h.cards.read(childId)?.lifecycle.status).toBe('running');
     const versions = h.cards.listCardVersions(childId);
@@ -1415,8 +1425,8 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await providerEntered.promise;
-    await expect(h.supervisor.submitNotification('project', { id: 'normal-id', content: 'normal', created_at: '2026-09-09T00:00:01.000Z' }, 'normal')).resolves.toMatchObject({ queued: true, interruption: { status: 'not_requested' } });
-    await expect(h.supervisor.submitNotification('project', { id: 'urgent-own-turn', content: 'urgent', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'interrupted', stopped_card_ids: ['project'] } });
+    await expect(h.supervisor.submitNotification('project', { id: '00000000-0000-4000-8000-000000000023', content: 'normal', created_at: '2026-09-09T00:00:01.000Z' }, 'normal')).resolves.toMatchObject({ queued: true, interruption: { status: 'not_requested' } });
+    await expect(h.supervisor.submitNotification('project', { id: '00000000-0000-4000-8000-000000000024', content: 'urgent', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'interrupted', stopped_card_ids: ['project'] } });
     await h.supervisor.stopProject();
   });
 
@@ -1506,7 +1516,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const results = rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'entered-notification');
     expect(results).toHaveLength(1);
     expect(results[0]?.content).toContain('"queued":true');
-    expect(results[0]?.content).toContain(`"notification_id":"${queue![0]!.id}"`);
+    expect(results[0]?.content).toContain(`"notification_id":"${queue![0]!}"`);
     expect(calls).toBe(1);
     expect(h.supervisor.getStatus().status).toBe('stopped');
   });
@@ -1587,7 +1597,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(results[0]?.content).toContain('"queued":true');
     const queued = h.cards.read('project')?.pending_notifications;
     expect(queued).toHaveLength(1);
-    expect(results[0]?.content).toContain(`"notification_id":"${queued![0]!.id}"`);
+    expect(results[0]?.content).toContain(`"notification_id":"${queued![0]!}"`);
     expect(h.supervisor.getStatus().status).toBe('error');
     expect(h.cards.read('project')?.lifecycle.status).toBe('running');
     expect(h.cards.read(childId)?.lifecycle.status).toBe('running');
@@ -1617,12 +1627,12 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(owner(h.supervisor).terminalWinner).toBe('result');
     expect(h.cards.read('project')?.lifecycle.status).toBe('running');
     const versions = h.cards.listCardVersions('project');
-    const bytes = readFileSync(cardStreamFile(h.projectRoot, 'project'));
+    const bytes = readFileSync(cardHeadFile(h.projectRoot, 'project'));
     const enqueue = jest.spyOn(h.cards, 'enqueueNotification');
     expect(h.supervisor.notifyCard('project', notification())).toEqual({ ok: false, reason: 'activation_closed', cardId: 'project' });
     expect(enqueue).not.toHaveBeenCalled();
     expect(h.cards.listCardVersions('project')).toEqual(versions);
-    expect(readFileSync(cardStreamFile(h.projectRoot, 'project'))).toEqual(bytes);
+    expect(readFileSync(cardHeadFile(h.projectRoot, 'project'))).toEqual(bytes);
     held.resolve();
     await waitFor(() => h.supervisor.getStatus().status === 'stopped');
     expect(h.cards.read('project')?.lifecycle.status).toBe('done');
@@ -1652,12 +1662,12 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(owner(h.supervisor).terminalWinner).toBe('cancel');
     expect(h.cards.read('project')?.lifecycle.status).toBe('running');
     const versions = h.cards.listCardVersions('project');
-    const bytes = readFileSync(cardStreamFile(h.projectRoot, 'project'));
+    const bytes = readFileSync(cardHeadFile(h.projectRoot, 'project'));
     const enqueue = jest.spyOn(h.cards, 'enqueueNotification');
     expect(h.supervisor.notifyCard('project', notification())).toEqual({ ok: false, reason: 'activation_closed', cardId: 'project' });
     expect(enqueue).not.toHaveBeenCalled();
     expect(h.cards.listCardVersions('project')).toEqual(versions);
-    expect(readFileSync(cardStreamFile(h.projectRoot, 'project'))).toEqual(bytes);
+    expect(readFileSync(cardHeadFile(h.projectRoot, 'project'))).toEqual(bytes);
     held.resolve();
     await expect(cancellation).resolves.toEqual({ card_id: 'project', status: 'cancelled', cancelled_card_ids: ['project'] });
     expect(h.cards.read('project')?.lifecycle.status).toBe('cancelled');
@@ -1681,7 +1691,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     if (!started.started) throw new Error('Expected project start.');
     await terminalCandidateRequested.promise;
     expect(owner(h.supervisor).terminalWinner).toBe('open');
-    expect(h.supervisor.notifyCard('project', { id: 'admitted-id', content: 'distinct admitted context', created_at: '2026-09-09T00:00:02.000Z' })).toEqual({ ok: true, notificationId: 'admitted-id' });
+    expect(h.supervisor.notifyCard('project', { id: '00000000-0000-4000-8000-000000000025', content: 'distinct admitted context', created_at: '2026-09-09T00:00:02.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000025' });
     terminalCandidateHeld.resolve();
     await waitFor(() => h.supervisor.getStatus().status === 'stopped');
     expect(turn).toBe(3);
@@ -1715,14 +1725,14 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await reviewApprovalRequested.promise;
-    expect(h.supervisor.notifyCard('project', { id: 'planner-only', content: 'planner designated context', created_at: '2026-09-09T00:00:02.000Z' })).toEqual({ ok: true, notificationId: 'planner-only' });
+    expect(h.supervisor.notifyCard('project', { id: '00000000-0000-4000-8000-000000000026', content: 'planner designated context', created_at: '2026-09-09T00:00:02.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000026' });
     const closeRecord = h.cards.closeRecord.bind(h.cards);
     let injectedDuringClose = false;
     jest.spyOn(h.cards, 'closeRecord').mockImplementation((...args) => {
       const result = closeRecord(...args);
       if (!injectedDuringClose && args[1] === 'review.md' && h.cards.read('project')!.pending_notifications.length > 0) {
         injectedDuringClose = true;
-        expect(h.supervisor.notifyCard('project', { id: 'during-close', content: 'context admitted during accepted record close', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: 'during-close' });
+        expect(h.supervisor.notifyCard('project', { id: '00000000-0000-4000-8000-000000000027', content: 'context admitted during accepted record close', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000027' });
       }
       return result;
     });
@@ -1748,7 +1758,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     if (!started.started) throw new Error('Expected project start.');
     await providerEntered.promise;
     expect(owner(h.supervisor).terminalWinner).toBe('open');
-    expect(h.supervisor.notifyCard('project', { id: 'preclaim-cancel', content: 'not delivered before cancel', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: 'preclaim-cancel' });
+    expect(h.supervisor.notifyCard('project', { id: '00000000-0000-4000-8000-000000000028', content: 'not delivered before cancel', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000028' });
     expect(h.cards.read('project')?.pending_notifications).toHaveLength(1);
     await expect(h.supervisor.cancelCard('project', 'cancel after admission')).resolves.toMatchObject({ status: 'cancelled' });
     expect(h.cards.read('project')?.pending_notifications).toEqual([]);
@@ -1769,7 +1779,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await providerEntered.promise;
-    expect(h.supervisor.notifyCard('project', { id: 'preclaim-failure', content: 'not delivered before failure', created_at: '2026-09-09T00:00:04.000Z' })).toEqual({ ok: true, notificationId: 'preclaim-failure' });
+    expect(h.supervisor.notifyCard('project', { id: '00000000-0000-4000-8000-000000000029', content: 'not delivered before failure', created_at: '2026-09-09T00:00:04.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-000000000029' });
     release.resolve();
     await waitFor(() => h.supervisor.getStatus().status === 'stopped');
     expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'failed' }, pending_notifications: [] });
@@ -1791,7 +1801,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('Expected project start.');
     await providerEntered.promise;
-    expect(h.supervisor.notifyCard('project', { id: 'preclaim-blocked', content: 'not delivered before blocked', created_at: '2026-09-09T00:00:05.000Z' })).toEqual({ ok: true, notificationId: 'preclaim-blocked' });
+    expect(h.supervisor.notifyCard('project', { id: '00000000-0000-4000-8000-00000000002a', content: 'not delivered before blocked', created_at: '2026-09-09T00:00:05.000Z' })).toEqual({ ok: true, notificationId: '00000000-0000-4000-8000-00000000002a' });
     release.resolve();
     await waitFor(() => h.supervisor.getStatus().status === 'stopped');
     expect(turn).toBe(2);

@@ -151,9 +151,10 @@ export const CardDetailSchema = z
 export const CardDetailResponseSchema = z.object({ card: CardDetailSchema }).strict();
 const CardRecordCurrentDescriptorSchema = z
   .object({
-    head_version: positiveSafeIntegerSchema,
-    head_entry_id: z.string().uuid(),
-    state: z.enum(['open', 'closed', 'discarded']),
+    revision: positiveSafeIntegerSchema,
+    current_url: z.string().min(1),
+    accepted_version_url: z.string().min(1).nullable(),
+    state: z.enum(['open', 'closed', 'empty']),
     accepted_source_version: positiveSafeIntegerSchema.nullable(),
     draft_present: z.boolean(),
   })
@@ -191,6 +192,8 @@ const RecordAcceptedWireSchema = z
     committed_at: z.string().datetime(),
     writer_agent: z.union([agentNameSchema, z.literal('runtime:bootstrap')]),
     card_version_seq: positiveSafeIntegerSchema,
+    card_history_version: positiveSafeIntegerSchema,
+    card_history_entry_id: z.string().uuid(),
     content: z.string(),
     content_sha256: z.string().regex(/^[0-9a-f]{64}$/),
     size_bytes: z.number().int().nonnegative(),
@@ -207,15 +210,12 @@ const RecordDraftWireSchema = z
 const CardRecordContentSchema = z
   .object({
     name: recordNameSchema,
-    head_version: positiveSafeIntegerSchema,
-    head_entry_id: z.string().uuid(),
-    state: z.enum(['open', 'closed', 'discarded']),
+    revision: positiveSafeIntegerSchema,
+    current_url: z.string().min(1),
+    accepted_version_url: z.string().min(1).nullable(),
+    state: z.enum(['open', 'closed', 'empty']),
     accepted: RecordAcceptedWireSchema.nullable(),
     draft: RecordDraftWireSchema.nullable(),
-    discarded: z
-      .object({ discarded_at: z.string().datetime(), reason: z.string() })
-      .strict()
-      .nullable(),
     effective_content_source: z.enum(['draft', 'accepted']).nullable(),
   })
   .strict();
@@ -238,10 +238,7 @@ const RecordHistoryVersionSchema = z
     entry_id: z.string().uuid(),
     version: positiveSafeIntegerSchema,
     published_at: z.string().datetime(),
-    state: z.enum(['open', 'closed', 'discarded']),
-    accepted_source_version: positiveSafeIntegerSchema.nullable(),
-    draft_present: z.boolean(),
-    discarded_at: z.string().datetime().nullable(),
+    version_url: z.string().min(1),
   })
   .strict();
 const RecordHistoryListResponseSchema = z
@@ -257,18 +254,13 @@ const RecordVersionContentResponseSchema = z
     card_id: cardIdSchema,
     name: recordNameSchema,
     version: positiveSafeIntegerSchema,
+    version_url: z.string().min(1),
     entry_id: z.string().uuid(),
     published_at: z.string().datetime(),
     artifact: z
       .object({
-        state: z.enum(['open', 'closed', 'discarded']),
         published_at: z.string().datetime(),
-        accepted: RecordAcceptedWireSchema.nullable(),
-        draft: RecordDraftWireSchema.nullable(),
-        discarded: z
-          .object({ discarded_at: z.string().datetime(), reason: z.string() })
-          .strict()
-          .nullable(),
+        accepted: RecordAcceptedWireSchema,
       })
       .strict(),
   })
@@ -294,7 +286,16 @@ const RecordDiffResponseSchema = z
     card_id: cardIdSchema,
     name: recordNameSchema,
     from: positiveSafeIntegerSchema,
-    to: positiveSafeIntegerSchema,
+    to: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('version'), version: positiveSafeIntegerSchema }).strict(),
+      z
+        .object({
+          kind: z.literal('current'),
+          revision: positiveSafeIntegerSchema,
+          accepted_version: positiveSafeIntegerSchema.nullable(),
+        })
+        .strict(),
+    ]),
     view: z.enum(['effective', 'accepted', 'draft']),
     hunks: z.array(RecordDiffHunkSchema),
   })
@@ -400,7 +401,16 @@ export const CardDiffResponseSchema = z
   .object({
     diff: z.array(CardDiffRowSchema),
     from: positiveSafeIntegerSchema,
-    to: positiveSafeIntegerSchema,
+    to: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('version'), version: positiveSafeIntegerSchema }).strict(),
+      z
+        .object({
+          kind: z.literal('current'),
+          version_seq: positiveSafeIntegerSchema,
+          history_version: positiveSafeIntegerSchema,
+        })
+        .strict(),
+    ]),
     card_id: cardIdSchema,
   })
   .strict();

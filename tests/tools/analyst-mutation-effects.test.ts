@@ -36,6 +36,7 @@ const { testApplicationFatalPort } = await import('../helpers/test-application-f
 const { workflowResult } = await import('../helpers/workflow-result.js');
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
+import type { CardNotification } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -43,7 +44,7 @@ afterEach(() => {
   while (roots.length) fs.rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-function harness(notify = jest.fn(() => ({ ok: true as const, notificationId: 'fixture' }))) {
+function harness(notify = jest.fn((_id: string, notice: CardNotification) => ({ ok: true as const, notificationId: notice.id }))) {
   const projectRoot = fs.mkdtempSync(join(tmpdir(), 'analyst-mutation-effects-')); roots.push(projectRoot); initProjectTree(projectRoot);
   const cards = new CardService(projectRoot);
   const readiness = jest.fn();
@@ -66,7 +67,7 @@ describe('Analyst non-record editor audit', () => {
   it.each(['unexpected', 'publication_unknown'] as const)('preserves %s record publication failure and its audit boundary', async (kind) => {
     const h = harness();
     const fault = kind === 'unexpected' ? new Error('record mutation fault') : new PublicationOutcomeUnknownError();
-    jest.spyOn(h.cards, 'editRecord').mockImplementation(() => { throw fault; });
+    jest.spyOn(h.cards, 'acceptRecord').mockImplementation(() => { throw fault; });
     const close = jest.spyOn(h.cards, 'closeRecord');
     await expect(h.invoke('write', { path: 'record:///brief.md?card=project', content: 'changed' })).rejects.toBe(fault);
     expect(close).not.toHaveBeenCalled(); expect(h.notify).not.toHaveBeenCalled();

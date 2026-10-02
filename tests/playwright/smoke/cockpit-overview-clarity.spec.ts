@@ -30,10 +30,10 @@ const contents: Record<string, string> = {
 };
 
 const descriptors = [
-  { name: objectiveName, format: 'markdown' as const, schema: 'mission.v1', bootstrap: true, current: { head_version: 5, head_entry_id: '11111111-1111-4111-8111-111111111111', state: 'open' as const, accepted_source_version: 2, draft_present: true } },
-  { name: 'constraints.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_version: 3, head_entry_id: '22222222-2222-4222-8222-222222222222', state: 'closed' as const, accepted_source_version: 2, draft_present: false } },
-  { name: 'source-notes.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_version: 4, head_entry_id: '33333333-3333-4333-8333-333333333333', state: 'closed' as const, accepted_source_version: 4, draft_present: false } },
-  { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_version: 1, head_entry_id: '44444444-4444-4444-8444-444444444444', state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
+  { name: objectiveName, format: 'markdown' as const, schema: 'mission.v1', bootstrap: true, current: { revision: 5, current_url: `record:///${objectiveName}?card=${smokeCardId}`, accepted_version_url: `record:///${objectiveName}?card=${smokeCardId}&v=2`, state: 'open' as const, accepted_source_version: 2, draft_present: true } },
+  { name: 'constraints.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 3, current_url: `record:///constraints.md?card=${smokeCardId}`, accepted_version_url: `record:///constraints.md?card=${smokeCardId}&v=2`, state: 'closed' as const, accepted_source_version: 2, draft_present: false } },
+  { name: 'source-notes.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 4, current_url: `record:///source-notes.md?card=${smokeCardId}`, accepted_version_url: `record:///source-notes.md?card=${smokeCardId}&v=4`, state: 'closed' as const, accepted_source_version: 4, draft_present: false } },
+  { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 1, current_url: `record:///review-custom.md?card=${smokeCardId}`, accepted_version_url: `record:///review-custom.md?card=${smokeCardId}&v=1`, state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
 ];
 
 const card = {
@@ -62,9 +62,9 @@ function acceptedRecord(name: string, content: string, version: number) {
   return parseOperatorResponse('cards.records.get', 200, {
     card_id: smokeCardId,
     record: {
-      name, head_version: version, head_entry_id: '55555555-5555-4555-8555-555555555555', state: 'closed',
-      accepted: { source_version: version, source_entry_id: '55555555-5555-4555-8555-555555555555', committed_at: now, writer_agent: 'executor', card_version_seq: 8, content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
-      draft: null, discarded: null, effective_content_source: 'accepted',
+      name, revision: version, current_url: `record:///${name}?card=${smokeCardId}`, accepted_version_url: `record:///${name}?card=${smokeCardId}&v=${version}`, state: 'closed',
+      accepted: { source_version: version, source_entry_id: '55555555-5555-4555-8555-555555555555', committed_at: now, writer_agent: 'executor', card_version_seq: 8, card_history_version: 8, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
+      draft: null, effective_content_source: 'accepted',
     },
   });
 }
@@ -73,10 +73,10 @@ function objectiveRecord() {
   return parseOperatorResponse('cards.records.get', 200, {
     card_id: smokeCardId,
     record: {
-      name: objectiveName, head_version: 5, head_entry_id: '11111111-1111-4111-8111-111111111111', state: 'open',
-      accepted: { source_version: 2, source_entry_id: '66666666-6666-4666-8666-666666666666', committed_at: now, writer_agent: 'analyst', card_version_seq: 4, content: 'Earlier accepted objective.', content_sha256: 'b'.repeat(64), size_bytes: 27 },
+      name: objectiveName, revision: 5, current_url: `record:///${objectiveName}?card=${smokeCardId}`, accepted_version_url: `record:///${objectiveName}?card=${smokeCardId}&v=2`, state: 'open',
+      accepted: { source_version: 2, source_entry_id: '66666666-6666-4666-8666-666666666666', committed_at: now, writer_agent: 'analyst', card_version_seq: 4, card_history_version: 4, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective.', content_sha256: 'b'.repeat(64), size_bytes: 27 },
       draft: { opened_at: now, updated_at: now, content: objective, content_sha256: 'c'.repeat(64) },
-      discarded: null, effective_content_source: 'draft',
+      effective_content_source: 'draft',
     },
   });
 }

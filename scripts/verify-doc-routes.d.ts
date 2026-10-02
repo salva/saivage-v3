@@ -196,8 +196,8 @@ export interface BackendDiffToPivotClaimValue {
   transform: 'Number';
   meanings: {
     numeric: 'historical-version';
-    omitted: 'current-artifact';
-    current: 'current-artifact';
+    omitted: 'current-projection';
+    current: 'current-projection';
   };
 }
 

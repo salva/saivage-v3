@@ -52,6 +52,7 @@
           <template v-else>
             <div class="history-meta-grid">
               <div class="meta-item"><span class="meta-key">Snapshot version</span><span class="meta-value">v{{ cardHistoryEntry.version }}</span></div>
+              <ExactValue :value="`card:///${cardId}?v=${cardHistoryEntry.version}#entry=${cardHistoryEntry.entry_id}`" label="card history locator" />
               <div class="meta-item"><span class="meta-key">Published at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.published_at)">{{ fmtDate(cardHistoryEntry.published_at) }}</span></div>
             </div>
 
@@ -67,6 +68,7 @@
 
             <div class="history-subsection">
               <div class="history-subheading">Diff vs current card</div>
+              <p v-if="cardHistoryDiffTarget?.kind === 'current'">Current revision {{ cardHistoryDiffTarget.version_seq }} · ordinary history v{{ cardHistoryDiffTarget.history_version }}</p>
               <div v-if="cardHistoryDiff.length === 0" class="empty-evidence">No diff rows were returned for this version.</div>
               <div v-else class="diff-list">
                 <div v-for="row in cardHistoryDiff" :key="row.field" class="diff-row">
@@ -98,6 +100,7 @@ import { formatRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { formatJson } from '../../utils/format-json';
 import { sanitizeCardHistoryValue } from '../../utils/sanitize-card-history';
 import CodeBlock from '../content/CodeBlock.vue';
+import ExactValue from '../ui/ExactValue.vue';
 
 const props = defineProps<{ cardId: string; initialVersion?: number | null }>();
 const cardStore = useCardStore();
@@ -111,6 +114,7 @@ const {
   cardHistoryEntryLoading,
   cardHistoryEntryError,
   cardHistoryDiff,
+  cardHistoryDiffTarget,
   cardHistoryDiffLoading,
   cardHistoryDiffError,
   cardHistoryDiffKey,
@@ -125,9 +129,7 @@ function fmtDate(ts: string): string {
 
 async function loadHistory(): Promise<void> {
   await cardStore.openCardHistory(props.cardId);
-  const requested = props.initialVersion != null && cardHistory.value.some((entry) => entry.version === props.initialVersion)
-    ? props.initialVersion
-    : cardHistory.value[0]?.version;
+  const requested = props.initialVersion ?? cardHistory.value[0]?.version;
   if (requested && cardStore.cardHistorySelectedVersion !== requested) {
     await cardStore.selectCardHistoryVersion(props.cardId, requested);
   }
@@ -147,6 +149,9 @@ onMounted(async () => {
 watch(() => props.cardId, async () => {
   cardStore.clearCardHistoryState();
   await loadHistory();
+});
+watch(() => props.initialVersion, async (version) => {
+  if (version != null) await selectVersion(version);
 });
 
 onBeforeUnmount(() => cardStore.closeCardHistory());

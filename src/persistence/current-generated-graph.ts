@@ -115,7 +115,7 @@ export function initializeAndValidateCurrentGeneratedState(
     const card = projection.current;
     for (const definition of definitions(workflow)) {
       const current = readCurrentAuthoredRecord(projectRoot, card, definition);
-      if (definition.bootstrap && !current?.artifact.accepted)
+      if (definition.bootstrap && !current?.accepted)
         throw new Error(
           `Card '${card.id}' required bootstrap record '${definition.filename}' is unavailable.`,
         );

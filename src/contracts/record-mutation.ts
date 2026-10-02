@@ -1,14 +1,20 @@
 import { z } from 'zod';
 
-import {
-  cardIdSchema,
-  positiveSafeIntegerSchema,
-  recordNameSchema,
-  uuidV4Schema,
-} from '../schemas/index.js';
+import { cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
 
 const operationSchema = z.enum(['write', 'edit']);
 const commonIdentity = { card_id: cardIdSchema, name: recordNameSchema } as const;
+function isAcceptedUrl(url: string, currentUrl: string, revision: number): boolean {
+  const prefix = `${currentUrl}&v=`;
+  if (!url.startsWith(prefix)) return false;
+  const raw = url.slice(prefix.length);
+  const version = Number(raw);
+  return (
+    /^[1-9][0-9]*$/.test(raw) &&
+    positiveSafeIntegerSchema.safeParse(version).success &&
+    version <= revision
+  );
+}
 
 const RecordMutationInvalidTargetSchema = z
   .object({
@@ -161,10 +167,9 @@ export const RecordMutationSuccessSchema = z
       .object({
         ...commonIdentity,
         state: z.enum(['open', 'closed']),
-        head_version: positiveSafeIntegerSchema,
-        head_entry_id: uuidV4Schema,
+        revision: positiveSafeIntegerSchema,
         current_url: z.string().min(1),
-        version_url: z.string().min(1),
+        accepted_version_url: z.string().min(1).nullable(),
         bytes: z.number().int().safe().nonnegative(),
         written: z.literal(true),
         surface: z.enum(['card_agent', 'analyst']),
@@ -184,7 +189,10 @@ export const RecordMutationSuccessSchema = z
         const currentUrl = `record:///${encodeURIComponent(data.name)}?card=${encodeURIComponent(data.card_id)}`;
         if (
           data.current_url !== currentUrl ||
-          data.version_url !== `${currentUrl}&v=${data.head_version}`
+          (data.accepted_version_url !== null &&
+            !isAcceptedUrl(data.accepted_version_url, currentUrl, data.revision)) ||
+          (data.surface === 'analyst' &&
+            data.accepted_version_url !== `${currentUrl}&v=${data.revision}`)
         )
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -204,10 +212,10 @@ export const ModelRecordTargetWireSchema = z
     name: recordNameSchema,
     format: z.literal('markdown'),
     schema: z.string().min(1),
-    state: z.enum(['absent', 'open', 'closed', 'discarded']),
-    head_version: positiveSafeIntegerSchema.nullable(),
+    state: z.enum(['absent', 'open', 'closed', 'empty']),
+    revision: positiveSafeIntegerSchema.nullable(),
     current_url: z.string().min(1),
-    version_url: z.string().min(1).nullable(),
+    accepted_version_url: z.string().min(1).nullable(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -218,7 +226,7 @@ export const ModelRecordTargetWireSchema = z
         message: 'Current record URL does not match record identity.',
       });
     if (value.state === 'absent') {
-      if (value.head_version !== null || value.version_url !== null)
+      if (value.revision !== null || value.accepted_version_url !== null)
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'Absent record target must have no head or version URL.',
@@ -226,8 +234,10 @@ export const ModelRecordTargetWireSchema = z
       return;
     }
     if (
-      value.head_version === null ||
-      value.version_url !== `${currentUrl}&v=${value.head_version}`
+      value.revision === null ||
+      (value.accepted_version_url !== null &&
+        !isAcceptedUrl(value.accepted_version_url, currentUrl, value.revision)) ||
+      (value.state === 'closed' && value.accepted_version_url === null)
     )
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

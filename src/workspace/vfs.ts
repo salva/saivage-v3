@@ -55,10 +55,10 @@ export type VfsResolved =
           filename: string;
           format: 'markdown';
           schema: string;
-          state: 'absent' | 'open' | 'closed' | 'discarded';
-          headVersion: number | null;
+          state: 'absent' | 'open' | 'closed' | 'empty';
+          revision: number | null;
           version: number | null;
-          versionUrl: string | null;
+          acceptedVersionUrl: string | null;
           recordUrl: string;
           currentSelection: boolean;
           content: string;
@@ -303,9 +303,9 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
       format: target.definition.format,
       schema: target.definition.schema,
       state: 'absent',
-      headVersion: null,
+      revision: null,
       version: null,
-      versionUrl: null,
+      acceptedVersionUrl: null,
       content: '',
       committedAt: null,
       size: 0,
@@ -326,7 +326,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
   if (!isDocument) return parseRecordCardDirectory(ctx, raw);
   const target = resolveRecordReadTarget(ctx, raw);
   const projection = target.projection;
-  const effective = projection ? effectiveRecordContent(projection.artifact) : null;
+  const effective = projection ? effectiveRecordContent(projection) : null;
   const content = effective?.content ?? '';
   const currentSelection = target.parsed.version === null;
   return {
@@ -336,14 +336,16 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
     filename: target.parsed.name,
     format: target.definition.format,
     schema: target.definition.schema,
-    state: projection?.artifact.state ?? 'absent',
-    headVersion: projection?.headVersion ?? null,
-    version: projection?.headVersion ?? null,
-    versionUrl: projection?.versionUrl ?? null,
+    state: projection?.state ?? 'absent',
+    revision: projection?.revision ?? null,
+    version: target.parsed.version,
+    acceptedVersionUrl: projection?.acceptedVersionUrl ?? null,
     content,
     committedAt: effective?.modifiedAt ?? null,
     size: Buffer.byteLength(content),
-    recordUrl: currentSelection ? target.parsed.currentUrl : projection!.versionUrl,
+    recordUrl: currentSelection
+      ? target.parsed.currentUrl
+      : `${target.parsed.currentUrl}&v=${target.parsed.version}`,
     currentSelection,
     isRoot: false,
   };
@@ -371,10 +373,10 @@ function recordSummaries(
       name: definition.filename,
       format: definition.format,
       schema: definition.schema,
-      state: latest?.artifact.state ?? 'absent',
-      head_version: latest?.headVersion ?? null,
+      state: latest?.state ?? 'absent',
+      revision: latest?.revision ?? null,
       current_url: currentUrl,
-      version_url: latest?.versionUrl ?? null,
+      accepted_version_url: latest?.acceptedVersionUrl ?? null,
     });
   });
 }
@@ -419,7 +421,7 @@ export async function visitScopedFiles(
     )) {
       const latest = classification.kind === 'present' ? classification.projection : null;
       if (latest === null) continue;
-      const effective = effectiveRecordContent(latest.artifact);
+      const effective = effectiveRecordContent(latest);
       if (!effective) continue;
       if (
         (await visitor({

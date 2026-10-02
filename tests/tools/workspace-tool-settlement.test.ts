@@ -131,7 +131,7 @@ describe('workspace tool settlement', () => {
   it.each(['glob', 'grep'] as const)('settles invalid %s collection positions as bounded failures for autonomous and Analyst binders', async (name) => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-settlement-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const analystContext = { projectRoot: root, cardId: 'project', actor: 'analyst', store: cards, runtime: { notifyCard: () => ({ ok: true, notificationId: 'n' }) } } as unknown as ToolContext;
+    const analystContext = { projectRoot: root, cardId: 'project', actor: 'analyst', store: cards, runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext;
     const providers = [
       bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }),
       bindToolProvider('workspace', analystWorkspaceToolBinders, analystContext),
@@ -185,7 +185,7 @@ describe('workspace tool settlement', () => {
     const cards = new CardService(root);
     const providers = [
       { actor: 'planner', provider: bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards }) },
-      { actor: 'analyst', provider: bindToolProvider('workspace', analystWorkspaceToolBinders, { projectRoot: root, cardId: 'project', actor: 'analyst', store: cards, runtime: { notifyCard: () => ({ ok: true, notificationId: 'n' }) } } as unknown as ToolContext) },
+      { actor: 'analyst', provider: bindToolProvider('workspace', analystWorkspaceToolBinders, { projectRoot: root, cardId: 'project', actor: 'analyst', store: cards, runtime: { notifyCard: (_id: string, notification: { id: string }) => ({ ok: true, notificationId: notification.id }) } } as unknown as ToolContext) },
     ] as const;
     for (const { actor, provider } of providers) {
       const surface = buildInvocationSurfaceFixture(actor, [provider]);

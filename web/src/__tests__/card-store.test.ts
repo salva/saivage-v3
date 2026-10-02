@@ -5,9 +5,10 @@ vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   getCardChildren: vi.fn(), getCard: vi.fn(), listCardRecords: vi.fn(), getCardRecord: vi.fn(),
   listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(),
+  listRecordHistory: vi.fn(), getRecordVersion: vi.fn(), getRecordDiff: vi.fn(),
 }));
 
-import { OperatorApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getCardRecord, listCardHistory, listCardRecords } from '../api/client';
+import { OperatorApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getCardRecord, listCardHistory, listCardRecords, listRecordHistory, getRecordVersion, getRecordDiff } from '../api/client';
 import { cardRouteChain, useCardStore } from '../stores/cards';
 import { cardView, hierarchyView, historyCard } from './card-view-fixtures';
 
@@ -17,7 +18,7 @@ const descriptors=[
   {name:'research-findings.md',format:'markdown' as const,schema:'research.v1',bootstrap:false,current:null},
   {name:'decision.md',format:'markdown' as const,schema:'decision.v1',bootstrap:false,current:null},
 ];
-const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_version:2,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,discarded:null,effective_content_source:'accepted' as const}});
+const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((settle) => { resolve = settle; });
@@ -26,6 +27,32 @@ function deferred<T>() {
 
 describe('CardStore exact card resources',()=>{
   beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();});
+
+  it('reads real accepted history even at the current revision, and never synthesizes draft history or substitutes gaps', async () => {
+    const current = content(A, 'brief.md', 'accepted objective');
+    const accepted = current.record.accepted;
+    const historical = { card_id: A, name: 'brief.md', version: 2, version_url: current.record.accepted_version_url, entry_id: accepted.source_entry_id, published_at: accepted.committed_at, artifact: { published_at: accepted.committed_at, accepted } };
+    vi.mocked(getCard).mockResolvedValue({ card: cardView(A, { version_seq: 3 }) });
+    vi.mocked(listCardRecords).mockResolvedValue({ card_id: A, records: [descriptors[0]!] });
+    vi.mocked(getCardRecord).mockResolvedValue(current);
+    vi.mocked(listRecordHistory).mockResolvedValue({ card_id: A, name: 'brief.md', versions: [{ entry_id: accepted.source_entry_id, version: 2, published_at: accepted.committed_at, version_url: historical.version_url }], total: 1 });
+    vi.mocked(getRecordVersion).mockResolvedValue(historical);
+    vi.mocked(getRecordDiff).mockResolvedValue({ card_id: A, name: 'brief.md', from: 2, to: { kind: 'current', revision: 2, accepted_version: 2 }, view: 'effective', hunks: [] });
+    const store = useCardStore();
+    await store.fetchCardDetail(A); await store.loadCardRecords(A); await store.openRecordHistory('brief.md');
+    await store.selectRecordVersion('brief.md', 2);
+    expect(getRecordVersion).toHaveBeenCalledWith(A, 'brief.md', 2, expect.any(AbortSignal));
+    expect(store.cardRecords['brief.md']!.selected).toEqual(historical);
+    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: accepted.committed_at }, effective_content_source: 'draft' } });
+    await store.refreshRecord('brief.md', 'invalidated');
+    await store.selectRecordVersion('brief.md', 3);
+    expect(store.cardRecords['brief.md']!.current?.record.draft?.content).toBe('unfinished draft');
+    expect(store.cardRecords['brief.md']!.selected).toBeNull();
+    expect(store.cardRecords['brief.md']!.selectedVersion).toBe(3);
+    expect(store.cardRecords['brief.md']!.selectedError).toBe('Accepted version 3 not found');
+    expect(getRecordVersion).toHaveBeenCalledTimes(1);
+    expect(getRecordDiff).toHaveBeenCalledTimes(1);
+  });
 
   it('builds route chains through depth twelve and rejects invalid deeper routes',()=>{
     const parts=Array.from({length:12},()=> 'a');
@@ -171,7 +198,7 @@ describe('CardStore exact card resources',()=>{
     const selected={card_id:A,version:1,entry_id:first.entry_id,published_at:first.published_at,artifact:{kind:'card-version' as const,card:historyCard(A),change:null}};
     vi.mocked(listCardHistory).mockResolvedValue({card_id:A,versions:[first,second],total:2});
     vi.mocked(getCardHistoryEntry).mockResolvedValue(selected);
-    vi.mocked(getCardDiff).mockResolvedValue({card_id:A,from:1,to:2,diff:[]});
+    vi.mocked(getCardDiff).mockResolvedValue({card_id:A,from:1,to:{kind:'current',version_seq:2,history_version:2},diff:[]});
     const store=useCardStore();
 
     await store.openCardHistory(A);

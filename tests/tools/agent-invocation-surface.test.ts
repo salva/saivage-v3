@@ -111,7 +111,7 @@ describe('named-agent inventories and composition', () => {
     initProjectTree(projectRoot);
     const store = new CardService(projectRoot);
     const processRunner = { list: () => [] } as never;
-    const submitNotification=jest.fn(async()=>({queued:true as const,cardId:'project',notificationId:'notice-1',interruption:{status:'not_requested' as const}}));
+    const submitNotification=jest.fn(async(_cardId:string,notification:{id:string})=>({queued:true as const,cardId:'project',notificationId:notification.id,interruption:{status:'not_requested' as const}}));
     const observationToolContext = {
       agentName: 'oversight',
       projectRoot,
@@ -136,7 +136,7 @@ describe('named-agent inventories and composition', () => {
       expect(surface.tools.has(forbidden)).toBe(false);
     const notification=surface.tools.get('queue_notification');if(!notification)throw new Error('missing queue_notification');
     const result=await notification.executor({card_id:'project',kind:'finding',body:'evidence',urgency:'normal'},new AbortController().signal);
-    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true,card_id:'project',notification_id:'notice-1',body:'evidence',interruption:{status:'not_requested'}}});
+    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true,card_id:'project',notification_id:submitNotification.mock.calls[0]![1].id,body:'evidence',interruption:{status:'not_requested'}}});
     expect(submitNotification).toHaveBeenCalledTimes(1);
   });
 

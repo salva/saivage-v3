@@ -20,15 +20,6 @@ const NONCANONICAL_DOCS = [
   'docs/architecture/extra.md',
   'docs/runbook/extra.md',
 ];
-const POSITIVE_OWNERS = [
-  ['docs/spec/system-specification.md', 'card.jsonl'],
-  ['docs/spec/system-specification.md', 'record-<stem>.jsonl'],
-  ['docs/architecture/system-architecture.md', 'card.jsonl'],
-  ['docs/architecture/system-architecture.md', 'record-<stem>.jsonl'],
-  ['docs/runbook/index.md', 'card.jsonl'],
-  ['docs/runbook/index.md', 'record-<stem>.jsonl'],
-  ['docs/spec/operator-ui-contracts.md', 'one strict stream'],
-];
 const GUIDE_REQUIREMENTS = [
   '## Stage 4 — Initialize and configure',
   '## Stage 5 — Confine access, install, and start',
@@ -76,16 +67,16 @@ function withRepository(testFn) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-persistence-drift-'));
   try {
     write(root, 'scripts/check-canonical-persistence-drift.js', readFileSync(SCRIPT, 'utf8'));
-    write(root, 'src/persistence/layout.ts', "export function cardStreamFile() { return 'card.jsonl'; }\n");
-    write(root, 'src/schemas/record-name.ts', 'export function recordStreamFilename(stem) { return `record-${stem}.jsonl`; }\n');
+    write(root, 'src/persistence/layout.ts', "export function cardHeadFile() { return 'card-head.json'; }\nexport function cardHistoryRoot() { return 'card-history'; }\nexport function cardMailboxRoot() { return 'mailbox'; }\nexport function cardAcceptedRecordsRoot() { return 'accepted'; }\n");
+    write(root, 'src/schemas/record-name.ts', 'export function recordHeadFilename(stem) { return `record-${stem}.json`; }\n');
     write(root, 'README.md', '# Fixture\n');
     write(root, 'README-IF-YOU-ARE-AN-AI.md', `${GUIDE_REQUIREMENTS.join('\n')}\n`);
-    write(root, 'docs/spec/system-specification.md', 'card.jsonl\nrecord-<stem>.jsonl\n');
+    write(root, 'docs/spec/system-specification.md', '# Specification\n');
     write(root, 'docs/spec/operator-ui-needs.md', '# Operator UI needs\n');
-    write(root, 'docs/spec/operator-ui-contracts.md', 'one strict stream\n');
-    write(root, 'docs/architecture/system-architecture.md', 'card.jsonl\nrecord-<stem>.jsonl\n');
+    write(root, 'docs/spec/operator-ui-contracts.md', '# UI contracts\n');
+    write(root, 'docs/architecture/system-architecture.md', '# Architecture\n');
     write(root, 'docs/architecture/index.md', '# Architecture\n');
-    write(root, 'docs/runbook/index.md', 'card.jsonl\nrecord-<stem>.jsonl\n');
+    write(root, 'docs/runbook/index.md', '# Runbook\n');
     for (const path of NONCANONICAL_DOCS) write(root, path, '# Extra\n');
     const initialized = spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8' });
     expect(initialized.status).toBe(0);
@@ -187,12 +178,12 @@ describe('canonical persistence drift documentation scopes', () => {
     });
   });
 
-  it.each(POSITIVE_OWNERS)('requires positive canonical phrase in %s: %s', (path, phrase) => {
+  it.each(['cardHeadFile', 'cardHistoryRoot', 'cardMailboxRoot', 'cardAcceptedRecordsRoot'])('requires owner path helper %s', (helper) => {
     withRepository((root) => {
-      removeExact(root, path, phrase);
+      removeExact(root, 'src/persistence/layout.ts', helper);
       const result = run(root);
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain(`${path}: missing required exact-stream assertion '${phrase}'`);
+      expect(result.stderr).toContain(`missing exact owner path helper ${helper}`);
     });
   });
 

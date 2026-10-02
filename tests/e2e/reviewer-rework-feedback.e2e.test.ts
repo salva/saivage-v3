@@ -117,7 +117,7 @@ describe('reviewer rework completion E2E', () => {
         }
         if (reviewerCalls === 4) return complete(tool('reviewer-request-rework', 'emit_result', { outcome: 'revision_required', summary: REVIEW_SUMMARY }));
         if (reviewerCalls === 5) {
-          const status=cards.readRecordCurrent('project','status.md');if(status.kind!=='found'||status.value.projection?.artifact.accepted?.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
+          const status=cards.readRecordCurrent('project','status.md');if(status.kind!=='found'||status.value.projection?.accepted?.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
           return complete(tool('reviewer-write-free-notes', 'write', { path: 'record:///review-notes-1.md?card=project', content: 'Initial wildcard note.' }));
         }
         if (reviewerCalls === 6) return complete(tool('reviewer-edit-free-notes', 'edit', { path: 'record:///review-notes-1.md?card=project', old_string: 'Initial wildcard note.', new_string: 'Repeatedly edited wildcard note.' }));
@@ -176,9 +176,10 @@ describe('reviewer rework completion E2E', () => {
     expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_HANDOFF)).toHaveLength(1);
     expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_PROMPT)).toHaveLength(1);
     expect(cards.readRecordVersion('project','status.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:REVISED_EVIDENCE}}}}});
-    expect(cards.readRecordVersion('project','review.md',2)).toMatchObject({kind:'found',value:{projection:{versionUrl:'record:///review.md?card=project&v=2',artifact:{draft:{content:'Rework required: add explicit remediation evidence.'}}}}});
+    expect(cards.readRecordVersion('project','review.md',2)).toEqual({kind:'version-not-found',version:2});
+    expect(cards.readRecordVersion('project','review.md',3)).toMatchObject({kind:'found',value:{projection:{versionUrl:'record:///review.md?card=project&v=3',artifact:{accepted:{content:'Rework required: add explicit remediation evidence.'}}}}});
     expect(cards.readRecordVersion('project','review.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Approved after concrete remediation.'}}}}});
-    expect(cards.readRecordCurrent('project','review-notes-1.md')).toMatchObject({kind:'found',value:{projection:{artifact:{state:'closed',accepted:{content:'Repeatedly edited wildcard note.',writer_agent:'reviewer'}}}}});
+    expect(cards.readRecordCurrent('project','review-notes-1.md')).toMatchObject({kind:'found',value:{projection:{state:'closed',accepted:{content:'Repeatedly edited wildcard note.',writer_agent:'reviewer'}}}});
     const reviewerRows = readConversation(projectRoot, reviewerSession).physicalRows;
     const reviewerFinalBytes = readCurrentConversationSegment(projectRoot, reviewerSession)!.bytes;
     expect(reviewerFinalBytes.subarray(0, reviewerBytePrefix.length)).toEqual(reviewerBytePrefix);

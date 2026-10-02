@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { admitRecordMutation,mutateRecord,preflightAnalystRecordWrite } from '../../src/application/record-mutation-service.js';
-import { cardRecordStreamFile } from '../../src/persistence/layout.js';
+import { cardRecordHeadFile } from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { CardService as ConfiguredCardService } from '../../src/cards/card-service.js';
@@ -57,7 +57,7 @@ describe('Analyst record preflight', () => {
     const { cards } = setup();
     const card = cards.read('project')!;
     const opened = cards.openRecord('project', 'brief.md');
-    expect(preflightHarness(cards, () => card, () => ({ kind: 'present', projection: opened }))).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'record_open_conflict', current_head: opened.headVersion } } });
+    expect(preflightHarness(cards, () => card, () => ({ kind: 'present', projection: opened }))).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'record_open_conflict', current_head: opened.revision } } });
   });
 
   it('classifies card-read failure as an error without write or network effects', () => {
@@ -130,10 +130,10 @@ describe('card-agent record mutation', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it.each(['read', 'classifyCurrentRecord', 'openRecord', 'editRecord', 'closeRecord'] as const)('preserves publication uncertainty from %s without follow-up', (method) => {
+  it.each(['read', 'classifyCurrentRecord', 'acceptRecord'] as const)('preserves publication uncertainty from %s without follow-up', (method) => {
     const { cards } = setup(); const unknown = new PublicationOutcomeUnknownError();
     const calls: string[] = [];
-    for (const name of ['read', 'classifyCurrentRecord', 'openRecord', 'editRecord', 'closeRecord'] as const) {
+    for (const name of ['read', 'classifyCurrentRecord', 'acceptRecord'] as const) {
       const original = cards[name].bind(cards) as (...args: any[]) => any;
       jest.spyOn(cards, name).mockImplementation(((...args: any[]) => {
         calls.push(name); if (name === method) throw unknown; return original(...args);
@@ -148,7 +148,7 @@ describe('card-agent record mutation', () => {
 
   it('lets unexpected mutation errors escape unchanged', () => {
     const { cards } = setup(); const fault = new Error('mutation fault');
-    jest.spyOn(cards, 'editRecord').mockImplementation(() => { throw fault; });
+    jest.spyOn(cards, 'acceptRecord').mockImplementation(() => { throw fault; });
     const close = jest.spyOn(cards, 'closeRecord');
     let caught: unknown;
     try { mutateRecord(cards, { ...analystPreflightRequest, content: 'changed' }); } catch (error) { caught = error; }
@@ -160,7 +160,7 @@ describe('card-agent record mutation', () => {
     const { root, cards } = setup();
     const before = cards.readRecordCurrent('project', 'brief.md');
     if (before.kind !== 'found') throw new Error('Expected fixture record.');
-    appendFileSync(cardRecordStreamFile(root, 'project', before.value.definition), '{"malformed":true}\n');
+    appendFileSync(cardRecordHeadFile(root, 'project', before.value.definition), '{"malformed":true}\n');
     expect(() => cards.readRecordCurrent('project', 'brief.md')).toThrow();
     expect(mutateRecord(cards, { ...analystPreflightRequest, content: 'changed' })).toMatchObject({
       kind: 'rejected', data: { code: 'current_state_unavailable', resource: 'authored_record', restart_required: true },
@@ -180,10 +180,10 @@ describe('card-agent record mutation', () => {
     const written = jest.fn();
     const path = 'record:///review-notes-1.md?card=project';
     const first = mutateRecord(cards, { path, operation: 'write', content: 'first', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'], onRecordWritten: written });
-    expect(first).toMatchObject({ kind: 'applied', data: { state: 'open', head_version: 2, current_url: path } });
+    expect(first).toMatchObject({ kind: 'applied', data: { state: 'open', revision: 2, current_url: path, accepted_version_url: null } });
     const second = mutateRecord(cards, { path, operation: 'edit', oldString: 'first', newString: 'second', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['edit'], onRecordWritten: written });
-    expect(second).toMatchObject({ kind: 'applied', data: { state: 'open', head_version: 3, current_url: path } });
-    const current=cards.readRecordCurrent('project','review-notes-1.md');expect(current.kind==='found'&&current.value.projection?.artifact.draft?.content).toBe('second');
+    expect(second).toMatchObject({ kind: 'applied', data: { state: 'open', revision: 3, current_url: path, accepted_version_url: null } });
+    const current=cards.readRecordCurrent('project','review-notes-1.md');expect(current.kind==='found'&&current.value.projection?.draft?.content).toBe('second');
     expect(written).toHaveBeenNthCalledWith(1, 'review-notes-1.md');
     expect(written).toHaveBeenNthCalledWith(2, 'review-notes-1.md');
   });
@@ -192,11 +192,11 @@ describe('card-agent record mutation', () => {
     const { root, cards } = setup();
     const deniedName = 'status-notes.md';
     expect(mutateRecord(cards, { path: `record:///${deniedName}?card=project`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: 'writer_not_authorized' } });
-    expect(existsSync(cardRecordStreamFile(root, 'project', dynamicDefinition(deniedName)))).toBe(false);
+    expect(existsSync(cardRecordHeadFile(root, 'project', dynamicDefinition(deniedName)))).toBe(false);
 
     const historicalName = 'review-history.md';
     expect(mutateRecord(cards, { path: `record:///${historicalName}?card=project&v=1`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toEqual({ kind: 'rejected', error: 'Historical record URLs cannot be mutated.', data: { code: 'record_mutation_invalid_target', operation: 'write' } });
-    expect(existsSync(cardRecordStreamFile(root, 'project', dynamicDefinition(historicalName)))).toBe(false);
+    expect(existsSync(cardRecordHeadFile(root, 'project', dynamicDefinition(historicalName)))).toBe(false);
   });
 
   it('exposes crash-left open content, conflicts with Analyst mutation, and lets a later authorized activation reuse and close it', () => {
@@ -206,7 +206,7 @@ describe('card-agent record mutation', () => {
     cards.setStatus('project', 'running');
     cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
     cards.setStatus('project', 'changed');
-    const current=cards.readRecordCurrent('project','brief.md');expect(current.kind==='found'&&current.value.projection?.artifact.draft?.content).toBe('interrupted draft');
+    const current=cards.readRecordCurrent('project','brief.md');expect(current.kind==='found'&&current.value.projection?.draft?.content).toBe('interrupted draft');
     expect(mutateRecord(cards,{path,operation:'write',content:'analyst replacement',surface:'analyst',agentName:'analyst',requiredTools:['write']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
     expect(mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'stolen',surface:'analyst',agentName:'analyst',requiredTools:['edit']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
     expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(current);
@@ -215,6 +215,6 @@ describe('card-agent record mutation', () => {
     expect(resumed).toMatchObject({kind:'applied',data:{state:'open'}});
     if(resumed.kind !== 'applied')throw new Error('Expected resumed mutation success.');
     const closed=cards.closeRecord('project','brief.md','planner');
-    expect(closed.artifact).toMatchObject({state:'closed',accepted:{content:'resumed draft',writer_agent:'planner'}});
+    expect(closed).toMatchObject({state:'closed',accepted:{content:'resumed draft',writer_agent:'planner'}});
   });
 });

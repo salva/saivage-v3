@@ -35,12 +35,12 @@ describe('record URL and mutation contracts', () => {
   });
 
   it('enforces metadata-bearing targets without mutation authority URLs',()=>{
-    const absent={card_id:'card-a',name:'status.md',format:'markdown',schema:'authored-record.v1',state:'absent',head_version:null,current_url:'record:///status.md?card=card-a',version_url:null};
+    const absent={card_id:'card-a',name:'status.md',format:'markdown',schema:'authored-record.v1',state:'absent',revision:null,current_url:'record:///status.md?card=card-a',accepted_version_url:null};
     expect(ModelRecordTargetWireSchema.parse(absent)).toEqual(absent);
-    const populated={...absent,state:'discarded',head_version:3,version_url:'record:///status.md?card=card-a&v=3'};
+    const populated={...absent,state:'open',revision:3,accepted_version_url:'record:///status.md?card=card-a&v=1'};
     expect(ModelRecordTargetWireSchema.parse(populated)).toEqual(populated);
     expect(ModelRecordTargetWireSchema.safeParse({...populated,mutation_url:'legacy'}).success).toBe(false);
-    const success={kind:'applied' as const,data:{card_id:'card-a',name:'status.md',state:'open',head_version:3,head_entry_id:'123e4567-e89b-42d3-a456-426614174000',current_url:'record:///status.md?card=card-a',version_url:'record:///status.md?card=card-a&v=3',bytes:1,written:true,surface:'card_agent'}};
+    const success={kind:'applied' as const,data:{card_id:'card-a',name:'status.md',state:'open',revision:3,current_url:'record:///status.md?card=card-a',accepted_version_url:null,bytes:1,written:true,surface:'card_agent'}};
     expect(RecordMutationSuccessSchema.parse(success)).toEqual(success);
   });
 

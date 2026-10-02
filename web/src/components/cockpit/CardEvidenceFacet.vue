@@ -30,7 +30,7 @@
           </template>
           <ol v-else-if="(recordHistories[descriptor.name]?.versions ?? []).length > 0" class="evidence-list">
             <li v-for="version in recordHistories[descriptor.name]?.versions ?? []" :key="version.entry_id">
-              <router-link :to="recordVersionLink(descriptor.name, version.version)">v{{ version.version }} · {{ version.state }}</router-link>
+              <router-link :to="recordVersionLink(descriptor.name, version.version)">v{{ version.version }} · accepted</router-link>
               <span class="evidence-meta">published {{ formatRecentTimestamp(version.published_at) }}</span>
             </li>
           </ol>
@@ -97,7 +97,7 @@ const cardVersions = ref<CardHistoryHeader[]>([]);
 const cardVersionsLoading = ref(false);
 const cardVersionsError = ref<string | null>(null);
 
-const recordHistories = reactive<Record<string, { loaded: boolean; error: string | null; versions: { entry_id: string; version: number; state: string; published_at: string }[] }>>({});
+const recordHistories = reactive<Record<string, { loaded: boolean; error: string | null; versions: { entry_id: string; version: number; published_at: string }[] }>>({});
 const segmentCatalogs = reactive<Record<string, { loaded: boolean; error: string | null; versions: { entry_id: string; version: number; genesis_kind: string }[] }>>({});
 
 const sessionsState = computed(() => cardSessionsStore.scope(props.cardId));

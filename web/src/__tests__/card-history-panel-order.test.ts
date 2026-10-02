@@ -20,7 +20,7 @@ describe('CardHistoryPanel order', () => {
     const snapshot = historyCard(CARD, { child_membership: children, active_child_order: children, version_seq: 2 });
     vi.mocked(listCardHistory).mockResolvedValue({ card_id: CARD, versions: [header], total: 1 });
     vi.mocked(getCardHistoryEntry).mockResolvedValue({ card_id: CARD, version: 2, entry_id: entryId, published_at: publishedAt, artifact: { kind: 'card-version', card: snapshot, change } });
-    vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 2, to: 3, diff: [{ field: 'active_child_order', before: children, after: [] }] });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 2, to: { kind: 'current', version_seq: 3, history_version: 2 }, diff: [{ field: 'active_child_order', before: children, after: [] }] });
     const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await flushPromises();
     const text = wrapper.text(); expect(text.indexOf('card-a-c')).toBeLessThan(text.indexOf('card-a-a')); expect(text.indexOf('card-a-a')).toBeLessThan(text.indexOf('card-a-b'));
     expect(text).toContain('child_membership');
@@ -45,7 +45,7 @@ describe('CardHistoryPanel order', () => {
       published_at: '2026-01-01T00:00:00.000Z',
       artifact: { kind: 'card-version', card: historyCard(CARD), change: null },
     });
-    vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 1, to: 3, diff: [] });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 1, to: { kind: 'current', version_seq: 3, history_version: 1 }, diff: [] });
 
     const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } });
     await flushPromises();

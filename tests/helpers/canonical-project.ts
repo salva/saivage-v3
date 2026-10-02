@@ -7,7 +7,7 @@ import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/contracts/index.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
-import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { bindRuntimeWorkflows, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { TEST_SAIVAGE_CONFIG } from './test-saivage-config.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
@@ -20,7 +20,7 @@ export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
   if (readProjectIdentity(projectRoot) === null) createProjectIdentity(projectRoot, projectRoot.split('/').at(-1) || 'saivage-project');
-  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card.jsonl'))) {
+  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json'))) {
     publishInitialProjectRuntime(projectRoot, TEST_WORKFLOWS);
   }
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
@@ -34,7 +34,7 @@ export function testConfigAuthority(projectRoot: string, env: Readonly<Record<st
 }
 
 export class CardService extends ProductionCardService {
-  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'|'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, io?: GrowingFileIo) {
+  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'|'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, io?: ReplacementFileIo) {
     super(projectRoot, TEST_WORKFLOWS,freshness, io);
   }
   override editCard(id: string,changes:Parameters<ProductionCardService['editCard']>[1],agentName:Parameters<ProductionCardService['editCard']>[2]='planner'){return super.editCard(id,changes,agentName);}
@@ -43,7 +43,6 @@ export class CardService extends ProductionCardService {
     const type=this.read(cardId)!.type;const fallback=type==='code'||type==='test'||type==='doc'||type==='data'||type==='research'||type==='ops'||type==='architecture'?'executor':filename==='review.md'?'reviewer':'planner';
     return super.closeRecord(cardId,filename,agentName??fallback);
   }
-  override discardRecord(cardId:string,filename:string,reason='test discard'){return super.discardRecord(cardId,filename,reason);}
 }
 
 export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService, notifyCard: (...args: any[]) => any): AnalystMutationServices {

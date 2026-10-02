@@ -12,6 +12,6 @@ export function parseRecordName(value: unknown): RecordName {
   return recordNameSchema.parse(value);
 }
 
-export function recordStreamFilename(name: RecordName): string {
-  return `record-${name.slice(0, -'.md'.length)}.jsonl`;
+export function recordHeadFilename(name: RecordName): string {
+  return `record-${name.slice(0, -'.md'.length)}.json`;
 }

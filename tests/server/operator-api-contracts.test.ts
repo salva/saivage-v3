@@ -140,7 +140,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const payload = {
       card_id: 'card-a',
       from: 2,
-      to: 3,
+      to: { kind: 'version', version: 3 },
       diff: [{
         field: 'metadata',
         before: null,
@@ -518,7 +518,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(()=>parseOperatorResponse('cards.get',200,{card:{...canonicalCardDetail,id:'card-a',type:'Not Valid'}})).toThrow();
     expect(parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);
     expect(parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:canonicalRecordDescriptors }).records).toEqual(canonicalRecordDescriptors);
-    const record = parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',head_version:1,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:canonicalCard.created_at,writer_agent:'runtime:bootstrap',card_version_seq:1,content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,discarded:null,effective_content_source:'accepted'} }).record;
+    const record = parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',revision:1,current_url:'record:///brief.md?card=project',accepted_version_url:'record:///brief.md?card=project&v=1',state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:canonicalCard.created_at,writer_agent:'runtime:bootstrap',card_version_seq:1,card_history_version:1,card_history_entry_id:'22222222-2222-4222-8222-222222222222',content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,effective_content_source:'accepted'} }).record;
     expect(record.accepted?.content).toBe('Brief');
     for (const forbidden of ['children','depends_on','assigned_to','started_at','records','operator_summary']) expect(() => parseOperatorResponse('cards.get', 200, { card: { ...canonicalCardDetail, [forbidden]: null } })).toThrow();
     for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyChild,[forbidden]:[] }] })).toThrow();

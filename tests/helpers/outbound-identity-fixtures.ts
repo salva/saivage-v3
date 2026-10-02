@@ -43,12 +43,7 @@ export function credentialShapedCard(overrides: Partial<CardRecord> = {}): CardR
     status_text_author_session_id: null,
     latest_self_report: null,
     metadata: null,
-    pending_notifications: [{
-      id: 'sk-notification',
-      content: OUTBOUND_TEXT_MARKER,
-      created_at: OUTBOUND_TIMESTAMP,
-      source: OUTBOUND_IDENTITY,
-    }],
+    pending_notifications: [OUTBOUND_SOURCE_INPUT_ID],
     ...overrides,
   };
 }
