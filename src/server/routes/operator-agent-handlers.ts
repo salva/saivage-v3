@@ -15,7 +15,7 @@ import {
   type ProviderExchangePayload,
   type OperatorApiSuccess,
 } from '../../contracts/index.js';
-import { redactForOutbound } from '../../redaction/artifact-api.js';
+import { projectProviderExchange } from '../../agents/execution-api.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/runtime-api.js';
 import {
   ConversationHistoricalVersionNotFoundError,
@@ -210,5 +210,5 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
 function projectProviderExchangeForOperator(
   exchange: ProviderExchangePayload,
 ): OperatorApiSuccess<'agents.llmExchange'>['exchange'] {
-  return redactForOutbound({ source: 'provider-exchange', value: exchange });
+  return projectProviderExchange(exchange);
 }

@@ -14,7 +14,21 @@ const BASELINE_PATH = path.join(__dirname, 'import-boundary-baseline.json');
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const ROOT_IMPORT_FORBIDDEN_PACKAGES = new Set(['agents', 'runtime', 'cards', 'mcp', 'server']);
-const EXPLICIT_PUBLIC_ENTRYPOINT_RE = /^(?:config|session|analyst|execution|tool|state|control|process|store|lifecycle|artifact|manager|protocol|status|server|prompt)-api(?:\.js|\.ts)?$/;
+const EXPLICIT_PUBLIC_ENTRYPOINTS = new Set([
+  'agents/execution-api',
+  'agents/tool-api',
+  'cards/status-api',
+  'cards/store-api',
+  'contracts/tool-api',
+  'mcp/manager-api',
+  'mcp/tool-api',
+  'persistence/session-api',
+  'server/server-api',
+  'tools/execution-api',
+  'tools/prompt-api',
+  'tools/tool-api',
+  'utils/prompt-api',
+]);
 
 function walk(dir) {
   const out = [];
@@ -52,8 +66,8 @@ function isPackageRootImport(parts) {
 function isExplicitPublicEntrypoint(parts) {
   if (parts.length !== 2) return false;
   if (normalizedParts(parts) === 'schemas/round-id-server.js') return true;
-  if (parts[0] === 'runtime') return parts[1] === 'runtime-api.js';
-  return EXPLICIT_PUBLIC_ENTRYPOINT_RE.test(parts[1]);
+  if (parts[0] === 'runtime') return normalizedParts(parts) === 'runtime/runtime-api.js';
+  return EXPLICIT_PUBLIC_ENTRYPOINTS.has(normalizedParts(parts).replace(/\.js$/, ''));
 }
 
 function isCrossPackageAllowed(fromPkg, parts) {
@@ -74,6 +88,7 @@ function classifyImport(fromPkg, parts) {
   const toPkg = parts[0];
   if (fromPkg === 'contracts' && CONTRACT_FORBIDDEN.has(toPkg)) return 'contracts-declarative';
   if (fromPkg === 'schemas' && SCHEMA_FORBIDDEN.has(toPkg)) return 'schemas-bottom-layer';
+  if (fromPkg === 'redaction' && toPkg !== 'redaction' && toPkg !== 'schemas' && toPkg !== 'contracts') return 'redaction-primitive';
   if (fromPkg === 'agents' && toPkg === 'runtime') return 'agents-runtime';
   if (fromPkg === 'runtime' && toPkg === 'agents') return 'runtime-agents';
   if (fromPkg === 'workspace' && toPkg === 'runtime') return 'workspace-runtime';
@@ -110,8 +125,6 @@ function runSelfTest() {
     { fromPkg: 'runtime', parts: ['contracts', 'index.js'], rule: null, label: 'runtime contracts root' },
     { fromPkg: 'runtime', parts: ['schemas', 'card-id.js'], rule: 'cross-package-deep', label: 'runtime schemas leaf' },
     { fromPkg: 'runtime', parts: ['schemas', 'index.js'], rule: null, label: 'runtime browser-safe schemas root' },
-    { fromPkg: 'runtime', parts: ['sanitization', 'analyst-sanitization.js'], rule: 'cross-package-deep', label: 'runtime sanitization leaf' },
-    { fromPkg: 'runtime', parts: ['sanitization', 'index.js'], rule: null, label: 'runtime sanitization root' },
     { fromPkg: 'runtime', parts: ['tools', 'invocation.js'], rule: 'cross-package-deep', label: 'runtime invocation leaf' },
     { fromPkg: 'runtime', parts: ['tools', 'tool-api.js'], rule: null, label: 'runtime tool API' },
     { fromPkg: 'runtime', parts: ['agents', 'execution-api.js'], rule: 'runtime-agents', label: 'runtime agents public API' },
@@ -128,6 +141,17 @@ function runSelfTest() {
     { fromPkg: 'runtime', parts: ['agents', 'index.js'], rule: 'runtime-agents', label: 'runtime agents index' },
     { fromPkg: 'runtime', parts: ['agents'], rule: 'runtime-agents', label: 'runtime agents alias root' },
     { fromPkg: 'server', parts: ['runtime', 'runtime-api.js'], rule: null, label: 'canonical runtime API' },
+    { fromPkg: 'server', parts: ['runtime', 'runtime-api.ts'], rule: null, label: 'normalized canonical runtime API' },
+    { fromPkg: 'server', parts: ['agents', 'artifact-api.js'], rule: 'cross-package-deep', label: 'deleted artifact entry' },
+    { fromPkg: 'server', parts: ['config', 'config-api.js'], rule: 'cross-package-deep', label: 'unlisted API spelling' },
+    { fromPkg: 'server', parts: ['cards', 'nested', 'store-api.js'], rule: 'cross-package-deep', label: 'nested public basename' },
+    { fromPkg: 'server', parts: ['tools', 'status-api.js'], rule: 'cross-package-deep', label: 'neighboring owner API' },
+    { fromPkg: 'redaction', parts: ['config', 'index.js'], rule: 'redaction-primitive', label: 'redaction higher root' },
+    { fromPkg: 'redaction', parts: ['agents', 'execution-api.ts'], rule: 'redaction-primitive', label: 'redaction higher public API' },
+    { fromPkg: 'redaction', parts: ['server', 'server-api.js'], rule: 'redaction-primitive', label: 'redaction server precedence' },
+    { fromPkg: 'redaction', parts: ['schemas', 'index.js'], rule: null, label: 'redaction schemas root' },
+    { fromPkg: 'redaction', parts: ['contracts', 'index.js'], rule: null, label: 'redaction contracts root' },
+    { fromPkg: 'redaction', parts: ['redaction', 'text.js'], rule: null, label: 'redaction local primitive' },
     { fromPkg: 'server', parts: ['runtime', 'control-api.js'], rule: 'cross-package-deep', label: 'deleted runtime control API' },
     { fromPkg: 'server', parts: ['runtime', 'state-api.js'], rule: 'cross-package-deep', label: 'unrelated runtime deep API' },
     { fromPkg: 'server', parts: ['runtime'], rule: 'cross-package-deep', label: 'runtime root' },
@@ -206,6 +230,9 @@ for (const file of walk(SRC)) {
         break;
       case 'schemas-bottom-layer':
         message = `schemas must stay a bottom-layer contract package and must not import ${toPkg} (${spec})`;
+        break;
+      case 'redaction-primitive':
+        message = `redaction primitives must not import ${toPkg} (${spec}); cross-package references belong only to schemas or contracts`;
         break;
       case 'agents-runtime':
         message = `agents must not import runtime (${spec}); inject runtime-owned state/ledger ports instead`;

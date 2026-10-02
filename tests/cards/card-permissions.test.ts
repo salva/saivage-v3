@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { allowedOperatorCardActions } from '../../src/permissions/index.js';
+import { allowedOperatorCardActions } from '../../src/cards/status-api.js';
 import { cardActionSchema, cardStatusValues } from '../../src/schemas/index.js';
 
 describe('operator card action projection', () => {

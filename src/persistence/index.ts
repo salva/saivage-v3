@@ -65,7 +65,6 @@ export {
 } from './conversation-file.js';
 export type { ConversationFileContext, ConversationSegment } from './conversation-file.js';
 export { listControlActions, recordControlAction } from './control-action-audit.js';
-export { projectControlAction } from './control-action-outbound.js';
 export { initializeAndValidateCurrentGeneratedState } from './current-generated-graph.js';
 export { findProjectRoot } from './discovery.js';
 export { readProjectCardOrAssertInitialPublicationAllowed } from './generated-state.js';

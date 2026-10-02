@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import type { ProcessToolResult, ProcessView } from '../../src/contracts/operator-api-processes.js';
-import { redactForOutbound } from '../../src/redaction/artifact-api.js';
+import { projectProcessForOutbound } from '../../src/application/index.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('process outbound owner', () => {
@@ -26,7 +26,7 @@ describe('process outbound owner', () => {
       },
     };
 
-    const projected = redactForOutbound({ source: 'process-view', value: process });
+    const projected = projectProcessForOutbound(process);
 
     expect(projected).toEqual({ ...process, command: expect.stringContaining('[REDACTED]') });
     expect(projected.command).not.toContain(rawSecret);
@@ -47,6 +47,6 @@ describe('process outbound owner', () => {
       stderr_bytes: 456,
     };
 
-    expect(redactForOutbound({ source: 'process-view', value: result })).toEqual(result);
+    expect(projectProcessForOutbound(result)).toEqual(result);
   });
 });

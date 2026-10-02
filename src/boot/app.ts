@@ -1,5 +1,6 @@
 import {
   loadEnvironment,
+  formatConfigWarning,
   resolveStartupProjectRoot,
   type Environment,
   type StartInputs,
@@ -149,6 +150,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   let server: ServerInstance;
   try {
     environment = await loadEnvironment(options, env);
+    for (const warning of environment.configWarnings) console.error(formatConfigWarning(warning));
     if (
       options.createRuntime &&
       readProjectCardOrAssertInitialPublicationAllowed(projectRoot) === null

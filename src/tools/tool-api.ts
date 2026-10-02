@@ -20,3 +20,4 @@ export { settleToolActionOutcome } from './tool-result-settlement.js';
 export type { QueueNotificationToolInput } from './notification-tool.js';
 export { submitNotificationTool } from './notification-tool.js';
 export { queue_notification } from './analyst-misc-tools.js';
+export { projectToolInvocation, projectLiveToolInvocation } from './tool-invocation-outbound.js';

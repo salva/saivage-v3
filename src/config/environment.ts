@@ -17,6 +17,7 @@ export interface Environment {
   readonly projectRoot: string;
   readonly configAuthority: ResolvedConfigAuthority;
   readonly config: SaivageConfig;
+  readonly configWarnings: readonly string[];
   readonly workflows: CompiledProjectWorkflows;
   readonly server: {
     readonly host: string;
@@ -143,8 +144,9 @@ export async function loadEnvironment(
   });
   let config: SaivageConfig;
   let workflows: CompiledProjectWorkflows;
+  let configWarnings: readonly string[];
   try {
-    ({ config, workflows } = configAuthority.loadEffective());
+    ({ config, workflows, warnings: configWarnings } = configAuthority.loadEffective());
   } catch (error) {
     const failure = error as Error & { fieldPath?: string };
     throw new EnvironmentLoadError(`Configuration validation failed: ${failure.message}`, {
@@ -160,7 +162,7 @@ export async function loadEnvironment(
       ? parsePort(inputs.port, 'cli')
       : env['SAIVAGE_PORT'] !== undefined
         ? parsePort(env['SAIVAGE_PORT'], 'env')
-        : (config.server.port ?? 8080);
+        : config.server.port;
   const logLevel = parseLogLevel(env['LOG_LEVEL']) ?? 'info';
   const nodeEnv = parseNodeEnv(env['NODE_ENV']);
   const rawApiToken = env['SAIVAGE_API_TOKEN'];
@@ -193,9 +195,10 @@ export async function loadEnvironment(
     projectRoot,
     configAuthority,
     config,
+    configWarnings,
     workflows,
     server: {
-      host: inputs.host ?? env['SAIVAGE_HOST'] ?? config.server.host ?? '0.0.0.0',
+      host: inputs.host ?? env['SAIVAGE_HOST'] ?? config.server.host,
       port,
       logLevel,
     },

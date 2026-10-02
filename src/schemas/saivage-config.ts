@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { agentNameSchema } from './agent-name.js';
-import { recordNameSchema } from './record-name.js';
+import { recordNameSchema, type RecordName } from './record-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
 
 // ── Zod Schemas ───────────────────────────────────────────────
@@ -450,5 +450,12 @@ export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type CardTypesSource = z.input<typeof cardTypesSchema>;
 export type CardTypeSource = SaivageConfig['card_types'][keyof SaivageConfig['card_types']];
+export type RecordDeclaration = z.infer<typeof recordDefinitionSchema>;
+export type RecordDefinition = Readonly<
+  RecordDeclaration & {
+    filename: RecordName;
+    declared: boolean;
+  }
+>;
 export type StaticPromptDeclaration = z.infer<typeof staticPromptDeclarationSchema>;
 export type DurablePromptDeclaration = z.infer<typeof durablePromptDeclarationSchema>;

@@ -5,6 +5,7 @@ import type { AgentName } from '../../schemas/index.js';
 import { parseRecordName, type RecordName } from '../../schemas/index.js';
 import type {
   CardTypeSource,
+  RecordDeclaration,
   DurablePromptDeclaration,
   SaivageConfig,
   StaticPromptDeclaration,
@@ -21,6 +22,7 @@ import {
 } from '../../utils/prompt-api.js';
 import {
   capabilityRequestForTools,
+  OVERSIGHT_ALLOWED_TOOL_NAMES,
   usableInputTokens,
   zodToJsonSchemaMini,
   type Candidate,
@@ -76,13 +78,12 @@ type PromptRoots = Readonly<{
   agentCache: Map<string, CompiledAgentPrompt>;
 }>;
 
-type CompiledRecordDefinition = Readonly<{
-  name: RecordName;
-  format: 'markdown';
-  schema: string;
-  bootstrap: boolean;
-  declared: boolean;
-}>;
+type CompiledRecordDefinition = Readonly<
+  RecordDeclaration & {
+    name: RecordName;
+    declared: boolean;
+  }
+>;
 type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
 type CompiledAgentContract = Readonly<{
   name: AgentName;
@@ -1173,25 +1174,7 @@ export function compileProjectWorkflows(
   if (oversight.recordWrites.length !== 0)
     throw new Error('oversight.agent must have no record_writes.');
   if (oversight.skills) throw new Error('oversight.agent must have skills: false.');
-  const oversightAllowed = new Set([
-    'get_status',
-    'list_cards',
-    'get_card',
-    'get_tree',
-    'list_card_versions',
-    'get_card_version',
-    'diff_card_versions',
-    'read_record_version',
-    'read',
-    'glob',
-    'grep',
-    'read_runtime_events',
-    'read_runtime_errors',
-    'list_processes_tool',
-    'list_agent_sessions',
-    'read_agent_session',
-    'queue_notification',
-  ]);
+  const oversightAllowed = new Set<string>(OVERSIGHT_ALLOWED_TOOL_NAMES);
   for (const tool of oversight.tools)
     if (!oversightAllowed.has(tool.name))
       throw new Error(`oversight.agent tool '${tool.name}' is forbidden.`);

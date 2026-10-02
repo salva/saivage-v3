@@ -5,7 +5,7 @@ import {
   type EventKind,
   type LoggedEvent,
 } from '../schemas/index.js';
-import { redactForOutbound } from '../redaction/artifact-api.js';
+import { projectLoggedEvent } from '../observability/index.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
 
 export { EVENT_QUERY_MAX_LIMIT } from '../contracts/index.js';
@@ -26,7 +26,7 @@ export class EventQueryService {
     const limit = query.limit ?? 50;
     validateQuery(selection, offset, limit);
     let matching = readAppLogEntries(this.projectRoot, 'event').map((entry) =>
-      redactForOutbound({ source: 'logged-event', value: entry.data }),
+      projectLoggedEvent(entry.data),
     );
     if (query.kind) matching = matching.filter((event) => event.kind === query.kind);
     if (query.card_id)
@@ -49,7 +49,7 @@ export class EventQueryService {
         `Event query limit must be a positive safe integer no greater than ${EVENT_QUERY_MAX_LIMIT}.`,
       );
     const matching = readAppLogEntries(this.projectRoot, 'event')
-      .map((entry) => redactForOutbound({ source: 'logged-event', value: entry.data }))
+      .map((entry) => projectLoggedEvent(entry.data))
       .filter(isErrorEvent);
     return {
       errors: limit === undefined ? matching : matching.slice(-limit),

@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sha256Hex } from '../schemas/index.js';
 
-import type { AgentName, CardRecord } from '../schemas/index.js';
-import type { RecordDefinition } from '../records/index.js';
+import type { AgentName, CardRecord, RecordDefinition } from '../schemas/index.js';
 import {
   authoredRecordVersionArtifactSchema,
   isEmptyRecordContent,

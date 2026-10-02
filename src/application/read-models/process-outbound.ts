@@ -6,7 +6,7 @@ import {
 } from '../../contracts/index.js';
 import { redactCommandForOperator } from '../../workspace/index.js';
 
-export type ProcessOutboundValue = ProcessView | ProcessToolResult;
+type ProcessOutboundValue = ProcessView | ProcessToolResult;
 
 export function projectProcessForOutbound<Value extends ProcessOutboundValue>(value: Value): Value {
   if ('process_id' in value) return ProcessToolResultSchema.parse(value) as Value;

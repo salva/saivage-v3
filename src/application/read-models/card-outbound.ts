@@ -1,5 +1,5 @@
 import type { CardDiffEntry } from '../../cards/store-api.js';
-import { summarizeChangedFields } from '../../cards/artifact-api.js';
+import { summarizeChangedFields } from '../../cards/status-api.js';
 import {
   cardLifecycleStateSchema,
   cardRecordSchema,

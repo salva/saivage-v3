@@ -10,6 +10,7 @@ import { initProjectTree, testAnalystMutationServices, TEST_WORKFLOWS } from '..
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { toCardView } from '../../src/application/read-models/card-view.js';
+import type { NotificationSubmissionPort } from '../../src/runtime/runtime-api.js';
 
 const FIRST = 'card-a';
 const SECOND = 'card-a-b';
@@ -361,11 +362,22 @@ describe('other Analyst mutation facets', () => {
 
   it('relies on the notification owner result without a separate card read', async () => {
     const read = jest.fn();
-    const submitNotification = jest.fn(async (cardId: string) => ({ queued: true as const, cardId, notificationId: 'queued', interruption: { status: 'not_requested' as const } }));
+    const submitNotification = jest.fn<NotificationSubmissionPort>(async (cardId) => ({ queued: true, cardId, notificationId: 'queued', interruption: { status: 'not_requested' } }));
     const bundle = services({ read } as unknown as CardService, undefined, undefined, submitNotification);
-    await expect(bundle.notifications.queue(FIRST, 'context', 'body', 'normal')).resolves.toMatchObject({ kind: 'returned', success: true });
+    const signal = new AbortController().signal;
+    const before = Date.now();
+    await expect(bundle.notifications.queue(FIRST, 'context', 'body', 'normal', signal)).resolves.toMatchObject({ kind: 'returned', success: true });
     expect(read).not.toHaveBeenCalled();
     expect(submitNotification).toHaveBeenCalledTimes(1);
+    expect(submitNotification).toHaveBeenCalledWith(FIRST, {
+      id: expect.stringMatching(/^[a-f0-9-]{36}$/),
+      content: 'body',
+      source: 'context',
+      created_at: expect.any(String),
+    }, 'normal', signal);
+    const notification = submitNotification.mock.calls[0]![1];
+    expect(Date.parse(notification.created_at)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(notification.created_at)).toBeLessThanOrEqual(Date.now());
   });
 
   it.each([

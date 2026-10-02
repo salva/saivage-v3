@@ -1,0 +1,20 @@
+/** Observation and notification capabilities admitted for configured Oversight agents. */
+export const OVERSIGHT_ALLOWED_TOOL_NAMES = Object.freeze([
+  'get_status',
+  'list_cards',
+  'get_card',
+  'get_tree',
+  'list_card_versions',
+  'get_card_version',
+  'diff_card_versions',
+  'read_record_version',
+  'read',
+  'glob',
+  'grep',
+  'read_runtime_events',
+  'read_runtime_errors',
+  'list_processes_tool',
+  'list_agent_sessions',
+  'read_agent_session',
+  'queue_notification',
+] as const);

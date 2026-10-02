@@ -1,5 +1,5 @@
 import type { ProcessView } from '../../contracts/index.js';
-import { redactForOutbound } from '../../redaction/artifact-api.js';
+import { projectProcessForOutbound } from './process-outbound.js';
 import type { ProcessRecord } from '../../runtime/runtime-api.js';
 import { toContainedRelativePath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 
@@ -23,5 +23,5 @@ export function buildProcessView(projectRoot: string, record: ProcessRecord): Pr
     cwd: safePath(record.cwd),
     logs: { stdout: logUrl(record.stdout_path), stderr: logUrl(record.stderr_path) },
   };
-  return redactForOutbound({ source: 'process-view', value: process });
+  return projectProcessForOutbound(process);
 }

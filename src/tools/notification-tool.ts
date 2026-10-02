@@ -5,7 +5,7 @@ import {
   type ToolActionOutcome,
 } from '../contracts/index.js';
 import { projectNotificationSubmission } from '../application/index.js';
-import { queueNotification } from '../notifications/index.js';
+import { createCardNotification } from '../cards/store-api.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
 
 export interface QueueNotificationToolInput {
@@ -21,12 +21,10 @@ export async function submitNotificationTool(
   signal: AbortSignal,
 ): Promise<ToolActionOutcome> {
   const result = projectNotificationSubmission(
-    await queueNotification(
+    await submitNotification(
       input.card_id,
-      input.kind,
-      input.body,
+      createCardNotification(input.kind, input.body),
       input.urgency,
-      submitNotification,
       signal,
     ),
     input.body,

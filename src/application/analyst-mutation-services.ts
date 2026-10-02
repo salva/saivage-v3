@@ -1,8 +1,7 @@
 import type { CardService } from '../cards/store-api.js';
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
+import { PROJECT_CARD_ID, createCardNotification } from '../cards/store-api.js';
 import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
-import { queueNotification } from '../notifications/index.js';
 import { projectNotificationSubmission } from './notification-result-projection.js';
 import { cardDepth, MAX_CARD_DEPTH, type CardRecord, type CardTypeName } from '../schemas/index.js';
 import {
@@ -347,7 +346,7 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
     signal?: AbortSignal,
   ): Promise<AnalystMutationOutcome> {
     const projected = projectNotificationSubmission(
-      await queueNotification(cardId, kind, body, urgency, this.submitNotification, signal),
+      await this.submitNotification(cardId, createCardNotification(kind, body), urgency, signal),
       body,
     );
     return projected.success ? success(projected.data) : failure(projected.error, projected.data);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { configOperatorApiContracts, ConfigGetResponseSchema } from '../../src/contracts/operator-api-config.js';
 import { buildConfigOperatorContractHandlers } from '../../src/server/routes/operator-config-handlers.js';
 import { recordControlAction } from '../../src/persistence/control-action-audit.js';
@@ -9,6 +9,39 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 describe('config.get outbound projection', () => {
+  it('redacts credential-shaped missing names and env values without console side effects', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-config-warning-'));
+    const diagnostics = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const config = structuredClone(TEST_SAIVAGE_CONFIG);
+      config.providers.test!.apiKey = '${SYNTHETIC_VALUE}${MISSING_VALUE}${ghp_SyntheticWarningName123}${github_pat_SyntheticWarningName123}${AKIA1234567890ABCDEF}';
+      const handlers = buildConfigOperatorContractHandlers({
+        projectRoot: root,
+        configAuthority: createTestConfigAuthority(root, {
+          config, environment: { SYNTHETIC_VALUE: 'distinctive-synthetic-rest-env-value' },
+        }),
+        providerRoutingReadModelProvider: () => { throw new Error('providers.list is not under test'); },
+      });
+      const response = handlers['config.get']({} as never);
+      if (response instanceof Promise) throw new Error('config.get unexpectedly returned a Promise');
+      const parsed = ConfigGetResponseSchema.parse(response.body);
+      expect(parsed.warnings).toEqual([
+        "Environment variable 'MISSING_VALUE' is not set.",
+        "Environment variable 'ghp-[REDACTED]' is not set.",
+        "Environment variable 'github_pat-[REDACTED]' is not set.",
+        "Environment variable 'AKIA-[REDACTED]' is not set.",
+      ]);
+      const outbound = JSON.stringify(parsed);
+      for (const secret of ['distinctive-synthetic-rest-env-value', 'ghp_SyntheticWarningName123', 'github_pat_SyntheticWarningName123', 'AKIA1234567890ABCDEF']) {
+        expect(outbound).not.toContain(secret);
+      }
+      expect(diagnostics).not.toHaveBeenCalled();
+    } finally {
+      diagnostics.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns an object accepted by the public contract without endpoint credentials', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-config-handler-'));
     try {

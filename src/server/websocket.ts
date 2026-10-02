@@ -14,12 +14,12 @@ import type { WebSocket } from 'ws';
 import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema } from '../contracts/index.js';
 import type { ServerEgressWsEnvelope } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
-import { redactForOutbound } from '../redaction/artifact-api.js';
+import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 
 export function serializeOutboundEnvelope(event: ServerEgressWsEnvelope): string {
   const classified = ServerEgressWsEnvelopeSchema.parse(event);
-  const envelope = redactForOutbound({ source: 'ws-envelope', value: classified });
+  const envelope = projectWsEnvelopeForOutbound(classified);
   return JSON.stringify(ServerEgressWsEnvelopeSchema.parse(envelope));
 }
 

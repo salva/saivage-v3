@@ -250,37 +250,125 @@ function stringArray(node, context) {
   });
 }
 
-const AGENTS_SOURCE = 'src/config/system-templates/classic/template.ts';
-const AGENTS_CONSTANT = 'CLASSIC_AGENTS';
+const CLASSIC_FACTORY_SOURCE = 'src/config/system-templates/classic-shared.ts';
+const OVERSIGHT_POLICY_SOURCE = 'src/contracts/oversight-tool-policy.ts';
+const SHIPPED_TEMPLATE_SOURCES = [
+  'src/config/system-templates/classic-typed/template.ts',
+  'src/config/system-templates/classic/template.ts',
+];
+
+function requireNamedImport(ast, module, name) {
+  const found = ast.statements.some((statement) => ts.isImportDeclaration(statement)
+    && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === module
+    && !statement.importClause?.isTypeOnly && statement.importClause?.namedBindings
+    && ts.isNamedImports(statement.importClause.namedBindings)
+    && statement.importClause.namedBindings.elements.some((element) => !element.isTypeOnly
+      && !element.propertyName && element.name.text === name));
+  if (!found) throw new Error(`${ast.fileName} must import ${name} by name from ${module}`);
+}
+
+function extractOversightPolicy(projectRoot, factoryAst) {
+  const name = 'OVERSIGHT_ALLOWED_TOOL_NAMES';
+  requireNamedImport(factoryAst, '../../contracts/index.js', name);
+  const { ast: root } = sourceAst(projectRoot, 'src/contracts/index.ts');
+  if (!root.statements.some((statement) => ts.isExportDeclaration(statement) && !statement.isTypeOnly
+    && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
+    && statement.moduleSpecifier.text === './oversight-tool-policy.js'
+    && statement.exportClause && ts.isNamedExports(statement.exportClause)
+    && statement.exportClause.elements.some((element) => !element.isTypeOnly && !element.propertyName && element.name.text === name))) {
+    throw new Error(`contracts root must reexport ${name} by name from ./oversight-tool-policy.js`);
+  }
+  const { ast } = sourceAst(projectRoot, OVERSIGHT_POLICY_SOURCE);
+  const declaration = ast.statements.find((statement) => ts.isVariableStatement(statement)
+    && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    && statement.declarationList.declarations.some((member) => ts.isIdentifier(member.name) && member.name.text === name));
+  if (!declaration) throw new Error(`${OVERSIGHT_POLICY_SOURCE} must export ${name}`);
+  const freeze = callNamed(requiredInitializer(constInitializers(ast), name, OVERSIGHT_POLICY_SOURCE), 'Object', 'freeze');
+  if (!freeze || freeze.arguments.length !== 1 || !ts.isAsExpression(freeze.arguments[0])
+    || freeze.arguments[0].type.getText(ast) !== 'const') throw new Error(`${name} must freeze an explicit readonly tuple`);
+  const names = stringArray(freeze.arguments[0], name);
+  if (new Set(names).size !== names.length) throw new Error(`${name} contains duplicates`);
+  return names;
+}
+
+function typedLocal(statement, name, type, ast) {
+  if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)
+    || statement.declarationList.declarations.length !== 1) throw new Error(`createClassicConfig must declare typed local ${name}`);
+  const declaration = statement.declarationList.declarations[0];
+  if (!ts.isIdentifier(declaration.name) || declaration.name.text !== name || declaration.type?.getText(ast) !== type
+    || !declaration.initializer) throw new Error(`createClassicConfig must declare typed local ${name}`);
+  const value = declaration.initializer;
+  if (!ts.isObjectLiteralExpression(value)) throw new Error(`createClassicConfig ${name} must be an object literal`);
+  return value;
+}
+
+function requireLiteralMembers(object, context) {
+  const names = new Set();
+  for (const member of object.properties) {
+    if (!ts.isPropertyAssignment(member) && !ts.isShorthandPropertyAssignment(member)) throw new Error(`${context} has unsupported member`);
+    const name = propertyName(member.name);
+    if (names.has(name)) throw new Error(`${context} contains duplicates`);
+    names.add(name);
+  }
+}
+
+function extractClassicAgents(projectRoot) {
+  const { ast } = sourceAst(projectRoot, CLASSIC_FACTORY_SOURCE);
+  const factory = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === 'createClassicConfig');
+  if (!factory?.body || !factory.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    || factory.parameters.length !== 1 || factory.parameters[0].name.getText(ast) !== 'cardTypes'
+    || factory.parameters[0].type?.getText(ast) !== 'CardTypesSource'
+    || factory.type?.getText(ast) !== 'SaivageConfigSource' || factory.body.statements.length !== 4) {
+    throw new Error(`${CLASSIC_FACTORY_SOURCE} must export the typed createClassicConfig factory`);
+  }
+  const [agentsStatement, routesStatement, configStatement, returned] = factory.body.statements;
+  const agents = typedLocal(agentsStatement, 'agents', "SaivageConfigSource['agents']", ast);
+  typedLocal(routesStatement, 'routes', "SaivageConfigSource['models']['routes']", ast);
+  const config = typedLocal(configStatement, 'config', 'SaivageConfigSource', ast);
+  requireLiteralMembers(config, 'createClassicConfig config');
+  if (identifierText(propertyAssignment(config, 'agents', 'createClassicConfig config'), 'config.agents') !== 'agents'
+    || identifierText(propertyAssignment(config, 'card_types', 'createClassicConfig config'), 'config.card_types') !== 'cardTypes') {
+    throw new Error('createClassicConfig config must use local agents and supplied cardTypes');
+  }
+  if (!ts.isReturnStatement(returned) || !returned.expression) throw new Error('createClassicConfig must return deepFreeze(config)');
+  const freeze = directIdentifierCall(returned.expression, 'deepFreeze', 'createClassicConfig return');
+  if (freeze.arguments.length !== 1 || identifierText(freeze.arguments[0], 'createClassicConfig return argument') !== 'config') {
+    throw new Error('createClassicConfig must return deepFreeze(config)');
+  }
+  const policy = extractOversightPolicy(projectRoot, ast);
+  const roles = {};
+  for (const member of agents.properties) {
+    if (!ts.isPropertyAssignment(member)) throw new Error('createClassicConfig agents has unsupported role');
+    const role = propertyName(member.name);
+    if (Object.hasOwn(roles, role)) throw new Error('createClassicConfig agents contains duplicates');
+    const agent = member.initializer;
+    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`createClassicConfig agents.${role} must be an object literal`);
+    const fields = new Set();
+    for (const field of agent.properties) {
+      if (!ts.isPropertyAssignment(field)) throw new Error(`createClassicConfig agents.${role} has unsupported member`);
+      const key = propertyName(field.name);
+      if (fields.has(key)) throw new Error(`createClassicConfig agents.${role} contains duplicates`);
+      fields.add(key);
+    }
+    const tools = propertyAssignment(agent, 'tools', `createClassicConfig agents.${role}`);
+    if (!ts.isArrayLiteralExpression(tools)) throw new Error(`createClassicConfig agents.${role}.tools must be an array literal`);
+    let ordered;
+    if (role === 'oversight') {
+      if (tools.elements.length !== 1 || !ts.isSpreadElement(tools.elements[0])
+        || !ts.isIdentifier(tools.elements[0].expression) || tools.elements[0].expression.text !== 'OVERSIGHT_ALLOWED_TOOL_NAMES') {
+        throw new Error('createClassicConfig oversight.tools must spread only OVERSIGHT_ALLOWED_TOOL_NAMES');
+      }
+      ordered = policy;
+    } else ordered = stringArray(tools, `createClassicConfig agents.${role}.tools`);
+    if (new Set(ordered).size !== ordered.length) throw new Error(`createClassicConfig agents.${role}.tools contains duplicates`);
+    roles[role] = ordered;
+  }
+  if (Object.keys(roles).length === 0) throw new Error('createClassicConfig agents must not be empty');
+  return canonicalValue(roles);
+}
 
 function extractImplementedAgentTools(projectRoot) {
-  const source = sourceAst(projectRoot, AGENTS_SOURCE);
-  const initial = requiredInitializer(constInitializers(source.ast), AGENTS_CONSTANT, source.ast.fileName);
-  if (!ts.isCallExpression(initial) || !ts.isPropertyAccessExpression(initial.expression)
-    || !ts.isIdentifier(initial.expression.expression) || initial.expression.expression.text !== 'Object'
-    || initial.expression.name.text !== 'freeze' || initial.arguments.length !== 1) {
-    throw new Error(`${AGENTS_CONSTANT} must be one Object.freeze call`);
-  }
-  const catalog = unwrapExpression(initial.arguments[0]);
-  if (!ts.isObjectLiteralExpression(catalog)) throw new Error(`${AGENTS_CONSTANT} must freeze an object literal`);
-  const result = new Map();
-  for (const property of catalog.properties) {
-    if (!ts.isPropertyAssignment(property)) throw new Error(`${AGENTS_CONSTANT} contains an unsupported member`);
-    const agentName = propertyName(property.name);
-    const frozenAgent = unwrapExpression(property.initializer);
-    if (!ts.isCallExpression(frozenAgent) || frozenAgent.arguments.length !== 1) throw new Error(`${AGENTS_CONSTANT}.${agentName} must be frozen`);
-    const agent = unwrapExpression(frozenAgent.arguments[0]);
-    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`${AGENTS_CONSTANT}.${agentName} must be an object literal`);
-    const toolsProperty = agent.properties.find((member) => ts.isPropertyAssignment(member) && propertyName(member.name) === 'tools');
-    if (!toolsProperty || !ts.isPropertyAssignment(toolsProperty)) throw new Error(`${AGENTS_CONSTANT}.${agentName} has no tools`);
-    const frozenTools = unwrapExpression(toolsProperty.initializer);
-    if (!ts.isCallExpression(frozenTools) || frozenTools.arguments.length !== 1) throw new Error(`${AGENTS_CONSTANT}.${agentName}.tools must be frozen`);
-    const names = stringArray(frozenTools.arguments[0], `${AGENTS_CONSTANT}.${agentName}.tools`);
-    if (new Set(names).size !== names.length) throw new Error(`${AGENTS_CONSTANT}.${agentName}.tools contains duplicates`);
-    result.set(agentName, uniqueSorted(names));
-  }
-  if (result.size === 0) throw new Error(`${AGENTS_CONSTANT} must not be empty`);
-  return result;
+  return new Map(Object.entries(extractClassicAgents(projectRoot)).map(([role, tools]) => [role, uniqueSorted(tools)]));
 }
 
 const SCHEMA_WRAPPERS = new Set(['optional', 'default', 'strict', 'passthrough', 'superRefine', 'transform', 'pipe']);
@@ -712,8 +800,8 @@ const PATHS = Object.freeze({
   loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']),
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
-  shippedTools: sourcePathSet(['src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts']),
-  toolRelations: sourcePathSet(['src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/result-envelope.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
+  shippedTools: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
+  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
 
@@ -920,30 +1008,6 @@ function selectManagedProcessTermGrace(projectRoot) {
   );
 }
 
-function extractAgents(projectRoot, path, constantName) {
-  const { ast } = sourceAst(projectRoot, path);
-  const freeze = callNamed(requiredInitializer(constInitializers(ast), constantName, path), 'Object', 'freeze');
-  if (!freeze || freeze.arguments.length !== 1) throw new Error(`${path} ${constantName} must be Object.freeze`);
-  const object = unwrapExpression(freeze.arguments[0]);
-  if (!ts.isObjectLiteralExpression(object)) throw new Error(`${path} ${constantName} must freeze object literal`);
-  const roles = {};
-  for (const member of object.properties) {
-    if (!ts.isPropertyAssignment(member)) throw new Error(`${path} ${constantName} has unsupported role`);
-    const role = propertyName(member.name);
-    const agentFreeze = callNamed(member.initializer, 'Object', 'freeze');
-    if (!agentFreeze || agentFreeze.arguments.length !== 1) throw new Error(`${path} ${constantName}.${role} must be frozen`);
-    const agent = unwrapExpression(agentFreeze.arguments[0]);
-    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`${path} ${constantName}.${role} must be object literal`);
-    const tools = agent.properties.find((property) => ts.isPropertyAssignment(property) && propertyName(property.name) === 'tools');
-    if (!tools || !ts.isPropertyAssignment(tools)) throw new Error(`${path} ${constantName}.${role}.tools missing`);
-    const toolsFreeze = callNamed(tools.initializer, 'Object', 'freeze');
-    if (!toolsFreeze || toolsFreeze.arguments.length !== 1) throw new Error(`${path} ${constantName}.${role}.tools must be frozen`);
-    const ordered = stringArray(toolsFreeze.arguments[0], `${path} ${constantName}.${role}.tools`);
-    if (new Set(ordered).size !== ordered.length) throw new Error(`${path} ${constantName}.${role}.tools contains duplicates`);
-    roles[role] = ordered;
-  }
-  return canonicalValue(roles);
-}
 function propertyAssignment(object, name, context) {
   const member = object.properties.find((candidate) => (ts.isPropertyAssignment(candidate) || ts.isShorthandPropertyAssignment(candidate)) && propertyName(candidate.name) === name);
   if (ts.isPropertyAssignment(member)) return member.initializer;
@@ -957,21 +1021,36 @@ function directIdentifierCall(node, name, context) {
 }
 function extractMaterializedTemplate(projectRoot, path, templateName) {
   const { ast } = sourceAst(projectRoot, path);
+  requireNamedImport(ast, '../classic-shared.js', 'createClassicConfig');
+  if (!ast.statements.some((statement) => ts.isVariableStatement(statement)
+    && (statement.declarationList.flags & ts.NodeFlags.Const)
+    && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    && statement.declarationList.declarations.some((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === templateName))) {
+    throw new Error(`${path} must export const ${templateName}`);
+  }
   const initializers = constInitializers(ast);
   const freeze = callNamed(requiredInitializer(initializers, templateName, path), 'Object', 'freeze');
   if (!freeze || freeze.arguments.length !== 1) throw new Error(`${path} ${templateName} must use Object.freeze`);
   const template = unwrapExpression(freeze.arguments[0]);
   if (!ts.isObjectLiteralExpression(template)) throw new Error(`${path} ${templateName} must freeze an object literal`);
+  requireLiteralMembers(template, `${path} ${templateName}`);
   const name = stringLiteralText(propertyAssignment(template, 'name', `${path} ${templateName}`), `${path} ${templateName}.name`);
   const configName = identifierText(propertyAssignment(template, 'config', `${path} ${templateName}`), `${path} ${templateName}.config`);
-  const configCall = directIdentifierCall(requiredInitializer(initializers, configName, path), 'deepFreeze', `${path} ${configName}`);
-  if (configCall.arguments.length !== 1) throw new Error(`${path} ${configName} deepFreeze must have one argument`);
-  const config = unwrapExpression(configCall.arguments[0]);
-  if (!ts.isObjectLiteralExpression(config)) throw new Error(`${path} ${configName} must materialize an object literal`);
-  const clone = directIdentifierCall(propertyAssignment(config, 'agents', `${path} ${configName}`), 'structuredClone', `${path} ${configName}.agents`);
-  if (clone.arguments.length !== 1) throw new Error(`${path} ${configName}.agents structuredClone must have one argument`);
-  const agentsName = identifierText(clone.arguments[0], `${path} ${configName}.agents source`);
-  return { name, roles: extractAgents(projectRoot, path, agentsName) };
+  const configCall = directIdentifierCall(requiredInitializer(initializers, configName, path), 'createClassicConfig', `${path} ${configName}`);
+  if (configCall.arguments.length !== 1 || identifierText(configCall.arguments[0], `${path} ${configName} argument`) !== 'cardTypes') {
+    throw new Error(`${path} ${configName} must call createClassicConfig(cardTypes)`);
+  }
+  const cardTypes = requiredInitializer(initializers, 'cardTypes', path);
+  if (!ts.isObjectLiteralExpression(cardTypes)) throw new Error(`${path} cardTypes must be an object literal`);
+  requireNamedImport(ast, 'node:url', 'fileURLToPath');
+  const promptRoot = directIdentifierCall(propertyAssignment(template, 'promptRoot', `${path} ${templateName}`), 'fileURLToPath', `${path} ${templateName}.promptRoot`);
+  const url = promptRoot.arguments[0];
+  if (promptRoot.arguments.length !== 1 || !ts.isNewExpression(url) || !ts.isIdentifier(url.expression)
+    || url.expression.text !== 'URL' || url.arguments?.length !== 2 || !ts.isStringLiteral(url.arguments[0])
+    || url.arguments[0].text !== './prompts/' || url.arguments[1].getText(ast) !== 'import.meta.url') {
+    throw new Error(`${path} ${templateName} must retain its exact promptRoot`);
+  }
+  return { name, roles: extractClassicAgents(projectRoot) };
 }
 function registryTemplates(projectRoot) {
   const registryPath = 'src/config/system-templates/registry.ts';
@@ -991,7 +1070,7 @@ function registryTemplates(projectRoot) {
     if (!module) throw new Error(`${registryPath} ${identifier} must be a named import`);
     const absolute = resolve(dirname(join(projectRoot, registryPath)), module.replace(/\.js$/u, '.ts'));
     const path = relative(projectRoot, absolute);
-    if (!PATHS.shippedTools.includes(path)) throw new Error(`${registryPath} ${identifier} resolves outside the exact shipped-template paths`);
+    if (!SHIPPED_TEMPLATE_SOURCES.includes(path)) throw new Error(`${registryPath} ${identifier} resolves outside the exact shipped-template paths`);
     return extractMaterializedTemplate(projectRoot, path, identifier);
   });
 }

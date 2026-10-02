@@ -21,7 +21,7 @@ import {
   resolveContainedProjectPath,
   workUrlFromAbsolutePath,
 } from '../../workspace/index.js';
-import { redactForOutbound } from '../../redaction/artifact-api.js';
+import { projectEffectiveConfigForOutbound } from '../../config/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/index.js';
 import {
@@ -569,7 +569,7 @@ export class WorkspaceFileReadModelService {
       };
     if (this.isSelectedConfig(absolutePath)) {
       const effective = this.configAuthority.loadEffective();
-      const projected = redactForOutbound({ source: 'config', value: effective.config });
+      const projected = projectEffectiveConfigForOutbound(effective.config);
       return {
         body: {
           path: responsePath,

@@ -98,6 +98,9 @@ describe('verify-doc-routes operator contract discovery', () => {
     expect(output).toContain('src/contracts/operator-api-config.ts');
     expect(output).toContain('src/contracts/operator-api-core.ts');
     expect(output).toContain('src/contracts/operator-api-availability.ts');
+    expect(output).toContain('src/config/system-templates/classic-shared.ts');
+    expect(output).toContain('src/contracts/index.ts');
+    expect(output).toContain('src/contracts/oversight-tool-policy.ts');
   });
 
   it('discovers future operator-api slices and ignores helper slices without route literals', () => {

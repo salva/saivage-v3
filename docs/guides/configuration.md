@@ -13,6 +13,17 @@ the instance owns it, and every change takes effect on the next start.
 startup — keep API keys out of the file. Validation is strict: unknown or
 obsolete keys fail startup instead of being ignored.
 
+Missing `${ENV_VAR}` references still substitute an empty string. After a
+successful configuration/environment load, startup prints advisory
+`Configuration warning: Environment variable 'ENV_VAR' is not set.` lines to
+stderr before runtime construction. Offline CLI workflow loads also report
+their own successful load's warnings. Values are never included, and warning
+text is outbound-redacted (including credential-shaped names); the REST config
+warning array uses the same text defense without the stderr prefix.
+Check the environment supplied to the service or CLI and correct the missing
+variable through your ordinary configuration/deployment procedure. A warning
+does not test credential validity or bypass strict configuration validation.
+
 ## Providers
 
 Choose an endpoint **and a specific model**, not just a brand name. OpenAI Chat

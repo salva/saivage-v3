@@ -21,7 +21,8 @@ jest.setTimeout(240_000);
 const CUTOVERS = JSON.parse(readFileSync(join(process.cwd(), 'tests/fixtures/doc-value-contracts/cutover-paragraphs.json'), 'utf8'));
 const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
 const PROCESS_PATHS = ['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
-const TOOL_RELATION_PATHS = ['src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/result-envelope.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
+const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
+const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
 const EXPECTED_CATALOG = {
   'constant.analyst-orientation-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
   'constant.analyst-title-preview-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
@@ -48,7 +49,7 @@ const EXPECTED_CATALOG = {
   'pivot.ui-cards-diff-current-request': ['pivots', ['web/src/api/client.ts', 'web/src/stores/cards.ts']],
   'tools.exclusive-identities': ['tools', TOOL_RELATION_PATHS],
   'tools.projector-presenter-equality': ['tools', TOOL_RELATION_PATHS],
-  'tools.shipped-role-inventories': ['tools', ['src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts']],
+  'tools.shipped-role-inventories': ['tools', SHIPPED_TOOL_PATHS],
   'vocabulary.app-log-type': ['vocabularies', ['src/contracts/app-log.ts', 'src/persistence/app-log.ts']],
   'vocabulary.availability-component-source': ['vocabularies', ['src/contracts/operator-api-availability.ts']],
   'vocabulary.availability-state': ['vocabularies', ['src/contracts/operator-api-availability.ts']],
@@ -205,17 +206,18 @@ const SOURCE_MUTATIONS = [
   ['typed template registry member', verifyToolContractDocs, 'src/config/system-templates/registry.ts', 'CLASSIC_TYPED_TEMPLATE'],
   ['classic template name', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', "name: 'classic'"],
   ['typed template name', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', "name: 'classic-typed'"],
-  ['classic materialization', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', 'agents: structuredClone(CLASSIC_AGENTS)'],
-  ['typed materialization', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', 'agents: structuredClone(AGENTS)'],
-  ...['classic', 'classic-typed'].flatMap((template) => {
-    const path = `src/config/system-templates/${template}/template.ts`;
-    return [
-      [`${template} Analyst tool set`, verifyToolContractDocs, path, "analyst: Object.freeze({\n    prompt: prompt('analyst'),\n    tools: Object.freeze([\n      'create_card'"],
-      [`${template} Planner tool set`, verifyToolContractDocs, path, "planner: Object.freeze({\n    prompt: prompt('planner'),\n    tools: Object.freeze([\n      'create_card'"],
-      [`${template} Reviewer tool set`, verifyToolContractDocs, path, "reviewer: Object.freeze({\n    prompt: prompt('reviewer'),\n    tools: Object.freeze([\n      'read'"],
-      [`${template} Executor tool set`, verifyToolContractDocs, path, "executor: Object.freeze({\n    prompt: prompt('executor'),\n    tools: Object.freeze([\n      'read'"],
-    ];
-  }),
+  ['classic materialization', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', 'createClassicConfig(cardTypes)'],
+  ['typed materialization', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', 'createClassicConfig(cardTypes)'],
+  ['shared factory config agents', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', '    agents,'],
+  ['shared factory config graph', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', 'card_types: cardTypes'],
+  ['shared factory final freeze', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', 'return deepFreeze(config)'],
+  ['shared factory policy spread', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', '[...OVERSIGHT_ALLOWED_TOOL_NAMES]'],
+  ['Oversight policy member', verifyToolContractDocs, 'src/contracts/oversight-tool-policy.ts', "'get_status'"],
+  ['Oversight policy reexport', verifyToolContractDocs, 'src/contracts/index.ts', "export { OVERSIGHT_ALLOWED_TOOL_NAMES } from './oversight-tool-policy.js'"],
+  ...['analyst', 'planner', 'reviewer', 'executor'].map((role) => [
+    `shared ${role} tool set`, verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts',
+    `${role}: {\n      prompt: prompt('${role}'),\n      tools: [\n        '${['analyst', 'planner'].includes(role) ? 'create_card' : 'read'}'`,
+  ]),
   ['known projected tools', verifyToolContractDocs, 'src/tools/tool-invocation-outbound.ts', 'KNOWN_TOOL_INVOCATION_NAMES'],
   ['tool presenters', verifyToolContractDocs, 'web/src/utils/tool-presenters/presenters.ts', 'TOOL_PRESENTERS'],
   ['terminal result union member', verifyToolContractDocs, 'src/contracts/result-envelope.ts', 'TERMINAL_RESULT_TOOL_NAME'],
@@ -420,6 +422,26 @@ describe('documentation value contracts', () => {
     });
   });
 
+  it('rejects detached template-factory wiring and keeps registry admission restricted to actual templates', () => {
+    for (const template of ['classic', 'classic-typed']) {
+      const path = `src/config/system-templates/${template}/template.ts`;
+      for (const [before, after] of [
+        ['createClassicConfig(cardTypes)', 'detachedFactory(cardTypes)'],
+        ['createClassicConfig(cardTypes)', 'createClassicConfig(otherCardTypes)'],
+        ["from '../classic-shared.js'", "from '../detached-factory.js'"],
+        ['  config,', '  config: detachedConfig,'],
+        ["new URL('./prompts/', import.meta.url)", "new URL('../other-prompts/', import.meta.url)"],
+      ]) withProject((root) => {
+        replaceChecked(root, path, before, after);
+        expect(verifyToolContractDocs({ projectRoot: root }).ok).toBe(false);
+      });
+    }
+    withProject((root) => {
+      replaceChecked(root, 'src/config/system-templates/registry.ts', "from './classic/template.js'", "from './classic-shared.js'");
+      expect(verifyToolContractDocs({ projectRoot: root }).ok).toBe(false);
+    });
+  });
+
   it('detects every named constant declaration and direct use', () => {
     withProject((root) => {
       for (const [label, path, token, occurrence] of CONSTANT_OCCURRENCE_MUTATIONS) {
@@ -537,7 +559,7 @@ describe('documentation value contracts', () => {
     ['errors', verifyErrorShapeDocs, 'src/contracts/operator-api-core.ts', "z.literal('Unauthorized')", "z.literal('FixtureUnauthorized')"],
     ['vocabularies', verifyClosedVocabularyDocs, 'src/schemas/types.ts', "'backlog',", "'fixture_backlog',"],
     ['constants', verifySourceConstantDocs, 'src/runtime/card-process/card-process-config.ts', 'EMIT_RESULT_SUMMARY_MAX_CHARS = 2000', 'EMIT_RESULT_SUMMARY_MAX_CHARS = 2001'],
-    ['tools', verifyToolContractDocs, 'src/config/system-templates/classic-typed/template.ts', "'read',\n      'write',\n      'edit'", "'fixture_read',\n      'write',\n      'edit'"],
+    ['tools', verifyToolContractDocs, 'src/config/system-templates/classic-shared.ts', "'read',\n        'write',\n        'edit'", "'fixture_read',\n        'write',\n        'edit'"],
     ['identities', verifyIdentityGrammarDocs, 'src/schemas/conversation-session-id.ts', '^agent:', '^fixture-agent:'],
     ['pivots', verifyCardDiffPivotDocs, 'web/src/api/client.ts', 'from: String(key.fromSeq)', 'from: String(key.fromSeq + 1)'],
   ])('%s family detects a representative source mutation', (_family, verify, path, before, after) => {

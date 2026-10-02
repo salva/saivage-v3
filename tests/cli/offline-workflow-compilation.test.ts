@@ -9,6 +9,7 @@ import { SAIVAGE_VERSION } from '../../src/version.js';
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
 import { createProjectIdentity,readProjectIdentity } from '../../src/persistence/project-identity.js';
 import { readCard } from '../../src/persistence/card-files.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { cardConversationVersionIndexFile, globalAgentConversationRoot, runtimeProcessLockFile } from '../../src/persistence/layout.js';
 
 const roots:string[]=[];const cwd=process.cwd();afterEach(()=>{process.chdir(cwd);jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
@@ -19,6 +20,32 @@ function assertTreeEqual(sourceRoot:string,actualRoot:string){expect(walkFiles(a
 async function command(projectRoot:string,name:string,...args:string[]){process.chdir(projectRoot);await run(['node','saivage',name,...args]);}
 
 describe('offline workflow compilation and publication',()=>{
+  it('reports safe warnings for its successful offline load without disclosing environment values', async () => {
+    const projectRoot = root();
+    const fixture = structuredClone(TEST_SAIVAGE_CONFIG);
+    fixture.providers.test!.apiKey = '${BATCH_F_SYNTHETIC_VALUE}${BATCH_F_MISSING}${ghp_SyntheticWarningName123}';
+    const env: NodeJS.ProcessEnv = { ...process.env, BATCH_F_SYNTHETIC_VALUE: 'distinctive-synthetic-cli-env-value' };
+    delete env['BATCH_F_MISSING'];
+    delete env['ghp_SyntheticWarningName123'];
+    jest.replaceProperty(process, 'env', env);
+    write(join(projectRoot, '.saivage', 'saivage.yaml'), YAML.stringify(fixture));
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diagnostics = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await command(projectRoot, 'init');
+    expect(readCard(projectRoot, 'project')).toMatchObject({ id: 'project' });
+    expect(diagnostics.mock.calls).toEqual([
+      ["Configuration warning: Environment variable 'BATCH_F_MISSING' is not set."],
+      ["Configuration warning: Environment variable 'ghp-[REDACTED]' is not set."],
+    ]);
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain('distinctive-synthetic-cli-env-value');
+    diagnostics.mockClear();
+    const invalidRoot = root();
+    write(join(invalidRoot, '.saivage', 'saivage.yaml'), YAML.stringify({ ...fixture, unknown_contract: true }));
+    await expect(command(invalidRoot, 'init')).rejects.toThrow(/Configuration validation failed/);
+    expect(diagnostics).not.toHaveBeenCalled();
+    expect(readProjectIdentity(invalidRoot)).toBeNull();
+  });
+
   it('init materializes prompts and marker before the config YAML and validates before identity/card publication',async()=>{const projectRoot=root();const log=jest.spyOn(console,'log').mockImplementation(()=>{});await command(projectRoot,'init');const configPath=join(projectRoot,'.saivage','saivage.yaml');const promptsRoot=join(projectRoot,'.saivage','config','prompts');const fragmentPath=join(promptsRoot,'fragments','_shared','project-guidance-common.md');const bytes=readFileSync(configPath);const source=YAML.parse(bytes.toString()) as Record<string,unknown>;expect(source).not.toHaveProperty('card_type_set');expect(source.card_types).toEqual(resolveSystemTemplate('classic').config.card_types);expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic',saivage_version:SAIVAGE_VERSION});assertTreeEqual(resolveSystemTemplate('classic').promptRoot,promptsRoot);expect(readFileSync(fragmentPath)).toEqual(readFileSync(join(resolveSystemTemplate('classic').promptRoot,'fragments','_shared','project-guidance-common.md')));const effective=createResolvedConfigAuthority({path:configPath,interpolationEnvironment:{},projectRoot}).loadEffective();expect(effective.config).toEqual(DEFAULT_SAIVAGE_CONFIG);expect(readCard(projectRoot,'project')).toMatchObject({id:'project',type:'project'});expect(existsSync(globalAgentConversationRoot(projectRoot,'oversight'))).toBe(false);const markerPath=join(projectRoot,'.saivage','config','template.json');const markerBytes=readFileSync(markerPath);writeFileSync(fragmentPath,'operator edited guidance');log.mockClear();await command(projectRoot,'init','--profile','classic-typed');expect(log.mock.calls.map(([line])=>line)).toEqual([`Project layout already exists at ${projectRoot}`,'Existing configuration preserved']);expect(readFileSync(configPath)).toEqual(bytes);expect(readFileSync(markerPath)).toEqual(markerBytes);expect(readFileSync(fragmentPath,'utf8')).toBe('operator edited guidance');
     log.mockClear();const invalidRoot=root();write(join(invalidRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(DEFAULT_SAIVAGE_CONFIG),unknown_old_contract:true}));await expect(command(invalidRoot,'init')).rejects.toThrow(/Configuration validation failed/);expect(log).not.toHaveBeenCalled();expect(readProjectIdentity(invalidRoot)).toBeNull();expect(existsSync(join(invalidRoot,'.saivage','cards'))).toBe(false);
   });

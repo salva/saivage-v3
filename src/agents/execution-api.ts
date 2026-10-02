@@ -8,3 +8,4 @@ export type { ProviderRoutingReadModel } from './provider-routing-read-model.js'
 export { buildCandidateRequest } from './candidate-request.js';
 export { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
 export { buildLlmOptions } from './llm-options-factory.js';
+export { projectProviderExchange } from './provider-exchange-outbound.js';

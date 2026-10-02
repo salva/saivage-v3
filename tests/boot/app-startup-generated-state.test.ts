@@ -33,6 +33,44 @@ afterEach(async () => {
 });
 
 describe('application startup generated-state admission', () => {
+  it('reports safe advisory load warnings before initial runtime publication and still boots', async () => {
+    const root = projectRoot();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    config.providers.test!.apiKey = '${BATCH_F_SYNTHETIC_VALUE}${BATCH_F_MISSING}${ghp_SyntheticWarningName123}${github_pat_SyntheticWarningName123}${AKIA1234567890ABCDEF}';
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
+    const diagnostics = jest.spyOn(console, 'error').mockImplementation(() => {
+      expect(existsSync(saivageCardsRoot(root))).toBe(false);
+    });
+    const app = await startApp({
+      projectRoot: root, createRuntime: true,
+      env: { NODE_ENV: 'test', SAIVAGE_PORT: '0', SAIVAGE_HOST: '127.0.0.1', BATCH_F_SYNTHETIC_VALUE: 'distinctive-synthetic-env-value' },
+    });
+    apps.push(app);
+    expect(diagnostics.mock.calls).toEqual([
+      ["Configuration warning: Environment variable 'BATCH_F_MISSING' is not set."],
+      ["Configuration warning: Environment variable 'ghp-[REDACTED]' is not set."],
+      ["Configuration warning: Environment variable 'github_pat-[REDACTED]' is not set."],
+      ["Configuration warning: Environment variable 'AKIA-[REDACTED]' is not set."],
+    ]);
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain('distinctive-synthetic-env-value');
+    expect(app.environment.config.providers.test!.apiKey).toBe('distinctive-synthetic-env-value');
+    expect(Object.isFrozen(app.environment.configWarnings)).toBe(true);
+    expect(app.server.fastify.server.address()).not.toBeNull();
+    diagnostics.mockImplementation(() => {});
+  });
+
+  it('keeps strict configuration failure without emitting successful-load warnings or publishing runtime', async () => {
+    const root = projectRoot();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    config.providers.test!.apiKey = '${BATCH_F_MISSING}';
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), { ...config, unknown_contract: true });
+    const diagnostics = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(start(root, true)).rejects.toThrow(/Configuration validation failed/);
+    expect(diagnostics).not.toHaveBeenCalled();
+    expect(existsSync(saivageCardsRoot(root))).toBe(false);
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
+
   it('settles the interrupted chain before MCP reconciliation and retains correction after a later MCP failure', async () => {
     const root = projectRoot();
     const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);

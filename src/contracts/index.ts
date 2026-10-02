@@ -307,3 +307,4 @@ export type {
   ShutdownReport,
   AppTerminalRegistration,
 } from './application-lifecycle.js';
+export { OVERSIGHT_ALLOWED_TOOL_NAMES } from './oversight-tool-policy.js';

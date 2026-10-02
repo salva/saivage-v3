@@ -527,8 +527,31 @@ describe('WebProvider', () => {
       expect(shrunk).not.toHaveProperty('data.content_url');
 
       const expanded = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/expand', max_bytes: 5, max_inline_bytes: 5 });
-      expect(expanded).toMatchObject({ success: true, data: { head: 'ghu-[', fetched_text_utf8_bytes: 5, redacted_text_utf8_bytes: 14, head_utf8_bytes: 5, head_complete: false, content_url: expect.any(String) } });
+      expect(expanded).toMatchObject({ success: true, data: { head: '', fetched_text_utf8_bytes: 5, redacted_text_utf8_bytes: 14, head_utf8_bytes: 0, head_complete: false, fetch_truncated: false, content_url: expect.any(String) } });
+      expect(JSON.stringify(expanded)).not.toContain(expanding);
       expect(projectHistoricalToolResultForOutbound(expanded)).toEqual(expanded);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { cap: 13, head: '', complete: false },
+    { cap: 14, head: 'ghu-[REDACTED]', complete: false },
+    { cap: 15, head: 'ghu-[REDACTED]!', complete: true },
+  ])('keeps the expanded marker indivisible at an inline budget of $cap bytes', async ({ cap, head, complete }) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const source = 'ghu_x!';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(source, { status: 200, headers: { 'content-type': 'text/plain' } }));
+    try {
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' })]);
+      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/marker-boundary', max_inline_bytes: cap });
+      expect(result).toMatchObject({ success: true, data: { head, fetched_text_utf8_bytes: 6, redacted_text_utf8_bytes: 15, head_utf8_bytes: Buffer.byteLength(head), head_complete: complete, fetch_truncated: false } });
+      if (complete) expect(result).not.toHaveProperty('data.content_url');
+      else expect(result).toHaveProperty('data.content_url', expect.any(String));
+      expect(JSON.stringify(result)).not.toContain(source);
+      expect(projectHistoricalToolResultForOutbound(result)).toEqual(result);
     } finally {
       fetchSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,11 +24,26 @@ function inputs(projectRoot?: string, overrides: Partial<StartInputs> = {}): Sta
 }
 
 afterEach(() => {
+  jest.restoreAllMocks();
   process.chdir(originalCwd);
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
 describe('typed startup input precedence', () => {
+  it('retains immutable advisory warnings and empty substitutions without authority/environment console effects', async () => {
+    const root = rootWithConfig();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    config.providers.test!.apiKey = '${MISSING_STARTUP_VALUE}';
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
+    const diagnostics = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const environment = await loadEnvironment(inputs(root), {});
+    expect(environment.configWarnings).toEqual(["Environment variable 'MISSING_STARTUP_VALUE' is not set."]);
+    expect(Object.isFrozen(environment.configWarnings)).toBe(true);
+    expect(environment.config.providers.test!.apiKey).toBe('');
+    expect(environment.configAuthority.loadEffective().warnings).toEqual(environment.configWarnings);
+    expect(diagnostics).not.toHaveBeenCalled();
+  });
+
   it('selects project root as CLI, then environment, then cwd', async () => {
     const cliRoot = rootWithConfig();
     const envRoot = rootWithConfig();

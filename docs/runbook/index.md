@@ -50,6 +50,16 @@ The CLI parses each command's options once, strictly, and uses the resulting typ
 Service authors should set only the inputs their deployment owns, keep the project root and selected YAML path explicit where working-directory assumptions would be ambiguous, and pass bearer credentials through the environment or a deployment credential file rather than CLI arguments or URLs. `NODE_ENV`, `LOG_LEVEL`, and `SAIVAGE_API_TOKEN` are independent environment-only inputs, not alternate sources in the four selection chains.
 A set-but-blank (empty or whitespace-only) or leading- or trailing-whitespace-padded `SAIVAGE_API_TOKEN` fails startup with a typed environment-load error; leave the variable unset only when intentionally selecting authentication-disabled mode.
 
+After successful environment loading, startup emits advisory `Configuration warning: `
+lines to stderr before runtime construction/readiness; offline CLI workflow loads
+also report their own missing-variable warnings. Missing `${ENV_VAR}` references
+still become empty strings, not mandatory startup failures. Diagnostics exclude
+values and redact credential-shaped names; REST config warnings are likewise
+redacted. Correct the variable in the actual service or CLI environment using
+the ordinary configuration procedure; warnings neither probe credentials nor
+authorize automatic repair, retries, or a configuration reload. See the
+[configuration guide](../guides/configuration.md).
+
 ### Command environment
 
 Operators may provide `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` in the service environment for ordinary command children. Saivage supplies no identity defaults and does not require identity at startup; Git validates the provided values when used. Provider tokens, unknown inherited names, and Git or SSH override names such as `GIT_CONFIG`, `GIT_SSH`, and `GIT_SSH_COMMAND` are not inherited by ordinary commands. Explicit configured command or stdio MCP environment overlays are distinct from inherited values and retain precedence. The [system command-environment contract](../spec/system-specification.md#command-environment) owns the exact inherited list.

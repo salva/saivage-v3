@@ -1,5 +1,4 @@
-import type { CardTypeName } from '../../src/schemas/index.js';
-import type { RecordDefinition } from '../../src/records/record-definition.js';
+import type { CardTypeName, RecordDefinition } from '../../src/schemas/index.js';
 import { TEST_WORKFLOWS } from './canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 

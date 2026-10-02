@@ -2,10 +2,12 @@ import { describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
 import { buildConnectedEnvelope } from '../../src/contracts/index.js';
 import { sendToClient, serializeOutboundEnvelope } from '../../src/server/websocket.js';
+import { projectWsEnvelopeForOutbound } from '../../src/server/ws-envelope.js';
 
 describe('strict WebSocket outbound projection', () => {
   it('serializes only the exact connected transport status', () => {
     const envelope = buildConnectedEnvelope({ timestamp: '2026-09-05T00:00:00.000Z', clientCount: 1 });
+    expect(projectWsEnvelopeForOutbound(envelope)).toEqual(envelope);
     const ws = { OPEN: 1, readyState: 1, send: jest.fn() } as unknown as WebSocket;
     sendToClient(ws, envelope);
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify(envelope));
@@ -19,6 +21,7 @@ describe('strict WebSocket outbound projection', () => {
     { type: 'status', content: { ...buildConnectedEnvelope({}).content, sessionId: 'agent:analyst:global' } },
   ])('rejects unsupported or undeclared data before sending %#', (envelope) => {
     const ws = { OPEN: 1, readyState: 1, send: jest.fn() } as unknown as WebSocket;
+    expect(() => projectWsEnvelopeForOutbound(envelope as never)).toThrow();
     expect(() => serializeOutboundEnvelope(envelope as never)).toThrow();
     sendToClient(ws, envelope as never);
     expect(ws.send).not.toHaveBeenCalled();

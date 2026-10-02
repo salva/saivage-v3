@@ -4,6 +4,8 @@ import { join,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SAIVAGE_CONFIG,DEFAULT_SYSTEM_TEMPLATE,SYSTEM_TEMPLATES,resolveSystemTemplate,validateSystemTemplates } from '../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { createClassicConfig } from '../../src/config/system-templates/classic-shared.js';
+import { OVERSIGHT_ALLOWED_TOOL_NAMES } from '../../src/contracts/index.js';
 import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
@@ -60,18 +62,29 @@ describe('system template registry',()=>{
     expect(effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic-typed').config)).card_types.project!.permitted_child_types).toHaveLength(8);
   });
 
-  it('keeps the classic family byte-identical outside card_types and in shared prompt files',()=>{
+  it('keeps distinct classic-family card graphs and byte-identical shared prompt closures',()=>{
     const classic=resolveSystemTemplate('classic');
     const typed=resolveSystemTemplate('classic-typed');
-    expect(typed.config.agents).toEqual(classic.config.agents);
-    expect(typed.config.analyst_agent).toBe(classic.config.analyst_agent);
-    expect(typed.config.oversight).toEqual(classic.config.oversight);
-    expect(typed.config.models).toEqual(classic.config.models);
-    expect(typed.config.providers).toEqual(classic.config.providers);
-    expect(typed.config.server).toEqual(classic.config.server);
-    expect(typed.config.compaction).toEqual(classic.config.compaction);
     expect(typed.config.card_types).not.toEqual(classic.config.card_types);
     expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
+  });
+
+  it('materializes fresh typed classic config declarations and freezes the complete graph',()=>{
+    const template=resolveSystemTemplate('classic');
+    const firstGraph=structuredClone(template.config.card_types!);
+    const secondGraph=structuredClone(template.config.card_types!);
+    const first=createClassicConfig(firstGraph);
+    const second=createClassicConfig(secondGraph);
+    expect(first).toEqual(template.config);
+    expect(second).toEqual(first);
+    expect(first.agents).not.toBe(second.agents);
+    expect(first.models.routes).not.toBe(second.models.routes);
+    expect(first.agents.oversight!.tools).not.toBe(second.agents.oversight!.tools);
+    expect(first.agents.oversight!.tools).toEqual(OVERSIGHT_ALLOWED_TOOL_NAMES);
+    expect(first.card_types).toBe(firstGraph);
+    expect(Object.isFrozen(firstGraph.project!.workflow.nodes)).toBe(true);
+    expect(Object.isFrozen(first.agents.analyst!.tools)).toBe(true);
+    expect(Object.isFrozen(first.models.routes)).toBe(true);
   });
 
   it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{

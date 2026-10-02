@@ -5,9 +5,8 @@ import {
   type CardLifecycleState,
   type CardRecord,
 } from '../../schemas/index.js';
-import { allowedOperatorCardActions } from '../../permissions/index.js';
+import { allowedOperatorCardActions } from '../../cards/status-api.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
-import { redactForOutbound } from '../../redaction/artifact-api.js';
 import type {
   OperatorApiHandlerResult,
   OperatorApiQuery,
@@ -31,6 +30,7 @@ import type {
 } from '../../persistence/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import {
+  projectCardDiff,
   projectCardArtifactForOutbound,
   projectCardVersionChangeForOutbound,
 } from './card-outbound.js';
@@ -388,7 +388,7 @@ export class CardsReadModelService {
           version: result.version,
         },
       };
-    const diff = redactForOutbound({ source: 'card-diff', value: result.diff });
+    const diff = projectCardDiff(result.diff);
     return {
       body: CardDiffResponseSchema.parse({ diff, from: result.from, to: result.to, card_id: id }),
     };

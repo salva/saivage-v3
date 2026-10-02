@@ -8,7 +8,7 @@ const sourceUrl = (path: string) => pathToFileURL(resolve('src', path)).href;
 describe('fresh-process public entry evaluation', () => {
   for (const entry of [
     'tools/invocation.ts', 'persistence/index.ts', 'redaction/index.ts',
-    'tools/tool-api.ts', 'redaction/artifact-api.ts', 'application/index.ts',
+    'tools/tool-api.ts', 'application/index.ts',
     'runtime/runtime-api.ts', 'workspace/index.ts', 'cards/store-api.ts',
     'boot/index.ts', 'boot/restart-port.ts',
   ]) {

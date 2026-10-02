@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { verifyAgentToolDocs, verifyConfigDocs } from '../../scripts/verify-doc-routes.js';
 
-const AGENTS = 'src/config/system-templates/classic/template.ts';
+const AGENTS = 'src/config/system-templates/classic-shared.ts';
+const POLICY = 'src/contracts/oversight-tool-policy.ts';
+const AGENT_SOURCES = [AGENTS, POLICY, 'src/contracts/index.ts'];
 const CONFIG = 'src/schemas/saivage-config.ts';
 const DOC = 'docs/architecture/system-architecture.md';
 
@@ -48,33 +50,54 @@ describe('source-derived named-agent tool inventory', () => {
   });
 
   it('derives literal catalog changes and rejects invalid catalog syntax', () => {
-    withFixture([AGENTS, DOC], (root) => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'activate_card'", "'fixture_tool'");
       expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).toContain('fixture_tool');
     });
-    withFixture([AGENTS, DOC], (root) => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'edit_card'", "'create_card'");
       expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains duplicates');
     });
-    withFixture([AGENTS, DOC], (root) => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'edit_card'", 'computedTool');
       expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains a non-string entry');
     });
   });
 
   it('rejects duplicate, unexpected, and malformed documentation rows', () => {
-    withFixture([AGENTS, DOC], (root) => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `planner` .*$/m)[0];
       replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', `${row}\n<!-- saivage:agent-tools:end -->`);
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent');
     });
-    withFixture([AGENTS, DOC], (root) => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/config/system-templates/classic/template.ts:1` |\n<!-- saivage:agent-tools:end -->");
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('unexpected-agent');
     });
-    withFixture([AGENTS, DOC], (root) => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, DOC, '| `planner` | `activate_card', '| `planner` | activate_card');
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('malformed-agent-tool-row');
+    });
+  });
+
+  it('consumes the Oversight tuple through its exact public reexport and rejects arbitrary declarations', () => {
+    withFixture([...AGENT_SOURCES, DOC], (root) => {
+      replaceChecked(root, POLICY, "'get_status'", "'fixture_observation'");
+      const result = verifyAgentToolDocs({ projectRoot: root });
+      expect(result.expected.get('oversight')).toContain('fixture_observation');
+      expect(result.ok).toBe(false);
+    });
+    for (const [path, before, after, error] of [
+      [POLICY, "'list_cards'", "'get_status'", 'contains duplicates'],
+      [POLICY, "'list_cards'", 'computedTool', 'contains a non-string entry'],
+      [AGENTS, '[...OVERSIGHT_ALLOWED_TOOL_NAMES]', '[...otherPolicy]', 'must spread only'],
+      [AGENTS, '    planner: {', '    [computedRole]: {', 'Unsupported computed property'],
+      [AGENTS, "'edit_card'", '...otherTools', 'contains a non-string entry'],
+      ['src/contracts/index.ts', "from './oversight-tool-policy.js'", "from './detached-policy.js'", 'must reexport'],
+      [AGENTS, "from '../../contracts/index.js'", "from '../../contracts/oversight-tool-policy.js'", 'must import'],
+    ]) withFixture([...AGENT_SOURCES, DOC], (root) => {
+      replaceChecked(root, path, before, after);
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow(error);
     });
   });
 });

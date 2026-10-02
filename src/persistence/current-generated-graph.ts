@@ -1,5 +1,4 @@
-import { validateParsedCards } from '../cards/artifact-api.js';
-import type { RecordDefinition } from '../records/index.js';
+import { validateParsedCards } from '../cards/status-api.js';
 import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { cardParentId } from '../schemas/index.js';
 import {
@@ -7,6 +6,7 @@ import {
   globalAgentSessionId,
   type AgentName,
   type ConversationSessionId,
+  type RecordDefinition,
 } from '../schemas/index.js';
 import { initializeAppLog } from './app-log.js';
 import { readCurrentAuthoredRecord } from './authored-record-files.js';

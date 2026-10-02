@@ -1,42 +1,67 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   SECRET_REDACTION_PLACEHOLDER,
+  projectDynamicForOutbound,
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
-import { OUTBOUND_REDACTION_SOURCES, redactForOutbound } from '../../src/redaction/artifact-api.js';
 import { redactTextWithStablePrefixesForOutbound } from '../../src/redaction/text.js';
 
 describe('outbound redaction', () => {
-  it('has the exact singular-cutover source inventory', () => {
-    expect(OUTBOUND_REDACTION_SOURCES).toEqual([
-      'provider-exchange',
-      'logged-event',
-      'control-action',
-      'card-diff',
-      'config',
-      'process-view',
-      'tool-invocation',
-      'ws-envelope',
-      'mcp-tools',
-      'dynamic',
-    ]);
-  });
+  describe('credential families', () => {
+    const families = [
+      ['sk-synthetic_123', 'sk'],
+      ['tid=synthetic_123', 'tid'],
+      ['ghu_synthetic123', 'ghu'],
+      ['rt_synthetic123', 'rt'],
+      ['tok_synthetic123', 'tok'],
+      ['ghp_synthetic123ABC', 'ghp'],
+      ['github_pat_synthetic123_ABC', 'github_pat'],
+      ['AKIA1234567890ABCDEF', 'AKIA'],
+      ['xoxb-1234567890-1234567890-SyntheticABC', 'xox'],
+      ['xoxp-1234567890-1234567890-SyntheticABC', 'xox'],
+      ['xoxa-1234567890-SyntheticABC', 'xox'],
+      ['xoxr-1234567890-SyntheticABC', 'xox'],
+      ['xoxs-1234567890-SyntheticABC', 'xox'],
+      ['Bearer SyntheticABC123', 'Bearer'],
+    ];
 
-  describe('WebSocket status envelopes', () => {
-    it('projects connected status to the exact strict contract', () => {
-      const connected = {
-        type: 'status',
-        content: {
-          event: 'connected',
-          timestamp: '2026-07-24T12:00:00.000Z',
-          clientCount: 1,
-        },
-      } as const;
-
-      expect(redactForOutbound({ source: 'ws-envelope', value: connected })).toEqual(connected);
+    it.each(families)('projects %s to a stable placeholder and certifies only whole markers', (secret, label) => {
+      const marker = `${label}${label === 'Bearer' ? ' ' : '-'}[REDACTED]`;
+      const input = `before ${secret} after`;
+      const expected = `before ${marker} after`;
+      expect(redactTextForOutbound(input)).toBe(expected);
+      expect(projectDynamicForOutbound({ prose: input })).toEqual({ prose: expected });
+      expect(redactTextForOutbound(expected)).toBe(expected);
+      for (const text of [input, expected]) {
+        const certificate = redactTextWithStablePrefixesForOutbound(text);
+        expect(certificate.text).toBe(expected);
+        expect(certificate.maxPrefixEnd).toBe(expected.length);
+        const start = 'before '.length;
+        const end = start + marker.length;
+        for (let cut = 0; cut <= certificate.maxPrefixEnd; cut += 1) {
+          const inside = certificate.indivisibleSpans.some((span) => span.start < cut && cut < span.end);
+          if (start < cut && cut < end) expect(inside).toBe(true);
+          if (!inside) {
+            const head = expected.slice(0, cut);
+            expect(redactTextForOutbound(head)).toBe(head);
+          }
+        }
+      }
     });
 
+    it.each([
+      'ghp_', 'github_pat_', 'ghp-ordinary', 'github-pat-ordinary',
+      'AKIA1234567890ABCDE', 'AKIA1234567890ABCDEFG', 'AKIA1234567890abcDEF',
+      'prefixAKIA1234567890ABCDEF', 'AKIA1234567890ABCDEF_suffix',
+      'xoxq-123-Synthetic', 'xoxb-', 'xoxb_ordinary',
+    ])('preserves benign near miss %s', (text) => {
+      expect(redactTextForOutbound(text)).toBe(text);
+    });
+
+    it('selects the first whole literal family without redacting nested credential spellings separately', () => {
+      expect(redactTextForOutbound('tok_outer.sk-inner')).toBe('tok-[REDACTED]');
+    });
   });
 
   describe('structured values', () => {
@@ -52,7 +77,7 @@ describe('outbound redaction', () => {
       expect(redactTextForOutbound(JSON.stringify(value))).toBe(
         '{"candidateBToken":"[REDACTED]","candidate_b_secret":"[REDACTED]","cookie":"[REDACTED]","auth":"[REDACTED]","candidateBOrdinary":"visible"}',
       );
-      expect(redactForOutbound({ source: 'dynamic', value })).toEqual({
+      expect(projectDynamicForOutbound(value)).toEqual({
         candidateBToken: SECRET_REDACTION_PLACEHOLDER,
         candidate_b_secret: SECRET_REDACTION_PLACEHOLDER,
         cookie: SECRET_REDACTION_PLACEHOLDER,
@@ -71,16 +96,13 @@ describe('outbound redaction', () => {
       const circular: Record<string, unknown> = { safe: 'kept' };
       circular['self'] = circular;
 
-      const result = redactForOutbound({
-        source: 'dynamic',
-        value: {
-          title: 'visible',
-          nested: {
-            apiKey: 'synthetic-api-key',
-            items: [{ password: 'synthetic-password', count: 3 }, 'safe'],
-          },
-          circular,
+      const result = projectDynamicForOutbound({
+        title: 'visible',
+        nested: {
+          apiKey: 'synthetic-api-key',
+          items: [{ password: 'synthetic-password', count: 3 }, 'safe'],
         },
+        circular,
       });
 
       expect(result).toEqual({
@@ -104,22 +126,19 @@ describe('outbound redaction', () => {
         },
       };
 
-      const projected = redactForOutbound({
-        source: 'dynamic',
-        value: {
-          first: shared,
-          second: shared,
-          circular,
-          error: Object.assign(new Error('token=synthetic-error-secret'), {
-            leaked: 'synthetic-custom-field',
-          }),
-          throwingToJson,
-          omitted: undefined,
-          array: [undefined],
-          apiKey: 'synthetic-key',
-          retryToken: 12,
-          auth: true,
-        },
+      const projected = projectDynamicForOutbound({
+        first: shared,
+        second: shared,
+        circular,
+        error: Object.assign(new Error('token=synthetic-error-secret'), {
+          leaked: 'synthetic-custom-field',
+        }),
+        throwingToJson,
+        omitted: undefined,
+        array: [undefined],
+        apiKey: 'synthetic-key',
+        retryToken: 12,
+        auth: true,
       });
 
       expect(projected).toEqual({
@@ -155,7 +174,7 @@ describe('outbound redaction', () => {
         Array.from({ length: 101 }, (_, index) => [`field${index}`, index]),
       );
 
-      const projected = redactForOutbound({ source: 'dynamic', value: { deep, wide } }) as {
+      const projected = projectDynamicForOutbound({ deep, wide }) as {
         deep: unknown;
         wide: Record<string, unknown>;
       };

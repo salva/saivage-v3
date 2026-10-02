@@ -14,8 +14,8 @@ import {
   reconfigureParamsSchema,
   type ReconfigureParams,
   type ConfigMutation,
+  projectEffectiveConfigForOutbound,
 } from '../config/index.js';
-import { redactForOutbound } from '../redaction/artifact-api.js';
 import { toolSucceeded } from '../contracts/index.js';
 import type { QueueNotificationToolInput } from './notification-tool.js';
 
@@ -52,7 +52,7 @@ export async function show_config(
 ): Promise<AnalystToolOutcome> {
   try {
     const result = ctx.configAuthority.loadEffective();
-    return toolSucceeded({ config: redactForOutbound({ source: 'config', value: result.config }) });
+    return toolSucceeded({ config: projectEffectiveConfigForOutbound(result.config) });
   } catch (err) {
     return toolFailureFromError(err);
   }

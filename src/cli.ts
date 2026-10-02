@@ -24,6 +24,7 @@ import {
   resolveSystemTemplate,
   replaceConfigYaml,
   createResolvedConfigAuthority,
+  formatConfigWarning,
 } from './config/index.js';
 import { SAIVAGE_VERSION } from './version.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
@@ -37,7 +38,9 @@ function loadCanonicalWorkflows(projectRoot: string) {
     interpolationEnvironment: process.env,
     projectRoot,
   });
-  return authority.loadEffective().workflows;
+  const effective = authority.loadEffective();
+  for (const warning of effective.warnings) console.error(formatConfigWarning(warning));
+  return effective.workflows;
 }
 
 interface InitInputs {

@@ -17,11 +17,35 @@ import {
 import { utf8SafeSlice } from '../../src/utils/index.js';
 import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
-import { redactTextForOutbound } from '../../src/redaction/index.js';
+import { redactTextForOutbound, redactTextWithStablePrefixesForOutbound } from '../../src/redaction/index.js';
 
 const envelope = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
 
 describe('response packer primitives', () => {
+  it.each([
+    ['sk-synthetic123', 'sk'], ['tid=synthetic123', 'tid'],
+    ['ghu_synthetic123', 'ghu'], ['rt_synthetic123', 'rt'], ['tok_synthetic123', 'tok'],
+    ['ghp_Synthetic123ABC', 'ghp'], ['github_pat_Synthetic123_ABC', 'github_pat'],
+    ['AKIA1234567890ABCDEF', 'AKIA'],
+    ['xoxb-123-456-SyntheticABC', 'xox'], ['xoxp-123-456-SyntheticABC', 'xox'],
+    ['xoxa-123-SyntheticABC', 'xox'], ['xoxr-123-SyntheticABC', 'xox'], ['xoxs-123-SyntheticABC', 'xox'],
+  ])('selects whole stable credential markers around every byte boundary for %s', (secret, label) => {
+    const marker = `${label}-[REDACTED]`;
+    const stable = redactTextWithStablePrefixesForOutbound(`before ${secret} after`);
+    const start = 'before '.length;
+    const end = start + marker.length;
+    expect(stable.text).toBe(`before ${marker} after`);
+    for (let cap = 0; cap <= Buffer.byteLength(stable.text, 'utf8'); cap += 1) {
+      const cut = certifiedPrefixEndpoints(stable, stable.text.length, cap).at(-1)!;
+      const head = stable.text.slice(0, cut);
+      expect(Buffer.byteLength(head, 'utf8')).toBeLessThanOrEqual(cap);
+      expect(cut <= start || cut >= end).toBe(true);
+      expect(redactTextForOutbound(head)).toBe(head);
+      if (start < cap && cap < end) expect(head).toBe('before ');
+      if (cap === end) expect(head).toBe(`before ${marker}`);
+    }
+  });
+
   it('enumerates certified code-point endpoints without crossing byte, source, or indivisible-span bounds', () => {
     const stable = { text: 'a🚀[REDACTED]z', maxPrefixEnd: 14, indivisibleSpans: [{ start: 3, end: 13 }] };
     expect(certifiedPrefixEndpoints(stable, stable.text.length, 100)).toEqual([0, 1, 3, 13, 14]);

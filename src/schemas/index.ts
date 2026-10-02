@@ -174,6 +174,8 @@ export {
 export { cardParentId } from './card-id.js';
 export type {
   CardTypeSource,
+  RecordDeclaration,
+  RecordDefinition,
   DurablePromptDeclaration,
   StaticPromptDeclaration,
 } from './saivage-config.js';

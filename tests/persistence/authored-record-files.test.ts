@@ -9,7 +9,7 @@ import { AuthoredRecordNotFoundError, classifyCurrentAuthoredRecord, initializeA
 import { readGrowingRows } from '../helpers/growing-rows.js';
 import { authoredRecordVersionArtifactSchema, type AuthoredRecordVersionArtifact } from '../../src/persistence/canonical-record-artifacts.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
-import type { RecordDefinition } from '../../src/records/record-definition.js';
+import type { RecordDefinition } from '../../src/schemas/index.js';
 import type { CanonicalReadInstrumentation,GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';

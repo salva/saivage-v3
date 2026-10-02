@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { validateParsedCards } from '../cards/artifact-api.js';
+import { validateParsedCards } from '../cards/status-api.js';
 import type { NewChildCardInput } from '../cards/store-api.js';
 import {
   cardIdSchema,
@@ -17,8 +17,8 @@ import {
   type AgentName,
   type CardRecord,
   type RecordName,
+  type RecordDefinition,
 } from '../schemas/index.js';
-import type { RecordDefinition } from '../records/index.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/runtime-api.js';
 import { initializeAuthoredRecord } from './authored-record-files.js';
 import { initializeConversation } from './conversation-file.js';

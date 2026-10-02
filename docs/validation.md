@@ -64,9 +64,12 @@ resolved target do not change identity. After reviewing a genuine removal,
 compare the complete before/after identity multisets, including duplicates:
 the after multiset must be a subset, not just smaller. The current baseline is
 zero, including runtime-origin imports, with no surviving exception tables:
-all backend callers use permitted owner roots or explicit public entrypoints,
-with no blanket runtime permission for other packages' leaves. Runtime conversation operations use
-`persistence/session-api.ts`; text sanitization uses `sanitization/index.ts`.
+all backend callers use permitted owner roots or the reviewed exact public
+entrypoint set in `scripts/check-import-boundaries.cjs`, not a `*-api` filename
+convention. Neighboring and nested paths are not admitted. There is no blanket
+runtime permission for other packages' leaves. Runtime conversation operations use
+`persistence/session-api.ts`; text sanitization is runtime-local in
+`runtime/analyst-sanitization.ts`.
 The exact defining `schemas/round-id-server.ts` module is a server-only public
 owner API (including normalized terminal `.ts` spelling), not a schemas-wide
 or general `*-server` exemption. `schemas/index.ts` remains browser-safe and
@@ -74,9 +77,11 @@ does not export those generators. Cross-package consumers of runtime use only
 `runtime/runtime-api.ts`; agents may not import runtime, and runtime may not
 import agents, even through public APIs. Workspace must not import runtime and
 server must not import boot, including type-only references and export-from
-occurrences; public surfaces do not override these denials. Same-package leaves remain allowed.
+occurrences; public surfaces do not override these denials. Redaction primitives
+may reference only schemas and contracts across packages, including type-only
+references; direct owner projectors do not live in redaction. Same-package leaves remain allowed.
 The scanner and self-test use one classifier returning null or a single rule,
-with precedence `contracts-declarative`, `schemas-bottom-layer`, `agents-runtime`,
+with precedence `contracts-declarative`, `schemas-bottom-layer`, `redaction-primitive`, `agents-runtime`,
 `runtime-agents`, `workspace-runtime`, `server-boot`, `server-import`, then `cross-package-deep`. Specific ownership
 prohibitions override public-surface admission; boot's server imports still
 require a permitted public surface. Each offending matched import/export-from
@@ -89,7 +94,8 @@ Admitting any new identity, including through an equal or lower count, weakens
 the guard and requires an explicit owner decision.
 `npm run test:import-boundaries` is the canonical focused command: it runs the
 checker exact-rule self-test, real-CLI ratchet subprocess regressions (including
-overlap precedence, repeated occurrences, substitution, and line movement),
+overlap precedence, repeated occurrences, substitution, line movement, exact public
+entries, direct owner projector admission, and type-only upward redaction denial),
 and repository admission. The lint profile
 delegates to that command once; direct component invocations are diagnostic
 evidence, not alternative maintained profiles.
@@ -104,8 +110,10 @@ Both root and web dependencies must be installed before `npm run lint` or
 `npm run validate:routine`; both installs retain development dependencies so
 the validation toolchain remains available. The lint profile runs the
 export-consumer guard, stamp-producer guard, ESLint, backend import-boundary
-checks, web-component boundary check, then `npm run format`, in that order.
-The formatter checks only `src/` using the existing Prettier settings.
+checks, web-component boundary check, reachable-browser import guard
+(`node scripts/check-web-browser-imports.cjs`), then the `npm run format`
+Prettier check, in that order. The formatter checks only `src/` using the existing
+Prettier settings and does not rewrite files.
 The existing `lint-guards` CI job runs this lint profile and is enforced by
 `validation-required` under its existing applies/skipped semantics.
 `validate:routine` remains typecheck, export-consumer guard,

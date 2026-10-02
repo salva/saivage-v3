@@ -7,7 +7,7 @@ import {
   ANALYST_TURN_BUSY_ERROR,
   type RestartCapability,
 } from '../../contracts/index.js';
-import { projectLiveToolInvocation } from '../../tools/artifact-api.js';
+import { projectLiveToolInvocation } from '../../tools/tool-api.js';
 import {
   AnalystTurnBusyError,
   AnalystWorkspaceContextBudgetError,

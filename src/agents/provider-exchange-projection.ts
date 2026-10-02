@@ -4,7 +4,7 @@ import {
   type ProviderExchangePayload,
   type ProviderExchangePublicationContext,
 } from '../contracts/index.js';
-import { redactForOutbound } from '../redaction/artifact-api.js';
+import { projectProviderExchange } from './provider-exchange-outbound.js';
 
 type IndexedProviderExchangeAttempt = ProviderExchangeAttempt & { attempt_index: number };
 
@@ -50,5 +50,5 @@ export function projectProviderExchangeForPublication(
         };
 
   const parsed = providerExchangePayloadSchema.parse(projected satisfies ProviderExchangePayload);
-  return redactForOutbound({ source: 'provider-exchange', value: parsed });
+  return projectProviderExchange(parsed);
 }

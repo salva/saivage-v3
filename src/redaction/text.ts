@@ -8,13 +8,30 @@ const YAML_SECRET_VALUE_RE =
 const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
 const INLINE_SECRET_ASSIGNMENT_RE =
   /\b([A-Za-z][A-Za-z0-9_-]*(?:(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
-const CREDENTIAL_LITERAL_RE =
-  /\b(sk-(?!\[REDACTED\])[^\s"\\]+|tid=(?!\[REDACTED\])[^\s"\\]+|ghu_(?!\[REDACTED\])[A-Za-z0-9_]+|rt_(?!\[REDACTED\])[^\s"\\]+|tok_(?!\[REDACTED\])[^\s"\\]+)\b/g;
+const CREDENTIAL_FAMILIES = [
+  { prefix: 'sk-', body: '[^\\s"\\\\]+', label: 'sk' },
+  { prefix: 'tid=', body: '[^\\s"\\\\]+', label: 'tid' },
+  { prefix: 'ghu_', body: '[A-Za-z0-9_]+', label: 'ghu' },
+  { prefix: 'rt_', body: '[^\\s"\\\\]+', label: 'rt' },
+  { prefix: 'tok_', body: '[^\\s"\\\\]+', label: 'tok' },
+  { prefix: 'ghp_', body: '[A-Za-z0-9_]+', label: 'ghp' },
+  { prefix: 'github_pat_', body: '[A-Za-z0-9_]+', label: 'github_pat' },
+  { prefix: 'AKIA', body: '[A-Z0-9]{16}(?![A-Za-z0-9_])', label: 'AKIA' },
+  { prefix: 'xox[bpars]-', body: '[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', label: 'xox' },
+] as const;
+const CREDENTIAL_LITERAL_RE = new RegExp(
+  `\\b(?:${CREDENTIAL_FAMILIES.map(({ prefix, body }) => `(${prefix}(?!\\[REDACTED\\])${body})`).join('|')})\\b`,
+  'g',
+);
 const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
 const URL_SECRET_QUERY_PARAM_RE =
   /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
-const CREDENTIAL_LITERAL_BOUNDARY_RE =
-  /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)/g;
+const CREDENTIAL_LITERAL_BOUNDARY_RE = new RegExp(
+  `\\b(?:${CREDENTIAL_FAMILIES.map(
+    ({ prefix, body, label }) => `${label}-\\[REDACTED\\]|${prefix}${body}`,
+  ).join('|')})`,
+  'g',
+);
 const CONVERSION_FAILURE = '[unserializable dynamic value]';
 
 type Replacement = (match: string, ...captures: unknown[]) => string;
@@ -87,19 +104,13 @@ export function redactUrl(raw: string): string {
 function shouldPreserveValue(value: string): boolean {
   return /^\s*(\$\{[^}]+\}\s*)+$/.test(value);
 }
-function redactCredentialMatch(match: string): string {
-  const prefix = match.startsWith('sk-')
-    ? 'sk'
-    : match.startsWith('tid=')
-      ? 'tid'
-      : match.startsWith('ghu_')
-        ? 'ghu'
-        : match.startsWith('rt_')
-          ? 'rt'
-          : match.startsWith('tok_')
-            ? 'tok'
-            : 'credential';
-  return `${prefix}-${SECRET_REDACTION_PLACEHOLDER}`;
+function redactCredentialMatch(_match: string, ...captures: unknown[]): string {
+  const index = captures
+    .slice(0, CREDENTIAL_FAMILIES.length)
+    .findIndex((capture) => typeof capture === 'string');
+  const family = CREDENTIAL_FAMILIES[index];
+  if (!family) throw new Error('Credential match did not identify a family.');
+  return `${family.label}-${SECRET_REDACTION_PLACEHOLDER}`;
 }
 function replaceJsonSecretValue(match: string, ...captures: unknown[]): string {
   const [keyPart, wsBefore, wsAfter, valuePart] = captures as [string, string, string, string];
@@ -167,10 +178,8 @@ const TEXT_REDACTION_RULES: readonly TextRedactionRule[] = Object.freeze([
 
 function redactCredentialLiterals(content: string): string {
   return content
-    ? content
-        .replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch)
-        .replace(BEARER_CREDENTIAL_RE, replaceBearerCredential)
-    : content;
+    .replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch)
+    .replace(BEARER_CREDENTIAL_RE, replaceBearerCredential);
 }
 function redactSecrets(content: string): string {
   return content

@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { McpToolsResponseSchema } from '../../src/contracts/index.js';
 import { buildMcpServerStatus, buildMcpToolsReadModel } from '../../src/mcp/status-projection.js';
-import { redactForOutbound } from '../../src/redaction/artifact-api.js';
+import { projectMcpToolsForOutbound } from '../../src/mcp/tool-api.js';
 
 describe('MCP status/read-model projection', () => {
   it('narrows opaque integration fields while preserving exact topology and statistics', () => {
@@ -20,7 +20,7 @@ describe('MCP status/read-model projection', () => {
       getServerTools: () => [{ name: 'tok_tool', description: 'nested-opaque-description-marker', inputSchema: { type: 'object', properties: { nested_schema_marker: {} } }, annotations: { title: 'nested-opaque-annotation-marker' }, _meta: { nested_meta_marker: true } }],
       invocationStats: { 'ghu_server:tok_tool': { total: 7, success: 5, error: 2, lastInvokedAt: '2026-07-22T10:11:12.000Z' } },
     });
-    const tools = redactForOutbound({ source: 'mcp-tools', value: readModel });
+    const tools = projectMcpToolsForOutbound(readModel);
     expect(McpToolsResponseSchema.parse(tools)).toEqual(tools);
     expect(tools).toEqual({
       servers: [{ name: 'ghu_server', transport: 'streamable-http', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', stats: { total: 7, success: 5, error: 2, lastInvokedAt: '2026-07-22T10:11:12.000Z' } }] }],

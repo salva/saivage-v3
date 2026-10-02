@@ -95,6 +95,12 @@ describe('named-agent card-type workflow compilation',()=>{
     ]));
   });
   it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)})).toContain('independently scheduled project-global observer');});
+  it('admits configured Oversight subsets without requiring or restoring the shipped full policy',()=>{
+    for(const tools of [[], ['get_card', 'queue_notification']]){
+      const config=source();config.agents.oversight!.tools=tools;
+      expect(compileProjectWorkflows(config).oversight.tools.map((tool)=>tool.name)).toEqual(tools);
+    }
+  });
   it('rejects every invalid selected Oversight authority even while disabled',()=>{failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;},/must differ/);failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.tools=[];},/global session/);failure((value)=>{value.agents.oversight!.can_create_children=true;},/can_create_children/);failure((value)=>{value.agents.oversight!.record_writes=['status.md'];},/no record_writes/);failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.tools.push('skill');},/skills: false/);failure((value)=>{value.agents.oversight!.tools=['run_command'];},/forbidden/);});
   it('requires the complete Oversight section and validates its disabled route without provider I/O',()=>{
     const missing=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete missing.oversight;

@@ -22,7 +22,6 @@ export {
   projectCardVersionChangeForOutbound,
 } from './read-models/card-outbound.js';
 export { projectProcessForOutbound } from './read-models/process-outbound.js';
-export type { ProcessOutboundValue } from './read-models/process-outbound.js';
 export {
   AgentOperatorReadModelService,
   AgentCurrentStateUnavailableError,

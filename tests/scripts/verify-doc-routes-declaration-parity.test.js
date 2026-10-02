@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { verifyToolContractDocs } from '../../scripts/verify-doc-routes.js';
 
 const SCRIPTS = join(process.cwd(), 'scripts');
 const JS = readFileSync(join(SCRIPTS, 'verify-doc-routes.js'), 'utf8');
@@ -14,6 +15,24 @@ function interfaceBody(name, source) {
 }
 
 describe('verify-doc-routes.d.ts declaration parity', () => {
+  it('retains both typed semantic tool claims with exact shared-declaration evidence', () => {
+    const body = interfaceBody('ShippedRoleInventoriesClaimValue', DTS);
+    expect(body).toContain('templates:');
+    expect(body).toContain('agents:');
+    const result = verifyToolContractDocs({ projectRoot: process.cwd() });
+    expect(result.checkedClaimKeys).toEqual(['tools.exclusive-identities', 'tools.projector-presenter-equality', 'tools.shipped-role-inventories']);
+    expect(result.selectedSourcePaths).toEqual([
+      'src/config/system-templates/classic-shared.ts',
+      'src/config/system-templates/classic-typed/template.ts',
+      'src/config/system-templates/classic/template.ts',
+      'src/config/system-templates/registry.ts',
+      'src/contracts/index.ts',
+      'src/contracts/oversight-tool-policy.ts',
+      'src/contracts/result-envelope.ts',
+      'src/tools/tool-invocation-outbound.ts',
+      'web/src/utils/tool-presenters/presenters.ts',
+    ]);
+  });
   it('RouteVerificationResult mirrors the verifyDocRoutes return shape', () => {
     const body = interfaceBody('RouteVerificationResult', DTS);
     expect(body).toContain('internalDebugRows: RouteInventoryRow[]');

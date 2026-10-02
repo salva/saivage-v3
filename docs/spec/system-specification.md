@@ -404,6 +404,18 @@ CardProcess owns one guarded first-winner activation boundary across normal term
 A callback failure rejects an unsettled activation exactly; if cancellation, Stop, or application close already settled it, that later settlement loses harmlessly while the required exact-owner Supervisor notification still runs.
 
 Configuration requires global `agents`, `analyst_agent`, and named `models.routes`, plus the card-type source form: a complete `card_types` map or omission for the bundled `classic` definitions.
+
+Missing `${ENV_VAR}` references substitute an empty string and produce advisory
+warnings; interpolation does not impose credential-presence validation.
+Startup emits the successful environment load's warnings to stderr immediately
+after loading and before runtime construction/readiness. Offline CLI workflow
+loads report their own successful load's warnings before returning workflows.
+The static stderr prefix is `Configuration warning: `. Warning text contains no
+environment values and receives outbound text redaction, including for
+credential-shaped variable names. REST config warnings retain their string-array
+shape and receive text redaction without the stderr prefix. No warning delivery,
+deduplication, reload, or readiness guarantee is added; invalid configuration
+continues to reject normally.
 Template definitions contain complete card types, workflows, and record declarations only; agents, routes, providers, compaction, server, and MCP remain global and references from the resolved definitions are validated against them.
 Source resolution produces exactly one complete effective `card_types` map before compilation, and only that map reaches runtime consumers and outbound effective-config projections.
 An agent owns its prompt, ordered tools, duplicate-free `record_writes` patterns, model route, skill capability, `global | card` session scope, and child-creation ceiling.
@@ -1508,6 +1520,14 @@ Malformed or cross-wired successful navigation data fails before any route effec
 The complete candidate is structurally compiled before file replacement.
 Success returns `requires_restart:true` and does not mutate current workflows, routing, tools, MCP, or listener state.
 Deleted role, runtime, and MCP mutation actions are schema-invalid.
+
+Outbound text defense recognizes the existing `sk-`, `tid=`, `ghu_`, `rt_`,
+`tok_`, and Bearer forms, plus `ghp_`, `github_pat_`, shaped `AKIA` access-key
+IDs (sixteen uppercase ASCII alphanumeric characters after the prefix), and
+Slack `xoxb-`/`xoxp-`/`xoxa-`/`xoxr-`/`xoxs-` token forms. Family placeholders
+are stable and expose no credential suffix. Certified text prefixes treat
+these placeholders as indivisible spans. This incremental defense does not
+claim exhaustive credential detection.
 
 Effective configuration has distinct strict internal and outbound contracts.
 Source YAML carries the optional `card_types` map; after `ResolvedConfigAuthority` resolves it, internal and outbound contracts contain the complete effective `card_types` map and no source-only form.

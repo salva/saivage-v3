@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isSetStatusTransition, summarizeChangedFields } from '../cards/artifact-api.js';
+import { isSetStatusTransition, summarizeChangedFields } from '../cards/status-api.js';
 import {
   CARD_RECORD_FIELDS,
   cardIdSchema,

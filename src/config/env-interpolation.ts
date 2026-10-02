@@ -30,18 +30,11 @@ export function interpolateValue(
   v: unknown,
   env: EnvironmentSource,
 ): { value: unknown; warnings: string[] } {
-  return interpolateValueImpl(v, env);
-}
-
-function interpolateValueImpl(
-  v: unknown,
-  env: EnvironmentSource,
-): { value: unknown; warnings: string[] } {
   if (typeof v === 'string') {
     return interpolateString(v, env);
   }
   if (Array.isArray(v)) {
-    const results = v.map((item) => interpolateValueImpl(item, env));
+    const results = v.map((item) => interpolateValue(item, env));
     return {
       value: results.map((r) => r.value),
       warnings: results.flatMap((r) => r.warnings),
@@ -51,7 +44,7 @@ function interpolateValueImpl(
     const result: Record<string, unknown> = {};
     const warnings: string[] = [];
     for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-      const { value: iv, warnings: iw } = interpolateValueImpl(val, env);
+      const { value: iv, warnings: iw } = interpolateValue(val, env);
       result[key] = iv;
       warnings.push(...iw);
     }

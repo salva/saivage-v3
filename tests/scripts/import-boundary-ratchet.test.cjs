@@ -125,7 +125,7 @@ function escapeRegExp(value) {
 
 test('runtime leaves require owner public surfaces in the real CLI', () => withFixture((root) => {
   writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
-  for (const owner of ['runtime', 'persistence', 'contracts', 'schemas', 'sanitization', 'tools']) {
+  for (const owner of ['runtime', 'persistence', 'contracts', 'schemas', 'workspace', 'tools']) {
     mkdirSync(path.join(root, `src/${owner}`), { recursive: true });
   }
   const cases = [
@@ -136,8 +136,8 @@ test('runtime leaves require owner public surfaces in the real CLI', () => withF
     ['../contracts/index.js', true],
     ['../schemas/card-id.js', false],
     ['../schemas/index.js', true],
-    ['../sanitization/analyst-sanitization.js', false],
-    ['../sanitization/index.js', true],
+    ['../workspace/operator-command.js', false],
+    ['../workspace/index.js', true],
     ['../tools/invocation.js', false],
     ['../tools/tool-api.js', true],
     ['./actors/llm-actor.js', true],
@@ -185,7 +185,7 @@ test('runtime and agents directional denials override public API admission', () 
 
 test('overlapping prohibitions select exactly one precedence rule per occurrence', () => withFixture((root) => {
   writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
-  for (const owner of ['runtime', 'contracts', 'schemas', 'tools', 'server', 'boot', 'workspace', 'redaction']) {
+  for (const owner of ['runtime', 'contracts', 'schemas', 'tools', 'server', 'boot', 'workspace', 'redaction', 'config', 'application', 'observability', 'persistence', 'mcp']) {
     mkdirSync(path.join(root, `src/${owner}`), { recursive: true });
   }
   const cases = [
@@ -198,6 +198,16 @@ test('overlapping prohibitions select exactly one precedence rule per occurrence
     ['contracts', 'server/server-api.js', 'contracts-declarative'],
     ['schemas', 'server/internal.js', 'schemas-bottom-layer'],
     ['schemas', 'server/server-api.js', 'schemas-bottom-layer'],
+    ['redaction', 'config/index.js', 'redaction-primitive'],
+    ['redaction', 'application/index.js', 'redaction-primitive'],
+    ['redaction', 'observability/index.js', 'redaction-primitive'],
+    ['redaction', 'persistence/index.js', 'redaction-primitive'],
+    ['redaction', 'cards/status-api.js', 'redaction-primitive'],
+    ['redaction', 'mcp/tool-api.js', 'redaction-primitive'],
+    ['redaction', 'agents/execution-api.js', 'redaction-primitive'],
+    ['redaction', 'tools/tool-api.js', 'redaction-primitive'],
+    ['redaction', 'server/server-api.js', 'redaction-primitive'],
+    ['redaction', 'runtime/runtime-api.js', 'redaction-primitive'],
     ['tools', 'server/internal.js', 'server-import'],
     ['boot', 'server/internal.js', 'cross-package-deep'],
     ['workspace', 'runtime', 'workspace-runtime'],
@@ -237,6 +247,9 @@ test('overlapping prohibitions select exactly one precedence rule per occurrence
     ['server', 'contracts/index.js'],
     ['boot', 'server/server-api.js'],
     ['server', 'server/internal.js'],
+    ['redaction', 'schemas/index.js'],
+    ['redaction', 'contracts/index.js'],
+    ['redaction', 'redaction/text.js'],
   ]) {
     const source = `src/${owner}/consumer.ts`;
     writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
@@ -251,6 +264,56 @@ test('overlapping prohibitions select exactly one precedence rule per occurrence
       assert.match(result.stdout, new RegExp(digest([])));
     }
     writeFileSync(path.join(root, source), 'export const consumer = true;\n');
+  }
+}));
+
+test('public entry admission rejects invented and neighboring API paths with an empty baseline', () => withFixture((root) => {
+  mkdirSync(path.join(root, 'src/server'));
+  mkdirSync(path.join(root, 'src/config'));
+  mkdirSync(path.join(root, 'src/tools'));
+  writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
+  writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
+  for (const target of [
+    'cards/artifact-api', 'config/artifact-api', 'agents/artifact-api',
+    'cards/tool-api', 'config/config-api', 'tools/status-api',
+    'cards/nested/store-api', 'cards/store-api-neighbor',
+    'runtime/nested/runtime-api', 'runtime/control-api',
+  ]) {
+    for (const extension of ['js', 'ts']) {
+      const source = 'src/server/consumer.ts';
+      const normalized = `${target}.js`;
+      writeFileSync(path.join(root, source), `import type { Value } from '@saivage/${target}.${extension}';\n`);
+      const result = run(root);
+      const actual = { totalViolations: 1, violationDigest: digest([[source, 'cross-package-deep', normalized]]) };
+      assert.notEqual(result.status, 0, `${target}.${extension}: ${output(result)}`);
+      assert.match(output(result), new RegExp(`Actual: ${escapeRegExp(JSON.stringify(actual))}`));
+    }
+  }
+}));
+
+test('direct owner projector surfaces remain admitted with normalized spellings', () => withFixture((root) => {
+  writeFileSync(path.join(root, 'src/agents/consumer.ts'), 'export const consumer = true;\n');
+  for (const owner of ['server', 'observability', 'config', 'persistence', 'application', 'tools', 'mcp', 'runtime']) {
+    mkdirSync(path.join(root, `src/${owner}`), { recursive: true });
+  }
+  writeFileSync(path.join(root, 'scripts/import-boundary-baseline.json'), baseline(0, digest([])));
+  const projectors = [
+    ['agents/execution-api', 'projectProviderExchange'],
+    ['observability/index', 'projectLoggedEvent'],
+    ['config/index', 'projectEffectiveConfigForOutbound'],
+    ['persistence/index', 'projectControlAction'],
+    ['application/index', 'projectCardDiff'],
+    ['tools/tool-api', 'projectToolInvocation'],
+    ['mcp/tool-api', 'projectMcpToolsForOutbound'],
+  ];
+  for (const extension of ['js', 'ts']) {
+    writeFileSync(path.join(root, 'src/server/consumer.ts'), projectors.map(([entry, name]) =>
+      `import { ${name} } from '../${entry}.${extension}';`).join('\n'));
+    writeFileSync(path.join(root, 'src/tools/consumer.ts'), `import { projectCardDiff } from '../application/index.${extension}';\n`);
+    writeFileSync(path.join(root, 'src/server/runtime-consumer.ts'), `import type { RuntimeControl } from '../runtime/runtime-api.${extension}';\n`);
+    const result = run(root);
+    assert.equal(result.status, 0, `${extension}: ${output(result)}`);
+    assert.match(result.stdout, new RegExp(digest([])));
   }
 }));
 

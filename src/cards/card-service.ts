@@ -8,6 +8,7 @@ import {
   type AgentName,
   type CardRecord,
   type CardStatus,
+  type RecordDefinition,
   parseRecordName,
 } from '../schemas/index.js';
 import {
@@ -49,7 +50,6 @@ import {
   type CanonicalReadInstrumentation,
   type GrowingFileIo,
 } from '../persistence/index.js';
-import type { RecordDefinition } from '../records/index.js';
 import { genericRecordDefinition, type CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../contracts/index.js';
 import type { LiveSyncCardRecordName } from '../contracts/index.js';

@@ -1,6 +1,7 @@
 import type { OperatorApiSuccess } from '../../contracts/index.js';
 import { listControlActions } from '../../persistence/index.js';
-import { redactForOutbound } from '../../redaction/artifact-api.js';
+import { projectEffectiveConfigForOutbound } from '../../config/index.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 import {
   defineOperatorContractHandlers,
   type OperatorConfigContext,
@@ -13,11 +14,10 @@ export function buildConfigOperatorContractHandlers(
   return defineOperatorContractHandlers({
     'config.get': () => {
       const effective = options.configAuthority.loadEffective();
-      const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound({
-        source: 'config',
-        value: effective.config,
-      });
-      return { body: { config, warnings: [...effective.warnings] } };
+      const config: OperatorApiSuccess<'config.get'>['config'] = projectEffectiveConfigForOutbound(
+        effective.config,
+      );
+      return { body: { config, warnings: effective.warnings.map(redactTextForOutbound) } };
     },
     'providers.list': () => {
       return { body: options.providerRoutingReadModelProvider() };

@@ -20,8 +20,8 @@ import {
   readRecordVersionInputSchema,
   type ToolActionOutcome,
 } from '../contracts/index.js';
-import { redactForOutbound } from '../redaction/artifact-api.js';
 import {
+  projectCardDiff,
   projectCardArtifactForOutbound,
   projectCardRecordForOutbound,
   projectCardVersionChangeForOutbound,
@@ -245,7 +245,7 @@ function diffCardVersions(
     entry_id: result.toArtifact.entry_id,
     artifact_sha256: canonicalValueSha256(projectCardArtifactForOutbound(result.toArtifact)),
   };
-  const projectedDiff = redactForOutbound({ source: 'card-diff', value: result.diff });
+  const projectedDiff = projectCardDiff(result.diff);
   const observation = canonicalValueSha256({
     surface: 'diff_card_versions',
     card_id: params.card_id,

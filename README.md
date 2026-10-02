@@ -58,6 +58,8 @@ complete minimal configuration and first objective, and the
 owns startup options and precedence; the [runbook](docs/runbook/index.md)
 owns deployment, configuration cutovers, lifecycle operations, recovery, and
 reset, including its [command-environment guidance](docs/runbook/index.md#command-environment).
+Successful startup and offline workflow loads report redacted advisory
+missing-environment warnings; see the [configuration guide](docs/guides/configuration.md).
 Successful fresh startup settles interrupted linked cards before listener/readiness
 and leaves execution stopped; an explicit Run starts project work. Same-process
 project Stop leaves any durable running chain for the next Run. See the
@@ -195,9 +197,10 @@ dependencies must be installed before `npm run check:export-consumers`,
 `npm run lint`, or `npm run validate:routine`.
 
 `npm run lint` runs the export-consumer guard, stamp-producer guard, ESLint,
-backend import-boundary checks, web-component boundary check, then
-`npm run format`, in that order. The formatter checks only `src/` with the
-existing Prettier settings. The existing CI `lint-guards` job enforces this
+backend import-boundary checks, web-component boundary check, reachable-browser
+import guard (`node scripts/check-web-browser-imports.cjs`), then the
+`npm run format` Prettier check, in that order. This checks only `src/` with the
+existing Prettier settings and does not rewrite files. The existing CI `lint-guards` job enforces this
 profile through `validation-required` under its applies/skipped semantics;
 `validate:routine` does not run lint or Jest.
 

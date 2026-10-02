@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loggedEventSchema, type LoggedEvent } from '../schemas/index.js';
-import { redactForOutbound } from '../redaction/artifact-api.js';
+import { projectLoggedEvent } from './logged-event-projection.js';
 import { appendAppLogEntry, type AppLogPublicationContext } from '../persistence/index.js';
-
-// ── Constants ─────────────────────────────────────────────────
 
 // ── Event ID Generator ───────────────────────────────────────
 
@@ -11,12 +9,10 @@ let eventCounter = 0;
 
 function nextEventId(): string {
   eventCounter++;
-  // Use a short UUID prefix + counter for uniqueness without full UUID cost
-  const shortId = randomUUID().split('-')[0] ?? randomUUID();
+  // Use an eight-character UUID prefix plus counter.
+  const shortId = randomUUID().slice(0, 8);
   return `evt-${shortId}-${Date.now()}-${eventCounter}`;
 }
-
-// ── Filter Type ──────────────────────────────────────────────
 
 // ── Event Input Type ─────────────────────────────────────────
 
@@ -30,8 +26,6 @@ type AppendEventInput = LoggedEvent extends infer Event
     ? Omit<Event, 'id' | 'timestamp'> & Partial<Pick<Event, 'id' | 'timestamp'>>
     : never
   : never;
-
-// ── Helpers ──────────────────────────────────────────────────
 
 // ── Event log producer ───────────────────────────────────────
 
@@ -55,14 +49,13 @@ export function createEventLog(projectRoot: string): EventLog {
         const event = prepareEvent();
         return {
           type: 'event',
-          data: redactForOutbound({
-            source: 'logged-event',
-            value: loggedEventSchema.parse({
+          data: projectLoggedEvent(
+            loggedEventSchema.parse({
               ...event,
               id: event.id ?? nextEventId(),
               timestamp: event.timestamp ?? new Date().toISOString(),
             }),
-          }),
+          ),
         };
       },
       context,

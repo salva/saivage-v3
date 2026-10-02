@@ -1,6 +1,6 @@
 import { cardActionValues } from '../schemas/index.js';
 import type { CardAction, CardStatus } from '../schemas/index.js';
-import { canCancelCardStatus } from '../cards/status-api.js';
+import { canCancelCardStatus } from './card-status.js';
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled card action: ${String(value)}`);
