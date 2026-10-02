@@ -38,7 +38,7 @@ function finalizedTool(): string {
   });
 }
 
-async function expectParseError(body: ReadableStream<Uint8Array>): Promise<void> {
+async function expectParseError(body: ReadableStream<Uint8Array>, expectedMessage?: string): Promise<void> {
   try {
     await readOpenAICodexStream(body, 200);
   } catch (error) {
@@ -46,6 +46,7 @@ async function expectParseError(body: ReadableStream<Uint8Array>): Promise<void>
     const failure = (error as LlmRequestError).failure;
     expect(failure.kind).toBe('parse_error');
     expect(failure.provider).toBe('openai-codex');
+    if (expectedMessage !== undefined) expect(failure.message).toBe(expectedMessage);
     return;
   }
   throw new Error('Expected OpenAI Codex stream parse failure.');
@@ -63,6 +64,45 @@ async function expectFailure(body: ReadableStream<Uint8Array>, expected: LlmTran
 }
 
 describe('OpenAI Codex stream parser', () => {
+  it.each(['response.output_item.done', 'response.function_call_arguments.done'])('validates only the selected new final name for %s', async (type) => {
+    const done = (name: unknown) => event(type === 'response.output_item.done'
+      ? { type, item: { type: 'function_call', call_id: 'call-original', id: 'item-1', name } }
+      : { type, item_id: 'item-1', name });
+    const added = (name: unknown) => event({ type: 'response.output_item.added', item: { type: 'function_call', call_id: 'call-original', id: 'item-1', name, arguments: '' } })
+      + event({ type: 'response.function_call_arguments.delta', item_id: 'item-1', delta: '{"city":' })
+      + event({ type: 'response.function_call_arguments.delta', call_id: 'call-original', delta: '"Madrid"}' });
+    const invalidNames = [undefined, null, '', 7, { secret: 'must not be disclosed' }, ['lookup']];
+    const errorMessage = 'Error reading OpenAI Codex stream: OpenAI Codex finalized function name must be a nonempty string.';
+    for (const name of invalidNames) {
+      // A nameless completion consumes the raw provisional value, never a string coercion.
+      await expectParseError(stream(added(name) + done(undefined) + finalizedTool() + completion()), errorMessage);
+      await expectParseError(stream(added(undefined) + done(name) + finalizedTool() + completion()), errorMessage);
+      if (name !== undefined && name !== null)
+        await expectParseError(stream(added('lookup') + done(name) + finalizedTool() + completion()), errorMessage);
+      await expect(readOpenAICodexStream(stream(added(name) + done('late-tool') + completion()), 200)).resolves.toEqual({
+        kind: 'tool_calls', tool_calls: [{ id: 'call-original', type: 'function', function: { name: 'late-tool', arguments: '{"city":"Madrid"}' } }],
+      });
+    }
+    for (const name of [undefined, null]) {
+      await expect(readOpenAICodexStream(stream(added('lookup') + done(name) + completion()), 200)).resolves.toEqual({
+        kind: 'tool_calls', tool_calls: [{ id: 'call-original', type: 'function', function: { name: 'lookup', arguments: '{"city":"Madrid"}' } }],
+      });
+    }
+  });
+
+  it('validates standalone completed names without imposing a registry or trimming and ignores a nameless duplicate', async () => {
+    for (const name of [undefined, null, '', 7, {}, []]) {
+      await expectParseError(stream(event({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call-original', name, arguments: '{"city":"Madrid"}' } }) + finalizedTool() + completion()));
+    }
+    for (const name of ['unregistered-tool', ' ']) {
+      const source = event({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call-original', id: 'item-1', name, arguments: '{"city":"Madrid"}' } })
+        + event({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call-original', id: 'item-1' } });
+      await expect(readOpenAICodexStream(stream(source + completion()), 200)).resolves.toEqual({
+        kind: 'tool_calls', tool_calls: [{ id: 'call-original', type: 'function', function: { name, arguments: '{"city":"Madrid"}' } }],
+      });
+    }
+  });
+
   it.each([new DOMException('stream stopped', 'AbortError'), Object.assign(new Error('stream stopped'), { name: 'AbortError' }), { owner: 'stopped' }])('preserves exact stream cancellation identity and releases its lock: %p', async (reason) => {
     const controller = new AbortController();
     controller.abort(reason);

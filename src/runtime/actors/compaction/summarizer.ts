@@ -220,7 +220,10 @@ function validateSummaryCompletion(
   candidate: Candidate,
 ): string {
   const finalExchange = completion.provider_exchanges.at(-1);
-  const finishReason = finalExchange?.status === 'ok' ? finalExchange.finish_reason : undefined;
+  const finishReason =
+    finalExchange?.status === 'ok' && finalExchange.transport === 'generic'
+      ? finalExchange.finish_reason
+      : undefined;
   if (finishReason === 'length') {
     const bytes =
       completion.result.kind === 'message'

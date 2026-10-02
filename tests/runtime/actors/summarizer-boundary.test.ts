@@ -6,6 +6,9 @@ import { ACTIVITY_ROW_POLICY, toolRowPolicies } from '../../helpers/row-policy-f
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import {
   assertSummarizerCapabilities,
+  admitSummaryRequest,
+  buildSummaryRequestInput,
+  invokeSummaryRequest,
   SummaryResultValidationError,
   SummaryPromptPolicyBlockedError,
   SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE,
@@ -20,6 +23,7 @@ import { ProviderTurnFailure } from '../../../src/contracts/index.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { noCompactionProgress } from '../../helpers/executing-llm-snapshot.js';
+import { openAIResponsesAdapter } from '../../../src/agents/llm-openai-responses-adapter.js';
 
 const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAccumulatorWithoutProgress>[0], 'progress'>) => createAccumulatorWithoutProgress({ ...args, progress: noCompactionProgress });
 
@@ -29,6 +33,53 @@ const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const
 const BUDGET = { contextUtilizationFraction: 0.8 };
 
 describe('compaction summarizer projection boundary', () => {
+  it('consumes real Responses completed prose once through the accumulator after an earlier failed exchange', async () => {
+    const rows = durableRound(SESSION, SOURCE_INPUT_ID);
+    const text = 'Responses native completed summary';
+    const projected = jest.fn<SummarizerProviderPort['projectProviderExchanges']>();
+    const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async (input) => {
+      const parsed = await openAIResponsesAdapter.parseSuccess(CANDIDATE, new Response(JSON.stringify({
+        id: 'resp-summary', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }],
+      }), { status: 200 }), { inputId: input.inputId, temperature: 0, max_tokens: 2000, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], tools: [], tool_choice: 'auto' });
+      expect(parsed.finishReason).toBe('completed');
+      return { result: parsed.result, provider_exchanges: [errorAttempt(input.inputId), { ...okAttempt(input.inputId, parsed.finishReason), transport: 'openai-responses', attempt_index: 1 }] };
+    });
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: { ...summarizerProvider(completeTurn), projectProviderExchanges: projected }, budget: BUDGET, signal: new AbortController().signal });
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe(text);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect(accumulator.invocationCount).toBe(1);
+    expect(accumulator.correctionCount).toBe(0);
+    expect(projected).toHaveBeenCalledTimes(1);
+    expect(projected).toHaveBeenCalledWith(SESSION, 'internal-summary', completeTurn.mock.calls[0]![0].inputId, [expect.objectContaining({ status: 'error', transport: 'generic' }), expect.objectContaining({ status: 'ok', transport: 'openai-responses', finish_reason: 'completed', attempt_index: 1 })], { assistantOutputIds: [], terminalConversationOutputId: null });
+  });
+
+  it.each(['codex', 'openai-responses'] as const)('retains shared prose validation at the direct %s summary boundary', async (transport) => {
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: SESSION, instruction: 'summarize', items: [] });
+    const admitted = admitSummaryRequest({ serialization: deterministicSummarySerialization(input), ...BUDGET, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Test summary request must fit.');
+    for (const result of [{ kind: 'message' as const, content: '  native prose  ' }, { kind: 'message' as const, content: '   ' }, { kind: 'tool_calls' as const, tool_calls: [] }]) {
+      const provider = summarizerProvider(async () => ({ result, provider_exchanges: [{ ...okAttempt(input.inputId, transport === 'openai-responses' ? 'completed' : undefined), transport }] }));
+      const invocation = invokeSummaryRequest({ input, admitted, summarizerProvider: provider, signal: new AbortController().signal });
+      if (result.kind === 'message' && result.content.trim()) await expect(invocation).resolves.toBe('native prose');
+      else {
+        const failure = await invocation.catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(SummaryResultValidationError);
+        expect(failure).toMatchObject({ reason: result.kind === 'message' ? 'empty_output' : 'tool_calls' });
+      }
+    }
+  });
+
+  it.each([null, undefined])('uses ordinary result validation for Chat finish %p', async (finish) => {
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: SESSION, instruction: 'summarize', items: [] });
+    const admitted = admitSummaryRequest({ serialization: deterministicSummarySerialization(input), ...BUDGET, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Test summary request must fit.');
+    for (const result of [{ kind: 'message' as const, content: '  Chat prose  ' }, { kind: 'message' as const, content: ' ' }, { kind: 'tool_calls' as const, tool_calls: [] }]) {
+      const invocation = invokeSummaryRequest({ input, admitted, summarizerProvider: summarizerProvider(async () => ({ result, provider_exchanges: [okAttempt(input.inputId, finish)] })), signal: new AbortController().signal });
+      if (result.kind === 'message' && result.content.trim()) await expect(invocation).resolves.toBe('Chat prose');
+      else await expect(invocation).rejects.toBeInstanceOf(SummaryResultValidationError);
+    }
+  });
+
   it('requires declared positive fixed-candidate limits and 2000-token output without exclusive tool choice', () => {
     expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 10_000, maxOutputTokens: 2_000, quirks: [] })).not.toThrow();
     expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] })).toThrow(/contextWindowTokens/u);
@@ -189,6 +240,7 @@ describe('compaction summarizer projection boundary', () => {
     const cases = [
       { finish: 'content_filter', kind: 'content_policy' },
       { finish: 'future_reason', kind: 'provider_protocol_error' },
+      { finish: 'completed', kind: 'provider_protocol_error' },
       { finish: 'tool_calls', kind: 'provider_protocol_error' },
     ] as const;
     for (const entry of cases) {

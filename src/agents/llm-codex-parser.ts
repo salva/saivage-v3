@@ -6,7 +6,7 @@ import {
 } from './llm-failure-classifiers.js';
 import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 
-type PendingCodexToolCall = { id: string; itemId?: string; name: string; args: string };
+type PendingCodexToolCall = { id: string; itemId?: string; name: unknown; args: string };
 
 export async function readOpenAICodexStream(
   body: ReadableStream<Uint8Array>,
@@ -130,7 +130,7 @@ export function handleOpenAICodexEvent(
       const pending = {
         id: callId,
         itemId,
-        name: String(item['name'] ?? ''),
+        name: item['name'],
         args: String(item['arguments'] ?? ''),
       };
       pendingToolCalls.set(callId, pending);
@@ -148,7 +148,7 @@ export function handleOpenAICodexEvent(
         toolCalls,
         finalizedToolCalls,
         pending?.id ?? callId,
-        String(item['name'] ?? pending?.name ?? ''),
+        item['name'] ?? pending?.name,
         String(item['arguments'] ?? pending?.args ?? '{}'),
       );
       if (pending) removePendingCodexToolCall(pendingToolCalls, pending);
@@ -172,7 +172,7 @@ export function handleOpenAICodexEvent(
       toolCalls,
       finalizedToolCalls,
       pending.id,
-      String(event['name'] ?? pending.name),
+      event['name'] ?? pending.name,
       String(event['arguments'] ?? pending.args),
     );
     removePendingCodexToolCall(pendingToolCalls, pending);
@@ -219,10 +219,12 @@ function finalizeCodexToolCall(
   toolCalls: ToolCall[],
   finalizedToolCalls: Set<string>,
   id: string,
-  name: string,
+  name: unknown,
   args: string,
 ): void {
   if (finalizedToolCalls.has(id)) return;
+  if (typeof name !== 'string' || name.length === 0)
+    throw new Error('OpenAI Codex finalized function name must be a nonempty string.');
   finalizedToolCalls.add(id);
   toolCalls.push({ id, type: 'function', function: { name, arguments: args || '{}' } });
 }
