@@ -92,6 +92,8 @@ async function runWorkspaceMutation(
 const collectionHelp =
   'Collection pages are {total,position,returned,next,items}. Copy a non-null page next exactly into position with the same query and stable input; offsets are decoded UTF-8 byte boundaries in the complete outbound-projected canonical JSON item. An oversized item is a JsonSlice {content_hex,utf8_bytes,offset_bytes,next_offset_bytes,total_bytes} with lowercase-hex content_hex: hex-decode it, concatenate decoded bytes by item/offset, UTF-8 decode, then JSON-parse. Do not use a final slice end as a position independently.';
 const readDescription = `Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs with one exact byte-bounded response envelope. Text files and record documents return plaintext UTF-8 TextSlice {content,utf8_bytes,offset_bytes,next_offset_bytes} pages at a stateless {byte_offset} position; TextSlice content is not hex. Directories and record:/// listings return byte-packed collection pages at a stateless {item_index,item_byte_offset} position. ${collectionHelp} work:/// content is redacted before slicing. metadata_only returns bounded scalars plus the plaintext sliced path text. Files larger than about 10MB are refused rather than read inline. Direct reads and directory listings are not filtered by project search scope; read .saivage-search-ignore by that exact path to inspect it.`;
+const recordMutationHelp =
+  'Record writes require record:///<name>?card=<card-id>, e.g. record:///status.md?card=project; &v=N is read-only.';
 const projectSearchScopeHelp =
   'For project-directory searches only, optional .saivage-search-ignore literal project-root-relative directory entries prune those roots before traversal; no Git state is inferred. Do not exclude required source or evidence merely to shorten a search or conceal a failed check. Excluded files remain directly readable, and read of the exact .saivage-search-ignore path inspects the policy.';
 const globDescription = `Search files in deterministic depth-first string-comparison order under project-relative, project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Every call performs one complete fresh read-only scan of its eligible domain, counts the exact total, retains only the contiguous max_results window (default 200; 1..1000), and packs matches within response_bytes (default/maximum 32768; minimum 512); it writes no result artifact. ${projectSearchScopeHelp} record:///<cardId> searches only effective current declared records without namespace scans. work:/// traverses supported process, stash, and work paths read-only. ${collectionHelp}`;
@@ -151,8 +153,7 @@ export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext,
     }),
     defineToolBinder({
       name: 'write',
-      description:
-        'Create or replace a project, record, tmp, or system file according to the named agent contract.',
+      description: `Create or replace a project, record, tmp, or system file according to the named agent contract. ${recordMutationHelp}`,
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => writeWorkspaceInputSchema,
       executor: (ctx, args) =>
@@ -160,8 +161,7 @@ export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext,
     }),
     defineToolBinder({
       name: 'edit',
-      description:
-        'Replace exact text in a project, record, tmp, or system file according to the named agent contract.',
+      description: `Replace exact text in a project, record, tmp, or system file according to the named agent contract. ${recordMutationHelp}`,
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => editWorkspaceInputSchema,
       executor: (ctx, args) =>
@@ -227,8 +227,7 @@ const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContex
   Object.freeze([
     defineToolBinder({
       name: 'write',
-      description:
-        'Create or replace a project, record, tmp, or system file according to the named agent contract.',
+      description: `Create or replace a project, record, tmp, or system file according to the named agent contract. ${recordMutationHelp}`,
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => writeWorkspaceInputSchema,
       executor: (ctx, args, signal) =>
@@ -257,8 +256,7 @@ const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContex
     }),
     defineToolBinder({
       name: 'edit',
-      description:
-        'Replace exact text in a project, record, tmp, or system file according to the named agent contract.',
+      description: `Replace exact text in a project, record, tmp, or system file according to the named agent contract. ${recordMutationHelp}`,
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => editWorkspaceInputSchema,
       executor: (ctx, args, signal) =>

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { admitRecordMutation,mutateRecord,preflightAnalystRecordWrite } from '../../src/application/record-mutation-service.js';
 import { cardRecordStreamFile } from '../../src/persistence/layout.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -75,6 +76,74 @@ describe('Analyst record preflight', () => {
 });
 
 describe('card-agent record mutation', () => {
+  it.each(['write', 'edit'] as const)('returns invalid %s targets before every state/effect operation', (operation) => {
+    const { cards } = setup();
+    const read = jest.spyOn(cards, 'read');
+    const classify = jest.spyOn(cards, 'classifyCurrentRecord');
+    const open = jest.spyOn(cards, 'openRecord');
+    const edit = jest.spyOn(cards, 'editRecord');
+    const close = jest.spyOn(cards, 'closeRecord');
+    const written = jest.fn(); const propagate = jest.fn(() => ({ ok: true as const }));
+    for (const [path, error] of [
+      ['record:///brief.md', 'Invalid record URL.'],
+      ['record:///%ZZ?card=project', 'Invalid record URL encoding.'],
+      ['record:///brief.md?card=project&v=1', 'Historical record URLs cannot be mutated.'],
+    ]) {
+      const request = { ...analystPreflightRequest, path: path!, operation, content: 'changed', oldString: 'old', newString: 'new', onRecordWritten: written };
+      for (const surface of ['analyst', 'card_agent'] as const) {
+        expect(mutateRecord(cards, { ...request, surface, cardId: 'project' }, propagate)).toEqual({ kind: 'rejected', error, data: { code: 'record_mutation_invalid_target', operation } });
+      }
+      expect(preflightAnalystRecordWrite(cards, request)).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'record_mutation_invalid_target', operation } } });
+    }
+    for (const spy of [read, classify, open, edit, close, written, propagate]) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('preserves unexpected parser error identity without reading state', () => {
+    const { cards } = setup(); const read = jest.spyOn(cards, 'read');
+    const fault = new Error('decoder fault');
+    jest.spyOn(globalThis, 'decodeURIComponent').mockImplementation(() => { throw fault; });
+    let caught: unknown;
+    try { admitRecordMutation(cards, analystPreflightRequest); } catch (error) { caught = error; }
+    expect(caught).toBe(fault);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each(['read', 'classifyCurrentRecord', 'openRecord', 'editRecord', 'closeRecord'] as const)('preserves publication uncertainty from %s without follow-up', (method) => {
+    const { cards } = setup(); const unknown = new PublicationOutcomeUnknownError();
+    const calls: string[] = [];
+    for (const name of ['read', 'classifyCurrentRecord', 'openRecord', 'editRecord', 'closeRecord'] as const) {
+      const original = cards[name].bind(cards) as (...args: any[]) => any;
+      jest.spyOn(cards, name).mockImplementation(((...args: any[]) => {
+        calls.push(name); if (name === method) throw unknown; return original(...args);
+      }) as never);
+    }
+    const propagate = jest.fn(() => ({ ok: true as const }));
+    let caught: unknown;
+    try { mutateRecord(cards, { ...analystPreflightRequest, content: 'changed' }, propagate); } catch (error) { caught = error; }
+    expect(caught).toBe(unknown);
+    expect(calls.at(-1)).toBe(method); expect(propagate).not.toHaveBeenCalled();
+  });
+
+  it('lets unexpected mutation errors escape unchanged', () => {
+    const { cards } = setup(); const fault = new Error('mutation fault');
+    jest.spyOn(cards, 'editRecord').mockImplementation(() => { throw fault; });
+    const close = jest.spyOn(cards, 'closeRecord');
+    let caught: unknown;
+    try { mutateRecord(cards, { ...analystPreflightRequest, content: 'changed' }); } catch (error) { caught = error; }
+    expect(caught).toBe(fault);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('keeps complete record corruption unavailable rather than relabeling it invalid target', () => {
+    const { root, cards } = setup();
+    const before = cards.readRecordCurrent('project', 'brief.md');
+    if (before.kind !== 'found') throw new Error('Expected fixture record.');
+    appendFileSync(cardRecordStreamFile(root, 'project', before.value.definition), '{"malformed":true}\n');
+    expect(() => cards.readRecordCurrent('project', 'brief.md')).toThrow();
+    expect(mutateRecord(cards, { ...analystPreflightRequest, content: 'changed' })).toMatchObject({
+      kind: 'rejected', data: { code: 'current_state_unavailable', resource: 'authored_record', restart_required: true },
+    });
+  });
   it.each(DENIAL_CASES)('returns %s before definition or record classification', (reason,state,surface,cardId,writerAllowed,toolAllowed) => {
     const {cards}=setup();const reached=cards.read('project')!;const card=state==='cancelled'?{...reached,lifecycle:{status:'cancelled' as const,result:null,error:null,completed_at:null}}:reached;
     const classifyCurrentRecord=jest.fn(()=>{throw new Error('CLASSIFIER_MUST_NOT_RUN');});
@@ -104,7 +173,7 @@ describe('card-agent record mutation', () => {
     expect(existsSync(cardRecordStreamFile(root, 'project', dynamicDefinition(deniedName)))).toBe(false);
 
     const historicalName = 'review-history.md';
-    expect(() => mutateRecord(cards, { path: `record:///${historicalName}?card=project&v=1`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toThrow('Historical record URLs cannot be mutated.');
+    expect(mutateRecord(cards, { path: `record:///${historicalName}?card=project&v=1`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toEqual({ kind: 'rejected', error: 'Historical record URLs cannot be mutated.', data: { code: 'record_mutation_invalid_target', operation: 'write' } });
     expect(existsSync(cardRecordStreamFile(root, 'project', dynamicDefinition(historicalName)))).toBe(false);
   });
 

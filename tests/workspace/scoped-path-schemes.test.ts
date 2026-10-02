@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +10,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { saivageWorkRoot } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function fail(message: string): Error {
   const error = new Error(message);
@@ -39,6 +39,14 @@ async function expectWorkspaceToolInputError(action: () => unknown): Promise<voi
 }
 
 describe('scoped path resolvers', () => {
+  it.each([resolveRecordReadTarget, resolveRecordWriteTarget])('preserves unexpected parser errors rather than invoking fail', (resolver) => {
+    const fault = new Error('decoder fault'); const failSpy = jest.fn(fail);
+    jest.spyOn(globalThis, 'decodeURIComponent').mockImplementation(() => { throw fault; });
+    let caught: unknown;
+    try { resolver({ ...ctx(), fail: failSpy }, 'record:///brief.md?card=project'); } catch (error) { caught = error; }
+    expect(caught).toBe(fault);
+    expect(failSpy).not.toHaveBeenCalled();
+  });
   it('classifies unsupported write record slots through the fail callback', async () => {
     await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///card.json?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
   });

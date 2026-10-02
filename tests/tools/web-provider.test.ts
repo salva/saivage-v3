@@ -12,11 +12,38 @@ import { workspaceToolBinders, type WorkspaceProviderContext } from '../../src/t
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { WebfetchDataSchema, WebfetchTextDataSchema } from '../../src/contracts/webfetch.js';
 import { projectHistoricalToolResultForOutbound } from '../../src/tools/tool-result-settlement.js';
+import { CardService, initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
 
 const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webToolBinders, context);
 const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, context);
 
 describe('WebProvider', () => {
+  it.each(['card', 'analyst'] as const)('rejects invalid %s record saves before network or record mutation', async (owner) => {
+    const root = mkdtempSync(join(tmpdir(), 'web-invalid-record-')); initProjectTree(root);
+    const cards = new CardService(root); const before = cards.readRecordCurrent('project', 'brief.md');
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const open = jest.spyOn(cards, 'openRecord'); const edit = jest.spyOn(cards, 'editRecord'); const close = jest.spyOn(cards, 'closeRecord');
+    const notify = jest.fn(() => ({ ok: true as const, notificationId: 'fixture' }));
+    try {
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', sessionId: 'agent:analyst:global', store: cards, interventionReadiness: { assertInterventionReady() {} }, analystMutations: testAnalystMutationServices(root, cards, notify) } as never;
+      const context: WebProviderContext = owner === 'analyst'
+        ? { projectRoot: root, agentName: 'analyst', analystToolContext }
+        : { projectRoot: root, agentName: 'planner', cardId: 'project', store: cards };
+      const surface = buildInvocationSurfaceFixture(owner === 'analyst' ? 'analyst' : 'planner', [bindWeb(context)]);
+      for (const save_as of ['record:///brief.md', 'record:///%ZZ?card=project', 'record:///brief.md?card=project&v=1']) {
+        const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as });
+        expect(result.success).toBe(false);
+        if (owner === 'analyst') expect(result).toMatchObject({ data: { code: 'record_mutation_invalid_target', operation: 'write' } });
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+      for (const spy of [open, edit, close, notify]) expect(spy).not.toHaveBeenCalled();
+      expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(before);
+      const audits = readAppLogEntries(root, 'control_action').map((entry) => entry.data);
+      expect(audits).toHaveLength(owner === 'analyst' ? 3 : 0);
+      if (owner === 'analyst') expect(audits).toMatchObject(Array.from({ length: 3 }, () => ({ outcome: 'error' })));
+    } finally { jest.restoreAllMocks(); rmSync(root, { recursive: true, force: true }); }
+  });
   it('waits only around public fetch and resumes before result publication/finalization', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     let release!: (response: Response) => void;

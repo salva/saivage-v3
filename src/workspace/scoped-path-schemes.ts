@@ -9,6 +9,7 @@ import {
   buildScopedPathUrl,
   parseScopedPathUrl,
   parseRecordUrl,
+  RecordUrlInputError,
   type ParsedScopedPathUrl,
   type ParsedRecordUrl,
 } from '../contracts/index.js';
@@ -86,10 +87,6 @@ function resolveContained(
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
 }
 
-function toolFacingErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export function assertRecordWrite(
   currentCardId: string | undefined,
   cardId: string,
@@ -113,7 +110,8 @@ export function resolveRecordWriteTarget(
   try {
     parsed = parseRecordUrl(raw);
   } catch (error) {
-    throw ctx.fail(toolFacingErrorMessage(error));
+    if (!(error instanceof RecordUrlInputError)) throw error;
+    throw ctx.fail(error.message);
   }
   if (parsed.version !== null) throw ctx.fail('Historical record URLs cannot be mutated.');
   const filename = parsed.name;
@@ -140,7 +138,8 @@ export function resolveRecordReadTarget(
   try {
     parsed = parseRecordUrl(raw);
   } catch (error) {
-    throw ctx.fail(toolFacingErrorMessage(error));
+    if (!(error instanceof RecordUrlInputError)) throw error;
+    throw ctx.fail(error.message);
   }
   const result =
     parsed.version === null

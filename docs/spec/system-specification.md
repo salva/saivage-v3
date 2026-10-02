@@ -304,13 +304,14 @@ Card creation publishes the bootstrap record's nonempty first row with writer `r
 
 The reusable current URL is exactly `record:///<name>?card=<card-id>` for read, write, and edit; ordered `&v=N` is explicit read-only history.
 Extra parameters, historical mutation targets, fragments, noncanonical versions, and old head-token forms are rejected inputs.
-Mutation admission first proves the active card, then applies cross-card scope, writer glob, required-tool, and Analyst lifecycle gates in that order using the reached card.
+For `write` and `edit`, malformed URL/encoding/identity/version and historical targets return the strict `record_mutation_invalid_target` failure with only the requested `operation` and a fixed safe diagnostic, before card or record I/O. A selector is always explicit, including for the root: `record:///status.md?card=project`; no current-card inference or URL normalization exists. The ordinary failed tool result settles the call and permits correction in the same activation; rejection neither mutates a record, propagates a change, nor marks a record written. Ordinary conversation settlement and Analyst error auditing still publish their own evidence and can themselves fail fatally.
+After target validation, mutation admission first proves the active card, then applies cross-card scope, writer glob, required-tool, and Analyst lifecycle gates in that order using the reached card.
 Every denial precedes definition and record-state I/O.
 Only an authorized request resolves the definition and classifies current/open-conflict state; the reached card is ordinary call-local data, not write authority, and each later public open/edit/close/discard freshly admits the current card.
 Requirements govern entry and acceptance, not free-name admission.
 Card-agent mutations resolve or open the current cycle and leave a draft; an admitted first mutation on an undeclared target directly publishes the first open row at the exact `record-<stem>.jsonl` path, and that first publication's exact-target existence check is the sole claim—an existing path object there is unavailable canonical state and is never absence.
 Analyst mutations reject an existing workflow draft, close their own new draft, and propagate the card change.
-Denial, absent-content, open-conflict, unchanged, old-string missing/multiple, empty-result, and current-state-unavailable outcomes are strict structured failures; there is no recoverable stale result.
+Invalid-target, denial, absent-content, open-conflict, unchanged, old-string missing/multiple, empty-result, and current-state-unavailable outcomes are strict structured failures; there is no recoverable stale result. Existing non-publication card/classification read failures return `current_state_unavailable` with restart required, not invalid-target. Unexpected mutation errors and publication uncertainty retain their escaping boundaries; no failed result is fabricated after an uncertain effect.
 
 Every node requirement is `{mode:'clean'|'continue',gate:'exists'|'updated'}` and must match the node agent's record-write glob so framework close has valid attribution.
 `clean + exists`, `clean + updated`, and `continue + updated` require the direct `write` tool; only `continue + exists` may omit it.
@@ -330,7 +331,7 @@ No scan, catalog, warning inventory, adoption, or selective repair exists.
 Plain relative, `project:///`, own-card `tmp:///`, and admitted `system:///` destinations use `kind:'workspace_file'` and data containing respectively `project_relative`, `project_url`, `tmp_url`, or `system_url`; a record destination uses `kind:'record'` and record mutation data containing the reusable `current_url` and exact immutable `version_url`.
 A save rejection is the one top-level failed tool outcome.
 Audited Analyst record Webfetch runs cancellation/readiness, read-only mutation preflight, exactly one HTTP fetch, cancellation/second readiness, then fresh full mutation admission.
-A tool/glob/lifecycle denial, open conflict, or unavailable canonical parent at preflight performs no HTTP request; readiness or admission loss after fetch discards fetched bytes and performs no mutation.
+An invalid-target error, tool/glob/lifecycle denial, open conflict, or unavailable canonical parent at Analyst preflight performs no HTTP request; invalid-target audits `error`. Readiness or admission loss after fetch discards fetched bytes and performs no mutation. Card Webfetch retains its scoped write authorization before shared mutation admission; its malformed or historical save targets likewise reject before network, under its existing error boundary.
 
 The card-stream row schema is the sole structural parser for each raw row at a read or write stream boundary.
 The resulting typed rows then undergo non-parsing semantic stream validation of identity, history, transitions, membership/order relationships, and tombstones; semantic validation does not invoke another Zod parse.

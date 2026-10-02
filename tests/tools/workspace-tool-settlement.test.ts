@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,11 +13,39 @@ import { compileInvocationToolContract } from '../../src/runtime/actors/context/
 import { settleToolResultForConversation } from '../../src/runtime/actors/llm-delivery-log.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('workspace tool settlement', () => {
+  it.each(['unexpected', 'publication_unknown'] as const)('does not settle %s mutation faults as invalid input', async (kind) => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-record-fault-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const fault = kind === 'unexpected' ? new Error('mutation fault') : new PublicationOutcomeUnknownError();
+    jest.spyOn(cards, 'editRecord').mockImplementation(() => { throw fault; });
+    const written = jest.fn();
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, onRecordWritten: written })]);
+    await expect(invokeToolForLlm(surface, 'write', { path: 'record:///brief.md?card=project', content: 'changed' }, testLlmToolInvocationContext({ toolName: 'write' }))).rejects.toBe(fault);
+    expect(written).not.toHaveBeenCalled();
+  });
+  it.each(['write', 'edit'] as const)('settles invalid record %s and leaves an existing head unchanged', async (name) => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-invalid-record-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const written = jest.fn();
+    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: cards, onRecordWritten: written })]);
+    const before = cards.readRecordCurrent('project', 'brief.md');
+    for (const path of ['record:///brief.md', 'record:///%ZZ?card=project', 'record:///brief.md?card=project&v=1']) {
+      const args = name === 'write' ? { path, content: 'changed' } : { path, old_string: 'Goal', new_string: 'changed' };
+      const settlement = await invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({ toolName: name }));
+      const definition = surface.tools.get(name)!;
+      const facts = settleToolResultForConversation(name, compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate), settlement);
+      expect(facts.providerResult).toMatchObject({ success: false, data: { code: 'record_mutation_invalid_target', operation: name } });
+      expect(facts.evidence).toEqual({ kind: 'none' });
+      expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(before);
+    }
+    expect(written).not.toHaveBeenCalled();
+  });
   it('settles the exact work root directory and metadata locators with observational evidence', async () => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-work-root-')); roots.push(root); initProjectTree(root);
     const surface = buildInvocationSurfaceFixture('reviewer', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'reviewer', store: new CardService(root) })]);

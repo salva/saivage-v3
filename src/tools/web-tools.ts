@@ -549,7 +549,7 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
   defineToolBinder({
     name: 'webfetch',
     description:
-      'Fetch a public HTTP(S) URL with bounded size and private-network protections. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
+      'Fetch a public HTTP(S) URL with bounded size and private-network protections. Record save_as requires record:///<name>?card=<card-id>, e.g. record:///status.md?card=project; &v=N is read-only. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => webfetchSchema,
     executor: (ctx, args, signal, invocation) =>

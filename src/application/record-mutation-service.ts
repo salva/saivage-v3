@@ -2,6 +2,7 @@ import type { CardService } from '../cards/store-api.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
 import {
   parseRecordUrl,
+  RecordUrlInputError,
   throwIfPublicationOutcomeUnknown,
   RecordMutationFailureSchema,
   RecordMutationSuccessSchema,
@@ -67,8 +68,23 @@ export function admitRecordMutation(
   store: CardService,
   request: RecordMutationRequest,
 ): Admission | RecordMutationFailure {
-  const parsed = parseRecordUrl(request.path);
-  if (parsed.version !== null) throw new Error('Historical record URLs cannot be mutated.');
+  let parsed: ReturnType<typeof parseRecordUrl>;
+  try {
+    parsed = parseRecordUrl(request.path);
+  } catch (error) {
+    if (!(error instanceof RecordUrlInputError)) throw error;
+    return failure({
+      kind: 'rejected',
+      error: error.message,
+      data: { code: 'record_mutation_invalid_target', operation: request.operation },
+    });
+  }
+  if (parsed.version !== null)
+    return failure({
+      kind: 'rejected',
+      error: 'Historical record URLs cannot be mutated.',
+      data: { code: 'record_mutation_invalid_target', operation: request.operation },
+    });
   let card: ReturnType<CardService['read']>;
   try {
     card = store.read(parsed.cardId);
@@ -142,6 +158,7 @@ export function preflightAnalystRecordWrite(
       return { ok: false, result: admitted, audit_outcome: 'denied' };
     if (
       hasFailureCode(admitted, 'record_open_conflict') ||
+      hasFailureCode(admitted, 'record_mutation_invalid_target') ||
       hasFailureCode(admitted, 'current_state_unavailable')
     )
       return { ok: false, result: admitted, audit_outcome: 'error' };

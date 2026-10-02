@@ -163,6 +163,7 @@ export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-ap
 export type { RestartChatAcknowledgement } from './operator-api-chats.js';
 export {
   parseRecordUrl,
+  RecordUrlInputError,
   RecordMutationFailureSchema,
   RecordMutationSuccessSchema,
   RecordMutationResultSchema,

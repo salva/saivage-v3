@@ -10,6 +10,19 @@ import {
 const operationSchema = z.enum(['write', 'edit']);
 const commonIdentity = { card_id: cardIdSchema, name: recordNameSchema } as const;
 
+const RecordMutationInvalidTargetSchema = z
+  .object({
+    kind: z.literal('rejected'),
+    error: z.string(),
+    data: z
+      .object({
+        code: z.literal('record_mutation_invalid_target'),
+        operation: operationSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
 const RecordMutationDeniedSchema = z
   .object({
     kind: z.literal('rejected'),
@@ -131,6 +144,7 @@ const RecordMutationStateFailureSchema = z.discriminatedUnion('error', [
     .strict(),
 ]);
 export const RecordMutationFailureSchema = z.union([
+  RecordMutationInvalidTargetSchema,
   RecordMutationStateFailureSchema,
   RecordMutationDeniedSchema,
   RecordMutationCurrentUnavailableSchema,
@@ -239,7 +253,14 @@ export type AnalystPreNetworkAdmission =
       ok: false;
       result: Extract<
         RecordMutationFailure,
-        { data: { code: 'record_open_conflict' | 'current_state_unavailable' } }
+        {
+          data: {
+            code:
+              | 'record_open_conflict'
+              | 'current_state_unavailable'
+              | 'record_mutation_invalid_target';
+          };
+        }
       >;
       audit_outcome: 'error';
     };
@@ -251,24 +272,27 @@ export interface ParsedRecordUrl {
   currentUrl: string;
 }
 
+export class RecordUrlInputError extends Error {}
+
 export function parseRecordUrl(raw: string): ParsedRecordUrl {
   const match = /^record:\/\/\/([^/?#]+)\?card=([^&#]+)(?:&v=([1-9][0-9]*))?$/.exec(raw);
-  if (!match) throw new Error('Invalid record URL.');
+  if (!match) throw new RecordUrlInputError('Invalid record URL.');
   let name: string;
   let cardId: string;
   try {
     name = decodeURIComponent(match[1]!);
     cardId = decodeURIComponent(match[2]!);
-  } catch {
-    throw new Error('Invalid record URL encoding.');
+  } catch (error) {
+    if (!(error instanceof URIError)) throw error;
+    throw new RecordUrlInputError('Invalid record URL encoding.');
   }
   if (/%[0-9a-f]{2}/i.test(name) || /%[0-9a-f]{2}/i.test(cardId))
-    throw new Error('Record URL must require exactly one decoding pass.');
+    throw new RecordUrlInputError('Record URL must require exactly one decoding pass.');
   if (!recordNameSchema.safeParse(name).success || !cardIdSchema.safeParse(cardId).success)
-    throw new Error('Invalid record URL.');
+    throw new RecordUrlInputError('Invalid record URL.');
   const version = match[3] === undefined ? null : Number(match[3]);
   if (version !== null && !positiveSafeIntegerSchema.safeParse(version).success)
-    throw new Error('Invalid record URL.');
+    throw new RecordUrlInputError('Invalid record URL.');
   const currentUrl = `record:///${encodeURIComponent(name)}?card=${encodeURIComponent(cardId)}`;
   return { cardId, name, version, currentUrl };
 }

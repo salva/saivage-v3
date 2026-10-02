@@ -63,6 +63,36 @@ function harness(notify = jest.fn(() => ({ ok: true as const, notificationId: 'f
 }
 
 describe('Analyst non-record editor audit', () => {
+  it.each(['unexpected', 'publication_unknown'] as const)('preserves %s record publication failure and its audit boundary', async (kind) => {
+    const h = harness();
+    const fault = kind === 'unexpected' ? new Error('record mutation fault') : new PublicationOutcomeUnknownError();
+    jest.spyOn(h.cards, 'editRecord').mockImplementation(() => { throw fault; });
+    const close = jest.spyOn(h.cards, 'closeRecord');
+    await expect(h.invoke('write', { path: 'record:///brief.md?card=project', content: 'changed' })).rejects.toBe(fault);
+    expect(close).not.toHaveBeenCalled(); expect(h.notify).not.toHaveBeenCalled();
+    expect(h.audits()).toHaveLength(kind === 'unexpected' ? 1 : 0);
+    if (kind === 'unexpected') expect(h.audits()).toMatchObject([{ outcome: 'error', error: fault.message }]);
+  });
+  it.each(['write', 'edit'] as const)('audits invalid record %s once per call without mutation or propagation', async (name) => {
+    const h = harness(); const before = h.cards.readRecordCurrent('project', 'brief.md');
+    const read = jest.spyOn(h.cards, 'read'); const classify = jest.spyOn(h.cards, 'classifyCurrentRecord');
+    for (const path of ['record:///brief.md', 'record:///%ZZ?card=project', 'record:///brief.md?card=project&v=1']) {
+      const args = name === 'write' ? { path, content: 'changed' } : { path, old_string: 'Goal', new_string: 'changed' };
+      expect(await h.invoke(name, args)).toMatchObject({ success: false, data: { code: 'record_mutation_invalid_target', operation: name } });
+    }
+    expect(read).not.toHaveBeenCalled(); expect(classify).not.toHaveBeenCalled();
+    expect(h.audits()).toHaveLength(3);
+    expect(h.audits()).toMatchObject(Array.from({ length: 3 }, () => ({ action: `record.${name}`, outcome: 'error' })));
+    expect(h.readiness).toHaveBeenCalledTimes(3); expect(h.notify).not.toHaveBeenCalled();
+    expect(h.cards.readRecordCurrent('project', 'brief.md')).toEqual(before);
+  });
+
+  it('keeps invalid-target audit publication uncertainty fatal', async () => {
+    const h = harness(); await h.invoke('write', { path: 'seed.txt', content: 'seed audit' });
+    const before = appendAttempts; beforeAppend = () => { throw new Error('audit I/O failed'); };
+    await expect(h.invoke('write', { path: 'record:///brief.md', content: 'changed' })).rejects.toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect(appendAttempts - before).toBe(1);
+  });
   it('writes and edits during a real running-session turn, without readiness and without content in audit summaries', async () => {
     const h = harness(); h.cards.setStatus('project', 'running');
     h.readiness.mockImplementation(() => { throw new Error('must not request intervention readiness'); });
