@@ -156,7 +156,11 @@ export function propagateAnalystRecordEdit(
   if (edited.lifecycle.status === 'running') {
     flipped = [];
     notifyRecipients = [editedCardId];
-  } else if (edited.lifecycle.status === 'stopped') {
+  } else if (
+    edited.lifecycle.status === 'stopped' ||
+    edited.lifecycle.status === 'changed' ||
+    effect === 'reopen'
+  ) {
     const path = ancestorPathIncludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
     notifyRecipients = analystRecordEditedCardAndAncestorRecipients(store, path, editedCardId);
@@ -164,10 +168,6 @@ export function propagateAnalystRecordEdit(
     const path = ancestorPathExcludingEdited(store, editedCardId);
     flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
     notifyRecipients = analystRecordAncestorRecipients(store, path);
-  } else if (effect === 'reopen') {
-    const path = ancestorPathIncludingEdited(store, editedCardId);
-    flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
-    notifyRecipients = analystRecordEditedCardAndAncestorRecipients(store, path, editedCardId);
   } else
     throw new Error(
       `Analyst record edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`,

@@ -25,7 +25,8 @@ export function acceptsCardNotifications(status: CardStatus): boolean {
 }
 
 export function analystRecordEditEffect(status: CardStatus): 'preserve' | 'reopen' | null {
-  if (status === 'backlog' || status === 'running' || status === 'stopped') return 'preserve';
+  if (status === 'backlog' || status === 'changed' || status === 'running' || status === 'stopped')
+    return 'preserve';
   if (status === 'blocked' || status === 'done' || status === 'failed') return 'reopen';
   return null;
 }

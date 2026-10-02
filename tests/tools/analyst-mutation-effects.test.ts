@@ -203,7 +203,7 @@ describe('Analyst non-record editor audit', () => {
   });
 
   it.each(['write', 'edit'])('retains record %s intervention readiness denial', async (name) => {
-    const h = harness(); const before = h.cards.readRecordCurrent('project', 'brief.md');
+    const h = harness(); completeProject(h.cards); h.cards.setStatus('project', 'changed'); const before = h.cards.readRecordCurrent('project', 'brief.md');
     h.readiness.mockImplementation(() => { throw new AnalystInterventionNotReadyError(); });
     const args = name === 'write' ? { path: 'record:///brief.md?card=project', content: 'changed' } : { path: 'record:///brief.md?card=project', old_string: 'x', new_string: 'y' };
     expect(await h.invoke(name, args)).toMatchObject({ success: false, data: { code: 'intervention_not_ready' } });

@@ -7,6 +7,10 @@ import { admitRecordMutation,mutateRecord,preflightAnalystRecordWrite } from '..
 import { cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { CardService as ConfiguredCardService } from '../../src/cards/card-service.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -76,6 +80,24 @@ describe('Analyst record preflight', () => {
 });
 
 describe('card-agent record mutation', () => {
+  it.each(['cancelled', 'writer', 'write', 'edit'] as const)('keeps %s denial effect-free after CHANGED support', (gate) => {
+    const { root } = setup(); const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    if (gate === 'writer') config.agents.analyst!.record_writes = [];
+    if (gate === 'write' || gate === 'edit') config.agents.analyst!.tools = config.agents.analyst!.tools.filter((tool) => tool !== gate);
+    const cards = new ConfiguredCardService(root, compileProjectWorkflows(config));
+    if (gate !== 'cancelled') {
+      cards.setStatus('project', 'running');
+      cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
+    }
+    cards.setStatus('project', gate === 'cancelled' ? 'cancelled' : 'changed');
+    const before = cards.readRecordCurrent('project', 'brief.md'); const cardBefore = cards.read('project');
+    const open = jest.spyOn(cards, 'openRecord'); const edit = jest.spyOn(cards, 'editRecord'); const close = jest.spyOn(cards, 'closeRecord'); const propagate = jest.fn(() => ({ ok: true as const }));
+    const operation = gate === 'edit' ? 'edit' : 'write';
+    expect(mutateRecord(cards, { ...analystPreflightRequest, operation, requiredTools: [operation], content: 'denied', oldString: 'Goal', newString: 'denied' }, propagate)).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: gate === 'cancelled' ? 'lifecycle_unsupported' : gate === 'writer' ? 'writer_not_authorized' : 'tool_not_authorized' } });
+    for (const spy of [open, edit, close, propagate]) expect(spy).not.toHaveBeenCalled();
+    expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(before); expect(cards.read('project')).toEqual(cardBefore);
+  });
+
   it.each(['write', 'edit'] as const)('returns invalid %s targets before every state/effect operation', (operation) => {
     const { cards } = setup();
     const read = jest.spyOn(cards, 'read');
@@ -181,8 +203,14 @@ describe('card-agent record mutation', () => {
     const { cards } = setup();
     const path='record:///brief.md?card=project';
     expect(mutateRecord(cards,{path,operation:'write',content:'interrupted draft',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['write']})).toMatchObject({kind:'applied',data:{state:'open'}});
+    cards.setStatus('project', 'running');
+    cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
+    cards.setStatus('project', 'changed');
     const current=cards.readRecordCurrent('project','brief.md');expect(current.kind==='found'&&current.value.projection?.artifact.draft?.content).toBe('interrupted draft');
     expect(mutateRecord(cards,{path,operation:'write',content:'analyst replacement',surface:'analyst',agentName:'analyst',requiredTools:['write']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
+    expect(mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'stolen',surface:'analyst',agentName:'analyst',requiredTools:['edit']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
+    expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(current);
+    expect(cards.read('project')!.lifecycle.status).toBe('changed');
     const resumed=mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'resumed',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['edit']});
     expect(resumed).toMatchObject({kind:'applied',data:{state:'open'}});
     if(resumed.kind !== 'applied')throw new Error('Expected resumed mutation success.');

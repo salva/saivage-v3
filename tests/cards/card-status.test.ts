@@ -8,7 +8,7 @@ describe('card operation status decisions', () => {
     { status: 'backlog', create: true, cancel: true, notifications: true, bootstrap_content: 'preserve' },
     { status: 'running', create: true, cancel: true, notifications: true, bootstrap_content: 'preserve' },
     { status: 'blocked', create: true, cancel: true, notifications: true, bootstrap_content: 'reopen' },
-    { status: 'changed', create: true, cancel: true, notifications: true, bootstrap_content: null },
+    { status: 'changed', create: true, cancel: true, notifications: true, bootstrap_content: 'preserve' },
     { status: 'stopped', create: true, cancel: true, notifications: true, bootstrap_content: 'preserve' },
     { status: 'done', create: false, cancel: false, notifications: false, bootstrap_content: 'reopen' },
     { status: 'failed', create: false, cancel: true, notifications: false, bootstrap_content: 'reopen' },

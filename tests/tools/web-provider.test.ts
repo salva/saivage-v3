@@ -14,11 +14,49 @@ import { WebfetchDataSchema, WebfetchTextDataSchema } from '../../src/contracts/
 import { projectHistoricalToolResultForOutbound } from '../../src/tools/tool-result-settlement.js';
 import { CardService, initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { CardService as ConfiguredCardService } from '../../src/cards/card-service.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 
 const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webToolBinders, context);
 const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, context);
 
 describe('WebProvider', () => {
+  it.each(['accepted', 'no-write', 'no-webfetch', 'draft'] as const)('uses CHANGED admission and final propagation for prepared record saves: %s', async (condition) => {
+    const root = mkdtempSync(join(tmpdir(), 'web-changed-record-')); initProjectTree(root);
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    if (condition === 'no-write' || condition === 'no-webfetch') {
+      const absent = condition === 'no-write' ? 'write' : 'webfetch';
+      config.agents.analyst!.tools = config.agents.analyst!.tools.filter((tool) => tool !== absent);
+    }
+    const cards = new ConfiguredCardService(root, compileProjectWorkflows(config));
+    cards.setStatus('project', 'running');
+    cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
+    cards.setStatus('project', 'changed');
+    if (condition === 'draft') { cards.openRecord('project', 'brief.md'); cards.editRecord('project', 'brief.md', 'workflow draft'); }
+    const before = cards.readRecordCurrent('project', 'brief.md');
+    const notify = jest.fn((_id: string) => ({ ok: true as const, notificationId: 'fixture' }));
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('fetched correction', { status: 200, headers: { 'content-type': 'text/plain' } }));
+    const open = jest.spyOn(cards, 'openRecord'); const edit = jest.spyOn(cards, 'editRecord'); const close = jest.spyOn(cards, 'closeRecord');
+    try {
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', sessionId: 'agent:analyst:global', store: cards, interventionReadiness: { assertInterventionReady() {} }, analystMutations: testAnalystMutationServices(root, cards, notify) } as never;
+      const surface = buildInvocationSurfaceFixture('analyst', [bindWeb({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
+      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as: 'record:///brief.md?card=project' });
+      if (condition === 'accepted') {
+        expect(result).toMatchObject({ success: true, data: { write: { kind: 'record', data: { state: 'closed', propagation: { ok: true } } } } });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(cards.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { artifact: { state: 'closed', accepted: { content: 'fetched correction', writer_agent: 'analyst' } } } } });
+        expect(notify.mock.calls.map(([id]) => id)).toEqual(['project']);
+      } else {
+        expect(result).toMatchObject({ success: false, data: { code: condition === 'draft' ? 'record_open_conflict' : 'record_mutation_denied', ...(condition === 'draft' ? {} : { reason: 'tool_not_authorized' }) } });
+        for (const spy of [fetchSpy, open, edit, close, notify]) expect(spy).not.toHaveBeenCalled();
+        expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(before);
+      }
+      expect(cards.read('project')!.lifecycle.status).toBe('changed');
+    } finally { jest.restoreAllMocks(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it.each(['card', 'analyst'] as const)('rejects invalid %s record saves before network or record mutation', async (owner) => {
     const root = mkdtempSync(join(tmpdir(), 'web-invalid-record-')); initProjectTree(root);
     const cards = new CardService(root); const before = cards.readRecordCurrent('project', 'brief.md');
