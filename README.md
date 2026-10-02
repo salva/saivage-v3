@@ -199,8 +199,11 @@ dependencies must be installed before `npm run check:export-consumers`,
 `npm run lint` runs the export-consumer guard, stamp-producer guard, ESLint,
 backend import-boundary checks, web-component boundary check, reachable-browser
 import guard (`node scripts/check-web-browser-imports.cjs`), then the
-`npm run format` Prettier check, in that order. This checks only `src/` with the
-existing Prettier settings and does not rewrite files. The existing CI `lint-guards` job enforces this
+`npm run format` Prettier check, in that order. This checks `src/` excluding
+`src/config/system-templates/**/prompts/**` with the existing Prettier settings
+and does not rewrite files. Shipped model-facing prompt bytes, including whitespace,
+are edited deliberately; packaging parity, source/package byte comparison, and
+compiled composition checks remain in build. The existing CI `lint-guards` job enforces this
 profile through `validation-required` under its applies/skipped semantics;
 `validate:routine` does not run lint or Jest.
 

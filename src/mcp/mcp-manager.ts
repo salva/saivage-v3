@@ -1,4 +1,4 @@
-import { sha256Hex } from '../schemas/index.js';
+import { canonicalValueSha256 } from '../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { EventLog } from '../observability/index.js';
 import type { ProcessRunner } from '../runtime/runtime-api.js';
@@ -55,19 +55,8 @@ interface DesiredServer {
   shouldRun: boolean;
 }
 
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value && typeof value === 'object')
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, child]) => [key, stableValue(child)]),
-    );
-  return value;
-}
-
 function revisionOf(config: McpServerConfig): string {
-  return sha256Hex(JSON.stringify(stableValue(config)));
+  return canonicalValueSha256(config);
 }
 
 export class McpManager implements McpReconciliationPort {

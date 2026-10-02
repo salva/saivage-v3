@@ -15,6 +15,9 @@ import { SUMMARY_OUTPUT_TARGET_BYTES, type SummarizerProviderPort, type SummaryR
 import { noCompactionProgress } from '../../../helpers/executing-llm-snapshot.js';
 import { buildCandidateRequest } from '../../../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../../../src/agents/llm-protocol-adapter.js';
+import { buildAnalystOrientationSnapshot } from '../../../../src/application/read-models/analyst-orientation.js';
+import type { ContextBlock } from '../../../../src/contracts/index.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../../../src/runtime/actors/context/composition-projector.js';
 
 const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAccumulatorWithoutProgress>[0], 'progress'>) => createAccumulatorWithoutProgress({ ...args, progress: noCompactionProgress });
 
@@ -47,6 +50,14 @@ function parseSummaryMessages(input: SummaryInput): ParsedSummaryMessage[] {
 
 describe('sequential contextual refine accumulator', () => {
   it('carries full prepared orientation and the genuine returned accumulator while ranges reassemble multibyte source exactly', async () => {
+    const snapshot = buildAnalystOrientationSnapshot([
+      { id: 'project', parent: null, type: 'project', status: 'backlog', title: 'Project token=synthetic-orientation-secret', version_seq: 1, children: [] },
+    ], { status: 'stopped', currentCardId: null });
+    const prepared = Object.freeze<ContextBlock>({ id: 'analyst.project_tree', role: 'system', content: snapshot.content, storage: 'activation_local', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: snapshot.contentSha256 }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } });
+    const primary = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [prepared], uncoveredRows: [] }));
+    expect(primary.messages[0]).toMatchObject({ kind: 'synthetic_context', block_identity: prepared.id, content: snapshot.content });
+    expect(snapshot.content).toContain('Project token=[REDACTED]');
+    expect(snapshot.content).not.toContain('synthetic-orientation-secret');
     const source = `before\u0000${'🙂'.repeat(4_000)}after`;
     const sent: Parameters<SummarizerProviderPort['completeTurn']>[0][] = [];
     const providerResults: string[] = [];
@@ -64,7 +75,7 @@ describe('sequential contextual refine accumulator', () => {
       conversation: validateConversation(SESSION, rows),
       inheritedHistory: null,
       preparedBlocks: [
-        { id: 'card-context', role: 'system', content: 'FULL FROZEN CARD ORIENTATION', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
+        prepared,
         { id: 'analyst.workspace_focus', role: 'system', content: '{"focus":"no_focus"}', storage: 'activation_local', replacement: { kind: 'latest_snapshot', key: 'analyst.workspace_focus', contentSha256: '0'.repeat(64) }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
       ],
       summarizerProvider: provider,
@@ -78,13 +89,14 @@ describe('sequential contextual refine accumulator', () => {
     expect(materialized).toBe(providerResults.at(-1));
     const parsedSent = sent.map(parseSummaryMessages);
     for (const messages of parsedSent) {
-      const orientation = messages.filter(({ label }) => label === '[kind=prepared_context source=card-context]');
+      const orientation = messages.filter(({ label }) => label === '[kind=prepared_context source=analyst.project_tree]');
       expect(orientation).toHaveLength(1);
-      expect(orientation[0]!.body).toBe('FULL FROZEN CARD ORIENTATION');
+      expect(orientation[0]!.body).toBe(primary.messages[0]!.content);
+      expect(JSON.stringify(messages)).not.toContain('synthetic-orientation-secret');
       expect(messages.filter(({ label }) => label === '[kind=prepared_context source=analyst.workspace_focus]').map(({ body }) => body)).toEqual(['{"focus":"no_focus"}']);
       expect(messages.filter(({ label }) => label.startsWith('[kind=new_source')).every(({ body }) => !body.includes('"focus":"no_focus"'))).toBe(true);
       expect(messages.reduce(
-        (count, { body }) => count + body.split('FULL FROZEN CARD ORIENTATION').length - 1,
+        (count, { body }) => count + body.split(snapshot.content).length - 1,
         0,
       )).toBe(1);
     }

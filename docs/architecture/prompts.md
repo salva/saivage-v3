@@ -62,6 +62,12 @@ Fragments use the host card type even when the host itself came from a shared ti
 
 ## Authoring shipped project guidance
 
+Shipped model-facing files under `src/config/system-templates/**/prompts/**` are
+excluded from Prettier. Author their bytes deliberately, including whitespace;
+packaging copies bytes without normalization. Compiler-derived shared-template
+parity, source/package byte comparison, and compiled prompt-composition checks
+remain required by build.
+
 The shipped selected-global set now contains Analyst and Oversight. Oversight has its own shared `oversight.md` prompt, directly includes `project-guidance-common.md` and the sixth shipped guidance fragment `project-guidance-oversight.md`, and accepts no workflow-agent placeholders. Both selected globals use global-host selection; card-specific fragments never reach them. Template packaging and init materialization derive the complete closure from compilation rather than a maintained file count. Existing instances adopt the complete six-fragment closure deliberately while stopped; init never upgrades an existing config.
 
 Each shipped Planner, Executor, Reviewer, Analyst, and Oversight prompt directly includes one common project-guidance fragment and its matching role fragment immediately after its identity paragraph. A freshly materialized template supplies these exact nonempty neutral defaults:

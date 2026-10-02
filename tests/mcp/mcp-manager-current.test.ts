@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +28,102 @@ function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason:
 const emptyReport: ProcessStopReport = { selected: [], stopped: [], failed: [] };
 
 describe('current named-agent MCP manager contract',()=>{
+  it('preserves an equivalent HTTP installation and replaces a changed effective config', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const fetchMock = successfulFetch();
+    globalThis.fetch = fetchMock as typeof fetch;
+    const { value } = manager(projectRoot);
+    const stop = jest.spyOn(McpServerRuntime.prototype, 'stop');
+    const expectedRevision = createHash('sha256').update(
+      '{"autostart":true,"disabled":false,"transport":"streamable-http","url":"http://localhost/mcp"}',
+    ).digest('hex');
+
+    const first = await value.reconcilePersistedConfig();
+    expect(first).toEqual(expect.objectContaining({
+      converged: true,
+      desired: [{ name: 'one', revision: expectedRevision, shouldRun: true }],
+      active: [{ name: 'one', revision: expectedRevision, state: 'running' }],
+    }));
+    const installedStatus = value.getStatus();
+    const initializeRequests = () => fetchMock.mock.calls.filter(([, init]) =>
+      init?.method !== 'HEAD' && JSON.parse(String(init?.body)).method === 'initialize',
+    );
+    expect(initializeRequests()).toHaveLength(1);
+
+    writeConfig(projectRoot, { one: {
+      disabled: false, url: 'http://localhost/mcp', autostart: true, transport: 'streamable-http',
+    } });
+    expect(await value.reconcilePersistedConfig()).toEqual(first);
+    expect(value.getStatus()).toEqual(installedStatus);
+    expect(initializeRequests()).toHaveLength(1);
+    expect(stop).not.toHaveBeenCalled();
+
+    writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/changed' } });
+    const changedRevision = createHash('sha256').update(
+      '{"autostart":true,"disabled":false,"transport":"streamable-http","url":"http://localhost/changed"}',
+    ).digest('hex');
+    expect(changedRevision).not.toBe(expectedRevision);
+    expect(await value.reconcilePersistedConfig()).toEqual(expect.objectContaining({
+      converged: true,
+      desired: [{ name: 'one', revision: changedRevision, shouldRun: true }],
+      active: [{ name: 'one', revision: changedRevision, state: 'running' }],
+    }));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(initializeRequests()).toHaveLength(2);
+    await value.cleanupForApplicationStop();
+  });
+
+  it('canonically hashes stdio env keys while preserving args order, defaults and absent fields', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { one: {
+      transport: 'stdio', command: 'server', autostart: false,
+      args: ['first', 'second'], env: { 'é': 'accent', a: 'lower', Z: 'upper' },
+    } });
+    const { value, runner } = manager(projectRoot);
+    const spawn = jest.spyOn(runner, 'spawnInteractive');
+    const expectedRevision = createHash('sha256').update(
+      '{"args":["first","second"],"autostart":false,"command":"server","disabled":false,"env":{"Z":"upper","a":"lower","é":"accent"},"transport":"stdio"}',
+    ).digest('hex');
+    const first = await value.reconcilePersistedConfig();
+    expect(first).toEqual(expect.objectContaining({
+      converged: true,
+      desired: [{ name: 'one', revision: expectedRevision, shouldRun: false }],
+      active: [{ name: 'one', revision: expectedRevision, state: 'stopped' }],
+    }));
+
+    writeConfig(projectRoot, { one: {
+      env: { Z: 'upper', a: 'lower', 'é': 'accent' }, args: ['first', 'second'],
+      disabled: false, autostart: false, command: 'server', transport: 'stdio',
+    } });
+    expect(await value.reconcilePersistedConfig()).toEqual(first);
+
+    writeConfig(projectRoot, { one: {
+      transport: 'stdio', command: 'server', autostart: false,
+      args: ['second', 'first'], env: { a: 'lower', 'é': 'accent', Z: 'upper' },
+    } });
+    const reversedRevision = createHash('sha256').update(
+      '{"args":["second","first"],"autostart":false,"command":"server","disabled":false,"env":{"Z":"upper","a":"lower","é":"accent"},"transport":"stdio"}',
+    ).digest('hex');
+    expect(reversedRevision).not.toBe(expectedRevision);
+    expect((await value.reconcilePersistedConfig()).desired).toEqual([
+      { name: 'one', revision: reversedRevision, shouldRun: false },
+    ]);
+
+    writeConfig(projectRoot, { one: { transport: 'stdio', command: 'server', autostart: false } });
+    const absentRevision = createHash('sha256').update(
+      '{"autostart":false,"command":"server","disabled":false,"transport":"stdio"}',
+    ).digest('hex');
+    const absent = await value.reconcilePersistedConfig();
+    expect(absent.desired).toEqual([{ name: 'one', revision: absentRevision, shouldRun: false }]);
+    writeConfig(projectRoot, { one: {
+      transport: 'stdio', command: 'server', autostart: false, disabled: false,
+    } });
+    expect(await value.reconcilePersistedConfig()).toEqual(absent);
+    expect(spawn).not.toHaveBeenCalled();
+    await value.cleanupForApplicationStop();
+  });
+
   it('reconciles persisted HTTP configuration and invokes the provider independently of agent admission',async()=>{
     const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value}=manager(projectRoot);
     await expect(value.reconcilePersistedConfig()).resolves.toEqual(expect.objectContaining({converged:true,active:[expect.objectContaining({name:'one',state:'running'})]}));

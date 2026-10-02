@@ -57,6 +57,74 @@ function flatten(node: SnapshotNode): SnapshotNode[] {
 }
 
 describe('buildAnalystOrientationSnapshot', () => {
+  it('redacts root and shown-child titles without mutating cards or adding titles to the observation commitment', () => {
+    const cards: AnalystOrientationCard[] = [
+      { ...projectCard(['card-a']), title: 'Project token=synthetic-root-secret' },
+      card({ id: 'card-a', parent: 'project', children: [], title: 'Child ghp_syntheticChildCredential', version_seq: 7 }),
+    ];
+    const original = structuredClone(cards);
+    const snapshot = buildAnalystOrientationSnapshot(cards, stopped);
+    const parsed = parse(snapshot.content);
+    expect(parsed.root.title).toBe('Project token=[REDACTED]');
+    expect(parsed.root.children![0]!.title).toBe('Child ghp-[REDACTED]');
+    for (const node of flatten(parsed.root)) {
+      expect(node.title_bytes).toBe(Buffer.byteLength(node.title, 'utf8'));
+      expect(node.title_truncated).toBe(false);
+    }
+    expect(snapshot.content).not.toContain('synthetic-root-secret');
+    expect(snapshot.content).not.toContain('syntheticChildCredential');
+    expect(cards).toEqual(original);
+    expect(Buffer.byteLength(snapshot.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
+    expect(snapshot.contentSha256).toBe(createHash('sha256').update(snapshot.content, 'utf8').digest('hex'));
+    const observation = { cards: [{ card_id: 'project', version_seq: 3 }, { card_id: 'card-a', version_seq: 7 }], runtime: { status: 'stopped', current_card_id: null } };
+    expect(snapshot.fullObservationSha256).toBe(createHash('sha256').update(canonicalJson(observation), 'utf8').digest('hex'));
+    const retitled = buildAnalystOrientationSnapshot(cards.map((entry) => ({ ...entry, title: 'Different safe title' })), stopped);
+    expect(retitled.fullObservationSha256).toBe(snapshot.fullObservationSha256);
+    expect(retitled.contentSha256).not.toBe(snapshot.contentSha256);
+  });
+
+  it('recognizes a complete AKIA credential across the preview boundary before clipping its safe replacement', () => {
+    const prefix = `${'x'.repeat(115)} `;
+    const title = `${prefix}AKIA0123456789ABCDEF trailing text`;
+    const snapshot = buildAnalystOrientationSnapshot([{ ...projectCard([]), title }], stopped);
+    expect(parse(snapshot.content).root).toMatchObject({
+      title: `${prefix}AKIA-[REDACT`,
+      title_bytes: ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES,
+      title_truncated: true,
+    });
+  });
+
+  it('reports no truncation when full-title redaction shrinks a raw oversized title below the limit', () => {
+    const title = `Project token=${'s'.repeat(200)}`;
+    expect(Buffer.byteLength(title, 'utf8')).toBeGreaterThan(ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES);
+    const snapshot = buildAnalystOrientationSnapshot([{ ...projectCard([]), title }], stopped);
+    expect(parse(snapshot.content).root).toMatchObject({ title: 'Project token=[REDACTED]', title_bytes: 24, title_truncated: false });
+  });
+
+  it('clips a still-oversized redacted multibyte title without splitting a code point', () => {
+    const title = `ghp_syntheticCredential ${'🙂'.repeat(100)}`;
+    const expected = `ghp-[REDACTED] ${'🙂'.repeat(28)}`;
+    const snapshot = buildAnalystOrientationSnapshot([{ ...projectCard([]), title }], stopped);
+    const shown = parse(snapshot.content).root;
+    expect(shown.title).toBe(expected);
+    expect(shown.title).not.toContain('\uFFFD');
+    expect(shown.title_bytes).toBe(Buffer.byteLength(expected, 'utf8'));
+    expect(shown.title_bytes).toBe(127);
+    expect(shown.title_truncated).toBe(true);
+  });
+
+  it('admits optional children against the actual redacted rendered byte budget', () => {
+    const children = Array.from({ length: 60 }, (_, index) => `card-${'a'.repeat(index + 1)}`);
+    const cards = [projectCard(children), ...children.map((id) => card({ id, parent: 'project', children: [], title: `Child token=${'s'.repeat(200)}` }))];
+    const snapshot = buildAnalystOrientationSnapshot(cards, stopped);
+    const alreadySafe = buildAnalystOrientationSnapshot(cards.map((entry) => entry.id === 'project' ? entry : { ...entry, title: 'Child token=[REDACTED]' }), stopped);
+    const longSafe = buildAnalystOrientationSnapshot(cards.map((entry) => entry.id === 'project' ? entry : { ...entry, title: 'x'.repeat(200) }), stopped);
+    expect(snapshot).toEqual(alreadySafe);
+    expect(parse(snapshot.content).root.children!.length).toBeGreaterThan(parse(longSafe.content).root.children!.length);
+    expect(Buffer.byteLength(snapshot.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
+    expect(snapshot.contentSha256).toBe(createHash('sha256').update(snapshot.content, 'utf8').digest('hex'));
+  });
+
   it('emits the stable key, bounded content, and both hashes over one stopped project', () => {
     const child = card({ id: 'card-a', parent: 'project', children: [] });
     const snapshot = buildAnalystOrientationSnapshot([projectCard(['card-a']), child], stopped);

@@ -27,6 +27,7 @@ import { buildContentPolicyRefusalMessage } from '../../../../src/runtime/actors
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
 import { settledSuccessBytes } from '../../../../src/tools/tool-result-settlement.js';
+import { buildAnalystOrientationSnapshot } from '../../../../src/application/read-models/analyst-orientation.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -171,7 +172,10 @@ describe('composition projector selection pass', () => {
   });
 
   it('gives Analyst conditional historical framing without fabricating a workflow node', () => {
-    const orientation = dynamicBlock('analyst-submission:one', { role: 'system', content: 'Prepared project orientation' });
+    const snapshot = buildAnalystOrientationSnapshot([
+      { id: 'project', parent: null, type: 'project', status: 'backlog', title: 'Project token=synthetic-orientation-secret', version_seq: 1, children: [] },
+    ], { status: 'stopped', currentCardId: null });
+    const orientation = Object.freeze(dynamicBlock('analyst-submission:one', { role: 'system', content: snapshot.content, replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: snapshot.contentSha256 } }));
     const provider = providerConversationFromComposedContext(compose([
       row({ id: 'analyst-question', role: 'user', kind: 'text', content: 'Investigate this' }),
     ], { dynamicBlocks: [orientation] }));
@@ -179,6 +183,9 @@ describe('composition projector selection pass', () => {
     expect(provider.messages.map((item) => item.kind === 'synthetic_context' ? item.origin : item.id)).toEqual(['dynamic', 'context_boundary', 'analyst-question']);
     expect(provider.messages[1]).toMatchObject({ kind: 'synthetic_context', role: 'system', origin: 'context_boundary' });
     expect(provider.messages[1].content).not.toHaveLength(0);
+    expect(provider.messages[0]).toMatchObject({ kind: 'synthetic_context', block_identity: orientation.id, content: snapshot.content });
+    expect(provider.messages[0]!.content).toContain('Project token=[REDACTED]');
+    expect(JSON.stringify(provider)).not.toContain('synthetic-orientation-secret');
     expect(JSON.stringify(provider.messages)).not.toContain('node-activation:');
   });
 

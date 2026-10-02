@@ -112,8 +112,11 @@ the validation toolchain remains available. The lint profile runs the
 export-consumer guard, stamp-producer guard, ESLint, backend import-boundary
 checks, web-component boundary check, reachable-browser import guard
 (`node scripts/check-web-browser-imports.cjs`), then the `npm run format`
-Prettier check, in that order. The formatter checks only `src/` using the existing
-Prettier settings and does not rewrite files.
+Prettier check, in that order. The formatter checks `src/` excluding
+`src/config/system-templates/**/prompts/**` using the existing Prettier settings
+and does not rewrite files. Shipped model-facing prompt bytes, including whitespace,
+are authored deliberately rather than automatically formatted; build retains
+packaging parity, source/package byte comparison, and compiled composition checks.
 The existing `lint-guards` CI job runs this lint profile and is enforced by
 `validation-required` under its existing applies/skipped semantics.
 `validate:routine` remains typecheck, export-consumer guard,

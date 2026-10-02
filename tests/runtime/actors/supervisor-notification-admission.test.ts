@@ -206,7 +206,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     const before=h.cards.read(goalId)!;
     await expect(h.supervisor.submitNotification(childId,{id:`real-${terminal}`,content:'urgent backlog child',created_at:'2026-09-09T00:00:02.000Z'},'urgent')).resolves.toEqual({queued:true,cardId:childId,notificationId:`real-${terminal}`,interruption:{status:'interrupted',stopped_card_ids:[competitorId]}});
     await rootRecovered.promise;
-    expect(rootInput).toContain(`descendant '${childId}' needs attention through immediate child '${goalId}' (currently ${terminal})`);
+    expect(rootInput).toContain(`descendant '${childId}' needs attention through immediate child '${goalId}' (status observed when queued: ${terminal})`);
     expect(h.cards.read(goalId)).toEqual(before);
     expect(h.cards.read(childId)?.pending_notifications.map((note)=>note.id)).toEqual([`real-${terminal}`]);
     await h.supervisor.stopProject();
@@ -591,7 +591,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await competingEntered.promise;
     await expect(h.supervisor.submitNotification(descendant.id, { id: `skip-blocked-${choice}`, content: 'urgent original', created_at: '2026-09-09T00:00:03.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: descendant.id, notificationId: `skip-blocked-${choice}`, interruption: { status: 'interrupted', stopped_card_ids: [competitorId] } });
     await recoveryEntered.promise;
-    expect(recoveryInput.includes(`descendant '${descendant.id}' needs attention through immediate child '${blockedId}' (currently blocked)`)).toBe(true);
+    expect(recoveryInput.includes(`descendant '${descendant.id}' needs attention through immediate child '${blockedId}' (status observed when queued: blocked)`)).toBe(true);
     expect(h.cards.read(blockedId)).toEqual(blockedBefore);
     expect(h.cards.read(competitorId)?.lifecycle.status).toBe('stopped');
     if (choice === 'activate') {
@@ -613,7 +613,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await expect(h.supervisor.submitNotification(target.id, { id: `resting-${status}`, content: 'act on backlog', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toEqual({ queued: true, cardId: target.id, notificationId: `resting-${status}`, interruption: { status: 'not_applicable' } });
     expect(h.cards.read(parent.id)).toEqual(prior);
     expect(h.cards.read('project')?.pending_notifications).toHaveLength(1);
-    expect(h.cards.read('project')?.pending_notifications[0]?.content).toContain(`descendant '${target.id}' needs attention through immediate child '${parent.id}' (currently ${status})`);
+    expect(h.cards.read('project')?.pending_notifications[0]?.content).toContain(`descendant '${target.id}' needs attention through immediate child '${parent.id}' (status observed when queued: ${status})`);
     expect(h.cards.read(target.id)?.pending_notifications.map((note) => note.id)).toEqual([`resting-${status}`]);
     expect(h.supervisor.getActorRuntimeReadModel().cards).toEqual([]);
     if (status === 'blocked') {
@@ -674,7 +674,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     await recoveryEntered.promise;
     expect(rootInputs[1]).toContain(descendant.id);
     expect(rootInputs[1]).toContain(goalId);
-    expect(rootInputs[1]).toContain('currently failed');
+    expect(rootInputs[1]).toContain('status observed when queued: failed');
     expect(h.cards.read(competitorId)?.lifecycle.status).toBe('stopped');
     expect(h.cards.read(descendant.id)?.pending_notifications).toHaveLength(1);
     if (choice === 'decline') {

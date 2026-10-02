@@ -947,6 +947,5 @@ function conversationRowHashText(row: AgentMessage): string {
     content: row.content,
     tool: row.tool,
     tool_call_id: row.tool_call_id,
-    source_input_id: undefined,
   });
 }

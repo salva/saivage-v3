@@ -463,7 +463,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     for (const notice of selection.notices) {
       const parentNote = {
         id: randomUUID(),
-        content: `Urgent notification '${notification.id}' for descendant '${cardId}' needs attention through immediate child '${notice.childId}' (currently ${notice.childStatus}). Consider ordinary child activation${notice.childStatus === 'done' || notice.childStatus === 'failed' ? ' after discretionary reopening if appropriate' : ''}; the workflow may decline.`,
+        content: `Urgent notification '${notification.id}' for descendant '${cardId}' needs attention through immediate child '${notice.childId}' (status observed when queued: ${notice.childStatus}). Consider ordinary child activation; if the child is DONE or FAILED when considered, discretionary reopening may be appropriate; the workflow may decline.`,
         created_at: this.now(),
         source: 'supervisor',
       };
@@ -710,13 +710,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw new Error(
         `Card '${childCardId}' in status '${child.lifecycle.status}' cannot be reopened.`,
       );
-    this.requireOwnerAuthority(parent);
-    if (
-      parent.phase !== 'active' ||
-      parent.terminalWinner !== 'open' ||
-      !this.applicationAdmissionOpen
-    )
-      throw new Error(`Parent activation '${parent.cardId}' is closed to child reopening.`);
     const changed = this.publish(parent, () =>
       this.behavior.actorStore.setStatus(childCardId, 'changed'),
     );

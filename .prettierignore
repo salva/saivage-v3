@@ -1,0 +1,2 @@
+# Shipped model-facing prompt bytes are deliberate; edit them explicitly.
+src/config/system-templates/**/prompts/**

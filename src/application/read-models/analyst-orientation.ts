@@ -1,5 +1,6 @@
 import type { CardStatus, RuntimeStatus } from '../../schemas/index.js';
 import { sha256Hex, canonicalValueSha256 } from '../../schemas/index.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 
 const ANALYST_ORIENTATION_KEY = 'analyst.project_tree';
 export const ANALYST_ORIENTATION_MAX_BYTES = 8192;
@@ -150,7 +151,10 @@ export function buildAnalystOrientationSnapshot(
 
   const nodeOf = (id: string): Record<string, unknown> => {
     const card = cards.get(id)!;
-    const title = utf8SafePreview(card.title, ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES);
+    const title = utf8SafePreview(
+      redactTextForOutbound(card.title),
+      ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES,
+    );
     const node: Record<string, unknown> = {
       id,
       type: card.type,
