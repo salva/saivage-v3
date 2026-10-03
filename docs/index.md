@@ -48,7 +48,8 @@ features:
   - icon: 💾
     title: Plain-file durability
     details: >-
-      All durable state is ordinary files with exact append-only histories. No
+      All durable state is ordinary files with exact immutable version
+      histories. No
       database, no migrations; incompatible format changes are explicit
       reset-only cutovers.
   - icon: 📚

@@ -54,9 +54,10 @@ All work is represented as **cards** in one rooted tree:
   actual work.
 - Each card carries configured **records** — always `brief.md` as the bootstrap
   record, plus `status.md`, and `review.md` for the types that declare it
-  (`project`, `goal`, and `architecture` in the bundled templates). Records
-  are strict append-only versioned streams, and additional names can be
-  configured.
+  (`project`, `goal`, and `architecture` in the bundled templates). Each
+  record is a chain of immutable versions selected by a replaceable head
+  (the latest accepted version plus the current draft), and additional names
+  can be configured.
 - Each card runs a configured **workflow graph** whose nodes are agent sessions
   and whose edges are validated outcomes. For example, bundled terminal `code`
   cards use a red/green/refactor loop; `test` cards use
@@ -134,13 +135,15 @@ history into a new segment under exact admission and coverage rules. See the
 ## Persistence and reset
 
 Saivage stores all durable state as ordinary files under the target project's
-`.saivage/` tree: append-only JSONL streams with strict envelopes for cards,
-records, conversations, and logs, plus plain directories for generated work
-artifacts. There is no database, no migration, and no compatibility reader.
-When a durable format changes incompatibly, the cutover is **reset-only**:
-stop, rewrite configuration, reset generated state (preserving configuration,
-credentials, operator inputs, source, and docs), and start the current
-binary. See
+`.saivage/` tree. Cards and records keep a small replaceable **head** file
+that selects immutable versioned documents (the current card snapshot or
+tombstone, the accepted record versions and current draft); conversations and
+logs are append-only JSONL streams with strict envelopes; generated work
+artifacts live in plain directories. There is no database, no migration, and
+no compatibility reader. When a durable format changes incompatibly, the
+cutover is **reset-only**: stop, rewrite configuration, reset generated state
+(preserving configuration, credentials, operator inputs, source, and docs),
+and start the current binary. See
 [Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)
 and the [global startup and invalid-history procedures](runbook/index.md#configured-global-startup-settlement-and-invalid-history).
 
@@ -151,11 +154,11 @@ and the [global startup and invalid-history procedures](runbook/index.md#configu
 - **Brief** — a card's `brief.md` record: the written objective and acceptance
   context that guides its work and review. The root brief sets the project
   objective.
-- **Record** — a versioned Markdown document owned by a card as a strict
-  append-only stream. Names come from the card type's configuration —
-  `brief.md` is always the bootstrap record; `status.md` and `review.md` are
-  the other common defaults, and additional names such as `review-*.md` can
-  be configured.
+- **Record** — a versioned Markdown document owned by a card: a replaceable
+  head selects the latest accepted immutable version and the current draft.
+  Names come from the card type's configuration — `brief.md` is always the
+  bootstrap record; `status.md` and `review.md` are the other common
+  defaults, and additional names such as `review-*.md` can be configured.
 - **Analyst** — the global operator-conversation agent; the ordinary operator
   mutation surface.
 - **Session** — one conversation owned by a named agent: card-scoped agents
