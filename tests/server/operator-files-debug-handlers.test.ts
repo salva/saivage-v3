@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import { createHash } from 'node:crypto';
 
 import { CardService, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { DoctorResponseSchema, filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
@@ -12,7 +13,10 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
 import { buildEventsOperatorContractHandlers } from '../../src/server/routes/operator-events-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { appLogFile, cardNamespace } from '../../src/persistence/layout.js';
+import { appLogFile, cardNamespace, cardAcceptedRecordFile } from '../../src/persistence/layout.js';
+import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
+import { runtimeCardsOperatorApiContracts } from '../../src/contracts/operator-api-runtime-cards.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
@@ -36,6 +40,20 @@ describe('operator files and debug contract handlers', () => {
       fastify,
       filesDebugOperatorApiContracts,
       { ...buildEventsOperatorContractHandlers({ projectRoot }), ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot), workflows: TEST_RUNTIME_WORKFLOWS }) },
+    );
+    const records = new CardsReadModelService(projectRoot, cards, {
+      getRuntimeState: () => { throw new Error('Records reads must not consume runtime state.'); },
+    });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(
+      fastify,
+      {
+        'cards.records.get': runtimeCardsOperatorApiContracts['cards.records.get'],
+        'cards.records.versions.get': runtimeCardsOperatorApiContracts['cards.records.versions.get'],
+      },
+      {
+        'cards.records.get': ({ params }) => records.getRecord(params.id, params.name),
+        'cards.records.versions.get': ({ params }) => records.getRecordVersion(params.id, params.name, params.version),
+      },
     );
     await fastify.ready();
   });
@@ -305,6 +323,78 @@ describe('operator files and debug contract handlers', () => {
     expect(malformedLayout.json()).toEqual({ error: 'Path not found', path: '.saivage/cards/project/conversations' });
     expect(aliasSpelling.statusCode).toBe(404);
     expect(aliasSpelling.json()).toEqual({ error: 'Path not found', path: './.saivage/cards' });
+  });
+
+  it.each(['Ordinary café prose.', 'Ordinary café prose. token=synthetic_credential_longer_than_the_placeholder_123456789'])('projects current accepted, draft and sparse historical record URLs without changing canonical content: %s', async (source) => {
+    const accepted = cards.acceptRecord('project', 'status.md', source, 'analyst');
+    const original = accepted.accepted!;
+    const artifactPath = cardAcceptedRecordFile(projectRoot, 'project', original.source_entry_id);
+    const artifactBytes = readFileSync(artifactPath);
+    const request = (url: string) => fastify.inject({ method: 'GET', url, headers: authHeaders });
+    const currentUrl = 'record:///status.md?card=project';
+    const preview = async (path: string, raw: string, version: number, modifiedAt: string, recordsText: string) => {
+      const response = await request(`/api/files/content?path=${encodeURIComponent(path)}`);
+      expect(response.statusCode).toBe(200);
+      const body = filesDebugOperatorApiContracts['files.content'].response[200].parse(response.json());
+      expect(body).toEqual({ path, content: redactTextForOutbound(raw), size: Buffer.byteLength(raw), contentType: 'text/markdown', redacted: true, sensitivity: 'sensitive-redacted', version, modifiedAt });
+      expect(body.content).toBe(recordsText);
+      if (raw.includes('token=')) {
+        expect(body.content).not.toContain('synthetic_credential');
+        expect(body.size).toBeGreaterThan(Buffer.byteLength(body.content));
+      }
+    };
+    const acceptedResponse = await request('/api/cards/project/records/status.md');
+    expect(acceptedResponse.statusCode).toBe(200);
+    const acceptedView = runtimeCardsOperatorApiContracts['cards.records.get'].response[200].parse(acceptedResponse.json());
+    await preview(currentUrl, source, accepted.revision, original.committed_at, acceptedView.record.accepted!.content);
+
+    cards.openRecord('project', 'status.md');
+    const draftSource = `Draft ${source}`;
+    cards.editRecord('project', 'status.md', draftSource);
+    const canonicalBefore = cards.readRecordCurrent('project', 'status.md');
+    if (canonicalBefore.kind !== 'found' || !canonicalBefore.value.projection) throw new Error('Missing canonical test record.');
+    const draft = canonicalBefore.value.projection;
+    const draftResponse = await request('/api/cards/project/records/status.md');
+    expect(draftResponse.statusCode).toBe(200);
+    const draftView = runtimeCardsOperatorApiContracts['cards.records.get'].response[200].parse(draftResponse.json());
+    await preview(currentUrl, draftSource, draft.revision, draft.draft!.updated_at, draftView.record.draft!.content);
+
+    const historicalResponse = await request(`/api/cards/project/records/status.md/versions/${accepted.revision}`);
+    expect(historicalResponse.statusCode).toBe(200);
+    const historical = runtimeCardsOperatorApiContracts['cards.records.versions.get'].response[200].parse(historicalResponse.json());
+    await preview(`${currentUrl}&v=${accepted.revision}`, source, accepted.revision, original.committed_at, historical.artifact.accepted.content);
+
+    const absentPath = `${currentUrl}&v=${draft.revision}`;
+    const absent = await request(`/api/files/content?path=${encodeURIComponent(absentPath)}`);
+    expect(absent.statusCode).toBe(404);
+    expect(filesDebugOperatorApiContracts['files.content'].response[404].parse(absent.json())).toEqual({ error: 'workspace_historical_version_not_found', path: absentPath, historical: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: 'project/status.md', version: draft.revision } });
+    expect(await request(`/api/cards/project/records/status.md/versions/${draft.revision}`)).toHaveProperty('statusCode', 404);
+    const malformedPath = `${currentUrl}&v=0`;
+    const malformed = await request(`/api/files/content?path=${encodeURIComponent(malformedPath)}`);
+    expect(malformed.statusCode).toBe(400);
+    expect(filesDebugOperatorApiContracts['files.content'].response[400].parse(malformed.json())).toEqual({ path: malformedPath, error: 'Invalid record version.' });
+    const denied = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(currentUrl)}` });
+    expect(denied.statusCode).toBe(401);
+    expect(denied.json()).toEqual({ error: 'Unauthorized', statusCode: 401 });
+
+    expect(cards.readRecordCurrent('project', 'status.md')).toEqual(canonicalBefore);
+    expect(readFileSync(artifactPath)).toEqual(artifactBytes);
+    expect(original).toMatchObject({ content: source, size_bytes: Buffer.byteLength(source), content_sha256: createHash('sha256').update(source).digest('hex') });
+  });
+
+  it('preserves uncapped record-URL content and the separate raw-source virtual-record preview cap', async () => {
+    const source = `${'Ordinary prose. '.repeat(70_000)}token=synthetic_long_credential_123456789`;
+    cards.acceptRecord('project', 'status.md', source, 'analyst');
+    const path = 'record:///status.md?card=project';
+    const response = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}`, headers: authHeaders });
+    expect(response.statusCode).toBe(200);
+    const body = filesDebugOperatorApiContracts['files.content'].response[200].parse(response.json());
+    expect(body).toMatchObject({ path, size: Buffer.byteLength(source), content: redactTextForOutbound(source), redacted: true, sensitivity: 'sensitive-redacted' });
+    expect(body.size).toBeGreaterThan(1_048_576);
+    const virtualPath = '.saivage/cards/project/status.md';
+    const capped = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(virtualPath)}`, headers: authHeaders });
+    expect(capped.statusCode).toBe(413);
+    expect(filesDebugOperatorApiContracts['files.content'].response[413].parse(capped.json())).toEqual({ path: virtualPath, size: Buffer.byteLength(source), maxSize: 1_048_576, error: 'File exceeds maximum size of 1048576 bytes.' });
   });
 
   it('wraps semantic current and explicit card-version documents without exposing physical layout', async () => {

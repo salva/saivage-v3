@@ -103,6 +103,14 @@ function response(
   };
 }
 
+function toolRows(id: string, round: number, tool = 'read'): AgentConversationEntry[] {
+  const base = { ...textEntry(id, round), tool, tool_call_id: `invocation-${id}` };
+  return [
+    { ...base, kind: 'tool_call', content: JSON.stringify({ tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: 'README.md' }) } }] }) },
+    { ...base, id: `${id}:result`, role: 'tool', kind: 'tool_result', block_index: 1, content: JSON.stringify({ success: true, data: { content: 'raw-only-response' } }) },
+  ];
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => (resolve = done));
@@ -141,7 +149,7 @@ function installViewportModel(): void {
   });
 }
 
-async function mountConversation(entryId: string) {
+async function mountConversation(entryId: string, revealed?: () => void) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const router = makeRouter();
@@ -151,6 +159,9 @@ async function mountConversation(entryId: string) {
     props: { sessionId: 'agent:planner:project', entryId },
     global: {
       plugins: [pinia, router],
+      mixins: [{ updated() {
+        if (this.$options.__name === 'ToolGroupRow' && this.$el.querySelector('.tool-group-body')) revealed?.();
+      } }],
       stubs: {
         ContextBlock: {
           props: ['entry'],
@@ -267,6 +278,90 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(evidenceLookups).toBe(1);
     expect(centerScrolls).toBe(0);
     expect(wrapper.text()).toContain('requested conversation entry was not found');
+  });
+
+  it('focuses standalone calls and reveals only the selected call group without raw payloads or result aliases', async () => {
+    const opaque = ' opaque "[] # % call ';
+    api.getAgentConversation.mockResolvedValueOnce(response([
+      ...toolRows('standalone', 1, 'custom_probe'),
+      ...toolRows('group-first', 2), ...toolRows(opaque, 2),
+      ...toolRows('unrelated-first', 3), ...toolRows('unrelated-second', 3),
+    ]));
+    const { wrapper, callback } = await mountConversation('standalone');
+    await callback(null);
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe('standalone');
+    expect(wrapper.findAll('.tool-group-body')).toHaveLength(0);
+    await wrapper.setProps({ entryId: opaque });
+    await flushPromises();
+    const chip = wrapper.get('.targeted-conversation-entry');
+    expect(chip.attributes('data-entry-id')).toBe(opaque);
+    expect(chip.classes()).toContain('tool-chip');
+    expect(chip.attributes('tabindex')).toBe('-1');
+    expect(wrapper.findAll('.tool-group-body')).toHaveLength(1);
+    expect(wrapper.findAll('.tool-group-toggle').map((button) => button.attributes('aria-expanded'))).toEqual(['true', 'false']);
+    expect(wrapper.findAll('.tool-chip-detail, .tool-chip-raw')).toHaveLength(0);
+    expect(wrapper.text()).not.toContain('raw-only-response');
+    expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+    await wrapper.setProps({ entryId: `${opaque}:result` });
+    expect(wrapper.text()).toContain('requested conversation entry was not found');
+    expect(wrapper.find('.targeted-conversation-entry').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each(['change', 'invalid', 'unmount'] as const)('cancels render-delayed group focus on %s', async (action) => {
+    api.getAgentConversation.mockResolvedValueOnce(response([
+      ...toolRows('group-first', 1), ...toolRows('group-target', 1), ...toolRows('new-target', 2, 'custom_probe'),
+    ]));
+    let intervene = () => {};
+    const { wrapper, callback } = await mountConversation('', () => intervene());
+    await callback(null);
+    await flushPromises();
+    let changed = false;
+    intervene = () => {
+      if (changed) return;
+      changed = true;
+      if (action === 'unmount') wrapper.unmount();
+      else void wrapper.setProps(action === 'invalid' ? { invalidSegment: true } : { entryId: 'new-target' });
+    };
+    centerScrolls = 0;
+    await wrapper.setProps({ entryId: 'group-target' });
+    await flushPromises();
+    expect(changed).toBe(true);
+    expect(centerScrolls).toBe(action === 'change' ? 1 : 0);
+    if (action !== 'unmount') {
+      expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+      if (action === 'change') expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe('new-target');
+      else expect(wrapper.find('.targeted-conversation-entry').exists()).toBe(false);
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps grouped exact selection isolated from current updates and fails closed for invalid segments and projection errors', async () => {
+    const id = 'exact-group-call';
+    api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 1, segment_context: null, entries: [...toolRows('first', 1), ...toolRows(id, 1)] });
+    const router = makeRouter();
+    await router.push({ name: 'agent-detail', params: { id: 'agent:planner:project' }, query: { segment: '1', entry: id } });
+    const pinia = createPinia();
+    const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(id);
+    useAgentStore(pinia).entries = [...toolRows('current-first', 2), ...toolRows('current-call', 2)];
+    useAgentStore(pinia).conversationError = 'current failed';
+    await flushPromises();
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(id);
+    expect(wrapper.text()).not.toContain('current failed');
+    await router.push({ query: { segment: 'bad', entry: id } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Invalid segment selection');
+    expect(wrapper.find('.tool-group-body').exists()).toBe(false);
+    api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 2, segment_context: null, entries: [...toolRows('first', 1), ...toolRows(id, 1), { ...activation('agent:planner:project', '0123456789abcdef'), content: '{"event":"activation_open"}' }] });
+    await router.push({ query: { segment: '2', entry: id } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Malformed activation_open');
+    expect(wrapper.find('.tool-chip').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+    wrapper.unmount();
   });
 
   it('focuses once for growth, same-length replacement, and each later accepted replacement', async () => {

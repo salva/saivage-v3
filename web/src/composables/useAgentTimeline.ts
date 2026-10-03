@@ -55,6 +55,19 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     next.has(id) ? next.delete(id) : next.add(id);
     expandedIds.value = next;
   }
+  function revealCall(entryId: string): boolean {
+    for (const round of timeline.value.rounds) {
+      if (round.kind === 'compacted') continue;
+      for (const item of round.items) {
+        if (isToolGroup(item) && item.pairs.some((pair) => pair.call.id === entryId)) {
+          if (expandedIds.value.has(item.id)) return false;
+          expandedIds.value = new Set([...expandedIds.value, item.id]);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
   function expandAll(): void {
     const ids = new Set<string>();
     for (const round of timeline.value.rounds) {
@@ -88,6 +101,7 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     unseenCount,
     autoScrollPaused,
     toggleExpanded,
+    revealCall,
     expandAll,
     collapseAll,
     handleTimelineScroll,

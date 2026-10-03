@@ -3,6 +3,7 @@ import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { installOperatorRestRoutes, smokeCardId, retainedInstructionContext } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
+import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
 
 const token = 'synthetic-cockpit-conversation-token';
 const executor = `agent:executor:${smokeCardId}`;
@@ -14,6 +15,17 @@ function activationRow(sessionId: string, suffix: string) {
   return { id: `${sessionId}:activation:${suffix}`, session_id: sessionId, role: 'system', kind: 'activity',
     content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: smokeCardId }), input_id: '11111111-1111-4111-8111-111111111111', timestamp: now }),
     context_policy: { kind: 'structural', behavior: 'activation_boundary' }, round_id: 'r-pre-11111111111141118111111111111111', message_index: 0, block_index: 0, timestamp: now };
+}
+
+function callRows(id: string, round: string, index: number, tool = 'read') {
+  const resultContent = JSON.stringify({ success: true, data: { content: 'synthetic-raw-response-only' } });
+  const policies = toolRowPolicies({ content: resultContent });
+  const source = round.slice('r-assistant-'.length).replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
+  const base = { session_id: executor, tool, tool_call_id: id, round_id: round, message_index: index, block_index: 0, timestamp: now };
+  return [
+    { ...base, id: `${source}:tool-call:${id}`, role: 'assistant', kind: 'tool_call', context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: 'README.md', synthetic: 'raw-request-only' }) } }] }) },
+    { ...base, id: `${source}:tool-result:${id}`, role: 'tool', kind: 'tool_result', block_index: 1, context_policy: policies.result, content: resultContent },
+  ];
 }
 
 async function setup(page: Page, chatBack = false) {
@@ -224,6 +236,79 @@ for (const sessionId of [executor, 'agent:oversight:global']) {
     expect(rest.unknown).toEqual([]);
   });
 }
+
+test('exact call chips reveal only their group, retain focus through direct/reload/change/Back, and fail closed', async ({ page }, testInfo) => {
+  const rest = await setup(page);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const opaqueSource = ' opaque "[] # % grouped call ';
+  const opaque = `22222222-2222-4222-8222-222222222222:tool-call:${opaqueSource}`;
+  const standalone = '11111111-1111-4111-8111-111111111111:tool-call:synthetic-standalone-call';
+  const entries = [
+    ...callRows('synthetic-standalone-call', 'r-assistant-11111111111141118111111111111111', 1, 'custom_probe'),
+    ...callRows('group-first', 'r-assistant-22222222222242228222222222222222', 2),
+    ...callRows(opaqueSource, 'r-assistant-22222222222242228222222222222222', 3),
+    ...callRows('unrelated-first', 'r-assistant-33333333333343338333333333333333', 4),
+    ...callRows('unrelated-second', 'r-assistant-33333333333343338333333333333333', 5),
+  ];
+  let exactReads = 0;
+  let currentReads = 0;
+  await page.route('**/api/agents/*/conversation**', async (route) => {
+    const url = new URL(route.request().url());
+    if (decodeURIComponent(url.pathname.split('/')[3]!) !== executor) return route.fallback();
+    if (url.pathname.endsWith('/versions/1')) {
+      exactReads++;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversationVersions.get', 200, {
+        session_id: executor, version: 1, entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', published_at: now, segment_context: null, entries,
+      })) });
+    }
+    if (url.pathname.endsWith('/versions')) return route.fallback();
+    currentReads++;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, {
+      session_id: executor, segment_version: 2, segment_context: null, entries: [], cursor: { segment_version: 2, message_id: null },
+    })) });
+  });
+  const link = (entry: string, segment = '1') => `/agents/${encodeURIComponent(executor)}?segment=${segment}&entry=${encodeURIComponent(entry)}`;
+  const chip = () => page.locator('.tool-chip.targeted-conversation-entry');
+  const assertTarget = async (entry: string) => {
+    await expect(chip()).toHaveAttribute('data-entry-id', entry);
+    await expect(chip()).toBeVisible();
+    await expect(chip()).toBeFocused();
+    await expect(page.getByText(/requested conversation entry was not found/)).toHaveCount(0);
+    await expect(page.locator('.tool-chip-detail, .tool-chip-raw')).toHaveCount(0);
+    await expect(page.getByText('synthetic-raw-response-only', { exact: false })).toHaveCount(0);
+  };
+  await page.goto(link(opaque));
+  await assertTarget(opaque);
+  await expect(page.locator('.tool-group-body')).toHaveCount(1);
+  await expect(page.locator('.tool-group-toggle').nth(1)).toHaveAttribute('aria-expanded', 'false');
+  await page.reload();
+  await assertTarget(opaque);
+  await page.goto(link(standalone));
+  await assertTarget(standalone);
+  await expect(page.locator('.tool-group-body')).toHaveCount(0);
+  await page.goBack();
+  await assertTarget(opaque);
+  await expect(page.locator('.tool-group-body')).toHaveCount(1);
+  const reads = currentReads;
+  await page.evaluate((id) => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 2, visible_message_id: 'background-update' }), executor);
+  await expect.poll(() => currentReads).toBeGreaterThan(reads);
+  await assertTarget(opaque);
+  await screenshot(page, testInfo, 'exact-grouped-call-focused.png');
+  await page.goto(link(`22222222-2222-4222-8222-222222222222:tool-result:${opaqueSource}`));
+  await expect(page.getByText('The requested conversation entry was not found in the selected exact segment.')).toBeVisible();
+  await expect(chip()).toHaveCount(0);
+  const acceptedReads = exactReads;
+  for (const segment of ['0', 'bad', '1.5', '9007199254740992']) {
+    await page.goto(link(opaque, segment));
+    await expect(page.getByText('Invalid segment selection')).toBeVisible();
+    await expect(page.locator('.tool-chip, .tool-group-body')).toHaveCount(0);
+    await expect(page.getByText(/requested conversation entry was not found/)).toHaveCount(0);
+  }
+  expect(exactReads).toBe(acceptedReads);
+  expect(errors).toEqual([]);
+  expect(rest.unknown).toEqual([]);
+});
 
 test('System Events shows scheduled restart evidence without replacement readiness', async ({ page }, testInfo) => {
   const rest = await setup(page);

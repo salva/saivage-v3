@@ -30,7 +30,10 @@ function toolPair(tool: string, resultContent: string | null, args: Record<strin
 describe('ToolChip', () => {
   it('uses a group with one expand button and sibling router links without nested anchors', async () => {
     const r = router(); await r.push('/'); await r.isReady();
-    const wrapper = mount(ToolChip, { props: { display: unmatchedRead, callContent: '{}', resultContent: null, expanded: false, detailsId: 'tool-test' }, global: { plugins: [r, createPinia()] } });
+    const entryId = ' opaque "[] # % call ';
+    const wrapper = mount(ToolChip, { props: { entryId, display: unmatchedRead, callContent: '{}', resultContent: null, expanded: false, detailsId: 'tool-test' }, global: { plugins: [r, createPinia()] } });
+    expect(wrapper.attributes('data-entry-id')).toBe(entryId);
+    expect(wrapper.find('.tool-chip-detail').exists()).toBe(false);
     expect(wrapper.attributes('role')).toBe('group');
     expect(wrapper.findAll('button.tool-chip-toggle')).toHaveLength(1);
     expect(wrapper.find('button.tool-chip-toggle a').exists()).toBe(false);
@@ -41,14 +44,14 @@ describe('ToolChip', () => {
 
   it('emits toggle and renders formatted detail when expanded', async () => {
     const r = router(); await r.push('/'); await r.isReady();
-    const wrapper = mount(ToolChip, { props: { display: unmatchedRead, callContent: '{}', resultContent: null, expanded: true, detailsId: 'tool-test' }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: 'call', display: unmatchedRead, callContent: '{}', resultContent: null, expanded: true, detailsId: 'tool-test' }, global: { plugins: [r, createPinia()] } });
     expect(wrapper.find('.tool-chip-body').exists()).toBe(true);
   });
 
   it('renders timestamp in a human-friendly form instead of raw ISO', async () => {
     const r = router(); await r.push('/'); await r.isReady();
     const ts = '2026-05-30T06:50:18.761Z';
-    const wrapper = mount(ToolChip, { props: { display: unmatchedRead, callContent: '{}', resultContent: null, expanded: false, detailsId: 'tool-ts', timestamp: ts }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: 'call', display: unmatchedRead, callContent: '{}', resultContent: null, expanded: false, detailsId: 'tool-ts', timestamp: ts }, global: { plugins: [r, createPinia()] } });
     const span = wrapper.find('.tool-chip-time');
     expect(span.exists()).toBe(true);
     expect(span.text()).not.toBe(ts);
@@ -61,7 +64,7 @@ describe('ToolChip', () => {
     const rawRequest = JSON.stringify({ role: 'assistant', tool_calls: [{ function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
     const rawResponse = JSON.stringify({ ok: true, content: 'secret-value' });
     const okRead: ToolDisplayModel = { action: 'Read', toolName: 'read', target: [], links: [], status: [{ kind: 'text', text: '2 lines' }], statusTone: 'ok', known: true };
-    const wrapper = mount(ToolChip, { props: { display: okRead, callContent: rawRequest, resultContent: rawResponse, expanded: true, detailsId: 'tool-raw' }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: 'call', display: okRead, callContent: rawRequest, resultContent: rawResponse, expanded: true, detailsId: 'tool-raw' }, global: { plugins: [r, createPinia()] } });
 
     expect(wrapper.find('.tool-chip-body').exists()).toBe(true);
     expect(wrapper.text()).not.toContain('secret-value');
@@ -79,7 +82,7 @@ describe('ToolChip', () => {
     const r = router(); await r.push('/'); await r.isReady();
     const resultContent = JSON.stringify({ success: true, data: { result: 'private-mcp-prefix', result_complete: false, result_utf8_bytes: 4096 } });
     const pair = toolPair('mcp_tool_call', resultContent, { serverName: 'server', toolName: 'lookup', args: {} });
-    const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-mcp' }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: pair.call.id, display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-mcp' }, global: { plugins: [r, createPinia()] } });
 
     const statusParts = wrapper.find('.tool-chip-status').findAll('.inline-part-text').map((part) => part.text());
     expect(statusParts).toEqual(['MCP call completed', 'result truncated · 4.0 kB total JSON source']);
@@ -98,7 +101,7 @@ describe('ToolChip', () => {
     const id = 'proc-0123456789ab';
     const resultContent = JSON.stringify({ success: true, data: { process_id: id, exit_code: 0, status: 'exited', stdout: 'first\nsecond', stderr: 'warning', stdout_complete: true, stderr_complete: false, stdout_url: `work:///processes/${id}/stdout.log`, stderr_url: `work:///processes/${id}/stderr.log`, stdout_bytes: 12, stderr_bytes: 100 } });
     const pair = toolPair('run_command', resultContent, { command: 'check' });
-    const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-process' }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: pair.call.id, display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-process' }, global: { plugins: [r, createPinia()] } });
 
     expect(wrapper.find('.tool-chip-status').text()).toContain('stdout complete');
     expect(wrapper.find('.tool-chip-status').text()).toContain('stderr partial');
@@ -131,7 +134,7 @@ describe('ToolChip', () => {
     for (const [index, testCase] of cases.entries()) {
       const r = router(); await r.push('/'); await r.isReady();
       const pair = toolPair('read', testCase.body, { path: 'README.md' });
-      const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent: testCase.body, expanded: false, detailsId: `tool-matrix-${index}` }, global: { plugins: [r, createPinia()] } });
+      const wrapper = mount(ToolChip, { props: { entryId: pair.call.id, display: buildToolDisplay(pair), callContent: pair.call.content, resultContent: testCase.body, expanded: false, detailsId: `tool-matrix-${index}` }, global: { plugins: [r, createPinia()] } });
       expect(wrapper.find('.tool-chip-status').text()).toBe(testCase.semantic);
       expect(wrapper.text()).not.toContain(testCase.hidden);
       expect(wrapper.find('.tool-chip-status').attributes('data-tone')).toBe(testCase.tone);
@@ -152,7 +155,7 @@ describe('ToolChip', () => {
   it('renders an expanded unmatched unknown call as neutral fact with request-only raw access', async () => {
     const r = router(); await r.push('/'); await r.isReady();
     const pair = toolPair('custom_probe', null, { exact: 'request-payload' });
-    const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent: null, expanded: true, detailsId: 'tool-unmatched-unknown' }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: pair.call.id, display: buildToolDisplay(pair), callContent: pair.call.content, resultContent: null, expanded: true, detailsId: 'tool-unmatched-unknown' }, global: { plugins: [r, createPinia()] } });
 
     expect(wrapper.text()).toContain('no result recorded');
     expect(wrapper.find('.tool-chip-status').attributes('data-tone')).toBe('neutral');
@@ -176,7 +179,7 @@ describe('ToolChip', () => {
     const r = router(); await r.push('/'); await r.isReady();
     const resultContent = JSON.stringify({ success: true, data: { exact: 'response-payload' } });
     const pair = toolPair('custom_probe', resultContent, { exact: 'request-payload' });
-    const wrapper = mount(ToolChip, { props: { display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-unknown-result' }, global: { plugins: [r, createPinia()] } });
+    const wrapper = mount(ToolChip, { props: { entryId: pair.call.id, display: buildToolDisplay(pair), callContent: pair.call.content, resultContent, expanded: true, detailsId: 'tool-unknown-result' }, global: { plugins: [r, createPinia()] } });
 
     expect(wrapper.find('.detail-hint').text()).toBe('Generic tool — view raw payload for full detail.');
     expect(wrapper.findAll('button.raw-toggle').map((button) => button.text())).toEqual(['Show raw request', 'Show raw response']);

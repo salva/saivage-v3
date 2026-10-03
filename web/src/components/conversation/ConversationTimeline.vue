@@ -27,6 +27,7 @@
           />
           <ToolChip
             v-else
+            :entry-id="item.call.id"
             :display="buildToolDisplay(item)"
             :call-content="item.call.content"
             :result-content="item.result?.content ?? null"

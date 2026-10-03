@@ -9,6 +9,7 @@
       <ToolChip
         v-for="pair in group.pairs"
         :key="pair.call.id"
+        :entry-id="pair.call.id"
         :display="buildToolDisplay(pair)"
         :call-content="pair.call.content"
         :result-content="pair.result?.content ?? null"

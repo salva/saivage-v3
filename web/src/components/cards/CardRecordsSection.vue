@@ -2,6 +2,7 @@
   <Section title="Records">
     <ViewState v-if="store.recordDescriptorsLoading && records.length === 0" state="loading" title="Loading record definitions" />
     <ViewState v-else-if="store.recordDescriptorsError" state="error" title="Could not load record definitions" :message="store.recordDescriptorsError" />
+    <ViewState v-if="unavailableRecord" state="empty" title="Requested record unavailable" :message="`Record '${unavailableRecord}' is not configured for this card.`" />
     <div class="records-list">
       <DocumentFrame v-for="record in records" :key="record.name" :name="record.name" :title="record.name"
         :version="null"
@@ -25,32 +26,32 @@
             <summary>Prior accepted content</summary>
             <MarkdownText :source="value(record.name).current!.record.accepted!.content" />
           </details>
-          <button type="button" class="history-button" @click="history(record.name)">History</button>
-          <ViewState v-if="value(record.name).historyLoading && !value(record.name).history" state="loading" title="Loading record history" />
-          <div v-if="value(record.name).historyError" class="record-history-error" role="alert">{{ value(record.name).historyError }}</div>
-          <ol v-if="value(record.name).history" class="record-history">
-            <li v-for="version in value(record.name).history?.versions" :key="version.entry_id">
-              <button type="button" @click="select(record.name, version.version)">v{{ version.version }} · accepted</button>
-            </li>
-          </ol>
-          <div v-if="value(record.name).selectedError" class="record-history-error" role="alert">{{ value(record.name).selectedError }} <button type="button" @click="retrySelected(record.name)">Retry</button></div>
-          <ViewState v-if="value(record.name).selectedLoading" state="loading" title="Loading selected record version" />
-          <div v-if="value(record.name).selected" class="selected-record">
-            <strong>Selected v{{ value(record.name).selected?.version }}</strong>
-            <ExactValue :value="value(record.name).selected!.version_url" label="selected record locator" />
-            <p>Observed card mutation revision {{ value(record.name).selected!.artifact.accepted.card_version_seq }} · ordinary history
-              <router-link :to="{ name: 'card-detail', params: { id: cardId }, query: { facet: 'records', version: String(value(record.name).selected!.artifact.accepted.card_history_version) } }">v{{ value(record.name).selected!.artifact.accepted.card_history_version }}</router-link>
-              <ExactValue :value="`card:///${cardId}?v=${value(record.name).selected!.artifact.accepted.card_history_version}#entry=${value(record.name).selected!.artifact.accepted.card_history_entry_id}`" label="provenance locator" />
-            </p>
-            <MarkdownText v-if="selectedContent(record.name) !== null" :source="selectedContent(record.name) ?? ''" />
-            <ViewState v-else state="empty" title="Selected view has no effective content." />
-            <div v-if="value(record.name).diff" class="record-diff">
-              <div class="record-diff-label">Selected accepted version vs current content</div>
-              <p>{{ diffTargetLabel(record.name) }}</p>
-              <CodeBlock :code="hunksText(record.name)" language="text" copyable />
-            </div>
-            <div v-if="value(record.name).diffError" class="record-history-error" role="alert">{{ value(record.name).diffError }} <button type="button" @click="retrySelected(record.name)">Retry diff</button></div>
+        </div>
+        <button type="button" class="history-button" :disabled="!historicalActionsReady(record.name)" @click="history(record.name)">History</button>
+        <ViewState v-if="value(record.name).historyLoading && !value(record.name).history" state="loading" title="Loading record history" />
+        <div v-if="value(record.name).historyError" class="record-history-error" role="alert">{{ value(record.name).historyError }}</div>
+        <ol v-if="value(record.name).history" class="record-history">
+          <li v-for="version in value(record.name).history?.versions" :key="version.entry_id">
+            <button type="button" :disabled="!historicalActionsReady(record.name)" @click="select(record.name, version.version)">v{{ version.version }} · accepted</button>
+          </li>
+        </ol>
+        <div v-if="value(record.name).selectedError" class="record-history-error" role="alert">{{ value(record.name).selectedError }} <button type="button" :disabled="!historicalActionsReady(record.name)" @click="retrySelected(record.name)">Retry</button></div>
+        <ViewState v-if="value(record.name).selectedLoading" state="loading" title="Loading selected record version" />
+        <div v-if="value(record.name).selected" class="selected-record">
+          <strong>Selected v{{ value(record.name).selected?.version }}</strong>
+          <ExactValue :value="value(record.name).selected!.version_url" label="selected record locator" />
+          <p>Observed card mutation revision {{ value(record.name).selected!.artifact.accepted.card_version_seq }} · ordinary history
+            <router-link :to="{ name: 'card-detail', params: { id: cardId }, query: { facet: 'records', version: String(value(record.name).selected!.artifact.accepted.card_history_version) } }">v{{ value(record.name).selected!.artifact.accepted.card_history_version }}</router-link>
+            <ExactValue :value="`card:///${cardId}?v=${value(record.name).selected!.artifact.accepted.card_history_version}#entry=${value(record.name).selected!.artifact.accepted.card_history_entry_id}`" label="provenance locator" />
+          </p>
+          <MarkdownText v-if="selectedContent(record.name) !== null" :source="selectedContent(record.name) ?? ''" />
+          <ViewState v-else state="empty" title="Selected view has no effective content." />
+          <div v-if="value(record.name).diff" class="record-diff">
+            <div class="record-diff-label">Selected accepted version vs current content</div>
+            <p>{{ diffTargetLabel(record.name) }}</p>
+            <CodeBlock :code="hunksText(record.name)" language="text" copyable />
           </div>
+          <div v-if="value(record.name).diffError" class="record-history-error" role="alert">{{ value(record.name).diffError }} <button type="button" :disabled="!historicalActionsReady(record.name)" @click="retrySelected(record.name)">Retry diff</button></div>
         </div>
       </DocumentFrame>
     </div>
@@ -58,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed,onMounted, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { LiveSyncCardRecordName as RecordName } from '../../api/types';
 import { useCardStore, type RecordSlotState } from '../../stores/cards';
 import Section from '../ui/Section.vue';
@@ -73,17 +74,26 @@ const store = useCardStore();
 const records=computed(()=>store.selectedDetail?.cardId===props.cardId?store.recordDescriptors:[]);
 function value(name: RecordName): RecordSlotState { const value=store.cardRecords[name];if(!value)throw new Error(`Missing record state for '${name}'.`);return value; }
 function contentValue(name: RecordName) { const accepted = value(name).accepted; return accepted?.kind === 'content' ? accepted : null; }
-async function load(): Promise<void> { await store.loadCardRecords(props.cardId); await refine(); }
-async function refine(): Promise<void> {
-  const selection = props.recordRefinement;
-  if (selection?.record && selection.version != null) {
-    await store.openRecordHistory(selection.record);
-    await store.selectRecordVersion(selection.record, selection.version);
-  }
+const initialLoadCompletedFor = ref<string | null>(null);
+const descriptorsReady = computed(() => store.selectedCardId === props.cardId &&
+  store.selectedDetail?.cardId === props.cardId &&
+  !store.recordDescriptorsLoading && !store.recordDescriptorsError);
+const unavailableRecord = computed(() => {
+  const name = props.recordRefinement?.record;
+  return descriptorsReady.value && name && !records.value.some((record) => record.name === name) ? name : null;
+});
+function historicalActionsReady(name: RecordName): boolean {
+  return descriptorsReady.value && initialLoadCompletedFor.value === props.cardId &&
+    records.value.some((record) => record.name === name) &&
+    !(value(name).loading && !value(name).accepted);
 }
+const refinementReady = computed(() => {
+  const name = props.recordRefinement?.record;
+  return !!name && historicalActionsReady(name) && !value(name).loading && !value(name).refreshing;
+});
 function recordLink(name: string, version: number) { return { name: 'card-detail', params: { id: props.cardId }, query: { facet: 'records', record: name, version: String(version) } }; }
 function retry(name: RecordName): void { void store.retryRecord(name); }
-function history(name:RecordName):void{void store.openRecordHistory(name);}
+function history(name:RecordName):void{if(historicalActionsReady(name))void store.openRecordHistory(name);}
 function hunksText(name: RecordName): string {
   const hunks = value(name).diff?.hunks;
   return hunks ? hunks.flatMap((hunk) => hunk.lines).join('\n') : '';
@@ -93,12 +103,24 @@ function diffTargetLabel(name: RecordName): string {
   return target?.kind === 'current' ? `Current record revision ${target.revision}` : target ? `Accepted version ${target.version}` : '';
 }
 
-function select(name:RecordName,version:number):void{void store.selectRecordVersion(name,version);}
-function retrySelected(name:RecordName):void{const version=value(name).selectedVersion;if(version!==null)select(name,version);}
+function select(name:RecordName,version:number):void{if(historicalActionsReady(name))void store.selectRecordVersion(name,version);}
+function retrySelected(name:RecordName):void{if(!historicalActionsReady(name))return;const version=value(name).selectedVersion;if(version!==null)select(name,version);}
 function selectedContent(name:RecordName):string|null{return value(name).selected?.artifact.accepted.content ?? null;}
-onMounted(load);
-watch(() => props.cardId, load);
-watch(() => props.recordRefinement, refine);
+watch(() => props.cardId, (cardId, _prior, onCleanup) => {
+  initialLoadCompletedFor.value = null;
+  let active = true;
+  onCleanup(() => { active = false; });
+  void store.loadCardRecords(cardId).then(() => {
+    if (active) initialLoadCompletedFor.value = cardId;
+  });
+}, { immediate: true });
+watch([() => props.cardId, () => props.recordRefinement?.record, () => props.recordRefinement?.version, refinementReady],
+  ([_cardId, name, version, ready]) => {
+    if (ready && name && version != null) {
+      void store.openRecordHistory(name);
+      void store.selectRecordVersion(name, version);
+    }
+  }, { immediate: true });
 </script>
 
 <style scoped>

@@ -93,6 +93,11 @@ contracts the current Card Cockpit implements.
 - Evidence-link grammar `/agents/<session>?entry=<marker>` is retained.
   `entry` targeting is validated separately, located only in the addressed
   source, and reported missing without searching elsewhere.
+  A rendered tool-call target reveals its containing group, then highlights,
+  scrolls to, and focuses the exact canonical call row without opening raw
+  request/result payloads or unrelated groups. Superseded render-delayed focus
+  is cancelled. Tool-result IDs are not aliases for call IDs, and omitted or
+  private rows are not promised rendered targets.
 - A resolved card-session address selects Conversations in its exact owning
   card cockpit. The represented tree, selected card, compact header, participant
   rail, and four tabs persist across exact participant selection. Conversations
@@ -193,6 +198,18 @@ Plain resource reads cancel their pending request when their owner departs. Supe
   failed history or exact sparse selected-version request is an ordinary selection-local
   error that preserves accepted current and metadata state, never a separate
   availability state.
+- Records-facet record/version query refinement waits for matching card,
+  successful definitions, and completion of the initial current-record load;
+  a pending current refresh also delays refinement. Failed definitions remain
+  an error; an undeclared requested record is explicitly unavailable, without
+  a synthetic slot or dropped query. History and exact version reads are
+  independent. Manual History, catalog selection, selected-version Retry and
+  Retry diff are unavailable during initial current loading; pending actions
+  are not queued. Once it settles, including failure, those controls are usable.
+  This admission restriction never hides historical output: current failure
+  remains visible alongside independent history/selection loading, local
+  error/Retry, or selected content and provenance. Missing exact versions never
+  substitute current content; a diff error does not hide selected content.
 - Card versions expose publication facts and current-relative differences.
   Null change metadata means attribution unavailable; no author or cause is
   inferred. Record revisions keep their own sequences. Overview explains that
@@ -315,6 +332,11 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   redaction notice). Physical persistence paths are never disclosed. Files
   and previews expose explicit Refresh and permitted resource-local Retry;
   a failed historical read preserves usable listing/current state.
+- Current and exact accepted `record:///` previews receive backend text
+  redaction, including current drafts; authenticated Files access is not a
+  raw-record escape hatch. Redaction flags mean the policy was applied, even
+  when ordinary prose is unchanged. Record-URL size describes source bytes,
+  not necessarily the displayed projected text length.
 - Read-only presentation is not a promise of non-mutating backend consumption:
   exact owners may discard a current growing file's proven torn final suffix
   only after full retained-prefix validation. Older conversation segments stay

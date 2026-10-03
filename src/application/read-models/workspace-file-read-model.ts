@@ -518,9 +518,9 @@ export class WorkspaceFileReadModelService {
                 : `${record.currentUrl}&v=${request.version}`,
             size: Buffer.byteLength(effective.content),
             contentType: 'text/markdown',
-            content: effective.content,
-            redacted: false,
-            sensitivity: 'normal',
+            content: redactTextForOutbound(effective.content),
+            redacted: true,
+            sensitivity: 'sensitive-redacted',
             version: request.version ?? record.revision,
             modifiedAt:
               record.state === 'open' ? record.draft!.updated_at : record.accepted!.committed_at,

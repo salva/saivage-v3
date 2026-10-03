@@ -1,5 +1,5 @@
 <template>
-  <div class="tool-chip tool-call" :class="[statusClass, { 'tool-result': resultContent !== null }]" role="group" :aria-label="groupLabel">
+  <div class="tool-chip tool-call" :data-entry-id="entryId" :class="[statusClass, { 'tool-result': resultContent !== null }]" role="group" :aria-label="groupLabel">
     <div class="tool-chip-main">
       <button type="button" class="tool-chip-toggle" :aria-expanded="expanded" :aria-controls="detailsId" :aria-label="toggleLabel" @click="$emit('toggle')">
         <span class="tool-chip-caret" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
@@ -47,6 +47,7 @@ import { inlinePartsText } from '../../utils/tool-friendly';
 import { formatRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{
+  entryId: string;
   display: ToolDisplayModel;
   callContent: string;
   resultContent: string | null;

@@ -209,11 +209,19 @@ function selectVersion(version: number | null): void {
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
 }
-function focusEntryTarget(): void {
+watch([readerEntries, readerAccepted, readerLoading, readerError, () => props.sessionId, () => props.segmentVersion, () => props.entryId, () => props.invalidSegment], async (_values, _previous, onCleanup) => {
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
   const container = timelineControls.scrollAreaRef.value;
   container?.querySelectorAll('.targeted-conversation-entry').forEach((row) => row.classList.remove('targeted-conversation-entry'));
   if (!props.entryId || !readerAccepted.value || readerLoading.value || readerError.value || props.invalidSegment || projection.value.error) { entryTargetState.value = 'idle'; return; }
-  const row = [...(container?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((row) => row.dataset.entryId === props.entryId) ?? null;
+  const entryId = props.entryId;
+  entryTargetState.value = 'idle';
+  if (timelineControls.revealCall(entryId)) {
+    await nextTick();
+    if (cancelled) return;
+  }
+  const row = [...(container?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((row) => row.dataset.entryId === entryId) ?? null;
   entryTargetState.value = row ? 'found' : 'missing';
   if (row) {
     row.tabIndex = -1;
@@ -221,8 +229,7 @@ function focusEntryTarget(): void {
     row.scrollIntoView({ block: 'center' });
     row.focus({ preventScroll: true });
   }
-}
-watch([readerEntries, readerAccepted, readerLoading, readerError, () => props.sessionId, () => props.segmentVersion, () => props.entryId, () => props.invalidSegment], () => { void nextTick(focusEntryTarget); }, { flush: 'post', immediate: true });
+}, { flush: 'post', immediate: true });
 watch([exactVersion, () => props.entryId], () => { timelineControls.autoScrollPaused.value = exactVersion.value !== null || props.entryId !== null; }, { immediate: true });
 </script>
 <style scoped>
