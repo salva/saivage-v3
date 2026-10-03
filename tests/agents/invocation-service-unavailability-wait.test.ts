@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import type { CandidateRequestPlan } from '../../src/contracts/index.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
@@ -187,7 +188,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const expectedAttempts = route === 'ordinary'
       ? [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'error' }, { source_input_id: 'agent:planner:card:1', attempt_index: 1, status: 'ok' }]
       : [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'ok' }];
-    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'known' }, provider_private_context: { kind: 'openai_responses', source_input_id: 'agent:planner:card:1', provider: 'p', model: 'm', output }, provider_exchanges: expectedAttempts });
+    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'known' }, provider_private_context: { kind: 'openai_responses', producer_account_id: responsesProducerAccountId(candidate), source_input_id: 'agent:planner:card:1', provider: 'p', model: 'm', output }, provider_exchanges: expectedAttempts });
     expect(fetch).toHaveBeenCalledTimes(route === 'ordinary' ? 2 : 1);
     expect(succeeded).not.toHaveBeenCalled();
   });

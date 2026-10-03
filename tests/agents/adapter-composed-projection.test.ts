@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
@@ -45,7 +46,7 @@ describe('protocol adapters consume the composed projection', () => {
       if (index === 1) {
         const privateId = `${inputId}:provider-private:openai-responses`;
         call.provider_projection = { kind: 'openai_responses', source_input_id: inputId, private_message_id: privateId, projection_kind: 'assistant_tool_call' };
-        rows.push({ ...common, id: privateId, role: 'system', kind: 'provider_private', context_policy: { kind: 'structural', behavior: 'responses_private' }, content: JSON.stringify({ transport: 'openai-responses', source_input_id: inputId, projection_message_id: call.id, provider: 'openai', model: 'gpt-5.6', output: privateOutput }) });
+        rows.push({ ...common, id: privateId, role: 'system', kind: 'provider_private', context_policy: { kind: 'structural', behavior: 'responses_private' }, content: JSON.stringify({ transport: 'openai-responses', producer_account_id: responsesProducerAccountId(CANDIDATE), source_input_id: inputId, projection_message_id: call.id, provider: 'openai', model: 'gpt-5.6', output: privateOutput }) });
       }
       rows.push(call, { ...common, message_index: 2, id: `${inputId}:tool-result:${callId}`, role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: callId, context_policy: policies.result, content });
     }

@@ -202,6 +202,7 @@ function providerPrivateResponsesMessage(
     kind: 'provider_private',
     content: JSON.stringify({
       transport: 'openai-responses',
+      producer_account_id: privateContext.producer_account_id,
       source_input_id: input.inputId,
       projection_message_id: projectionMessageId,
       provider: privateContext.provider,

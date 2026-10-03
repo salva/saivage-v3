@@ -18,6 +18,8 @@ import {
   OUTBOUND_URL,
 } from '../helpers/outbound-identity-fixtures.js';
 import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
+import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
 
 const roots: string[] = [];
@@ -107,7 +109,7 @@ describe('global agent-session observation tools', () => {
     const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture compacted summary', {
       first: { content: 'token=obsolete-tool-context-secret', key: 'api_key=tool-context-key-secret' },
       replacement: { content: 'token=current-tool-context-secret', key: 'api_key=tool-context-key-secret' },
-    });
+    }, RESPONSES_A);
     const binder = globalObservationToolBinders.find((candidate) => candidate.name === 'read_agent_session');
     if (!binder) throw new Error('Expected production read_agent_session binder.');
     const bound = binder.bind(context(projectRoot) as unknown as GlobalObservationToolContext);
@@ -119,6 +121,10 @@ describe('global agent-session observation tools', () => {
     if (execution.providerOutcome.kind !== 'succeeded')
       throw new Error(execution.providerOutcome.error);
     const data = execution.providerOutcome.data as any;
+    expect(JSON.stringify(data)).not.toContain('producer_account_id');
+    expect(JSON.stringify(data)).not.toContain(responsesProducerAccountId(RESPONSES_A));
+    expect(JSON.stringify(data)).not.toContain('ciphertext-');
+    expect(JSON.stringify(data)).toContain('retained-tool');
     expect(Object.keys(data).sort()).toEqual([
       'has_segment_context',
       'messages',

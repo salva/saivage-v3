@@ -8,6 +8,7 @@ import {
 } from '../contracts/index.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
+import { responsesProducerAccountId } from './llm-openai-responses-account.js';
 import { parseOpenAIResponsesJson } from './llm-openai-responses-parser.js';
 import {
   serializeToolsForCodex,
@@ -78,6 +79,7 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
   async parseSuccess(candidate, response, options) {
     const context = {
       provider: candidate.provider,
+      producerAccountId: responsesProducerAccountId(candidate),
       model: candidate.model,
       sourceInputId: options.inputId,
       responseStatus: response.status,
@@ -100,7 +102,10 @@ function buildOpenAIResponsesRequest(
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
     instructions: systemPrompt,
-    input: responsesInputFromProviderConversation(providerConversation),
+    input: responsesInputFromProviderConversation(
+      providerConversation,
+      responsesProducerAccountId(candidate),
+    ),
     store: false,
     include: ['reasoning.encrypted_content'],
     max_output_tokens: opts.max_tokens,

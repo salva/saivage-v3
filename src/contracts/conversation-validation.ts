@@ -18,6 +18,7 @@ import {
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/index.js';
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
 import { ToolResultSchema } from './tool-result.js';
+import { parsePrivateContent } from './responses-conversation.js';
 
 type SourceSegment = {
   readonly kind: 'initial' | 'repair';
@@ -233,6 +234,7 @@ function reduceCanonicalConversationRow(
     });
 
   const toolFacts = validateToolContent(row);
+  if (row.kind === 'provider_private') parsePrivateContent(row);
   const repairAnchor =
     row.kind === 'model_repair' || row.kind === 'content_policy_retry' || toolFacts.failedResult;
   const opensRound = validateActivationOpenMarker(state.sessionId, row);

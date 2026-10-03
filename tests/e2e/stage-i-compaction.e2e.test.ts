@@ -22,6 +22,7 @@ import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixt
 import { cardConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
@@ -484,7 +485,7 @@ function buildFullWindowFixture(prepared: PreparedLlmInvocationInput['preparedCo
         if (round === 10 && toolOrdinal === toolCount) finalBundleStart = rows.length;
         const isPrivateVisiblePair = toolOrdinal === 1;
         if (isPrivateVisiblePair) {
-          rows.push(agentMessageSchema.parse({ id: privateId, session_id: SESSION, role: 'system', kind: 'provider_private', context_policy: STRUCTURAL_ROW_POLICY.responses_private, content: JSON.stringify({ transport: 'openai-responses', source_input_id: inputId, projection_message_id: callRowId, provider: 'astra-fixture', model: 'astra-root', output: privateOutput }), round_id: roundId, message_index: messageIndex++, block_index: 0, timestamp }));
+          rows.push(agentMessageSchema.parse({ id: privateId, session_id: SESSION, role: 'system', kind: 'provider_private', context_policy: STRUCTURAL_ROW_POLICY.responses_private, content: JSON.stringify({ transport: 'openai-responses', producer_account_id: responsesProducerAccountId({ provider: 'astra-fixture', account: null }), source_input_id: inputId, projection_message_id: callRowId, provider: 'astra-fixture', model: 'astra-root', output: privateOutput }), round_id: roundId, message_index: messageIndex++, block_index: 0, timestamp }));
         }
         rows.push(agentMessageSchema.parse({ id: callRowId, session_id: SESSION, role: 'assistant', kind: 'tool_call', tool: 'audit_source', tool_call_id: callId, context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'audit_source', arguments: argumentsJson } }] }), ...(isPrivateVisiblePair ? { provider_projection: { kind: 'openai_responses' as const, source_input_id: inputId, private_message_id: privateId, projection_kind: 'assistant_tool_call' as const } } : {}), round_id: roundId, message_index: messageIndex++, block_index: 0, timestamp }));
         rows.push(agentMessageSchema.parse({ id: resultId, session_id: SESSION, role: 'tool', kind: 'tool_result', tool: 'audit_source', tool_call_id: callId, context_policy: policies.result, content: resultContent, round_id: roundId, message_index: messageIndex++, block_index: 0, timestamp }));

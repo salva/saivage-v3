@@ -17,6 +17,8 @@ import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invoc
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from './row-policy-fixtures.js';
 import { deterministicSummarySerialization } from './summary-serialization.js';
 import { noCompactionProgress } from './executing-llm-snapshot.js';
+import type { Candidate } from '../../src/contracts/index.js';
+import { responsesBundle } from './responses-producer-fixture.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
@@ -35,10 +37,12 @@ export async function publishThreeGenerationCompactedConversation(
     first: Readonly<{ content: string; key: string }>;
     replacement: Readonly<{ content: string; key: string }>;
   }>,
+  privateProducer?: Candidate,
 ): Promise<ConversationSessionId> {
   appendConversationBatch({ projectRoot }, [
     activation(1),
     text('text-1', BIG),
+    ...(privateProducer ? responsesBundle(SESSION, inputIdFor(11), privateProducer, '{"success":true,"data":"covered-tool"}') : []),
     ...(protectedPrompts ? [protectedText('protected-1', protectedPrompts.first.content, protectedPrompts.first.key)] : []),
     recoveryNotice(1),
     activation(2),
@@ -56,8 +60,10 @@ export async function publishThreeGenerationCompactedConversation(
     ...(protectedPrompts ? [protectedText('protected-2', protectedPrompts.replacement.content, protectedPrompts.replacement.key)] : []),
     text('text-4', BIG),
     ...summarizerOnlyBundle(4, 'second-open-round'.concat('-open'.repeat(400))),
+    ...(privateProducer ? responsesBundle(SESSION, inputIdFor(12), privateProducer, '{"success":true,"data":"second-covered-tool"}') : []),
   ]);
   await requireCompacted(projectRoot, 'local_exact_admission', summaryText);
+  if (privateProducer) appendConversationBatch({ projectRoot }, responsesBundle(SESSION, inputIdFor(13), privateProducer, '{"success":true,"data":"retained-tool"}'));
   return SESSION;
 }
 

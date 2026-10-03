@@ -16,6 +16,26 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it.each([undefined, 123, null, 'A'.repeat(64), 'a'.repeat(63)])('rejects persisted invalid producer %p at exact consumption without rewriting complete bytes', (producer) => {
+    const projectRoot = root();
+    const marker = { ...text('activation'), role: 'system' as const, kind: 'activity' as const, context_policy: { kind: 'structural' as const, behavior: 'activation_boundary' as const }, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-08-11T00:00:00.000Z' }) };
+    appendConversationBatch({ projectRoot }, [marker, text('first'), privateRow('private'), projectedText('second', 'private')]);
+    const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
+    expect(segment.rows.filter(row => row.kind === 'provider_private')).toHaveLength(1);
+    const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
+    const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const envelopes = segment.bytes.toString('utf8').trimEnd().split('\n').map(line => JSON.parse(line));
+    const row = envelopes.flatMap(envelope => envelope.rows).find((row: AgentMessage) => row.kind === 'provider_private');
+    const payload = JSON.parse(row.content);
+    if (producer === undefined) delete payload.producer_account_id;
+    else payload.producer_account_id = producer;
+    row.content = JSON.stringify(payload);
+    writeFileSync(path, `${envelopes.map(envelope => JSON.stringify(envelope)).join('\n')}\n`);
+    const before = readFileSync(path); const indexBefore = readFileSync(indexPath);
+    expect(() => readCurrentConversationSegment(projectRoot, SESSION)).toThrow(/invalid producer account identity/);
+    expect(readFileSync(path)).toEqual(before);
+    expect(readFileSync(indexPath)).toEqual(indexBefore);
+  });
   it.each(['index', 'envelope', 'ordinary-genesis'])('rejects format 2 at the exact %s consumer without changing bytes', (part) => {
     const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]);
     const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
@@ -160,4 +180,4 @@ function root(): string { const value = mkdtempSync(join(tmpdir(), 'saivage-conv
 function truncationFixture(): string { const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]); const segment = readCurrentConversationSegment(projectRoot, SESSION)!; appendFileSync(cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename), 'suffix'); return projectRoot; }
 function text(id: string): AgentMessage { return agentMessageSchema.parse({ id, session_id: SESSION, role: 'user', kind: 'text', content: id, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:00.000Z' }); }
 function projectedText(id: string, privateId: string): AgentMessage { return agentMessageSchema.parse({ ...text(id), role: 'assistant', round_id: `r-assistant-${'0'.repeat(32)}`, provider_projection: { kind: 'openai_responses', source_input_id: '00000000-0000-4000-8000-000000000001', private_message_id: privateId, projection_kind: 'assistant_message' } }); }
-function privateRow(id: string): AgentMessage { return agentMessageSchema.parse({ id, session_id: SESSION, role: 'system', kind: 'provider_private', context_policy: { kind: 'structural', behavior: 'responses_private' }, content: JSON.stringify({ transport: 'openai-responses', source_input_id: '00000000-0000-4000-8000-000000000001', projection_message_id: 'second', provider: 'openai', model: 'test', output: [] }), round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:00.000Z' }); }
+function privateRow(id: string): AgentMessage { return agentMessageSchema.parse({ id, session_id: SESSION, role: 'system', kind: 'provider_private', context_policy: { kind: 'structural', behavior: 'responses_private' }, content: JSON.stringify({ transport: 'openai-responses', producer_account_id: 'a'.repeat(64), source_input_id: '00000000-0000-4000-8000-000000000001', projection_message_id: 'second', provider: 'openai', model: 'test', output: [] }), round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:00.000Z' }); }

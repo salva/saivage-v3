@@ -8,6 +8,7 @@ type ResponsesInputItem = Record<string, unknown>;
 
 export function responsesInputFromProviderConversation(
   providerConversation: ProviderConversationProjection,
+  targetProducerAccountId: string,
 ): ResponsesInputItem[] {
   const input: ResponsesInputItem[] = [];
   const privateByProjection = new Map<string, ReturnType<typeof parsePrivateContent>>();
@@ -31,6 +32,14 @@ export function responsesInputFromProviderConversation(
           `Responses projection '${message.id}' is missing private row '${message.provider_projection.private_message_id}'.`,
         );
       for (const item of row.output) {
+        if (
+          row.producer_account_id !== targetProducerAccountId &&
+          item !== null &&
+          typeof item === 'object' &&
+          (item as { type?: unknown }).type === 'reasoning' &&
+          Object.hasOwn(item, 'encrypted_content')
+        )
+          continue;
         input.push(item as ResponsesInputItem);
       }
       continue;

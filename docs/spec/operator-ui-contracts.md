@@ -288,7 +288,9 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 - Current content, compacted-context metadata, retained instructions, and an
   explicitly selected historical segment remain separate; no stitched
   cross-segment transcript and no summary prose or prepared provider-private
-  context as evidence.
+  context as evidence. Private Responses producer identifiers and their field
+  are excluded from public current/history/context DTOs and copied transcript
+  values; this does not remove existing public routing/account aliases.
 - Participant rails show backend-decorated `active · busy` or
   `inactive · idle` meaning only. The browser performs no join with actor
   state, process state, or graph agent mappings, and derives no

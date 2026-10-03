@@ -19,6 +19,8 @@ import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-pr
 import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
+import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 
 const roots: string[] = [];
 
@@ -36,7 +38,7 @@ describe('mounted operator compacted Agent conversations', () => {
     const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture compacted summary', {
       first: firstProtected,
       replacement: replacementProtected,
-    });
+    }, RESPONSES_A);
     const fastify = Fastify({ logger: false });
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot,
@@ -103,11 +105,17 @@ describe('mounted operator compacted Agent conversations', () => {
       expect(historical[2]!.segment_context?.protected_prompts[0]!.message.id).toBe('protected-2');
       expect(current.segment_context?.protected_prompts).toEqual(historical[2]!.segment_context?.protected_prompts);
       for (const projected of [current, ...historical]) {
+        expect(JSON.stringify(projected)).not.toContain('producer_account_id');
+        expect(JSON.stringify(projected)).not.toContain(responsesProducerAccountId(RESPONSES_A));
+        expect(JSON.stringify(projected)).not.toContain('ciphertext-');
         const serialized = JSON.stringify(projected.segment_context);
         expect(serialized).not.toContain('first-protected-secret');
         expect(serialized).not.toContain('shared-key-secret');
         expect(serialized).not.toContain('replacement-protected-secret');
       }
+      expect(JSON.stringify(current.entries)).toContain('retained-tool');
+      expect(JSON.stringify(current.entries)).toContain('read_file');
+      expect(JSON.stringify(historical[0]!.entries)).toContain('covered-tool');
     } finally {
       await fastify.close();
     }

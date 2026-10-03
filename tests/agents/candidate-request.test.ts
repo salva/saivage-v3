@@ -7,6 +7,7 @@ import type { AgentMessage } from '../../src/schemas/index.js';
 import type { LlmCompleteOptions } from '../../src/contracts/index.js';
 import type { ProviderConversationProjection, ToolDefinition } from '../../src/contracts/index.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 
 const tools: ToolDefinition[] = [
   { type: 'function', function: { name: 'read_file', description: 'Read a file.', parameters: { type: 'object' } } },
@@ -41,7 +42,7 @@ describe('candidate request admission artifact', () => {
     const sourceInputId = '00000000-0000-4000-8000-000000000001';
     const privateContent = 'opaque-provider-private-payload';
     const common = { context_policy: { kind: 'structural', behavior: 'responses_private' } as const, session_id: 'agent:planner:project' as const, round_id: 'r-assistant-00000000000000000000000000000000', message_index: 1, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' };
-    const privateRow: AgentMessage = { ...common, id: 'private', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: sourceInputId, projection_message_id: 'visible', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: privateContent }] }] }) };
+    const privateRow: AgentMessage = { ...common, id: 'private', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', producer_account_id: responsesProducerAccountId({ provider: 'openai', account: null }), source_input_id: sourceInputId, projection_message_id: 'visible', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: privateContent }] }] }) };
     const visible: AgentMessage = { ...common, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, id: 'visible', role: 'assistant', kind: 'text', content: 'visible summary', provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } };
     const providerConversation = { sourceSessionId: 'agent:planner:project', messages: [privateRow, visible] } satisfies ProviderConversationProjection;
 

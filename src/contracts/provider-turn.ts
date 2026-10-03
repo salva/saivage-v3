@@ -33,6 +33,7 @@ export type LlmCompleteResult =
 
 export interface OpenAIResponsesPrivateContext {
   kind: 'openai_responses';
+  producer_account_id: string;
   source_input_id: string;
   provider: string;
   model: string;

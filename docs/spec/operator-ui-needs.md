@@ -471,7 +471,8 @@ Publication-fatal operator behavior, and system-specification Sections 7–12.
 - Canonical file reads own durable truth; process-local runtime/routing observations
   have different lifetimes. Browser caches and lossy hints never become durable authority.
 - Current segment and explicitly selected historical segment remain distinct; no raw
-  compacted summary or reconstructed provider-private context is exposed.
+  compacted summary or reconstructed provider-private context is exposed, including
+  private Responses producer metadata. Existing public routing/account aliases remain unchanged.
 - Independently ordered session evidence may be juxtaposed, but never represented as one
   canonical cross-session order. Any cross-session ordering claim must be anchored in
   durable publication facts (card versions, retained events, control actions) or explicitly

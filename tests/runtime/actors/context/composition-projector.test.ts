@@ -450,7 +450,7 @@ describe('responses private pairs', () => {
       id: `${INPUT_A}:provider-private:openai-responses`,
       role: 'system',
       kind: 'provider_private',
-      content: JSON.stringify({ transport: 'openai-responses', source_input_id: INPUT_A, projection_message_id: `${INPUT_A}:tool-call:call-1`, provider: 'openai', model: 'gpt-5.6', output }),
+      content: JSON.stringify({ transport: 'openai-responses', producer_account_id: 'a'.repeat(64), source_input_id: INPUT_A, projection_message_id: `${INPUT_A}:tool-call:call-1`, provider: 'openai', model: 'gpt-5.6', output }),
       context_policy: STRUCTURAL_ROW_POLICY.responses_private,
     });
     const visible = { ...callRow(INPUT_A, 'call-1', 'read', UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, '{}'), provider_projection: { kind: 'openai_responses' as const, source_input_id: INPUT_A, private_message_id: privateRow.id, projection_kind: 'assistant_tool_call' as const } };

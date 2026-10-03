@@ -96,6 +96,7 @@ function providerPrivateMessage(): AgentMessage {
     kind: 'provider_private',
     content: JSON.stringify({
       transport: 'openai-responses',
+      producer_account_id: 'a'.repeat(64),
       source_input_id: '00000000-0000-4000-8000-000000000001',
       projection_message_id: 'visible-message',
       provider: 'openai',

@@ -22,6 +22,9 @@ import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonic
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 import { cardConversationsRoot, cardHeadFile, cardHistoryFile } from '../../src/persistence/layout.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
+import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
+import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-24T00:00:00.000Z';
@@ -31,6 +34,21 @@ afterEach(() => {
 });
 
 describe('AgentOperatorReadModelService granular resources', () => {
+  it('hides private producer provenance in actual current, historical, compacted and tool-tail projections', async () => {
+    const root = createRoot();
+    const session = await publishThreeGenerationCompactedConversation(root, 'visible summary', undefined, RESPONSES_A);
+    const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
+    const current = service.getConversation(session);
+    const historical = [1, 2, 3].map(version => service.getConversationVersion(session, version));
+    for (const value of [current, ...historical, service.readCurrentSegmentTail(session, 100)]) {
+      expect(JSON.stringify(value)).not.toContain('producer_account_id');
+      expect(JSON.stringify(value)).not.toContain(responsesProducerAccountId(RESPONSES_A));
+      expect(JSON.stringify(value)).not.toContain('ciphertext-');
+      expect(JSON.stringify(value)).not.toContain('provider_projection');
+    }
+    expect(JSON.stringify(current)).toContain('retained-tool');
+    expect(JSON.stringify(historical[0])).toContain('covered-tool');
+  });
   it.each(['missing', 'malformed'] as const)('admits the exact session without consuming a %s old predecessor', fault => {
     const root = createRoot(); const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });

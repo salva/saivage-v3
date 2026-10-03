@@ -15,12 +15,42 @@ import { deterministicSummarySerialization } from '../helpers/summary-serializat
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';
+import { RESPONSES_A, RESPONSES_B, responsesBundle } from '../helpers/responses-producer-fixture.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
+import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
 const POLICY: AutonomousCompactionPolicy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' };
 
 describe('conversation compaction file persistence', () => {
+  it('compacts a covered private bundle while preserving the exact mixed A/B retained tail and visible-only summary source', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixed-producer-compaction-')); initProjectTree(root);
+    try {
+      const old = responsesBundle(SESSION, '00000000-0000-4000-8000-000000000011', RESPONSES_A, '{"success":true,"data":"old-tool"}');
+      const tail = [...responsesBundle(SESSION, '00000000-0000-4000-8000-000000000012', RESPONSES_A, '{"success":true,"data":"tail-a"}'), ...responsesBundle(SESSION, '00000000-0000-4000-8000-000000000013', RESPONSES_B, '{"success":false,"error":"tail-b"}')];
+      for (let ordinal = 1; ordinal <= 7; ordinal++) appendConversationBatch({ projectRoot: root }, [...round(ordinal).map(row => ordinal === 1 && row.kind === 'text' ? { ...row, content: 'x'.repeat(12_000) } : row), ...(ordinal === 1 ? old : ordinal === 7 ? tail : [])]);
+      appendConversationBatch({ projectRoot: root }, [round(8)[0]!]);
+      const before = readCurrentConversationSegment(root, SESSION)!;
+      const source: string[] = [];
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(providerConversationProjection(before.conversation, []).messages), summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async input => { source.push(JSON.stringify(input.providerConversation)); return { result: { kind: 'message' as const, content: 'visible summary' }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() }, signal: new AbortController().signal, progress: noCompactionProgress });
+      expect(result.kind).toBe('compacted');
+      const successor = readCurrentConversationSegment(root, SESSION)!;
+      expect(successor.rows.filter(row => row.kind === 'provider_private')).toEqual(tail.filter(row => row.kind === 'provider_private'));
+      expect(successor.rows.some(row => row.id === old[0]!.id)).toBe(false);
+      expect(readHistoricalConversationSegment(root, SESSION, 1).rows.filter(row => row.kind === 'provider_private')).toEqual([...old, ...tail].filter(row => row.kind === 'provider_private'));
+      expect(source.join('')).toContain('old-tool');
+      expect(source.join('')).not.toContain('producer_account_id');
+      expect(source.join('')).not.toContain('ciphertext-');
+      for (const candidate of [RESPONSES_A, RESPONSES_B]) {
+        const input = responsesInputFromProviderConversation(providerConversationProjection(successor.conversation, []), responsesProducerAccountId(candidate));
+        const serialized = JSON.stringify(input);
+        expect(serialized.includes('ciphertext-00000000-0000-4000-8000-000000000012')).toBe(candidate === RESPONSES_A);
+        expect(serialized.includes('ciphertext-00000000-0000-4000-8000-000000000013')).toBe(candidate === RESPONSES_B);
+        expect(serialized).toContain('tail-a'); expect(serialized).toContain('tail-b');
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it('publishes one immutable successor and retains the predecessor as explicit history', async () => {
     const root = mkdtempSync(join(tmpdir(), 'conversation-compaction-file-')); initProjectTree(root);
     try {

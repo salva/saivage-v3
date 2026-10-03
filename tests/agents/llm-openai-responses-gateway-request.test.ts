@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import type { LlmCompleteOptions } from '../../src/contracts/index.js';
 import type { ToolDefinition } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
+import { RESPONSES_A, RESPONSES_B, responsesBundle } from '../helpers/responses-producer-fixture.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
 const ADAPTER = selectLlmProtocolAdapter('openai-responses');
@@ -17,6 +19,18 @@ const TERMINAL_TOOL: ToolDefinition = { type: 'function', function: { name: 'emi
 afterEach(() => { jest.restoreAllMocks(); });
 
 describe('OpenAI Responses request shape', () => {
+  it('preserves native item values for the producing account across models and filters only encrypted reasoning for another account', () => {
+    const rows = responsesBundle(MSG.session_id, '11111111-1111-4111-8111-111111111111', RESPONSES_A, '{"success":true,"data":"exact-result"}');
+    const original = JSON.stringify(rows);
+    const output = JSON.parse(rows[0]!.content).output;
+    const options: LlmCompleteOptions = { inputId: 'next', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+    for (const candidate of [RESPONSES_A, { ...RESPONSES_A, model: 'other-model' }, RESPONSES_B]) {
+      const body = ADAPTER.buildRequestBody({ candidate, capabilities: CAPABILITIES, systemPrompt: 'sys', providerConversation: { sourceSessionId: MSG.session_id, messages: rows }, options });
+      expect(body.input).toEqual([...(candidate.account === 'a' ? output : output.slice(1)), { type: 'function_call_output', call_id: rows[2]!.tool_call_id, output: rows[2]!.content }]);
+      expect(JSON.stringify(body)).not.toContain('producer_account_id');
+      expect(JSON.stringify(rows)).toBe(original);
+    }
+  });
   it('keeps non-OK HTTP failure classification owned by the Responses adapter', () => {
     const bodyText = JSON.stringify({ error: { code: 'context_length_exceeded', param: 'input', message: 'request too large' } });
     const options: LlmCompleteOptions = { inputId: 'input-http-failure', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
@@ -107,7 +121,7 @@ describe('OpenAI Responses request shape', () => {
     expect(sentBody?.stream).toBe(false);
     expect(sentHeaders?.has('Accept')).toBe(false);
     expect(completion.result).toEqual({ kind: 'message', content: 'done', usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } });
-    expect(completion.provider_private_context).toEqual({ kind: 'openai_responses', source_input_id: 'input-json', provider: 'openai', model: 'gpt-5.6', output });
+    expect(completion.provider_private_context).toEqual({ kind: 'openai_responses', producer_account_id: responsesProducerAccountId(CANDIDATE), source_input_id: 'input-json', provider: 'openai', model: 'gpt-5.6', output });
     expect(completion.provider_exchanges[0]!.request_params).toMatchObject({ method: 'POST', stream: false, store: false, include: ['reasoning.encrypted_content'] });
   });
 

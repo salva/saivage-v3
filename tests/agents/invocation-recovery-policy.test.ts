@@ -135,7 +135,7 @@ describe('InvocationRecoveryPolicy', () => {
 
 function responsesFailure(payload: Record<string, unknown>): LlmRequestError {
   try {
-    parseOpenAIResponsesJson(JSON.stringify(payload), { provider: 'openai-compatible', model: 'gpt-test', sourceInputId: 'input-1', responseStatus: 200 });
+    parseOpenAIResponsesJson(JSON.stringify(payload), { provider: 'openai-compatible', producerAccountId: 'a'.repeat(64), model: 'gpt-test', sourceInputId: 'input-1', responseStatus: 200 });
   } catch (error) {
     if (error instanceof LlmRequestError) return error;
     throw error;

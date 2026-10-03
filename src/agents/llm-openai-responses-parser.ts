@@ -16,6 +16,7 @@ interface ParsedOpenAIResponsesCompletion {
 
 interface ParserContext {
   provider: string;
+  producerAccountId: string;
   model: string;
   sourceInputId: string;
   responseStatus: number;
@@ -100,6 +101,7 @@ function parseOpenAIResponsesObject(
     result,
     privateContext: {
       kind: 'openai_responses',
+      producer_account_id: ctx.producerAccountId,
       source_input_id: ctx.sourceInputId,
       provider: ctx.provider,
       model: ctx.model,

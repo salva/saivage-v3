@@ -147,6 +147,11 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   [storage and cutover rules](docs/runbook/index.md#storage-and-interruption)
   ([prompt contract](docs/architecture/prompts.md),
   [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
+  Responses private rows additionally require successful-producer provenance;
+  same local provider/account identity retains encrypted reasoning, other
+  identities omit only encrypted reasoning before request admission. Adopting
+  this payload also requires the authorized whole-generated-state reset, even
+  from outer format 3; matching outer versions alone is not compatibility.
   Card/record format-1 heads and immutable predecessor documents are a separate
   reset-only adoption boundary; this source change does not authorize deployment
   over retained history, retained-history conversion, reconstruction, or reset.

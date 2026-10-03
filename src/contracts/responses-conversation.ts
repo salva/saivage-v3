@@ -2,6 +2,7 @@ import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
 
 interface OpenAIResponsesPrivateRowContent {
   transport: 'openai-responses';
+  producer_account_id: string;
   source_input_id: string;
   projection_message_id: string;
   provider: string;
@@ -15,6 +16,11 @@ export function parsePrivateContent(message: AgentMessage): OpenAIResponsesPriva
   const parsed = JSON.parse(message.content) as OpenAIResponsesPrivateRowContent;
   if (parsed.transport !== 'openai-responses')
     throw new Error(`Provider private row '${message.id}' has unsupported transport.`);
+  if (
+    typeof parsed.producer_account_id !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(parsed.producer_account_id)
+  )
+    throw new Error(`Provider private row '${message.id}' has invalid producer account identity.`);
   if (
     !parsed.source_input_id ||
     !parsed.projection_message_id ||
