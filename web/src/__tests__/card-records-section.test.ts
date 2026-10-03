@@ -11,7 +11,7 @@ vi.mock('../api/client', async (importOriginal) => ({
   getCardRecord: vi.fn(), listCardRecords: vi.fn(), getCard: vi.fn(),
   listRecordHistory: vi.fn(), getRecordVersion: vi.fn(), getRecordDiff: vi.fn(),
 }));
-import { getCard, getCardRecord, listCardRecords, listRecordHistory, getRecordVersion, getRecordDiff } from '../api/client';
+import { OperatorApiError, getCard, getCardRecord, listCardRecords, listRecordHistory, getRecordVersion, getRecordDiff } from '../api/client';
 
 const A = 'card-a';
 const name = 'brief.md';
@@ -139,6 +139,37 @@ describe('CardRecordsSection', () => {
     expect(wrapper.text()).toContain('historical brief 2');
   });
 
+  it('lets the server resolve a catalog gap, keeping draft current and exact accepted selection distinct', async () => {
+    const current = content();
+    const draftTime = '2026-07-19T00:00:00Z';
+    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record,
+      revision: 5, state: 'open', draft: { opened_at: time, updated_at: draftTime, content: 'unfinished draft', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
+    const store = await admit();
+    const { wrapper, errors } = render({ record: name, version: 1 });
+    await flushPromises();
+    const missing = { error: 'historical_version_not_found' as const, resource: 'authored_record' as const, owner_id: `${A}/${name}`, version: 3 };
+    vi.mocked(getRecordVersion).mockRejectedValueOnce(new OperatorApiError('cards.records.versions.get', 404, missing));
+    vi.mocked(getRecordDiff).mockRejectedValueOnce(new OperatorApiError('cards.records.diff', 404, missing));
+    await wrapper.setProps({ recordRefinement: { record: name, version: 3 } });
+    await flushPromises();
+    expect(getRecordVersion).toHaveBeenLastCalledWith(A, name, 3, expect.any(AbortSignal));
+    expect(getRecordDiff).toHaveBeenLastCalledWith(A, name, 3, 'current', 'effective', expect.any(AbortSignal));
+    expect(wrapper.get('[role="alert"]').text()).toContain('historical_version_not_found');
+    expect(wrapper.find('.selected-record').exists()).toBe(false);
+    expect(store.cardRecords[name]!.diffError).toBe('historical_version_not_found');
+    expect(wrapper.text()).toContain('Current revision 5 · draft');
+    expect(wrapper.text()).toContain(`record:///${name}?card=${A}&v=4`);
+    expect(store.cardRecords[name]!.current?.record.accepted?.source_version).toBe(4);
+    expect(store.cardRecords[name]!.content).toEqual({ kind: 'content', revision: 5, timestamp: draftTime, content: 'unfinished draft' });
+    await store.selectRecordVersion(name, 3);
+    await flushPromises();
+    expect(wrapper.get('.selected-record').text()).toContain('historical brief 3');
+    expect(store.cardRecords[name]!.selectedError).toBeNull();
+    expect(store.cardRecords[name]!.diffError).toBeNull();
+    expect(store.cardRecords[name]!.history?.versions.map((entry) => entry.version)).toEqual([1, 2, 4]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   it('invalidates the old-card initial-load continuation on a card switch', async () => {
     const oldCurrent = deferred<CardRecordContentResponse>();
     vi.mocked(getCardRecord).mockReturnValueOnce(oldCurrent.promise);
@@ -221,7 +252,7 @@ describe('CardRecordsSection', () => {
     expect(wrapper.text()).toContain('history failed');
     expect(wrapper.text()).toContain('current comparison unavailable');
     expect(wrapper.find('.record-diff').exists()).toBe(false);
-    expect(store.cardRecords[name]!.accepted).toBeNull();
+    expect(store.cardRecords[name]!.content).toBeNull();
     expect(store.cardRecords[name]!.current).toBeNull();
     expect(store.cardRecords[name]!.error).toBe('current read failed');
     vi.mocked(getRecordVersion).mockResolvedValue(selected(2));
@@ -290,7 +321,7 @@ describe('CardRecordsSection', () => {
     expect(wrapper.text()).toContain('historical brief 1');
     if (outcome === 'failure') {
       expect(wrapper.text()).toContain('current read failed');
-      expect(store.cardRecords[name]!.accepted).toBeNull();
+      expect(store.cardRecords[name]!.content).toBeNull();
     } else expect(wrapper.text()).toContain('accepted brief');
   });
 

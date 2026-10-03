@@ -69,8 +69,8 @@ interface SelectedCardDetail {
   readonly cardId: string;
   readonly card: CardDetail;
 }
-type RecordAccepted =
-  | { kind: 'content'; version: number; committedAt: string; content: string }
+type RecordEffectiveContent =
+  | { kind: 'content'; revision: number; timestamp: string; content: string }
   | { kind: 'empty' };
 export interface RecordSlotState extends FreshnessState {
   name: LiveSyncCardRecordName;
@@ -78,7 +78,7 @@ export interface RecordSlotState extends FreshnessState {
   loading: boolean;
   error: string | null;
   current: CardRecordContentResponse | null;
-  accepted: RecordAccepted | null;
+  content: RecordEffectiveContent | null;
   history: RecordHistoryListResponse | null;
   historyLoading: boolean;
   historyError: string | null;
@@ -113,7 +113,7 @@ const emptyRecordState = (descriptor: CardRecordDescriptor): RecordSlotState => 
   loading: false,
   error: null,
   current: null,
-  accepted: null,
+  content: null,
   history: null,
   historyLoading: false,
   historyError: null,
@@ -555,7 +555,7 @@ export const useCardStore = defineStore('cards', () => {
     const existing = recordOwners.get(name);
     if (reason === null && existing) return existing.promise;
     abortRequestOwner(recordOwners, name);
-    const accepted = prior.accepted;
+    const content = prior.content;
     const controller = new AbortController();
     let owner!: RequestOwner;
     const promise = getCardRecord(cardId, name, controller.signal)
@@ -567,7 +567,7 @@ export const useCardStore = defineStore('cards', () => {
             : response.record.effective_content_source === 'accepted'
               ? response.record.accepted
               : null;
-        const committedAt =
+        const timestamp =
           response.record.effective_content_source === 'draft'
             ? response.record.draft!.updated_at
             : response.record.accepted?.committed_at;
@@ -576,11 +576,11 @@ export const useCardStore = defineStore('cards', () => {
           current: response,
           loading: false,
           error: null,
-          accepted: effective
+          content: effective
             ? {
                 kind: 'content',
-                version: response.record.revision,
-                committedAt: committedAt!,
+                revision: response.record.revision,
+                timestamp: timestamp!,
                 content: effective.content,
               }
             : { kind: 'empty' },
@@ -596,16 +596,16 @@ export const useCardStore = defineStore('cards', () => {
           error.data.cardId === cardId &&
           error.data.name === name &&
           !prior.descriptor.bootstrap &&
-          (accepted === null || accepted.kind === 'empty');
+          (content === null || content.kind === 'empty');
         if (optionalEmpty404)
           cardRecords.value = withKey(cardRecords.value, name, {
             ...prior,
             loading: false,
             error: null,
-            accepted: { kind: 'empty' },
+            content: { kind: 'empty' },
             ...fresh(),
           });
-        else if (accepted)
+        else if (content)
           cardRecords.value = withKey(cardRecords.value, name, {
             ...prior,
             loading: false,
@@ -628,7 +628,7 @@ export const useCardStore = defineStore('cards', () => {
     cardRecords.value = withKey(
       cardRecords.value,
       name,
-      accepted
+      content
         ? {
             ...prior,
             loading: false,
@@ -658,7 +658,7 @@ export const useCardStore = defineStore('cards', () => {
     reason: Exclude<StaleReason, 'refresh-failed'>,
   ): Promise<void> {
     const id = selectedCardId.value;
-    if (!id || !cardRecords.value[name]?.accepted) throw new Error(`No accepted ${name} record.`);
+    if (!id || !cardRecords.value[name]?.content) throw new Error(`No loaded ${name} record.`);
     return startRecord(id, name, reason);
   }
   function retryRecord(name: LiveSyncCardRecordName): Promise<void> {
@@ -666,7 +666,7 @@ export const useCardStore = defineStore('cards', () => {
     const record = cardRecords.value[name];
     if (!id || !record) throw new Error(`${name} is not retryable.`);
     if (record.staleReason === 'refresh-failed') return refreshRecord(name, 'invalidated');
-    if (record.accepted === null && record.error !== null && !record.loading)
+    if (record.content === null && record.error !== null && !record.loading)
       return startRecord(id, name, null);
     throw new Error(`${name} is not retryable.`);
   }
@@ -711,19 +711,6 @@ export const useCardStore = defineStore('cards', () => {
     if (!id || !prior) throw new Error(`Record '${name}' is not selected.`);
     abortRequestOwner(recordVersionOwners, name);
     abortRequestOwner(recordDiffOwners, name);
-    if (prior.history && !prior.history.versions.some((entry) => entry.version === version)) {
-      cardRecords.value = withKey(cardRecords.value, name, {
-        ...prior,
-        selectedVersion: version,
-        selected: null,
-        selectedLoading: false,
-        selectedError: `Accepted version ${version} not found`,
-        diff: null,
-        diffLoading: false,
-        diffError: null,
-      });
-      return Promise.resolve();
-    }
     cardRecords.value = withKey(cardRecords.value, name, {
       ...prior,
       selectedVersion: version,
@@ -1012,7 +999,7 @@ export const useCardStore = defineStore('cards', () => {
       return;
     }
     if (target.scope === 'record') {
-      if (cardRecords.value[target.record_name]?.accepted)
+      if (cardRecords.value[target.record_name]?.content)
         void refreshRecord(target.record_name, 'invalidated');
       return;
     }

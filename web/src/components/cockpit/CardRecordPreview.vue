@@ -4,11 +4,11 @@
       <strong>{{ sourceLabel }}</strong>
       <span class="record-source-state" data-testid="record-source-state">{{ stateLabel }}</span>
       <span v-if="slot?.stale" class="record-stale-label">Last loaded · stale</span>
-      <span v-else-if="slot?.accepted" class="record-fresh-label">Current observation</span>
+      <span v-else-if="slot?.content" class="record-fresh-label">Current observation</span>
     </div>
 
-    <ViewState v-if="slot?.loading && !slot.accepted" state="loading" :title="`Loading ${descriptor.name}`" />
-    <ViewState v-else-if="slot?.error && !slot.accepted" state="error" :title="`Could not load ${descriptor.name}`" :message="slot.error">
+    <ViewState v-if="slot?.loading && !slot.content" state="loading" :title="`Loading ${descriptor.name}`" />
+    <ViewState v-else-if="slot?.error && !slot.content" state="error" :title="`Could not load ${descriptor.name}`" :message="slot.error">
       <template #action><button type="button" @click="$emit('retry', descriptor.name)">Retry</button></template>
     </ViewState>
     <template v-else-if="content !== null">
@@ -57,7 +57,7 @@ const props = defineProps<{
 }>();
 defineEmits<{ retry: [name: LiveSyncCardRecordName] }>();
 
-const content = computed(() => props.slot?.accepted?.kind === 'content' ? props.slot.accepted.content : null);
+const content = computed(() => props.slot?.content?.kind === 'content' ? props.slot.content.content : null);
 const excerpt = computed(() => {
   const characters = Array.from(content.value ?? '');
   return characters.length > 600 ? `${characters.slice(0, 600).join('')}…` : characters.join('');
@@ -68,7 +68,7 @@ const stateLabel = computed(() => {
   if (source === 'accepted') return 'Accepted';
   if (props.slot?.loading) return 'Loading';
   if (props.slot?.error) return 'Read failed';
-  if (props.slot?.accepted?.kind === 'empty' || props.descriptor.current === null) return 'Not yet published';
+  if (props.slot?.content?.kind === 'empty' || props.descriptor.current === null) return 'Not yet published';
   return 'Unavailable';
 });
 const artifactState = computed(() => {

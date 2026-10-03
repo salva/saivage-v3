@@ -43,15 +43,59 @@ describe('CardStore exact card resources',()=>{
     await store.selectRecordVersion('brief.md', 2);
     expect(getRecordVersion).toHaveBeenCalledWith(A, 'brief.md', 2, expect.any(AbortSignal));
     expect(store.cardRecords['brief.md']!.selected).toEqual(historical);
-    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: accepted.committed_at }, effective_content_source: 'draft' } });
+    const draftTime = '2026-07-23T00:00:00.000Z';
+    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: draftTime }, effective_content_source: 'draft' } });
     await store.refreshRecord('brief.md', 'invalidated');
+    const missing = { error: 'historical_version_not_found' as const, resource: 'authored_record' as const, owner_id: `${A}/brief.md`, version: 3 };
+    vi.mocked(getRecordVersion).mockRejectedValueOnce(new OperatorApiError('cards.records.versions.get', 404, missing));
+    vi.mocked(getRecordDiff).mockRejectedValueOnce(new OperatorApiError('cards.records.diff', 404, missing));
     await store.selectRecordVersion('brief.md', 3);
+    expect(store.cardRecords['brief.md']!.content).toEqual({ kind: 'content', revision: 3, timestamp: draftTime, content: 'unfinished draft' });
+    expect(store.cardRecords['brief.md']!.current?.record.accepted?.source_version).toBe(2);
     expect(store.cardRecords['brief.md']!.current?.record.draft?.content).toBe('unfinished draft');
     expect(store.cardRecords['brief.md']!.selected).toBeNull();
     expect(store.cardRecords['brief.md']!.selectedVersion).toBe(3);
-    expect(store.cardRecords['brief.md']!.selectedError).toBe('Accepted version 3 not found');
-    expect(getRecordVersion).toHaveBeenCalledTimes(1);
-    expect(getRecordDiff).toHaveBeenCalledTimes(1);
+    expect(store.cardRecords['brief.md']!.selectedError).toBe('historical_version_not_found');
+    expect(store.cardRecords['brief.md']!.diffError).toBe('historical_version_not_found');
+    expect(store.cardRecords['brief.md']!.diff).toBeNull();
+    expect(getRecordVersion).toHaveBeenCalledTimes(2);
+    expect(getRecordVersion).toHaveBeenLastCalledWith(A, 'brief.md', 3, expect.any(AbortSignal));
+    expect(getRecordDiff).toHaveBeenCalledTimes(2);
+    expect(getRecordDiff).toHaveBeenLastCalledWith(A, 'brief.md', 3, 'current', 'effective', expect.any(AbortSignal));
+    // A partial catalog cannot veto an exact server success either.
+    store.cardRecords['brief.md']!.history = { card_id: A, name: 'brief.md', versions: [], total: 0 };
+    await store.selectRecordVersion('brief.md', 2);
+    expect(store.cardRecords['brief.md']!.selected).toEqual(historical);
+    expect(store.cardRecords['brief.md']!.diff?.from).toBe(2);
+    expect(store.cardRecords['brief.md']!.selectedError).toBeNull();
+    expect(store.cardRecords['brief.md']!.diffError).toBeNull();
+  });
+
+  it('fences both pending exact responses when a newer catalog-gap selection fails', async () => {
+    const current = content(A, 'brief.md');
+    vi.mocked(getCard).mockResolvedValue({ card: cardView(A) });
+    vi.mocked(listCardRecords).mockResolvedValue({ card_id: A, records: [descriptors[0]!] });
+    vi.mocked(getCardRecord).mockResolvedValue(current);
+    vi.mocked(listRecordHistory).mockResolvedValue({ card_id: A, name: 'brief.md', versions: [], total: 0 });
+    const oldVersion = deferred<Awaited<ReturnType<typeof getRecordVersion>>>();
+    const oldDiff = deferred<Awaited<ReturnType<typeof getRecordDiff>>>();
+    vi.mocked(getRecordVersion).mockReturnValueOnce(oldVersion.promise);
+    vi.mocked(getRecordDiff).mockReturnValueOnce(oldDiff.promise);
+    const store = useCardStore();
+    await store.fetchCardDetail(A); await store.loadCardRecords(A); await store.openRecordHistory('brief.md');
+    const oldSelection = store.selectRecordVersion('brief.md', 2);
+    const versionSignal = vi.mocked(getRecordVersion).mock.calls.at(-1)![3]!;
+    const diffSignal = vi.mocked(getRecordDiff).mock.calls.at(-1)![5]!;
+    const missing = { error: 'historical_version_not_found' as const, resource: 'authored_record' as const, owner_id: `${A}/brief.md`, version: 3 };
+    vi.mocked(getRecordVersion).mockRejectedValueOnce(new OperatorApiError('cards.records.versions.get', 404, missing));
+    vi.mocked(getRecordDiff).mockRejectedValueOnce(new OperatorApiError('cards.records.diff', 404, missing));
+    await store.selectRecordVersion('brief.md', 3);
+    expect(versionSignal.aborted).toBe(true); expect(diffSignal.aborted).toBe(true);
+    const accepted = current.record.accepted;
+    oldVersion.resolve({ card_id: A, name: 'brief.md', version: 2, version_url: current.record.accepted_version_url, entry_id: accepted.source_entry_id, published_at: accepted.committed_at, artifact: { published_at: accepted.committed_at, accepted } });
+    oldDiff.resolve({ card_id: A, name: 'brief.md', from: 2, to: { kind: 'current', revision: 2, accepted_version: 2 }, view: 'effective', hunks: [] });
+    await oldSelection;
+    expect(store.cardRecords['brief.md']).toMatchObject({ selectedVersion: 3, selected: null, diff: null, selectedError: 'historical_version_not_found', diffError: 'historical_version_not_found' });
   });
 
   it('builds route chains through depth twelve and rejects invalid deeper routes',()=>{
@@ -75,15 +119,15 @@ describe('CardStore exact card resources',()=>{
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
     expect(getCard).toHaveBeenCalledTimes(1); expect(listCardRecords).toHaveBeenCalledTimes(1); expect(getCardRecord).toHaveBeenCalledTimes(3);
     expect(vi.mocked(listCardRecords).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(getCardRecord).mock.invocationCallOrder[0]!);
-    expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'}); expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',version:2});
+    expect(store.cardRecords['research-findings.md']!.content).toEqual({kind:'empty'}); expect(store.cardRecords['decision.md']!.content).toMatchObject({kind:'content',revision:2});
   });
 
   it('keeps bootstrap and nonexact 404 failures as errors',async()=>{
     vi.mocked(getCard).mockResolvedValue({card:cardView(A)}); vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:descriptors});
     vi.mocked(getCardRecord).mockImplementation(async(_cardId,name)=>{throw new OperatorApiError('cards.records.get',404,name==='brief.md'?{error:'card_record_not_found',cardId:A,name}:name==='research-findings.md'?{error:'card_record_not_found',cardId:'card-b',name}:{error:'Card not found',cardId:A});});
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
-    expect(store.cardRecords['brief.md']!.accepted).toBeNull(); expect(store.cardRecords['brief.md']!.error).toBe('card_record_not_found');
-    expect(store.cardRecords['research-findings.md']!.accepted).toBeNull(); expect(store.cardRecords['research-findings.md']!.error).toBe('card_record_not_found');
+    expect(store.cardRecords['brief.md']!.content).toBeNull(); expect(store.cardRecords['brief.md']!.error).toBe('card_record_not_found');
+    expect(store.cardRecords['research-findings.md']!.content).toBeNull(); expect(store.cardRecords['research-findings.md']!.error).toBe('card_record_not_found');
   });
 
   it('retries only the exact initially failed record while preserving unrelated outcomes',async()=>{
@@ -95,17 +139,17 @@ describe('CardStore exact card resources',()=>{
     });
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
     expect(store.cardRecords['brief.md']!.error).toBe('card_record_not_found');
-    expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'});
-    expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',content:'decision.md'});
+    expect(store.cardRecords['research-findings.md']!.content).toEqual({kind:'empty'});
+    expect(store.cardRecords['decision.md']!.content).toMatchObject({kind:'content',content:'decision.md'});
     vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>content(cardId,name,'retried objective'));
 
     await store.retryRecord('brief.md');
 
     expect(getCardRecord).toHaveBeenCalledTimes(4);
     expect(getCardRecord).toHaveBeenLastCalledWith(A,'brief.md',expect.any(AbortSignal));
-    expect(store.cardRecords['brief.md']!.accepted).toMatchObject({kind:'content',content:'retried objective'});
-    expect(store.cardRecords['research-findings.md']!.accepted).toEqual({kind:'empty'});
-    expect(store.cardRecords['decision.md']!.accepted).toMatchObject({kind:'content',content:'decision.md'});
+    expect(store.cardRecords['brief.md']!.content).toMatchObject({kind:'content',content:'retried objective'});
+    expect(store.cardRecords['research-findings.md']!.content).toEqual({kind:'empty'});
+    expect(store.cardRecords['decision.md']!.content).toMatchObject({kind:'content',content:'decision.md'});
   });
 
   it('does not accept a missing-record code for a different record name', async () => {
@@ -118,7 +162,7 @@ describe('CardStore exact card resources',()=>{
       return content(cardId, name);
     });
     const store = useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
-    expect(store.cardRecords['research-findings.md']!.accepted).toBeNull();
+    expect(store.cardRecords['research-findings.md']!.content).toBeNull();
     expect(store.cardRecords['research-findings.md']!.error).toBe('card_record_not_found');
   });
 
@@ -165,11 +209,11 @@ describe('CardStore exact card resources',()=>{
     const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
     vi.mocked(getCardRecord).mockImplementation(async(_cardId,name)=>{throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId:'card-b',name});});
     store.onInvalidate({resource:'cards',scope:'record',card_id:A,record_name:'research-findings.md'}); await Promise.resolve(); await Promise.resolve();
-    expect(store.cardRecords['research-findings.md']!.accepted).toMatchObject({kind:'content',content:'research-findings.md accepted'});
+    expect(store.cardRecords['research-findings.md']!.content).toMatchObject({kind:'content',content:'research-findings.md accepted'});
     expect(store.cardRecords['research-findings.md']!.staleReason).toBe('refresh-failed');
     vi.mocked(getCardRecord).mockImplementation(async(cardId,name)=>{throw new OperatorApiError('cards.records.get',404,{error:'card_record_not_found',cardId,name});});
     await store.retryRecord('research-findings.md');
-    expect(store.cardRecords['research-findings.md']!.accepted).toMatchObject({kind:'content',content:'research-findings.md accepted'});
+    expect(store.cardRecords['research-findings.md']!.content).toMatchObject({kind:'content',content:'research-findings.md accepted'});
     expect(store.cardRecords['research-findings.md']!.staleReason).toBe('refresh-failed');
   });
 

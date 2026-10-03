@@ -44,13 +44,19 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
   const badResponses: string[] = [];
+  const expectedMissingResponses: string[] = [];
   const requests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('response', (response) => {
     const url = new URL(response.url());
     // Files resolves a deep-linked virtual file by trying it as a directory first.
     const expectedFileProbe = response.status() === 400 && url.pathname === '/api/files' && url.searchParams.get('path')?.includes('card.json');
-    if (url.pathname.startsWith('/api/') && response.status() >= 400 && !expectedFileProbe) badResponses.push(`${response.status()} ${url.pathname}`);
+    const recordPrefix = `/api/cards/${smokeCardId}/records/${recordName}`;
+    const expectedRecordMiss = response.request().method() === 'GET' && response.status() === 404 && url.origin === new URL(baseURL).origin &&
+      ((url.pathname === `${recordPrefix}/versions/3` && url.search === '') ||
+        (url.pathname === `${recordPrefix}/diff` && url.searchParams.get('from') === '3' && url.searchParams.get('to') === 'current' && url.searchParams.get('view') === 'effective' && [...url.searchParams].length === 3));
+    if (expectedRecordMiss) expectedMissingResponses.push(`${url.pathname}${url.search}`);
+    if (url.pathname.startsWith('/api/') && response.status() >= 400 && !expectedFileProbe && !expectedRecordMiss) badResponses.push(`${response.status()} ${url.pathname}`);
   });
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
@@ -77,9 +83,13 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     if (path === `${prefix}/records/${recordName}`) return json(route, 'cards.records.get', { card_id: smokeCardId, record: { name: recordName, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted, draft: { opened_at: now, updated_at: now, content: draftText, content_sha256: hash(draftText) }, effective_content_source: 'draft' } });
     if (path === `${prefix}/records/${recordName}/history`) return json(route, 'cards.records.history.list', { card_id: smokeCardId, name: recordName, versions: [{ version: 1, entry_id: acceptedId, published_at: now, version_url: acceptedUrl }], total: 1 });
     if (path === `${prefix}/records/${recordName}/versions/1`) return json(route, 'cards.records.versions.get', { card_id: smokeCardId, name: recordName, version: 1, version_url: acceptedUrl, entry_id: acceptedId, published_at: now, artifact: { published_at: now, accepted } });
+    const missingRecordVersion = { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${smokeCardId}/${recordName}`, version: 3 };
+    if (path === `${prefix}/records/${recordName}/versions/3`) return json(route, 'cards.records.versions.get', missingRecordVersion, 404);
     if (path === `${prefix}/records/${recordName}/diff`) {
-      expect(url.searchParams.get('from')).toBe('1');
       expect(url.searchParams.get('to')).toBe('current');
+      expect(url.searchParams.get('view')).toBe('effective');
+      if (url.searchParams.get('from') === '3') return json(route, 'cards.records.diff', missingRecordVersion, 404);
+      expect(url.searchParams.get('from')).toBe('1');
       return json(route, 'cards.records.diff', { card_id: smokeCardId, name: recordName, from: 1, to: { kind: 'current', revision: 3, accepted_version: 1 }, view: 'effective', hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: [`-${acceptedText}`, `+${draftText}`] }] });
     }
     if (path === `${prefix}/history`) return json(route, 'cards.history.list', { card_id: smokeCardId, versions: revision === 3 ? [catalogEntry(1, firstId)] : [catalogEntry(1, firstId), catalogEntry(4, fourthId)], total: revision === 3 ? 1 : 2 });
@@ -154,6 +164,18 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   await expect(facet.locator('.history-detail')).not.toContainText(first.title);
   expect(requests.some((path) => /\/history\/3(?:\?|$)/.test(path))).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('sparse-selector-local-error.png'), fullPage: true });
+
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records&record=${recordName}&version=3`)));
+  await expect(facet.locator('.record-history-error[role="alert"]')).toContainText('historical_version_not_found');
+  await expect(facet.locator('.selected-record')).toHaveCount(0);
+  await expect(facet.getByText('Current revision 3 · draft', { exact: true })).toBeVisible();
+  await expect(facet.getByText(draftText, { exact: true })).toBeVisible();
+  await expect(facet.getByRole('link', { name: 'Latest accepted v1' })).toBeVisible();
+  expect(requests.some((path) => path === `/api/cards/${smokeCardId}/records/${recordName}/versions/3`)).toBe(true);
+  await expect.poll(() => expectedMissingResponses.length).toBe(2);
+  expect(expectedMissingResponses.filter((path) => path.includes('/versions/3'))).toHaveLength(1);
+  expect(expectedMissingResponses.filter((path) => path.includes('/diff?'))).toHaveLength(1);
+  await page.screenshot({ path: testInfo.outputPath('record-sparse-server-errors.png'), fullPage: true });
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/files?root=meta&path=${encodeURIComponent(namespace)}`)));
   await expect(page.getByTestId('files-list')).not.toContainText('mailbox');

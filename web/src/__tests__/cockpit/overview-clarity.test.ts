@@ -125,6 +125,10 @@ describe('work-first Overview clarity', () => {
     expect(objective.get('.record-full-content').text()).toContain('Draft objective');
     expect(objective.get('.record-details').text()).toContain('Head revision5');
     expect(objective.get('.record-details').text()).toContain('Accepted source revision2');
+    expect(store.cardRecords['mission-custom.md']!.content).toMatchObject({ kind: 'content', revision: 5, timestamp: now });
+    expect(store.cardRecords['mission-custom.md']!.current?.record.accepted?.source_version).toBe(2);
+    expect(store.cardRecords['constraints.md']!.content).toMatchObject({ kind: 'content', revision: 3, timestamp: now });
+    expect(store.cardRecords['constraints.md']!.current?.record.accepted?.source_version).toBe(2);
 
     const records = wrapper.get('[data-testid="overview-records"]');
     expect(records.findAll('article').map((article) => article.get('h4').text())).toEqual(['constraints.md', 'source-notes.md', 'review-custom.md']);

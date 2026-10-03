@@ -6,9 +6,9 @@
     <div class="records-list">
       <DocumentFrame v-for="record in records" :key="record.name" :name="record.name" :title="record.name"
         :version="null"
-        :timestamp="contentValue(record.name)?.committedAt ?? null">
-        <ViewState v-if="value(record.name).loading && !value(record.name).accepted" state="loading" :title="`Loading ${record.name}`" />
-        <ViewState v-else-if="value(record.name).error && !value(record.name).accepted" state="error" :title="`Could not load ${record.name}`" :message="value(record.name).error ?? ''" />
+        :timestamp="contentValue(record.name)?.timestamp ?? null">
+        <ViewState v-if="value(record.name).loading && !value(record.name).content" state="loading" :title="`Loading ${record.name}`" />
+        <ViewState v-else-if="value(record.name).error && !value(record.name).content" state="error" :title="`Could not load ${record.name}`" :message="value(record.name).error ?? ''" />
         <div v-else>
           <div class="record-metadata">{{ record.schema }} · {{ record.bootstrap ? 'bootstrap' : 'optional' }}</div>
           <p v-if="value(record.name).current">Current revision {{ value(record.name).current?.record.revision }} · {{ value(record.name).current?.record.effective_content_source ?? 'empty' }}</p>
@@ -73,7 +73,7 @@ const props = defineProps<{ cardId: string; recordRefinement?: { record: string 
 const store = useCardStore();
 const records=computed(()=>store.selectedDetail?.cardId===props.cardId?store.recordDescriptors:[]);
 function value(name: RecordName): RecordSlotState { const value=store.cardRecords[name];if(!value)throw new Error(`Missing record state for '${name}'.`);return value; }
-function contentValue(name: RecordName) { const accepted = value(name).accepted; return accepted?.kind === 'content' ? accepted : null; }
+function contentValue(name: RecordName) { const content = value(name).content; return content?.kind === 'content' ? content : null; }
 const initialLoadCompletedFor = ref<string | null>(null);
 const descriptorsReady = computed(() => store.selectedCardId === props.cardId &&
   store.selectedDetail?.cardId === props.cardId &&
@@ -85,7 +85,7 @@ const unavailableRecord = computed(() => {
 function historicalActionsReady(name: RecordName): boolean {
   return descriptorsReady.value && initialLoadCompletedFor.value === props.cardId &&
     records.value.some((record) => record.name === name) &&
-    !(value(name).loading && !value(name).accepted);
+    !(value(name).loading && !value(name).content);
 }
 const refinementReady = computed(() => {
   const name = props.recordRefinement?.record;
