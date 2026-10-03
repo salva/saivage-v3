@@ -19,6 +19,7 @@ import {
   acceptAuthoredRecord,
   classifyCurrentAuthoredRecord,
   openAuthoredRecord,
+  readAuthoredRecordVersionPair,
 } from '../../src/persistence/authored-record-files.js';
 import {
   cardAcceptedRecordFile,
@@ -71,6 +72,60 @@ const definition = {
 };
 
 describe('exact record heads and accepted predecessor chains', () => {
+  function sparseFixture() {
+    const value = setup(); const { cards, card, root } = value;
+    cards.acceptRecord(card.id, 'status.md', 'one', 'analyst');
+    for (const content of ['four', 'seven']) {
+      cards.openRecord(card.id, 'status.md'); cards.discardRecord(card.id, 'status.md');
+      cards.acceptRecord(card.id, 'status.md', content, 'analyst');
+    }
+    cards.acceptRecord(card.id, 'status.md', 'eight', 'analyst');
+    const paths = new Map(history(cards, card.id, 'status.md').map(row => [row.version, cardAcceptedRecordFile(root, card.id, row.entry_id)]));
+    return { ...value, paths };
+  }
+  it('selects numeric accepted pairs with one bounded traversal and exact content/provenance', () => {
+    const { cards, card, paths } = sparseFixture(); const reads: string[] = [];
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 4, to: 8 }, { onRead: path => reads.push(path) })).toMatchObject({
+      kind: 'found', value: { from: { revision: 4, accepted: { source_version: 4, content: 'four', writer_agent: 'analyst', card_version_seq: 1 } }, to: { revision: 8, accepted: { source_version: 8, content: 'eight' } }, target: { kind: 'version', version: 8 } },
+    });
+    for (const version of [4, 7, 8]) expect(reads.filter(path => path === paths.get(version))).toHaveLength(1);
+    expect(reads).not.toContain(paths.get(1));
+  });
+  it('consumes the selected acceptance for above-head pivots without opening predecessors', () => {
+    const { root, card, paths } = sparseFixture(); const reads: string[] = [];
+    expect(readAuthoredRecordVersionPair(root, card, definition, { from: 9, to: 10 }, { onRead: path => reads.push(path) })).toEqual({ from: null, to: null });
+    expect(reads.filter(path => path === paths.get(8))).toHaveLength(1);
+    for (const version of [1, 4, 7]) expect(reads).not.toContain(paths.get(version));
+    writeFileSync(paths.get(8)!, '{broken');
+    expect(() => readAuthoredRecordVersionPair(root, card, definition, { from: 9, to: 10 })).toThrow();
+  });
+  it.each([
+    [4, 4, { kind: 'found', value: { from: { revision: 4 }, to: { revision: 4 } } }],
+    [5, 8, { kind: 'version-not-found', version: 5, side: 'from' }],
+    [4, 6, { kind: 'version-not-found', version: 6, side: 'to' }],
+    [5, 6, { kind: 'version-not-found', version: 5, side: 'from' }],
+    [8, 4, { kind: 'invalid-pivots', from: 8, to: 4 }],
+    [9, 10, { kind: 'version-not-found', version: 9, side: 'from' }],
+    [4, 10, { kind: 'version-not-found', version: 10, side: 'to' }],
+  ])('preserves accepted pivot semantics for %s → %s', (from, to, expected) => {
+    const { cards, card } = sparseFixture();
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: from as number, to: to as number })).toMatchObject(expected);
+  });
+  it.each(['missing', 'malformed', 'link'] as const)('rejects a reached %s acceptance before reporting a gap', fault => {
+    const { cards, card, paths } = sparseFixture(); const path = paths.get(7)!;
+    if (fault === 'missing') unlinkSync(path);
+    else if (fault === 'malformed') writeFileSync(path, '{broken');
+    else { const stored = JSON.parse(readFileSync(path, 'utf8')); stored.predecessor.version = stored.version; writeFileSync(path, JSON.stringify(stored)); }
+    expect(() => cards.diffRecordVersions(card.id, 'status.md', { from: 5, to: 6 })).toThrow();
+  });
+  it('does not consume below an exact or gap stop, while preserving single-selector bounds', () => {
+    const { cards, card, paths } = sparseFixture(); writeFileSync(paths.get(1)!, '{broken');
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 4, to: 8 }).kind).toBe('found');
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 5, to: 8 })).toEqual({ kind: 'version-not-found', version: 5, side: 'from' });
+    expect(cards.readRecordVersion(card.id, 'status.md', 4).kind).toBe('found');
+    expect(cards.readRecordVersion(card.id, 'status.md', 5)).toEqual({ kind: 'version-not-found', version: 5 });
+    expect(() => cards.diffRecordVersions(card.id, 'status.md', { from: 2, to: 8 })).toThrow();
+  });
   it('publishes bootstrap acceptance with actual initial ordinary provenance and leaves optional heads absent', () => {
     const { root, cards, card } = setup();
     const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;

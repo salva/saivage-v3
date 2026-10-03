@@ -11,6 +11,7 @@ export {
   openAuthoredRecord,
   readCurrentAuthoredRecord,
   readAuthoredRecordVersion,
+  readAuthoredRecordVersionPair,
 } from './authored-record-files.js';
 export type {
   CurrentAuthoredRecordClassification,
@@ -48,6 +49,7 @@ export {
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
   readCommittedCardVersion,
+  readCommittedCardVersionPair,
   readPendingCardNotifications,
   readLinkedChildren,
   readLinkedChildrenProjection,
@@ -98,7 +100,7 @@ export {
   saivageLocksRoot,
   saivageRoot,
 } from './layout.js';
-export { versionFilename } from './version-index.js';
+export { versionFilename } from './canonical-conversation-artifacts.js';
 export { writeAllExact } from './write-all-exact.js';
 export {
   appendProviderExchangeEntry,

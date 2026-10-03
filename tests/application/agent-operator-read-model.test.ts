@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import {
   AgentOperatorReadModelService,
   AgentSessionNotFoundError,
+  AgentCurrentStateUnavailableError,
   CardAgentScopeNotFoundError,
 } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationBatch, initializeMissingConversation, readConversationCatalog } from '../../src/persistence/conversation-file.js';
@@ -19,7 +20,7 @@ import {
 } from '../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
-import { cardConversationsRoot, cardHeadFile } from '../../src/persistence/layout.js';
+import { cardConversationsRoot, cardHeadFile, cardHistoryFile } from '../../src/persistence/layout.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 
 const roots: string[] = [];
@@ -30,6 +31,35 @@ afterEach(() => {
 });
 
 describe('AgentOperatorReadModelService granular resources', () => {
+  it.each(['missing', 'malformed'] as const)('admits the exact session without consuming a %s old predecessor', fault => {
+    const root = createRoot(); const cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const initial = JSON.parse(readFileSync(cardHeadFile(root, child.id), 'utf8')).ordinary;
+    const session = cardAgentSessionId('executor', child.id); publishMarker(root, session);
+    cards.editCard(child.id, { title: 'Current' });
+    const oldPath = cardHistoryFile(root, child.id, initial.entry_id);
+    if (fault === 'missing') unlinkSync(oldPath); else writeFileSync(oldPath, '{broken');
+    const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
+    expect(service.getSession(session).session.id).toBe(session);
+    expect(() => cards.readCardVersion(child.id, 1)).toThrow();
+    expect(() => service.getSession(cardAgentSessionId('planner', child.id))).toThrow(AgentSessionNotFoundError);
+    expect(() => service.getSession(cardAgentSessionId('executor', 'card-z'))).toThrow(AgentSessionNotFoundError);
+    const selected = JSON.parse(readFileSync(cardHeadFile(root, child.id), 'utf8')).ordinary;
+    writeFileSync(cardHistoryFile(root, child.id, selected.entry_id), '{broken');
+    expect(() => service.getSession(session)).toThrow(AgentCurrentStateUnavailableError);
+  });
+
+  it('admits a retained final tombstone but blocks a descendant below a tombstoned ancestor', () => {
+    const root = createRoot(); const cards = new CardService(root);
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const parentSession = cardAgentSessionId('planner', parent.id); const childSession = cardAgentSessionId('executor', child.id);
+    publishMarker(root, parentSession); publishMarker(root, childSession);
+    cards.deleteSubtrees([parent.id], () => true);
+    const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
+    expect(service.getSession(parentSession).session.id).toBe(parentSession);
+    expect(() => service.getSession(childSession)).toThrow(AgentSessionNotFoundError);
+  });
   it('derives compiled-workflow candidates and reads index metadata for summaries', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);

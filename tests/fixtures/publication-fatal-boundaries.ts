@@ -13,7 +13,7 @@ import type { Environment } from '../../src/config/environment.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { compact, prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
-import { publishFirstEnvelope } from '../../src/persistence/growing-file.js';
+import { publishFreshFile } from '../../src/persistence/replace-file.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
@@ -165,7 +165,7 @@ if (mode === 'llm-conversation' || mode === 'llm-segment-compaction') {
     compactor: {
       shouldCompact: () => actualPublication,
       compact: async (args) => compact({ ...args, publication: { io: {
-        publishFirstEnvelope: (target, bytes, temporary) => publishFirstEnvelope(target, bytes, temporary, replacement),
+        publishFreshFile: (target, bytes, temporary) => publishFreshFile(target, bytes, temporary, replacement),
         replaceFile: () => { appendFileSync(path, 'index'); throw new Error('not reached'); },
       } } }),
     },

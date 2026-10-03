@@ -592,7 +592,7 @@ function allocateSuccessorIdentity(sourceVersion: number): CompactionSuccessorId
     segmentVersion,
     entryId: randomUUID(),
     timestamp: new Date().toISOString(),
-    filename: versionFilename(segmentVersion, randomUUID(), 'jsonl'),
+    filename: versionFilename(segmentVersion, randomUUID()),
   };
 }
 

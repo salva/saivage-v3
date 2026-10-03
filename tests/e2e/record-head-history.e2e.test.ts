@@ -194,6 +194,15 @@ describe('new-format record publication, current/history API and restart', () =>
         status: 404,
         body: { version: 3 },
       });
+      expect(await get('/api/cards/project/records/status.md/diff?from=1&to=5')).toMatchObject({
+        status: 200,
+        body: { to: { kind: 'version', version: 5 }, hunks: [{ lines: ['-accepted baseline', '+finished work'] }] },
+      });
+      for (const [from, to, missing] of [[2, 5, 2], [1, 3, 3], [2, 3, 2]]) {
+        expect(await get(`/api/cards/project/records/status.md/diff?from=${from}&to=${to}`)).toMatchObject({
+          status: 404, body: { error: 'historical_version_not_found', version: missing },
+        });
+      }
     } finally {
       if (app) await app.stop();
       await closeServer(provider);

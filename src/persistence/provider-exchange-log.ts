@@ -1,4 +1,5 @@
 import type { ConversationSessionId } from '../schemas/index.js';
+import { publishFreshFile } from './replace-file.js';
 import {
   internalCompactionSummarySessionId,
   providerExchangeLogEntrySchema,
@@ -10,7 +11,6 @@ import {
   admitGrowingFileTail,
   appendEnvelope,
   serializeGrowingEnvelope,
-  publishFirstEnvelope,
   readCanonicalBytesOrMissing,
   consumeGrowingRows,
 } from './growing-file.js';
@@ -60,7 +60,7 @@ export function appendProviderExchangeEntry(
   });
   const result = appendEnvelope(path, bytes);
   // Evidence belongs to an established conversation root; missing directories fail at publication.
-  if (result.kind === 'missing') publishFirstEnvelope(path, bytes);
+  if (result.kind === 'missing') publishFreshFile(path, bytes);
 }
 
 export function readLatestProviderExchangePayload(

@@ -31,7 +31,7 @@ jest.unstable_mockModule('node:fs', () => ({
   closeSync: (fd: number) => { step(`close:${descriptors.get(fd)}`); realFs.closeSync(fd); },
   renameSync: (from: string, to: string) => { step(`rename:${basename(to)}`); realFs.renameSync(from, to); },
 }));
-const { publishFirstEnvelope } = await import('../../src/persistence/growing-file.js');
+const { publishFreshFile } = await import('../../src/persistence/replace-file.js');
 const { replacementTempPath } = await import('../../src/persistence/replace-file.js');
 const { appendConversationBatch, readCurrentConversationSegment, readHistoricalConversationSegment } = await import('../../src/persistence/conversation-file.js');
 const { initProjectTree } = await import('../helpers/canonical-project.js');
@@ -47,7 +47,7 @@ describe('actual first-envelope segment publication', () => {
     failure = Object.assign(new Error('target denied'), { code: 'EACCES' });
     failAt = `lstat:${basename(target)}`; observing = true;
     const factory = jest.fn(() => id); const witness = publicationWitness(); let thrown: unknown;
-    try { publishFirstEnvelope(target, bytes, factory, witness.io); } catch (error) { thrown = error; }
+    try { publishFreshFile(target, bytes, factory, witness.io); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure); expect(factory).not.toHaveBeenCalled(); expect(witness.trace).toEqual([]);
     expect(trace).toEqual([failAt]);
   });
@@ -56,7 +56,7 @@ describe('actual first-envelope segment publication', () => {
     const target = join(fixture(), '1-selected.jsonl'); const witness = publicationWitness();
     const failed = new Error('temporary factory failed'); const factory = jest.fn(() => { throw failed; }); observing = true;
     let thrown: unknown;
-    try { publishFirstEnvelope(target, bytes, factory, witness.io); } catch (error) { thrown = error; }
+    try { publishFreshFile(target, bytes, factory, witness.io); } catch (error) { thrown = error; }
     expect(thrown).toBe(failed); expect(factory).toHaveBeenCalledTimes(1); expect(witness.trace).toEqual([]);
     expect(trace).toEqual([`lstat:${basename(target)}`]);
   });
@@ -68,7 +68,7 @@ describe('actual first-envelope segment publication', () => {
     else realFs.symlinkSync('missing', target);
     const before = realFs.lstatSync(target);
     const factory = jest.fn(() => id); const witness = publicationWitness(); observing = true;
-    expect(() => publishFirstEnvelope(target, bytes, factory, witness.io)).toThrow(/already published/);
+    expect(() => publishFreshFile(target, bytes, factory, witness.io)).toThrow(/already published/);
     expect(trace).toEqual([`lstat:${basename(target)}`]); expect(witness.trace).toEqual([]); expect(factory).not.toHaveBeenCalled();
     expect(realFs.lstatSync(target).ino).toBe(before.ino);
     if (kind === 'file') expect(realFs.readFileSync(target, 'utf8')).toBe('unchanged');
@@ -78,14 +78,14 @@ describe('actual first-envelope segment publication', () => {
   it('fails one exclusive temporary collision without rename, alternate allocation, or cleanup', () => {
     const target = join(fixture(), '1-selected.jsonl'); const temp = replacementTempPath(target, id);
     realFs.writeFileSync(temp, 'collision'); const factory = jest.fn(() => id); observing = true;
-    expect(() => publishFirstEnvelope(target, bytes, factory)).toThrow(expect.objectContaining({ code: 'EEXIST' }));
+    expect(() => publishFreshFile(target, bytes, factory)).toThrow(expect.objectContaining({ code: 'EEXIST' }));
     expect(factory).toHaveBeenCalledTimes(1); expect(trace).toEqual([`lstat:${basename(target)}`, `open:${basename(temp)}`]);
     expect(realFs.readFileSync(temp, 'utf8')).toBe('collision');
   });
 
   it('delegates exact bytes through one exclusive same-directory temporary and only unsent suffixes', () => {
     const target = join(fixture(), '1-selected.jsonl'); const factory = jest.fn(() => id); const witness = publicationWitness(); observing = true;
-    publishFirstEnvelope(target, bytes, factory, witness.io);
+    publishFreshFile(target, bytes, factory, witness.io);
     expect(trace).toEqual([`lstat:${basename(target)}`]); expect(factory).toHaveBeenCalledTimes(1);
     expect(witness.trace).toEqual(['temp-open', 'write', 'write', 'file-fsync', 'file-close', 'rename', 'parent-open', 'parent-fsync', 'parent-close']);
     expect(witness.opens).toEqual([[replacementTempPath(target, id), realFs.constants.O_CREAT | realFs.constants.O_EXCL | realFs.constants.O_WRONLY], [dirname(target), realFs.constants.O_RDONLY]]);
@@ -96,7 +96,7 @@ describe('actual first-envelope segment publication', () => {
   it.each([...publicationPhases, 'zero-write', 'short-write-error', 'rename-effect-throw'] satisfies PublicationFault[])('stops the actual publisher at %s with phase-correct identity', (phase) => {
     const target = join(fixture(), '1-selected.jsonl'); const witness = publicationWitness(phase); const factory = jest.fn(() => id); observing = true;
     let thrown: unknown;
-    try { publishFirstEnvelope(target, bytes, factory, witness.io); } catch (error) { thrown = error; }
+    try { publishFreshFile(target, bytes, factory, witness.io); } catch (error) { thrown = error; }
     const fatal = ['rename', 'rename-effect-throw', 'parent-open', 'parent-fsync', 'parent-close'].includes(phase);
     if (fatal) { expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError); expect((thrown as Error).cause).toBe(witness.failure); }
     else if (phase === 'zero-write') expect((thrown as Error).message).toContain('Write made no progress');

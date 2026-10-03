@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { publishFreshFile } from './replace-file.js';
 
 import {
   appLogEntryLogicalId,
@@ -11,7 +12,6 @@ import {
   admitGrowingFileTail,
   appendEnvelope,
   serializeGrowingEnvelope,
-  publishFirstEnvelope,
   readCanonicalBytesOrMissing,
   consumeGrowingRows,
 } from './growing-file.js';
@@ -77,7 +77,7 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         }
       }
-      publishFirstEnvelope(path, bytes, context.publicationTemporaryId);
+      publishFreshFile(path, bytes, context.publicationTemporaryId);
       return candidate;
   }
 }

@@ -7,6 +7,7 @@ import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonic
 import { cardChildrenRoot } from '../../src/persistence/layout.js';
 import { listCards } from '../../src/persistence/card-files.js';
 import { cardDepth, MAX_CARD_DEPTH } from '../../src/schemas/card-id.js';
+import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -23,6 +24,19 @@ const childInput = (parent: string, type: 'goal' | 'code') => ({
 });
 
 describe('CardService maximum depth admission', () => {
+  it.each(['parent-workflow', 'child-workflow', 'child-type', 'dependency'] as const)('rejects invalid %s before namespace claim', fault => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-admission-')); roots.push(root); initProjectTree(root);
+    const cardTypes = new Map(TEST_WORKFLOWS.cardTypes);
+    if (fault === 'parent-workflow') cardTypes.delete('project');
+    const cards = new ProductionCardService(root, { ...TEST_WORKFLOWS, cardTypes });
+    const input = {
+      ...childInput('project', 'code'),
+      type: fault === 'child-workflow' ? 'missing' : fault === 'child-type' ? 'project' : 'code',
+      depends_on: fault === 'dependency' ? ['card-z'] : [],
+    };
+    expect(() => cards.create(input)).toThrow();
+    expect(existsSync(cardChildrenRoot(root, 'project'))).toBe(false);
+  });
   it('allows only a leaf at depth twelve and rejects both boundaries before effects', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-depth-'));
     roots.push(root);
@@ -56,7 +70,9 @@ describe('CardService maximum depth admission', () => {
       membership: agentMembershipChanged.mock.calls.length,
     };
 
+    const read = jest.spyOn(cards, 'read');
     expect(() => cards.create({ ...childInput(leaf.id, 'goal'), depends_on: ['missing-card'] })).toThrow('Cannot create card at depth 13. Maximum allowed depth is 12.');
+    expect(read.mock.calls).toEqual([[leaf.id]]);
     expect(existsSync(cardChildrenRoot(root, leaf.id))).toBe(false);
     expect(cardProjectionChanged).toHaveBeenCalledTimes(effectsAfterLeaf.card);
     expect(runtimeChanged).toHaveBeenCalledTimes(effectsAfterLeaf.runtime);

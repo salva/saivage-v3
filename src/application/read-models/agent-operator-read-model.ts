@@ -16,7 +16,7 @@ import {
   readHistoricalConversationSegment,
   listCards,
   readCard,
-  readCommittedCardArtifactCatalog,
+  readCommittedCardCurrent,
 } from '../../persistence/index.js';
 import {
   ConversationCursorNotFoundError,
@@ -240,14 +240,14 @@ export class AgentOperatorReadModelService {
     }
     let cardResult;
     try {
-      cardResult = readCommittedCardArtifactCatalog(this.projectRoot, identity.cardId);
+      cardResult = readCommittedCardCurrent(this.projectRoot, identity.cardId);
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       throw new AgentCurrentStateUnavailableError('card', identity.cardId, { cause: error });
     }
     if (cardResult.kind === 'card-not-found')
       throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-    const head = cardResult.value.head;
+    const head = cardResult.value.artifact;
     const card = head.kind === 'card-version' ? head.card : head.final_card;
     const workflow = this.workflows.cardTypes.get(card.type);
     if (!workflow) throw new Error(`No compiled workflow for '${card.type}'.`);

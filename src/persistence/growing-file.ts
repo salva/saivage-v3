@@ -3,18 +3,12 @@ import {
   closeSync,
   fsyncSync,
   ftruncateSync,
-  lstatSync,
   openSync,
   readFileSync,
   writeSync,
 } from 'node:fs';
 import { z } from 'zod';
 
-import {
-  replaceFile,
-  type PublicationTemporaryIdFactory,
-  type ReplacementFileIo,
-} from './replace-file.js';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import { writeAllExact } from './write-all-exact.js';
 
@@ -178,24 +172,6 @@ export function admitGrowingFileTail<Row>(
     throw new Error(`Growing file '${path}' final envelope is malformed.`, { cause: error });
   }
   parseEnvelopeLine(path, 'final envelope', line, rowSchema);
-}
-
-export function publishFirstEnvelope(
-  target: string,
-  bytes: Buffer,
-  publicationTemporaryId?: PublicationTemporaryIdFactory,
-  replacementIo?: ReplacementFileIo,
-): void {
-  try {
-    lstatSync(target);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      replaceFile(target, bytes, publicationTemporaryId, replacementIo);
-      return;
-    }
-    throw error;
-  }
-  throw new Error(`Growing file '${target}' is already published.`);
 }
 
 type AppendEnvelopeResult = { readonly kind: 'appended' } | { readonly kind: 'missing' };

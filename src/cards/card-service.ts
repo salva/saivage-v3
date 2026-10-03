@@ -21,6 +21,7 @@ import {
   AuthoredRecordNotFoundError,
   listAuthoredRecordVersions,
   readAuthoredRecordVersion,
+  readAuthoredRecordVersionPair,
   acceptAuthoredRecord,
   type AcceptedRecordProjection,
   type CurrentAuthoredRecordClassification,
@@ -38,6 +39,7 @@ import {
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
   readCommittedCardVersion,
+  readCommittedCardVersionPair,
   readPendingCardNotifications,
   readActiveCardPath,
   readActiveCardSubtree,
@@ -482,14 +484,26 @@ export class CardService {
           );
     const to = typeof pivots.to === 'number' ? pivots.to : (current?.revision ?? 0);
     if (pivots.from > to) return { kind: 'invalid-pivots', from: pivots.from, to };
+    const pair =
+      typeof pivots.to === 'number'
+        ? readAuthoredRecordVersionPair(
+            this.projectRoot,
+            admitted.card,
+            admitted.definition,
+            { from: pivots.from, to },
+            instrumentation,
+          )
+        : null;
     const select = (version: number, side: 'from' | 'to') => {
-      const projection = readAuthoredRecordVersion(
-        this.projectRoot,
-        admitted.card,
-        admitted.definition,
-        version,
-        instrumentation,
-      );
+      const projection = pair
+        ? pair[side]
+        : readAuthoredRecordVersion(
+            this.projectRoot,
+            admitted.card,
+            admitted.definition,
+            version,
+            instrumentation,
+          );
       return !projection ? { kind: 'version-not-found' as const, version, side } : projection;
     };
     const from = select(pivots.from, 'from');
@@ -718,8 +732,16 @@ export class CardService {
           : current.value.card.version_seq;
     const from = pivots.fromVersion;
     if (from > to) return { kind: 'invalid-pivots', from, to };
+    const pair =
+      typeof pivots.toVersion === 'number'
+        ? readCommittedCardVersionPair(this.projectRoot, id, { from, to }, instrumentation)
+        : null;
+    if (pair?.kind === 'card-not-found')
+      throw new Error(`Card '${id}' disappeared during synchronous diff.`);
     const select = (version: number, side: 'from' | 'to') => {
-      const selected = readCommittedCardVersion(this.projectRoot, id, version, instrumentation);
+      const selected = pair
+        ? { kind: 'found' as const, value: pair.value[side] }
+        : readCommittedCardVersion(this.projectRoot, id, version, instrumentation);
       if (selected.kind === 'card-not-found')
         throw new Error(`Card '${id}' disappeared during synchronous diff.`);
       const row = selected.value;
@@ -810,19 +832,10 @@ export class CardService {
     for (const dependencyId of input.depends_on)
       if (!this.read(dependencyId))
         throw new Error(`Dependency card '${dependencyId}' does not exist.`);
-    const parentBeforeClaim = this.read(parent.id);
-    if (!parentBeforeClaim)
-      throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
-    assertPermittedChildType(
-      parentBeforeClaim,
-      input.type,
-      'Cannot claim a child namespace under',
-      admitChildParent(parentBeforeClaim, 'Cannot claim a child namespace under', this.workflows),
-    );
     const card = publishInitialChildCard(this.projectRoot, input, childWorkflow);
-    if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth)
+    if (cardParentId(card.id) !== parent.id || cardDepth(card.id) !== depth)
       throw new Error(
-        `Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`,
+        `Claimed card '${card.id}' does not belong to requested parent '${parent.id}'.`,
       );
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.child_membership.includes(card.id))

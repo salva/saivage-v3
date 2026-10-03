@@ -3,7 +3,8 @@ import { constants, closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { admitGrowingFileTail, appendEnvelope, appendRequiredEnvelope, consumeGrowingFile, consumeGrowingRows, publishFirstEnvelope, readCanonicalBytes, readCanonicalBytesOrMissing, serializeGrowingEnvelope, type GrowingFileIo, type GrowingFileTruncationIo } from '../../src/persistence/growing-file.js';
+import { admitGrowingFileTail, appendEnvelope, appendRequiredEnvelope, consumeGrowingFile, consumeGrowingRows, readCanonicalBytes, readCanonicalBytesOrMissing, serializeGrowingEnvelope, type GrowingFileIo, type GrowingFileTruncationIo } from '../../src/persistence/growing-file.js';
+import { publishFreshFile } from '../../src/persistence/replace-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
@@ -102,15 +103,15 @@ describe('exact growing-file boundaries', () => {
   it('reads and appends exact paths without symlink proofs, but refuses first publication over any existing target', () => {
     const path = target(); const referent = join(path, '..', 'referent'); writeFileSync(referent, bytes(1)); symlinkSync(referent, path);
     expect(read(path)).toEqual([{ value: 1 }]); appendRequiredEnvelope(path, bytes()); expect(read(referent)).toHaveLength(2);
-    for (const existing of [path, referent]) { const before = readFileSync(existing); expect(() => publishFirstEnvelope(existing, bytes())).toThrow(/already published/); expect(readFileSync(existing)).toEqual(before); }
-    const directory = target(); mkdirSync(directory); expect(() => publishFirstEnvelope(directory, bytes())).toThrow(/already published/);
-    const dangling = target(); symlinkSync(join(dangling, '..', 'absent'), dangling); expect(() => publishFirstEnvelope(dangling, bytes())).toThrow(/already published/);
+    for (const existing of [path, referent]) { const before = readFileSync(existing); expect(() => publishFreshFile(existing, bytes())).toThrow(/already published/); expect(readFileSync(existing)).toEqual(before); }
+    const directory = target(); mkdirSync(directory); expect(() => publishFreshFile(directory, bytes())).toThrow(/already published/);
+    const dangling = target(); symlinkSync(join(dangling, '..', 'absent'), dangling); expect(() => publishFreshFile(dangling, bytes())).toThrow(/already published/);
   });
 
   it('stops after first-publication post-rename parent-open uncertainty', () => {
     const path = target(); const failure = new Error('parent open'); const trace: string[] = []; let opens = 0;
     const io: ReplacementFileIo = { open(...args) { opens += 1; trace.push('open'); if (opens === 2) throw failure; return openSync(...args); }, write: ((...args: unknown[]) => { trace.push('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync, fsync(fd) { trace.push('fsync'); fsyncSync(fd); }, close(fd) { trace.push('close'); closeSync(fd); }, rename(from, to) { trace.push('rename'); renameSync(from, to); } };
-    expect(() => publishFirstEnvelope(path, bytes(1), () => '22222222-2222-4222-8222-222222222222', io)).toThrow(PublicationOutcomeUnknownError);
+    expect(() => publishFreshFile(path, bytes(1), () => '22222222-2222-4222-8222-222222222222', io)).toThrow(PublicationOutcomeUnknownError);
     expect(trace).toEqual(['open', 'write', 'fsync', 'close', 'rename', 'open']);
   });
 });

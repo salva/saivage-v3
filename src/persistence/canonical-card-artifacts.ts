@@ -272,13 +272,7 @@ function validateTerminal(
     !['done', 'failed', 'blocked'].includes(next.lifecycle.status)
   )
     fail(path, 'has an invalid terminal transition');
-  if (
-    next.lifecycle.status !== 'done' &&
-    next.lifecycle.status !== 'failed' &&
-    next.lifecycle.status !== 'blocked'
-  )
-    fail(path, 'has an invalid terminal state');
-  const result = next.lifecycle.result;
+  const result = next.lifecycle.result!;
   const summary = change.terminal_summary!;
   if (
     result.summary !== next.status_text ||

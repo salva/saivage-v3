@@ -15,7 +15,7 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { validateCompactedHistorySuccessor, type ValidatedConversation } from '../../src/contracts/conversation-validation.js';
-import { publishFirstEnvelope } from '../../src/persistence/growing-file.js';
+import { publishFreshFile } from '../../src/persistence/replace-file.js';
 import { publicationWitness, type PublicationFault } from '../helpers/segment-publication-io.js';
 import { replaceFile } from '../../src/persistence/replace-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -334,9 +334,9 @@ describe('compaction fallback, successor identity, and internal summary identity
       const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { publicationTrace.push('hint'); }, agentMembershipChanged() { publicationTrace.push('membership'); } } }, input: invocation(readConversation(root, SESSION)), summarizerProvider: summarizer({ calls: [], summaryOf: constantSummary('identity summary') }), signal: new AbortController().signal, publication: {
         temporary: factory,
         io: {
-          publishFirstEnvelope: (path, bytes, temporary) => {
+          publishFreshFile: (path, bytes, temporary) => {
             selectedPath = path; preparedEnvelope = bytes; publicationTrace.push('segment-start');
-            publishFirstEnvelope(path, bytes, temporary); publicationTrace.push('segment-done');
+            publishFreshFile(path, bytes, temporary); publicationTrace.push('segment-done');
           },
           replaceFile: (path, bytes, temporary) => {
             publicationTrace.push('index-start'); replaceFile(path, bytes, temporary); publicationTrace.push('index-done');
@@ -379,9 +379,9 @@ describe('compaction fallback, successor identity, and internal summary identity
         await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { effects.push('hint'); }, agentMembershipChanged() { effects.push('membership'); } } }, input: invocation(source), summarizerProvider: summarizer({ calls, summaryOf: constantSummary('s') }), signal: new AbortController().signal, publication: {
           temporary,
           io: {
-            publishFirstEnvelope: (path, bytes, factory) => {
+            publishFreshFile: (path, bytes, factory) => {
               segmentAttempts++; effects.push('segment');
-              preserve(() => publishFirstEnvelope(path, bytes, factory, owner === 'segment' ? witness.io : undefined));
+              preserve(() => publishFreshFile(path, bytes, factory, owner === 'segment' ? witness.io : undefined));
             },
             replaceFile: (path, bytes, factory) => {
               indexAttempts++; effects.push('index');

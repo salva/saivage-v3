@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { closeSync, fsyncSync, mkdtempSync, openSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdtempSync, openSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
@@ -12,6 +12,7 @@ import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { workflowResult } from '../helpers/workflow-result.js';
+import { cardHeadFile } from '../../src/persistence/layout.js';
 
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'sync effects' };
 
@@ -66,6 +67,39 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
     expect(flush()).toEqual([...versionFrames('project', null), { t: 'invalidate', resource: 'runtime' }]);
     expect(frames().some((frame) => frame.resource === 'cards' && frame.card_id === child.id)).toBe(false);
+  });
+
+  it('reads the parent once initially, dependencies next, and freshly admits it after complete child publication before linking', () => {
+    const dependency = cards.create(input());
+    const events: string[] = [];
+    const io: ReplacementFileIo = {
+      open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+      rename(from, to) { if (to === cardHeadFile(root, 'project')) events.push('parent-link'); renameSync(from, to); },
+    };
+    const service = new CardService(root, undefined, io); const originalRead = service.read.bind(service);
+    jest.spyOn(service, 'read').mockImplementation(id => {
+      events.push(`read:${id}`);
+      if (id === 'project' && events.filter(event => event === 'read:project').length === 2) {
+        expect(existsSync(cardHeadFile(root, 'card-b'))).toBe(true);
+        expect(service.readRecordCurrent('card-b', 'brief.md')).toMatchObject({ kind: 'card-not-found' });
+      }
+      return originalRead(id);
+    });
+    service.create({ ...input(), depends_on: [dependency.id] });
+    expect(events).toEqual(['read:project', `read:${dependency.id}`, 'read:project', 'parent-link']);
+  });
+
+  it('rejects post-publication parent admission before any link publication', () => {
+    const service = new CardService(root); const originalRead = service.read.bind(service); let reads = 0;
+    jest.spyOn(service, 'read').mockImplementation(id => {
+      const card = originalRead(id);
+      if (id === 'project' && ++reads === 2) return card ? { ...card, lifecycle: { status: 'done' as const, result: workflowResult('DONE', 'done'), error: null, completed_at: '2026-10-03T00:00:00.000Z' } } : null;
+      return card;
+    });
+    expect(() => service.create(input())).toThrow(/Cannot link a child under/);
+    expect(existsSync(cardHeadFile(root, 'card-a'))).toBe(true);
+    expect(cards.read('project')!.child_membership).toEqual([]);
+    expect(flush()).toEqual([]);
   });
 
   it('publishes exact parent-owned reorder scopes and containing-parent row scope', () => {

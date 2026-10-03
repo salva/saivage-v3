@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { cardHeadFile, cardHistoryFile, cardMailboxFile } from '../../src/persistence/layout.js';
 import { cardHeadSchema } from '../../src/persistence/canonical-card-artifacts.js';
-import { readCanonicalLinkedCardHistoryTree } from '../../src/persistence/card-files.js';
+import { readCanonicalLinkedCardHistoryTree, readCommittedCardVersionPair } from '../../src/persistence/card-files.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
@@ -27,6 +27,61 @@ function notice() { return { id: randomUUID(), content: 'private mailbox body', 
 const io: ReplacementFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
 
 describe('card immutable history and pending-only mailbox', () => {
+  function sparseFixture() {
+    const value = fixture(); const { cards, child } = value;
+    for (const title of ['four', 'seven']) {
+      const message = notice(); cards.enqueueNotification(child.id, message); cards.removeNotifications(child.id, [message.id]);
+      cards.editCard(child.id, { title });
+    }
+    cards.editCard(child.id, { title: 'eight' });
+    const paths = new Map<number, string>();
+    for (const version of [1, 4, 7, 8]) {
+      const selected = cards.readCardVersion(child.id, version);
+      if (selected.kind !== 'found') throw new Error('Missing test version.');
+      paths.set(version, cardHistoryFile(value.root, child.id, selected.value.entry_id));
+    }
+    return { ...value, paths };
+  }
+  it('selects numeric pairs with one bounded predecessor traversal and exact provenance', () => {
+    const { cards, child, paths } = sparseFixture(); const reads: string[] = [];
+    const result = cards.diffCardVersions(child.id, { fromVersion: 4, toVersion: 8 }, { onRead: path => reads.push(path) });
+    expect(result).toMatchObject({ kind: 'found', fromArtifact: { version: 4, card: { title: 'four' } }, toArtifact: { version: 8, card: { title: 'eight' } }, target: { kind: 'version', version: 8 } });
+    for (const version of [4, 7]) expect(reads.filter(path => path === paths.get(version))).toHaveLength(1);
+    expect(reads).not.toContain(paths.get(1));
+  });
+  it('consumes the selected head even for above-head pivots and no predecessor', () => {
+    const { root, child, paths } = sparseFixture(); const reads: string[] = [];
+    expect(readCommittedCardVersionPair(root, child.id, { from: 9, to: 10 }, { onRead: path => reads.push(path) })).toEqual({ kind: 'found', value: { from: null, to: null } });
+    expect(reads.filter(path => path === paths.get(8))).toHaveLength(1);
+    for (const version of [1, 4, 7]) expect(reads).not.toContain(paths.get(version));
+    writeFileSync(paths.get(8)!, '{broken');
+    expect(() => readCommittedCardVersionPair(root, child.id, { from: 9, to: 10 })).toThrow();
+  });
+  it.each([
+    [4, 4, { kind: 'found', fromArtifact: { version: 4 }, toArtifact: { version: 4 } }],
+    [5, 8, { kind: 'version-not-found', version: 5, side: 'from' }],
+    [4, 6, { kind: 'version-not-found', version: 6, side: 'to' }],
+    [5, 6, { kind: 'version-not-found', version: 5, side: 'from' }],
+    [8, 4, { kind: 'invalid-pivots', from: 8, to: 4 }],
+    [9, 10, { kind: 'version-not-found', version: 9, side: 'from' }],
+    [4, 10, { kind: 'version-not-found', version: 10, side: 'to' }],
+  ])('preserves numeric pivot semantics for %s → %s', (fromVersion, toVersion, expected) => {
+    const { cards, child } = sparseFixture();
+    expect(cards.diffCardVersions(child.id, { fromVersion: fromVersion as number, toVersion: toVersion as number })).toMatchObject(expected);
+  });
+  it.each(['missing', 'malformed', 'link', 'transition'] as const)('rejects a reached %s intermediate before reporting a gap', fault => {
+    const { cards, child, paths } = sparseFixture(); const path = paths.get(7)!;
+    if (fault === 'missing') unlinkSync(path);
+    else if (fault === 'malformed') writeFileSync(path, '{broken');
+    else { const stored = JSON.parse(readFileSync(path, 'utf8')); if (fault === 'link') stored.predecessor.version = 2; else stored.card.created_at = '2020-01-01T00:00:00.000Z'; writeFileSync(path, JSON.stringify(stored)); }
+    expect(() => cards.diffCardVersions(child.id, { fromVersion: 5, toVersion: 6 })).toThrow();
+  });
+  it('does not open below exact or sparse-gap stopping artifacts but rejects that artifact when reached', () => {
+    const { cards, child, paths } = sparseFixture(); writeFileSync(paths.get(1)!, '{broken');
+    expect(cards.diffCardVersions(child.id, { fromVersion: 4, toVersion: 8 }).kind).toBe('found');
+    expect(cards.diffCardVersions(child.id, { fromVersion: 5, toVersion: 8 })).toEqual({ kind: 'version-not-found', version: 5, side: 'from' });
+    expect(() => cards.diffCardVersions(child.id, { fromVersion: 2, toVersion: 8 })).toThrow();
+  });
   it('retains content-policy evidence through ordinary predecessors without opening cleared mailbox bodies', () => {
     const { root, cards, child } = fixture(); const message = notice(); cards.enqueueNotification(child.id, message); cards.setStatus(child.id, 'running');
     const settledAt = new Date().toISOString(); cards.commitActivationOutcome(child.id, { status: 'blocked', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY,
@@ -139,6 +194,8 @@ describe('card immutable history and pending-only mailbox', () => {
     expect(cards.read(child.id)).toBeNull(); expect(cards.read('project')!.child_membership).toContain(child.id);
     expect(cards.readCardVersion(child.id, 4)).toMatchObject({ kind: 'found', value: { kind: 'card-tombstone', predecessor: initial, prior_card_version: 3, prior_updated_at: prior.updated_at, final_card: { version_seq: 3, updated_at: prior.updated_at } } });
     expect(head(root, child.id)).toMatchObject({ version_seq: 4, pending: [] });
+    expect(cards.diffCardVersions(child.id, { fromVersion: 1, toVersion: 'current' })).toMatchObject({ kind: 'found', target: { kind: 'version', version: 4 }, toArtifact: { kind: 'card-tombstone' } });
+    expect(cards.diffCardVersions(child.id, { fromVersion: 1, toVersion: 4 })).toMatchObject({ kind: 'found', target: { kind: 'version', version: 4 }, toArtifact: { kind: 'card-tombstone' } });
     expect(readCanonicalLinkedCardHistoryTree(root).at(-1)!.tombstone).not.toBeNull();
   });
 

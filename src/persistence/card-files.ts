@@ -46,7 +46,6 @@ import {
   type CardVersionListEntry,
 } from './canonical-card-artifacts.js';
 import {
-  publishFirstEnvelope,
   readCanonicalBytes,
   readCanonicalBytesOrMissing,
   type CanonicalReadInstrumentation,
@@ -67,6 +66,7 @@ import {
 } from './layout.js';
 import {
   replaceFile,
+  publishFreshFile,
   type PublicationTemporaryIdFactory,
   type ReplacementFileIo,
 } from './replace-file.js';
@@ -535,6 +535,24 @@ export function readCommittedCardCurrent(
   const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation);
   return fold ? { kind: 'found', value: canonicalProjection(fold) } : { kind: 'card-not-found' };
 }
+export function readCommittedCardVersionPair(
+  projectRoot: string,
+  cardId: string,
+  pivots: { from: number; to: number },
+  instrumentation?: CanonicalReadInstrumentation,
+): CardTargetRead<{ from: CardArtifact | null; to: CardArtifact | null }> {
+  cardIdSchema.parse(cardId);
+  const fold = readLinkedCard(resolve(projectRoot), cardId, true, instrumentation);
+  if (!fold) return { kind: 'card-not-found' };
+  const rows = readHistory(resolve(projectRoot), fold, instrumentation, pivots.from);
+  return {
+    kind: 'found',
+    value: {
+      from: rows.find((row) => row.version === pivots.from) ?? null,
+      to: rows.find((row) => row.version === pivots.to) ?? null,
+    },
+  };
+}
 export function readCommittedCardVersion(
   projectRoot: string,
   cardId: string,
@@ -746,13 +764,13 @@ export function publishCardVersion(
       predecessor: null,
       change: null,
     });
-    publishFirstEnvelope(
+    publishFreshFile(
       cardHistoryFile(projectRoot, card.id, artifact.entry_id),
       serializeArtifact(artifact),
       temporary,
       io,
     );
-    publishFirstEnvelope(
+    publishFreshFile(
       path,
       jsonBytes(
         cardHeadSchema.parse({
@@ -785,7 +803,7 @@ export function publishCardVersion(
       });
       if (message.notification.id !== card.pending_notifications.at(-1))
         throw new Error(`Card '${card.id}' enqueued message identity mismatch.`);
-      publishFirstEnvelope(
+      publishFreshFile(
         cardMailboxFile(projectRoot, card.id, message.notification.id),
         jsonBytes(message),
         temporary,
@@ -818,7 +836,7 @@ export function publishCardVersion(
     predecessor: fold.selection.ordinary,
     change: ordinaryChange(change),
   });
-  publishFirstEnvelope(
+  publishFreshFile(
     cardHistoryFile(projectRoot, card.id, artifact.entry_id),
     serializeArtifact(artifact),
     temporary,
@@ -867,7 +885,7 @@ export function publishCardTombstone(
     predecessor: fold.selection.ordinary,
     change,
   });
-  publishFirstEnvelope(
+  publishFreshFile(
     cardHistoryFile(projectRoot, cardId, artifact.entry_id),
     serializeArtifact(artifact),
     temporary,

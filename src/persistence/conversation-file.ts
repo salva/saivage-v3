@@ -19,6 +19,7 @@ import {
 import {
   conversationSegmentEnvelopeSchema,
   conversationVersionIndexSchema,
+  versionFilename,
   type ConversationContinuation,
   type ConversationSegmentGenesis,
   type ConversationVersionEntry,
@@ -26,7 +27,6 @@ import {
 } from './canonical-conversation-artifacts.js';
 import {
   appendRequiredEnvelope,
-  publishFirstEnvelope,
   consumeGrowingFile,
   readCanonicalBytes,
   type GrowingFileIo,
@@ -41,8 +41,11 @@ import {
   globalAgentConversationVersionIndexFile,
   globalAgentConversationVersionsRoot,
 } from './layout.js';
-import { replaceFile, type PublicationTemporaryIdFactory } from './replace-file.js';
-import { versionFilename } from './version-index.js';
+import {
+  publishFreshFile,
+  replaceFile,
+  type PublicationTemporaryIdFactory,
+} from './replace-file.js';
 
 export interface ConversationFileContext {
   readonly projectRoot: string;
@@ -435,7 +438,7 @@ export function appendConversationBatch(
   let segmentVersion: number;
   if (!current) {
     const entryId = randomUUID();
-    const filename = versionFilename(1, randomUUID(), 'jsonl');
+    const filename = versionFilename(1, randomUUID());
     const timestamp = new Date().toISOString();
     const genesis = {
       format_version: 3,
@@ -459,7 +462,7 @@ export function appendConversationBatch(
       current_version: 1,
       current_filename: filename,
     });
-    publishFirstEnvelope(
+    publishFreshFile(
       target.versionPath(filename),
       segmentEnvelope([genesis, ...parsed]),
       options.publicationTemporaryId,
@@ -506,7 +509,7 @@ export type CompactionSuccessorIdentity = Readonly<{
 }>;
 
 interface CompactionPublicationIo {
-  readonly publishFirstEnvelope: typeof publishFirstEnvelope;
+  readonly publishFreshFile: typeof publishFreshFile;
   readonly replaceFile: typeof replaceFile;
 }
 
@@ -521,7 +524,7 @@ export function publishCompactedConversationSegment(
   compaction: ConversationCompactionPublication,
   options: CompactionPublicationOptions = {},
 ): ValidatedConversation {
-  const io = options.io ?? { publishFirstEnvelope, replaceFile };
+  const io = options.io ?? { publishFreshFile, replaceFile };
   const target = location(conversations.projectRoot, sessionId);
   const current = readSegment(conversations.projectRoot, sessionId);
   if (!current) throw new Error(`Conversation '${sessionId}' has no source segment to compact.`);
@@ -633,7 +636,7 @@ export function publishCompactedConversationSegment(
     history: compaction.history,
     sourceVersion: current.entry.version,
   });
-  io.publishFirstEnvelope(
+  io.publishFreshFile(
     target.versionPath(filename),
     segmentEnvelope([genesis, ...rows]),
     options.temporary,

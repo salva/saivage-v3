@@ -16,7 +16,6 @@ import {
   type AcceptedRecordReference,
 } from './canonical-record-artifacts.js';
 import {
-  publishFirstEnvelope,
   readCanonicalBytes,
   readCanonicalBytesOrMissing,
   type CanonicalReadInstrumentation,
@@ -24,6 +23,7 @@ import {
 import { cardRecordHeadFile, cardAcceptedRecordFile } from './layout.js';
 import {
   replaceFile,
+  publishFreshFile,
   type PublicationTemporaryIdFactory,
   type ReplacementFileIo,
 } from './replace-file.js';
@@ -194,6 +194,37 @@ export function readCurrentAuthoredRecord(
   const result = classifyCurrentAuthoredRecord(projectRoot, card, definition, instrumentation);
   return result.kind === 'present' ? result.projection : null;
 }
+function readAcceptedHistory(
+  projectRoot: string,
+  card: CardRecord,
+  definition: RecordDefinition,
+  stopAt: number,
+  instrumentation?: CanonicalReadInstrumentation,
+): AuthoredRecordVersionArtifact[] {
+  const rows: AuthoredRecordVersionArtifact[] = [];
+  let selected = readHead(projectRoot, card.id, definition, instrumentation)?.accepted ?? null;
+  while (selected) {
+    const artifact = readAccepted(projectRoot, card.id, definition, selected, instrumentation);
+    rows.push(artifact);
+    if (artifact.version <= stopAt) break;
+    selected = artifact.predecessor;
+  }
+  return rows;
+}
+export function readAuthoredRecordVersionPair(
+  projectRoot: string,
+  card: CardRecord,
+  definition: RecordDefinition,
+  pivots: { from: number; to: number },
+  instrumentation?: CanonicalReadInstrumentation,
+): { from: AcceptedRecordProjection | null; to: AcceptedRecordProjection | null } {
+  const rows = readAcceptedHistory(projectRoot, card, definition, pivots.from, instrumentation);
+  const select = (version: number) => {
+    const artifact = rows.find((row) => row.version === version);
+    return artifact ? projectAuthoredRecordArtifact(definition, artifact) : null;
+  };
+  return { from: select(pivots.from), to: select(pivots.to) };
+}
 export function readAuthoredRecordVersion(
   projectRoot: string,
   card: CardRecord,
@@ -201,14 +232,10 @@ export function readAuthoredRecordVersion(
   version: number,
   instrumentation?: CanonicalReadInstrumentation,
 ): AcceptedRecordProjection | null {
-  let selected = readHead(projectRoot, card.id, definition, instrumentation)?.accepted ?? null;
-  while (selected) {
-    const artifact = readAccepted(projectRoot, card.id, definition, selected, instrumentation);
-    if (artifact.version === version) return projectAuthoredRecordArtifact(definition, artifact);
-    if (artifact.version < version) return null;
-    selected = artifact.predecessor;
-  }
-  return null;
+  const artifact = readAcceptedHistory(projectRoot, card, definition, version, instrumentation).find(
+    (row) => row.version === version,
+  );
+  return artifact ? projectAuthoredRecordArtifact(definition, artifact) : null;
 }
 export function listAuthoredRecordVersions(
   projectRoot: string,
@@ -247,7 +274,7 @@ function publishHead(
   temporary?: PublicationTemporaryIdFactory,
 ): void {
   const path = cardRecordHeadFile(projectRoot, head.card_id, definition);
-  if (initial) publishFirstEnvelope(path, bytes(head), temporary, io);
+  if (initial) publishFreshFile(path, bytes(head), temporary, io);
   else replaceFile(path, bytes(head), temporary, io);
 }
 function draft(stamp: string, openedAt = stamp, content = ''): OpenRecordDraft {
@@ -332,7 +359,7 @@ function publishAcceptance(
     accepted: reference(artifact),
     draft: null,
   });
-  publishFirstEnvelope(
+  publishFreshFile(
     cardAcceptedRecordFile(projectRoot, cardId, entryId),
     bytes(artifact),
     temporary,

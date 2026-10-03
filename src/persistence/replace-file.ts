@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fsyncSync, openSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, constants, fsyncSync, lstatSync, openSync, renameSync, writeSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import { writeAllExact } from './write-all-exact.js';
@@ -22,6 +22,24 @@ const replacementFileIo: ReplacementFileIo = {
 
 export function replacementTempPath(targetPath: string, temporaryId: string): string {
   return join(dirname(targetPath), `.${basename(targetPath)}.${temporaryId}.saivage-tmp`);
+}
+
+export function publishFreshFile(
+  target: string,
+  bytes: Buffer,
+  publicationTemporaryId?: PublicationTemporaryIdFactory,
+  replacementIo?: ReplacementFileIo,
+): void {
+  try {
+    lstatSync(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      replaceFile(target, bytes, publicationTemporaryId, replacementIo);
+      return;
+    }
+    throw error;
+  }
+  throw new Error(`File '${target}' is already published.`);
 }
 
 export function replaceFile(
