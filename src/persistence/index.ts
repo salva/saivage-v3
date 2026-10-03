@@ -65,7 +65,6 @@ export {
   ConversationHistoricalVersionNotFoundError,
   ConversationHistoricalVersionUnavailableError,
   initializeConversation,
-  readConversation,
   readConversationCatalog,
   readCurrentConversationSegment,
   readHistoricalConversationSegment,

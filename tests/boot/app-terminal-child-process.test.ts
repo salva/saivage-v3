@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
-import { runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { globalAgentConversationVersionFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { appendConversationBatch, initializeMissingConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { appendStartupEvidence, appendStartupPendingCall } from '../helpers/startup-session-fixtures.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'app-terminal-child.ts');
@@ -15,11 +18,12 @@ const tsx = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS = 20_000;
 const children = new Set<ChildProcess>();
 
-function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.ProcessEnv = {}): ChildProcess {
+function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.ProcessEnv = {}, target?: string): ChildProcess {
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' };
   delete env.SAIVAGE_API_TOKEN;
   Object.assign(env, extraEnv);
-  const child = spawn(process.execPath, [tsx, fixture, scenario, ...(projectRoot ? [projectRoot] : [])], {
+  const selectedFixture = scenario.startsWith('startup-admission-') ? join(process.cwd(), 'tests', 'fixtures', 'startup-admission-fatal.ts') : fixture;
+  const child = spawn(process.execPath, [tsx, selectedFixture, scenario, ...(projectRoot ? [projectRoot] : []), ...(target ? [target] : [])], {
     cwd: process.cwd(), env, stdio: ['ignore', 'pipe', 'pipe'],
   });
   children.add(child);
@@ -59,6 +63,32 @@ describe('App terminal process adapters', () => {
     for (const child of children) child.kill('SIGKILL');
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
+
+  it.each(['mate', 'global-tail', 'oversight-tail', 'running-evidence-tail'] as const)('exits startup %s uncertainty before next subject, card stop, MCP, listener or cleanup', async (fault) => {
+    const root = project(validConfig(await availablePort())); roots.push(root);
+    new CardService(root).setStatus('project', 'running');
+    const sessionId = 'agent:analyst:global' as const;
+    const input = '11111111-1111-4111-8111-111111111111';
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(sessionId, input, 'interrupted question'));
+    appendStartupPendingCall(root, sessionId, input);
+    const segment = readCurrentConversationSegment(root, sessionId)!;
+    let target = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
+    if (fault === 'oversight-tail') {
+      initializeMissingConversation(root, 'agent:oversight:global');
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:oversight:global', input, 'interrupted check'));
+      const oversight = readCurrentConversationSegment(root, 'agent:oversight:global')!;
+      target = globalAgentConversationVersionFile(root, 'oversight', oversight.entry.filename);
+    }
+    if (fault === 'running-evidence-tail') target = appendStartupEvidence(root, 'agent:planner:project');
+    if (fault !== 'mate') appendFileSync(target, '{"torn":');
+    const result = await collect(runChild(`startup-admission-${fault}`, root, {}, target));
+    expect(result).toMatchObject({ code: 1, signal: null, stdout: fault === 'mate' ? 'MATE_WRITE_UNCERTAIN\n' : 'TRUNCATE_UNCERTAIN\n' });
+    expect(result.stderr).toContain('Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.');
+    expect(result.stderr).not.toContain('STARTUP_ERROR:');
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
+    expect(readRuntimeLockStatus(root).kind).toBe('dead');
+    unlinkSync(runtimeProcessLockFile(root));
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('exits on startup stopped-publication uncertainty before the App terminal coordinator releases exclusion', async () => {
     const root = project(validConfig(await availablePort())); roots.push(root);

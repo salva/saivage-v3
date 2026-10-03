@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { startApp, type App } from '../../src/boot/app.js';
 import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { appendConversationBatch, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, initializeMissingConversation, readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordHeadFile, globalAgentConversationRoot, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, runtimeProcessLockFile, saivageCardsRoot, saivageWorkRoot } from '../../src/persistence/layout.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { replaceConfigYaml } from '../../src/config/config-file.js';
@@ -23,6 +23,10 @@ import { SyncHub } from '../../src/server/sync-hub.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { toolCallRowPolicy } from '../helpers/row-policy-fixtures.js';
+import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
+import { appendStartupEvidence, appendStartupPendingCall } from '../helpers/startup-session-fixtures.js';
+import { appendAppLogEntry } from '../../src/persistence/app-log.js';
+import { cardHeadFile, providerExchangeFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 const apps: App[] = [];
@@ -33,6 +37,107 @@ afterEach(async () => {
 });
 
 describe('application startup generated-state admission', () => {
+  it('is byte-stable for stopped heads, clean globals/evidence/log and an empty required index, without provider work', async () => {
+    const root = projectRoot();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG); config.oversight.enabled = false;
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
+    const workflows = compileProjectWorkflows(config);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows);
+    cards.setStatus('project', 'running'); cards.stopRunning('project');
+    const paths = [cardHeadFile(root, 'project'), cardConversationVersionIndexFile(root, 'project', 'reviewer')];
+    for (const agentName of ['analyst', 'oversight'] as const) {
+      const sessionId = `agent:${agentName}:global` as const;
+      initializeMissingConversation(root, sessionId);
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(sessionId, '11111111-1111-4111-8111-111111111111', 'pending text is not interruption'));
+      const segment = readCurrentConversationSegment(root, sessionId)!;
+      paths.push(globalAgentConversationVersionFile(root, agentName, segment.entry.filename), globalAgentConversationVersionIndexFile(root, agentName), appendStartupEvidence(root, sessionId));
+    }
+    appendAppLogEntry(root, 'event', () => ({ type: 'event', data: { id: 'clean-log', timestamp: '2026-10-03T00:00:00.000Z', kind: 'runtime_diagnostic', error_message: 'clean fixture' } }));
+    paths.push(appLogFile(root));
+    const before = paths.map((path) => readFileSync(path));
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const app = await start(root, false); apps.push(app);
+    expect(paths.map((path) => readFileSync(path))).toEqual(before);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(readCurrentConversationSegment(root, 'agent:reviewer:project')).toBeNull();
+  });
+
+  it('ignores stray Oversight evidence when its optional exact index is absent', async () => {
+    const root = projectRoot();
+    publishInitialProjectRuntime(root, compileProjectWorkflows(TEST_SAIVAGE_CONFIG));
+    const evidence = providerExchangeFile(root, 'agent:oversight:global');
+    mkdirSync(dirname(evidence), { recursive: true });
+    writeFileSync(evidence, '{"complete":"invalid"}\n');
+    const before = readFileSync(evidence);
+    const app = await start(root, false); apps.push(app);
+    expect(readFileSync(evidence)).toEqual(before);
+    expect(existsSync(globalAgentConversationVersionIndexFile(root, 'oversight'))).toBe(false);
+  });
+  it('consumes all running configured session tails before leaf-to-root correction, including the non-current reviewer', async () => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Running child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    cards.setStatus('project', 'running'); cards.setStatus(child.id, 'running');
+    const evidence = new Map<string, Buffer>();
+    const paths: string[] = [];
+    for (const [cardId, agentName, input] of [
+      ['project', 'planner', '11111111-1111-4111-8111-111111111111'],
+      ['project', 'reviewer', '22222222-2222-4222-8222-222222222222'],
+      [child.id, 'executor', '33333333-3333-4333-8333-333333333333'],
+    ] as const) {
+      const sessionId = cardAgentSessionId(agentName, cardId);
+      appendActivationMarker({ projectRoot: root }, sessionId, { event: 'activation_open', agent_name: agentName, card_id: cardId, input_id: input });
+      const segment = readCurrentConversationSegment(root, sessionId)!;
+      paths.push(cardConversationVersionFile(root, cardId, agentName, segment.entry.filename));
+      const path = appendStartupEvidence(root, sessionId);
+      evidence.set(path, readFileSync(path)); paths.push(path);
+    }
+    for (const path of paths) appendFileSync(path, '{"torn":');
+    const stopped: string[] = [];
+    const stopRunning = CardService.prototype.stopRunning;
+    jest.spyOn(CardService.prototype, 'stopRunning').mockImplementation(function (this: CardService, id: string) {
+      for (const [path, bytes] of evidence) expect(readFileSync(path)).toEqual(bytes);
+      stopped.push(id); return stopRunning.call(this, id);
+    });
+    const app = await start(root, false); apps.push(app);
+    expect(stopped).toEqual([child.id, 'project']);
+    for (const path of paths) expect(readFileSync(path).at(-1)).toBe(10);
+  });
+
+  it('strictly consumes a formerly used stopped child without corrective append, retaining an unmatched call', async () => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Stopped child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    cards.setStatus(child.id, 'running');
+    const sessionId = cardAgentSessionId('executor', child.id);
+    const input = '11111111-1111-4111-8111-111111111111';
+    appendActivationMarker({ projectRoot: root }, sessionId, { event: 'activation_open', agent_name: 'executor', card_id: child.id, input_id: input });
+    appendStartupPendingCall(root, sessionId, input);
+    const segment = readCurrentConversationSegment(root, sessionId)!;
+    const conversationPath = cardConversationVersionFile(root, child.id, 'executor', segment.entry.filename);
+    const evidencePath = appendStartupEvidence(root, sessionId);
+    cards.stopRunning(child.id);
+    const paths = [conversationPath, evidencePath];
+    const before = paths.map((path) => readFileSync(path));
+    const app = await start(root, false); apps.push(app);
+    expect(paths.map((path) => readFileSync(path))).toEqual(before);
+    apps.pop(); await app.stop();
+    for (const path of paths) appendFileSync(path, '{"torn":');
+    const restarted = await start(root, false); apps.push(restarted);
+    expect(paths.map((path) => readFileSync(path))).toEqual(before);
+    expect(readConversation(root, sessionId).unmatchedCall?.toolCallId).toBe('pending');
+    apps.pop(); await restarted.stop();
+    appendFileSync(conversationPath, '{"complete":"invalid"}\n');
+    const invalid = readFileSync(conversationPath);
+    expect(() => initializeAndValidateCurrentGeneratedState(root, workflows)).toThrow();
+    await expect(start(root, false)).rejects.toThrow();
+    expect(readFileSync(conversationPath)).toEqual(invalid);
+  });
   it('reports safe advisory load warnings before initial runtime publication and still boots', async () => {
     const root = projectRoot();
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
@@ -112,13 +217,18 @@ describe('application startup generated-state admission', () => {
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
 
-  it('rejects an unmatched selected global call before correcting an interrupted card', async () => {
+  it.each(['analyst', 'oversight'] as const)('settles an unmatched selected %s call before correcting an interrupted card and MCP', async (agentName) => {
     const root = projectRoot();
+    if (agentName === 'oversight') {
+      const config = structuredClone(TEST_SAIVAGE_CONFIG); config.oversight.enabled = false;
+      replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
+    }
     const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
     publishInitialProjectRuntime(root, workflows);
     const cards = new CardService(root, workflows);
     cards.setStatus('project', 'running');
-    const sessionId = 'agent:analyst:global' as const;
+    const sessionId = `agent:${agentName}:global` as const;
+    initializeMissingConversation(root, sessionId);
     const inputId = '11111111-1111-4111-8111-111111111111';
     const ingress = buildGlobalAgentIngressRows(sessionId, inputId, 'question');
     appendConversationBatch({ projectRoot: root }, ingress);
@@ -129,15 +239,64 @@ describe('application startup generated-state admission', () => {
       round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[1].timestamp,
     }]);
     const segment = readCurrentConversationSegment(root, sessionId)!;
-    const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
+    const path = globalAgentConversationVersionFile(root, agentName, segment.entry.filename);
     const before = readFileSync(path);
-    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig');
+    const evidencePath = appendStartupEvidence(root, sessionId);
+    const evidenceBefore = readFileSync(evidencePath);
+    appendFileSync(evidencePath, '{"torn":');
+    const stopRunning = CardService.prototype.stopRunning;
+    jest.spyOn(CardService.prototype, 'stopRunning').mockImplementation(function (this: CardService, id: string) {
+      expect(readConversation(root, sessionId).unmatchedCall).toBeNull();
+      return stopRunning.call(this, id);
+    });
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig').mockImplementation(async () => {
+      expect(cards.read('project')!.lifecycle.status).toBe('stopped');
+      expect(readConversation(root, sessionId).physicalRows.at(-1)!.kind).toBe('tool_result');
+      return { converged: true } as never;
+    });
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const app = await start(root, false); apps.push(app);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(readFileSync(path).subarray(0, before.length)).toEqual(before);
+    expect(readFileSync(evidencePath)).toEqual(evidenceBefore);
+    expect(readConversation(root, sessionId).physicalRows.slice(segment.rows.length)).toEqual([
+      expect.objectContaining({ kind: 'tool_result', context_policy: expect.objectContaining({ settlement_origin: 'execution_failed' }) }),
+    ]);
+    const settled = readFileSync(path);
+    apps.pop(); await app.stop();
+    const restarted = await start(root, false); apps.push(restarted);
+    expect(readFileSync(path)).toEqual(settled);
+  });
 
-    await expect(start(root, false)).rejects.toThrow(/ends in an unmatched tool call/);
+  it('rejects missing indexed Oversight content rather than treating Oversight as absent', async () => {
+    const root = projectRoot();
+    publishInitialProjectRuntime(root, compileProjectWorkflows(TEST_SAIVAGE_CONFIG));
+    initializeMissingConversation(root, 'agent:oversight:global');
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:oversight:global', '11111111-1111-4111-8111-111111111111', 'check'));
+    const segment = readCurrentConversationSegment(root, 'agent:oversight:global')!;
+    rmSync(globalAgentConversationVersionFile(root, 'oversight', segment.entry.filename));
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig');
+    await expect(start(root, false)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(reconcile).not.toHaveBeenCalled();
-    expect(cards.read('project')!.lifecycle.status).toBe('running');
-    expect(readFileSync(path)).toEqual(before);
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
+
+  it.each(['analyst', 'planner'] as const)('rejects a missing indexed required %s segment through unchanged canonical admission', async (agentName) => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const sessionId = agentName === 'analyst' ? 'agent:analyst:global' : 'agent:planner:project';
+    if (agentName === 'analyst')
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(sessionId, '11111111-1111-4111-8111-111111111111', 'question'));
+    else
+      appendActivationMarker({ projectRoot: root }, sessionId, { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '11111111-1111-4111-8111-111111111111' });
+    const segment = readCurrentConversationSegment(root, sessionId)!;
+    rmSync(agentName === 'analyst' ? globalAgentConversationVersionFile(root, agentName, segment.entry.filename) : cardConversationVersionFile(root, 'project', agentName, segment.entry.filename));
+    expect(() => initializeAndValidateCurrentGeneratedState(root, workflows)).toThrow();
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig');
+    await expect(start(root, false)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(reconcile).not.toHaveBeenCalled();
   });
 
   it('rejects a bare ordinary start before creating runtime layout', async () => {

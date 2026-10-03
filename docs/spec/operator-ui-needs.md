@@ -208,6 +208,8 @@ current card or executing owners, and no work launches. Recovery notices, uncert
 mates, and lifecycle rows remain distinct. Contrast same-process project Stop, which
 contains execution but may leave durable cards running until explicit Run or new startup;
 the UI must not rewrite those observations to stopped.
+A startup-produced configured-global failed mate records uncertain prior effects,
+not a new Analyst submission, Oversight check, recovery notice, or active owner.
 
 **F19 — Must — Publication uncertainty.** On abrupt connection loss, preserve the
 distinction between last observed state and unknown current outcome. Check a disconnected

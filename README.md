@@ -61,7 +61,11 @@ reset, including its [command-environment guidance](docs/runbook/index.md#comman
 Successful startup and offline workflow loads report redacted advisory
 missing-environment warnings; see the [configuration guide](docs/guides/configuration.md).
 Successful fresh startup settles interrupted linked cards before listener/readiness
-and leaves execution stopped; an explicit Run starts project work. Same-process
+and leaves execution stopped. Before card settlement, configured-global Analyst
+and established Oversight final unmatched tool calls receive uncertainty-only
+failed mates, without new submissions, checks, or global recovery notices; see the
+[global startup guidance](docs/runbook/index.md#configured-global-startup-settlement-and-invalid-history).
+An explicit Run starts project work. Same-process
 project Stop leaves any durable running chain for the next Run. See the
 [runbook lifecycle guidance](docs/runbook/index.md#activation-ownership-and-runtime-halt).
 For steering, the Analyst can queue normal context while work runs. Exceptional

@@ -1,4 +1,9 @@
-import type { AgentMessage, MessageKind, CardConversationSessionId } from '../../schemas/index.js';
+import type {
+  AgentMessage,
+  MessageKind,
+  CardConversationSessionId,
+  GlobalConversationSessionId,
+} from '../../schemas/index.js';
 import { conversationSessionIdentity } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
@@ -9,6 +14,20 @@ import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-sess
 import { appendUncertainPriorToolResult } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/session-api.js';
 import { validateConversation, type ValidatedConversation } from '../../contracts/index.js';
+
+export function stabilizeGlobalSessionAtStartup(
+  conversations: ConversationFileContext,
+  sessionId: GlobalConversationSessionId,
+): void {
+  const conversation = readConversation(conversations.projectRoot, sessionId);
+  if (conversation.unmatchedCall)
+    appendUncertainPriorToolResult(
+      conversations,
+      sessionId,
+      conversation.unmatchedCall,
+      'actual-use',
+    );
+}
 
 type ConversationImplicitState =
   | 'empty'

@@ -143,7 +143,7 @@ whitespace-padded token fails startup. This command unsets the variable for
 this trial process only, not a deployment's credentials. Check the public
 probes:
 
-On an existing interrupted project, successful server startup first settles the
+On an existing interrupted project, successful server startup settles the
 linked running cards to stopped; these probes are available only afterward.
 Startup does not Run the project: ask the Analyst to start work explicitly.
 

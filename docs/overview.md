@@ -142,7 +142,7 @@ stop, rewrite configuration, reset generated state (preserving configuration,
 credentials, operator inputs, source, and docs), and start the current
 binary. See
 [Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)
-and the [reset procedures](runbook/index.md#invalid-or-non-continuable-global-analyst-history).
+and the [global startup and invalid-history procedures](runbook/index.md#configured-global-startup-settlement-and-invalid-history).
 
 ## Glossary
 

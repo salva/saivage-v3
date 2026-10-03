@@ -37,6 +37,8 @@ import { workflowResult } from '../../helpers/workflow-result.js';
 import { createOversightNotificationPort } from '../../../src/application/oversight-notification-port.js';
 import { submitNotificationTool } from '../../../src/tools/tool-api.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
+import { appendActivationMarker } from '../../../src/runtime/actors/conversation-session.js';
+import { appendStartupEvidence, appendStartupPendingCall } from '../../helpers/startup-session-fixtures.js';
 
 function deferred() {
   let resolve!: () => void;
@@ -116,6 +118,80 @@ function refusal(inputId: string, raw: string): ProviderTurnFailure {
 }
 
 describe('Supervisor notification admission at terminal ownership', () => {
+  it('joins a cancelled owned summary/evidence write before urgently publishing its card stopped', async () => {
+    const summaryEntered = deferred();
+    const summaryAborted = deferred();
+    const releaseSummary = deferred();
+    const events: string[] = [];
+    let childId = '';
+    let plannerCalls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner' && ++plannerCalls === 1)
+        return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'dispatch-summary-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider, undefined, undefined, TEST_RUNTIME_WORKFLOWS);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Held summary', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    jest.spyOn(testAutonomousCompaction.compactor, 'shouldCompact').mockImplementation((input) => input.sessionId === `agent:executor:${childId}`);
+    jest.spyOn(testAutonomousCompaction.compactor, 'compact').mockImplementation(async (args) => {
+      summaryEntered.resolve();
+      args.signal.addEventListener('abort', () => summaryAborted.resolve(), { once: true });
+      await releaseSummary.promise;
+      // Summary evidence may finish after cancellation. The exact owner must still be running.
+      expect(h.cards.read(childId)!.lifecycle.status).toBe('running');
+      appendStartupEvidence(h.projectRoot, args.input.sessionId);
+      events.push('summary-evidence');
+      throw args.signal.reason;
+    });
+    const originalStop = h.cards.stopRunning.bind(h.cards);
+    const stop = jest.spyOn(h.cards, 'stopRunning').mockImplementation((id) => {
+      expect(events).toEqual(['summary-evidence']); events.push('stopped'); return originalStop(id);
+    });
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    await summaryEntered.promise;
+    const urgent = h.supervisor.submitNotification(childId, { id: '00000000-0000-4000-8000-000000000006', content: 'interrupt held summary', created_at: '2026-10-03T00:00:00.000Z' }, 'urgent');
+    await summaryAborted.promise;
+    expect(stop).not.toHaveBeenCalled();
+    expect(h.cards.read(childId)!.lifecycle.status).toBe('running');
+    releaseSummary.resolve();
+    await expect(urgent).resolves.toMatchObject({ interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
+    expect(events).toEqual(['summary-evidence', 'stopped']);
+    await h.supervisor.stopProject();
+  });
+
+  it('publishes running before a stopped session actual-use mate and every new ingress write', async () => {
+    const entered = deferred();
+    const events: string[] = [];
+    let checkRunning = () => {};
+    const provider = scriptedAdmissionProvider(async (_input, signal) => {
+      checkRunning(); events.push('provider'); entered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider, {
+      conversationChanged: ({ visible_message_id }) => { checkRunning(); events.push(visible_message_id ?? 'conversation-write'); },
+      agentMembershipChanged: () => { checkRunning(); },
+    }, undefined, TEST_RUNTIME_WORKFLOWS);
+    const input = '11111111-1111-4111-8111-111111111111';
+    h.cards.setStatus('project', 'running');
+    appendActivationMarker({ projectRoot: h.projectRoot }, 'agent:planner:project', { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: input });
+    appendStartupPendingCall(h.projectRoot, 'agent:planner:project', input);
+    h.cards.stopRunning('project');
+    await h.supervisor.start();
+    expect(readConversation(h.projectRoot, 'agent:planner:project').unmatchedCall).not.toBeNull();
+    checkRunning = () => { expect(h.cards.read('project')!.lifecycle.status).toBe('running'); };
+    const activate = h.cards.activateStopped.bind(h.cards);
+    jest.spyOn(h.cards, 'activateStopped').mockImplementation((...args) => {
+      const result = activate(...args); events.push('running'); return result;
+    });
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    await entered.promise;
+    expect(events[0]).toBe('running');
+    expect(events[1]).toBe(`${input}:tool-result:pending`);
+    expect(events.at(-1)).toBe('provider');
+    expect(readConversation(h.projectRoot, 'agent:planner:project').unmatchedCall).toBeNull();
+    await h.supervisor.stopProject();
+  });
+
   it('re-enters typed architecture at Executor draft after interrupting Reviewer and repeats both reviews', async () => {
     const config=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic-typed').config));
     config.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};

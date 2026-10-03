@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { App } from '../../src/boot/app.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
-import { readConversation } from '../../src/persistence/conversation-file.js';
-import { cardHeadFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { cardConversationVersionFile, cardHeadFile, globalAgentConversationVersionFile, providerExchangeFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
+import { appendStartupEvidence } from '../helpers/startup-session-fixtures.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 import { MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
 import {
@@ -211,11 +213,21 @@ describe('Supervisor restart full-chain recovery', () => {
     let rootRequests = 0;
     let childRequests = 0;
     let heldChildResponseClosed = false;
+    let heldGlobalCommand = false;
+    let globalCommandRequests = 0;
+    const globalCommand = { release: null as (() => void) | null };
+    let providerPort = 0;
     let preKillRootInput = '';
     let preKillChildInput = '';
 
     const provider = createServer(async (request, response) => {
       try {
+        if (request.url === '/held-global-command') {
+          heldGlobalCommand = true;
+          globalCommandRequests += 1;
+          globalCommand.release = () => { response.end('released after interrupt'); };
+          return;
+        }
         if (request.url !== '/v1/chat/completions') throw new Error(`Unexpected provider URL '${request.url}'.`);
         const body = await readJsonRequest(request) as ChatCompletionRequest;
         const tools = offeredToolNames(body);
@@ -224,7 +236,12 @@ describe('Supervisor restart full-chain recovery', () => {
           analystRequests += 1;
           if (analystRequests === 1 || analystRequests === 3) {
             sendToolCall(response, `analyst-start-${analystRequests}`, 'start_project', {});
-          } else if (analystRequests === 2 || analystRequests === 4) {
+          } else if (analystRequests === 2) {
+            sendToolCall(response, 'interrupted-global-command', 'run_command', {
+              command: `${JSON.stringify(process.execPath)} -e 'fetch("http://127.0.0.1:${providerPort}/held-global-command").then(r=>r.text())'`,
+              wait: true, timeout_ms: 30_000,
+            });
+          } else if (analystRequests === 4) {
             const settlement = JSON.parse(last?.content ?? 'null');
             if (last?.role !== 'tool' || settlement.success !== true) throw new Error('Analyst continuation did not contain a successful start_project settlement.');
             sendFinalMessage(response, 'Project started.');
@@ -265,7 +282,7 @@ describe('Supervisor restart full-chain recovery', () => {
         response.statusCode = 500; response.end();
       }
     });
-      const providerPort = await listen(provider);
+      providerPort = await listen(provider);
     let firstChild: ChildProcess | null = null;
     let secondApp: App | null = null;
     try {
@@ -297,6 +314,15 @@ describe('Supervisor restart full-chain recovery', () => {
       const setupCards = new CardService(projectRoot, compileProjectWorkflows(config, { projectRoot }));
       const child = setupCards.create({ type: 'code', parent: 'project', title: 'Held child', bootstrap_content: 'Wait in the provider request.', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
       expect(child.id).toBe('card-a');
+      const stoppedChild = setupCards.create({ type: 'code', parent: 'project', title: 'Formerly used stopped child', bootstrap_content: 'Preserve this session.', priority: 1, urgency: 'normal', created_by: 'planner', depends_on: [] });
+      setupCards.setStatus(stoppedChild.id, 'running');
+      appendActivationMarker({ projectRoot }, `agent:executor:${stoppedChild.id}`, { event: 'activation_open', agent_name: 'executor', card_id: stoppedChild.id, input_id: '33333333-3333-4333-8333-333333333333' });
+      const stoppedEvidencePath = appendStartupEvidence(projectRoot, `agent:executor:${stoppedChild.id}`);
+      const stoppedEvidenceBytes = readFileSync(stoppedEvidencePath);
+      setupCards.stopRunning(stoppedChild.id);
+      const stoppedSegment = readCurrentConversationSegment(projectRoot, `agent:executor:${stoppedChild.id}`)!;
+      const stoppedPath = cardConversationVersionFile(projectRoot, stoppedChild.id, 'executor', stoppedSegment.entry.filename);
+      const stoppedBytes = readFileSync(stoppedPath);
 
       let childStdout = '';
       let childStderr = '';
@@ -321,12 +347,17 @@ describe('Supervisor restart full-chain recovery', () => {
       expect(liveOwner.record.pid).toBe(firstChild.pid);
       const ready = await fetch(`${firstOrigin}/health/ready`);
       expect(ready.status).toBe(200);
-      const firstStarted = await postStartProject(firstOrigin, TOKEN);
-      expect(firstStarted.status).toBe(200);
-      expect(firstStarted.body.toolInvocations).toEqual([expect.objectContaining({ tool: 'start_project', params: {}, result: expect.objectContaining({ success: true }) })]);
+      // This submission is killed inside a real global tool after start_project has run.
+      const interruptedSubmission = postStartProject(firstOrigin, TOKEN).catch(() => null);
 
       const liveCards = new CardService(projectRoot, compileProjectWorkflows(config, { projectRoot }));
       await waitFor(() => liveCards.read('project')?.lifecycle.status === 'running' && liveCards.read('card-a')?.lifecycle.status === 'running' && preKillChildInput.length > 0, 'the durably running chain and held child provider request');
+      await waitFor(() => heldGlobalCommand, 'the durable global run_command call to enter its held request');
+      const globalSegment = readCurrentConversationSegment(projectRoot, 'agent:analyst:global')!;
+      const globalPath = globalAgentConversationVersionFile(projectRoot, 'analyst', globalSegment.entry.filename);
+      const globalBefore = readFileSync(globalPath);
+      const globalCall = readConversation(projectRoot, 'agent:analyst:global').unmatchedCall!;
+      expect(globalCall.toolCallId).toBe('interrupted-global-command');
       if (fixtureFailure) throw fixtureFailure;
       const preKillVersions = { project: liveCards.read('project')!.version_seq, child: liveCards.read('card-a')!.version_seq };
       expect(preKillRootInput).not.toBe('');
@@ -335,9 +366,20 @@ describe('Supervisor restart full-chain recovery', () => {
       expect(firstChild.kill('SIGKILL')).toBe(true);
       expect(await exited).toEqual({ code: null, signal: 'SIGKILL' });
       children.delete(firstChild);
+      globalCommand.release!();
+      await interruptedSubmission;
       await waitFor(() => heldChildResponseClosed, 'the killed child provider request to close');
       expect(readRuntimeLockStatus(projectRoot).kind).toBe('dead');
       unlinkSync(runtimeProcessLockFile(projectRoot));
+
+      // Test-only exact known-path torn suffixes, after the interrupted process has exited.
+      const childSegment = readCurrentConversationSegment(projectRoot, 'agent:executor:card-a')!;
+      const childPath = cardConversationVersionFile(projectRoot, 'card-a', 'executor', childSegment.entry.filename);
+      const evidencePath = providerExchangeFile(projectRoot, 'agent:analyst:global');
+      const evidenceBefore = readFileSync(evidencePath);
+      const runningEvidencePath = providerExchangeFile(projectRoot, 'agent:planner:project');
+      const runningEvidenceBefore = readFileSync(runningEvidencePath);
+      for (const path of [globalPath, childPath, evidencePath, runningEvidencePath]) appendFileSync(path, '{"torn":');
 
       const recoveryCalls: string[] = [];
       const originalStop = CardService.prototype.stopRunning;
@@ -349,6 +391,19 @@ describe('Supervisor restart full-chain recovery', () => {
       secondApp = await startProductionApp(projectRoot, TOKEN);
       apps.add(secondApp);
       expect(recoveryCalls).toEqual(['card-a', 'project']);
+      expect(readFileSync(globalPath).subarray(0, globalBefore.length)).toEqual(globalBefore);
+      expect(readFileSync(evidencePath)).toEqual(evidenceBefore);
+      expect(readFileSync(runningEvidencePath)).toEqual(runningEvidenceBefore);
+      expect(readFileSync(stoppedPath)).toEqual(stoppedBytes);
+      expect(readFileSync(stoppedEvidencePath)).toEqual(stoppedEvidenceBytes);
+      const settledGlobal = readConversation(projectRoot, 'agent:analyst:global');
+      expect(settledGlobal.unmatchedCall).toBeNull();
+      expect(settledGlobal.physicalRows.slice(globalSegment.rows.length)).toEqual([
+        expect.objectContaining({ id: `${globalCall.sourceInputId}:tool-result:interrupted-global-command`, kind: 'tool_result',
+          context_policy: expect.objectContaining({ settlement_origin: 'execution_failed', evidence: { kind: 'none' } }) }),
+      ]);
+      expect(JSON.parse(settledGlobal.physicalRows.at(-1)!.content).data).toEqual({ outcome_unknown: true });
+      const settledGlobalBytes = readFileSync(globalPath);
       const beforeRunCounters = { analystRequests, rootRequests, childRequests };
       await assertStoppedBeforeRun(secondApp, ['project', 'card-a'], () => ({ analystRequests, rootRequests, childRequests }), beforeRunCounters);
       expect(readConversation(projectRoot, 'agent:planner:project').physicalRows.filter((row) => row.id === `${preKillRootInput}:model-recovered`)).toHaveLength(1);
@@ -364,6 +419,10 @@ describe('Supervisor restart full-chain recovery', () => {
       expect({ project: recoveredVersion('project'), child: recoveredVersion('card-a') }).toEqual(settledVersions);
       expect({ project: readFileSync(cardHeadFile(projectRoot, 'project')), child: readFileSync(cardHeadFile(projectRoot, 'card-a')) }).toEqual(settledBytes);
       expect({ project: readConversation(projectRoot, 'agent:planner:project').physicalRows, child: readConversation(projectRoot, 'agent:executor:card-a').physicalRows }).toEqual(settledRows);
+      expect(readFileSync(globalPath)).toEqual(settledGlobalBytes);
+      expect(globalCommandRequests).toBe(1);
+      expect(readFileSync(stoppedPath)).toEqual(stoppedBytes);
+      expect(readFileSync(stoppedEvidencePath)).toEqual(stoppedEvidenceBytes);
       const secondStarted = await postStartProject(appOrigin(secondApp), TOKEN);
       expect(secondStarted.status).toBe(200);
       expect(secondStarted.body.toolInvocations).toEqual([expect.objectContaining({ tool: 'start_project', params: {}, result: expect.objectContaining({ success: true }) })]);
@@ -408,6 +467,7 @@ describe('Supervisor restart full-chain recovery', () => {
         children.delete(firstChild);
       }
       if (secondApp) { apps.delete(secondApp); await secondApp.stop(); }
+      globalCommand.release?.();
       await closeServer(provider);
     }
   }, 60_000);

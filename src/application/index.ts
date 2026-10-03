@@ -13,7 +13,6 @@ export type { ActorRuntimeReadModel } from './read-models/actor-runtime-read-mod
 export { OperatorRuntimeHttpClient } from './operator-runtime-http-client.js';
 export { createRuntimeApplication } from './runtime-composition.js';
 export type { RuntimeApplication } from './runtime-composition.js';
-export { validateConfiguredGlobalConversation } from './global-agent-startup-validation.js';
 export { EventQueryService, EVENT_QUERY_MAX_LIMIT } from './event-query-service.js';
 export {
   projectCardDiff,

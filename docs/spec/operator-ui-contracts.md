@@ -53,6 +53,9 @@ contracts the current Card Cockpit implements.
   Stop may instead leave durable running cards even while runtime is stopped;
   display their canonical status without rewriting it. A disconnected view retains
   only its last accepted observation, not a claim about current startup outcome.
+  A startup-produced configured-global failed mate means uncertain prior effects,
+  not a new submission/check, recovery notice, or active owner. Existing tool-result
+  presentation applies; no new UI state or action is inferred.
 - Socket connection and REST acceptance are independent observations, each
   displayed with its own condition (loading, refreshing, refresh-failed,
   retained error, unauthorized, not loaded). No aggregate green light; the

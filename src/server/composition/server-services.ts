@@ -2,11 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/index.js';
 import type { AppTerminalRegistration } from '../../contracts/index.js';
 import type { RestartCapability, RestartPort } from '../../contracts/index.js';
-import {
-  createRuntimeApplication,
-  validateConfiguredGlobalConversation,
-  type RuntimeApplication,
-} from '../../application/index.js';
+import { createRuntimeApplication, type RuntimeApplication } from '../../application/index.js';
 import { CardService } from '../../cards/store-api.js';
 import type { Environment } from '../../config/index.js';
 import { createMcpToolInvocationInstallation, McpManager } from '../../mcp/manager-api.js';
@@ -19,6 +15,8 @@ import type { RuntimeProcessIdentity } from '../../runtime/runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../runtime/runtime-api.js';
 import { ProcessRunner } from '../../runtime/runtime-api.js';
 import { bindRuntimeWorkflows } from '../../runtime/runtime-api.js';
+import { stabilizeGlobalSessionAtStartup } from '../../runtime/runtime-api.js';
+import { readConversationCatalog } from '../../persistence/index.js';
 import { ProviderRegistry, ModelRouter } from '../../agents/execution-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
@@ -68,8 +66,6 @@ export async function createServerServices(input: {
     config.compaction.context_utilization_fraction,
   );
   const analystSessionId = globalAgentSessionId(workflows.analyst.name);
-  for (const participant of workflows.selectedGlobalParticipants.values())
-    validateConfiguredGlobalConversation(projectRoot, globalAgentSessionId(participant.agent.name));
 
   const fastify = await createFastifyApp(environment, input.fatalPort);
   terminal.registerCleanupLeaf('fastify', () => fastify.close());
@@ -144,6 +140,16 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
+  stabilizeGlobalSessionAtStartup({ projectRoot }, analystSessionId);
+  const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
+  let oversightEstablished = true;
+  try {
+    readConversationCatalog(projectRoot, oversightSessionId);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    oversightEstablished = false;
+  }
+  if (oversightEstablished) stabilizeGlobalSessionAtStartup({ projectRoot }, oversightSessionId);
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
