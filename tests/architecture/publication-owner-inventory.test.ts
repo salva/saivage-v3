@@ -90,16 +90,56 @@ describe('source-derived publication owner inventory', () => {
     });
   });
 
-  it('validates the exact configured Analyst session before transport, MCP, or runtime startup', () => {
+  it('settles configured globals before runtime startup, MCP reconciliation, and listening', () => {
     const services = source('src/server/composition/server-services.ts');
-    const workflows = services.indexOf('const workflows = bindRuntimeWorkflows');
-    const identity = services.indexOf('globalAgentSessionId(workflows.analyst.name)');
-    const validation = services.indexOf('validateConfiguredGlobalConversation(projectRoot, globalAgentSessionId(participant.agent.name))');
-    expect(workflows).toBeLessThan(identity);
-    expect(identity).toBeLessThan(validation);
-    expect(validation).toBeLessThan(services.indexOf('await createFastifyApp'));
-    expect(validation).toBeLessThan(services.indexOf('new McpManager'));
-    expect(validation).toBeLessThan(services.indexOf('runtimeApplication.runtimeApi.start()'));
+    const workflows = services.indexOf('const workflows = bindRuntimeWorkflows(');
+    const analystIdentity = services.indexOf('const analystSessionId = globalAgentSessionId(workflows.analyst.name);');
+    const analystSettlement = services.indexOf('stabilizeGlobalSessionAtStartup({ projectRoot }, analystSessionId);');
+    const oversightIdentity = services.indexOf('const oversightSessionId = globalAgentSessionId(workflows.oversight.name);');
+    const oversightEstablishment = services.indexOf('let oversightEstablished = true;');
+    const oversightCatalog = services.indexOf('readConversationCatalog(projectRoot, oversightSessionId);');
+    const oversightSettlement = services.indexOf('stabilizeGlobalSessionAtStartup({ projectRoot }, oversightSessionId);');
+    const runtimeStart = services.indexOf('await runtimeApplication.runtimeApi.start();');
+    const mcpReconciliation = services.indexOf('const mcpReconciliation = await mcpManager.reconcilePersistedConfig();');
+    for (const position of [workflows, analystIdentity, analystSettlement, oversightIdentity,
+      oversightEstablishment, oversightCatalog, oversightSettlement, runtimeStart, mcpReconciliation]) {
+      expect(position).toBeGreaterThanOrEqual(0);
+    }
+    expect(workflows).toBeLessThan(analystIdentity);
+    expect(workflows).toBeLessThan(oversightIdentity);
+    expect(analystIdentity).toBeLessThan(analystSettlement);
+    expect(analystSettlement).toBeLessThan(oversightIdentity);
+    expect(oversightIdentity).toBeLessThan(oversightEstablishment);
+    expect(oversightEstablishment).toBeLessThan(oversightCatalog);
+    expect(oversightCatalog).toBeLessThan(oversightSettlement);
+    expect(oversightIdentity).toBeLessThan(oversightSettlement);
+
+    const optionalOversightBlock = new RegExp([
+      /^\s*let\s+oversightEstablished\s*=\s*true\s*;/u.source,
+      /try\s*\{/u.source,
+      /readConversationCatalog\s*\(\s*projectRoot\s*,\s*oversightSessionId\s*\)\s*;/u.source,
+      /\}\s*catch\s*\(\s*error\s*\)\s*\{/u.source,
+      /if\s*\(\s*\(\s*error\s+as\s+NodeJS\.ErrnoException\s*\)\s*\.code\s*!==\s*'ENOENT'\s*\)\s*throw\s+error\s*;/u.source,
+      /oversightEstablished\s*=\s*false\s*;\s*\}/u.source,
+      /if\s*\(\s*oversightEstablished\s*\)\s*stabilizeGlobalSessionAtStartup\s*\(\s*\{\s*projectRoot\s*\}\s*,\s*oversightSessionId\s*\)\s*;\s*$/u.source,
+    ].join('\\s*'), 'u');
+    expect(services.slice(oversightEstablishment, runtimeStart)).toMatch(optionalOversightBlock);
+    for (const settlement of [analystSettlement, oversightSettlement]) {
+      expect(settlement).toBeLessThan(runtimeStart);
+      expect(settlement).toBeLessThan(mcpReconciliation);
+    }
+    expect(runtimeStart).toBeLessThan(mcpReconciliation);
+
+    const server = source('src/server/server.ts');
+    const serviceCreation = server.indexOf('const services = await createServerServices({');
+    const routeRegistration = server.indexOf('registerServerRoutes({');
+    const serverCreation = server.indexOf('const server = await createServer(options);');
+    const listen = server.indexOf('await server.fastify.listen({');
+    for (const position of [serviceCreation, routeRegistration, serverCreation, listen]) {
+      expect(position).toBeGreaterThanOrEqual(0);
+    }
+    expect(serviceCreation).toBeLessThan(routeRegistration);
+    expect(serverCreation).toBeLessThan(listen);
   });
 
   it('has no obsolete publication errors or retained process writer anywhere in production', () => {
