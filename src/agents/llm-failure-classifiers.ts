@@ -1,5 +1,6 @@
 import type { LlmTransportFailure } from '../contracts/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
+import { ProviderInactivityTimeoutError } from './llm-request-inactivity.js';
 
 interface ClassifierContext {
   provider: string;
@@ -305,6 +306,8 @@ export function classifyTransportFailure(
   err: unknown,
   ctx: ClassifierContext,
 ): LlmTransportFailure {
+  if (err instanceof ProviderInactivityTimeoutError)
+    return { kind: 'timeout', provider: ctx.provider, message: err.message };
   return (
     defaultTransportClassifier(err, ctx) ?? {
       kind: 'unknown',

@@ -76,7 +76,7 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
       }),
     );
   },
-  async parseSuccess(candidate, response, options) {
+  async parseSuccess(candidate, response, options, consumption) {
     const context = {
       provider: candidate.provider,
       producerAccountId: responsesProducerAccountId(candidate),
@@ -84,7 +84,7 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
       sourceInputId: options.inputId,
       responseStatus: response.status,
     };
-    const parsed = parseOpenAIResponsesJson(await response.text(), context);
+    const parsed = parseOpenAIResponsesJson(await consumption.readText(response), context);
     return {
       result: parsed.result,
       privateContext: parsed.privateContext,

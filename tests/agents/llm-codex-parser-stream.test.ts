@@ -64,6 +64,18 @@ async function expectFailure(body: ReadableStream<Uint8Array>, expected: LlmTran
 }
 
 describe('OpenAI Codex stream parser', () => {
+  it('reports consumed push and EOF data outputs only, stopping activity at valid completion', async () => {
+    let count = 0;
+    const onData = () => { count++; };
+    await expect(readOpenAICodexStream(stream(': ignored\n\nevent: unused\nunknown: ignored\n\n', message('ok') + completion() + event({ type: 'unused' })), 200, undefined, onData)).resolves.toEqual({ kind: 'message', content: 'ok' });
+    expect(count).toBe(2);
+    count = 0;
+    await expect(readOpenAICodexStream(stream(message('EOF') + completion().trimEnd()), 200, undefined, onData)).resolves.toEqual({ kind: 'message', content: 'EOF' });
+    expect(count).toBe(2);
+    count = 0;
+    await expect(readOpenAICodexStream(stream('data:\n\n'), 200, undefined, onData)).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
+    expect(count).toBe(1);
+  });
   it.each(['response.output_item.done', 'response.function_call_arguments.done'])('validates only the selected new final name for %s', async (type) => {
     const done = (name: unknown) => event(type === 'response.output_item.done'
       ? { type, item: { type: 'function_call', call_id: 'call-original', id: 'item-1', name } }

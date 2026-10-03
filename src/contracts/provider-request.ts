@@ -57,6 +57,12 @@ interface LlmAdapterSuccess {
   finishReason?: string | null;
 }
 
+export interface LlmResponseConsumption {
+  signal: AbortSignal;
+  onData(): void;
+  readText(response: Response): Promise<string>;
+}
+
 export interface LlmProtocolAdapter {
   readonly credentialRequirement: LlmCredentialRequirement;
   buildRequestBody(input: LlmAdapterRequestInput): Record<string, unknown>;
@@ -77,6 +83,7 @@ export interface LlmProtocolAdapter {
     candidate: Candidate,
     response: Response,
     options: LlmCompleteOptions,
+    consumption: LlmResponseConsumption,
   ): Promise<LlmAdapterSuccess>;
 }
 

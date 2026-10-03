@@ -62,7 +62,7 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
       }),
     );
   },
-  async parseSuccess(candidate, response, options) {
+  async parseSuccess(candidate, response, _options, consumption) {
     if (!response.body)
       throw new LlmRequestError({
         kind: 'server_transient',
@@ -70,7 +70,14 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
         status: response.status,
         message: 'OpenAI Codex streaming response has no body',
       });
-    return { result: await readOpenAICodexStream(response.body, response.status, options.signal) };
+    return {
+      result: await readOpenAICodexStream(
+        response.body,
+        response.status,
+        consumption.signal,
+        consumption.onData,
+      ),
+    };
   },
 };
 

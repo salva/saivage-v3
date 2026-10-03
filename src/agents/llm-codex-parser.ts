@@ -12,6 +12,7 @@ export async function readOpenAICodexStream(
   body: ReadableStream<Uint8Array>,
   responseStatus: number,
   signal?: AbortSignal,
+  onData: () => void = () => {},
 ): Promise<LlmCompleteResult> {
   const reader = body.getReader();
   const sse = new IncrementalSseReader();
@@ -35,6 +36,7 @@ export async function readOpenAICodexStream(
             finalizedToolCalls,
             toolCalls,
             setMessage,
+            onData,
           )
         ) {
           return completedCodexResult(toolCalls, message);
@@ -49,6 +51,7 @@ export async function readOpenAICodexStream(
           finalizedToolCalls,
           toolCalls,
           setMessage,
+          onData,
         )
       ) {
         return completedCodexResult(toolCalls, message);
@@ -89,8 +92,10 @@ function consumeCodexEvents(
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   setMessage: (content: string) => void,
+  onData: () => void,
 ): boolean {
   for (const output of outputs) {
+    onData();
     if (output === SSE_DONE)
       throw new Error('OpenAI Codex stream ended before response.completed.');
     if (

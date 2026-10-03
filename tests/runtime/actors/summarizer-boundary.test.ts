@@ -40,7 +40,7 @@ describe('compaction summarizer projection boundary', () => {
     const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async (input) => {
       const parsed = await openAIResponsesAdapter.parseSuccess(CANDIDATE, new Response(JSON.stringify({
         id: 'resp-summary', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }],
-      }), { status: 200 }), { inputId: input.inputId, temperature: 0, max_tokens: 2000, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], tools: [], tool_choice: 'auto' });
+      }), { status: 200 }), { inputId: input.inputId, temperature: 0, max_tokens: 2000, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], tools: [], tool_choice: 'auto' }, { signal: new AbortController().signal, onData: () => {}, readText: (response) => response.text() });
       expect(parsed.finishReason).toBe('completed');
       return { result: parsed.result, provider_exchanges: [errorAttempt(input.inputId), { ...okAttempt(input.inputId, parsed.finishReason), transport: 'openai-responses', attempt_index: 1 }] };
     });

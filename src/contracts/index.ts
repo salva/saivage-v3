@@ -87,6 +87,7 @@ export type {
   LlmTransportConfig,
   LlmCredentialRequirement,
   LlmProtocolAdapter,
+  LlmResponseConsumption,
   CandidateRequestPlan,
 } from './provider-request.js';
 export {

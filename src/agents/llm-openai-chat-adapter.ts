@@ -83,8 +83,8 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
     });
     return new LlmRequestError(failure);
   },
-  async parseSuccess(candidate, response) {
-    const rawText = await response.text();
+  async parseSuccess(candidate, response, _options, consumption) {
+    const rawText = await consumption.readText(response);
     let parsed: ChatCompletionResponse;
     try {
       parsed = JSON.parse(rawText) as ChatCompletionResponse;

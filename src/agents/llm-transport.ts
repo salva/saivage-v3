@@ -10,6 +10,10 @@ import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
 import { parseRetryAfterMs } from './llm-failure-classifiers.js';
 import {
+  consumeProviderRequest,
+  ProviderInactivityTimeoutError,
+} from './llm-request-inactivity.js';
+import {
   isProfileExpired,
   readAuthProfiles,
   replaceAuthProfiles,
@@ -120,9 +124,10 @@ async function refreshOpenAICodexProfile(
   abortSignal?: AbortSignal,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
-  let response: Response;
-  try {
-    response = await fetch(OPENAI_CODEX_TOKEN_URL, {
+  const data = await consumeRefreshRequest(
+    'openai-codex',
+    OPENAI_CODEX_TOKEN_URL,
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -134,18 +139,9 @@ async function refreshOpenAICodexProfile(
         refresh_token: profile.refreshToken,
         client_id: OPENAI_CODEX_CLIENT_ID,
       }).toString(),
-      signal: abortSignal,
-    });
-  } catch {
-    abortSignal?.throwIfAborted();
-    throw refreshServerTransient('openai-codex', 0);
-  }
-  abortSignal?.throwIfAborted();
-  if (response.status >= 500 && response.status <= 599)
-    throw refreshServerTransient('openai-codex', response.status);
-  if (response.status === 429) throw refreshRateLimit('openai-codex', response);
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => null);
+    },
+    abortSignal,
+  );
   abortSignal?.throwIfAborted();
   if (typeof data?.access_token !== 'string') return null;
   const refreshed: AuthProfile = {
@@ -167,27 +163,19 @@ async function refreshGitHubCopilotProfile(
   abortSignal?: AbortSignal,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
-  let response: Response;
-  try {
-    response = await fetch('https://api.github.com/copilot_internal/v2/token', {
+  const data = await consumeRefreshRequest(
+    'github-copilot',
+    'https://api.github.com/copilot_internal/v2/token',
+    {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${profile.refreshToken}`,
         ...COPILOT_CLIENT_IDENTITY,
         Connection: 'close',
       },
-      signal: abortSignal,
-    });
-  } catch {
-    abortSignal?.throwIfAborted();
-    throw refreshServerTransient('github-copilot', 0);
-  }
-  abortSignal?.throwIfAborted();
-  if (response.status >= 500 && response.status <= 599)
-    throw refreshServerTransient('github-copilot', response.status);
-  if (response.status === 429) throw refreshRateLimit('github-copilot', response);
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => null);
+    },
+    abortSignal,
+  );
   abortSignal?.throwIfAborted();
   if (typeof data?.token !== 'string') return null;
   const refreshed: AuthProfile = {
@@ -200,6 +188,40 @@ async function refreshGitHubCopilotProfile(
   };
   commitRefreshedAuthProfile(projectRoot, profileName, refreshed, abortSignal);
   return refreshed;
+}
+
+async function consumeRefreshRequest(
+  provider: 'openai-codex' | 'github-copilot',
+  url: string,
+  init: Omit<RequestInit, 'signal'>,
+  ownerSignal?: AbortSignal,
+): Promise<Record<string, unknown> | null> {
+  return consumeProviderRequest(url, init, ownerSignal, async (response, context) => {
+    ownerSignal?.throwIfAborted();
+    if (response.status >= 500 && response.status <= 599)
+      throw refreshServerTransient(provider, response.status);
+    if (response.status === 429) throw refreshRateLimit(provider, response);
+    if (!response.ok) return null;
+    const text = await context.readText(response).catch((error: unknown) => {
+      if (
+        error instanceof ProviderInactivityTimeoutError ||
+        (context.signal.aborted &&
+          (error === context.signal.reason ||
+            (error instanceof Error && error.name === 'AbortError')))
+      )
+        throw error;
+      return '';
+    });
+    try {
+      return JSON.parse(text) as Record<string, unknown> | null;
+    } catch {
+      return null;
+    }
+  }).catch((error: unknown) => {
+    if (ownerSignal?.aborted && error === ownerSignal.reason) throw error;
+    if (error instanceof LlmRequestError) throw error;
+    throw refreshServerTransient(provider, 0);
+  });
 }
 
 function refreshServerTransient(

@@ -15,6 +15,10 @@ import { CandidateRequestPlanIntegrityError } from './candidate-request.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
+import {
+  consumeProviderRequest,
+  ProviderInactivityTimeoutError,
+} from './llm-request-inactivity.js';
 
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;
@@ -60,24 +64,39 @@ export async function executeLlmProviderAttempt(args: {
   });
   let exchangeRecorded = false;
   try {
-    const response = await fetch(wire.endpoint, {
-      method: 'POST',
-      headers: wire.headers,
-      body: plan.request.serializedBody,
-      signal: options.signal,
-    });
-    if (!response.ok)
-      throw plan.adapter.classifyHttpFailure(
-        plan.candidate,
-        response,
-        await response
-          .clone()
-          .text()
-          .catch(() => ''),
-        plan.request.body,
-        options,
-      );
-    const parsed = await plan.adapter.parseSuccess(plan.candidate, response, options);
+    const { response, parsed } = await consumeProviderRequest(
+      wire.endpoint,
+      { method: 'POST', headers: wire.headers, body: plan.request.serializedBody },
+      options.signal,
+      async (response, consumption) => {
+        if (!response.ok) {
+          const bodyText = await consumption.readText(response).catch((error: unknown) => {
+            if (
+              error instanceof ProviderInactivityTimeoutError ||
+              (consumption.signal.aborted &&
+                (error === consumption.signal.reason ||
+                  (error instanceof Error && error.name === 'AbortError')))
+            )
+              throw error;
+            return '';
+          });
+          throw plan.adapter.classifyHttpFailure(
+            plan.candidate,
+            response,
+            bodyText,
+            plan.request.body,
+            options,
+          );
+        }
+        const parsed = await plan.adapter.parseSuccess(
+          plan.candidate,
+          response,
+          options,
+          consumption,
+        );
+        return { response, parsed };
+      },
+    );
     exchangeRecorded = true;
     await handle.recordResponse(
       {

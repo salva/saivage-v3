@@ -11,6 +11,7 @@ import { readAuthProfiles, replaceAuthProfiles, type AuthProfile } from '../../s
 import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
+import { controlledResponse, pendingHeaders } from '../helpers/provider-inactivity.js';
 
 type RefreshProvider = 'openai-codex' | 'github-copilot';
 
@@ -23,6 +24,76 @@ afterEach(() => {
 });
 
 describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth refresh', (provider) => {
+  it('retains malformed-response fallback for an ordinary body failure, including independent AbortError', async () => {
+    const fixture = setup(provider);
+    const response = new Response(new ReadableStream({ start(controller) { controller.error(new DOMException('independent read failure', 'AbortError')); } }));
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    const transport = await resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard');
+    expect(transport.apiKey).toBe(fixture.profile.accessToken);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    expect(response.body!.locked).toBe(false);
+  });
+  it.each(['headers', 'body'] as const)('treats %s inactivity as a pre-provider transient with no send, exchange, or auth write', async phase => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const fixture = setup(provider);
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      const signal = init!.signal!;
+      if (phase === 'headers') return pendingHeaders(signal);
+      const stream = controlledResponse(signal); stream.send('{'); return Promise.resolve(stream.response);
+    });
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const admission = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    const pending = service.executePinnedContentPolicyRequest(admission, owner.signal).catch(error => error);
+    try {
+      await jest.advanceTimersByTimeAsync(120000);
+      expect(await pending).toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: { failure: { kind: 'server_transient', provider, status: 0 } } });
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([refreshUrl(provider)]);
+      expect(fetch.mock.calls[0]![1]!.signal!.aborted).toBe(true);
+      expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      await pending;
+    }
+  });
+
+  it('clears the completed refresh window before starting a fresh provider window', async () => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const fixture = setup(provider);
+    const replacement = provider === 'openai-codex' ? codexToken('fresh-account') : 'synthetic-fresh-access';
+    let refreshStream!: ReturnType<typeof controlledResponse>;
+    let refreshSignal!: AbortSignal;
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      const signal = init!.signal!;
+      if (!refreshStream) { refreshSignal = signal; refreshStream = controlledResponse(signal); return Promise.resolve(refreshStream.response); }
+      expect(jest.getTimerCount()).toBe(1);
+      return pendingHeaders(signal);
+    });
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const admission = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    const pending = service.executePinnedContentPolicyRequest(admission, owner.signal).catch(error => error);
+    try {
+      await jest.advanceTimersByTimeAsync(119000);
+      refreshStream.send(await refreshSuccess(provider, replacement).text()); refreshStream.close();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(119999);
+      expect(fetch.mock.calls[1]![1]!.signal!.aborted).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(await pending).toMatchObject({ failure_phase: 'provider_attempt', provider_exchanges: [{ status: 'error', error: { name: 'ProviderInactivityTimeoutError' } }], originalFailure: { failure: { kind: 'timeout' } } });
+      expect(refreshSignal.aborted).toBe(false);
+      expect(readAuthProfiles(fixture.projectRoot)?.profiles.profile?.accessToken).toBe(replacement);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      refreshStream?.close();
+      await pending;
+    }
+  });
   it('rejects pinned refresh 429 safely without consuming the body, sending a stale token or replacing auth', async () => {
     const fixture = setup(provider);
     const response = new Response('synthetic-secret-marked-oauth-body', { status: 429 });
@@ -151,7 +222,8 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     });
     await expect(resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', controller.signal)).rejects.toBe(reason);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0]![1]!.signal).toBe(controller.signal);
+    expect(fetch.mock.calls[0]![1]!.signal).not.toBe(controller.signal);
+    expect(fetch.mock.calls[0]![1]!.signal!.reason).toBe(reason);
     expect(headers).not.toHaveBeenCalled();
     expect(response.bodyUsed).toBe(false);
     expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
@@ -302,16 +374,21 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const fixture = setup(provider);
     const controller = new AbortController();
     const reason = new Error('synthetic owner cancellation during body');
-    const response = refreshSuccess(provider, 'synthetic-unused-token');
-    jest.spyOn(response, 'json').mockImplementation(async () => {
+    jest.useFakeTimers();
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => controlledResponse(init!.signal!).response);
+    const pending = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', controller.signal).catch(error => error);
+    try {
+      await jest.advanceTimersByTimeAsync(0);
       controller.abort(reason);
-      throw reason;
-    });
-    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(response);
-    await expect(resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', controller.signal)).rejects.toBe(reason);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0]![1]!.signal).toBe(controller.signal);
-    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+      expect(await pending).toBe(reason);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0]![1]!.signal).not.toBe(controller.signal);
+      expect(fetch.mock.calls[0]![1]!.signal!.reason).toBe(reason);
+      expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    } finally {
+      controller.abort(new Error('test cleanup'));
+      await pending;
+    }
   });
 
   it.each<[string, () => Response]>([

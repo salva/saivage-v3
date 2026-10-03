@@ -8,6 +8,7 @@ import type { LlmCompleteOptions } from '../../src/contracts/index.js';
 import type { LlmProtocolAdapter } from '../../src/contracts/index.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
+import { controlledResponse } from '../helpers/provider-inactivity.js';
 
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
 const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
@@ -32,9 +33,134 @@ function fixture(overrides: Partial<LlmProtocolAdapter> = {}): { plan: Candidate
   return { plan, registry, trace };
 }
 
-afterEach(() => { jest.restoreAllMocks(); });
+afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 
 describe('shared LLM provider attempt', () => {
+  it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend', 'error-body'] as const)('keeps exact owner body abort evidence for %s', async protocol => {
+    jest.useFakeTimers();
+    const owner = new AbortController(); const reason = new Error('body owner stopped');
+    const value = fixture();
+    if (protocol !== 'error-body') value.plan.adapter = { ...selectLlmProtocolAdapter(protocol), deriveWire: value.plan.adapter.deriveWire };
+    let stream!: ReturnType<typeof controlledResponse>;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => { stream = controlledResponse(init!.signal!, protocol === 'error-body' ? 503 : 200); return stream.response; });
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(owner.signal) }).catch(error => error);
+    try {
+      await jest.advanceTimersByTimeAsync(0);
+      owner.abort(reason);
+      expect(await pending).toMatchObject({ originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } }, provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'body owner stopped' } }] });
+      expect(stream.response.body!.locked).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      stream?.close();
+      await pending;
+    }
+  });
+  it.each(['openai-chat-completions', 'openai-responses', 'error-body'] as const)('times out partial silent %s bodies without swallowing raw timeout evidence', async protocol => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const value = fixture();
+    if (protocol !== 'error-body') value.plan.adapter = selectLlmProtocolAdapter(protocol);
+    let stream!: ReturnType<typeof controlledResponse>;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      stream = controlledResponse(init!.signal!, protocol === 'error-body' ? 503 : 200);
+      stream.send('{'); return stream.response;
+    });
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(owner.signal) }).catch(error => error);
+    try {
+      await jest.advanceTimersByTimeAsync(120000);
+      expect(await pending).toMatchObject({
+        provider_exchanges: [{ status: 'error', error: { name: 'ProviderInactivityTimeoutError', message: 'Provider request inactive for 120000 ms.' } }],
+        originalFailure: { failure: { kind: 'timeout' } },
+      });
+      expect((await pending).provider_exchanges).toHaveLength(1);
+      expect(stream.response.body!.locked).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      stream?.close();
+      await pending;
+    }
+  });
+
+  it('allows dispatched Codex data over several windows but never re-arms after valid completion', async () => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const value = fixture(); value.plan.adapter = { ...selectLlmProtocolAdapter('openai-codex-backend'), deriveWire: value.plan.adapter.deriveWire };
+    let stream!: ReturnType<typeof controlledResponse>;
+    let effective!: AbortSignal;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      effective = init!.signal!; stream = controlledResponse(effective); return stream.response;
+    });
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(owner.signal) });
+    try {
+      await jest.advanceTimersByTimeAsync(0);
+      for (let i = 0; i < 3; i++) {
+        await jest.advanceTimersByTimeAsync(119000);
+        stream.send('data: {"type":"response.output_text.delta","delta":"provisional"}\n\n');
+        await jest.advanceTimersByTimeAsync(0);
+      }
+      await jest.advanceTimersByTimeAsync(119999);
+      stream.send('data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"known success"}]}}\n\ndata: {"type":"response.completed","response":{"id":"r"}}\n\n');
+      const completion = await pending;
+      expect(completion).toMatchObject({ result: { kind: 'message', content: 'known success' }, provider_exchanges: [{ status: 'ok' }] });
+      expect(stream.response.body!.locked).toBe(false);
+      stream.close();
+      await jest.advanceTimersByTimeAsync(240000);
+      expect(effective.aborted).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      stream?.close();
+      await pending.catch(() => {});
+    }
+  });
+
+  it.each([': keepalive\n\n', 'event: heartbeat\nunknown: field\n\n', 'data: {"type":'])( 'does not treat Codex framing traffic %p as activity', async traffic => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const value = fixture(); value.plan.adapter = { ...selectLlmProtocolAdapter('openai-codex-backend'), deriveWire: value.plan.adapter.deriveWire };
+    let stream!: ReturnType<typeof controlledResponse>;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => { stream = controlledResponse(init!.signal!); return stream.response; });
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(owner.signal) }).catch(error => error);
+    try {
+      await jest.advanceTimersByTimeAsync(0);
+      for (let i = 0; i < 3; i++) { await jest.advanceTimersByTimeAsync(30000); stream.send(traffic); await jest.advanceTimersByTimeAsync(0); }
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(await pending).toMatchObject({ originalFailure: { failure: { kind: 'timeout' } }, provider_exchanges: [{ status: 'error', error: { name: 'ProviderInactivityTimeoutError' } }] });
+      expect(stream.response.body!.locked).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      stream?.close();
+      await pending;
+    }
+  });
+
+  it.each(['openai-chat-completions', 'openai-responses'] as const)('permits slowly arriving nonempty %s JSON bytes', async protocol => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const value = fixture(); value.plan.adapter = selectLlmProtocolAdapter(protocol);
+    let stream!: ReturnType<typeof controlledResponse>;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => { stream = controlledResponse(init!.signal!); return stream.response; });
+    const body = protocol === 'openai-responses'
+      ? '{"id":"r","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}'
+      : '{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}';
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(owner.signal) });
+    try {
+      await jest.advanceTimersByTimeAsync(0);
+      for (const chunk of [body.slice(0, 10), body.slice(10, 20), body.slice(20)]) {
+        await jest.advanceTimersByTimeAsync(119000); stream.send(chunk); await jest.advanceTimersByTimeAsync(0);
+      }
+      stream.close();
+      expect(await pending).toMatchObject({ result: { kind: 'message', content: 'ok' }, provider_exchanges: [{ status: 'ok' }] });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      owner.abort(new Error('test cleanup'));
+      stream?.close();
+      await pending.catch(() => {});
+    }
+  });
   it('fails fast for an impossible transport protocol', () => {
     expect(() => selectLlmProtocolAdapter('unexpected' as never)).toThrow("Unsupported LLM transport protocol 'unexpected'.");
   });
@@ -193,9 +319,9 @@ describe('shared LLM provider attempt', () => {
           transport: 'codex',
         };
       },
-      parseSuccess: async (_candidate, response) => {
+      parseSuccess: async (_candidate, response, _options, consumption) => {
         parserResponse = response;
-        parserBody = await response.text();
+        parserBody = await consumption.readText(response);
         return { result: { kind: 'message', content: 'ok' }, finishReason: 'stop' };
       },
     });
