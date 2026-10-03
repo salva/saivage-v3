@@ -8,6 +8,7 @@ import {
 } from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
+import { parseRetryAfterMs } from './llm-failure-classifiers.js';
 import {
   isProfileExpired,
   readAuthProfiles,
@@ -142,6 +143,7 @@ async function refreshOpenAICodexProfile(
   abortSignal?.throwIfAborted();
   if (response.status >= 500 && response.status <= 599)
     throw refreshServerTransient('openai-codex', response.status);
+  if (response.status === 429) throw refreshRateLimit('openai-codex', response);
   if (!response.ok) return null;
   const data = await response.json().catch(() => null);
   abortSignal?.throwIfAborted();
@@ -183,6 +185,7 @@ async function refreshGitHubCopilotProfile(
   abortSignal?.throwIfAborted();
   if (response.status >= 500 && response.status <= 599)
     throw refreshServerTransient('github-copilot', response.status);
+  if (response.status === 429) throw refreshRateLimit('github-copilot', response);
   if (!response.ok) return null;
   const data = await response.json().catch(() => null);
   abortSignal?.throwIfAborted();
@@ -208,6 +211,20 @@ function refreshServerTransient(
     provider,
     status,
     message: `OAuth credential refresh for provider '${provider}' failed before provider request.`,
+  });
+}
+
+function refreshRateLimit(
+  provider: 'openai-codex' | 'github-copilot',
+  response: Response,
+): LlmRequestError {
+  const retryAfterMs = parseRetryAfterMs(response.headers);
+  return new LlmRequestError({
+    kind: 'rate_limit',
+    provider,
+    status: response.status,
+    message: `OAuth credential refresh for provider '${provider}' was rate limited before provider request.`,
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   });
 }
 

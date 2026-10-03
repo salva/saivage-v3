@@ -22,7 +22,7 @@ function detail(bodyText: string): string {
   return `: ${redactTextForOutbound(bodyText.slice(0, 500))}`;
 }
 
-function parseRetryAfterMs(headers: Headers): number | undefined {
+export function parseRetryAfterMs(headers: Headers): number | undefined {
   const raw = headers.get('retry-after');
   if (!raw) return undefined;
   const seconds = Number(raw);

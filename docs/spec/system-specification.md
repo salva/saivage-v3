@@ -1182,12 +1182,14 @@ Public OpenAI Responses and OpenAI Codex are separate provider contracts: public
 Auth profile refresh uses strict direct reads and optimistic whole-file replacement.
 The original invocation signal is checked after response/body awaits and immediately before the synchronous latest-file reread and replacement.
 For OpenAI Codex and GitHub Copilot, refresh fetch rejection is `server_transient` with status `0`, and refresh HTTP 5xx is `server_transient` with the actual status.
-These failures occur before wire derivation, recorder creation, and provider request: the expired token is not sent, the auth file is not replaced, and no synthetic provider exchange is created.
-Refresh HTTP 4xx and malformed successful responses retain the null-refresh and ordinary final-auth path.
+Refresh HTTP 429 is instead a typed `rate_limit` with actual status `429`, using the unchanged shared HTTP Retry-After parser for seconds/date timing; no response body or other OAuth rate-limit hints are consumed.
+These thrown failures occur before wire derivation, recorder creation, and provider request: no stale-token provider request or synthetic provider exchange/401 is created, and the failed refresh performs no auth replacement. With no actual provider exchanges, the invocation failure is `pre_provider`.
+Refresh HTTP 4xx other than 429 and malformed successful responses return null, retaining the previous token; the subsequent real provider response remains authoritative for ordinary final-auth handling.
 The unchanged admitted-attempt budget and standard cooling apply to a refresh transient.
+Refresh 429 uses the existing candidate-local `BLOCKED_UNTIL` rate-limit policy: positive parsed Retry-After timing determines the deadline, while absent, declined, or zero timing retains the fallback of at least 60 seconds. Healthy admitted alternatives remain immediately eligible; otherwise existing rate-limit waits, unavailability deadlines, and attempt ceilings bound retry/failover. Refresh owns no wait, success or immediate retry is not guaranteed, and pinned single-attempt paths retain no recovery.
 An exhausted invocation record is excluded from the final candidate-availability wait scan and cannot reopen when its process-local cooling entry expires; with no viable alternative, the fourth failed admission terminates immediately as a pre-provider failure with no provider exchanges.
 An available untried admitted alternative is selected before waiting for a standard-cooling retry. With no such alternative, the standard wait remains; other ready/rate-limit priorities, route order, mandatory context-failed retry, attempt ceilings, and deadlines are unchanged. Cooling remains process-local advice for other or future invocations.
-Concurrent refresh is last-completed-write-wins with accepted credential-loss risk and no revision, CAS, lock, or merge.
+Concurrent refresh is last-completed-write-wins with accepted credential-loss risk and no revision, CAS, lock, or merge. A failed 429 refresh writes nothing, but an independently successful concurrent refresh may still replace the auth file.
 
 ## 10. Prepared Invocation, Exact Admission, And Compaction
 

@@ -23,6 +23,181 @@ afterEach(() => {
 });
 
 describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth refresh', (provider) => {
+  it('rejects pinned refresh 429 safely without consuming the body, sending a stale token or replacing auth', async () => {
+    const fixture = setup(provider);
+    const response = new Response('synthetic-secret-marked-oauth-body', { status: 429 });
+    const json = jest.spyOn(response, 'json');
+    const text = jest.spyOn(response, 'text');
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const admission = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    await expect(service.executePinnedContentPolicyRequest(admission)).rejects.toMatchObject({
+      failure_phase: 'pre_provider',
+      provider_exchanges: [],
+      originalFailure: { failure: {
+        kind: 'rate_limit', provider, status: 429,
+        message: `OAuth credential refresh for provider '${provider}' was rate limited before provider request.`,
+      } },
+    });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([refreshUrl(provider)]);
+    expect(json).not.toHaveBeenCalled();
+    expect(text).not.toHaveBeenCalled();
+    expect(response.bodyUsed).toBe(false);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+  });
+
+  it.each<[string, string | undefined, number]>([
+    ['seconds', '2', 3000],
+    ['HTTP date', new Date(5000).toUTCString(), 5000],
+    ['absent', undefined, 61000],
+    ['invalid', 'not-a-retry-time', 61000],
+    ['zero', '0', 61000],
+  ])('fails over immediately after refresh 429 with %s Retry-After and candidate-local blocking', async (_label, retryAfter, untilMs) => {
+    jest.useFakeTimers({ now: 1000 });
+    const alternate: Candidate = { provider: 'healthy', account: null, model: 'healthy-model' };
+    const fixture = setup(provider, alternate);
+    const availability = new MemoryCandidateAvailability();
+    const fetch = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('unread refresh body', { status: 429, headers: retryAfter === undefined ? {} : { 'Retry-After': retryAfter } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: 'healthy secondary' }, finish_reason: 'stop' }] }), { status: 200 }));
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
+    const request: InvocationRequest = { ...invocationRequest(fixture.candidate), routePass: { kind: 'ordinary', candidateChain: [fixture.candidate, alternate] } };
+    const admission = service.preparePrimaryRequestAdmission(request);
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    let settled = false;
+    const pending = service.executeAdmittedWithRecovery(admission).then((completion) => { settled = true; return completion; });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    const completion = await pending;
+    expect(completion.result).toEqual({ kind: 'message', content: 'healthy secondary' });
+    expect(completion.provider_exchanges).toHaveLength(1);
+    expect(completion.provider_exchanges[0]).toMatchObject({ provider: 'healthy', model: alternate.model, source_input_id: request.inputId, attempt_index: 0, status: 'ok', response_status: 200 });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([refreshUrl(provider), 'https://healthy.example.test/v1/chat/completions']);
+    expect(availability.getEntry(fixture.candidate)).toMatchObject({ state: 'BLOCKED_UNTIL', reason: 'rate_limit', untilMs });
+    expect(availability.getEntry(alternate)).toMatchObject({ state: 'HEALTHY', untilMs: 0 });
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    expect(Date.now()).toBe(1000);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('waits between four admitted refresh 429 failures and terminates without reopening exhausted membership', async () => {
+    jest.useFakeTimers({ now: 1000 });
+    const fixture = setup(provider);
+    const availability = new MemoryCandidateAvailability();
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('', { status: 429, headers: { 'Retry-After': '1' } }));
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
+    const admission = service.preparePrimaryRequestAdmission({ ...invocationRequest(fixture.candidate), routePass: { kind: 'ordinary', candidateChain: [fixture.candidate] } });
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    let settled = false;
+    const pending = service.executeAdmittedWithRecovery(admission).then(
+      () => { throw new Error('Expected exhausted refresh attempts to reject'); },
+      (error: unknown) => { settled = true; return error; },
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    for (let attempt = 2; attempt <= 4; attempt++) {
+      await jest.advanceTimersByTimeAsync(999);
+      expect(fetch).toHaveBeenCalledTimes(attempt - 1);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(fetch).toHaveBeenCalledTimes(attempt);
+    }
+    expect(await pending).toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: { failure: { kind: 'rate_limit', provider, status: 429, retryAfterMs: 1000 } } });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(Array(4).fill(refreshUrl(provider)));
+    expect(Date.now()).toBe(4000);
+    expect(availability.getEntry(fixture.candidate)).toMatchObject({ state: 'BLOCKED_UNTIL', reason: 'rate_limit', untilMs: 5000 });
+    expect(jest.getTimerCount()).toBe(0);
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+  });
+
+  it.each([400, 403])('keeps refresh %s null fallback and the subsequent real provider 401 terminal', async (status) => {
+    jest.useFakeTimers({ now: 1000 });
+    const alternate: Candidate = { provider: 'healthy', account: null, model: 'healthy-model' };
+    const fixture = setup(provider, alternate);
+    const availability = new MemoryCandidateAvailability();
+    const fetch = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'rate_limit_exceeded' } }), { status, headers: { 'Retry-After': '2' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'synthetic unauthorized' } }), { status: 401 }));
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
+    const request: InvocationRequest = { ...invocationRequest(fixture.candidate), routePass: { kind: 'ordinary', candidateChain: [fixture.candidate, alternate] } };
+    const admission = service.preparePrimaryRequestAdmission(request);
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    await expect(service.executeAdmittedWithRecovery(admission)).rejects.toMatchObject({
+      failure_phase: 'provider_attempt',
+      provider_exchanges: [{ provider, source_input_id: request.inputId, attempt_index: 0, status: 'error', response_status: 401 }],
+      originalFailure: { failure: { kind: 'auth_permanent', provider, status: 401 } },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(fetch.mock.calls[0]![0])).toBe(refreshUrl(provider));
+    expect(String(fetch.mock.calls[1]![0])).toContain('https://provider.example.test/');
+    expect(new Headers(fetch.mock.calls[1]![1]!.headers).get('Authorization')).toBe(`Bearer ${fixture.profile.accessToken}`);
+    expect(availability.getEntry(fixture.candidate)).toMatchObject({ state: 'BLOCKED_UNTIL', reason: 'auth_permanent', untilMs: 3601000 });
+    expect(availability.getEntry(alternate)).toBeUndefined();
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+  });
+
+  it('prioritizes the exact owner abort reason over a resolved refresh 429', async () => {
+    const fixture = setup(provider);
+    const controller = new AbortController();
+    const reason = new Error('synthetic owner stopped during 429');
+    const response = new Response('unread body', { status: 429 });
+    const headers = jest.spyOn(response.headers, 'get');
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      controller.abort(reason);
+      return response;
+    });
+    await expect(resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', controller.signal)).rejects.toBe(reason);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]![1]!.signal).toBe(controller.signal);
+    expect(headers).not.toHaveBeenCalled();
+    expect(response.bodyUsed).toBe(false);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+  });
+
+  it('overlaps independent successful refreshes and keeps the last-completed replacement', async () => {
+    jest.useFakeTimers({ now: 1000 });
+    const fixture = setup(provider);
+    const first = deferredResponse();
+    const second = deferredResponse();
+    const fetch = jest.spyOn(globalThis, 'fetch').mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const pendingFirst = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard');
+    const pendingSecond = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const firstToken = provider === 'openai-codex' ? codexToken('first') : 'synthetic-first';
+    const secondToken = provider === 'openai-codex' ? codexToken('second') : 'synthetic-second';
+    second.resolve(refreshSuccess(provider, secondToken));
+    expect((await pendingSecond).apiKey).toBe(secondToken);
+    expect(readAuthProfiles(fixture.projectRoot)?.profiles.profile?.accessToken).toBe(secondToken);
+    first.resolve(refreshSuccess(provider, firstToken));
+    expect((await pendingFirst).apiKey).toBe(firstToken);
+    expect(readAuthProfiles(fixture.projectRoot)?.profiles.profile?.accessToken).toBe(firstToken);
+  });
+
+  it('does not let an overlapping refresh 429 undo a successful replacement', async () => {
+    jest.useFakeTimers({ now: 1000 });
+    const fixture = setup(provider);
+    const limited = deferredResponse();
+    const successful = deferredResponse();
+    const fetch = jest.spyOn(globalThis, 'fetch').mockReturnValueOnce(limited.promise).mockReturnValueOnce(successful.promise);
+    const pendingLimited = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard');
+    const pendingSuccess = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const token = provider === 'openai-codex' ? codexToken('successful') : 'synthetic-successful';
+    successful.resolve(refreshSuccess(provider, token));
+    expect((await pendingSuccess).apiKey).toBe(token);
+    const replaced = readAuthProfiles(fixture.projectRoot);
+    expect(replaced?.profiles.profile?.accessToken).toBe(token);
+    const rejection = expect(pendingLimited).rejects.toMatchObject({ failure: { kind: 'rate_limit', provider, status: 429 } });
+    limited.resolve(new Response('', { status: 429 }));
+    await rejection;
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(replaced);
+  });
+
   it.each<[string, () => Promise<Response>]>([
     ['network rejection', () => Promise.reject(new Error('synthetic refresh network failure'))],
     ['HTTP 503', () => Promise.resolve(new Response('', { status: 503 }))],
@@ -123,8 +298,27 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
   });
 
+  it('preserves owner cancellation during successful response body handling before replacement', async () => {
+    const fixture = setup(provider);
+    const controller = new AbortController();
+    const reason = new Error('synthetic owner cancellation during body');
+    const response = refreshSuccess(provider, 'synthetic-unused-token');
+    jest.spyOn(response, 'json').mockImplementation(async () => {
+      controller.abort(reason);
+      throw reason;
+    });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    await expect(resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', controller.signal)).rejects.toBe(reason);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]![1]!.signal).toBe(controller.signal);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+  });
+
   it.each<[string, () => Response]>([
-    ['HTTP 4xx', () => new Response('', { status: 401 })],
+    ['HTTP 400', () => new Response('', { status: 400 })],
+    ['HTTP 401', () => new Response('', { status: 401 })],
+    ['HTTP 403 with misleading rate-limit metadata', () => new Response('{"error":{"code":"rate_limit_exceeded"}}', { status: 403, headers: { 'Retry-After': '2' } })],
+    ['HTTP 418 (other 4xx, not 429)', () => new Response('', { status: 418 })],
     ['malformed HTTP 2xx', () => new Response('{not-json', { status: 200 })],
     ['HTTP 2xx without a token', () => new Response('{}', { status: 200 })],
   ])('retains the existing null-refresh behavior for %s', async (_label, response) => {
@@ -219,6 +413,18 @@ function refreshUrl(provider: RefreshProvider): string {
   return provider === 'openai-codex'
     ? 'https://auth.openai.com/oauth/token'
     : 'https://api.github.com/copilot_internal/v2/token';
+}
+
+function deferredResponse(): { promise: Promise<Response>; resolve: (response: Response) => void } {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+function refreshSuccess(provider: RefreshProvider, token: string): Response {
+  return new Response(JSON.stringify(provider === 'openai-codex'
+    ? { access_token: token, refresh_token: 'synthetic-replacement-refresh', expires_in: 3600 }
+    : { token, expires_at: Math.floor(Date.now() / 1000) + 3600 }), { status: 200 });
 }
 
 function codexToken(accountId: string): string {

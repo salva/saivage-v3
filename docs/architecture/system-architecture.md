@@ -1175,11 +1175,14 @@ Auth profiles use direct strict whole-file reads and optimistic replacement.
 Exact-path `ENOENT` alone means absence.
 OAuth refresh threads the original invocation abort signal through the attempt runner, transport resolver, and refresh implementation; it checks after response/body awaits and immediately before the synchronous latest-file reread and replacement.
 OpenAI Codex and GitHub Copilot refresh network rejection becomes `server_transient` status `0`, and refresh HTTP 5xx becomes `server_transient` with the actual status.
+The two refresh response owners classify exact HTTP 429 as typed `rate_limit` status `429` and directly reuse the unchanged agents-local `parseRetryAfterMs(headers)` from `llm-failure-classifiers.ts` for seconds/date timing. They do not consume the OAuth response body, interpret other rate-limit hints, or pass refresh responses through a provider-protocol classifier.
 One agents-local frozen Copilot client-identity object supplies the same four unchanged identity headers to chat dispatch and token refresh; each request owner retains credentials, Accept/Connection, and endpoint choices.
-Credential refresh precedes adapter wire derivation and recorder creation, so these failures leave the profile unchanged, enter the existing admitted retry/cooling path, send no stale-token provider request, and create no provider exchange.
+Credential refresh precedes adapter wire derivation and recorder creation, so these thrown failures perform no auth replacement, send no stale-token provider request, and create no provider exchange or synthetic 401. An invocation without actual exchanges reports `pre_provider`; any later alternative exchanges retain ordinary indexing and evidence.
+Invocation Service remains the existing admitted retry/failover owner: network/5xx failures use standard cooling, while refresh 429 uses candidate-local `BLOCKED_UNTIL` rate-limit handling. Positive parsed Retry-After timing determines its deadline; absent, declined, or zero timing keeps the fallback of at least 60 seconds. Healthy admitted alternatives remain immediately eligible, with existing waits, unavailability deadlines, and attempt ceilings otherwise unchanged. Refresh owns no wait, and pinned single-attempt paths retain no recovery.
+Refresh HTTP 4xx other than 429 and malformed successful responses return null, retaining the previous token and ordinary final-auth handling based on the subsequent real provider response; timing or body hints on 403 do not create the 429 exception.
 An exhausted admitted record is excluded from the final generic availability-wait scan within that invocation, so cooling expiry cannot reopen it or produce a terminal zero-wait loop.
 An available untried admitted alternative precedes a standard retry wait; other ready/rate-limit priorities remain unchanged, and retained process-local cooling remains available to other or future invocations.
-Concurrent refresh is accepted last-completed-write-wins behavior with no revision, CAS, lock, or merge protocol.
+Concurrent refresh is accepted last-completed-write-wins behavior with credential-loss risk and no revision, CAS, lock, or merge protocol. A failed 429 refresh writes nothing and does not undo an independently successful concurrent replacement.
 
 ## 11. API And UI Projection
 
