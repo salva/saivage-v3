@@ -33,6 +33,8 @@ import { scriptedBindings, scriptedOrdinaryAdmission } from '../../helpers/llm-t
 import { invocationProviderRegistry, contextExhausted } from '../../helpers/invocation-provider-fixture.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../../helpers/row-policy-fixtures.js';
+import { capacityAdmission } from '../../helpers/analyst-capacity-fixtures.js';
+import { InvocationLifecycle } from '../../../src/runtime/actors/invocation-lifecycle.js';
 
 const CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
 const roots: string[] = [];
@@ -138,6 +140,25 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
 });
 
 describe('ConversationLLMActor local exact-admission transition', () => {
+  it('settles the exact lease and completion observer before public capacity rejection, without closing reusable admission', async () => {
+    const order: string[] = [];
+    const settle = InvocationLifecycle.prototype.settle;
+    const settlement = jest.spyOn(InvocationLifecycle.prototype, 'settle').mockImplementation(function (this: InvocationLifecycle, lease) {
+      settle.call(this, lease);
+      order.push('lease settled');
+    });
+    try {
+      const fixture = actorFixture(invocation(), undefined, 'card', () => { if (order.includes('lease settled')) order.push('completion observer'); });
+      fixture.prepare.mockReturnValueOnce(capacityAdmission());
+      const failure = await fixture.actor.turn(fixture.input, undefined, jest.fn()).catch((error: unknown) => { order.push('public rejection'); return error; });
+      expect(failure).toMatchObject({ source: 'primary_local', reason: 'capacity' });
+      expect(order).toEqual(['lease settled', 'completion observer', 'public rejection']);
+      fixture.execute.mockResolvedValue({ result: { kind: 'message', content: 'fresh turn' }, provider_exchanges: [] });
+      await expect(fixture.actor.turn({ ...fixture.input, inputId: '00000000-0000-4000-8000-000000000003' }, undefined, jest.fn())).resolves.toMatchObject({ type: 'result' });
+      fixture.actor.suppressContinuation(new Error('end of test, not a reuse barrier'));
+      await expect(fixture.actor.join()).resolves.toEqual({ status: 'joined' });
+    } finally { settlement.mockRestore(); }
+  });
   it('carries a real marker-led P1 through strict authoritative freshness and ordinary no-smaller settlement', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-real-actor-compaction-'));
     roots.push(root);
@@ -252,7 +273,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     const fixture = actorFixture();
     fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission()).mockReturnValueOnce(rejectedCompactionAdmission());
     fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjectionOf(fixture), estimatedProviderMessageTokens: 1 });
-    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', localCompactionAttempted: true });
+    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'capacity', localCompactionAttempted: true });
     expect(fixture.compact).toHaveBeenCalledTimes(1);
     expect(fixture.execute).not.toHaveBeenCalled();
     const rows = readConversation(fixture.root, fixture.input.sessionId).sourceRows;
@@ -263,7 +284,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
   it('terminates without compaction when no candidate is size-fixable', async () => {
     const fixture = actorFixture();
     fixture.prepare.mockReturnValueOnce({ kind: 'local_admission_failed', routePass: fixture.input.routePass, candidates: [], bindings: scriptedBindings() });
-    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', localCompactionAttempted: false });
+    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'configuration', localCompactionAttempted: false });
     expect(fixture.compact).not.toHaveBeenCalled();
     expect(fixture.execute).not.toHaveBeenCalled();
     expect(readConversation(fixture.root, fixture.input.sessionId).sourceRows.some((row) => row.kind === 'activity')).toBe(false);
@@ -273,7 +294,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     const fixture = actorFixture();
     fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission());
     fixture.compact.mockResolvedValue({ kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens: 10, smallestCandidateEstimatedProviderMessageTokens: null });
-    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', localCompactionAttempted: true });
+    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'capacity', localCompactionAttempted: true });
     expect(fixture.compact).toHaveBeenCalledTimes(1);
     expect(fixture.execute).not.toHaveBeenCalled();
   });
@@ -284,7 +305,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     const construction = new CompactionSummaryConstructionError({ reason: 'fold_limit', invocationCount: 16, correctionCount: 1, cause: new Error('SENTINEL RAW CAUSE') });
     fixture.compact.mockRejectedValue(construction);
     const failure = await fixture.actor.turn(fixture.input, undefined, jest.fn()).catch((error: unknown) => error);
-    expect(failure).toMatchObject({ name: 'LocalExactAdmissionError', cause: construction });
+    expect(failure).toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'summary_construction', cause: construction });
     expect((failure as Error).message).toContain('reason=fold_limit');
     expect((failure as Error).message).not.toContain('SENTINEL');
     expect(fixture.execute).not.toHaveBeenCalled();
@@ -464,10 +485,10 @@ function distinctProjection(input: PreparedLlmInvocationInput, identity: string)
 }
 
 function rejectedCompactionAdmission() {
-  return { kind: 'local_compaction_required' as const, routePass: { kind: 'ordinary' as const, candidateChain: [CANDIDATE] }, candidates: [], bindings: scriptedBindings() };
+  return capacityAdmission('local_compaction_required');
 }
 
-function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), plannerPublicationFailure?: Error, purpose: 'card' | 'global' = 'card') {
+function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), plannerPublicationFailure?: Error, purpose: 'card' | 'global' = 'card', runtimeProjectionChanged?: () => void) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-last-chance-summary-'));
   roots.push(root);
   initProjectTree(root);
@@ -508,6 +529,7 @@ function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), 
   capturedSuspension = suspension;
   execute.mockImplementation(async () => { throw new AdmittedProviderTurnFailure(firstFailure, suspension); });
   const common = {
+    runtimeProjectionChanged,
     agentId: input.sessionId,
     provider,
     conversations: { projectRoot: root },

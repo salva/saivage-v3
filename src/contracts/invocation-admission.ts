@@ -382,11 +382,29 @@ export function retainedAdmissionStateDiagnostics(
   });
 }
 
+export function localAdmissionFailureReason(
+  candidates: readonly CandidateLocalAdmission[],
+): 'capacity' | 'configuration' {
+  return candidates.some(
+    (candidate) =>
+      candidate.kind === 'projection_too_large' ||
+      (candidate.kind === 'candidate_ineligible' &&
+        (candidate.reason.kind === 'max_output_too_small' ||
+          candidate.reason.kind === 'nonpositive_usable_input')),
+  )
+    ? 'capacity'
+    : 'configuration';
+}
+
 export class LocalExactAdmissionError extends Error {
+  readonly source: 'primary_local' | 'internal_summary';
+  readonly reason: 'capacity' | 'configuration' | 'summary_construction';
   readonly localCompactionAttempted: boolean;
   readonly diagnostics: AdmissionDiagnostics;
   readonly recovery: RetainedAdmissionStateDiagnostics | null;
   constructor(args: {
+    source: 'primary_local' | 'internal_summary';
+    reason: 'capacity' | 'configuration' | 'summary_construction';
     localCompactionAttempted: boolean;
     diagnostics: AdmissionDiagnostics;
     recovery?: RetainedAdmissionStateDiagnostics;
@@ -398,6 +416,8 @@ export class LocalExactAdmissionError extends Error {
       { cause: args.cause },
     );
     this.name = 'LocalExactAdmissionError';
+    this.source = args.source;
+    this.reason = args.reason;
     this.localCompactionAttempted = args.localCompactionAttempted;
     this.diagnostics = args.diagnostics;
     this.recovery = args.recovery ?? null;

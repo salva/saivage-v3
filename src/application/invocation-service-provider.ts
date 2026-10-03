@@ -3,6 +3,7 @@ import {
   AdmittedProviderTurnFailure,
   AdmissionIntegrityError,
   LocalExactAdmissionError,
+  localAdmissionFailureReason,
   projectAdmissionDiagnostics,
 } from '../contracts/index.js';
 import type { LLMProviderPort, AdmittedSummaryRequest } from '../runtime/runtime-api.js';
@@ -55,6 +56,8 @@ export async function executeInternalSummaryTurn(
   });
   if (admission.kind !== 'admitted')
     throw new LocalExactAdmissionError({
+      source: 'internal_summary',
+      reason: localAdmissionFailureReason(admission.candidates),
       localCompactionAttempted: false,
       diagnostics: projectAdmissionDiagnostics(admission.candidates),
     });

@@ -53,6 +53,13 @@ export type AutonomousCompactionPolicy = {
   snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };
 
+export class PreparedCompactionCapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PreparedCompactionCapacityError';
+  }
+}
+
 export function prepareCompaction(
   config: AutonomousCompactionPolicy,
   systemPrompt: string,
@@ -82,16 +89,17 @@ export function prepareCompaction(
   const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
   const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
   const canonicalMessageHardCeiling = B - estimatedStaticTokens;
+  const capacityDiagnostic = `Prompt/tool surface does not fit the route usable-input capacity (route_usable_input_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, requested_completion_tokens=${requested}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Select a larger-window route or reduce the prompt/tool surface.`;
   if (
     !Number.isFinite(estimatedStaticTokens) ||
     estimatedStaticTokens < 0 ||
-    triggerMessageThreshold <= 0 ||
-    canonicalMessageHardCeiling <= 0 ||
+    triggerLineTokens <= 0 ||
     triggerMessageThreshold > canonicalMessageHardCeiling
   ) {
-    throw new Error(
-      `Prompt/tool surface does not fit the route usable-input capacity (route_usable_input_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, requested_completion_tokens=${requested}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Select a larger-window route or reduce the prompt/tool surface.`,
-    );
+    throw new Error(capacityDiagnostic);
+  }
+  if (triggerMessageThreshold <= 0 || canonicalMessageHardCeiling <= 0) {
+    throw new PreparedCompactionCapacityError(capacityDiagnostic);
   }
   return {
     routeUsableInputTokens: B,

@@ -50,7 +50,9 @@ describe('executeInternalSummaryTurn byte reuse', () => {
     expect(createHash('sha256').update(sent[0]!).digest('hex')).toBe(packed.requestSha256);
     await expect(executeInternalSummaryTurn(service, input, new AbortController().signal, pack('different instruction'))).rejects.toBeInstanceOf(AdmissionIntegrityError);
     const tooLarge = { ...input, systemPrompt: 'x'.repeat(500_000) };
-    await expect(executeInternalSummaryTurn(service, tooLarge, new AbortController().signal, packed)).rejects.toBeInstanceOf(LocalExactAdmissionError);
+    const rejected = await executeInternalSummaryTurn(service, tooLarge, new AbortController().signal, packed).catch((error: unknown) => error);
+    expect(rejected).toBeInstanceOf(LocalExactAdmissionError);
+    expect(rejected).toMatchObject({ source: 'internal_summary', reason: 'capacity' });
     expect(sent).toHaveLength(1);
   });
 });

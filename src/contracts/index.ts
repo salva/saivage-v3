@@ -100,6 +100,7 @@ export {
   AdmittedRecoveryIntegrityError,
   AdmittedProviderTurnFailure,
   LocalExactAdmissionError,
+  localAdmissionFailureReason,
   verifySuspendedAdmittedExecution,
 } from './invocation-admission.js';
 export type {

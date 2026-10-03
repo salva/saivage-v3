@@ -8,6 +8,7 @@ import { formatVocabularySnippet } from '../../tools/prompt-api.js';
 import {
   parseProtocolToolArgs,
   PublicationOutcomeUnknownError,
+  LocalExactAdmissionError,
   type Candidate,
   type CapabilityRequest,
   type ToolResult,
@@ -48,6 +49,7 @@ import { deferred, type Deferred } from './deferred.js';
 import { type PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import {
   buildAnalystOrientationSnapshot,
+  AnalystOrientationBudgetError,
   buildAnalystWorkspaceFocus,
   type AnalystOrientationCard,
   type AnalystOrientationSnapshot,
@@ -55,7 +57,11 @@ import {
 } from '../../application/index.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { CompactorPort } from './llm-actor.js';
-import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
+import {
+  prepareCompaction,
+  PreparedCompactionCapacityError,
+  type AutonomousCompactionPolicy,
+} from './compaction/compactor.js';
 import { buildPreparedInvocationContext } from './context/context-blocks.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
@@ -290,7 +296,17 @@ export class AnalystSession {
       this.#deliverPublicationFatal(error);
       throw new RecoverablePreparationError(error);
     }
-    const preparedInput = this.prepareInvocationInput(surface, operation.input.workspaceContext);
+    let preparedInput: Omit<PreparedLlmInvocationInput, 'providerConversation'>;
+    try {
+      preparedInput = this.prepareInvocationInput(surface, operation.input.workspaceContext);
+    } catch (error) {
+      if (
+        error instanceof AnalystOrientationBudgetError ||
+        error instanceof PreparedCompactionCapacityError
+      )
+        throw new RecoverablePreparationError(error);
+      throw error;
+    }
     this.assertCurrent(operation, signal);
     this.settlePriorFinalCallForSubmission();
     operation.step = { kind: 'starting', ingress: 'publishing' };
@@ -727,18 +743,25 @@ export class AnalystSession {
       operation.caller.resolve(response);
     } else if (
       (finalFailure instanceof RecoverablePreparationError ||
-        finalFailure instanceof AbandonedToolInvocationError) &&
+        finalFailure instanceof AbandonedToolInvocationError ||
+        (finalFailure instanceof LocalExactAdmissionError &&
+          finalFailure.source === 'primary_local' &&
+          finalFailure.reason === 'capacity')) &&
       !cleanupFailure &&
       !disposed
     ) {
       this.#phase = {
         kind: 'idle',
         restartConfirmation:
-          finalFailure instanceof AbandonedToolInvocationError
-            ? null
-            : operation.restartConfirmation,
+          finalFailure instanceof RecoverablePreparationError
+            ? operation.restartConfirmation
+            : null,
       };
-      operation.caller.reject(asError(finalFailure.causeValue));
+      operation.caller.reject(
+        finalFailure instanceof LocalExactAdmissionError
+          ? finalFailure
+          : asError(finalFailure.causeValue),
+      );
     } else {
       if (disposedPhase) disposedPhase.settling = null;
       else this.#phase = { kind: 'failed', cause: finalFailure };

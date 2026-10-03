@@ -7,6 +7,7 @@ import {
 import {
   AdmittedProviderTurnFailure,
   LocalExactAdmissionError,
+  localAdmissionFailureReason,
   projectAdmissionDiagnostics,
   type AdmittedRecoveryPreparation,
   type OrdinaryAdmittedExecution,
@@ -793,6 +794,8 @@ export class ConversationLLMActor {
     if (first.kind === 'admitted') return { input, admission: first };
     if (first.kind === 'local_admission_failed')
       throw new LocalExactAdmissionError({
+        source: 'primary_local',
+        reason: localAdmissionFailureReason(first.candidates),
         localCompactionAttempted: false,
         diagnostics: projectAdmissionDiagnostics(first.candidates),
       });
@@ -803,6 +806,8 @@ export class ConversationLLMActor {
       signal.throwIfAborted();
       if (result.kind === 'no_smaller_projection')
         throw new LocalExactAdmissionError({
+          source: 'primary_local',
+          reason: 'capacity',
           localCompactionAttempted: true,
           diagnostics: projectAdmissionDiagnostics(first.candidates),
         });
@@ -812,6 +817,8 @@ export class ConversationLLMActor {
       if (error instanceof LocalExactAdmissionError) throw error;
       if (error instanceof CompactionSummaryConstructionError)
         throw new LocalExactAdmissionError({
+          source: 'primary_local',
+          reason: 'summary_construction',
           localCompactionAttempted: true,
           diagnostics: projectAdmissionDiagnostics(first.candidates),
           constructionDiagnostic: error.message,
@@ -832,6 +839,8 @@ export class ConversationLLMActor {
     const second = this.provider.preparePrimaryRequestAdmission(recomposed, signal);
     if (second.kind === 'admitted') return { input: recomposed, admission: second };
     throw new LocalExactAdmissionError({
+      source: 'primary_local',
+      reason: localAdmissionFailureReason(second.candidates),
       localCompactionAttempted: true,
       diagnostics: projectAdmissionDiagnostics(second.candidates),
     });
@@ -943,6 +952,21 @@ export class ConversationLLMActor {
           });
         else operation.result.reject(disposition.reason);
         operation.settlement.resolve();
+        return;
+      }
+      if (
+        disposition.kind === 'open' &&
+        !operation.providerBoundaryEntered &&
+        error instanceof LocalExactAdmissionError &&
+        error.source === 'primary_local' &&
+        error.reason === 'capacity'
+      ) {
+        this.#invocations.settle(operation.lease);
+        operation.lease = null;
+        this.#phase = { kind: 'idle', disposition };
+        this.runtimeProjectionChanged?.();
+        operation.settlement.resolve();
+        operation.result.reject(error);
         return;
       }
       if (!operation.providerBoundaryEntered) throw error;

@@ -29,6 +29,13 @@ export interface AnalystOrientationSnapshot {
   readonly contentSha256: string;
 }
 
+export class AnalystOrientationBudgetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AnalystOrientationBudgetError';
+  }
+}
+
 export class AnalystOrientationPreparationError extends Error {
   constructor(reason: string) {
     super(`Analyst orientation preparation failed: ${reason}`);
@@ -200,7 +207,7 @@ export function buildAnalystOrientationSnapshot(
 
   const mandatory = render();
   if (!fits(mandatory))
-    throw new AnalystOrientationPreparationError(
+    throw new AnalystOrientationBudgetError(
       `the mandatory root/active-path skeleton and complete status/type aggregate exceed the ${ANALYST_ORIENTATION_MAX_BYTES}-byte orientation budget.`,
     );
 

@@ -2,8 +2,10 @@ import { describe, expect, it } from '@jest/globals';
 import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../../../src/schemas/index.js';
+import { wideOrientation } from '../../helpers/analyst-capacity-fixtures.js';
 import {
   AnalystOrientationPreparationError,
+  AnalystOrientationBudgetError,
   ANALYST_ORIENTATION_MAX_BYTES,
   ANALYST_ORIENTATION_OMISSION_MARKER,
   ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES,
@@ -57,6 +59,10 @@ function flatten(node: SnapshotNode): SnapshotNode[] {
 }
 
 describe('buildAnalystOrientationSnapshot', () => {
+  it('distinguishes genuine wide mandatory type aggregates from strict topology failure', () => {
+    expect(() => buildAnalystOrientationSnapshot(wideOrientation(), stopped)).toThrow(AnalystOrientationBudgetError);
+    expect(() => buildAnalystOrientationSnapshot([], stopped)).toThrow(AnalystOrientationPreparationError);
+  });
   it('redacts root and shown-child titles without mutating cards or adding titles to the observation commitment', () => {
     const cards: AnalystOrientationCard[] = [
       { ...projectCard(['card-a']), title: 'Project token=synthetic-root-secret' },

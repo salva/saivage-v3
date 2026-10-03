@@ -18,6 +18,9 @@ import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { SummaryPromptPolicyBlockedError } from '../../src/runtime/actors/compaction/summarizer.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
 import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
+import { analystCapacityFixture, wideOrientation } from '../helpers/analyst-capacity-fixtures.js';
+import { AnalystOrientationBudgetError } from '../../src/application/read-models/analyst-orientation.js';
+import { PreparedCompactionCapacityError } from '../../src/runtime/actors/compaction/compactor.js';
 
 const roots: string[] = [];
 
@@ -26,6 +29,33 @@ afterEach(() => {
 });
 
 describe('Analyst project-context failure', () => {
+  it('re-prepares genuine orientation overflow on each explicit send and succeeds with the same owner after a fresh fitting observation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'analyst-wide-capacity-'));
+    roots.push(root);
+    initProjectTree(root);
+    const store = new CompiledCardService(root);
+    const template = store.list()[0]!;
+    const list = jest.spyOn(store, 'list');
+    list.mockReturnValue(wideOrientation().map((card) => ({
+      ...template, id: card.id, type: card.type, title: card.title, version_seq: card.version_seq,
+      lifecycle: { status: 'backlog' as const, result: null, error: null, completed_at: null },
+      child_membership: [...card.children], active_child_order: [...card.children],
+    })));
+    const render = jest.fn(() => 'Analyst');
+    const { session, complete } = analystCapacityFixture(root, { cardStore: store, render });
+    await expect(session.submit({ userContent: 'first' })).rejects.toBeInstanceOf(AnalystOrientationBudgetError);
+    await expect(session.submit({ userContent: 'still wide' })).rejects.toBeInstanceOf(AnalystOrientationBudgetError);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(render).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(readConversation(root, 'agent:analyst:global').sourceRows).toEqual([]);
+    expect(readAppLogEntries(root)).toEqual([]);
+    list.mockRestore();
+    expect(store.list()).toHaveLength(1);
+    await expect(session.submit({ userContent: 'fresh fitting send' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(readConversation(root, 'agent:analyst:global').sourceRows.filter((row) => row.role === 'user').map((row) => row.content)).toEqual(['fresh fitting send']);
+  });
   it('settles a summary prompt-policy block as a safe notice and reuses the retained owner for a new submission', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-summary-policy-block-'));
     roots.push(projectRoot);
@@ -130,9 +160,7 @@ describe('Analyst project-context failure', () => {
 
     const cardStore = new CompiledCardService(projectRoot);
     const render = jest.fn(() => 'x'.repeat(32_000));
-    const completeTurn = jest.fn(async () => {
-      throw new Error('provider must not run');
-    });
+    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'fits now' }, provider_exchanges: [] }));
     const execute = jest.fn(async () => ({ success: true as const, data: null }));
     const tool = defineTool({
       name: 'forbidden_tool',
@@ -177,5 +205,13 @@ describe('Analyst project-context failure', () => {
     expect(completeTurn).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
     expect(readAppLogEntries(projectRoot)).toEqual([]);
+    await expect(session.submit({ userContent: 'unchanged pressure' })).rejects.toBeInstanceOf(PreparedCompactionCapacityError);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows).toEqual([]);
+    render.mockReturnValue('Analyst');
+    await expect(session.submit({ userContent: 'fresh fitting static surface' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    expect(render).toHaveBeenCalledTimes(3);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
   });
 });

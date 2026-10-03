@@ -33,6 +33,10 @@ import { AnalystRuntime, AnalystSession } from '../../src/runtime/actors/analyst
 import { defineTool, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
+import { analystCapacityFixture, capacityAdmission } from '../helpers/analyst-capacity-fixtures.js';
+import { deferred } from '../../src/runtime/actors/deferred.js';
+import { executedToolOutcome } from '../../src/tools/invocation.js';
+import { toolSucceeded } from '../../src/contracts/tool-result.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -444,6 +448,64 @@ describe('operator chat route request contracts', () => {
     expect(providerCalls).toBe(2);
     const rows = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'http-call')).toHaveLength(1);
+  });
+
+  it('retains one production owner across capacity 500, busy 409, fresh success and focus 400 without replaying durable effects', async () => {
+    await fastify.close();
+    const started = deferred<void>();
+    const finish = deferred<void>();
+    const effect = jest.fn(() => null);
+    const tool = defineTool({ name: 'http_capacity_effect', description: 'One effect', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: async () => executedToolOutcome('none', toolSucceeded(effect())) });
+    let calls = 0;
+    let pressure = true;
+    const complete = jest.fn(async (): Promise<ProviderTurnCompletion> => {
+      calls++;
+      return calls === 1
+        ? { result: { kind: 'tool_calls', tool_calls: [{ id: 'http-capacity-call', type: 'function', function: { name: tool.name, arguments: '{}' } }] }, provider_exchanges: [] }
+        : { result: { kind: 'message', content: 'fresh fitting response' }, provider_exchanges: [] };
+    });
+    const base = scriptedAdmissionProvider(complete);
+    const { session } = analystCapacityFixture(projectRoot, {
+      provider: { ...base, preparePrimaryRequestAdmission: (input, signal) => pressure && calls === 1 ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal) },
+      surface: { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [] },
+      compactor: { shouldCompact: () => false, compact: async () => { started.resolve(); await finish.promise; return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens: 10000, smallestCandidateEstimatedProviderMessageTokens: null }; } },
+    });
+    const createSession = jest.fn(() => session);
+    const runtime = new AnalystRuntime({ createSession, getAvailableToolNames: () => [tool.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
+    fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore: new CardService(projectRoot) } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    await fastify.ready();
+    const first = fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'capacity send' } });
+    // inject is lazy until its promise is consumed.
+    const firstResponse = Promise.resolve(first);
+    await started.promise;
+    const busy = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'busy loser' } });
+    expect(busy.statusCode).toBe(409);
+    expect(busy.json()).toEqual({ error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' });
+    finish.resolve();
+    const rejected = await firstResponse;
+    expect(rejected.statusCode).toBe(500);
+    expect(rejected.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    const afterRejection = readConversation(projectRoot, 'agent:analyst:global');
+    expect(afterRejection.unmatchedCall).toBeNull();
+    expect(afterRejection.sourceRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'http-capacity-call')).toHaveLength(1);
+    expect(afterRejection.sourceRows.filter((row) => row.kind === 'model_issue')).toHaveLength(0);
+    expect(complete).toHaveBeenCalledTimes(1);
+    pressure = false;
+    const success = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'fresh fitting send' } });
+    expect(success.statusCode).toBe(200);
+    const beforeFocus = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
+    const refinement = Object.fromEntries(Array.from({ length: 105 }, (_, i) => [`k${i}`, 'sk-a']));
+    const focus = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'focus rejected', workspaceContext: { view: 'files', entityId: null, refinement } } });
+    expect(focus.statusCode).toBe(400);
+    expect(focus.json()).toEqual({ error: 'ValidationError', message: 'Workspace context cannot fit safely after redaction.', issues: [{ path: 'workspaceContext', message: 'Workspace context cannot fit safely after redaction.' }] });
+    const rows = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
+    expect(rows).toEqual(beforeFocus);
+    expect(rows.filter((row) => row.role === 'user').map((row) => row.content)).toEqual(['capacity send', 'fresh fitting send']);
+    expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
+    expect(effect).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(createSession).toHaveBeenCalledTimes(1);
   });
 
   it('rejects redaction-expanded focus before effects and reuses the same Analyst for no-focus', async () => {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import { LocalExactAdmissionError, projectAdmissionDiagnostics } from '../../src/contracts/index.js';
+import { LocalExactAdmissionError, localAdmissionFailureReason, projectAdmissionDiagnostics } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
@@ -131,6 +131,7 @@ describe('ordinary primary-request local admission', () => {
     if (admission.kind !== 'local_compaction_required') throw new Error('unreachable');
     expect(admission.candidates[0]).toMatchObject({ kind: 'candidate_ineligible', reason: { kind: 'capability_mismatch', reasons: ['unsupported_tools_mode'] } });
     expect(admission.candidates[1]).toMatchObject({ kind: 'projection_too_large' });
+    expect(localAdmissionFailureReason(admission.candidates)).toBe('capacity');
     const oversized = admission.candidates[1];
     if (oversized.kind !== 'projection_too_large') throw new Error('unreachable');
     expect(oversized.contextWindowTokens).toBe(2502);
@@ -144,6 +145,7 @@ describe('ordinary primary-request local admission', () => {
     expect(admission.kind).toBe('local_admission_failed');
     if (admission.kind !== 'local_admission_failed') throw new Error('unreachable');
     expect(admission.candidates[1]).toMatchObject({ kind: 'candidate_ineligible', reason: { kind: 'max_output_too_small' } });
+    expect(localAdmissionFailureReason(admission.candidates)).toBe('capacity');
   });
 
   it('fails locally for missing declared limits', () => {
@@ -152,6 +154,7 @@ describe('ordinary primary-request local admission', () => {
     expect(admission.kind).toBe('local_admission_failed');
     if (admission.kind !== 'local_admission_failed') throw new Error('unreachable');
     expect(admission.candidates[0]).toMatchObject({ kind: 'candidate_ineligible', reason: { kind: 'missing_context_window' } });
+    expect(localAdmissionFailureReason(admission.candidates)).toBe('configuration');
   });
 
   it('keeps A capability-ineligible after compaction while the compatible oversized candidate alone becomes admitted', () => {
@@ -234,7 +237,7 @@ describe('ordinary primary-request local admission', () => {
     const admission = svc.preparePrimaryRequestAdmission(request(chain));
     expect(admission.kind).toBe('local_admission_failed');
     if (admission.kind !== 'local_admission_failed') throw new Error('unreachable');
-    const failure = new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(admission.candidates) });
+    const failure = new LocalExactAdmissionError({ source: 'primary_local', reason: 'configuration', localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(admission.candidates) });
     expect(failure.message).toContain('local_compaction_attempted=false');
     expect(failure.localCompactionAttempted).toBe(false);
     const diagnostics = failure.diagnostics;
@@ -242,6 +245,10 @@ describe('ordinary primary-request local admission', () => {
     expect(diagnostics.candidates).toHaveLength(32);
     expect(diagnostics.omittedCandidateCount).toBe(9);
     expect(diagnostics.reasonCounts.capability_mismatch).toBe(41);
+    expect(localAdmissionFailureReason(admission.candidates)).toBe('configuration');
+    const capacityBeyondPreview = [...admission.candidates, { ...admission.candidates[0]!, kind: 'candidate_ineligible' as const, reason: { kind: 'nonpositive_usable_input' as const } }];
+    expect(projectAdmissionDiagnostics(capacityBeyondPreview).candidates).toHaveLength(32);
+    expect(localAdmissionFailureReason(capacityBeyondPreview)).toBe('capacity');
     for (const entry of diagnostics.candidates) {
       expect(Buffer.byteLength(entry.providerPreview, 'utf8')).toBeLessThanOrEqual(128);
       expect(Buffer.byteLength(entry.modelPreview, 'utf8')).toBeLessThanOrEqual(128);
