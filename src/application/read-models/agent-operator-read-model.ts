@@ -8,6 +8,7 @@ import {
   ConversationVersionListResponseSchema,
   throwIfPublicationOutcomeUnknown,
   type AgentSessionSummary,
+  type OperatorApiQuery,
 } from '../../contracts/index.js';
 import {
   ConversationHistoricalVersionNotFoundError,
@@ -103,20 +104,32 @@ export class AgentOperatorReadModelService {
 
   getConversation(
     sessionId: ConversationSessionId,
-    query: { segment_version?: number; since?: string } = {},
+    query: OperatorApiQuery<'agents.conversation'> = {},
   ) {
     this.admitSession(sessionId);
     try {
-      const conversation = foldConversation(this.projectRoot, sessionId, {
-        segmentVersion: query.segment_version,
-        since: query.since,
-      });
+      const conversation = foldConversation(
+        this.projectRoot,
+        sessionId,
+        query.since === undefined
+          ? {}
+          : {
+              segmentVersion: query.segment_version,
+              segmentId: query.segment_id,
+              since: query.since,
+            },
+      );
       return AgentConversationResponseSchema.parse({
         session_id: conversation.sessionId,
+        segment_id: conversation.segmentId,
         segment_version: conversation.segmentVersion,
         segment_context: conversation.segmentContext,
         entries: conversation.entries,
-        cursor: { segment_version: conversation.segmentVersion, message_id: conversation.cursor },
+        cursor: {
+          segment_id: conversation.segmentId,
+          segment_version: conversation.segmentVersion,
+          message_id: conversation.cursor,
+        },
       });
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);

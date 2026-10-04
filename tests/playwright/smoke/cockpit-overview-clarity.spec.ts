@@ -194,7 +194,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     if (path === `/api/agents/${encodeURIComponent(sessionId)}`) return json(route, parseOperatorResponse('agents.detail', 200, { session: { id: sessionId, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null } }));
     if (path === `/api/agents/${encodeURIComponent(sessionId)}/conversation`) {
       const entries = transcriptEntries();
-      return json(route, parseOperatorResponse('agents.conversation', 200, { session_id: sessionId, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: entries.at(-1)!.id } }));
+      return json(route, parseOperatorResponse('agents.conversation', 200, { session_id: sessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries.at(-1)!.id } }));
     }
     if (path === `/api/workflows/${graph.card_type}/presentation`) return json(route, parseOperatorResponse('workflows.presentation', 200, {
       card_type: graph.card_type,

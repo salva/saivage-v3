@@ -117,10 +117,10 @@ describe('AnalystChatPanel', () => {
     });
     api.getAgentConversation.mockResolvedValue({
       session_id: analystSessionId,
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       segment_context: null,
       entries,
-      cursor: { segment_version: 1, message_id: '3' },
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' },
     });
     api.getCardChildren.mockResolvedValue({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
     api.sendChatMessage.mockResolvedValue({
@@ -228,7 +228,7 @@ describe('AnalystChatPanel', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('Loading history…');
     expect(wrapper.text()).not.toContain('No messages yet. Ask the analyst something.');
-    resolveConversation({ session_id: analystSessionId, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: null } });
+    resolveConversation({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: null } });
     await flushPromises();
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
     wrapper.unmount();
@@ -360,16 +360,16 @@ describe('AnalystChatPanel', () => {
     await chat.fetchMessages();
     chat.setDraft('pending before ack');
     await chat.sendMessage();
-    await callback({ t: 'invalidate', resource: 'conversation', id: analystSessionId, segment_version: 1, visible_message_id: 'm1' });
+    await callback({ t: 'invalidate', resource: 'conversation', id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'm1' });
     expect(api.getAgentConversation).not.toHaveBeenCalled();
     expect(chat.messages.map(({ content }) => content)).toEqual(['pending before ack']);
 
     api.getAgentConversation.mockResolvedValueOnce({
       session_id: analystSessionId,
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       segment_context: null,
       entries: [{ ...entries[0], id: 'accepted-user', role: 'user', content: 'pending before ack' }],
-      cursor: { segment_version: 1, message_id: 'accepted-user' },
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'accepted-user' },
     });
     await callback(null);
     expect(api.getAgentConversation).toHaveBeenCalledOnce();
@@ -425,7 +425,7 @@ describe('AnalystChatPanel', () => {
     expect(second.text()).not.toContain('Loading history…');
     expect(second.text()).toContain('hello');
     expect(second.text()).toContain('optimistic retained');
-    resolveRefresh({ session_id: analystSessionId, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: '3' } });
+    resolveRefresh({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' } });
     await refresh;
     second.unmount();
     expect(secondClose).toHaveBeenCalledOnce();

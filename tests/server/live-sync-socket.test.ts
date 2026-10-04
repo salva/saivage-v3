@@ -17,12 +17,12 @@ describe('LiveSyncSocket conversation leases', () => {
     live.invalidate({
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       visible_message_id: 'opaque-watermark',
     });
 
     expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
-      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'opaque-watermark',
+      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'opaque-watermark',
     });
   });
 
@@ -46,10 +46,10 @@ describe('LiveSyncSocket conversation leases', () => {
     live.invalidate({
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       visible_message_id: 'opaque-watermark',
     });
-    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'opaque-watermark' }]);
+    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'opaque-watermark' }]);
   });
 });
 

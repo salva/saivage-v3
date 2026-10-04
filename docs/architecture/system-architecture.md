@@ -943,7 +943,7 @@ The tool catalog and binding own the separate compiled `CompiledInvocationToolCo
 
 Compaction is context construction by the stable session owner over one validated current segment.
 It publishes an immutable successor segment, then commits that segment by replacing the cumulative conversation index.
-Successful publication emits one freshness target `{session_id,segment_version,visible_message_id}`.
+Successful publication emits one freshness target `{session_id,segment_id,segment_version,visible_message_id}`; `segment_id` is the published entry's existing immutable UUID. Append retains that identity; compaction publishes a fresh one. Read-model current responses and cursors preserve it, and incremental admission compares exact ID/version before cursor lookup. A rollback/recompaction can reuse an ordinal but never the old segment identity.
 The source segment remains historical and is never reopened by current projection, repeated compaction, or recovery.
 There is no actor-side repository, queue, retry, or alternate publication path.
 
@@ -1234,7 +1234,7 @@ Owners call narrow application-level SyncHub effects directly: runtime, exact Ca
 SyncHub is lossy, non-throwing, debounced, and socket-only.
 Its unscoped wire vocabulary is exactly `runtime`; Timeline, Files, and Processes have no invalidation frame.
 Cards coalesce by exact scope/card/record key.
-Agent membership coalesces by card or global session, conversation coalesces by exact session while retaining the greatest observed `segment_version` (lower versions are ignored, while equal versions replace the visible-message watermark by latest arrival), and exchange coalesces by exact session.
+Agent membership coalesces by card or global session, conversation coalesces by exact session retaining the last accepted arrival's segment ID/version and visible-message watermark (including lower versions), and exchange coalesces by exact session. Browser SyncClient uses the same connection-order coalescing and retains its epoch fences; numeric ordinals do not order freshness.
 This server-side SyncHub coalescing remains exact-key publication behavior and is distinct from the browser's later reconciliation of pending callbacks for one shared lease.
 Connection-local acknowledged leases are independent for global Agents, one card sessions scope, one conversation, and one exchange.
 Subscribe replaces an exact key before acknowledgement, stale unsubscribe cannot remove its replacement, and socket close drops all lease state.
@@ -1280,7 +1280,7 @@ matching successful synthetic source. Concurrent duplicates are inert; failures
 project and suppress nothing, and ordinary pushes retain normal recording. This
 call-local exception is not a second history, selection cache, or retry protocol.
 The persistent Analyst store owns a readonly discriminated identity projection and one explicit epoch/AbortController identity resolver; replacement resets identity handoff/transcript exactly once, and stale completions are inert.
-Analyst and selected-Agent stores retain separate identity/send and selection/detail lifetimes, but directly share one browser conversation-tail core for request epochs and abort, baseline-versus-tail acceptance, exact cursor rebase, and retained refresh failures.
+Analyst and selected-Agent stores retain separate identity/send and selection/detail lifetimes, but directly share one browser conversation-tail core for request epochs and abort, baseline-versus-tail acceptance, exact cursor rebase, and retained refresh failures. Append acceptance requires the same session and segment UUID/version; a different hint clears the cursor even with the same visible row, and a segment-changed 409 retries one cursorless baseline. Catalog/content `entry_id` remains immutable identity; historical ordinal navigation selects the present catalog, not an old incarnation.
 Their acceptance callbacks remain projection-specific: Agent uses the complete accepted aggregate for warning state, while Analyst reconciles optimistic rows only against the newly accepted response entries.
 Exchange ownership remains independent.
 Application bootstrap starts runtime/project, root Card, and Analyst identity reads only.

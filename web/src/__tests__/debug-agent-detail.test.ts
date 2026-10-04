@@ -38,10 +38,10 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     });
     api.getAgentConversation.mockResolvedValue({
       session_id: 'agent:executor:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       segment_context: null,
       entries: [],
-      cursor: { segment_version: 1, message_id: null },
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: null },
     });
     api.getAgentLlmExchange.mockRejectedValue(
       new OperatorApiError('agents.llmExchange', 404, { error: 'llm_exchange_not_found' }),
@@ -142,10 +142,10 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     api.getAgentConversation
       .mockResolvedValueOnce({
         session_id: 'agent:executor:project',
-        segment_version: 1,
+        segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
         segment_context: null,
         entries: [],
-        cursor: { segment_version: 1, message_id: null },
+        cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: null },
       })
       .mockRejectedValueOnce(unauthorized);
     const loaded = mount(DebugAgentDetail, {
@@ -160,7 +160,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:executor:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       visible_message_id: 'next',
     })).rejects.toBe(unauthorized);
     await flushPromises();

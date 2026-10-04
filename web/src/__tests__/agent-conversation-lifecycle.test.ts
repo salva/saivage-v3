@@ -96,10 +96,10 @@ function response(
 ): AgentConversationResponse {
   return {
     session_id: 'agent:planner:project',
-    segment_version: 1,
+    segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
     segment_context: null,
     entries,
-    cursor: { segment_version: 1, message_id: messageId },
+    cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: messageId },
   };
 }
 
@@ -377,19 +377,19 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
 
     evidenceLookups = 0;
     centerScrolls = 0;
-    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'target' });
+    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'target' });
     await flushPromises();
     expect(evidenceLookups).toBe(1);
     expect(centerScrolls).toBe(1);
     expect((wrapper.get('.conv-rounds').element as HTMLElement).scrollTop).toBe(400);
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
 
-    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 2, visible_message_id: 'target-3' });
+    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, visible_message_id: 'target-3' });
     await flushPromises();
     expect(evidenceLookups).toBe(2);
     expect(centerScrolls).toBe(2);
 
-    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 3, visible_message_id: 'target-4' });
+    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '33333333-3333-4333-8333-333333333333', segment_version: 3, visible_message_id: 'target-4' });
     await flushPromises();
     expect(evidenceLookups).toBe(3);
     expect(centerScrolls).toBe(3);
@@ -405,7 +405,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     evidenceLookups = 0;
     centerScrolls = 0;
 
-    await expect(callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'next' })).rejects.toThrow('refresh failed');
+    await expect(callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'next' })).rejects.toThrow('refresh failed');
     await flushPromises();
 
     expect(evidenceLookups).toBe(0);
@@ -440,7 +440,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       visible_message_id: 'next',
     })).rejects.toBe(unauthorized);
     await flushPromises();
@@ -476,8 +476,8 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
         new OperatorApiError('agents.conversation', 409, {
           error: 'conversation_segment_changed',
           session_id: 'agent:planner:project',
-          requested_segment_version: 1,
-          current_segment_version: 2,
+          requested_segment_id: '11111111-1111-4111-8111-111111111111', requested_segment_version: 1,
+          current_segment_id: '22222222-2222-4222-8222-222222222222', current_segment_version: 2,
         }),
       )
       .mockImplementationOnce(() => authoritative.promise);
@@ -487,7 +487,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     evidenceLookups = 0;
     centerScrolls = 0;
 
-    const recovery = callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'next' });
+    const recovery = callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'next' });
     await flushPromises();
 
     expect(store.entries.map(({ id }) => id)).toEqual(['target', 'prior']);
@@ -518,8 +518,8 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
         new OperatorApiError('agents.conversation', 409, {
           error: 'conversation_segment_changed',
           session_id: 'agent:planner:project',
-          requested_segment_version: 1,
-          current_segment_version: 2,
+          requested_segment_id: '11111111-1111-4111-8111-111111111111', requested_segment_version: 1,
+          current_segment_id: '22222222-2222-4222-8222-222222222222', current_segment_version: 2,
         }),
       )
       .mockRejectedValueOnce(new Error('cursorless retry failed'));
@@ -531,7 +531,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       visible_message_id: 'next',
     })).rejects.toThrow('cursorless retry failed');
     await flushPromises();

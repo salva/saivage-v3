@@ -7,6 +7,7 @@ export type AgentMembershipFreshnessTarget =
   | { readonly scope: 'global-session'; readonly sessionId: ConversationSessionId };
 export interface ConversationFreshnessTarget {
   readonly session_id: ConversationSessionId;
+  readonly segment_id: string;
   readonly segment_version: number;
   readonly visible_message_id: string | null;
 }

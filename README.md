@@ -8,6 +8,10 @@ for you only when a real decision is missing. The operator observes
 everything through a web control room and steers through a single Analyst
 conversation.
 
+Conversation tails track exact immutable segment identity, not just the displayed
+ordinal; refreshed baselines replace rather than mix after a changed selection.
+See the [conversation contracts](docs/spec/operator-ui-contracts.md#6-conversation-readers).
+
 Start with the [documentation overview](docs/overview.md), the
 [getting-started guide](docs/guides/getting-started.md), or the
 [documentation site](https://salva.github.io/saivage-v3/) (also served by

@@ -33,8 +33,8 @@ describe('SyncHub semantic hints', () => {
     hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'status' });
     hub.agentMembershipChanged({ scope: 'global-session', sessionId: 'agent:analyst:global' });
     hub.agentMembershipChanged({ scope: 'card', cardId: 'card-a' });
-    hub.conversationChanged({ session_id: 'agent:analyst:global', segment_version: 1, visible_message_id: 'z' });
-    hub.conversationChanged({ session_id: 'agent:analyst:global', segment_version: 1, visible_message_id: 'a' });
+    hub.conversationChanged({ session_id: 'agent:analyst:global', segment_id: '33333333-3333-4333-8333-333333333333', segment_version: 3, visible_message_id: 'z' });
+    hub.conversationChanged({ session_id: 'agent:analyst:global', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'a' });
     hub.llmExchangeChanged('agent:analyst:global');
     expect(invalidate).not.toHaveBeenCalled();
 
@@ -56,7 +56,7 @@ describe('SyncHub semantic hints', () => {
       {
         resource: 'conversation',
         id: 'agent:analyst:global',
-        segment_version: 1,
+        segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
         visible_message_id: 'a',
       },
       { resource: 'llm-exchange', id: 'agent:analyst:global' },

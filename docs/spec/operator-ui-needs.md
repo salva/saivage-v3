@@ -136,6 +136,7 @@ snapshot, and its difference from current. Check an attributed update and null c
 metadata: the latter yields no inferred author or cause. Record revisions remain separate.
 Retained card evidence contains ordinary snapshots only; records retain accepted evidence plus the sole current draft, not historical drafts. Pending selection is current-only: delivered conversation bodies remain readable, but the UI promises neither a queue audit nor physical erasure. Current mutation revision and sparse historical source selectors must be distinguishable, with no fabricated locator for a queue-only revision or draft.
 Current selection freshness pairs the exact published head UUID with displayed revision; matching numeric revisions alone cannot certify a restored or newly published selection. Preserve the current identity in card/record read models while retaining immutable provenance unchanged. Old authored reviewer prose is evidence, not a new approval. Previous slots are not browsable history, UI recovery controls or normal-reader fallbacks.
+Conversation freshness likewise pairs the immutable segment UUID with its displayed ordinal. Lower ordinals must still invalidate, and rollback/recompaction must never mix old and new transcripts even when they share a cursor. Historical ordinal navigation selects the present catalog; immutable identity remains visible in catalog/content contracts, not inferred from a number.
 
 ### C. Understand activity in its work context
 

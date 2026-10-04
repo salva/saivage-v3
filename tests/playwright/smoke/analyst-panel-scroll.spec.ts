@@ -37,10 +37,10 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
   const rest = await installOperatorRestRoutes(page);
   const conversation = parseOperatorResponse('agents.conversation', 200, {
     session_id: sessionId,
-    segment_version: 1,
+    segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
     segment_context: null,
     entries,
-    cursor: { segment_version: 1, message_id: entries.at(-1)!.id },
+    cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries.at(-1)!.id },
   });
   await page.route(`**/api/agents/${encodeURIComponent(sessionId)}/conversation*`, async (route) => {
     await route.fulfill({

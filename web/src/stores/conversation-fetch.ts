@@ -4,6 +4,7 @@ import { isOperatorApiError } from '../api/client';
 
 type ConversationCursor = AgentConversationResponse['cursor'];
 export type ConversationFrame = {
+  segment_id: string;
   segment_version: number;
   visible_message_id: string | null;
 };
@@ -56,6 +57,7 @@ export function createConversationFetch<Metadata, ErrorState>(
   const refreshError = shallowRef<ErrorState | null>(null);
   let controller: AbortController | null = null;
   let epoch = 0;
+  let acceptedSessionId: AgentConversationResponse['session_id'] | null = null;
 
   function current(requestEpoch: number): boolean {
     return requestEpoch === epoch && options.isOwnerCurrent();
@@ -85,12 +87,13 @@ export function createConversationFetch<Metadata, ErrorState>(
         result = await options.request(requestController.signal, null);
       }
       const acceptedEntries =
-        acceptedCursor === null || acceptedCursor.segment_version !== result.response.segment_version
+        acceptedCursor === null || acceptedSessionId !== result.response.session_id || acceptedCursor.segment_id !== result.response.segment_id || acceptedCursor.segment_version !== result.response.segment_version
           ? [...result.response.entries]
           : [...entries.value, ...result.response.entries];
       if (!current(requestEpoch)) return;
       entries.value = acceptedEntries;
       cursor.value = result.response.cursor;
+      acceptedSessionId = result.response.session_id;
       baselineAccepted.value = true;
       initialError.value = null;
       refreshError.value = null;
@@ -118,7 +121,7 @@ export function createConversationFetch<Metadata, ErrorState>(
 
   async function onFrame(frame: ConversationFrame): Promise<void> {
     if (cursor.value) {
-      if (frame.segment_version !== cursor.value.segment_version) cursor.value = null;
+      if (frame.segment_id !== cursor.value.segment_id || frame.segment_version !== cursor.value.segment_version) cursor.value = null;
       else if (frame.visible_message_id === cursor.value.message_id) return;
     }
     await fetch();
@@ -137,6 +140,7 @@ export function createConversationFetch<Metadata, ErrorState>(
     entries.value = [];
     baselineAccepted.value = false;
     cursor.value = null;
+    acceptedSessionId = null;
     initialError.value = null;
     refreshError.value = null;
   }

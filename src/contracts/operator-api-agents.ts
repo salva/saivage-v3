@@ -25,9 +25,16 @@ const AgentConversationParamsSchema = AgentSessionParamsSchema;
 const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
 const CardAgentSessionsParamsSchema = z.object({ id: cardIdSchema }).strict();
 const AgentConversationQuerySchema = z.union([
-  z.object({ segment_version: z.undefined().optional(), since: z.undefined().optional() }).strict(),
   z
     .object({
+      segment_id: z.undefined().optional(),
+      segment_version: z.undefined().optional(),
+      since: z.undefined().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      segment_id: z.string().uuid(),
       segment_version: z
         .string()
         .regex(/^[1-9][0-9]*$/)
@@ -184,11 +191,13 @@ export const AgentDetailResponseSchema = z
 export const AgentConversationResponseSchema = z
   .object({
     session_id: ConversationSessionIdSchema,
+    segment_id: z.string().uuid(),
     segment_version: positiveSafeIntegerSchema,
     segment_context: ConversationSegmentContextSchema,
     entries: z.array(AgentConversationEntrySchema),
     cursor: z
       .object({
+        segment_id: z.string().uuid(),
         segment_version: positiveSafeIntegerSchema,
         message_id: z.string().min(1).nullable(),
       })
@@ -196,6 +205,15 @@ export const AgentConversationResponseSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (
+      value.cursor.segment_id !== value.segment_id ||
+      value.cursor.segment_version !== value.segment_version
+    )
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cursor'],
+        message: 'Conversation cursor must identify the enclosing segment.',
+      });
     for (const [index, entry] of value.entries.entries())
       if (entry.session_id !== value.session_id)
         ctx.addIssue({
@@ -224,6 +242,7 @@ const AgentConversationCursorNotFoundErrorSchema = z
   .object({
     error: z.literal('conversation_cursor_not_found'),
     session_id: ConversationSessionIdSchema,
+    segment_id: z.string().uuid(),
     segment_version: positiveSafeIntegerSchema,
     since: z.string().min(1),
   })
@@ -232,6 +251,8 @@ const ConversationSegmentChangedErrorSchema = z
   .object({
     error: z.literal('conversation_segment_changed'),
     session_id: ConversationSessionIdSchema,
+    requested_segment_id: z.string().uuid(),
+    current_segment_id: z.string().uuid(),
     requested_segment_version: positiveSafeIntegerSchema,
     current_segment_version: positiveSafeIntegerSchema,
   })

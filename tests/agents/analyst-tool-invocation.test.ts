@@ -36,7 +36,7 @@ function toolCall(argumentsJson: string, toolName = 'demo'): ProviderTurnComplet
 function analyst(
   argumentsJson: string,
   executor: (args: { value: string }, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolExecutionResult<'none'>>,
-  options: { toolName?: string; requestedToolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void; fatalPort?: ApplicationFatalPort; conversationChanged?: (target: { session_id: string; segment_version: number; visible_message_id: string | null }) => void } = {},
+  options: { toolName?: string; requestedToolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void; fatalPort?: ApplicationFatalPort; conversationChanged?: (target: { session_id: string; segment_id: string; segment_version: number; visible_message_id: string | null }) => void } = {},
 ) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-tool-invocation-'));
   roots.push(projectRoot);

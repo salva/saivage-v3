@@ -110,7 +110,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         sessionId,
         signal,
         requestCursor?.message_id
-          ? { segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
+          ? { segmentId: requestCursor.segment_id, segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
           : undefined,
       );
       return { response, metadata: undefined };

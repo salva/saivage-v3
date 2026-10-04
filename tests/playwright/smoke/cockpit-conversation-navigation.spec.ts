@@ -107,7 +107,7 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   const rest = await setup(page, true);
   await page.route(`**/api/agents/${encodeURIComponent(executor)}/conversation`, async (route: Route) => {
     const entry = { id: marker, session_id: executor, role: 'assistant', kind: 'text', content: 'Exact marker transcript row', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-assistant-99999999999949998999999999999999', message_index: 0, block_index: 0, timestamp: now };
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, { session_id: executor, segment_version: 1, segment_context: null, entries: [entry], cursor: { segment_version: 1, message_id: marker } })) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, { session_id: executor, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [entry], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: marker } })) });
   });
   await page.goto(`/agents/${encodeURIComponent(executor)}?entry=${marker}`);
   await expect(page.getByText('Exact marker transcript row')).toBeVisible();
@@ -189,7 +189,7 @@ for (const sessionId of [executor, 'agent:oversight:global']) {
       currentReads++;
       const row = updated ? second : first;
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, {
-        session_id: id, segment_version: updated ? 2 : 1, segment_context: updated ? retainedInstructionContext(id) : null, entries: [row], cursor: { segment_version: updated ? 2 : 1, message_id: row.id },
+        session_id: id, segment_id: updated ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111', segment_version: updated ? 2 : 1, segment_context: updated ? retainedInstructionContext(id) : null, entries: [row], cursor: { segment_id: updated ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111', segment_version: updated ? 2 : 1, message_id: row.id },
       })) });
     });
     const target = () => page.locator('.conv-rounds .targeted-conversation-entry');
@@ -223,7 +223,7 @@ for (const sessionId of [executor, 'agent:oversight:global']) {
     const reads = currentReads;
     updated = true;
     await page.evaluate((id) => {
-      window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 2, visible_message_id: 'new-current-marker' });
+      window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, visible_message_id: 'new-current-marker' });
     }, sessionId);
     await expect.poll(() => currentReads).toBeGreaterThan(reads);
     await expect(target()).toHaveAttribute('data-entry-id', second.id);
@@ -265,7 +265,7 @@ test('exact call chips reveal only their group, retain focus through direct/relo
     if (url.pathname.endsWith('/versions')) return route.fallback();
     currentReads++;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, {
-      session_id: executor, segment_version: 2, segment_context: null, entries: [], cursor: { segment_version: 2, message_id: null },
+      session_id: executor, segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, segment_context: null, entries: [], cursor: { segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, message_id: null },
     })) });
   });
   const link = (entry: string, segment = '1') => `/agents/${encodeURIComponent(executor)}?segment=${segment}&entry=${encodeURIComponent(entry)}`;
@@ -291,7 +291,7 @@ test('exact call chips reveal only their group, retain focus through direct/relo
   await assertTarget(opaque);
   await expect(page.locator('.tool-group-body')).toHaveCount(1);
   const reads = currentReads;
-  await page.evaluate((id) => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 2, visible_message_id: 'background-update' }), executor);
+  await page.evaluate((id) => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, visible_message_id: 'background-update' }), executor);
   await expect.poll(() => currentReads).toBeGreaterThan(reads);
   await assertTarget(opaque);
   await screenshot(page, testInfo, 'exact-grouped-call-focused.png');

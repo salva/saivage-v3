@@ -70,7 +70,7 @@ export const useAgentStore = defineStore('agents', () => {
           id,
           signal,
           requestCursor?.message_id
-            ? { segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
+            ? { segmentId: requestCursor.segment_id, segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
             : undefined,
         );
       return { response, metadata: null };
@@ -271,7 +271,7 @@ export const useAgentStore = defineStore('agents', () => {
     selectedConversationVersionError.value = null;
     return token;
   }
-  async function fetchConversation(token: ConversationSelectionToken, frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
+  async function fetchConversation(token: ConversationSelectionToken, frame?: { segment_id: string; segment_version: number; visible_message_id: string | null } | null): Promise<void> {
     if (token !== activeConversationToken) return;
     if (frame) await conversation.onFrame(frame);
     else await conversation.fetch();

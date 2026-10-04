@@ -48,7 +48,7 @@ function deferred<T>() {
 }
 
 function chat(entries: AgentConversationEntry[] = []) {
-  return { session_id: analystSessionId, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: entries.at(-1)?.id ?? null } };
+  return { session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries.at(-1)?.id ?? null } };
 }
 
 async function loadTranscript(store = useAnalystChat()) {
@@ -144,7 +144,7 @@ describe('analyst chat store', () => {
     const first = store.claimTranscriptLease(analystSessionId);
     first.release();
     await first.onFrame(null);
-    await first.onFrame({ segment_version: 1, visible_message_id: 'm1' });
+    await first.onFrame({ segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'm1' });
     expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
 
     const second = store.claimTranscriptLease(analystSessionId);
@@ -177,7 +177,7 @@ describe('analyst chat store', () => {
     expect(store.messages).toEqual([]);
     expect(store.messagesError).toBeNull();
     expect(store.messagesLoading).toBe(true);
-    await oldHandle.onFrame({ segment_version: 1, visible_message_id: 'late' });
+    await oldHandle.onFrame({ segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'late' });
     expect(apiMocks.getAgentConversation).toHaveBeenCalledTimes(2);
   });
 

@@ -71,6 +71,7 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
             body: {
               error: 'conversation_cursor_not_found',
               session_id: params.id,
+              segment_id: query.segment_id!,
               segment_version: query.segment_version!,
               since: query.since!,
             },
@@ -85,6 +86,8 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
               session_id: params.id,
               requested_segment_version: error.requestedVersion,
               current_segment_version: error.currentVersion,
+              requested_segment_id: error.requestedId,
+              current_segment_id: error.currentId,
             },
           };
         if (error instanceof AgentCurrentStateUnavailableError)

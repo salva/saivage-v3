@@ -53,6 +53,7 @@ export class SyncHub implements FreshnessEffects {
       resource: 'conversation',
       id: target.session_id,
       segment_version: target.segment_version,
+      segment_id: target.segment_id,
       visible_message_id: target.visible_message_id,
     });
   }
@@ -61,13 +62,6 @@ export class SyncHub implements FreshnessEffects {
   }
   private markDirty(target: LiveSyncInvalidateTarget): void {
     try {
-      const prior = this.#pending.get(targetKey(target));
-      if (
-        target.resource === 'conversation' &&
-        prior?.resource === 'conversation' &&
-        prior.segment_version > target.segment_version
-      )
-        return;
       this.#pending.set(targetKey(target), target);
       if (!this.#timer) this.#timer = setTimeout(() => this.flush(), this.debounceMs);
     } catch {

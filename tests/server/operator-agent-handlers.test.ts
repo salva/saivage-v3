@@ -79,7 +79,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     expect(AgentListResponseSchema.parse({ sessions: [session] }).sessions[0]!.id).toBe(id);
     expect(AgentDetailResponseSchema.parse({ session }).session.id).toBe(id);
     expect(
-      AgentConversationResponseSchema.parse({ session_id: id, segment_version: 1, segment_context: null, entries: [entry(id)], cursor: { segment_version: 1, message_id: 'm1' } })
+      AgentConversationResponseSchema.parse({ session_id: id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [entry(id)], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'm1' } })
         .session_id,
     ).toBe(id);
     expect(
@@ -160,7 +160,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       message: 'agents.conversation query did not match the operator API contract',
       issues: [{ path: 'since', message: 'Required' }],
     };
-    const cursorValidation = { error: 'conversation_cursor_not_found', session_id: 'agent:planner:project', segment_version: 1, since: 'missing' };
+    const cursorValidation = { error: 'conversation_cursor_not_found', session_id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, since: 'missing' };
     const sessionNotFound = { error: 'Agent session not found' };
     const exchangeNotFound = { error: 'llm_exchange_not_found' };
 

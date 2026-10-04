@@ -17,6 +17,7 @@ export interface FoldedConversation {
   readonly cursor: string | null;
   readonly totalEntries: number;
   readonly segmentVersion: number;
+  readonly segmentId: string;
   readonly segmentContext: ConversationSegmentContext;
 }
 
@@ -24,6 +25,8 @@ export class ConversationSegmentChangedError extends Error {
   constructor(
     readonly requestedVersion: number,
     readonly currentVersion: number,
+    readonly requestedId: string,
+    readonly currentId: string,
   ) {
     super('Conversation segment changed.');
   }
@@ -38,12 +41,23 @@ export class ConversationCursorNotFoundError extends Error {
 export function foldConversation(
   projectRoot: string,
   sessionId: ConversationSessionId,
-  options: { segmentVersion?: number; since?: string; lastN?: number } = {},
+  options:
+    | { segmentId?: undefined; segmentVersion?: undefined; since?: undefined; lastN?: number }
+    | { segmentId: string; segmentVersion: number; since: string; lastN?: undefined } = {},
 ): FoldedConversation {
   const segment = readCurrentConversationSegment(projectRoot, sessionId);
   if (!segment) throw new ConversationHistoricalVersionNotFoundError();
-  if (options.segmentVersion !== undefined && options.segmentVersion !== segment.entry.version)
-    throw new ConversationSegmentChangedError(options.segmentVersion, segment.entry.version);
+  if (
+    options.segmentVersion !== undefined &&
+    (options.segmentVersion !== segment.entry.version ||
+      options.segmentId !== segment.entry.entry_id)
+  )
+    throw new ConversationSegmentChangedError(
+      options.segmentVersion,
+      segment.entry.version,
+      options.segmentId,
+      segment.entry.entry_id,
+    );
 
   const rows = [...coveredRequiredFactRows(segment), ...segment.rows];
   const selected: AgentMessage[] = [];
@@ -69,6 +83,7 @@ export function foldConversation(
     cursor,
     totalEntries,
     segmentVersion: segment.entry.version,
+    segmentId: segment.entry.entry_id,
     segmentContext: segmentContext(segment.genesis),
   });
 }

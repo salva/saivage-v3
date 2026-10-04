@@ -92,7 +92,7 @@ describe('useSelectedConversation', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 3,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 3,
       visible_message_id: 'message-3',
     } as const;
 

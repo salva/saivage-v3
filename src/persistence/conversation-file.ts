@@ -50,6 +50,7 @@ export interface ConversationFileContext {
   readonly changes?: {
     conversationChanged(target: {
       readonly session_id: ConversationSessionId;
+      readonly segment_id: string;
       readonly segment_version: number;
       readonly visible_message_id: string | null;
     }): void;
@@ -453,6 +454,7 @@ export function appendConversationBatch(
   const duplicate = parsed.find((message) => existingIds.has(message.id));
   if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);
   let segmentVersion: number;
+  let segmentId: string;
   if (!current) {
     const entryId = randomUUID();
     const filename = versionFilename(1, randomUUID());
@@ -486,6 +488,7 @@ export function appendConversationBatch(
     );
     publishIndex(target.indexPath, next, 'replacement', options.publicationTemporaryId);
     segmentVersion = 1;
+    segmentId = entryId;
   } else {
     appendRequiredEnvelope(
       target.versionPath(current.entry.filename),
@@ -493,10 +496,12 @@ export function appendConversationBatch(
       options.io,
     );
     segmentVersion = current.entry.version;
+    segmentId = current.entry.entry_id;
   }
   conversations.changes?.conversationChanged({
     session_id: sessionId,
     segment_version: segmentVersion,
+    segment_id: segmentId,
     visible_message_id: visibleMessageId(parsed) ?? visibleMessageId(current?.rows ?? []),
   });
   if (!current) {
@@ -668,6 +673,7 @@ export function publishCompactedConversationSegment(
   conversations.changes?.conversationChanged({
     session_id: sessionId,
     segment_version: version,
+    segment_id: entryId,
     visible_message_id: visibleMessageId(rows),
   });
   return successor;

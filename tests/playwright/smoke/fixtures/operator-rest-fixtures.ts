@@ -271,10 +271,10 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       const retainedContext = sessionId === 'agent:planner:project' ? retainedInstructionContext(sessionId) : null;
       return json(route, parseOperatorResponse('agents.conversation', 200, {
         session_id: sessionId,
-        segment_version: retainedContext ? 2 : 1,
+        segment_id: retainedContext ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111', segment_version: retainedContext ? 2 : 1,
         segment_context: retainedContext,
         entries,
-        cursor: { segment_version: retainedContext ? 2 : 1, message_id: allEntries.at(-1)?.id ?? since },
+        cursor: { segment_id: retainedContext ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111', segment_version: retainedContext ? 2 : 1, message_id: allEntries.at(-1)?.id ?? since },
       }));
     }
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation/versions')) {

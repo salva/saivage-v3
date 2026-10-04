@@ -2,6 +2,7 @@ import {
   AgentConversationResponseSchema,
   AgentSessionSummarySchema,
   CardAgentSessionsResponseSchema,
+  agentOperatorApiContracts,
 } from '../../src/contracts/operator-api-agents.js';
 import { ChatIdentityResponseSchema } from '../../src/contracts/operator-api-chats.js';
 import {
@@ -33,9 +34,9 @@ describe('changeset C contracts', () => {
     expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'running' }).success).toBe(false);
     expect(AgentSessionSummarySchema.safeParse({ ...summary, extra: true }).success).toBe(false);
     expect(
-      AgentConversationResponseSchema.parse({ session_id: summary.id, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: 'z' } })
+      AgentConversationResponseSchema.parse({ session_id: summary.id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'z' } })
         .cursor,
-    ).toEqual({ segment_version: 1, message_id: 'z' });
+    ).toEqual({ segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'z' });
     expect(ChatIdentityResponseSchema.parse({ session_id: summary.id })).toEqual({
       session_id: summary.id,
     });
@@ -74,9 +75,23 @@ describe('changeset C contracts', () => {
         t: 'invalidate',
         resource: 'conversation',
         id: summary.id,
-        segment_version: 1,
+        segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
         visible_message_id: 'a',
       }).success,
     ).toBe(true);
+  });
+  it('requires exact ID/version cursor queries and matching response cursor identity', () => {
+    const segmentId = '11111111-1111-4111-8111-111111111111';
+    const query = agentOperatorApiContracts['agents.conversation'].query;
+    expect(query.parse({})).toEqual({});
+    expect(query.parse({ segment_id: segmentId, segment_version: '3', since: 'retained' })).toEqual({
+      segment_id: segmentId, segment_version: 3, since: 'retained',
+    });
+    expect(query.safeParse({ segment_version: '3', since: 'retained' }).success).toBe(false);
+    expect(query.safeParse({ segment_id: segmentId, since: 'retained' }).success).toBe(false);
+    expect(AgentConversationResponseSchema.safeParse({
+      session_id: summary.id, segment_id: segmentId, segment_version: 3, segment_context: null, entries: [],
+      cursor: { segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 3, message_id: 'retained' },
+    }).success).toBe(false);
   });
 });

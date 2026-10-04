@@ -74,7 +74,7 @@ describe('changeset C lease ownership', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1, visible_message_id: 'z',
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'z',
     });
     h.sync({
       t: 'subscribed',
@@ -94,7 +94,7 @@ describe('changeset C lease ownership', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1, visible_message_id: 'a',
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'a',
     });
     release();
     await flush();
@@ -158,7 +158,7 @@ describe('changeset C lease ownership', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1, visible_message_id: 'a',
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'a',
     });
 
     releaseOld();
@@ -347,7 +347,7 @@ describe('changeset C lease ownership', () => {
     expect(cardB).not.toHaveBeenCalled();
   });
 
-  it('retains the greatest conversation segment and the latest equal-version tip', async () => {
+  it('retains the latest accepted conversation hint even when rollback lowers the ordinal', async () => {
     const h = harness();
     const held = pending();
     const callback = vi.fn().mockResolvedValue(undefined);
@@ -358,15 +358,14 @@ describe('changeset C lease ownership', () => {
     await flush();
     callback.mockClear();
 
-    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'held' });
-    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 3, visible_message_id: 'first-tip' });
-    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 2, visible_message_id: 'older' });
-    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 3, visible_message_id: 'latest-tip' });
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'held' });
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '33333333-3333-4333-8333-333333333333', segment_version: 3, visible_message_id: 'first-tip' });
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, visible_message_id: 'rollback-tip' });
     held.resolve(undefined);
     await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2));
     expect(callback).toHaveBeenLastCalledWith(expect.objectContaining({
-      segment_version: 3,
-      visible_message_id: 'latest-tip',
+      segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2,
+      visible_message_id: 'rollback-tip',
     }));
   });
 });

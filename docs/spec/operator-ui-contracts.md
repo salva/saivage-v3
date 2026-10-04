@@ -244,7 +244,15 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ## 6. Conversation readers
 
-- `/agents/:id?segment=N&entry=ID` selects one exact indexed segment and optionally
+- Current REST responses and cursors carry `segment_id` (immutable entry UUID) and
+  displayed `segment_version`; incremental queries require both plus `since`.
+  Segment-changed errors carry requested/current IDs and versions before cursor lookup.
+  Append requires the same session and segment identity/version. Changed identity,
+  including a lower ordinal or a new UUID at the same ordinal and retained cursor,
+  forces baseline replacement/refetch. Sync coalesces in accepted connection order,
+  not greatest numeric version, and keeps existing epoch protection. Catalog/content
+  retain immutable `entry_id`; numeric navigation alone is not an old-identity handle.
+- `/agents/:id?segment=N&entry=ID` selects ordinal N in the present catalog and optionally
   its exact row. `segment` is a scalar decimal `[1-9][0-9]*` with a positive safe
   integer value; absence selects current. Invalid values render **Invalid segment
   selection** without a version-content request or current fallback. Explicit selection

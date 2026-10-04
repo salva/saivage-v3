@@ -317,7 +317,7 @@ describe('SyncClient', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1, visible_message_id: 'z',
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'z',
     });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
@@ -387,7 +387,7 @@ describe('SyncClient', () => {
     expect(second).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenLastCalledWith(null);
 
-    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'm1' } as const;
     emitSync(frame);
     await flush();
     expect(first).toHaveBeenCalledTimes(2);
@@ -410,7 +410,7 @@ describe('SyncClient', () => {
     expect(callback.mock.calls).toEqual([[null], [null]]);
 
     closeFirst();
-    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'm1' } as const;
     emitSync(frame);
     await flush();
     expect(callback).toHaveBeenCalledTimes(3);
@@ -437,7 +437,7 @@ describe('SyncClient', () => {
 
     client.openConversation('agent:planner:project', second);
     const closeReleased = client.openConversation('agent:planner:project', released);
-    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'm1' } as const;
     emitSync(frame);
     closeReleased();
     expect(second).not.toHaveBeenCalled();
@@ -469,7 +469,7 @@ describe('SyncClient', () => {
     emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
     await flush();
 
-    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'm1' } as const;
     emitSync(frame);
     await vi.waitFor(() => expect(first).toHaveBeenCalledTimes(2));
     expect(first).toHaveBeenLastCalledWith(frame);
@@ -613,7 +613,7 @@ describe('SyncClient', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:analyst:global',
-      segment_version: 1, visible_message_id: 'a',
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'a',
     });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);

@@ -146,6 +146,7 @@ async function readAgentSession(
       session: response.session,
       ownership: response.ownership,
       segment_version: response.conversation.segmentVersion,
+      segment_id: response.conversation.segmentId,
       section,
       has_segment_context: response.conversation.segmentContext !== null,
       total_visible_entries: response.conversation.totalEntries,

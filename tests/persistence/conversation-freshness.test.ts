@@ -48,12 +48,12 @@ describe('conversation publication freshness', () => {
       row(session, 'z', 'activity'),
       row(session, 'a'),
     ]);
-    expect(conversationChanged).toHaveBeenLastCalledWith({ session_id: session, segment_version: 1, visible_message_id: 'a' });
+    expect(conversationChanged).toHaveBeenLastCalledWith({ session_id: session, segment_id: expect.any(String), segment_version: 1, visible_message_id: 'a' });
     expect(agentMembershipChanged).toHaveBeenCalledWith({ scope: 'card', cardId: 'project' });
     conversationChanged.mockClear();
     agentMembershipChanged.mockClear();
     appendConversationBatch({ projectRoot: root, changes }, [row(session, 'later')]);
-    expect(conversationChanged).toHaveBeenCalledWith({ session_id: session, segment_version: 1, visible_message_id: 'later' });
+    expect(conversationChanged).toHaveBeenCalledWith({ session_id: session, segment_id: expect.any(String), segment_version: 1, visible_message_id: 'later' });
     expect(agentMembershipChanged).not.toHaveBeenCalled();
   });
 });

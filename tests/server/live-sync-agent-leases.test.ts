@@ -38,7 +38,7 @@ describe('Agent live-sync leases', () => {
     live.invalidate({
       resource: 'conversation',
       id: 'agent:planner:project',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       visible_message_id: 'a',
     });
     expect(ws.send).toHaveBeenLastCalledWith(
@@ -46,7 +46,7 @@ describe('Agent live-sync leases', () => {
         t: 'invalidate',
         resource: 'conversation',
         id: 'agent:planner:project',
-        segment_version: 1,
+        segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
         visible_message_id: 'a',
       }),
     );

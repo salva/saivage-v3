@@ -75,6 +75,7 @@ export const LiveSyncInvalidateFrameSchema = z.union([
       resource: z.literal('conversation'),
       id: ConversationSessionIdSchema,
       segment_version: positiveSafeIntegerSchema,
+      segment_id: z.string().uuid(),
       visible_message_id: z.string().min(1).nullable(),
     })
     .strict(),

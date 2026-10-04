@@ -130,7 +130,7 @@ test('Cards bootstrap and Analyst identity start independently while transcript 
   await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
   await expect.poll(() => analystConversationReads).toBe(1);
   eventLedger.push('analyst:invalidate:settled');
-  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 1, visible_message_id: 'newer-opaque-id' }), analystSessionId);
+  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'newer-opaque-id' }), analystSessionId);
   await expect.poll(() => analystConversationReads).toBe(2);
 
   rootReleased = true;

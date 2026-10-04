@@ -128,7 +128,7 @@ describe('versioned conversation persistence', () => {
     expect(readConversationCatalog(projectRoot, SESSION).currentVersion).toBeNull();
     expect(readConversation(projectRoot, SESSION).physicalRows).toEqual([]);
     appendConversationBatch({ projectRoot, changes: { conversationChanged: (target) => { effects.push(target); }, agentMembershipChanged: (target) => { effects.push(target); } } }, [text('first')]);
-    expect(effects).toEqual([{ session_id: SESSION, segment_version: 1, visible_message_id: 'first' }, { scope: 'card', cardId: 'project' }]);
+    expect(effects).toEqual([{ session_id: SESSION, segment_id: readCurrentConversationSegment(projectRoot, SESSION)!.entry.entry_id, segment_version: 1, visible_message_id: 'first' }, { scope: 'card', cardId: 'project' }]);
     const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
     expect(segment.genesis.kind).toBe('ordinary_segment_genesis');
     expect(segment.rows.map((row) => row.id)).toEqual(['first']);
@@ -138,7 +138,7 @@ describe('versioned conversation persistence', () => {
   it('appends one conversation-segment envelope and emits the resulting visible tip', () => {
     const projectRoot = root(); appendConversationBatch({ projectRoot }, [text('first')]); const effects: unknown[] = [];
     appendConversationBatch({ projectRoot, changes: { conversationChanged: (target) => { effects.push(target); }, agentMembershipChanged() {} } }, [privateRow('private'), projectedText('second', 'private')]);
-    expect(effects).toEqual([{ session_id: SESSION, segment_version: 1, visible_message_id: 'second' }]);
+    expect(effects).toEqual([{ session_id: SESSION, segment_id: readCurrentConversationSegment(projectRoot, SESSION)!.entry.entry_id, segment_version: 1, visible_message_id: 'second' }]);
     const segment = readCurrentConversationSegment(projectRoot, SESSION)!; const lines = segment.bytes.toString('utf8').trim().split('\n').map((line) => JSON.parse(line));
     expect(lines.map((line) => line.type)).toEqual(['conversation-segment', 'conversation-segment']);
     expect(lines[0].rows[0].kind).toBe('ordinary_segment_genesis');

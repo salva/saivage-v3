@@ -295,11 +295,11 @@ export function getAgentSession(
 export function getAgentConversation(
   sessionId: ConversationSessionId,
   signal?: AbortSignal,
-  cursor?: { segmentVersion: number; messageId: string },
+  cursor?: { segmentId: string; segmentVersion: number; messageId: string },
 ): Promise<AgentConversationResponse> {
   return operatorRequest('agents.conversation', {
     params: { id: sessionId },
-    query: cursor ? { segment_version: String(cursor.segmentVersion), since: cursor.messageId } : undefined,
+    query: cursor ? { segment_id: cursor.segmentId, segment_version: String(cursor.segmentVersion), since: cursor.messageId } : undefined,
     signal,
   });
 }

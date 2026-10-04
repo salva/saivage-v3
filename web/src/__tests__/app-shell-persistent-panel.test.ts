@@ -68,10 +68,10 @@ describe('AppShell persistent analyst panel', () => {
     api.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global' });
     api.getAgentConversation.mockResolvedValue({
       session_id: 'agent:analyst:global',
-      segment_version: 1,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       segment_context: null,
       entries: [],
-      cursor: { segment_version: 1, message_id: null },
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: null },
     });
     live.openConversation.mockImplementation(() => {
       live.events.push('analyst-open');

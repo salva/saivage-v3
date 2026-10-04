@@ -45,7 +45,7 @@ describe('live observation-only socket admission', () => {
       const subscribe = { t: 'subscribe', resource: 'conversation', id: 'agent:analyst:global', lease: 'a' };
       fixture.socket.send(JSON.stringify(subscribe)); await turn();
       expect(fixture.frames).toContainEqual({ ...subscribe, t: 'subscribed' });
-      const hint = { resource: 'conversation' as const, id: 'agent:analyst:global' as const, segment_version: 1, visible_message_id: null };
+      const hint = { resource: 'conversation' as const, id: 'agent:analyst:global' as const, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: null };
       fixture.sync.invalidate(hint); await turn();
       expect(fixture.frames).toContainEqual({ t: 'invalidate', ...hint });
       fixture.socket.send(JSON.stringify({ ...subscribe, t: 'unsubscribe', lease: 'obsolete' })); await turn();

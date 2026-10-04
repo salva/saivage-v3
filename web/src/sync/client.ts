@@ -266,11 +266,6 @@ export class SyncClient {
       this.drainLease(key, entry, entry.generation);
       return;
     }
-    if (
-      frame.resource === 'conversation' &&
-      entry.trailingFrame?.resource === 'conversation' &&
-      frame.segment_version < entry.trailingFrame.segment_version
-    ) return;
     entry.trailingFrame = frame;
     this.drainLease(key, entry, entry.generation);
   }

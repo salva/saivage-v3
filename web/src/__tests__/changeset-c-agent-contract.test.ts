@@ -30,10 +30,10 @@ describe('changeset C browser contracts', () => {
     expect(
       AgentConversationResponseSchema.safeParse({
         session_id: session.id,
-        segment_version: 1,
+        segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
         segment_context: null,
         entries: [],
-        cursor: { segment_version: 1, message_id: 'z' },
+        cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'z' },
       }).success,
     ).toBe(true);
     expect(
@@ -61,7 +61,7 @@ describe('changeset C browser contracts', () => {
         t: 'invalidate',
         resource: 'conversation',
         id: session.id,
-        segment_version: 1, visible_message_id: 'a',
+        segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'a',
       }).success,
     ).toBe(true);
   });

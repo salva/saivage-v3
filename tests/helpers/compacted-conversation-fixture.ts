@@ -67,7 +67,7 @@ export async function publishThreeGenerationCompactedConversation(
   return SESSION;
 }
 
-async function requireCompacted(
+export async function requireCompacted(
   projectRoot: string,
   strategy: 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission',
   summaryText: string,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -16,7 +16,9 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
-import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
+import { publishThreeGenerationCompactedConversation, requireCompacted } from '../helpers/compacted-conversation-fixture.js';
+import { cardConversationVersionIndexFile, conversationPreviousIndexFile } from '../../src/persistence/layout.js';
+import { publishHeadFile } from '../../src/persistence/publish-head.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
@@ -72,6 +74,7 @@ describe('mounted operator compacted Agent conversations', () => {
         'cursor',
         'entries',
         'segment_context',
+        'segment_id',
         'segment_version',
         'session_id',
       ]);
@@ -116,6 +119,46 @@ describe('mounted operator compacted Agent conversations', () => {
       expect(JSON.stringify(current.entries)).toContain('retained-tool');
       expect(JSON.stringify(current.entries)).toContain('read_file');
       expect(JSON.stringify(historical[0]!.entries)).toContain('covered-tool');
+
+      // Model an explicit selector rollback without introducing a repair path here.
+      // The v2 source already contains the rows retained by both incarnations of v3.
+      const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+      const index = JSON.parse(readFileSync(indexPath, 'utf8'));
+      const predecessor = index.versions[1];
+      publishHeadFile(indexPath, conversationPreviousIndexFile(indexPath), Buffer.from(JSON.stringify({
+        ...index, versions: index.versions.slice(0, 2), current_version: 2, current_filename: predecessor.filename,
+      }) + '\n'), 'replacement');
+      const rollback = await fastify.inject({ method: 'GET', url: `/api/agents/${encodedSessionId}/conversation` });
+      expect(rollback.json().segment_version).toBe(2);
+      await requireCompacted(projectRoot, 'local_exact_admission', 'fixture compacted summary');
+      const recompacted = AgentConversationResponseSchema.parse((await fastify.inject({
+        method: 'GET', url: `/api/agents/${encodedSessionId}/conversation`,
+      })).json());
+      expect(recompacted.segment_version).toBe(current.segment_version);
+      expect(recompacted.segment_id).not.toBe(current.segment_id);
+      // Select a cursor demonstrably retained in both generations, not a missing-row false positive.
+      const retainedCursor = current.entries.find(row => recompacted.entries.some(next => next.id === row.id))!.id;
+      for (const since of [retainedCursor, 'cursor-not-present']) {
+        const stale = await fastify.inject({ method: 'GET', url: `/api/agents/${encodedSessionId}/conversation`, query: {
+          segment_id: current.segment_id, segment_version: String(current.segment_version), since,
+        } });
+        expect(stale.statusCode).toBe(409);
+        expect(stale.json()).toEqual({
+          error: 'conversation_segment_changed', session_id: sessionId,
+          requested_segment_id: current.segment_id, requested_segment_version: 3,
+          current_segment_id: recompacted.segment_id, current_segment_version: 3,
+        });
+      }
+      const tail = await fastify.inject({ method: 'GET', url: `/api/agents/${encodedSessionId}/conversation`, query: {
+        segment_id: recompacted.segment_id, segment_version: '3', since: retainedCursor,
+      } });
+      expect(tail.statusCode).toBe(200);
+      expect(tail.json().segment_id).toBe(recompacted.segment_id);
+      const newCatalog = ConversationVersionListResponseSchema.parse((await fastify.inject({
+        method: 'GET', url: `/api/agents/${encodedSessionId}/conversation/versions`,
+      })).json());
+      expect(newCatalog.versions[2]!.entry_id).toBe(recompacted.segment_id);
+      expect(newCatalog.versions.some(entry => entry.entry_id === current.segment_id)).toBe(false);
     } finally {
       await fastify.close();
     }

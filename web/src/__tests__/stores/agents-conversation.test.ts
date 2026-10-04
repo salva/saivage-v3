@@ -78,7 +78,7 @@ function deferred<T>() {
 }
 
 function conversation(entries: AgentConversationEntry[] = [entry], cursor = 'm1') {
-  return { session_id: S1, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: cursor } };
+  return { session_id: S1, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: cursor } };
 }
 
 describe('useAgentStore singular agent resource ownership', () => {
@@ -309,8 +309,8 @@ describe('useAgentStore singular agent resource ownership', () => {
     const conflict = new OperatorApiError('agents.conversation', 409, {
       error: 'conversation_segment_changed',
       session_id: S1,
-      requested_segment_version: 1,
-      current_segment_version: 2,
+      requested_segment_id: '11111111-1111-4111-8111-111111111111', requested_segment_version: 1,
+      current_segment_id: '22222222-2222-4222-8222-222222222222', current_segment_version: 2,
     });
     const replacement = { ...entry, id: 'replacement', content: 'replacement' };
     vi.mocked(getAgentConversation)
@@ -333,8 +333,8 @@ describe('useAgentStore singular agent resource ownership', () => {
     const conflict = new OperatorApiError('agents.conversation', 409, {
       error: 'conversation_segment_changed',
       session_id: S1,
-      requested_segment_version: 1,
-      current_segment_version: 2,
+      requested_segment_id: '11111111-1111-4111-8111-111111111111', requested_segment_version: 1,
+      current_segment_id: '22222222-2222-4222-8222-222222222222', current_segment_version: 2,
     });
     vi.mocked(getAgentConversation)
       .mockResolvedValueOnce(conversation())
@@ -352,8 +352,8 @@ describe('useAgentStore singular agent resource ownership', () => {
     const conflict = new OperatorApiError('agents.conversation', 409, {
       error: 'conversation_segment_changed',
       session_id: S1,
-      requested_segment_version: 1,
-      current_segment_version: 2,
+      requested_segment_id: '11111111-1111-4111-8111-111111111111', requested_segment_version: 1,
+      current_segment_id: '22222222-2222-4222-8222-222222222222', current_segment_version: 2,
     });
     vi.mocked(getAgentConversation).mockRejectedValueOnce(conflict);
     const initialStore = useAgentStore();
@@ -389,8 +389,53 @@ describe('useAgentStore singular agent resource ownership', () => {
     const token = store.beginConversationSelection(S1);
     await store.fetchConversation(token);
     await store.fetchConversation(token);
-    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), { segmentVersion: 1, messageId: 'm1' });
+    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), { segmentId: '11111111-1111-4111-8111-111111111111', segmentVersion: 1, messageId: 'm1' });
     expect(store.entries.map(({ id }) => id)).toEqual(['m1', 'm2']);
+  });
+
+  it('replaces N through rollback and a new N identity even when all retain the same cursor', async () => {
+    const oldId = '11111111-1111-4111-8111-111111111111';
+    const predecessorId = '22222222-2222-4222-8222-222222222222';
+    const newId = '33333333-3333-4333-8333-333333333333';
+    const baseline = (id: string, version: number, content: string) => ({
+      ...conversation([{ ...entry, content }], 'm1'), segment_id: id, segment_version: version,
+      cursor: { segment_id: id, segment_version: version, message_id: 'm1' },
+    });
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(baseline(oldId, 3, 'old N'))
+      .mockResolvedValueOnce(baseline(predecessorId, 2, 'rollback'))
+      .mockResolvedValueOnce(baseline(newId, 3, 'new N'));
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchConversation(token);
+    await store.fetchConversation(token, { segment_id: predecessorId, segment_version: 2, visible_message_id: 'm1' });
+    expect(store.entries.map(row => row.content)).toEqual(['rollback']);
+    await store.fetchConversation(token, { segment_id: newId, segment_version: 3, visible_message_id: 'm1' });
+    expect(store.entries.map(row => row.content)).toEqual(['new N']);
+    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), undefined);
+    expect(getAgentConversation).toHaveBeenNthCalledWith(3, S1, expect.any(AbortSignal), undefined);
+  });
+
+  it('rebases an old N cursor after missed rollback hints and same-number recompaction', async () => {
+    const oldId = '11111111-1111-4111-8111-111111111111';
+    const newId = '33333333-3333-4333-8333-333333333333';
+    const conflict = new OperatorApiError('agents.conversation', 409, {
+      error: 'conversation_segment_changed', session_id: S1,
+      requested_segment_id: oldId, requested_segment_version: 1,
+      current_segment_id: newId, current_segment_version: 1,
+    });
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation())
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ ...conversation([{ ...entry, content: 'new incarnation' }]), segment_id: newId,
+        cursor: { segment_id: newId, segment_version: 1, message_id: 'm1' } });
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchConversation(token);
+    await store.fetchConversation(token);
+    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), { segmentId: oldId, segmentVersion: 1, messageId: 'm1' });
+    expect(getAgentConversation).toHaveBeenNthCalledWith(3, S1, expect.any(AbortSignal), undefined);
+    expect(store.entries.map(row => row.content)).toEqual(['new incarnation']);
   });
 
   it('makes stale transcript tokens, completions, refetches, and clears inert', async () => {
@@ -401,7 +446,7 @@ describe('useAgentStore singular agent resource ownership', () => {
       .mockResolvedValueOnce({
         session_id: S2,
         entries: [{ ...entry, session_id: S2 }],
-        cursor: { segment_version: 1, message_id: 'm2' }, segment_version: 1, segment_context: null,
+        cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'm2' }, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null,
       });
     vi.mocked(getAgentSession)
       .mockReturnValueOnce(oldSummaryRequest.promise)
