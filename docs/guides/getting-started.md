@@ -1,5 +1,15 @@
 # Getting started
 
+Strict startup does not automatically restore previous selections or reconstruct
+history. On same-format corruption, stop/disable restarts, verify no owner, preserve
+a successful complete fresh backup, and follow [exact-target offline repair](../runbook/index.md#exact-target-offline-repair)
+with external report/typed consent and separate restart. No unattended repair or
+availability guarantee; incompatible format adoption remains separately authorized
+reset-only. Catastrophic card discard requires both unusable selections and extra
+destructive consent (explicit configured type for non-root), loses own state and
+unlinks children without moving them. Later ancestor Run may Planner-reopen the
+synthetic FAILED replacement and execute unchanged placeholder requirements.
+
 Status: non-authoritative guide. Contracts and exact behavior are owned by the
 [System specification](../spec/system-specification.md), the
 [Operator UI needs](../spec/operator-ui-needs.md) and [contracts](../spec/operator-ui-contracts.md), and the

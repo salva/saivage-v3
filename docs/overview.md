@@ -9,6 +9,16 @@ linked authorities — the [System specification](spec/system-specification.md),
 
 ## What it does for you
 
+Persistence is deliberately loss-tolerant, not guaranteed preservation. Strict
+startup may block readiness; supported offline exact-target repair requires stopped
+ownership, a fresh complete backup, external report and explicit consent, followed
+by separate restart. It never regenerates heads or scans history. Catastrophic
+both-unusable-card-selections discard loses own data and unlinks former descendants,
+leaving physical children ignored. Its synthetic FAILED replacement is not an
+operator-only hold: later explicit ancestor Run can Planner-reopen and execute
+placeholder requirements. Format adoption remains reset-only. See the
+[operator ladder](runbook/index.md#exact-target-offline-repair).
+
 Saivage is autonomous software engineering built for the long run. Its aim is
 to carry a software project all the way — from a specification to an accepted,
 evidenced delivery — with minimal user intervention. You describe what the

@@ -26,6 +26,7 @@ export interface GrowingFileTruncationIo {
 }
 export interface CanonicalReadInstrumentation {
   readonly onRead: (path: string) => void;
+  readonly onBytes?: (path: string, bytes: Buffer | null) => void;
 }
 const growingFileIo: GrowingFileIo = {
   open: openSync,
@@ -96,7 +97,14 @@ export function readCanonicalBytes(
   instrumentation?: CanonicalReadInstrumentation,
 ): Buffer {
   instrumentation?.onRead(path);
-  return readFileSync(path);
+  try {
+    const bytes = readFileSync(path);
+    instrumentation?.onBytes?.(path, bytes);
+    return bytes;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') instrumentation?.onBytes?.(path, null);
+    throw error;
+  }
 }
 
 export function readCanonicalBytesOrMissing(
@@ -105,22 +113,27 @@ export function readCanonicalBytesOrMissing(
 ): Buffer | null {
   instrumentation?.onRead(path);
   try {
-    return readFileSync(path);
+    const bytes = readFileSync(path);
+    instrumentation?.onBytes?.(path, bytes);
+    return bytes;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      instrumentation?.onBytes?.(path, null);
+      return null;
+    }
     throw error;
   }
 }
 
-// The format owner validates the complete retained prefix before any mutation.
-export function consumeGrowingFile<T>(
+/** Pure owner validation: no descriptor, truncation, or other publication. */
+export function inspectGrowingFile<T>(
   path: string,
   bytes: Buffer,
   validate: (bytes: Buffer) => T,
-  io: GrowingFileTruncationIo = growingFileTruncationIo,
-): T {
+): { readonly projection: T; readonly retainedLength: number; readonly tornSuffixLength: number } {
   if (bytes.byteLength === 0) throw new Error(`Growing file '${path}' is empty.`);
-  if (bytes.at(-1) === 0x0a) return validate(bytes);
+  if (bytes.at(-1) === 0x0a)
+    return { projection: validate(bytes), retainedLength: bytes.length, tornSuffixLength: 0 };
   const newline = bytes.lastIndexOf(0x0a);
   if (newline < 0)
     throw new Error(
@@ -128,6 +141,15 @@ export function consumeGrowingFile<T>(
     );
   const length = newline + 1;
   const projection = validate(bytes.subarray(0, length));
+  return { projection, retainedLength: length, tornSuffixLength: bytes.length - length };
+}
+
+/** Exact owner effect, called only after retained-prefix validation and effect admission. */
+export function truncateGrowingFile(
+  path: string,
+  length: number,
+  io: GrowingFileTruncationIo = growingFileTruncationIo,
+): void {
   const descriptor = io.open(path, constants.O_RDWR);
   try {
     io.ftruncate(descriptor, length);
@@ -136,7 +158,18 @@ export function consumeGrowingFile<T>(
   } catch (error) {
     throw new PublicationOutcomeUnknownError(error);
   }
-  return projection;
+}
+
+// Ordinary consumption retains its existing automatic torn-tail behavior.
+export function consumeGrowingFile<T>(
+  path: string,
+  bytes: Buffer,
+  validate: (bytes: Buffer) => T,
+  io: GrowingFileTruncationIo = growingFileTruncationIo,
+): T {
+  const inspected = inspectGrowingFile(path, bytes, validate);
+  if (inspected.tornSuffixLength !== 0) truncateGrowingFile(path, inspected.retainedLength, io);
+  return inspected.projection;
 }
 
 export function consumeGrowingRows<Row, T>(

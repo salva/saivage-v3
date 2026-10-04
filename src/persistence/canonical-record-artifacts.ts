@@ -28,7 +28,11 @@ const acceptedRecordSnapshotSchema = z
     source_version: positiveSafeIntegerSchema,
     source_entry_id: uuidV4Schema,
     committed_at: z.string().datetime(),
-    writer_agent: z.union([agentNameSchema, z.literal('runtime:bootstrap')]),
+    writer_agent: z.union([
+      agentNameSchema,
+      z.literal('runtime:bootstrap'),
+      z.literal('runtime:repair'),
+    ]),
     card_version_seq: positiveSafeIntegerSchema,
     card_history: cardArtifactReferenceSchema,
     content: z.string(),
@@ -101,6 +105,17 @@ export const authoredRecordVersionArtifactSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted source identity mismatch.' });
     if (value.predecessor && value.predecessor.version >= value.version)
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted predecessor must decrease.' });
+    if (
+      value.accepted.writer_agent === 'runtime:repair' &&
+      (value.version !== 1 ||
+        value.predecessor !== null ||
+        value.accepted.card_version_seq !== 1 ||
+        value.accepted.card_history.version !== 1)
+    )
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid synthetic repair acceptance origin.',
+      });
   });
 export type AcceptedRecordSnapshot = z.infer<typeof acceptedRecordSnapshotSchema>;
 export type AuthoredRecordVersionArtifact = z.infer<typeof authoredRecordVersionArtifactSchema>;

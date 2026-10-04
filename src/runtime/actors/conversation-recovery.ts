@@ -13,7 +13,7 @@ import {
 import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
 import { appendUncertainPriorToolResult } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/session-api.js';
-import { validateConversation, type ValidatedConversation } from '../../contracts/index.js';
+import { type ValidatedConversation } from '../../contracts/index.js';
 
 export function settleFinalUnmatchedCall(
   conversations: ConversationFileContext,
@@ -89,13 +89,7 @@ export function stabilizeAgentSession(args: {
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): AgentSessionStabilization {
-  let conversation: ValidatedConversation;
-  try {
-    conversation = readConversation(args.conversations.projectRoot, args.sessionId);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    conversation = validateConversation(args.sessionId, []);
-  }
+  const conversation = readConversation(args.conversations.projectRoot, args.sessionId);
   const messages = conversation.physicalRows;
   const sourceRows = conversation.sourceRows;
   const latestRound = conversation.rounds.at(-1);

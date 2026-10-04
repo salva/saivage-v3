@@ -17,6 +17,24 @@ import {
   readCurrentConversationSegment,
 } from './conversation-file.js';
 import { readProviderExchangeEntries } from './provider-exchange-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+
+const STRICT_FAILURE_PROCEDURE =
+  'Startup will not manufacture authority or use previous slots. Keep the service stopped, disable restarts, positively verify no owning process, preserve a fresh complete stopped-project backup, then use separately consented exact-target saivage repair where supported and restart separately. Unsupported damage may require an explicitly authorized whole-generated-state reset.';
+function strictRead<T>(owner: string, read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
+    const code = (error as NodeJS.ErrnoException).code;
+    const category =
+      code === 'ENOENT' ? 'missing' : code !== undefined ? 'unreadable' : 'malformed/inconsistent';
+    throw new Error(
+      `Strict canonical ${category} state for ${owner}. ${STRICT_FAILURE_PROCEDURE}`,
+      { cause: error },
+    );
+  }
+}
 
 interface AdmittedCard {
   readonly card: CardRecord;
@@ -44,9 +62,13 @@ function requireConversationCatalog(projectRoot: string, sessionId: Conversation
   try {
     readConversationCatalog(projectRoot, sessionId);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    throwIfPublicationOutcomeUnknown(error);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      strictRead(`conversation index '${sessionId}'`, () => {
+        throw error;
+      });
     throw new Error(
-      `Required conversation index for current configured session '${sessionId}' is missing from initialized generated state. Startup will not create a replacement session. Keep the service stopped; use the authorized reset-only cutover procedure with a full stopped backup before resetting generated history. Preserve configuration, credentials, operator inputs, source, and docs. Do not rename, merge, or selectively delete conversations.`,
+      `Required conversation index for current configured session '${sessionId}' is missing from initialized generated state. Startup will not create a replacement session. ${STRICT_FAILURE_PROCEDURE}`,
       { cause: error },
     );
   }
@@ -56,8 +78,9 @@ function admitCurrentCards(
   projectRoot: string,
   workflows: CompiledProjectWorkflows,
 ): readonly AdmittedCard[] {
-  const cards = listCards(projectRoot);
-  if (cards.length === 0) throw new Error('Required project card authority is missing.');
+  const cards = strictRead('current linked card graph', () => listCards(projectRoot));
+  if (cards.length === 0)
+    throw new Error(`Required project card authority is missing. ${STRICT_FAILURE_PROCEDURE}`);
 
   const byId = new Map(cards.map((card) => [card.id, card] as const));
   const admitted: AdmittedCard[] = [];
@@ -91,16 +114,30 @@ export function initializeAndValidateCurrentGeneratedState(
   }
   for (const sessionId of sessionIds) requireConversationCatalog(projectRoot, sessionId);
 
-  initializeAppLog(projectRoot);
-  for (const sessionId of sessionIds) readProviderExchangeEntries(projectRoot, sessionId);
+  strictRead('shared app log', () => initializeAppLog(projectRoot));
+  for (const sessionId of sessionIds)
+    strictRead(`provider evidence '${sessionId}'`, () =>
+      readProviderExchangeEntries(projectRoot, sessionId),
+    );
   const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
-  if (isConversationCatalogEstablished(projectRoot, oversightSessionId))
-    readProviderExchangeEntries(projectRoot, oversightSessionId);
-  for (const sessionId of sessionIds) readCurrentConversationSegment(projectRoot, sessionId);
+  if (
+    strictRead(`optional configured conversation index '${oversightSessionId}'`, () =>
+      isConversationCatalogEstablished(projectRoot, oversightSessionId),
+    )
+  )
+    strictRead(`provider evidence '${oversightSessionId}'`, () =>
+      readProviderExchangeEntries(projectRoot, oversightSessionId),
+    );
+  for (const sessionId of sessionIds)
+    strictRead(`current conversation '${sessionId}'`, () =>
+      readCurrentConversationSegment(projectRoot, sessionId),
+    );
 
   for (const { card, workflow } of admitted) {
     for (const definition of definitions(workflow)) {
-      const current = readCurrentAuthoredRecord(projectRoot, card, definition);
+      const current = strictRead(`record '${card.id}/${definition.filename}'`, () =>
+        readCurrentAuthoredRecord(projectRoot, card, definition),
+      );
       if (definition.bootstrap && !current?.accepted)
         throw new Error(
           `Card '${card.id}' required bootstrap record '${definition.filename}' is unavailable.`,

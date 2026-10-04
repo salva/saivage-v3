@@ -1,5 +1,13 @@
 # Operator UI: Exact Contracts Register
 
+## Repair visibility and selection identity
+
+No degraded UI, repair button or attic browser is provided. Strict startup failure keeps readiness unavailable; repair is the separately consented offline CLI procedure in the [runbook](../runbook/index.md#exact-target-offline-repair). Files omits `.saivage/repair-attic` and resolved aliases from parent listings and rejects direct directory/content/preview access before attic bytes or directory contents are inspected. Similarly named ordinary siblings remain accessible. Missing owning-card current/historical `record:///` URLs show **Card not found**, distinct from existing-card record/version misses and consumed corruption.
+
+Current card/record freshness uses exact `head_id` plus mutable revision, not numeric revision equality or old authored reviewer text. Historical selections have no current identity. Conversation incremental/sync baselines use exact segment UUID and version; rollback or re-created ordinal forces replace/refetch rather than mixing retained cursors/messages or suppressing lower-version invalidation.
+
+Synthetic `runtime:repair` FAILED v1 is shown through ordinary canonical card and Files projections, including loss `status.md` and bootstrap placeholder requirements. No previous completion/verdict is implied. FAILED rejects direct activation while FAILED, **not** an operator-only repair hold: later explicit healthy-ancestor Run can let its active Planner reopen to CHANGED and execute unchanged placeholders. Guidance to replace requirements first is not enforced. Former physical children are unlinked/ignored, not recovered or listed through an attic inventory.
+
 Status: canonical operator-UI contracts register, created at the Card Cockpit
 cutover (owner decision Q1, 2026-09-20; 2026-09-24). It is paired with the
 needs register in [operator-ui-needs.md](operator-ui-needs.md); together they

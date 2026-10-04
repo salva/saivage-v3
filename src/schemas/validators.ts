@@ -23,7 +23,11 @@ export const cardStatusSchema = z.enum(cardStatusValues);
 export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();
 export const urgencySchema = z.enum(urgencyValues);
-const createdBySchema = z.union([agentNameSchema, z.literal('runtime:bootstrap')]);
+const createdBySchema = z.union([
+  agentNameSchema,
+  z.literal('runtime:bootstrap'),
+  z.literal('runtime:repair'),
+]);
 const noteAuthorSchema = z.union([z.literal('user'), z.literal('runtime'), agentNameSchema]);
 const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z

@@ -28,7 +28,9 @@ import {
 import {
   appendRequiredEnvelope,
   consumeGrowingFile,
+  inspectGrowingFile,
   readCanonicalBytes,
+  type CanonicalReadInstrumentation,
   type GrowingFileIo,
 } from './growing-file.js';
 import {
@@ -155,7 +157,10 @@ function decode(path: string, bytes: Buffer): string {
   }
 }
 function parseIndex(path: string): ConversationVersionIndex {
-  const text = decode(path, readFileSync(path));
+  return decodeIndex(path, readFileSync(path));
+}
+function decodeIndex(path: string, bytes: Buffer): ConversationVersionIndex {
+  const text = decode(path, bytes);
   if (!text.endsWith('\n') || text.slice(0, -1).includes('\n'))
     throw new Error(
       `Conversation index '${path}' must contain one newline-terminated JSON object.`,
@@ -165,6 +170,55 @@ function parseIndex(path: string): ConversationVersionIndex {
   } catch (error) {
     throw new Error(`Conversation index '${path}' is malformed.`, { cause: error });
   }
+}
+/** Repair-only byte inspection; never consumes a growing file or changes a selector. */
+export function inspectConversationIndex(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+  bytes: Buffer,
+): ConversationVersionIndex {
+  const index = decodeIndex(location(projectRoot, sessionId).indexPath, bytes);
+  if (index.session_id !== sessionId)
+    throw new Error(`Conversation index identity does not match '${sessionId}'.`);
+  return index;
+}
+
+/** Current candidates permit a reported tail; an indexed historical predecessor must be whole. */
+export function inspectConversationSegment(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+  index: ConversationVersionIndex,
+  version?: number,
+  instrumentation?: CanonicalReadInstrumentation,
+): {
+  readonly path: string;
+  readonly bytes: Buffer;
+  readonly projection: ConversationSegment;
+  readonly retainedLength: number;
+  readonly tornSuffixLength: number;
+} | null {
+  const selected = selectSegment(projectRoot, sessionId, version, index);
+  if (!selected) return null;
+  const bytes = readCanonicalBytes(selected.path, instrumentation);
+  const validate = (prefix: Buffer) =>
+    validateLoadedSegment(index, selected.entry, parseSegment(selected.path, prefix), sessionId);
+  const inspected =
+    selected.entry.version === index.current_version
+      ? inspectGrowingFile(selected.path, bytes, validate)
+      : { projection: validate(bytes), retainedLength: bytes.length, tornSuffixLength: 0 };
+  return { path: selected.path, bytes, ...inspected };
+}
+
+/** The offline caller owns exclusion, recheck, consent and established publication mode. */
+export function restoreConversationIndex(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+  index: ConversationVersionIndex,
+  mode: 'initial' | 'replacement',
+): void {
+  const parsed = conversationVersionIndexSchema.parse(index);
+  if (parsed.session_id !== sessionId) throw new Error('Conversation repair owner mismatch.');
+  publishIndex(location(projectRoot, sessionId).indexPath, parsed, mode);
 }
 function parseSegment(
   path: string,

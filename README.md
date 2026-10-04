@@ -129,12 +129,27 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 ## Notable current behaviors
 
+- Strict startup errors require stop/disable restarts, positive no-owner verification,
+  a successful complete fresh preserved backup, then one exact offline report/consent
+  repair and separate restart. For example, from the project root:
+  `saivage repair --target card:card-a --backup /absolute/backup --report /absolute/fresh-report.md`.
+  Record and conversation targets use `record:ID/NAME` and `conversation:SESSION_ID`.
+  Absolute backup/report paths must be outside Saivage generated/lifecycle roots;
+  ordinary project source-side paths are allowed. Report must be fresh and outside
+  the declared backup as well.
+  Only both unusable card selections permit separately confirmed `--discard-card`;
+  non-root discard requires configured parent-permitted `--card-type`, project type
+  is fixed. Own data and former descendant reachability can be lost; FAILED is not
+  an operator-only hold (later ancestor Run may Planner-reopen unchanged placeholders).
+  No scans, reconstruction, automatic repair/restart or deployment authorization.
+  See the [full procedure and limits](docs/runbook/index.md#exact-target-offline-repair).
+
 - Card/record publications now require fresh `head_id` UUIDs alongside current
   revision, and every card/record head and conversation index maintains one
   previous hardlink slot. Normal reads/startup never use it as fallback; the
-  sequence is nontransactional and guarantees no usable prior selection.
+  sequence is nontransactional and does not guarantee a usable prior selection.
   The required identity field is a separate **reset-only format adoption**, even
-  with unchanged outer format 1. No repair CLI is available yet. See the
+  with unchanged outer format 1. Exact-target offline repair is available; see the
   [runbook](docs/runbook/index.md#previous-selectors-and-head-identity-adoption).
 
 - Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. Adoption is [reset-only](docs/runbook/index.md#storage-and-interruption), never migration or implicit deployment permission.

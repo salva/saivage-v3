@@ -23,7 +23,10 @@ export const cardActionValues = [
 export type CardAction = (typeof cardActionValues)[number];
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
 export type Urgency = (typeof urgencyValues)[number];
-export type CreatedBy = import('./agent-name.js').AgentName | 'runtime:bootstrap';
+export type CreatedBy =
+  | import('./agent-name.js').AgentName
+  | 'runtime:bootstrap'
+  | 'runtime:repair';
 type NoteAuthor = 'user' | 'runtime' | import('./agent-name.js').AgentName;
 type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 

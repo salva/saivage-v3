@@ -193,7 +193,11 @@ const RecordAcceptedWireSchema = z
     source_version: positiveSafeIntegerSchema,
     source_entry_id: z.string().uuid(),
     committed_at: z.string().datetime(),
-    writer_agent: z.union([agentNameSchema, z.literal('runtime:bootstrap')]),
+    writer_agent: z.union([
+      agentNameSchema,
+      z.literal('runtime:bootstrap'),
+      z.literal('runtime:repair'),
+    ]),
     card_version_seq: positiveSafeIntegerSchema,
     card_history_version: positiveSafeIntegerSchema,
     card_history_entry_id: z.string().uuid(),

@@ -44,7 +44,6 @@ export {
   readCanonicalCardHierarchy,
   readCanonicalLinkedCardHistoryTree,
   readCard,
-  readCardHierarchy,
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
   readCommittedCardVersion,
@@ -107,3 +106,4 @@ export {
 } from './provider-exchange-log.js';
 export { replaceFile } from './replace-file.js';
 export type { PublicationTemporaryIdFactory, ReplacementFileIo } from './replace-file.js';
+export { parseRepairTarget, inspectRepairTarget } from './repair-target.js';

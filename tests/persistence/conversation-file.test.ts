@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from '@jest/globals';
 
-import { appendConversationBatch, initializeMissingConversation, isConversationCatalogEstablished, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, inspectConversationIndex, inspectConversationSegment, restoreConversationIndex, initializeMissingConversation, isConversationCatalogEstablished, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { consumeGrowingFile } from '../../src/persistence/growing-file.js';
 import { cardConversationVersionFile, cardConversationVersionIndexFile, conversationPreviousIndexFile, globalAgentConversationRoot } from '../../src/persistence/layout.js';
 import { agentMessageSchema, type AgentMessage } from '../../src/schemas/index.js';
@@ -16,6 +16,39 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it('purely inspects supplied current and previous index candidates with a torn suffix, leaving all bytes untouched', () => {
+    const projectRoot = root(); appendConversationBatch({projectRoot}, [text('first')]);
+    const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const indexBytes = readFileSync(indexPath); const index = inspectConversationIndex(projectRoot, SESSION, indexBytes);
+    const healthy = inspectConversationSegment(projectRoot, SESSION, index)!;
+    const torn = Buffer.concat([healthy.bytes, Buffer.from([0xff, 0xe2])]); writeFileSync(healthy.path, torn);
+    for (const candidateBytes of [indexBytes, Buffer.from(indexBytes)]) {
+      const reads: string[] = [];
+      const candidate = inspectConversationIndex(projectRoot, SESSION, candidateBytes);
+      const inspected = inspectConversationSegment(projectRoot, SESSION, candidate, undefined, {onRead:p=>reads.push(p)})!;
+      expect(reads).toEqual([healthy.path]);
+      expect(inspected).toMatchObject({retainedLength:healthy.bytes.length, tornSuffixLength:2});
+      expect(inspected.projection.rows).toEqual(healthy.projection.rows);
+      expect(readFileSync(healthy.path)).toEqual(torn); expect(readFileSync(indexPath)).toEqual(indexBytes);
+    }
+    // Explicit selector publication is separate from the later consented tail effect.
+    restoreConversationIndex(projectRoot, SESSION, index, 'replacement');
+    expect(readFileSync(conversationPreviousIndexFile(indexPath))).toEqual(indexBytes);
+    expect(readFileSync(healthy.path)).toEqual(torn);
+    expect(readCurrentConversationSegment(projectRoot, SESSION)!.bytes).toEqual(healthy.bytes);
+  });
+  it.each(['empty', 'no-prefix', 'complete-malformed', 'malformed-prefix-and-tail', 'wrong-owner'] as const)('pure inspection refuses %s without tail repair or selector mutation', fault => {
+    const projectRoot = root(); appendConversationBatch({projectRoot}, [text('first')]);
+    const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner'); const indexBytes = readFileSync(indexPath);
+    const index = inspectConversationIndex(projectRoot, SESSION, indexBytes); const selected = inspectConversationSegment(projectRoot, SESSION, index)!;
+    const data = fault === 'empty' ? Buffer.alloc(0) : fault === 'no-prefix' ? Buffer.from('{unfinished') : fault === 'wrong-owner'
+      ? Buffer.from(selected.bytes.toString().replaceAll(SESSION, 'agent:executor:project'))
+      : Buffer.concat([selected.bytes, Buffer.from(fault === 'complete-malformed' ? '{bad}\n' : '{bad}\nsuffix')]);
+    writeFileSync(selected.path, data);
+    expect(() => inspectConversationSegment(projectRoot, SESSION, index)).toThrow();
+    expect(readFileSync(selected.path)).toEqual(data); expect(readFileSync(indexPath)).toEqual(indexBytes);
+    expect(() => inspectConversationIndex(projectRoot, 'agent:executor:project', indexBytes)).toThrow(/identity/);
+  });
   it('retains an empty index inode on first ingress, ignores previous on normal reads, and never falls back', () => {
     const projectRoot = root(); const index = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
     const previous = conversationPreviousIndexFile(index); const before = readFileSync(index); const inode = statSync(index).ino;

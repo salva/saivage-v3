@@ -24,7 +24,10 @@ import {
   type RecordDefinition,
 } from '../schemas/index.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/runtime-api.js';
-import { initializeAuthoredRecord } from './authored-record-files.js';
+import {
+  initializeAuthoredRecord,
+  initializeRepairAuthoredRecord,
+} from './authored-record-files.js';
 import { initializeConversation } from './conversation-file.js';
 import {
   cardArtifactSchema,
@@ -36,6 +39,7 @@ import {
   cardMailboxMessageSchema,
   ordinaryCardPayload,
   validateInitialCard,
+  REPAIR_CARD_LOSS_SUMMARY,
   validateCardTransition,
   type CardArtifact,
   type CurrentCardSelection,
@@ -72,7 +76,7 @@ import {
   type ReplacementFileIo,
 } from './replace-file.js';
 
-export interface CanonicalLinkedCardHistoryProjection {
+interface CanonicalLinkedCardHistoryProjection {
   readonly current: CardRecord;
   readonly tombstone: CardTombstoneArtifact | null;
   readonly rows: readonly CardArtifact[];
@@ -103,6 +107,7 @@ interface ActiveCardTraversalRow {
   readonly relativeDepth: number;
   readonly activeDescendantCount: number;
 }
+export class CardSelectionInvalidError extends Error {}
 
 function readExactCard(
   projectRoot: string,
@@ -153,19 +158,92 @@ function decodeCurrent(
       selection.updated_at !== tombstone.committed_at ||
       selection.pending.length !== 0)
   )
-    throw new Error(`Card '${cardId}' invalid tombstone selection.`);
+    throw new CardSelectionInvalidError(`Card '${cardId}' invalid tombstone selection.`);
   if (selection.version_seq === head.version && selection.updated_at !== head.committed_at)
-    throw new Error(`Card '${cardId}' current time and selected history disagree.`);
-  const card =
-    head.kind === 'card-tombstone'
-      ? head.final_card
-      : cardRecordSchema.parse({
-          ...head.card,
-          version_seq: selection.version_seq,
-          updated_at: selection.updated_at,
-          pending_notifications: selection.pending,
-        });
+    throw new CardSelectionInvalidError(
+      `Card '${cardId}' current time and selected history disagree.`,
+    );
+  let card: CardRecord;
+  try {
+    card =
+      head.kind === 'card-tombstone'
+        ? head.final_card
+        : cardRecordSchema.parse({
+            ...head.card,
+            version_seq: selection.version_seq,
+            updated_at: selection.updated_at,
+            pending_notifications: selection.pending,
+          });
+  } catch (error) {
+    throw new CardSelectionInvalidError(`Card '${cardId}' head projection is invalid.`, {
+      cause: error,
+    });
+  }
   return { selection, head, current: { card, committed_at: selection.updated_at }, tombstone };
+}
+
+/** Prove ancestors and membership without attempting to consume the damaged target head. */
+export function readCardRepairParent(
+  projectRoot: string,
+  cardId: string,
+  instrumentation?: CanonicalReadInstrumentation,
+): CardRecord | null {
+  cardIdSchema.parse(cardId);
+  if (cardId === 'project') return null;
+  const parentId = cardParentId(cardId)!;
+  const parent = readActiveCardFold(projectRoot, parentId, instrumentation);
+  if (!parent || !parent.current.card.child_membership.includes(cardId))
+    throw new Error(`Card '${cardId}' is not reached through strict parent membership.`);
+  return parent.current.card;
+}
+
+/** Exact current/previous selector bytes plus only selected documents; no history discovery. */
+export function inspectCardSelection(
+  projectRoot: string,
+  cardId: string,
+  bytes: Buffer,
+  instrumentation?: CanonicalReadInstrumentation,
+): CurrentCardSelection {
+  cardIdSchema.parse(cardId);
+  const fold = decodeCurrent(projectRoot, cardId, bytes, instrumentation);
+  for (const id of fold.selection.pending) {
+    const message = cardMailboxMessageSchema.parse(
+      parseJson(readCanonicalBytes(cardMailboxFile(projectRoot, cardId, id), instrumentation)),
+    );
+    if (message.card_id !== cardId || message.notification.id !== id)
+      throw new Error(`Card '${cardId}' mailbox reference and document identity disagree.`);
+  }
+  return fold;
+}
+
+/** Fresh publication of the inspected payload, not rename/adoption of the previous inode. */
+export function restoreCardSelection(
+  projectRoot: string,
+  cardId: string,
+  selection: CurrentCardSelection['selection'],
+  mode: 'initial' | 'replacement',
+): void {
+  cardIdSchema.parse(cardId);
+  const head = cardHeadSchema.parse({ ...selection, head_id: randomUUID() });
+  if (head.card_id !== cardId) throw new Error('Card repair owner mismatch.');
+  publishHeadFile(
+    cardHeadFile(projectRoot, cardId),
+    cardPreviousHeadFile(projectRoot, cardId),
+    jsonBytes(head),
+    mode,
+  );
+}
+
+export function inspectRepairSelectedChildren(
+  projectRoot: string,
+  fold: CurrentCardSelection,
+  instrumentation?: CanonicalReadInstrumentation,
+): CardRecord[] {
+  if (fold.tombstone) return [];
+  return fold.current.card.child_membership
+    .map((id) => readExactCard(projectRoot, id, instrumentation))
+    .filter((child) => !child.tombstone)
+    .map((child) => child.current.card);
 }
 
 function readHistory(
@@ -362,7 +440,7 @@ export function readCanonicalCardHierarchy(
   };
 }
 
-export function readCardHierarchy(
+function readCardHierarchy(
   projectRoot: string,
   parentId: string,
   instrumentation?: CanonicalReadInstrumentation,
@@ -733,6 +811,88 @@ export function publishInitialProjectCard(
   mkdirSync(globalAgentConversationsRoot(projectRoot));
   initializeCardConversations(projectRoot, card, workflow, temporary);
   publishInitialCardState(projectRoot, card, input.bootstrap_content, definitions, temporary);
+}
+
+const REPAIR_CARD_LOSS_RECORD =
+  "# Generated card data discarded\n\nThis card's generated history, records and conversations were discarded under explicit repair. Original requirements and metadata are lost and should be replaced before further work. No prior completion or reviewer verdict is retained. Former children are unlinked and were not inspected; their count and content are unknown. Source files and global history were not erased. Consult the external repair report and preserved backup.\n\nRepair and startup launch no work. FAILED prevents direct activation while it remains FAILED, but is not an operator-only hold: after a later explicit Run of a healthy ancestor, its Planner may reopen this card to CHANGED and execute it with these placeholder requirements, without operator replacement. Replacing lost requirements first is recommended, not enforced.\n";
+
+/** Called only after the separately consented six-root discard; children are never touched. */
+export function publishDiscardedCard(
+  projectRoot: string,
+  cardId: string,
+  workflow: CompiledCardTypeWorkflow,
+): CardRecord {
+  const stamp = new Date().toISOString();
+  const card = cardRecordSchema.parse({
+    id: cardId,
+    type: workflow.cardType,
+    child_membership: [],
+    active_child_order: [],
+    title: `Recovered card ${cardId} — data discarded`,
+    subtype: null,
+    priority: 0,
+    urgency: 'normal',
+    created_by: 'runtime:repair',
+    created_at: stamp,
+    updated_at: stamp,
+    version_seq: 1,
+    assigned_to: null,
+    depends_on: [],
+    lifecycle: {
+      status: 'failed',
+      result: { kind: 'runtime-failure', summary: REPAIR_CARD_LOSS_SUMMARY },
+      error: REPAIR_CARD_LOSS_SUMMARY,
+      completed_at: stamp,
+    },
+    metrics: null,
+    estimate: null,
+    started_at: null,
+    duration_ms: null,
+    status_text: null,
+    status_text_updated_at: null,
+    status_text_author_session_id: null,
+    latest_self_report: null,
+    metadata: null,
+    pending_notifications: [],
+  });
+  for (const path of [
+    cardHistoryRoot(projectRoot, cardId),
+    cardMailboxRoot(projectRoot, cardId),
+    cardRecordsRoot(projectRoot, cardId),
+    cardAcceptedRecordsRoot(projectRoot, cardId),
+    cardConversationsRoot(projectRoot, cardId),
+  ])
+    mkdirSync(path);
+  initializeCardConversations(projectRoot, card, workflow);
+  const entryId = randomUUID();
+  const status = workflow.records.get('status.md');
+  const definitions: RecordDefinition[] = [...workflow.records.values()]
+    .filter((record) => record.bootstrap || record.name === 'status.md')
+    .map((record) => ({
+      filename: record.name,
+      format: record.format,
+      schema: record.schema,
+      bootstrap: record.bootstrap,
+      declared: true,
+    }));
+  if (!status)
+    definitions.push({
+      filename: 'status.md',
+      format: 'markdown',
+      schema: 'authored-record.v1',
+      bootstrap: false,
+      declared: false,
+    });
+  for (const definition of definitions)
+    initializeRepairAuthoredRecord(
+      projectRoot,
+      cardId,
+      definition,
+      { entry_id: entryId, version: 1 },
+      REPAIR_CARD_LOSS_RECORD,
+    );
+  publishCardVersion(projectRoot, card, null, undefined, undefined, undefined, entryId);
+  return card;
 }
 
 export function publishCardVersion(

@@ -14,6 +14,17 @@ actually use. For card, brief, session, and epoch terminology, see the
 
 ## The control room
 
+If strict startup fails there is no degraded repair UI. Stop/disable restarts,
+positively verify no owner, preserve a complete fresh stopped-project backup, then
+use the [offline exact-target repair procedure](../runbook/index.md#exact-target-offline-repair)
+with report and typed consent; restart separately. Do not edit generated files,
+rename previous slots or scan history. Files hides/refuses the retained repair attic.
+Repair may lose queue/draft or potentially days of conversation work; eligible
+separately confirmed card discard loses all own data and descendant reachability.
+Synthetic FAILED cards show loss records and placeholder requirements. Replace
+requirements before running an ancestor as a recommendation, not a product gate:
+its active Planner may reopen FAILED to CHANGED and execute those placeholders.
+
 Open `http://<host>:<port>/`. The whole application is the **control room**;
 its **card cockpit** is the **Cockpit** destination's layout: a global strip
 across the top, the card tree on the left, the card workspace in the center,

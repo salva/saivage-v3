@@ -21,6 +21,8 @@ import {
   classifyCurrentAuthoredRecord,
   openAuthoredRecord,
   readAuthoredRecordVersionPair,
+  inspectAuthoredRecordSelection,
+  restoreAuthoredRecordSelection,
 } from '../../src/persistence/authored-record-files.js';
 import {
   cardAcceptedRecordFile,
@@ -74,6 +76,38 @@ const definition = {
 };
 
 describe('exact record heads and accepted predecessor chains', () => {
+  it.each(['replacement', 'initial'] as const)('fresh-restores exact previous accepted/draft selection in %s mode without predecessor reads', mode => {
+    const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'second', 'analyst');
+    cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', 'retained draft');
+    cards.editRecord(card.id, 'status.md', 'lost draft');
+    const path = cardRecordHeadFile(root, card.id, definition); const prev = cardRecordPreviousHeadFile(root, card.id, definition);
+    const candidateBytes = readFileSync(prev); const before = readFileSync(path); const reads: string[] = [];
+    const candidate = inspectAuthoredRecordSelection(root, card.id, definition, candidateBytes, {onRead:p=>reads.push(p)});
+    expect(candidate.projection).toMatchObject({accepted:{content:'second'}, draft:{content:'retained draft'}});
+    expect(reads).toEqual([cardAcceptedRecordFile(root, card.id, candidate.head.accepted!.entry_id)]);
+    expect(readFileSync(path)).toEqual(before); expect(readFileSync(prev)).toEqual(candidateBytes);
+    unlinkSync(path); if (mode === 'replacement') writeFileSync(path, '{bad');
+    restoreAuthoredRecordSelection(root, card.id, definition, candidate.head, mode);
+    const restored = current(cards, card.id, 'status.md');
+    expect(restored).toEqual({...candidate.projection, headId:expect.any(String)});
+    expect(restored.headId).not.toBe(candidate.head.head_id);
+    if (mode === 'replacement') expect(readFileSync(prev, 'utf8')).toBe('{bad');
+    else expect(existsSync(prev)).toBe(false);
+  });
+  it('refuses previous record owner/definition mismatch and damaged selected accepted content without changing selectors', () => {
+    const { root, cards, card } = setup(); cards.acceptRecord(card.id, 'status.md', 'first', 'analyst'); cards.openRecord(card.id, 'status.md');
+    const path = cardRecordHeadFile(root, card.id, definition); const prev = cardRecordPreviousHeadFile(root, card.id, definition);
+    const before = readFileSync(path); const candidate = readFileSync(prev);
+    expect(() => inspectAuthoredRecordSelection(root, card.id, {...definition, schema:'different.v1'}, candidate)).toThrow(/identity/);
+    const selected = inspectAuthoredRecordSelection(root, card.id, definition, candidate);
+    const artifactPath = cardAcceptedRecordFile(root, card.id, selected.head.accepted!.entry_id);
+    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')); artifact.accepted.content = 'tampered';
+    writeFileSync(artifactPath, JSON.stringify(artifact));
+    expect(() => inspectAuthoredRecordSelection(root, card.id, definition, candidate)).toThrow();
+    expect(readFileSync(path)).toEqual(before); expect(readFileSync(prev)).toEqual(candidate);
+  });
   it('retains whole head inodes on every acceptance and draft mutation, while normal reads ignore previous', () => {
     const { root, cards, card } = setup();
     const path = cardRecordHeadFile(root, card.id, definition);

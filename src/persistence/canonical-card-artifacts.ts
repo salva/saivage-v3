@@ -230,6 +230,8 @@ function requireChange(
     fail(path, 'has invalid reason or summary');
 }
 
+export const REPAIR_CARD_LOSS_SUMMARY =
+  'Generated card history, records and conversations were discarded under explicit repair; all prior history is lost.';
 export function validateInitialCard(card: CardRecord, path: string): void {
   const common =
     card.child_membership.length === 0 &&
@@ -247,9 +249,26 @@ export function validateInitialCard(card: CardRecord, path: string): void {
     card.status_text_author_session_id === null &&
     card.latest_self_report === null &&
     card.metadata === null &&
-    card.pending_notifications.length === 0 &&
-    card.lifecycle.status === 'backlog';
+    card.pending_notifications.length === 0;
   if (!common) fail(path, 'has an invalid initial card');
+  if (card.created_by === 'runtime:repair') {
+    if (
+      card.title !== `Recovered card ${card.id} — data discarded` ||
+      card.priority !== 0 ||
+      card.urgency !== 'normal' ||
+      card.depends_on.length !== 0 ||
+      card.lifecycle.status !== 'failed' ||
+      card.lifecycle.result.kind !== 'runtime-failure' ||
+      card.lifecycle.result.summary !== REPAIR_CARD_LOSS_SUMMARY ||
+      card.lifecycle.error !== REPAIR_CARD_LOSS_SUMMARY ||
+      card.lifecycle.completed_at !== card.created_at
+    )
+      fail(path, 'has an invalid synthetic repair initial card');
+    if ((card.id === 'project') !== (card.type === 'project'))
+      fail(path, 'has an invalid synthetic repair root/type');
+    return;
+  }
+  if (card.lifecycle.status !== 'backlog') fail(path, 'has an invalid ordinary initial lifecycle');
   if (card.id === 'project') {
     if (
       card.type !== 'project' ||

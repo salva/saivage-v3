@@ -92,11 +92,44 @@ function readHead(
       throw new Error(`Required bootstrap record '${cardId}/${definition.filename}' missing.`);
     return null;
   }
+  return decodeHead(cardId, definition, data);
+}
+function decodeHead(cardId: string, definition: RecordDefinition, data: Buffer): RecordHead {
   const head = recordHeadSchema.parse(parseJson(data));
   exactIdentity(head, cardId, definition);
   if (definition.bootstrap && head.accepted === null)
     throw new Error('Bootstrap record has no accepted selection.');
   return head;
+}
+
+/** Repair-only supplied-selector inspection sharing ordinary definition/content/hash checks. */
+export function inspectAuthoredRecordSelection(
+  projectRoot: string,
+  cardId: string,
+  definition: RecordDefinition,
+  data: Buffer,
+  instrumentation?: CanonicalReadInstrumentation,
+): { readonly head: RecordHead; readonly projection: RecordProjection } {
+  const head = decodeHead(cardId, definition, data);
+  return { head, projection: currentProjection(projectRoot, definition, head, instrumentation) };
+}
+
+/** Caller owns offline consent/recheck; the selection remains call-local, never write authority. */
+export function restoreAuthoredRecordSelection(
+  projectRoot: string,
+  cardId: string,
+  definition: RecordDefinition,
+  selection: RecordHead,
+  mode: 'initial' | 'replacement',
+): void {
+  const head = recordHeadSchema.parse({ ...selection, head_id: randomUUID() });
+  exactIdentity(head, cardId, definition);
+  publishHeadFile(
+    cardRecordHeadFile(projectRoot, cardId, definition),
+    cardRecordPreviousHeadFile(projectRoot, cardId, definition),
+    bytes(head),
+    mode,
+  );
 }
 function readAccepted(
   projectRoot: string,
@@ -119,7 +152,8 @@ function readAccepted(
   if (
     definition.bootstrap &&
     artifact.predecessor === null &&
-    (artifact.version !== 1 || artifact.accepted.writer_agent !== 'runtime:bootstrap')
+    (artifact.version !== 1 ||
+      !['runtime:bootstrap', 'runtime:repair'].includes(artifact.accepted.writer_agent))
   )
     throw new Error('Invalid bootstrap accepted origin.');
   if (
@@ -343,7 +377,7 @@ function publishAcceptance(
   definition: RecordDefinition,
   prior: RecordHead | null,
   content: string,
-  writer: AgentName | 'runtime:bootstrap',
+  writer: AgentName | 'runtime:bootstrap' | 'runtime:repair',
   cardVersionSeq: number,
   cardHistory: AcceptedRecordSnapshot['card_history'],
   io?: ReplacementFileIo,
@@ -486,5 +520,25 @@ export function initializeAuthoredRecord(
     cardHistory,
     undefined,
     temporary,
+  );
+}
+
+/** Explicit discard owns initial absence and new-card provenance, not recovered acceptance. */
+export function initializeRepairAuthoredRecord(
+  projectRoot: string,
+  cardId: string,
+  definition: RecordDefinition,
+  cardHistory: AcceptedRecordSnapshot['card_history'],
+  content: string,
+): void {
+  publishAcceptance(
+    projectRoot,
+    cardId,
+    definition,
+    null,
+    content,
+    'runtime:repair',
+    1,
+    cardHistory,
   );
 }

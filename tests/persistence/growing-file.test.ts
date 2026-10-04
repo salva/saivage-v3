@@ -3,7 +3,7 @@ import { constants, closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { admitGrowingFileTail, appendEnvelope, appendRequiredEnvelope, consumeGrowingFile, consumeGrowingRows, readCanonicalBytes, readCanonicalBytesOrMissing, serializeGrowingEnvelope, type GrowingFileIo, type GrowingFileTruncationIo } from '../../src/persistence/growing-file.js';
+import { admitGrowingFileTail, appendEnvelope, appendRequiredEnvelope, consumeGrowingFile, consumeGrowingRows, inspectGrowingFile, readCanonicalBytes, readCanonicalBytesOrMissing, serializeGrowingEnvelope, type GrowingFileIo, type GrowingFileTruncationIo } from '../../src/persistence/growing-file.js';
 import { publishFreshFile } from '../../src/persistence/replace-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
@@ -16,6 +16,22 @@ function bytes(value = 2): Buffer { return serializeGrowingEnvelope([{ value }])
 function read(path: string) { return consumeGrowingRows(path, readCanonicalBytes(path), row, (rows) => rows); }
 
 describe('exact growing-file boundaries', () => {
+  it('pure inspection reports a validated retained prefix without truncating even malformed UTF-8 suffix bytes', () => {
+    const path = target(); const prefix = bytes(1); const content = Buffer.concat([prefix, Buffer.from([0xff, 0xe2])]);
+    writeFileSync(path, content); let validations = 0;
+    const inspected = inspectGrowingFile(path, content, retained => {
+      validations += 1; expect(retained).toEqual(prefix); return 'strict projection';
+    });
+    expect(inspected).toEqual({projection:'strict projection', retainedLength:prefix.length, tornSuffixLength:2});
+    expect(validations).toBe(1); expect(readFileSync(path)).toEqual(content);
+  });
+  it.each([Buffer.alloc(0), Buffer.from('no prefix'), Buffer.from('{bad}\npartial'), Buffer.from('{bad}\n')])('pure inspection refuses absent prefixes and owner-invalid complete data (%p)', content => {
+    const path = target(); writeFileSync(path, content);
+    expect(() => inspectGrowingFile(path, content, retained => {
+      const envelope = JSON.parse(retained.toString()); return row.parse(envelope.rows[0]);
+    })).toThrow();
+    expect(readFileSync(path)).toEqual(content);
+  });
   it('serializes admitted typed rows without another schema parse and refuses empty batches', () => {
     let parses = 0;
     const schema = row.transform(({ value }) => { parses += 1; return { value: value * 2 }; });

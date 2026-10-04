@@ -94,6 +94,23 @@ afterEach(() => {
 });
 
 describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
+  it('omits/refuses exact repair attic and resolved aliases before listing or reading contents, allowing similarly named siblings', () => {
+    const root = temporaryRoot('saivage-attic-files-');
+    const attic = join(root,'.saivage','repair-attic'); realFs.mkdirSync(attic,{recursive:true});
+    const privatePath = join(attic,'corrupt.bin'); realFs.writeFileSync(privatePath,Buffer.from([0xff,0x00]));
+    const ordinary = join(root,'.saivage','repair-attic-notes'); realFs.writeFileSync(ordinary,'ordinary');
+    const alias=join(root,'attic-alias'); realFs.symlinkSync(attic,alias); realFs.symlinkSync(privatePath,join(root,'attic-file-alias'));
+    const model = new WorkspaceFileReadModelService(root,records,createTestConfigAuthority(root));
+    expect(listedNames(model.listFiles('.saivage').body)).not.toContain('repair-attic');
+    expect(listedNames(model.listFiles('.saivage').body)).toContain('repair-attic-notes');
+    expect(listedNames(model.listFiles('.').body)).not.toContain('attic-alias');
+    expect(listedNames(model.listFiles('.').body)).not.toContain('attic-file-alias');
+    for(const path of ['.saivage/repair-attic','.saivage/repair-attic/corrupt.bin','attic-alias','attic-alias/corrupt.bin','attic-file-alias']) {
+      traces.length=0; expect(model.listFiles(path)).toMatchObject({statusCode:403}); expect(model.readFileContent(path)).toMatchObject({statusCode:403});
+      expect(traces.filter(({operation,path})=>['readdirSync','readFileSync'].includes(operation)&&(path===attic||path.startsWith(`${attic}/`)||path===alias||path.startsWith(`${alias}/`)||path===join(root,'attic-file-alias')))).toEqual([]);
+    }
+    expect(model.readFileContent('.saivage/repair-attic-notes').statusCode).toBeUndefined();
+  });
   it('omits/refuses global previous-index slots and resolved aliases before reading bytes', () => {
     const root = temporaryRoot('saivage-previous-index-files-');
     const relative = '.saivage/agents/conversations/analyst'; const directory = join(root, relative);

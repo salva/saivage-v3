@@ -1,5 +1,13 @@
 # Operator UI: Functional Needs Specification
 
+## Explicit loss visibility
+
+Operators need truthful coarse loss, not a guarantee of preservation or repaired availability. Strict startup errors direct a stopped, no-owner, fresh-complete-backup, exact-report/consent repair and separate restart flow; no degraded control room or automatic repair. See the [runbook](../runbook/index.md#exact-target-offline-repair). Files hides/refuses attic and resolved aliases before content inspection and offers no attic browser/repair control. Missing owning cards display **Card not found** separately from record/version misses.
+
+Synthetic `runtime:repair` FAILED cards expose loss status and all required bootstrap placeholders through ordinary Files; no old approval/completion survives. Unlinked former children remain ignored. Repair/startup launch no work; FAILED blocks direct activation only while FAILED. A later explicit healthy-ancestor Run can let its active Planner reopen to CHANGED and execute unchanged placeholder requirements. Replacing lost requirements first is recommended, not a new enforced operator-only hold.
+
+Current selection identity plus revision, not numeric revision alone or retained reviewer prose, determines freshness. Conversation exact segment identity/version determines cursor/sync baseline even when rollback lowers an ordinal or recompaction reuses it; stale baselines refetch/replace rather than mix messages.
+
 Status: canonical operator-UI needs register, promoted at the Card Cockpit
 cutover (owner decision Q1, 2026-09-20; promoted 2026-09-24). It is paired
 with the exact contracts register in

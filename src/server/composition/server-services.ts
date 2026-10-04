@@ -19,6 +19,7 @@ import { settleFinalUnmatchedCall } from '../../runtime/runtime-api.js';
 import { isConversationCatalogEstablished } from '../../persistence/index.js';
 import { ProviderRegistry, ModelRouter } from '../../agents/execution-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
+import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
 
 interface ServerServices {
@@ -140,10 +141,21 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  settleFinalUnmatchedCall({ projectRoot }, analystSessionId);
+  const settleStartupGlobal = (sessionId: typeof analystSessionId): void => {
+    try {
+      settleFinalUnmatchedCall({ projectRoot }, sessionId);
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      throw new Error(
+        `Strict startup global conversation '${sessionId}' is unavailable or invalid. Keep the service stopped, disable restarts, verify no owner, preserve a complete fresh stopped-project backup, then use separately consented exact-target repair where supported and restart separately. No automatic rollback or replacement history is created.`,
+        { cause: error },
+      );
+    }
+  };
+  settleStartupGlobal(analystSessionId);
   const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
   if (isConversationCatalogEstablished(projectRoot, oversightSessionId))
-    settleFinalUnmatchedCall({ projectRoot }, oversightSessionId);
+    settleStartupGlobal(oversightSessionId);
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();

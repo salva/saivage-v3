@@ -44,7 +44,8 @@ function finallyCatchInventory(): Record<string, number> {
   }));
 }
 
-// Only the current direct startup statements are inspected; this is not control-flow analysis.
+// Inspect direct startup statements and their one diagnostic settlement wrapper;
+// this is not general control-flow analysis.
 function startupAst(text: string): ts.SourceFile {
   return ts.createSourceFile('startup.ts', text, ts.ScriptTarget.Latest, true);
 }
@@ -86,7 +87,40 @@ function assertGlobalStartup(text: string): void {
   imported(ast, 'globalAgentSessionId', '../../schemas/index.js');
   imported(ast, 'settleFinalUnmatchedCall', '../../runtime/runtime-api.js');
   imported(ast, 'isConversationCatalogEstablished', '../../persistence/index.js');
+  imported(ast, 'throwIfPublicationOutcomeUnknown', '../../contracts/index.js');
   const body = statements(ast, 'createServerServices');
+  const wrapperPosition = body.findIndex(node => ts.isVariableStatement(node)
+    && node.declarationList.declarations.length === 1
+    && ts.isIdentifier(node.declarationList.declarations[0]!.name)
+    && node.declarationList.declarations[0]!.name.text === 'settleStartupGlobal');
+  expect(wrapperPosition).toBeGreaterThanOrEqual(0);
+  const declaration = (body[wrapperPosition] as ts.VariableStatement).declarationList.declarations[0]!;
+  const wrapper = declaration.initializer;
+  expect(wrapper && ts.isArrowFunction(wrapper)).toBe(true);
+  const arrow = wrapper as ts.ArrowFunction;
+  expect(arrow.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false).toBe(false);
+  expect(arrow.parameters.map(parameter => syntax(parameter.name))).toEqual(['sessionId']);
+  expect(ts.isBlock(arrow.body)).toBe(true);
+  const wrapperBody = (arrow.body as ts.Block).statements;
+  expect(wrapperBody).toHaveLength(1);
+  expect(ts.isTryStatement(wrapperBody[0]!)).toBe(true);
+  const boundary = wrapperBody[0] as ts.TryStatement;
+  expect(boundary.finallyBlock).toBeUndefined();
+  expect(boundary.tryBlock.statements).toHaveLength(1);
+  const ownerCall = directCall(boundary.tryBlock.statements[0]!);
+  expect(ownerCall && syntax(ownerCall)).toBe('settleFinalUnmatchedCall({ projectRoot }, sessionId)');
+  expect(boundary.catchClause?.variableDeclaration?.name.getText(ast)).toBe('error');
+  const failure = boundary.catchClause!.block.statements;
+  expect(failure).toHaveLength(2);
+  const fatalGuard = directCall(failure[0]!);
+  expect(fatalGuard && syntax(fatalGuard)).toBe('throwIfPublicationOutcomeUnknown(error)');
+  expect(ts.isThrowStatement(failure[1]!)).toBe(true);
+  const diagnostic = (failure[1] as ts.ThrowStatement).expression;
+  expect(ts.isNewExpression(diagnostic)).toBe(true);
+  const error = diagnostic as ts.NewExpression;
+  expect(syntax(error.expression)).toBe('Error');
+  expect(error.arguments).toHaveLength(2);
+  expect(syntax(error.arguments![1]!)).toBe('{ cause: error }');
   const identity = (name: string, agent: string): number => body.findIndex(node =>
     ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration =>
       ts.isIdentifier(declaration.name) && declaration.name.text === name
@@ -94,7 +128,7 @@ function assertGlobalStartup(text: string): void {
       && syntax(declaration.initializer) === `globalAgentSessionId(workflows.${agent}.name)`));
   const settlement = (node: ts.Statement, id: string): boolean => {
     const call = directCall(node);
-    return !!call && syntax(call) === `settleFinalUnmatchedCall({ projectRoot }, ${id})`;
+    return !!call && syntax(call) === `settleStartupGlobal(${id})`;
   };
   const oversight = body.findIndex(node => ts.isIfStatement(node)
     && ts.isCallExpression(node.expression)
@@ -109,6 +143,7 @@ function assertGlobalStartup(text: string): void {
   });
   orderedPositions([
     identity('analystSessionId', 'analyst'),
+    wrapperPosition,
     body.findIndex(node => settlement(node, 'analystSessionId')),
     identity('oversightSessionId', 'oversight'), oversight,
     awaited('runtimeApplication.runtimeApi.start()'), awaited('mcpManager.reconcilePersistedConfig()'),
@@ -181,19 +216,28 @@ describe('source-derived publication owner inventory', () => {
     assertServerStartup(source('src/server/server.ts'));
   });
 
-  it.each(['removed', 'unguarded', 'late', 'nested'] as const)('rejects %s Oversight settlement despite comment markers', (fault) => {
+  it.each(['removed', 'unguarded', 'late', 'nested', 'empty-wrapper', 'nested-owner', 'missing-fatal', 'late-fatal', 'async-wrapper'] as const)('rejects %s startup settlement despite comment markers', (fault) => {
     const imports = `
       import { globalAgentSessionId } from '../../schemas/index.js';
       import { settleFinalUnmatchedCall } from '../../runtime/runtime-api.js';
-      import { isConversationCatalogEstablished } from '../../persistence/index.js';`;
-    const guarded = 'if (isConversationCatalogEstablished(projectRoot, oversightSessionId)) settleFinalUnmatchedCall({ projectRoot }, oversightSessionId);';
+      import { isConversationCatalogEstablished } from '../../persistence/index.js';
+      import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';`;
+    const owner = 'settleFinalUnmatchedCall({ projectRoot }, sessionId);';
+    const fatal = 'throwIfPublicationOutcomeUnknown(error);';
+    const diagnostic = 'throw new Error("safe diagnostic", { cause: error });';
+    const wrapper = (damaged: boolean): string => `const settleStartupGlobal = ${damaged && fault === 'async-wrapper' ? 'async ' : ''}(sessionId) => {
+      try { ${damaged && fault === 'empty-wrapper' ? '' : damaged && fault === 'nested-owner' ? `function unusedOwner() { ${owner} }` : owner} }
+      catch (error) { ${damaged && (fault === 'missing-fatal' || fault === 'late-fatal') ? '' : fatal} ${diagnostic} ${damaged && fault === 'late-fatal' ? fatal : ''} }
+    };`;
+    const guarded = 'if (isConversationCatalogEstablished(projectRoot, oversightSessionId)) settleStartupGlobal(oversightSessionId);';
     const settlement = fault === 'removed' ? '' : fault === 'unguarded'
-      ? 'settleFinalUnmatchedCall({ projectRoot }, oversightSessionId);'
+      ? 'settleStartupGlobal(oversightSessionId);'
       : fault === 'nested' ? `function unused() { ${guarded} }` : guarded;
     const text = `${imports}
       async function createServerServices() {
         const analystSessionId = globalAgentSessionId(workflows.analyst.name);
-        settleFinalUnmatchedCall({ projectRoot }, analystSessionId);
+        ${wrapper(true)}
+        settleStartupGlobal(analystSessionId);
         const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
         // ${guarded}
         ${fault === 'late' ? '' : settlement}
@@ -204,7 +248,8 @@ describe('source-derived publication owner inventory', () => {
     assertGlobalStartup(`${imports}
       async function createServerServices() {
         const analystSessionId = globalAgentSessionId(workflows.analyst.name);
-        settleFinalUnmatchedCall({ projectRoot }, analystSessionId);
+        ${wrapper(false)}
+        settleStartupGlobal(analystSessionId);
         const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
         ${guarded}
         await runtimeApplication.runtimeApi.start();

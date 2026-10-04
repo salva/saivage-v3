@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { cardHeadFile, cardPreviousHeadFile, cardHistoryFile, cardMailboxFile } from '../../src/persistence/layout.js';
 import { cardHeadSchema } from '../../src/persistence/canonical-card-artifacts.js';
-import { readCanonicalLinkedCardHistoryTree, readCommittedCardVersionPair } from '../../src/persistence/card-files.js';
+import { inspectCardSelection, readCardRepairParent, restoreCardSelection, readCanonicalLinkedCardHistoryTree, readCommittedCardVersionPair } from '../../src/persistence/card-files.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
@@ -27,6 +27,39 @@ function notice() { return { id: randomUUID(), content: 'private mailbox body', 
 const io: ReplacementFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
 
 describe('card immutable history and pending-only mailbox', () => {
+  it.each(['replacement', 'initial'] as const)('inspects one previous card selection and fresh-publishes it in explicit %s mode without history traversal', mode => {
+    const { root, cards, child } = fixture(); cards.editCard(child.id, {title:'second'}); cards.editCard(child.id, {title:'third'});
+    const path = cardHeadFile(root, child.id); const prev = cardPreviousHeadFile(root, child.id);
+    const candidateBytes = readFileSync(prev); const reads: string[] = [];
+    const candidate = inspectCardSelection(root, child.id, candidateBytes, {onRead:p=>reads.push(p)});
+    expect(reads).toEqual([cardHistoryFile(root, child.id, candidate.selection.ordinary.entry_id)]);
+    expect(candidate.current.card.title).toBe('second');
+    const before = readFileSync(path); const artifactBefore = readFileSync(reads[0]!);
+    // Replacement corruption must not damage the still-valid hardlinked candidate inode.
+    unlinkSync(path); if (mode === 'replacement') writeFileSync(path, 'corrupt current selector');
+    expect(readCardRepairParent(root, child.id)?.id).toBe('project');
+    restoreCardSelection(root, child.id, candidate.selection, mode);
+    expect(cards.read(child.id)?.title).toBe('second');
+    expect(head(root, child.id)).toEqual({...candidate.selection, head_id:expect.any(String)});
+    expect(head(root, child.id).head_id).not.toBe(candidate.selection.head_id);
+    expect(readFileSync(reads[0]!)).toEqual(artifactBefore);
+    if (mode === 'replacement') expect(readFileSync(prev, 'utf8')).toBe('corrupt current selector');
+    else expect(existsSync(prev)).toBe(false);
+    expect(readFileSync(path)).not.toEqual(before);
+  });
+  it('rejects a queue-only previous candidate selecting the same broken artifact and validates exact pending bodies', () => {
+    const { root, cards, child } = fixture(); const message = notice(); cards.enqueueNotification(child.id, message); cards.editCard(child.id, {title:'new'});
+    const candidateBytes = readFileSync(cardPreviousHeadFile(root, child.id));
+    expect(inspectCardSelection(root, child.id, candidateBytes).selection.pending).toEqual([message.id]);
+    writeFileSync(cardMailboxFile(root, child.id, message.id), '{bad');
+    expect(() => inspectCardSelection(root, child.id, candidateBytes)).toThrow();
+    cards.removeNotifications(child.id, [message.id]);
+    const queuedCandidate = readFileSync(cardPreviousHeadFile(root, child.id));
+    const selected = head(root, child.id);
+    writeFileSync(cardHistoryFile(root, child.id, selected.ordinary.entry_id), '{bad');
+    expect(() => inspectCardSelection(root, child.id, queuedCandidate)).toThrow();
+    expect(() => readCardRepairParent(root, 'card-z')).toThrow(/membership/);
+  });
   it('maintains the whole previous head for ordinary, queue, lifecycle and tombstone publications with fresh IDs', () => {
     const { root, cards, child } = fixture(); const path = cardHeadFile(root, child.id); const previous = cardPreviousHeadFile(root, child.id);
     expect(existsSync(previous)).toBe(false);
