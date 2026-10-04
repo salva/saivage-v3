@@ -134,6 +134,22 @@ describe('FilesView', () => {
     expect(wrapper.find('[data-testid="route-files"]').text()).toContain('Metadata');
   });
 
+  it.each(['', '&v=7'])('presents Card not found for record preview selector %s without losing the listing', async (selector) => {
+    const path = `record:///status.md?card=card-b${selector}`;
+    vi.mocked(getFileContent).mockRejectedValueOnce(new OperatorApiError('files.content', 404, {
+      error: 'workspace_card_not_found', path, card_id: 'card-b',
+    }));
+    const { wrapper, fileStore } = await mountFilesView();
+    await fileStore.fetchFileContent(path);
+    await flushPromises();
+    expect(wrapper.text()).toContain('Card not found');
+    expect(wrapper.text()).not.toContain('workspace_card_not_found');
+    expect(fileStore.viewerState).toBe('card-missing');
+    expect(fileStore.viewedFilePath).toBe(path);
+    expect(fileStore.metaFiles).toEqual(mockMetaRootFiles.files);
+    wrapper.unmount();
+  });
+
   it.each([
     { root: 'meta', path: '.saivage', hiddenPath: '.saivage/work' },
     { root: 'output', path: '.saivage/work', hiddenPath: '.saivage' },

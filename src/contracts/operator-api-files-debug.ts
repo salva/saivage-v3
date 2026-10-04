@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   agentNameSchema,
+  cardIdSchema,
   cardTypeSchema,
   errorEventSchema,
   recordNameSchema,
@@ -54,6 +55,13 @@ const WorkspaceFileTooLargeErrorSchema = z
     path: z.string(),
     size: z.number().int().nonnegative(),
     maxSize: z.number().int().positive(),
+  })
+  .strict();
+const WorkspaceCardNotFoundSchema = z
+  .object({
+    error: z.literal('workspace_card_not_found'),
+    path: z.string(),
+    card_id: cardIdSchema,
   })
   .strict();
 export const WorkspaceHistoricalVersionNotFoundSchema = z
@@ -287,7 +295,14 @@ export const filesDebugOperatorApiContracts = {
       400: WorkspaceFileContentBadRequestSchema,
       401: UnauthorizedErrorSchema,
       403: WorkspaceFileContentForbiddenSchema,
-      404: z.union([WorkspaceFilePathErrorSchema, WorkspaceHistoricalVersionNotFoundSchema]),
+      404: z.union([
+        WorkspaceFilePathErrorSchema.refine(
+          (value) => value.error !== 'workspace_card_not_found',
+          { path: ['error'], message: 'Card absence requires card_id.' },
+        ),
+        WorkspaceCardNotFoundSchema,
+        WorkspaceHistoricalVersionNotFoundSchema,
+      ]),
       413: WorkspaceFileTooLargeErrorSchema,
       415: WorkspaceFilePathErrorSchema,
       500: UnexpectedInternalServerErrorSchema,

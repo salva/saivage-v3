@@ -487,6 +487,15 @@ export class WorkspaceFileReadModelService {
           request.version === null
             ? this.records().readRecordCurrent(request.cardId, request.filename)
             : this.records().readRecordVersion(request.cardId, request.filename, request.version);
+        if (result.kind === 'card-not-found')
+          return {
+            statusCode: 404,
+            body: {
+              error: 'workspace_card_not_found',
+              path: requestedPath,
+              card_id: request.cardId,
+            },
+          };
         if (result.kind !== 'found' || !result.value.projection)
           return request.version === null
             ? { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } }

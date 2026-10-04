@@ -112,6 +112,7 @@ const viewerStateTitle = computed(() => {
   switch (viewerState.value) {
     case 'blocked': return 'Preview blocked';
     case 'missing': return 'File not found';
+    case 'card-missing': return 'Card not found';
     case 'binary': return 'Binary preview unavailable';
     case 'too-large': return 'Preview too large';
     case 'directory': return 'Directory selected';
@@ -125,6 +126,7 @@ const viewerStateMessage = computed(() => {
   switch (viewerState.value) {
     case 'blocked': return 'This file cannot be previewed safely through the control room.';
     case 'missing': return 'The selected file is no longer available at this path.';
+    case 'card-missing': return 'The selected record’s card is no longer available.';
     case 'binary': return 'Download or inspect this artifact through a supported non-text workflow.';
     case 'too-large': return 'The file is too large for inline preview; narrow the workflow or inspect logs/artifacts elsewhere.';
     case 'directory': return 'Select a file instead of a directory to open an inline preview.';
@@ -134,13 +136,13 @@ const viewerStateMessage = computed(() => {
 });
 
 const viewerStateClass = computed(() => {
-  return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing'
+  return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing' || viewerState.value === 'card-missing'
     ? 'viewer-state-error'
     : 'viewer-state-warning';
 });
 
 const viewerStateTone = computed<Tone>(() => {
-  return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing'
+  return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing' || viewerState.value === 'card-missing'
     ? 'danger'
     : 'warning';
 });

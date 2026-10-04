@@ -232,6 +232,7 @@ failed historical read; absence, failure, and accepted empty content remain dist
 evidence into read-only inspection. Check a valid text artifact, oversized or unsupported
 preview, and unavailable target: keep its identity and explain the admitted failure category,
 without exposing physical persistence paths or silently substituting a different artifact.
+Current and historical record references whose owning card is absent show **Card not found**, distinct from missing record content or an unavailable accepted revision on an existing card. Corruption remains a failure, not card absence.
 Read-only inspection offers no repair control and does not promise that backend
 consumption is non-mutating: an exact growing-file owner may discard only a proven
 torn final suffix after full retained-prefix validation. Complete corruption stays

@@ -338,6 +338,7 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   redaction notice). Physical persistence paths are never disclosed. Files
   and previews expose explicit Refresh and permitted resource-local Retry;
   a failed historical read preserves usable listing/current state.
+- Current and historical `record:///` preview HTTP 404 `{error:'workspace_card_not_found',path,card_id}` displays **Card not found**, retaining the requested identity. Existing-card record/content and historical-version misses keep their distinct failures; corruption is not presented as missing-card.
 - Current and exact accepted `record:///` previews receive backend text
   redaction, including current drafts; authenticated Files access is not a
   raw-record escape hatch. Redaction flags mean the policy was applied, even

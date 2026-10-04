@@ -94,6 +94,26 @@ afterEach(() => {
 });
 
 describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
+  it.each([null, 7])('classifies record card absence with one owning read for version %s', (version) => {
+    const root = temporaryRoot('saivage-workspace-record-absence-');
+    const reader = {
+      ...records(),
+      readRecordCurrent: jest.fn(() => ({ kind: 'card-not-found' as const })),
+      readRecordVersion: jest.fn(() => ({ kind: 'card-not-found' as const })),
+      getCanonicalCard: jest.fn(() => { throw new Error('No second card lookup.'); }),
+    };
+    const service = new WorkspaceFileReadModelService(root, () => reader, createTestConfigAuthority(root));
+    const path = `record:///status.md?card=card-b${version === null ? '' : `&v=${version}`}`;
+    expect(service.readFileContent(path)).toEqual({
+      statusCode: 404,
+      body: { error: 'workspace_card_not_found', path, card_id: 'card-b' },
+    });
+    expect(reader.readRecordCurrent).toHaveBeenCalledTimes(version === null ? 1 : 0);
+    expect(reader.readRecordVersion).toHaveBeenCalledTimes(version === null ? 0 : 1);
+    expect(reader.getCanonicalCard).not.toHaveBeenCalled();
+    expect(traces).toEqual([]);
+  });
+
   it('does not project or read direct blocked project and work targets', () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const projectBlocked = join(root, '.env');

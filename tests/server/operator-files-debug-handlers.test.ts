@@ -382,6 +382,43 @@ describe('operator files and debug contract handlers', () => {
     expect(original).toMatchObject({ content: source, size_bytes: Buffer.byteLength(source), content_sha256: createHash('sha256').update(source).digest('hex') });
   });
 
+  it.each(['', '&v=7'])('returns strict card absence for record URLs with selector %s', async (selector) => {
+    const path = `record:///status.md?card=card-b${selector}`;
+    const response = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}`, headers: authHeaders });
+    const body = { error: 'workspace_card_not_found', path, card_id: 'card-b' };
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual(body);
+    const schema = filesDebugOperatorApiContracts['files.content'].response[404];
+    expect(schema.parse(response.json())).toEqual(body);
+    expect(schema.safeParse({ error: body.error, path }).success).toBe(false);
+    expect(schema.safeParse({ ...body, card_id: 'invalid' }).success).toBe(false);
+    expect(schema.safeParse({ ...body, unexpected: true }).success).toBe(false);
+  });
+
+  it('preserves existing-card record/content misses', async () => {
+    const path = 'record:///status.md?card=project';
+    const request = () => fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}`, headers: authHeaders });
+    const absent = await request();
+    expect(absent.statusCode).toBe(404);
+    expect(absent.json()).toEqual({ error: 'Closed record not found.', path });
+    cards.openRecord('project', 'status.md');
+    cards.discardRecord('project', 'status.md');
+    const empty = await request();
+    expect(empty.statusCode).toBe(404);
+    expect(empty.json()).toEqual({ error: 'Record content not found.', path });
+  });
+
+  it.each(['', '&v=1'])('keeps consumed record corruption as server failure for selector %s', async (selector) => {
+    const accepted = cards.acceptRecord('project', 'status.md', 'Status', 'analyst');
+    const artifact = cardAcceptedRecordFile(projectRoot, 'project', accepted.accepted!.source_entry_id);
+    writeFileSync(artifact, '{}');
+    const path = `record:///status.md?card=project${selector}`;
+    const response = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}`, headers: authHeaders });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(readFileSync(artifact, 'utf8')).toBe('{}');
+  });
+
   it('preserves uncapped record-URL content and the separate raw-source virtual-record preview cap', async () => {
     const source = `${'Ordinary prose. '.repeat(70_000)}token=synthetic_long_credential_123456789`;
     cards.acceptRecord('project', 'status.md', source, 'analyst');

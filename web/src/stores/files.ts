@@ -69,7 +69,7 @@ export const useFileStore = defineStore('files', () => {
   const viewedFilePath = ref<string>('');
   const contentRequest = createOwnedFetch();
   const contentLoading = contentRequest.pending;
-  const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
+  const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'card-missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
 
   // Shared
   const listError = ref<string | null>(null);
@@ -217,11 +217,13 @@ export const useFileStore = defineStore('files', () => {
       viewerState.value = 'ready';
       markRestSnapshotCompleted();
     }, (err) => {
-      const msg = handleApiError(err, 'Failed to fetch file content');
+      const cardMissing = err instanceof OperatorApiError && err.status === 404 && err.data.error === 'workspace_card_not_found';
+      const apiMessage = handleApiError(err, 'Failed to fetch file content');
+      const msg = cardMissing ? 'Card not found' : apiMessage;
       viewerError.value = msg;
       if (err instanceof OperatorApiError) {
         if (err.status === 403) viewerState.value = 'blocked';
-        else if (err.status === 404) viewerState.value = 'missing';
+        else if (err.status === 404) viewerState.value = cardMissing ? 'card-missing' : 'missing';
         else if (err.status === 415) viewerState.value = 'binary';
         else if (err.status === 413) viewerState.value = 'too-large';
         else if (err.status === 400) viewerState.value = 'directory';
