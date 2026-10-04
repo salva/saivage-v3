@@ -68,6 +68,7 @@ export const recordHeadSchema = z
   .object({
     ...identity,
     kind: z.literal('record-head'),
+    head_id: uuidV4Schema,
     revision: positiveSafeIntegerSchema,
     draft: openRecordDraftSchema.nullable(),
     accepted: acceptedRecordReferenceSchema.nullable(),

@@ -46,7 +46,7 @@ const children = [
 const goal = card(goalId, 'Representative status goal', 'running', children.map((child) => child.id));
 const project = card('project', 'Status fixture project', 'running', [goalId]);
 const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status,permitted_child_types:value.type==='project'||value.type==='goal'?['code'] as const:[]});
-const detailProjection=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
+const detailProjection=(value:ReturnType<typeof card>)=>({head_id:'11111111-1111-4111-8111-111111111111',id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const descriptors=[{name:'brief.md',format:'markdown' as const,schema:'brief.v1',bootstrap:true,current:null}];
 
 async function json(route: Route, payload: unknown): Promise<void> {
@@ -85,7 +85,7 @@ async function install(page: Page): Promise<string[]> {
     const recordsId=url.pathname.match(/^\/api\/cards\/([^/]+)\/records$/)?.[1];
     if(recordsId)return json(route,parseOperatorResponse('cards.records.list',200,{card_id:decodeURIComponent(recordsId),records:descriptors}));
     const recordMatch=url.pathname.match(/^\/api\/cards\/([^/]+)\/records\/([^/]+)$/);
-    if(recordMatch){const id=decodeURIComponent(recordMatch[1]!);const name=decodeURIComponent(recordMatch[2]!);return json(route,parseOperatorResponse('cards.records.get',200,{card_id:id,record:{name,revision:1,current_url:`record:///${name}?card=${id}`,accepted_version_url:`record:///${name}?card=${id}&v=1`,state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,writer_agent:'runtime:bootstrap',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,effective_content_source:'accepted'}}));}
+    if(recordMatch){const id=decodeURIComponent(recordMatch[1]!);const name=decodeURIComponent(recordMatch[2]!);return json(route,parseOperatorResponse('cards.records.get',200,{card_id:id,record:{head_id:'11111111-1111-4111-8111-111111111111',name,revision:1,current_url:`record:///${name}?card=${id}`,accepted_version_url:`record:///${name}?card=${id}&v=1`,state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,writer_agent:'runtime:bootstrap',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,effective_content_source:'accepted'}}));}
     const detailId = url.pathname.match(/^\/api\/cards\/([^/]+)$/)?.[1];
     if (detailId) {
       const detail = [project, goal, ...children].find((entry) => entry.id === decodeURIComponent(detailId));

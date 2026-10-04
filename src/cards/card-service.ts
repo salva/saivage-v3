@@ -34,8 +34,6 @@ import {
   readCard,
   readCanonicalCard,
   readCanonicalCardHierarchy,
-  readCardDetail,
-  readCardHierarchy,
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,
   readCommittedCardVersion,
@@ -106,6 +104,7 @@ type CardVersionDiffResult =
         | { readonly kind: 'version'; readonly version: number }
         | {
             readonly kind: 'current';
+            readonly head_id: string;
             readonly version_seq: number;
             readonly history_version: number;
           };
@@ -253,12 +252,13 @@ type CardRecordDiffSelectionResult =
       readonly to: RecordProjection;
       readonly target:
         | { kind: 'version'; version: number }
-        | { kind: 'current'; revision: number; accepted_version: number | null };
+        | { kind: 'current'; head_id: string; revision: number; accepted_version: number | null };
     }>
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' };
 export type CardDeclaredRecordMetadataResult = CardTargetRead<{
   readonly card: CardRecord;
+  readonly headId: string;
   readonly definitions: readonly {
     readonly definition: RecordDefinition;
     readonly classification: CurrentAuthoredRecordClassification;
@@ -275,6 +275,7 @@ interface CanonicalCardFilesMetadataProjection {
 }
 interface CardInspectionListRow {
   readonly card: CardRecord;
+  readonly headId: string;
   readonly parentId: string | null;
   readonly activeChildrenCount: number;
 }
@@ -521,6 +522,7 @@ export class CardService {
             ? { kind: 'version', version: pivots.to }
             : {
                 kind: 'current',
+                head_id: toProjection.headId!,
                 revision: toProjection.revision,
                 accepted_version: toProjection.accepted?.source_version ?? null,
               },
@@ -538,6 +540,7 @@ export class CardService {
       kind: 'found',
       value: {
         card,
+        headId: reached.fold.selection.head_id,
         definitions: this.recordDefinitionsFor(card).map((definition) => {
           const classification = classifyCurrentAuthoredRecord(
             this.projectRoot,
@@ -638,8 +641,8 @@ export class CardService {
   getCardDetail(
     id: string,
     instrumentation?: CanonicalReadInstrumentation,
-  ): CardTargetRead<CardRecord> {
-    return clone(readCardDetail(this.projectRoot, id, instrumentation));
+  ): CardTargetRead<CanonicalCardProjection> {
+    return clone(readCanonicalCard(this.projectRoot, id, instrumentation));
   }
   getCanonicalCard(
     id: string,
@@ -661,7 +664,7 @@ export class CardService {
     if (head.kind === 'card-tombstone')
       return {
         kind: 'found',
-        value: { card: { card, artifact: head }, active: false, recordFiles: [] },
+        value: { card: catalog.value, active: false, recordFiles: [] },
       };
     const definitions = this.recordDefinitionsFor(card);
     const recordFiles = definitions.flatMap((definition) => {
@@ -684,13 +687,23 @@ export class CardService {
           ]
         : [];
     });
-    return { kind: 'found', value: { card: { card, artifact: head }, active: true, recordFiles } };
+    return { kind: 'found', value: { card: catalog.value, active: true, recordFiles } };
   }
   getCardChildren(
     id: string,
     instrumentation?: CanonicalReadInstrumentation,
-  ): CardTargetRead<{ parent: CardRecord; activeChildren: CardRecord[] }> {
-    return clone(readCardHierarchy(this.projectRoot, id, instrumentation));
+  ): CardTargetRead<{ parent: CardRecord; headId: string; activeChildren: CardRecord[] }> {
+    const result = readCanonicalCardHierarchy(this.projectRoot, id, instrumentation);
+    return result.kind === 'card-not-found'
+      ? result
+      : {
+          kind: 'found',
+          value: clone({
+            parent: result.value.parent.card,
+            headId: result.value.parent.headId,
+            activeChildren: result.value.activeChildren.map(({ card }) => card),
+          }),
+        };
   }
   listCardVersions(
     id: string,
@@ -764,7 +777,12 @@ export class CardService {
       to,
       target: toArtifact
         ? { kind: 'version', version: to }
-        : { kind: 'current', version_seq: to, history_version: current.value.artifact.version },
+        : {
+            kind: 'current',
+            head_id: current.value.headId,
+            version_seq: to,
+            history_version: current.value.artifact.version,
+          },
       fromArtifact: clone(fromArtifact),
       toArtifact: clone(toArtifact),
       diff: clone(
@@ -790,7 +808,8 @@ export class CardService {
     instrumentation?: CanonicalReadInstrumentation,
   ): readonly CardInspectionListRow[] {
     return listActiveCardTraversal(this.projectRoot, instrumentation).map(
-      ({ card, parentId, activeChildrenCount }) => clone({ card, parentId, activeChildrenCount }),
+      ({ card, headId, parentId, activeChildrenCount }) =>
+        clone({ card, headId, parentId, activeChildrenCount }),
     );
   }
   readCardInspectionTree(

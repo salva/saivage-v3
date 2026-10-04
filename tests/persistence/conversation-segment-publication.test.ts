@@ -133,7 +133,7 @@ describe('actual first-envelope segment publication', () => {
     if (outcome === 'segment-rename') expect(trace).toEqual(segmentTrace.slice(0, 7));
     else {
       const tempIndex = `.index.json.${temporaries[1]}.saivage-tmp`;
-      const indexTrace = ['factory:2', `open:${tempIndex}`, `write:${tempIndex}`, `fsync:${tempIndex}`, `close:${tempIndex}`, 'rename:index.json'];
+      const indexTrace = ['open:planner', 'fsync:planner', 'close:planner', 'factory:2', `open:${tempIndex}`, `write:${tempIndex}`, `fsync:${tempIndex}`, `close:${tempIndex}`, 'rename:index.json'];
       expect(trace).toEqual([...segmentTrace, ...indexTrace, ...(outcome === 'success' ? ['open:planner', 'fsync:planner', 'close:planner', 'conversation-hint', 'membership-hint'] : [])]);
     }
     expect(temporaries).toHaveLength(outcome === 'segment-rename' ? 1 : 2);

@@ -9,6 +9,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
@@ -25,6 +26,7 @@ import {
   cardAcceptedRecordFile,
   cardAcceptedRecordsRoot,
   cardRecordHeadFile,
+  cardRecordPreviousHeadFile,
   cardHeadFile,
 } from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
@@ -72,6 +74,25 @@ const definition = {
 };
 
 describe('exact record heads and accepted predecessor chains', () => {
+  it('retains whole head inodes on every acceptance and draft mutation, while normal reads ignore previous', () => {
+    const { root, cards, card } = setup();
+    const path = cardRecordHeadFile(root, card.id, definition);
+    const previous = cardRecordPreviousHeadFile(root, card.id, definition);
+    cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
+    expect(existsSync(previous)).toBe(false);
+    for (const publish of [() => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'draft'), () => cards.discardRecord(card.id, 'status.md'), () => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'accepted'), () => cards.closeRecord(card.id, 'status.md', 'executor'), () => cards.acceptRecord(card.id, 'status.md', 'second', 'analyst')]) {
+      const before = readFileSync(path); const inode = statSync(path).ino; const priorId = current(cards, card.id, 'status.md').headId;
+      publish();
+      expect(statSync(previous).ino).toBe(inode); expect(readFileSync(previous)).toEqual(before);
+      expect(current(cards, card.id, 'status.md').headId).not.toBe(priorId);
+    }
+    writeFileSync(previous, 'invalid previous'); const reads: string[] = [];
+    expect(cards.readRecordCurrent(card.id, 'status.md', {onRead:path=>reads.push(path)}).kind).toBe('found');
+    expect(cards.readRecordHistory(card.id, 'status.md', {onRead:path=>reads.push(path)}).kind).toBe('found');
+    expect(reads).not.toContain(previous);
+    const {head_id: _id, ...missingId} = JSON.parse(readFileSync(path, 'utf8'));
+    writeFileSync(path, JSON.stringify(missingId)); expect(() => cards.readRecordCurrent(card.id, 'status.md')).toThrow();
+  });
   function sparseFixture() {
     const value = setup(); const { cards, card, root } = value;
     cards.acceptRecord(card.id, 'status.md', 'one', 'analyst');
@@ -455,7 +476,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       const fault = new Error('record head publication failed');
       const hit = (name: string) => {
         operations.push(name);
-        if (operations.length === 8 + offset) { expect(name).toBe(operation); throw fault; }
+        if (operations.length === 11 + offset) { expect(name).toBe(operation); throw fault; }
       };
       const io: ReplacementFileIo = {
         open: (...args) => { hit('open'); return openSync(...args); },
@@ -473,7 +494,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       } catch (error) { caught = error; }
       if (unknown) expect(caught).toBeInstanceOf(PublicationOutcomeUnknownError);
       else expect(caught).toBe(fault);
-      expect(operations).toHaveLength(8 + offset);
+      expect(operations).toHaveLength(11 + offset);
       for (const effect of Object.values(freshness)) expect(effect).not.toHaveBeenCalled();
       if (offset <= 5) expect(readFileSync(headPath)).toEqual(before);
     }

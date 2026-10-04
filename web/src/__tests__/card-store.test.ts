@@ -18,7 +18,7 @@ const descriptors=[
   {name:'research-findings.md',format:'markdown' as const,schema:'research.v1',bootstrap:false,current:null},
   {name:'decision.md',format:'markdown' as const,schema:'decision.v1',bootstrap:false,current:null},
 ];
-const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
+const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_id:'11111111-1111-4111-8111-111111111111',revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((settle) => { resolve = settle; });
@@ -27,6 +27,18 @@ function deferred<T>() {
 
 describe('CardStore exact card resources',()=>{
   beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();});
+
+  it('replaces exact head identity when a fresh card/record selection has the same displayed revision', async () => {
+    const nextId = '22222222-2222-4222-8222-222222222222';
+    vi.mocked(getCard).mockResolvedValueOnce({card:cardView(A)}).mockResolvedValueOnce({card:cardView(A,{head_id:nextId})});
+    vi.mocked(listCardRecords).mockResolvedValue({card_id:A,records:[descriptors[0]!]});
+    const prior=content(A,'brief.md');
+    vi.mocked(getCardRecord).mockResolvedValueOnce(prior).mockResolvedValueOnce({...prior,record:{...prior.record,head_id:nextId}});
+    const store=useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
+    await store.refreshCardDetail('invalidated'); await store.refreshRecord('brief.md','invalidated');
+    expect(store.selectedDetail?.card).toMatchObject({version_seq:1,head_id:nextId});
+    expect(store.cardRecords['brief.md']!.current?.record).toMatchObject({revision:2,head_id:nextId});
+  });
 
   it('reads real accepted history even at the current revision, and never synthesizes draft history or substitutes gaps', async () => {
     const current = content(A, 'brief.md', 'accepted objective');
@@ -37,7 +49,7 @@ describe('CardStore exact card resources',()=>{
     vi.mocked(getCardRecord).mockResolvedValue(current);
     vi.mocked(listRecordHistory).mockResolvedValue({ card_id: A, name: 'brief.md', versions: [{ entry_id: accepted.source_entry_id, version: 2, published_at: accepted.committed_at, version_url: historical.version_url }], total: 1 });
     vi.mocked(getRecordVersion).mockResolvedValue(historical);
-    vi.mocked(getRecordDiff).mockResolvedValue({ card_id: A, name: 'brief.md', from: 2, to: { kind: 'current', revision: 2, accepted_version: 2 }, view: 'effective', hunks: [] });
+    vi.mocked(getRecordDiff).mockResolvedValue({ card_id: A, name: 'brief.md', from: 2, to: { kind: 'current', head_id: '11111111-1111-4111-8111-111111111111', revision: 2, accepted_version: 2 }, view: 'effective', hunks: [] });
     const store = useCardStore();
     await store.fetchCardDetail(A); await store.loadCardRecords(A); await store.openRecordHistory('brief.md');
     await store.selectRecordVersion('brief.md', 2);
@@ -93,7 +105,7 @@ describe('CardStore exact card resources',()=>{
     expect(versionSignal.aborted).toBe(true); expect(diffSignal.aborted).toBe(true);
     const accepted = current.record.accepted;
     oldVersion.resolve({ card_id: A, name: 'brief.md', version: 2, version_url: current.record.accepted_version_url, entry_id: accepted.source_entry_id, published_at: accepted.committed_at, artifact: { published_at: accepted.committed_at, accepted } });
-    oldDiff.resolve({ card_id: A, name: 'brief.md', from: 2, to: { kind: 'current', revision: 2, accepted_version: 2 }, view: 'effective', hunks: [] });
+    oldDiff.resolve({ card_id: A, name: 'brief.md', from: 2, to: { kind: 'current', head_id: '11111111-1111-4111-8111-111111111111', revision: 2, accepted_version: 2 }, view: 'effective', hunks: [] });
     await oldSelection;
     expect(store.cardRecords['brief.md']).toMatchObject({ selectedVersion: 3, selected: null, diff: null, selectedError: 'historical_version_not_found', diffError: 'historical_version_not_found' });
   });
@@ -245,7 +257,7 @@ describe('CardStore exact card resources',()=>{
     vi.mocked(listCardHistory).mockResolvedValue({ card_id: A, versions: [header], total: 1 });
     await store.openCardHistory(A);
     const selected = { card_id: A, version: 2, entry_id: '22222222-2222-4222-8222-222222222222', published_at: header.published_at, artifact: { kind: 'card-version' as const, card: historyCard(A, { version_seq: 2 }), change: null } };
-    const diff = { card_id: A, from: 2, to: { kind: 'current' as const, version_seq: 4, history_version: 2 }, diff: [{ field: 'title', before: 'old', after: 'current' }] };
+    const diff = { card_id: A, from: 2, to: { kind: 'current' as const, head_id: '11111111-1111-4111-8111-111111111111', version_seq: 4, history_version: 2 }, diff: [{ field: 'title', before: 'old', after: 'current' }] };
     vi.mocked(getCardHistoryEntry).mockResolvedValue(selected);
     vi.mocked(getCardDiff).mockResolvedValue(diff);
     await store.selectCardHistoryVersion(A, 2);
@@ -289,7 +301,7 @@ describe('CardStore exact card resources',()=>{
     expect(versionSignal.aborted).toBe(true);
     expect(diffSignal.aborted).toBe(true);
     oldVersion.resolve({ card_id: A, version: 2, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-07-22T00:00:00.000Z', artifact: { kind: 'card-version', card: historyCard(A), change: null } });
-    oldDiff.resolve({ card_id: A, from: 2, to: { kind: 'current', version_seq: 4, history_version: 2 }, diff: [{ field: 'title', before: 'old', after: 'stale' }] });
+    oldDiff.resolve({ card_id: A, from: 2, to: { kind: 'current', head_id: '11111111-1111-4111-8111-111111111111', version_seq: 4, history_version: 2 }, diff: [{ field: 'title', before: 'old', after: 'stale' }] });
     await oldSelection;
     expect(store.cardHistorySelectedVersion).toBe(3);
     expect(store.cardHistoryEntry).toBeNull();
@@ -307,7 +319,7 @@ describe('CardStore exact card resources',()=>{
     const selected={card_id:A,version:1,entry_id:first.entry_id,published_at:first.published_at,artifact:{kind:'card-version' as const,card:historyCard(A),change:null}};
     vi.mocked(listCardHistory).mockResolvedValue({card_id:A,versions:[first,second],total:2});
     vi.mocked(getCardHistoryEntry).mockResolvedValue(selected);
-    vi.mocked(getCardDiff).mockResolvedValue({card_id:A,from:1,to:{kind:'current',version_seq:2,history_version:2},diff:[]});
+    vi.mocked(getCardDiff).mockResolvedValue({card_id:A,from:1,to:{kind:'current',head_id:first.entry_id,version_seq:2,history_version:2},diff:[]});
     const store=useCardStore();
 
     await store.openCardHistory(A);

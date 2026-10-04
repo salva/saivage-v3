@@ -130,8 +130,9 @@ function listCards(store: CardInspectionStore, params: ListCardsInput): ToolActi
       type: params.type ?? null,
       parent: params.parent ?? null,
     },
-    cards: rows.map(({ card }) => ({
+    cards: rows.map(({ card, headId }) => ({
       id: card.id,
+      head_id: headId,
       version_seq: card.version_seq,
       status: card.lifecycle.status,
     })),
@@ -165,8 +166,9 @@ function getTree(
   const result = store.readCardInspectionTree(rootId, depth);
   if (result.kind === 'card-not-found') return cardNotFound(rootId);
   const nodes = result.value.map(
-    ({ card, parentId, relativeDepth, activeChildrenCount, activeDescendantCount }) => ({
+    ({ card, headId, parentId, relativeDepth, activeChildrenCount, activeDescendantCount }) => ({
       id: card.id,
+      head_id: headId,
       parent: parentId,
       depth: relativeDepth,
       type: card.type,
@@ -182,7 +184,11 @@ function getTree(
     surface: 'get_tree',
     root_id: rootId,
     depth,
-    nodes: nodes.map((node) => ({ id: node.id, version_seq: node.version_seq })),
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      head_id: node.head_id,
+      version_seq: node.version_seq,
+    })),
   });
   const { data } = packCollectionData({
     cap: responseBytes,
@@ -213,11 +219,13 @@ function getCard(
 ): ToolActionOutcome {
   const store = ctx.store;
   let card: CardRecord;
+  let headId: string;
   let sectionItems: readonly unknown[] | undefined;
   if (section === 'children') {
     const result = store.getCardChildren(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
     card = result.value.parent;
+    headId = result.value.headId;
     sectionItems = result.value.activeChildren.map((child) => {
       const projected = projectCardRecordForOutbound(child);
       return {
@@ -231,14 +239,16 @@ function getCard(
     const result = store.listDeclaredRecordMetadata(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
     card = result.value.card;
+    headId = result.value.headId;
     sectionItems = recordMetadataItems(result.value.card.id, result.value.definitions);
   } else {
     const result = store.getCardDetail(cardId);
     if (result.kind === 'card-not-found') return cardNotFound(cardId);
-    card = result.value;
+    card = result.value.card;
+    headId = result.value.headId;
   }
   const projected = projectCardRecordForOutbound(card);
-  const base = { card_id: card.id, version_seq: card.version_seq, section };
+  const base = { card_id: card.id, head_id: headId, version_seq: card.version_seq, section };
   if (section === 'summary') {
     if (position !== undefined)
       throw new ToolArgumentValidationError(
@@ -274,6 +284,7 @@ function getCard(
   const observation = canonicalValueSha256({
     surface: 'get_card',
     card_id: card.id,
+    head_id: headId,
     version_seq: card.version_seq,
     section,
     items: complete,
@@ -300,6 +311,7 @@ function recordMetadataItems(
         format: definition.format,
         state: record.state,
         revision: record.revision,
+        head_id: record.headId,
         current_url: record.currentUrl,
         accepted_version_url: record.acceptedVersionUrl,
       };
@@ -308,6 +320,7 @@ function recordMetadataItems(
       format: definition.format,
       state: 'absent' as const,
       revision: null,
+      head_id: null,
       current_url: `record:///${encodeURIComponent(definition.filename)}?card=${encodeURIComponent(cardId)}`,
       accepted_version_url: null,
     };

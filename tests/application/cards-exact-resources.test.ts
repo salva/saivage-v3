@@ -119,7 +119,7 @@ describe('exact Card operator resources',()=>{
     expect(selected).toMatchObject({statusCode:404,body:{error:'historical_version_not_found',version:2}});
     const diff=model.diffCard(card.id,{from:1,to:'current'});
     if ('statusCode' in diff) throw new Error('Expected diff.');
-    expect(diff.body.to).toEqual({kind:'current',version_seq:5,history_version:5});
+    expect(diff.body.to).toEqual({kind:'current',head_id:expect.any(String),version_seq:5,history_version:5});
     const mixed=model.getHistoryEntry(card.id,5);if('statusCode'in mixed)throw new Error('Expected mixed selected history.');
     expect(mixed.body.artifact.change).toEqual({summary:'status -> cancelled',changed_fields:['lifecycle'],actor:null});
     expect(JSON.stringify([history,selected,mixed,diff])).not.toMatch(/private-notification-id|private notification body|second-private-id|second private body|notification_enqueue|notification_remove|pending_notifications|notifications delivered/);

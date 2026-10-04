@@ -33,6 +33,7 @@ test('desktop card records facet keeps all content reachable inside the bounded 
       body: JSON.stringify(parseOperatorResponse('cards.records.get', 200, {
         card_id: smokeCardId,
         record: {
+          head_id:'11111111-1111-4111-8111-111111111111',
           name,
           revision: 1,
           current_url: `record:///${name}?card=${smokeCardId}`,

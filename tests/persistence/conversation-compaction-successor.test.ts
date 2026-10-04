@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { cardConversationVersionIndexFile, conversationPreviousIndexFile } from '../../src/persistence/layout.js';
 import { createHash } from 'node:crypto';
 import { conversationSegmentEnvelopeSchema } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ import { internalCompactionSummarySessionId } from '../../src/contracts/provider
 import { validateCompactedHistorySuccessor, type ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { publishFreshFile } from '../../src/persistence/replace-file.js';
 import { publicationWitness, type PublicationFault } from '../helpers/segment-publication-io.js';
-import { replaceFile } from '../../src/persistence/replace-file.js';
+import { publishHeadFile } from '../../src/persistence/publish-head.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
@@ -330,6 +331,8 @@ describe('compaction fallback, successor identity, and internal summary identity
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const publicationTrace: string[] = []; let preparedEnvelope: Buffer | undefined; let selectedPath = '';
+      const indexPath = cardConversationVersionIndexFile(root, 'project', 'planner');
+      const priorIndex = readFileSync(indexPath); const priorInode = statSync(indexPath).ino;
       const factory = jest.fn(() => `00000000-0000-4000-8000-${String(publicationTrace.length).padStart(12, '0')}`);
       const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { publicationTrace.push('hint'); }, agentMembershipChanged() { publicationTrace.push('membership'); } } }, input: invocation(readConversation(root, SESSION)), summarizerProvider: summarizer({ calls: [], summaryOf: constantSummary('identity summary') }), signal: new AbortController().signal, publication: {
         temporary: factory,
@@ -338,8 +341,8 @@ describe('compaction fallback, successor identity, and internal summary identity
             selectedPath = path; preparedEnvelope = bytes; publicationTrace.push('segment-start');
             publishFreshFile(path, bytes, temporary); publicationTrace.push('segment-done');
           },
-          replaceFile: (path, bytes, temporary) => {
-            publicationTrace.push('index-start'); replaceFile(path, bytes, temporary); publicationTrace.push('index-done');
+          publishHeadFile: (path, previous, bytes, mode, temporary) => {
+            publicationTrace.push('index-start'); publishHeadFile(path, previous, bytes, mode, temporary); publicationTrace.push('index-done');
           },
         },
       } });
@@ -354,6 +357,8 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(historyRow.block_identity).toBe(`${genesis!.id}:compacted-history`);
       expect(publicationTrace).toEqual(['segment-start', 'segment-done', 'index-start', 'index-done', 'hint', 'returned']);
       expect(factory).toHaveBeenCalledTimes(2);
+      expect(statSync(conversationPreviousIndexFile(indexPath)).ino).toBe(priorInode);
+      expect(readFileSync(conversationPreviousIndexFile(indexPath))).toEqual(priorIndex);
       expect(selectedPath).toBe(join(root, '.saivage', 'cards', 'project', 'conversations', 'planner', 'versions', segment.entry.filename));
       expect(preparedEnvelope).toEqual(segment.bytes);
       expect(JSON.parse(preparedEnvelope!.toString()).rows[0].id).toBe(genesis!.id);
@@ -383,9 +388,9 @@ describe('compaction fallback, successor identity, and internal summary identity
               segmentAttempts++; effects.push('segment');
               preserve(() => publishFreshFile(path, bytes, factory, owner === 'segment' ? witness.io : undefined));
             },
-            replaceFile: (path, bytes, factory) => {
+            publishHeadFile: (path, previous, bytes, mode, factory) => {
               indexAttempts++; effects.push('index');
-              preserve(() => replaceFile(path, bytes, factory, witness.io));
+              preserve(() => publishHeadFile(path, previous, bytes, mode, factory, witness.io));
             },
           },
         } });
@@ -395,7 +400,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       else { expect(classified).toBe(witness.failure); expect(thrown).toMatchObject({ name: 'CompactionAppendError', cause: witness.failure }); }
       expect(segmentAttempts).toBe(1); expect(indexAttempts).toBe(owner === 'index' ? 1 : 0);
       expect(effects).toEqual(owner === 'index' ? ['segment', 'index'] : ['segment']);
-      expect(allocated).toHaveLength(owner === 'index' ? 2 : 1);
+      expect(allocated).toHaveLength(owner === 'index' && phase !== 'parent-fsync' ? 2 : 1);
       expect(witness.trace.at(-1)).toBe(phase === 'rename-effect-throw' ? 'rename' : phase);
       expect(calls).toHaveLength(1); // No fallback/summary work after failed publication.
     } finally { rmSync(root, { recursive: true, force: true }); }

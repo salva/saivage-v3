@@ -95,6 +95,7 @@ function installDefaultFixtureApi(): void {
   api.getCardRecord.mockImplementation(async (cardId: string, name: string) => ({
     card_id: cardId,
     record: {
+      head_id:'11111111-1111-4111-8111-111111111111',
       name,
       revision: 1,
       current_url: `record:///${name}?card=${cardId}`,

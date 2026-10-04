@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { cardHeadFile, cardPreviousHeadFile, cardRecordHeadFile, cardRecordPreviousHeadFile } from '../../../src/persistence/layout.js';
+import { publishHeadFile } from '../../../src/persistence/publish-head.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
@@ -11,7 +14,7 @@ type RecordMethods = {
   captureRecordHead(filename: string): unknown;
   discardWrittenRecords(names:Set<string>): void;
   closeAcceptedRecords(node:unknown,candidates:ReadonlyMap<string,unknown>,written:ReadonlySet<string>):unknown;
-  validateRecords(node:unknown,baseline:ReadonlyMap<string,number|null>):unknown;
+  validateRecords(node:unknown,baseline:ReadonlyMap<string,{revision:number;headId:string}|null>):unknown;
   prepareRecordRequirements(node:unknown):void;
 };
 const roots: string[] = [];
@@ -21,6 +24,23 @@ const gateCases: Array<['clean' | 'continue', 'exists' | 'updated']> = [
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('AgentNodeExecution authored-record absence handling', () => {
+  it.each(['card', 'record'] as const)('rejects a fresh %s selection identity even with identical revision and payload', (target) => {
+    const root = mkdtempSync(join(tmpdir(), 'review-head-identity-')); roots.push(root); initProjectTree(root);
+    const store = new CardService(root);
+    const child = store.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const runner = new AgentNodeExecution({ cardId: 'project', store } as never, {} as never) as unknown as {
+      captureReviewerSnapshot(id: string, records: readonly string[]): unknown;
+      reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;
+    };
+    const before = runner.captureReviewerSnapshot('project', ['brief.md']);
+    const definition = {filename:'brief.md'};
+    const current = target === 'card' ? cardHeadFile(root, child.id) : cardRecordHeadFile(root, child.id, definition);
+    const previous = target === 'card' ? cardPreviousHeadFile(root, child.id) : cardRecordPreviousHeadFile(root, child.id, definition);
+    const selected = JSON.parse(readFileSync(current, 'utf8'));
+    publishHeadFile(current, previous, Buffer.from(JSON.stringify({ ...selected, head_id: randomUUID() }) + '\n'), 'replacement');
+    expect(runner.reviewerStaleReason('project', before, ['brief.md'])).toContain('changed during review');
+    expect(store.read(child.id)?.version_seq).toBe(1);
+  });
   it.each(['project', 'child'] as const)('review freshness observes a %s enqueue/remove round trip with unchanged ordinary history', target => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-review-queue-freshness-'));
     roots.push(root); initProjectTree(root);
@@ -51,7 +71,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const node={requirements:[{mode,gate,definition:{name:'status.md'}}]};
     runner.prepareRecordRequirements(node);
-    const baseline=new Map([['status.md',runner.captureRecordHead('status.md') as number]]);
+    const baseline=new Map([['status.md',runner.captureRecordHead('status.md') as {revision:number;headId:string}]]);
     const initial=runner.validateRecords(node,baseline);
     if(mode==='clean'||gate==='updated') expect(initial).toHaveProperty('violations');
     else expect(initial).toHaveProperty('candidates');
@@ -104,11 +124,11 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     expect(store.readRecordCurrent).not.toHaveBeenCalled();
   });
 
-  it('applies exists and updated gates against only non-empty effective content and numeric entry heads', () => {
+  it('applies exists and updated gates against non-empty effective content and exact head stamps', () => {
     const projections = new Map([
-      ['closed.md', { revision: 4, currentUrl: 'record:///closed.md?card=project', state: 'closed', accepted: { content: 'accepted' }, draft: null }],
-      ['open.md', { revision: 6, currentUrl: 'record:///open.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: 'new' } }],
-      ['empty.md', { revision: 3, currentUrl: 'record:///empty.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: '' } }],
+      ['closed.md', { headId:'11111111-1111-4111-8111-111111111111', revision: 4, currentUrl: 'record:///closed.md?card=project', state: 'closed', accepted: { content: 'accepted' }, draft: null }],
+      ['open.md', { headId:'22222222-2222-4222-8222-222222222222', revision: 6, currentUrl: 'record:///open.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: 'new' } }],
+      ['empty.md', { headId:'33333333-3333-4333-8333-333333333333', revision: 3, currentUrl: 'record:///empty.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: '' } }],
     ]);
     const store={readRecordCurrent:jest.fn((_card:string,name:string)=>({kind:'found',value:{projection:projections.get(name)??null}}))};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
@@ -117,16 +137,16 @@ describe('AgentNodeExecution authored-record absence handling', () => {
       {mode:'continue',gate:'updated',definition:{name:'open.md'}},
       {mode:'continue',gate:'exists',definition:{name:'empty.md'}},
     ]};
-    expect(runner.validateRecords(node,new Map([['closed.md',4],['open.md',5],['empty.md',2]]))).toEqual({violations:["Required record 'record:///empty.md?card=project' is missing or empty."]});
+    expect(runner.validateRecords(node,new Map([['closed.md',{revision:4,headId:'11111111-1111-4111-8111-111111111111'}],['open.md',{revision:5,headId:'11111111-1111-4111-8111-111111111111'}],['empty.md',{revision:2,headId:'11111111-1111-4111-8111-111111111111'}]]))).toEqual({violations:["Required record 'record:///empty.md?card=project' is missing or empty."]});
   });
 
-  it('prepares only clean requirements by discard then open and captures the post-preparation numeric head', () => {
+  it('prepares only clean requirements by discard then open and captures the post-preparation exact head', () => {
     const openProjection={revision:2,state:'open',draft:{content:'old'}};
     const discardRecord=jest.fn(()=>({revision:3}));
     const openRecord=jest.fn(()=>({revision:4}));
     const readRecordCurrent=jest.fn()
       .mockReturnValueOnce({kind:'found',value:{projection:openProjection}})
-      .mockReturnValue({kind:'found',value:{projection:{revision:4}}});
+      .mockReturnValue({kind:'found',value:{projection:{revision:4,headId:'11111111-1111-4111-8111-111111111111'}}});
     const runner=new AgentNodeExecution({cardId:'project',store:{readRecordCurrent,discardRecord,openRecord}} as never,{} as never) as unknown as RecordMethods;
     runner.prepareRecordRequirements({requirements:[
       {mode:'clean',gate:'updated',definition:{name:'clean.md'}},
@@ -135,7 +155,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     expect(readRecordCurrent).toHaveBeenCalledWith('project','clean.md');
     expect(discardRecord).toHaveBeenCalledWith('project','clean.md');
     expect(openRecord).toHaveBeenCalledWith('project','clean.md');
-    expect(runner.captureRecordHead('clean.md')).toBe(4);
+    expect(runner.captureRecordHead('clean.md')).toEqual({revision:4,headId:'11111111-1111-4111-8111-111111111111'});
   });
 
   it('closes a tool-less continue-exists resumed draft under glob-authorized accepting provenance', () => {

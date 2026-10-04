@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { uuidV4Schema } from '../schemas/index.js';
 import {
   outboundCardRecordSchema,
   runtimeStateSchema,
@@ -141,6 +142,7 @@ export const CardDetailSchema = z
     type: cardTypeSchema,
     lifecycle: CardDetailLifecycleSchema,
     version_seq: positiveSafeIntegerSchema,
+    head_id: uuidV4Schema,
     urgency: urgencySchema,
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
@@ -151,6 +153,7 @@ export const CardDetailSchema = z
 export const CardDetailResponseSchema = z.object({ card: CardDetailSchema }).strict();
 const CardRecordCurrentDescriptorSchema = z
   .object({
+    head_id: uuidV4Schema,
     revision: positiveSafeIntegerSchema,
     current_url: z.string().min(1),
     accepted_version_url: z.string().min(1).nullable(),
@@ -209,6 +212,7 @@ const RecordDraftWireSchema = z
   .strict();
 const CardRecordContentSchema = z
   .object({
+    head_id: uuidV4Schema,
     name: recordNameSchema,
     revision: positiveSafeIntegerSchema,
     current_url: z.string().min(1),
@@ -292,6 +296,7 @@ const RecordDiffResponseSchema = z
         .object({
           kind: z.literal('current'),
           revision: positiveSafeIntegerSchema,
+          head_id: uuidV4Schema,
           accepted_version: positiveSafeIntegerSchema.nullable(),
         })
         .strict(),
@@ -407,6 +412,7 @@ export const CardDiffResponseSchema = z
         .object({
           kind: z.literal('current'),
           version_seq: positiveSafeIntegerSchema,
+          head_id: uuidV4Schema,
           history_version: positiveSafeIntegerSchema,
         })
         .strict(),

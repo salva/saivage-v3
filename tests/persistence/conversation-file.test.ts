@@ -1,11 +1,11 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from '@jest/globals';
 
 import { appendConversationBatch, initializeMissingConversation, isConversationCatalogEstablished, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { consumeGrowingFile } from '../../src/persistence/growing-file.js';
-import { cardConversationVersionFile, cardConversationVersionIndexFile, globalAgentConversationRoot } from '../../src/persistence/layout.js';
+import { cardConversationVersionFile, cardConversationVersionIndexFile, conversationPreviousIndexFile, globalAgentConversationRoot } from '../../src/persistence/layout.js';
 import { agentMessageSchema, type AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
@@ -16,6 +16,17 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it('retains an empty index inode on first ingress, ignores previous on normal reads, and never falls back', () => {
+    const projectRoot = root(); const index = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const previous = conversationPreviousIndexFile(index); const before = readFileSync(index); const inode = statSync(index).ino;
+    expect(existsSync(previous)).toBe(false);
+    appendConversationBatch({projectRoot}, [text('first')]);
+    expect(statSync(previous).ino).toBe(inode); expect(readFileSync(previous)).toEqual(before);
+    // Replace (do not corrupt the hardlinked inode in place) to model unrelated previous damage.
+    unlinkSync(previous); writeFileSync(previous, 'invalid previous');
+    expect(readConversation(projectRoot, SESSION).physicalRows).toHaveLength(1);
+    writeFileSync(index, 'invalid current'); expect(() => readConversation(projectRoot, SESSION)).toThrow();
+  });
   it('freshly establishes only the exact catalog, including empty indexes, without consuming indexed content', () => {
     const projectRoot = root();
     const index = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');

@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
+import {
+  cardIdSchema,
+  positiveSafeIntegerSchema,
+  recordNameSchema,
+  uuidV4Schema,
+} from '../schemas/index.js';
 
 const operationSchema = z.enum(['write', 'edit']);
 const commonIdentity = { card_id: cardIdSchema, name: recordNameSchema } as const;
@@ -168,6 +173,7 @@ export const RecordMutationSuccessSchema = z
         ...commonIdentity,
         state: z.enum(['open', 'closed']),
         revision: positiveSafeIntegerSchema,
+        head_id: uuidV4Schema,
         current_url: z.string().min(1),
         accepted_version_url: z.string().min(1).nullable(),
         bytes: z.number().int().safe().nonnegative(),
@@ -214,6 +220,7 @@ export const ModelRecordTargetWireSchema = z
     schema: z.string().min(1),
     state: z.enum(['absent', 'open', 'closed', 'empty']),
     revision: positiveSafeIntegerSchema.nullable(),
+    head_id: uuidV4Schema.nullable(),
     current_url: z.string().min(1),
     accepted_version_url: z.string().min(1).nullable(),
   })
@@ -226,7 +233,7 @@ export const ModelRecordTargetWireSchema = z
         message: 'Current record URL does not match record identity.',
       });
     if (value.state === 'absent') {
-      if (value.revision !== null || value.accepted_version_url !== null)
+      if (value.revision !== null || value.head_id !== null || value.accepted_version_url !== null)
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'Absent record target must have no head or version URL.',
@@ -235,6 +242,7 @@ export const ModelRecordTargetWireSchema = z
     }
     if (
       value.revision === null ||
+      value.head_id === null ||
       (value.accepted_version_url !== null &&
         !isAcceptedUrl(value.accepted_version_url, currentUrl, value.revision)) ||
       (value.state === 'closed' && value.accepted_version_url === null)

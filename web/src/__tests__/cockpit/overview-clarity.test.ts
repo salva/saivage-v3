@@ -37,10 +37,10 @@ vi.mock('../../stores/sync', () => ({
 
 const now = '2026-09-28T10:00:00.000Z';
 const descriptors = [
-  { name: 'mission-custom.md', format: 'markdown' as const, schema: 'mission.v1', bootstrap: true, current: { revision: 5, current_url: 'record:///mission-custom.md?card=card-a', accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2', state: 'open' as const, accepted_source_version: 2, draft_present: true } },
-  { name: 'constraints.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 3, current_url: 'record:///constraints.md?card=card-a', accepted_version_url: 'record:///constraints.md?card=card-a&v=2', state: 'closed' as const, accepted_source_version: 2, draft_present: false } },
+  { name: 'mission-custom.md', format: 'markdown' as const, schema: 'mission.v1', bootstrap: true, current: { head_id:'11111111-1111-4111-8111-111111111111', revision: 5, current_url: 'record:///mission-custom.md?card=card-a', accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2', state: 'open' as const, accepted_source_version: 2, draft_present: true } },
+  { name: 'constraints.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_id:'11111111-1111-4111-8111-111111111111', revision: 3, current_url: 'record:///constraints.md?card=card-a', accepted_version_url: 'record:///constraints.md?card=card-a&v=2', state: 'closed' as const, accepted_source_version: 2, draft_present: false } },
   { name: 'source-notes.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: null },
-  { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { revision: 1, current_url: 'record:///review-custom.md?card=card-a', accepted_version_url: 'record:///review-custom.md?card=card-a&v=1', state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
+  { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_id:'11111111-1111-4111-8111-111111111111', revision: 1, current_url: 'record:///review-custom.md?card=card-a', accepted_version_url: 'record:///review-custom.md?card=card-a&v=1', state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
 ];
 
 function acceptedArtifact(name: string, content: string, headVersion = 3, sourceVersion = 2) {
@@ -48,6 +48,7 @@ function acceptedArtifact(name: string, content: string, headVersion = 3, source
     card_id: 'card-a',
     record: {
       name,
+      head_id:'11111111-1111-4111-8111-111111111111',
       revision: headVersion,
       current_url: `record:///${name}?card=card-a`,
       accepted_version_url: `record:///${name}?card=card-a&v=${sourceVersion}`,
@@ -64,6 +65,7 @@ function draftArtifact(content: string) {
     card_id: 'card-a',
     record: {
       name: 'mission-custom.md',
+      head_id:'11111111-1111-4111-8111-111111111111',
       revision: 5,
       current_url: 'record:///mission-custom.md?card=card-a',
       accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2',

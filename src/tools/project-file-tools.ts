@@ -395,6 +395,7 @@ export async function readProject(
       format: record.format,
       state: record.state,
       revision: record.revision,
+      head_id: record.head_id,
       current_url: record.current_url,
       accepted_version_url: record.accepted_version_url,
     }));
@@ -421,6 +422,7 @@ export async function readProject(
       format: resolved.format,
       state: resolved.state,
       revision: resolved.revision,
+      head_id: resolved.headId,
       version: resolved.version,
       accepted_version_url: resolved.acceptedVersionUrl,
       committed_at: resolved.committedAt,

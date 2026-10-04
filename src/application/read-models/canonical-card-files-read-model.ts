@@ -122,6 +122,7 @@ function cardVirtualDocument(value: CardArtifact | CanonicalCardProjection): str
     'artifact' in value && value.artifact.kind !== 'card-tombstone'
       ? {
           kind: 'card-current',
+          head_id: value.headId,
           card_id: value.card.id,
           version_seq: value.card.version_seq,
           history_version: value.artifact.version,

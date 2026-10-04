@@ -27,6 +27,7 @@ function sanitizeFilePath(filePath: string): string {
 export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   if (clean === '.saivage/locks' || clean.startsWith('.saivage/locks/')) return true;
+  if (/^\.saivage\/agents\/conversations\/[^/]+\/index\.prev\.json$/.test(clean)) return true;
   if (NON_SECRET_READ_BLOCKED_PATHS.has(clean)) return true;
   try {
     assertNotSecretPath(clean);

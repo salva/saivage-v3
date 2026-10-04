@@ -51,6 +51,7 @@ const totalCards = 1 + chainIds.length + 1 + wideChildIds.length + bulkParentIds
 
 function detailProjection(id: string, title: string) {
   return {
+    head_id: '11111111-1111-4111-8111-111111111111',
     id,
     type: id === 'project' ? 'project' : 'code',
     title,
@@ -121,6 +122,7 @@ async function installScaleFixture(page: Page): Promise<{ childrenReads: string[
       return json(route, parseOperatorResponse('cards.records.get', 200, {
         card_id: cardId,
         record: {
+          head_id: '11111111-1111-4111-8111-111111111111',
           name,
           revision: 1,
           current_url: `record:///${name}?card=${cardId}`,

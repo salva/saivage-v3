@@ -40,12 +40,10 @@ import {
   globalAgentConversationVersionFile,
   globalAgentConversationVersionIndexFile,
   globalAgentConversationVersionsRoot,
+  conversationPreviousIndexFile,
 } from './layout.js';
-import {
-  publishFreshFile,
-  replaceFile,
-  type PublicationTemporaryIdFactory,
-} from './replace-file.js';
+import { publishFreshFile, type PublicationTemporaryIdFactory } from './replace-file.js';
+import { publishHeadFile } from './publish-head.js';
 
 export interface ConversationFileContext {
   readonly projectRoot: string;
@@ -220,9 +218,16 @@ function emptyIndex(sessionId: ConversationSessionId): ConversationVersionIndex 
 function publishIndex(
   path: string,
   index: ConversationVersionIndex,
+  mode: 'initial' | 'replacement',
   temporary?: PublicationTemporaryIdFactory,
 ): void {
-  replaceFile(path, serializeStrictJson(index), temporary);
+  publishHeadFile(
+    path,
+    conversationPreviousIndexFile(path),
+    serializeStrictJson(index),
+    mode,
+    temporary,
+  );
 }
 
 export function initializeConversation(
@@ -233,7 +238,7 @@ export function initializeConversation(
   const target = location(projectRoot, sessionId);
   mkdirSync(target.root);
   mkdirSync(target.versionsRoot);
-  publishIndex(target.indexPath, emptyIndex(sessionId), temporary);
+  publishIndex(target.indexPath, emptyIndex(sessionId), 'initial', temporary);
 }
 function ensureDirectory(path: string): void {
   try {
@@ -257,7 +262,7 @@ export function initializeMissingConversation(
   }
   ensureDirectory(target.root);
   ensureDirectory(target.versionsRoot);
-  publishIndex(target.indexPath, emptyIndex(sessionId), temporary);
+  publishIndex(target.indexPath, emptyIndex(sessionId), 'initial', temporary);
   return true;
 }
 export function readConversationCatalog(
@@ -479,7 +484,7 @@ export function appendConversationBatch(
       segmentEnvelope([genesis, ...parsed]),
       options.publicationTemporaryId,
     );
-    publishIndex(target.indexPath, next, options.publicationTemporaryId);
+    publishIndex(target.indexPath, next, 'replacement', options.publicationTemporaryId);
     segmentVersion = 1;
   } else {
     appendRequiredEnvelope(
@@ -522,7 +527,7 @@ export type CompactionSuccessorIdentity = Readonly<{
 
 interface CompactionPublicationIo {
   readonly publishFreshFile: typeof publishFreshFile;
-  readonly replaceFile: typeof replaceFile;
+  readonly publishHeadFile: typeof publishHeadFile;
 }
 
 export interface CompactionPublicationOptions {
@@ -536,7 +541,7 @@ export function publishCompactedConversationSegment(
   compaction: ConversationCompactionPublication,
   options: CompactionPublicationOptions = {},
 ): ValidatedConversation {
-  const io = options.io ?? { publishFreshFile, replaceFile };
+  const io = options.io ?? { publishFreshFile, publishHeadFile };
   const target = location(conversations.projectRoot, sessionId);
   const current = readSegment(conversations.projectRoot, sessionId);
   if (!current) throw new Error(`Conversation '${sessionId}' has no source segment to compact.`);
@@ -653,7 +658,13 @@ export function publishCompactedConversationSegment(
     segmentEnvelope([genesis, ...rows]),
     options.temporary,
   );
-  io.replaceFile(target.indexPath, serializeStrictJson(next), options.temporary);
+  io.publishHeadFile(
+    target.indexPath,
+    conversationPreviousIndexFile(target.indexPath),
+    serializeStrictJson(next),
+    'replacement',
+    options.temporary,
+  );
   conversations.changes?.conversationChanged({
     session_id: sessionId,
     segment_version: version,

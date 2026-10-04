@@ -20,9 +20,13 @@ import {
   readCanonicalBytesOrMissing,
   type CanonicalReadInstrumentation,
 } from './growing-file.js';
-import { cardRecordHeadFile, cardAcceptedRecordFile } from './layout.js';
 import {
-  replaceFile,
+  cardRecordHeadFile,
+  cardRecordPreviousHeadFile,
+  cardAcceptedRecordFile,
+} from './layout.js';
+import { publishHeadFile } from './publish-head.js';
+import {
   publishFreshFile,
   type PublicationTemporaryIdFactory,
   type ReplacementFileIo,
@@ -33,6 +37,7 @@ export interface RecordProjection {
   readonly cardId: string;
   readonly filename: string;
   readonly revision: number;
+  readonly headId: string | null;
   readonly currentUrl: string;
   readonly acceptedVersionUrl: string | null;
   readonly state: 'open' | 'closed' | 'empty';
@@ -126,7 +131,7 @@ function readAccepted(
 }
 function project(
   definition: RecordDefinition,
-  head: RecordHead,
+  head: Omit<RecordHead, 'head_id'> & { readonly head_id: string | null },
   accepted: AcceptedRecordSnapshot | null,
 ): RecordProjection {
   const currentUrl = `record:///${encodeURIComponent(definition.filename)}?card=${encodeURIComponent(head.card_id)}`;
@@ -134,6 +139,7 @@ function project(
     cardId: head.card_id,
     filename: definition.filename,
     revision: head.revision,
+    headId: head.head_id,
     currentUrl,
     acceptedVersionUrl: accepted ? `${currentUrl}&v=${accepted.source_version}` : null,
     state: head.draft ? 'open' : accepted ? 'closed' : 'empty',
@@ -149,6 +155,7 @@ function projectAuthoredRecordArtifact(
     definition,
     {
       ...identity(artifact.card_id, definition),
+      head_id: null,
       revision: artifact.version,
       draft: null,
       accepted: reference(artifact),
@@ -232,9 +239,13 @@ export function readAuthoredRecordVersion(
   version: number,
   instrumentation?: CanonicalReadInstrumentation,
 ): AcceptedRecordProjection | null {
-  const artifact = readAcceptedHistory(projectRoot, card, definition, version, instrumentation).find(
-    (row) => row.version === version,
-  );
+  const artifact = readAcceptedHistory(
+    projectRoot,
+    card,
+    definition,
+    version,
+    instrumentation,
+  ).find((row) => row.version === version);
   return artifact ? projectAuthoredRecordArtifact(definition, artifact) : null;
 }
 export function listAuthoredRecordVersions(
@@ -274,8 +285,14 @@ function publishHead(
   temporary?: PublicationTemporaryIdFactory,
 ): void {
   const path = cardRecordHeadFile(projectRoot, head.card_id, definition);
-  if (initial) publishFreshFile(path, bytes(head), temporary, io);
-  else replaceFile(path, bytes(head), temporary, io);
+  publishHeadFile(
+    path,
+    cardRecordPreviousHeadFile(projectRoot, head.card_id, definition),
+    bytes(head),
+    initial ? 'initial' : 'replacement',
+    temporary,
+    io,
+  );
 }
 function draft(stamp: string, openedAt = stamp, content = ''): OpenRecordDraft {
   return { opened_at: openedAt, updated_at: stamp, content, content_sha256: sha256Hex(content) };
@@ -292,6 +309,7 @@ export function openAuthoredRecord(
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
   const head = recordHeadSchema.parse({
     ...identity(card.id, definition),
+    head_id: randomUUID(),
     revision: (prior?.revision ?? 0) + 1,
     accepted: prior?.accepted ?? null,
     draft: draft(new Date().toISOString()),
@@ -312,6 +330,7 @@ export function editOpenAuthoredRecord(
   if (prior.draft.content === content) throw new Error('Record open edit must change content.');
   const head = recordHeadSchema.parse({
     ...prior,
+    head_id: randomUUID(),
     revision: prior.revision + 1,
     draft: draft(new Date().toISOString(), prior.draft.opened_at, content),
   });
@@ -355,6 +374,7 @@ function publishAcceptance(
   });
   const head = recordHeadSchema.parse({
     ...identity(cardId, definition),
+    head_id: randomUUID(),
     revision: version,
     accepted: reference(artifact),
     draft: null,
@@ -435,7 +455,12 @@ export function discardOpenAuthoredRecord(
   const prior = readHead(projectRoot, card.id, definition);
   if (!prior?.draft) throw new Error('Record is not open.');
   const accepted = currentProjection(projectRoot, definition, prior).accepted;
-  const head = recordHeadSchema.parse({ ...prior, revision: prior.revision + 1, draft: null });
+  const head = recordHeadSchema.parse({
+    ...prior,
+    head_id: randomUUID(),
+    revision: prior.revision + 1,
+    draft: null,
+  });
   publishHead(projectRoot, definition, head, false, io);
   return project(definition, head, accepted);
 }

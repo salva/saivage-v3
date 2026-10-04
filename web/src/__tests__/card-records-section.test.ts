@@ -19,7 +19,7 @@ const descriptor = { name, format: 'markdown' as const, schema: 'brief.v1', boot
 const entryId = '11111111-1111-4111-8111-111111111111';
 const time = '2026-07-18T00:00:00Z';
 function content(cardId = A): CardRecordContentResponse {
-  return { card_id: cardId, record: { name, revision: 4, current_url: `record:///${name}?card=${cardId}`,
+  return { card_id: cardId, record: { name, head_id: entryId, revision: 4, current_url: `record:///${name}?card=${cardId}`,
     accepted_version_url: `record:///${name}?card=${cardId}&v=4`, state: 'closed',
     accepted: { source_version: 4, source_entry_id: entryId, committed_at: time, writer_agent: 'analyst',
       card_version_seq: 1, card_history_version: 1, card_history_entry_id: entryId,
@@ -65,7 +65,7 @@ describe('CardRecordsSection', () => {
     vi.mocked(listRecordHistory).mockImplementation(async (id) => catalog(id));
     vi.mocked(getRecordVersion).mockImplementation(async (id, _name, version) => selected(version, id));
     vi.mocked(getRecordDiff).mockImplementation(async (id, _name, version) => ({ card_id: id, name,
-      from: version, to: { kind: 'current', revision: 4, accepted_version: 4 }, view: 'effective', hunks: [] }));
+      from: version, to: { kind: 'current', head_id: entryId, revision: 4, accepted_version: 4 }, view: 'effective', hunks: [] }));
   });
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()); });
 
@@ -257,7 +257,7 @@ describe('CardRecordsSection', () => {
     expect(store.cardRecords[name]!.error).toBe('current read failed');
     vi.mocked(getRecordVersion).mockResolvedValue(selected(2));
     vi.mocked(getRecordDiff).mockResolvedValue({ card_id: A, name, from: 2,
-      to: { kind: 'current', revision: 4, accepted_version: 4 }, view: 'effective', hunks: [] });
+      to: { kind: 'current', head_id: entryId, revision: 4, accepted_version: 4 }, view: 'effective', hunks: [] });
     const retryDiff = wrapper.findAll('.record-history-error button').find((button) => button.text() === 'Retry diff')!;
     expect(retryDiff.attributes('disabled')).toBeUndefined();
     await retryDiff.trigger('click');

@@ -55,6 +55,7 @@ import {
   cardConversationsRoot,
   cardNamespace,
   cardHeadFile,
+  cardPreviousHeadFile,
   cardHistoryFile,
   cardHistoryRoot,
   cardMailboxFile,
@@ -64,8 +65,8 @@ import {
   globalAgentConversationsRoot,
   saivageAgentsRoot,
 } from './layout.js';
+import { publishHeadFile } from './publish-head.js';
 import {
-  replaceFile,
   publishFreshFile,
   type PublicationTemporaryIdFactory,
   type ReplacementFileIo,
@@ -96,6 +97,7 @@ interface CommittedCardArtifactCatalog {
 }
 interface ActiveCardTraversalRow {
   readonly card: CardRecord;
+  readonly headId: string;
   readonly parentId: string | null;
   readonly activeChildrenCount: number;
   readonly relativeDepth: number;
@@ -272,15 +274,6 @@ export function readCard(
 ): CardRecord | null {
   return readActiveCardFold(projectRoot, cardId, instrumentation)?.current.card ?? null;
 }
-export function readCardDetail(
-  projectRoot: string,
-  cardId: string,
-  instrumentation?: CanonicalReadInstrumentation,
-): CardTargetRead<CardRecord> {
-  const target = readActiveCardFold(projectRoot, cardId, instrumentation);
-  return target ? { kind: 'found', value: target.current.card } : { kind: 'card-not-found' };
-}
-
 interface LinkedChildrenProjection {
   readonly parent: CardRecord;
   readonly activeChildren: CardRecord[];
@@ -288,6 +281,7 @@ interface LinkedChildrenProjection {
 export interface CanonicalCardProjection {
   readonly card: CardRecord;
   readonly artifact: CardArtifact;
+  readonly headId: string;
 }
 export interface CanonicalLinkedChildrenProjection {
   readonly parent: CanonicalCardProjection;
@@ -296,7 +290,7 @@ export interface CanonicalLinkedChildrenProjection {
 export type CanonicalCardFileSlot = 'card' | RecordName;
 
 function canonicalProjection(fold: CurrentCardSelection): CanonicalCardProjection {
-  return { card: fold.current.card, artifact: fold.head };
+  return { card: fold.current.card, artifact: fold.head, headId: fold.selection.head_id };
 }
 function readMembershipChildrenOfReached(
   realProjectRoot: string,
@@ -426,6 +420,7 @@ function walkActivePreorder(
     );
     const row: ActiveCardTraversalRow = {
       card: fold.current.card,
+      headId: fold.selection.head_id,
       parentId: cardParentId(fold.current.card.id),
       activeChildrenCount: children.length,
       relativeDepth: depth,
@@ -770,12 +765,14 @@ export function publishCardVersion(
       temporary,
       io,
     );
-    publishFreshFile(
+    publishHeadFile(
       path,
+      cardPreviousHeadFile(projectRoot, card.id),
       jsonBytes(
         cardHeadSchema.parse({
           format_version: 1,
           kind: 'card-head',
+          head_id: randomUUID(),
           card_id: card.id,
           version_seq: 1,
           updated_at: card.updated_at,
@@ -783,6 +780,7 @@ export function publishCardVersion(
           pending: [],
         }),
       ),
+      'initial',
       temporary,
       io,
     );
@@ -810,16 +808,19 @@ export function publishCardVersion(
         io,
       );
     }
-    replaceFile(
+    publishHeadFile(
       path,
+      cardPreviousHeadFile(projectRoot, card.id),
       jsonBytes(
         cardHeadSchema.parse({
           ...fold.selection,
+          head_id: randomUUID(),
           version_seq: card.version_seq,
           updated_at: card.updated_at,
           pending: card.pending_notifications,
         }),
       ),
+      'replacement',
       temporary,
       io,
     );
@@ -842,17 +843,20 @@ export function publishCardVersion(
     temporary,
     io,
   );
-  replaceFile(
+  publishHeadFile(
     path,
+    cardPreviousHeadFile(projectRoot, card.id),
     jsonBytes(
       cardHeadSchema.parse({
         ...fold.selection,
+        head_id: randomUUID(),
         ordinary: referenceOf(artifact),
         version_seq: card.version_seq,
         updated_at: card.updated_at,
         pending: card.pending_notifications,
       }),
     ),
+    'replacement',
     temporary,
     io,
   );
@@ -891,17 +895,20 @@ export function publishCardTombstone(
     temporary,
     io,
   );
-  replaceFile(
+  publishHeadFile(
     cardHeadFile(projectRoot, cardId),
+    cardPreviousHeadFile(projectRoot, cardId),
     jsonBytes(
       cardHeadSchema.parse({
         ...fold.selection,
+        head_id: randomUUID(),
         ordinary: referenceOf(artifact),
         version_seq: artifact.version,
         updated_at: artifact.committed_at,
         pending: [],
       }),
     ),
+    'replacement',
     temporary,
     io,
   );

@@ -44,7 +44,6 @@ export {
   readCanonicalCardHierarchy,
   readCanonicalLinkedCardHistoryTree,
   readCard,
-  readCardDetail,
   readCardHierarchy,
   readCommittedCardArtifactCatalog,
   readCommittedCardCurrent,

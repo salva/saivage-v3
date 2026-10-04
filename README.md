@@ -125,6 +125,14 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 ## Notable current behaviors
 
+- Card/record publications now require fresh `head_id` UUIDs alongside current
+  revision, and every card/record head and conversation index maintains one
+  previous hardlink slot. Normal reads/startup never use it as fallback; the
+  sequence is nontransactional and guarantees no usable prior selection.
+  The required identity field is a separate **reset-only format adoption**, even
+  with unchanged outer format 1. No repair CLI is available yet. See the
+  [runbook](docs/runbook/index.md#previous-selectors-and-head-identity-adoption).
+
 - Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. Adoption is [reset-only](docs/runbook/index.md#storage-and-interruption), never migration or implicit deployment permission.
 
 - Provider-exchange evidence now belongs to each exact conversation session rather

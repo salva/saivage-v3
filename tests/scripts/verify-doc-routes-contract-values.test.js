@@ -262,7 +262,7 @@ const SOURCE_MUTATIONS = [
   ['backend read-model mapping', verifyCardDiffPivotDocs, 'src/application/read-models/cards-read-model.ts', 'fromVersion: query.from,\n      toVersion: query.to'],
   ['backend service numeric meaning', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "typeof pivots.toVersion === 'number'\n        ? pivots.toVersion"],
   ['backend service current owner', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', 'readCommittedCardCurrent(this.projectRoot, id, instrumentation)'],
-  ['backend service tagged current projection', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "{ kind: 'current', version_seq: to, history_version: current.value.artifact.version }"],
+  ['backend service tagged current projection', verifyCardDiffPivotDocs, 'src/cards/card-service.ts', "head_id: current.value.headId"],
   ...[
     ['UI previous-owner abort', 'diffOwner?.controller.abort()'],
     ['UI accepted card key', 'cardHistoryDiffKey.value?.cardId === key.cardId'],

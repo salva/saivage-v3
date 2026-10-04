@@ -60,7 +60,7 @@ describe('scoped path resolvers', () => {
   it('classifies unsupported read record slots through the fail callback', async () => {
     await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), 'record:///bogus.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=latest'));
     await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), 'record:///card.json?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=latest'));
-    const vfsContext = {...ctx(),records:{...ctx().records!,listDeclaredRecordMetadata:()=>({kind:'found' as const,value:{card:{} as never,definitions:testRecordDefinitions().map((definition)=>({definition,classification:{kind:'empty' as const}}))}})}};
+    const vfsContext = {...ctx(),records:{...ctx().records!,listDeclaredRecordMetadata:()=>({kind:'found' as const,value:{card:{} as never,headId:'11111111-1111-4111-8111-111111111111',definitions:testRecordDefinitions().map((definition)=>({definition,classification:{kind:'empty' as const}}))}})}};
     await expectWorkspaceToolInputError(() => resolveScopedPath(vfsContext, 'record:///bogus.md', 'read'));
     await expectWorkspaceToolInputError(() => resolveScopedPath(vfsContext, 'record:///card.json', 'read'));
   });

@@ -69,13 +69,14 @@ function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
   }
 }
 
-function detail(card: CardRecord) {
+function detail(card: CardRecord, headId: string) {
   return CardDetailSchema.parse({
     id: card.id,
     title: redactTextForOutbound(card.title),
     type: card.type,
     lifecycle: projectLifecycle(card.lifecycle),
     version_seq: card.version_seq,
+    head_id: headId,
     urgency: card.urgency,
     created_at: card.created_at,
     updated_at: card.updated_at,
@@ -147,7 +148,11 @@ export class CardsReadModelService {
     const result = this.store.getCardDetail(id, instrumentation);
     if (result.kind === 'card-not-found')
       return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    return { body: CardDetailResponseSchema.parse({ card: detail(result.value) }) };
+    return {
+      body: CardDetailResponseSchema.parse({
+        card: detail(result.value.card, result.value.headId),
+      }),
+    };
   }
 
   listRecords(
@@ -168,6 +173,7 @@ export class CardsReadModelService {
           current: entry
             ? {
                 revision: entry.revision,
+                head_id: entry.headId,
                 current_url: entry.currentUrl,
                 accepted_version_url: entry.acceptedVersionUrl,
                 state: entry.state,
@@ -417,6 +423,7 @@ function projectRecord(projection: RecordProjection) {
   return {
     name: projection.filename,
     revision: projection.revision,
+    head_id: projection.headId,
     current_url: projection.currentUrl,
     accepted_version_url: projection.acceptedVersionUrl,
     state: projection.state,

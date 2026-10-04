@@ -79,8 +79,8 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     requests.push(`${path}${url.search}`);
     const prefix = `/api/cards/${smokeCardId}`;
     if (path === prefix) return json(route, 'cards.get', { card: { ...smokeOperatorCard, title: revision === 3 ? first.title : fourth.title, lifecycle: first.lifecycle, version_seq: revision, updated_at: now } });
-    if (path === `${prefix}/records`) return json(route, 'cards.records.list', { card_id: smokeCardId, records: [{ name: recordName, format: 'markdown', schema: 'brief.v1', bootstrap: true, current: { revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted_source_version: 1, draft_present: true } }] });
-    if (path === `${prefix}/records/${recordName}`) return json(route, 'cards.records.get', { card_id: smokeCardId, record: { name: recordName, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted, draft: { opened_at: now, updated_at: now, content: draftText, content_sha256: hash(draftText) }, effective_content_source: 'draft' } });
+    if (path === `${prefix}/records`) return json(route, 'cards.records.list', { card_id: smokeCardId, records: [{ name: recordName, format: 'markdown', schema: 'brief.v1', bootstrap: true, current: { head_id:firstId, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted_source_version: 1, draft_present: true } }] });
+    if (path === `${prefix}/records/${recordName}`) return json(route, 'cards.records.get', { card_id: smokeCardId, record: { head_id:firstId, name: recordName, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted, draft: { opened_at: now, updated_at: now, content: draftText, content_sha256: hash(draftText) }, effective_content_source: 'draft' } });
     if (path === `${prefix}/records/${recordName}/history`) return json(route, 'cards.records.history.list', { card_id: smokeCardId, name: recordName, versions: [{ version: 1, entry_id: acceptedId, published_at: now, version_url: acceptedUrl }], total: 1 });
     if (path === `${prefix}/records/${recordName}/versions/1`) return json(route, 'cards.records.versions.get', { card_id: smokeCardId, name: recordName, version: 1, version_url: acceptedUrl, entry_id: acceptedId, published_at: now, artifact: { published_at: now, accepted } });
     const missingRecordVersion = { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${smokeCardId}/${recordName}`, version: 3 };
@@ -90,7 +90,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
       expect(url.searchParams.get('view')).toBe('effective');
       if (url.searchParams.get('from') === '3') return json(route, 'cards.records.diff', missingRecordVersion, 404);
       expect(url.searchParams.get('from')).toBe('1');
-      return json(route, 'cards.records.diff', { card_id: smokeCardId, name: recordName, from: 1, to: { kind: 'current', revision: 3, accepted_version: 1 }, view: 'effective', hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: [`-${acceptedText}`, `+${draftText}`] }] });
+      return json(route, 'cards.records.diff', { card_id: smokeCardId, name: recordName, from: 1, to: { kind: 'current', head_id:firstId, revision: 3, accepted_version: 1 }, view: 'effective', hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: [`-${acceptedText}`, `+${draftText}`] }] });
     }
     if (path === `${prefix}/history`) return json(route, 'cards.history.list', { card_id: smokeCardId, versions: revision === 3 ? [catalogEntry(1, firstId)] : [catalogEntry(1, firstId), catalogEntry(4, fourthId)], total: revision === 3 ? 1 : 2 });
     if (path === `${prefix}/history/1` || path === `${prefix}/history/4`) {
@@ -99,7 +99,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     }
     if (path === `${prefix}/diff`) {
       expect(url.searchParams.get('to')).toBe('current');
-      return json(route, 'cards.diff', { card_id: smokeCardId, from: Number(url.searchParams.get('from')), to: { kind: 'current', version_seq: revision, history_version: revision === 3 ? 1 : 4 }, diff: [{ field: 'version_seq', before: 1, after: revision }, { field: 'metadata', before: { token: '[redacted]' }, after: null }] });
+      return json(route, 'cards.diff', { card_id: smokeCardId, from: Number(url.searchParams.get('from')), to: { kind: 'current', head_id:smokeOperatorCard.head_id, version_seq: revision, history_version: revision === 3 ? 1 : 4 }, diff: [{ field: 'version_seq', before: 1, after: revision }, { field: 'metadata', before: { token: '[redacted]' }, after: null }] });
     }
     return route.fallback();
   });
@@ -114,7 +114,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     if (!path.startsWith(namespace)) return route.fallback();
     if (path.endsWith(`/${recordName}`)) return json(route, 'files.content', { path, size: Buffer.byteLength(draftText), contentType: 'text/markdown', content: draftText, redacted: true, sensitivity: 'sensitive-redacted', version: 3, modifiedAt: now });
     const historical = path.endsWith('?v=1');
-    const content = JSON.stringify(historical ? { format_version: 1, card_id: smokeCardId, kind: 'card-version', version: 1, entry_id: firstId, published_at: now, card: first, change: null } : { kind: 'card-current', card_id: smokeCardId, version_seq: revision, history_version: 4, updated_at: now, card: fourth }, null, 2);
+    const content = JSON.stringify(historical ? { format_version: 1, card_id: smokeCardId, kind: 'card-version', version: 1, entry_id: firstId, published_at: now, card: first, change: null } : { kind: 'card-current', head_id:smokeOperatorCard.head_id, card_id: smokeCardId, version_seq: revision, history_version: 4, updated_at: now, card: fourth }, null, 2);
     return json(route, 'files.content', { path, size: Buffer.byteLength(content), contentType: 'application/json', content, redacted: true, sensitivity: 'sensitive-redacted', version: historical ? 1 : revision, modifiedAt: now });
   });
 

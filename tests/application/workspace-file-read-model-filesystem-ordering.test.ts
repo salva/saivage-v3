@@ -94,6 +94,21 @@ afterEach(() => {
 });
 
 describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
+  it('omits/refuses global previous-index slots and resolved aliases before reading bytes', () => {
+    const root = temporaryRoot('saivage-previous-index-files-');
+    const relative = '.saivage/agents/conversations/analyst'; const directory = join(root, relative);
+    realFs.mkdirSync(directory, {recursive:true});
+    const previous = join(directory, 'index.prev.json'); realFs.writeFileSync(previous, 'not public');
+    realFs.writeFileSync(join(directory, 'index.previous.json'), 'ordinary similarly named file');
+    const alias = join(root, 'previous-alias'); realFs.symlinkSync(previous, alias);
+    const model = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    expect(listedNames(model.listFiles(relative).body)).not.toContain('index.prev.json');
+    expect(listedNames(model.listFiles(relative).body)).toContain('index.previous.json');
+    for (const path of [`${relative}/index.prev.json`, 'previous-alias']) {
+      traces.length = 0; expect(model.readFileContent(path)).toMatchObject({statusCode:403});
+      expect(projectionTracesFor(previous, alias).filter(({operation})=>operation==='readFileSync')).toEqual([]);
+    }
+  });
   it.each([null, 7])('classifies record card absence with one owning read for version %s', (version) => {
     const root = temporaryRoot('saivage-workspace-record-absence-');
     const reader = {

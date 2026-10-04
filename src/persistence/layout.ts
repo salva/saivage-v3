@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   cardIdSegments,
   recordHeadFilename,
@@ -76,6 +76,12 @@ export function cardConversationVersionFile(
 export function cardHeadFile(projectRoot: string, cardId: string): string {
   return join(cardNamespace(projectRoot, cardId), 'card-head.json');
 }
+export function cardPreviousHeadFile(projectRoot: string, cardId: string): string {
+  return join(cardNamespace(projectRoot, cardId), 'card-head.prev.json');
+}
+export function conversationPreviousIndexFile(indexPath: string): string {
+  return join(dirname(indexPath), 'index.prev.json');
+}
 export function cardHistoryRoot(projectRoot: string, cardId: string): string {
   return join(cardNamespace(projectRoot, cardId), 'card-history');
 }
@@ -104,6 +110,13 @@ export function cardRecordHeadFile(
   definition: { readonly filename: RecordName },
 ): string {
   return join(cardRecordsRoot(projectRoot, cardId), recordHeadFilename(definition.filename));
+}
+export function cardRecordPreviousHeadFile(
+  projectRoot: string,
+  cardId: string,
+  definition: { readonly filename: RecordName },
+): string {
+  return cardRecordHeadFile(projectRoot, cardId, definition).replace(/\.json$/, '.prev.json');
 }
 export function cardAcceptedRecordFile(
   projectRoot: string,

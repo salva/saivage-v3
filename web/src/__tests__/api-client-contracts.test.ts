@@ -83,6 +83,7 @@ describe('operator API client contracts after S06 mutation removal', () => {
   it('accepts the new blocked lifecycle result only in its strict BLOCKED shape', () => {
     const summary = 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.';
     const card = {
+      head_id: '11111111-1111-4111-8111-111111111111',
       id: 'card-a', title: 'Blocked summary', type: 'code', version_seq: 2, urgency: 'normal',
       created_at: '2026-09-21T00:00:00.000Z', updated_at: '2026-09-21T00:01:00.000Z', allowedActions: ['card.start'],
       lifecycle: { status: 'blocked', result: { kind: 'compaction-summary-blocked', summary, session_id: 'agent:executor:card-a', summary_input_id: '00000000-0000-4000-8000-000000000099' }, error: summary, completed_at: null },
@@ -197,7 +198,7 @@ describe('operator API client contracts after S06 mutation removal', () => {
     const diffResponse = {
       card_id: 'card-a',
       from: 2,
-      to: { kind: 'current', version_seq: 7, history_version: 4 },
+      to: { kind: 'current', head_id: '11111111-1111-4111-8111-111111111111', version_seq: 7, history_version: 4 },
       diff: [{ field: 'metadata', before: { nested: [null, true] }, after: ['new', 3] }],
     };
     const fetchMock = vi.fn()

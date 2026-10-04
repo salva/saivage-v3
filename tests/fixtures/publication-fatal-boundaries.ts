@@ -166,7 +166,7 @@ if (mode === 'llm-conversation' || mode === 'llm-segment-compaction') {
       shouldCompact: () => actualPublication,
       compact: async (args) => compact({ ...args, publication: { io: {
         publishFreshFile: (target, bytes, temporary) => publishFreshFile(target, bytes, temporary, replacement),
-        replaceFile: () => { appendFileSync(path, 'index'); throw new Error('not reached'); },
+        publishHeadFile: () => { appendFileSync(path, 'index'); throw new Error('not reached'); },
       } } }),
     },
     summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges() { if (uncertain) appendFileSync(path, 'summary'); } },

@@ -360,7 +360,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const missingCards = new CardService(root, hub, missingIo);
     expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow('missing');
     expect(flush()).toEqual([]);
-    expect(() => missingCards.editRecord(child.id, 'status.md', 'not published')).toThrow('missing');
+    expect(() => missingCards.editRecord(child.id, 'status.md', 'not published')).toThrow(PublicationOutcomeUnknownError);
     expect(flush()).toEqual([]);
   });
 });

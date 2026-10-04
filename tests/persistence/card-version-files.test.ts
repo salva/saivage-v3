@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
-import { closeSync, fsyncSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { cardHeadFile, cardHistoryFile, cardMailboxFile } from '../../src/persistence/layout.js';
+import { cardHeadFile, cardPreviousHeadFile, cardHistoryFile, cardMailboxFile } from '../../src/persistence/layout.js';
 import { cardHeadSchema } from '../../src/persistence/canonical-card-artifacts.js';
 import { readCanonicalLinkedCardHistoryTree, readCommittedCardVersionPair } from '../../src/persistence/card-files.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
@@ -27,6 +27,30 @@ function notice() { return { id: randomUUID(), content: 'private mailbox body', 
 const io: ReplacementFileIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync, rename: renameSync };
 
 describe('card immutable history and pending-only mailbox', () => {
+  it('maintains the whole previous head for ordinary, queue, lifecycle and tombstone publications with fresh IDs', () => {
+    const { root, cards, child } = fixture(); const path = cardHeadFile(root, child.id); const previous = cardPreviousHeadFile(root, child.id);
+    expect(existsSync(previous)).toBe(false);
+    const message = notice();
+    for (const publish of [() => cards.editCard(child.id, {title:'new'}), () => cards.enqueueNotification(child.id, message), () => cards.removeNotifications(child.id, [message.id]), () => cards.setStatus(child.id, 'running'), () => cards.stopRunning(child.id), () => cards.deleteSubtrees([child.id], () => true, 'analyst')]) {
+      const before = readFileSync(path); const inode = statSync(path).ino;
+      const id = head(root, child.id).head_id;
+      publish();
+      expect(statSync(previous).ino).toBe(inode);
+      expect(readFileSync(previous)).toEqual(before);
+      expect(head(root, child.id).head_id).not.toBe(id);
+    }
+  });
+  it('never consumes previous bytes in current/history reads or falls back when current is invalid', () => {
+    const { root, cards, child } = fixture(); cards.editCard(child.id, { title:'new' });
+    const previous = cardPreviousHeadFile(root, child.id); writeFileSync(previous, 'not a head');
+    const reads: string[] = [];
+    expect(cards.getCardDetail(child.id, {onRead:path=>reads.push(path)}).kind).toBe('found');
+    expect(cards.listCardVersions(child.id, {onRead:path=>reads.push(path)}).kind).toBe('found');
+    expect(reads).not.toContain(previous);
+    const selected = head(root, child.id); const {head_id: _id, ...missingId} = selected;
+    writeFileSync(cardHeadFile(root, child.id), JSON.stringify(missingId));
+    expect(() => cards.read(child.id)).toThrow();
+  });
   function sparseFixture() {
     const value = fixture(); const { cards, child } = value;
     for (const title of ['four', 'seven']) {
@@ -227,7 +251,7 @@ describe('card immutable history and pending-only mailbox', () => {
   ])('stops at immutable/head publication $operation stage $offset without follow-up', ({ operation, offset, unknown }) => {
     for (const mutation of ['ordinary', 'enqueue'] as const) for (const publication of [0, 1]) {
       const { root, child } = fixture(); let count = 0; const operations: string[] = []; const failure = new Error('injected publication failure');
-      const hit = (name: string) => { operations.push(name); count++; if (count === publication * 8 + offset) { expect(name).toBe(operation); throw failure; } };
+      const hit = (name: string) => { operations.push(name); count++; if (count === publication * 8 + (publication === 1 ? 3 : 0) + offset) { expect(name).toBe(operation); throw failure; } };
       const failingIo: ReplacementFileIo = {
         open: ((...args: Parameters<typeof openSync>) => { hit('open'); return openSync(...args); }) as typeof openSync,
         write: ((...args: Parameters<typeof writeSync>) => { hit('write'); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
@@ -238,7 +262,7 @@ describe('card immutable history and pending-only mailbox', () => {
       const cards = new CardService(root, freshness, failingIo);
       let caught: unknown; try { if (mutation === 'ordinary') cards.editCard(child.id, { title: 'after' }); else cards.enqueueNotification(child.id, notice()); } catch (error) { caught = error; }
       if (unknown) expect(caught).toBeInstanceOf(PublicationOutcomeUnknownError); else expect(caught).toBe(failure);
-      expect(operations).toHaveLength(publication * 8 + offset);
+      expect(operations).toHaveLength(publication * 8 + (publication === 1 ? 3 : 0) + offset);
       for (const effect of Object.values(freshness)) expect(effect).not.toHaveBeenCalled();
     }
   });

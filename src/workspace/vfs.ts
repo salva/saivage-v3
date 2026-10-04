@@ -57,6 +57,7 @@ export type VfsResolved =
           schema: string;
           state: 'absent' | 'open' | 'closed' | 'empty';
           revision: number | null;
+          headId: string | null;
           version: number | null;
           acceptedVersionUrl: string | null;
           recordUrl: string;
@@ -304,6 +305,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
       schema: target.definition.schema,
       state: 'absent',
       revision: null,
+      headId: null,
       version: null,
       acceptedVersionUrl: null,
       content: '',
@@ -338,6 +340,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
     schema: target.definition.schema,
     state: projection?.state ?? 'absent',
     revision: projection?.revision ?? null,
+    headId: projection?.headId ?? null,
     version: target.parsed.version,
     acceptedVersionUrl: projection?.acceptedVersionUrl ?? null,
     content,
@@ -375,6 +378,7 @@ function recordSummaries(
       schema: definition.schema,
       state: latest?.state ?? 'absent',
       revision: latest?.revision ?? null,
+      head_id: latest?.headId ?? null,
       current_url: currentUrl,
       accepted_version_url: latest?.acceptedVersionUrl ?? null,
     });

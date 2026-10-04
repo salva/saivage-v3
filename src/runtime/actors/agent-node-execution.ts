@@ -109,8 +109,15 @@ export type NodeTransition = Readonly<{
 
 type NodeResult = { outcome: string; summary: string };
 type ReviewerSnapshot = {
-  cards: Array<{ id: string; versionSeq: number }>;
-  includedRecordVersions: Array<{ cardId: string; filename: string; sourceVersion: number | null }>;
+  cards: Array<{ id: string; versionSeq: number; headId: string }>;
+  includedRecordVersions: Array<{
+    cardId: string;
+    filename: string;
+    sourceVersion: number | null;
+    sourceEntryId: string | null;
+    revision: number | null;
+    headId: string | null;
+  }>;
 };
 type ReviewerContextPair = {
   exactContext: ProviderVisibleUserContextMessage;
@@ -930,13 +937,14 @@ export class AgentNodeExecution {
       this.deps.store.openRecord(this.deps.cardId, name);
     }
   }
-  private captureRecordHead(filename: string): number | null {
+  private captureRecordHead(filename: string): { revision: number; headId: string } | null {
     const result = this.deps.store.readRecordCurrent(this.deps.cardId, filename);
-    return result.kind === 'found' ? (result.value.projection?.revision ?? null) : null;
+    const projection = result.kind === 'found' ? result.value.projection : null;
+    return projection ? { revision: projection.revision, headId: projection.headId! } : null;
   }
   private validateRecords(
     node: CompiledNodeContract,
-    baseline: ReadonlyMap<string, number | null>,
+    baseline: ReadonlyMap<string, { revision: number; headId: string } | null>,
   ): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
     const candidates = new Map<string, RecordProjection>();
     const violations: string[] = [];
@@ -951,7 +959,7 @@ export class AgentNodeExecution {
       }
       if (required.gate === 'updated') {
         const before = baseline.get(filename) ?? null;
-        if (candidate.revision <= (before ?? 0)) {
+        if (candidate.headId === before?.headId || candidate.revision <= (before?.revision ?? 0)) {
           violations.push(
             `Required record '${candidate.currentUrl}' must be updated after this node began.`,
           );
@@ -1040,11 +1048,15 @@ export class AgentNodeExecution {
     return { exactContext: this.reviewerContext(cardId, snapshot), snapshot };
   }
   private captureReviewerSnapshot(cardId: string, records: readonly string[]): ReviewerSnapshot {
-    const root = this.deps.store.read(cardId);
-    if (!root) throw new Error(`Reviewed card '${cardId}' not found.`);
-    const descendants = this.descendants(cardId);
+    const selected = this.deps.store.readCardInspectionTree(cardId, 12);
+    if (selected.kind === 'card-not-found') throw new Error(`Reviewed card '${cardId}' not found.`);
+    const descendants = selected.value.slice(1).map(({ card }) => card);
     return {
-      cards: [root, ...descendants].map((card) => ({ id: card.id, versionSeq: card.version_seq })),
+      cards: selected.value.map(({ card, headId }) => ({
+        id: card.id,
+        versionSeq: card.version_seq,
+        headId,
+      })),
       includedRecordVersions: descendants.flatMap((card) =>
         records.map((record) => acceptedRecordVersion(this.deps.store, card.id, record)),
       ),
@@ -1063,11 +1075,12 @@ export class AgentNodeExecution {
             : `record:///${entry.filename}?card=${encodeURIComponent(card.id)}&v=${entry.sourceVersion}`,
         )
         .join(', ');
-      return `- ${card.id} (${card.type}, ${card.lifecycle.status}): ${card.title}; ${records}`;
+      const stamp = snapshot.cards.find((entry) => entry.id === card.id)!;
+      return `- ${card.id} (${card.type}, ${card.lifecycle.status}, revision ${stamp.versionSeq}, head ${stamp.headId}): ${card.title}; ${records}`;
     });
     return {
       role: 'user',
-      content: `Descendant work:\n${lines.length ? lines.join('\n') : '(none)'}`,
+      content: `Reviewed card ${cardId}: revision ${snapshot.cards[0]!.versionSeq}, head ${snapshot.cards[0]!.headId}\nDescendant work:\n${lines.length ? lines.join('\n') : '(none)'}`,
     };
   }
   private reviewerStaleReason(
@@ -1120,7 +1133,14 @@ function acceptedRecordVersion(
 ): ReviewerSnapshot['includedRecordVersions'][number] {
   const result = store.readRecordCurrent(cardId, filename);
   const record = result.kind === 'found' ? result.value.projection : null;
-  return { cardId, filename, sourceVersion: record?.accepted?.source_version ?? null };
+  return {
+    cardId,
+    filename,
+    sourceVersion: record?.accepted?.source_version ?? null,
+    sourceEntryId: record?.accepted?.source_entry_id ?? null,
+    revision: record?.revision ?? null,
+    headId: record?.headId ?? null,
+  };
 }
 function promptText(process: CompiledCardTypeWorkflow, promptId: ProcessPromptId): string {
   const prompt = process.processPrompts.get(promptId);

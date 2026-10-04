@@ -258,6 +258,7 @@ export function mutateRecord(
       name: parsed.name,
       state: request.surface === 'analyst' ? 'closed' : 'open',
       revision: result.revision,
+      head_id: result.headId!,
       current_url: result.currentUrl,
       accepted_version_url: result.acceptedVersionUrl,
       bytes: Buffer.byteLength(nextContent),

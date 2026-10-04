@@ -26,6 +26,7 @@ export const cardHeadSchema = z
   .object({
     format_version: z.literal(1),
     kind: z.literal('card-head'),
+    head_id: uuidV4Schema,
     card_id: cardIdSchema,
     version_seq: positiveSafeIntegerSchema,
     updated_at: z.string().datetime(),
