@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 
 import { readOpenAICodexStream } from '../../src/agents/llm-codex-parser.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../src/contracts/llm-failure.js';
@@ -209,6 +209,60 @@ describe('OpenAI Codex stream parser', () => {
     });
 
     await expect(readOpenAICodexStream(body, 200)).resolves.toEqual({ kind: 'message', content: 'done' });
+    expect(body.locked).toBe(false);
+  });
+
+  it.each(['pending', 'rejected'] as const)('preserves completion and failures without awaiting %s cancellation', async (cancellation) => {
+    const abortReason = new Error('owner stopped');
+    for (const outcome of ['completion', 'parse', 'provider', 'abort'] as const) {
+      const cancel = jest.fn(() => cancellation === 'pending'
+        ? new Promise<void>(() => {})
+        : Promise.reject(new Error('cancel failed')));
+      const abort = new AbortController();
+      const source = outcome === 'parse' ? 'data: {bad}\n\n'
+        : outcome === 'provider' ? event({ type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } })
+        : message('done') + completion();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(encoder.encode(source)); },
+        cancel,
+      });
+      const result = readOpenAICodexStream(body, 200, abort.signal, () => {
+        if (outcome === 'abort') {
+          abort.abort(abortReason);
+          throw abortReason;
+        }
+      });
+      if (outcome === 'completion') {
+        await expect(result).resolves.toEqual({ kind: 'message', content: 'done' });
+      } else if (outcome === 'abort') {
+        await expect(result).rejects.toBe(abortReason);
+      } else {
+        await expect(result).rejects.toMatchObject({ failure: {
+          kind: outcome === 'parse' ? 'parse_error' : 'server_transient',
+          provider: 'openai-codex',
+          ...(outcome === 'provider' ? { message: 'OpenAI Codex stream error: server_is_overloaded: busy' } : {}),
+        } });
+      }
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(body.locked).toBe(false);
+    }
+  });
+
+  it.each([
+    ['completion', message('done') + completion().trimEnd()],
+    ['truncation', message('candidate')],
+    ['parse', 'data: {bad}'],
+  ])('does not cancel after natural EOF, including EOF-finalized %s', async (outcome, source) => {
+    const body = stream(source);
+    const reader = body.getReader();
+    jest.spyOn(body, 'getReader').mockReturnValue(reader);
+    const cancel = jest.spyOn(reader, 'cancel');
+    if (outcome === 'completion') {
+      await expect(readOpenAICodexStream(body, 200)).resolves.toEqual({ kind: 'message', content: 'done' });
+    } else {
+      await expectParseError(body);
+    }
+    expect(cancel).not.toHaveBeenCalled();
     expect(body.locked).toBe(false);
   });
 

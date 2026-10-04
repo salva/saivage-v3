@@ -988,6 +988,8 @@ Prose, nested/recursive values, prefixes, suffixes, and near matches do not qual
 Output exhaustion is the separate `output_token_limit_exceeded` kind.
 The similarly named durable lifecycle blocker vocabulary is outside this transport taxonomy.
 
+The Codex stream reader tracks natural EOF locally. Every earlier exit requests cancellation, immediately handles cancellation rejection, and releases the reader lock without awaiting cancellation or draining the body. Cleanup cannot delay or replace the known `response.completed` result or original abort, parse, or provider failure; natural EOF only releases the lock.
+
 The strict schema admits only one complete compaction mode: literal `enabled: true`, shared context-utilization fraction, trigger/tail policy, and a structured exact summarizer candidate.
 Each configured agent selects one compiled named route through `agents.<name>.model_route`; that route's numeric temperature and maximum output tokens are exact invocation authority. Startup binding receives the Router and its same immutable Registry snapshot explicitly, derives `floor(U*C)-O` for every capacity-eligible concrete candidate, and adds only the maximum positive usable-input number to the nonpersisted binding. Unused agents remain exempt; structural compilation remains provider-independent.
 Neither provider adapter synthesizes either value.

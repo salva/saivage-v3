@@ -15,6 +15,7 @@ export async function readOpenAICodexStream(
   onData: () => void = () => {},
 ): Promise<LlmCompleteResult> {
   const reader = body.getReader();
+  let naturalEOF = false;
   const sse = new IncrementalSseReader();
   let message: string | undefined;
   const pendingToolCalls = new Map<string, PendingCodexToolCall>();
@@ -28,6 +29,7 @@ export async function readOpenAICodexStream(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) {
+        naturalEOF = true;
         if (
           consumeCodexEvents(
             sse.finish(),
@@ -70,6 +72,8 @@ export async function readOpenAICodexStream(
       message: `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`,
     });
   } finally {
+    // Cancellation may never settle; cleanup must not replace the known result or failure.
+    if (!naturalEOF) void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
