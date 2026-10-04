@@ -1,117 +1,140 @@
 ---
 name: saivage-format-migration
-description: 'Migrate a Saivage deployment's retained generated state across a reset-only durable-format cutover without losing history: offline reconstruction into the current formats via a validated separate candidate. Use when adopting a newer Saivage binary generation whose format changes forbid same-format rollout and the owner explicitly requires preserving cards, records, and conversations instead of resetting to an empty tree.'
+description: 'Use ONLY for a project-owner-authorized, one-off manual offline reconstruction across a Saivage durable-format cutover under the AGENTS.md exception. Requires exact scoped overrides and confirmed consequences; best-effort semantic preservation only, not lossless migration, routine deployment, reset, or permission to operate.'
 ---
 
-# Saivage Generated-State Format Migration
+# Exceptional Offline Generated-State Reconstruction
 
-History-preserving adoption of a newer Saivage format generation. This is the
-AGENTS.md Storage Policy exceptional offline reconstruction, executed as an
-operator procedure. It is **not** a product capability: no migration code,
-compatibility reader, or normalization enters the Saivage source tree. All
-tooling is a one-off script under workspace `tmp/`, never committed.
+The retained skill ID is a discovery name, not a supported migration capability.
+`AGENTS.md` Project Owner Overrides and Storage Policy are authoritative. Ordinary
+incompatible adoption remains reset-only; same-format deployment follows the
+runbook. This exception is outside Saivage product/runtime and normal operations.
+Loading this skill, plan approval, deployment permission or possession of a backup
+grants no reconstruction authority.
 
-## When to use
+## Ordered gates
 
-- A deployment must adopt a newer Saivage release whose durable formats changed
-  (reset-only cutover), AND
-- the owner explicitly requires preserving the retained card tree, records, and
-  conversation history (no empty-tree reset), AND
-- the owner has given explicit scoped authorization for the irreversible-risk
-  boundary (AGENTS.md "Project Owner Overrides" / exceptional reconstruction
-  contract: consequences stated and confirmed).
+### 1. Establish and confirm the exact exception
 
-If a same-format rollout suffices (no durable format in the drift), use the
-ordinary stop/deploy/start procedure instead — never this one.
+Identify the project, exact service, host/container, work/instance, deployed and
+intended release identities, intended operation, rules overridden and complete
+generated-state boundary. The applicable boundary is all four roots together:
+`.saivage/cards`, `.saivage/agents`, `.saivage/logs`, `.saivage/work`; alternatively,
+explicitly authorize a complete replacement workspace. Locks are not generated
+roots. Identify separately authorized release or outside-boundary input changes.
 
-## Authority and invariants
+State the concrete irreversible, data-loss, weakened-validation, unsupported-state
+and audit/evidentiary consequences and receive explicit owner confirmation before
+acting. Obsolete or malformed canonical source may be interpreted only within that
+override; current-candidate validation is never weakened. The result is **new
+reconstructed state with no byte-for-byte, historical, forensic, audit or evidentiary
+equivalence**. Recoverable semantic preservation is best effort, not a promise of
+matching counts or continued execution. Unsupported fidelity requires a decision,
+not invented evidence or an automatic reset substitute.
 
-- Authorization must be explicit and separate from deploy approval; state the
-  concrete consequence (candidate is new reconstructed state with no byte,
-  historical, forensic, or audit equivalence to the original) and get
-  confirmation.
-- The service must be stopped and positively owner-free before any mutation.
-- A complete stopped backup of the whole target project is mandatory and must
-  succeed before any inspection or mutation; it is preserved unchanged and is
-  never a workspace or authority.
-- The candidate is authored wholly separate (workspace tmp); the installation
-  and backup are never edited in place; cutover replaces the complete
-  applicable generated-state boundary (the four roots) plus enumerated
-  operator inputs.
-- Strict validation of the complete candidate against the NEW release's own
-  compiled code must pass before cutover; any failure blocks cutover and
-  authorizes no relaxation.
-- Orphans and aside copies left by interrupted swaps are harmless noncanonical
-  artifacts — never discovered, cleaned, or adopted by the procedure.
-- Report source, scope, validation, omissions, uncertainties, and
-  transformations in an external non-authoritative report outside both the
-  backup and generated state.
+### 2. Stop, prove owner absence, then back up the whole target
 
-## Procedure
+Stop the exact service and positively verify no live owner/process for the exact
+project before beginning a full stopped target-project backup under workspace
+`tmp/`. Service inactivity alone is insufficient. Live, indeterminate or malformed
+ownership observations block. Never take over or remove a lock; an exact abandoned
+lock requires the runbook's separate verification and authorization.
 
-1. **Format-delta analysis (read-only).** Between deployed revision and target
-   revision, enumerate every durable and consumed contract change: card
-   streams (artifact format versions, record fields, transition deltas),
-   conversation envelope/index/genesis versions, per-row context-policy
-   fields, compaction commitments and their hash cascade, config schema
-   (prompt declarations etc.), tool-result payload shapes consumed at
-   projection time (not just at startup), app-log lanes, record formats,
-   prompt content, work/URL layout. Produce a written migration SPEC with
-   exact old/new shapes and transformation rules per artifact. Pay special
-   attention to poisons that fail not at startup but at next use (e.g. old
-   tool-result payloads thrown by the provider-composition projector).
+Back up the whole target opaquely, not selected generated files. Do not inventory
+archive members or inspect generated descendants to choose backup contents. The
+backup must succeed before content inspection or reconstruction and remain
+unchanged; it is neither authority nor a candidate workspace. Maintain established
+owner absence or positively reconfirm it before backup inspection, candidate
+mutation and cutover. Loss of this prerequisite blocks the relevant phase.
 
-2. **Build the target release** (isolated copy, Node 24, `npm ci` + `build` +
-   docs/typecheck gates), verified by archive SHA and tree manifest. Pin the
-   exact commit; exclude unrelated in-flight work by building from `git
-   archive <rev>`.
+### 3. Derive bounded recoverable semantics
 
-3. **Construct the candidate.** One-off script in tmp importing the NEW
-   release's compiled validators and canonical helpers (canonicalJson, hash
-   helpers, conversation readers, redaction/certified-prefix functions) —
-   never reimplement validators; pure replication only for unexported
-   helpers, noted in the report. Copy the retained `.saivage` into
-   `candidate/` and transform only the copy. Order transformations so
-   content rewrites precede commitment-hash recomputation; cascade
-   cross-segment commitments (e.g. priorHistoryHash) so every commitment is
-   exact. On any validation issue: fix the script and REGENERATE from a
-   fresh copy — never patch a candidate partially.
+Determine current contracts from the identified release source and canonical docs,
+not format probing or guessed compatibility. Inspect only exact canonical generated
+state in the preserved backup. Begin at known canonical roots/heads/configured
+identities and follow committed links, selected references and indexed history
+under their contracts. Stop traversal at tombstoned child boundaries as specified.
 
-4. **Validate all gates with the new release's compiled code:**
-   config `loadEffective()`; generated-state startup initialization; every
-   selected global participant's conversation validation; strict read of
-   EVERY conversation segment including historical versions; provider
-   composition dry-run over every canonical row of every current segment
-   (zero throws). All must pass.
+Never enumerate siblings to find cards, records, versions, sessions, segments, work
+files or alternate sources. Noncanonical orphans, publication temporaries,
+incomplete/unlinked namespaces and uncertain-publication artifacts remain ignored:
+no discovery, classification, inspection, interpretation, adoption, evidence use,
+cleanup or repair. Missing or malformed canonical references are limitations, not
+permission to search for replacements. No inventories, source registries, generic
+forensic facilities or reusable discovery machinery.
 
-5. **Cutover** (still stopped, owner-free reconfirmed, backup + candidate
-   manifests re-verified): install the release to a fresh private path;
-   swap the four generated roots wholesale plus the enumerated config/prompt
-   inputs (staged-copy-then-swap; keep live credentials/identity untouched);
-   update only the service release-path override; start ONCE. Startup failure
-   leaves the service stopped and is reported — no repair, retry, or
-   improvised rollback.
+### 4. Author a separate complete current-format candidate
 
-6. **Resume and verify:** one ordinary Run; confirm the SAME tree resumes
-   (card counts, history identity, prior active chain recovering through
-   full-chain STOPPED recovery), fresh provider exchanges succeed, and no
-   empty tree or re-derived objectives.
+Use a fresh separate location outside the installation and backup. Derive new state
+from authorized canonical semantics; do not copy retained generated roots or
+`.saivage` and patch that copy. Never edit the installation or backup in place, or
+patch, truncate, append to, normalize, rewrite, merge or selectively replace retained
+generated roots, streams, files or rows. Cover the complete four-root boundary or
+the explicitly authorized complete replacement workspace.
 
-7. **Report** transformations, counts, caveats (dropped unrepresentable rows,
-   missing work outputs, lost legacy prompt protection, version-renumbering
-   side effects), gate evidence, and exact artifacts/manifests.
+Preserve configuration, credentials, identity, operator inputs, source and docs
+outside that boundary unless an exact separate change is authorized. Do not invent
+producer-account provenance, tool results/effects, prompt protection, acceptance,
+historical identities or commitments attesting absent facts merely to satisfy a
+schema. New structural commitments describe the candidate, not equivalence to old
+evidence. Unsupported required facts block for a scoped representability/omission
+decision, never relaxed validation. Necessary one-off manual tooling stays external
+under workspace `tmp/`, untracked and narrowly task-specific; this skill supplies no
+generic utility, helper replication recipe or reusable transformation framework.
 
-## Prohibitions
+### 5. Validate the complete candidate strictly
 
-No product-source migrations or compatibility readers; no partial candidate
-patching; no inspection/repair of canonical streams beyond the enumerated
-transformations; no orphan discovery or cleanup; no mixing: the old binary
-never runs against new-format state and the new binary never legitimizes
-old-format rows; the one-off script and reports stay out of Git.
+Use the intended release's actual contracts, validators and semantic consumers,
+not mirrored validators, compatibility interpretations or weakened checks. Validate
+all canonical selections and linked history: card/record lifecycle and relationships,
+configured session indexes and current/indexed historical segments, selected global
+conversations, app-log/provider evidence, commitments and required canonical work
+references. All referenced work means exact consumed references, never a directory
+inventory or hunt for missing outputs.
 
-## Relationship to other skills
+Include provider-composition and consumed tool-result payloads, not startup alone.
+Validate configuration, compiled workflows and prompt closure; passing does not
+prove live provider availability. Establish safe offline validation without provider
+or tool execution or mutation of the backup/installation. Do not assume init or
+startup is an innocuous validator.
 
-`saivage-project-reset` is the destructive path (empty tree). This skill is
-the history-preserving alternative for the same cutover situations.
-`saivage-lxc-operations` governs service stop/start/lock classification used
-throughout.
+Any failure blocks cutover: no relaxation, readable-prefix retention, selective
+merge or promotion of a partly valid candidate. If another construction attempt is
+authorized, author a new complete candidate rather than repairing retained state.
+Publication uncertainty authorizes no inspection, retry or reconciliation.
+
+### 6. Cut over only the authorized complete boundary
+
+Reconfirm positive owner/process absence, unchanged successful backup and complete
+current-contract validation. Replace the entire four-root boundary within the
+authorized stopped procedure, or the complete workspace; never combine old/new
+roots or selectively merge retained state. This promises neither atomic multi-root
+publication nor recovery from an interrupted swap.
+
+Interruption, failure or outcome uncertainty stops the procedure without artifact
+inspection, retry, rollback, adoption or selective repair. The backup remains
+unchanged, not a merge/restoration workspace. Release/service/input actions need
+specific authorization; no automatic start, reset, lock repair or binary rollback.
+
+### 7. Separate start and execution decisions; report honestly
+
+An authorized start uses the identified matching tested release and deliberate,
+validated model routes, selected prompts and tool payload contracts. Old successful
+runs, equal outer format versions or structural validation alone do not establish
+those facts. Health/readiness do not prove successful project continuation.
+Run/resume needs explicit owner authorization and grounded route/prompt/tool checks;
+never issue it automatically or promise the same active chain.
+
+Preserve authentication and outbound secret non-disclosure. Record source, scope,
+validation, omissions, uncertainties, known transformations and exact actions in an
+external non-authoritative operator report outside both backup and generated state.
+No prescribed schema, canonical-history entry, generic ledger or generated-state
+manifest. Do not print credentials, transcript contents or private provenance in
+chat/logs. Leave blocked work stopped; do not substitute reset or binary downgrade.
+
+## Related authority
+
+- The canonical runbook governs ordinary deployment, lifecycle and reset procedures.
+- `saivage-project-reset` is a separately authorized destructive reset, not fallback
+  permission supplied by this exception.
+- `saivage-lxc-operations` supplies lifecycle procedures, not operational authority.
