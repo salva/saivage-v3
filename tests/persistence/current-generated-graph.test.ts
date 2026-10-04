@@ -20,6 +20,33 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('current generated state startup admission', () => {
+  it.each(['missing', 'malformed'] as const)('admits current cards with a %s unconsumed predecessor but rejects history access', (fault) => {
+    const root = fixture(); const cards = new CardService(root);
+    const head = JSON.parse(readFileSync(cardHeadFile(root, 'project'), 'utf8'));
+    const predecessor = cardHistoryFile(root, 'project', head.ordinary.entry_id);
+    cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    if (fault === 'missing') rmSync(predecessor);
+    else writeFileSync(predecessor, 'complete malformed predecessor\n');
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).not.toThrow();
+    expect(cards.read('project')!.version_seq).toBe(2);
+    expect(() => cards.listCardVersions('project')).toThrow();
+    expect(() => cards.readCardVersion('project', 1)).toThrow();
+    if (fault === 'malformed') expect(readFileSync(predecessor, 'utf8')).toBe('complete malformed predecessor\n');
+    else expect(existsSync(predecessor)).toBe(false);
+  });
+
+  it.each(['missing', 'malformed'] as const)('rejects a %s selected current card document before later admission effects', (fault) => {
+    const root = fixture();
+    const head = JSON.parse(readFileSync(cardHeadFile(root, 'project'), 'utf8'));
+    const current = cardHistoryFile(root, 'project', head.ordinary.entry_id);
+    if (fault === 'missing') rmSync(current);
+    else writeFileSync(current, 'complete malformed current document\n');
+    const effects = preparePhaseAEffectSentinels(root);
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow();
+    expectPhaseAEffectsAbsent(root, effects);
+  });
+
   it('existing startup consumers truncate selected valid tails in remaining JSONL families without initializing optional records', () => {
     const root = fixture();
     appendAppLogEntry(root, 'event', () => ({ type: 'event', data: { id: 'first', timestamp: '2026-08-11T00:00:00.000Z', kind: 'runtime_diagnostic', error_message: 'first' } }));
@@ -247,6 +274,10 @@ describe('current generated state startup admission', () => {
     expect(readFileSync(conversationPath)).toEqual(sentinel);
     expect(readFileSync(terminalPath)).toEqual(terminal);
     expect(existsSync(optionalBelow)).toBe(false);
+    const terminalHead = JSON.parse(terminal.toString('utf8'));
+    writeFileSync(cardHistoryFile(root, child.id, terminalHead.ordinary.entry_id), 'complete malformed tombstone\n');
+    expect(() => initializeAndValidateCurrentGeneratedState(root, workflows)).toThrow();
+    expect(readFileSync(conversationPath)).toEqual(sentinel);
   });
 
   it('rejects a missing compiled workflow before optional effects', () => {

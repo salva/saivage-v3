@@ -1,4 +1,3 @@
-import { validateParsedCards } from '../cards/status-api.js';
 import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runtime/runtime-api.js';
 import { cardParentId } from '../schemas/index.js';
 import {
@@ -7,18 +6,20 @@ import {
   type AgentName,
   type ConversationSessionId,
   type RecordDefinition,
+  type CardRecord,
 } from '../schemas/index.js';
 import { initializeAppLog } from './app-log.js';
 import { readCurrentAuthoredRecord } from './authored-record-files.js';
+import { listCards } from './card-files.js';
 import {
-  readCanonicalLinkedCardHistoryTree,
-  type CanonicalLinkedCardHistoryProjection,
-} from './card-files.js';
-import { isConversationCatalogEstablished, readConversationCatalog, readCurrentConversationSegment } from './conversation-file.js';
+  isConversationCatalogEstablished,
+  readConversationCatalog,
+  readCurrentConversationSegment,
+} from './conversation-file.js';
 import { readProviderExchangeEntries } from './provider-exchange-log.js';
 
 interface AdmittedCard {
-  readonly projection: CanonicalLinkedCardHistoryProjection;
+  readonly card: CardRecord;
   readonly workflow: CompiledCardTypeWorkflow;
 }
 
@@ -55,33 +56,25 @@ function admitCurrentCards(
   projectRoot: string,
   workflows: CompiledProjectWorkflows,
 ): readonly AdmittedCard[] {
-  const projection = readCanonicalLinkedCardHistoryTree(projectRoot);
-  if (projection.length === 0) throw new Error('Required project card authority is missing.');
+  const cards = listCards(projectRoot);
+  if (cards.length === 0) throw new Error('Required project card authority is missing.');
 
-  const activeCards = projection
-    .filter(({ tombstone }) => tombstone === null)
-    .map(({ current }) => current);
-  validateParsedCards({ cards: activeCards });
-
-  const byId = new Map(projection.map((entry) => [entry.current.id, entry] as const));
+  const byId = new Map(cards.map((card) => [card.id, card] as const));
   const admitted: AdmittedCard[] = [];
-  for (const entry of projection) {
-    if (entry.tombstone !== null) continue;
-    const workflow = workflows.cardTypes.get(entry.current.type);
-    if (!workflow)
-      throw new Error(`No compiled workflow exists for card type '${entry.current.type}'.`);
-    const parentId = cardParentId(entry.current.id);
+  for (const card of cards) {
+    const workflow = workflows.cardTypes.get(card.type);
+    if (!workflow) throw new Error(`No compiled workflow exists for card type '${card.type}'.`);
+    const parentId = cardParentId(card.id);
     if (parentId !== null) {
       const parent = byId.get(parentId);
-      if (!parent || parent.tombstone !== null)
-        throw new Error(`Card '${entry.current.id}' has no reached active parent '${parentId}'.`);
-      const parentWorkflow = workflows.cardTypes.get(parent.current.type);
+      if (!parent) throw new Error(`Card '${card.id}' has no reached active parent '${parentId}'.`);
+      const parentWorkflow = workflows.cardTypes.get(parent.type);
       if (!parentWorkflow)
-        throw new Error(`No compiled workflow exists for card type '${parent.current.type}'.`);
-      if (!parentWorkflow.permittedChildTypes.has(entry.current.type))
-        throw new Error(`Card '${entry.current.id}' violates compiled parent/type admission.`);
+        throw new Error(`No compiled workflow exists for card type '${parent.type}'.`);
+      if (!parentWorkflow.permittedChildTypes.has(card.type))
+        throw new Error(`Card '${card.id}' violates compiled parent/type admission.`);
     }
-    admitted.push(Object.freeze({ projection: entry, workflow }));
+    admitted.push(Object.freeze({ card, workflow }));
   }
   return admitted;
 }
@@ -92,9 +85,9 @@ export function initializeAndValidateCurrentGeneratedState(
 ): void {
   const admitted = admitCurrentCards(projectRoot, workflows);
   const sessionIds: ConversationSessionId[] = [globalAgentSessionId(workflows.analyst.name)];
-  for (const { projection, workflow } of admitted) {
+  for (const { card, workflow } of admitted) {
     for (const agentName of cardConversationAgents(workflow))
-      sessionIds.push(cardAgentSessionId(agentName, projection.current.id));
+      sessionIds.push(cardAgentSessionId(agentName, card.id));
   }
   for (const sessionId of sessionIds) requireConversationCatalog(projectRoot, sessionId);
 
@@ -105,8 +98,7 @@ export function initializeAndValidateCurrentGeneratedState(
     readProviderExchangeEntries(projectRoot, oversightSessionId);
   for (const sessionId of sessionIds) readCurrentConversationSegment(projectRoot, sessionId);
 
-  for (const { projection, workflow } of admitted) {
-    const card = projection.current;
+  for (const { card, workflow } of admitted) {
     for (const definition of definitions(workflow)) {
       const current = readCurrentAuthoredRecord(projectRoot, card, definition);
       if (definition.bootstrap && !current?.accepted)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,7 +8,7 @@ import type { App } from '../../src/boot/app.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { cardConversationVersionFile, cardHeadFile, globalAgentConversationVersionFile, providerExchangeFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { cardConversationVersionFile, cardHeadFile, cardHistoryFile, globalAgentConversationVersionFile, providerExchangeFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
 import { appendActivationMarker } from '../../src/runtime/actors/conversation-session.js';
 import { appendStartupEvidence } from '../helpers/startup-session-fixtures.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
@@ -82,6 +82,38 @@ afterEach(async () => {
 });
 
 describe('Supervisor restart full-chain recovery', () => {
+  it('boots with corrupt unconsumed card history, fails historical HTTP access, and still rejects current corruption', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-current-card-admission-')); roots.push(projectRoot);
+    let providerRequests = 0;
+    const provider = createServer((_request, response) => { providerRequests += 1; response.statusCode = 500; response.end(); });
+    const port = await listen(provider);
+    try {
+      const config = productionTestConfig(port);
+      writeProductionConfig(projectRoot, config); initializeProject(projectRoot);
+      const cards = new CardService(projectRoot, compileProjectWorkflows(config, { projectRoot }));
+      const initial = JSON.parse(readFileSync(cardHeadFile(projectRoot, 'project'), 'utf8'));
+      const oldPath = cardHistoryFile(projectRoot, 'project', initial.ordinary.entry_id);
+      cards.create({ type: 'code', parent: 'project', title: 'Current linked child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+      writeFileSync(oldPath, 'complete malformed old card document\n');
+      const app = await startProductionApp(projectRoot, TOKEN); apps.add(app);
+      const origin = appOrigin(app);
+      expect((await fetch(`${origin}/health/ready`)).status).toBe(200);
+      expect(await operatorGet(origin, '/api/runtime/status')).toMatchObject({ runtime: 'stopped', currentCardId: null });
+      expect(await operatorGet(origin, '/api/cards/project/children')).toMatchObject({ children: [expect.objectContaining({ id: 'card-a' })] });
+      for (const path of ['/api/cards/project/history', '/api/cards/project/history/1']) {
+        const response = await fetch(`${origin}${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+        expect(response.status).toBe(500);
+      }
+      expect(readFileSync(oldPath, 'utf8')).toBe('complete malformed old card document\n');
+      expect(providerRequests).toBe(0);
+      apps.delete(app); await app.stop();
+      const current = JSON.parse(readFileSync(cardHeadFile(projectRoot, 'project'), 'utf8'));
+      writeFileSync(cardHistoryFile(projectRoot, 'project', current.ordinary.entry_id), 'complete malformed current card document\n');
+      await expect(startProductionApp(projectRoot, TOKEN)).rejects.toThrow();
+      expect(providerRequests).toBe(0);
+    } finally { await closeServer(provider); }
+  }, 60_000);
+
   it('settles a deep linked chain before readiness without launching work, and keeps a clean restart byte-stable', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-deep-startup-recovery-')); roots.push(projectRoot);
     let providerRequests = 0;
