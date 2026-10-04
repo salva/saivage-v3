@@ -11,10 +11,16 @@ export function controlledResponse(signal: AbortSignal, status = 200) {
     ended = true;
     controller.error(signal.reason);
   };
-  const body = new ReadableStream<Uint8Array>({ start(value) {
-    controller = value;
-    signal.addEventListener('abort', abort, { once: true });
-  } });
+  const body = new ReadableStream<Uint8Array>({
+    start(value) {
+      controller = value;
+      signal.addEventListener('abort', abort, { once: true });
+    },
+    cancel() {
+      ended = true;
+      signal.removeEventListener('abort', abort);
+    },
+  });
   return {
     response: new Response(body, { status }),
     send(text: string | Uint8Array) {
