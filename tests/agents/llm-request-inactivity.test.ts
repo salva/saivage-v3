@@ -1,9 +1,67 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { createServer } from 'node:http';
-import { consumeProviderRequest, ProviderInactivityTimeoutError } from '../../src/agents/llm-request-inactivity.js';
+import { consumeProviderRequest, ProviderInactivityTimeoutError, readBodyTextBestEffort } from '../../src/agents/llm-request-inactivity.js';
 import { controlledResponse, pendingHeaders } from '../helpers/provider-inactivity.js';
 
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
+
+describe('best-effort request body consumption', () => {
+  it('returns the consumed text unchanged', async () => {
+    const response = new Response('body');
+    const readText = jest.fn(async () => 'body');
+    await expect(readBodyTextBestEffort({ signal: new AbortController().signal, onData() {}, readText }, response)).resolves.toBe('body');
+    expect(readText).toHaveBeenCalledWith(response);
+    expect(readText).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { name: 'ordinary failure', aborted: false, error: new TypeError('body failure'), rethrow: false },
+    { name: 'independent AbortError', aborted: false, error: Object.assign(new Error('independent abort'), { name: 'AbortError' }), rethrow: false },
+    { name: 'inactivity timeout', aborted: false, error: new ProviderInactivityTimeoutError(), rethrow: true },
+    { name: 'Error signal reason', aborted: true, error: new Error('owner stopped'), rethrow: true },
+    { name: 'non-Error signal reason', aborted: true, error: { stopped: true }, rethrow: true },
+    { name: 'AbortError on aborted signal', aborted: true, error: Object.assign(new Error('body aborted'), { name: 'AbortError' }), separateReason: new Error('owner reason'), rethrow: true },
+    { name: 'unrelated error on aborted signal', aborted: true, error: new TypeError('unrelated failure'), separateReason: new Error('owner reason'), rethrow: false },
+  ])('preserves catch identity/fallback for $name', async ({ aborted, error, separateReason, rethrow }) => {
+    const controller = new AbortController();
+    if (aborted) controller.abort(separateReason ?? error);
+    const pending = readBodyTextBestEffort({
+      signal: controller.signal,
+      onData() {},
+      async readText() { throw error; },
+    }, new Response(null));
+    if (rethrow) await expect(pending).rejects.toBe(error);
+    else await expect(pending).resolves.toBe('');
+  });
+
+  it.each(['owner', 'timeout'] as const)('leaves AbortError normalization to the outer %s scope', async cancellation => {
+    jest.useFakeTimers();
+    const owner = new AbortController();
+    const reason = { stopped: true };
+    let effective!: AbortSignal;
+    const remove = jest.spyOn(owner.signal, 'removeEventListener');
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      effective = init!.signal!;
+      return new Response(new ReadableStream({
+        start(controller) {
+          effective.addEventListener('abort', () => controller.error(Object.assign(new Error('body aborted'), { name: 'AbortError' })), { once: true });
+        },
+      }));
+    });
+    const pending = consumeProviderRequest('https://test.invalid', {}, owner.signal, (response, context) => readBodyTextBestEffort(context, response)).catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    if (cancellation === 'owner') owner.abort(reason);
+    else await jest.advanceTimersByTimeAsync(120000);
+    expect(await pending).toBe(effective.reason);
+    if (cancellation === 'owner') expect(await pending).toBe(reason);
+    else {
+      expect(await pending).toBeInstanceOf(ProviderInactivityTimeoutError);
+      expect((await pending).message).toBe('Provider request inactive for 120000 ms.');
+    }
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
 
 describe('request-local inactivity scope', () => {
   it.each(['success', 'fetch failure', 'callback failure'] as const)('clears timer and owner listener on %s, with inert late activity', async outcome => {

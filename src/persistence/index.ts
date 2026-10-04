@@ -66,6 +66,7 @@ export {
   ConversationHistoricalVersionUnavailableError,
   initializeConversation,
   readConversationCatalog,
+  isConversationCatalogEstablished,
   readCurrentConversationSegment,
   readHistoricalConversationSegment,
 } from './conversation-file.js';

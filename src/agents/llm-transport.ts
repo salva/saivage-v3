@@ -11,7 +11,7 @@ import { CredentialSourceResolver } from './credential-source-resolver.js';
 import { parseRetryAfterMs } from './llm-failure-classifiers.js';
 import {
   consumeProviderRequest,
-  ProviderInactivityTimeoutError,
+  readBodyTextBestEffort,
 } from './llm-request-inactivity.js';
 import {
   isProfileExpired,
@@ -202,16 +202,7 @@ async function consumeRefreshRequest(
       throw refreshServerTransient(provider, response.status);
     if (response.status === 429) throw refreshRateLimit(provider, response);
     if (!response.ok) return null;
-    const text = await context.readText(response).catch((error: unknown) => {
-      if (
-        error instanceof ProviderInactivityTimeoutError ||
-        (context.signal.aborted &&
-          (error === context.signal.reason ||
-            (error instanceof Error && error.name === 'AbortError')))
-      )
-        throw error;
-      return '';
-    });
+    const text = await readBodyTextBestEffort(context, response);
     try {
       return JSON.parse(text) as Record<string, unknown> | null;
     } catch {

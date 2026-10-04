@@ -150,7 +150,7 @@ export type { ManagedProcessScope, ProcessStopReport } from './managed-process-g
 export { ProcessRunner } from './process-runner.js';
 export type { ProcessCategory, ProcessRecord, ProcessWaitResult } from './process-runner.js';
 export { RuntimeGate } from './runtime-gate.js';
-export { stabilizeGlobalSessionAtStartup } from './actors/conversation-recovery.js';
+export { settleFinalUnmatchedCall } from './actors/conversation-recovery.js';
 export {
   AnalystRuntime,
   AnalystSession,

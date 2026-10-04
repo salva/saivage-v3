@@ -73,7 +73,7 @@ import { toolFailed, toolSucceeded } from '../../contracts/index.js';
 import { isCardInterruptedError } from './card-interrupted-error.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import { settleReturnedToolCallWithoutEntry } from './returned-tool-call-settlement.js';
-import { appendUncertainPriorToolResult } from './llm-delivery-log.js';
+import { settleFinalUnmatchedCall } from './conversation-recovery.js';
 
 export interface AcceptedNodeResult {
   readonly nodeId: string;
@@ -606,7 +606,7 @@ export class AgentNodeExecution {
     inputId: string,
     reviewerPair: ReviewerContextPair | null,
   ): void {
-    this.settlePriorFinalCallForActivation(sessionId);
+    settleFinalUnmatchedCall(this.deps.conversations, sessionId);
     appendActivationMarker(this.deps.conversations, sessionId, {
       event: 'activation_open',
       agent_name: node.agent.name,
@@ -641,12 +641,6 @@ export class AgentNodeExecution {
           buildUserContextMessage(sessionId, inputId, 'process_transition', index, message),
         ),
       );
-  }
-
-  private settlePriorFinalCallForActivation(sessionId: CardConversationSessionId): void {
-    const call = readConversation(this.deps.conversations.projectRoot, sessionId).unmatchedCall;
-    if (!call) return;
-    appendUncertainPriorToolResult(this.deps.conversations, sessionId, call, 'actual-use');
   }
 
   private transitionContext(

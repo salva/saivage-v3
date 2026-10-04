@@ -967,12 +967,6 @@ export const useCardStore = defineStore('cards', () => {
     cardHistoryDiffTarget.value = null;
     cardHistoryDiffKey.value = null;
     cardHistorySelectedVersion.value = version;
-    if (cardHistoryAccepted.value && !cardHistory.value.some((entry) => entry.version === version)) {
-      cardHistoryEntryError.value = { kind: 'not-found', status: 404, message: `Historical version ${version} not found` };
-      cardHistoryEntryLoading.value = false;
-      cardHistoryDiffLoading.value = false;
-      return Promise.resolve();
-    }
     const key = Object.freeze({ cardId, fromSeq: version, to: 'current' as const });
     return Promise.all([startEntry(cardId, version), startDiff(key, null)]).then(() => undefined);
   }

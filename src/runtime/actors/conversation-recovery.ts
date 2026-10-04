@@ -2,7 +2,7 @@ import type {
   AgentMessage,
   MessageKind,
   CardConversationSessionId,
-  GlobalConversationSessionId,
+  ConversationSessionId,
 } from '../../schemas/index.js';
 import { conversationSessionIdentity } from '../../schemas/index.js';
 import {
@@ -15,9 +15,9 @@ import { appendUncertainPriorToolResult } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/session-api.js';
 import { validateConversation, type ValidatedConversation } from '../../contracts/index.js';
 
-export function stabilizeGlobalSessionAtStartup(
+export function settleFinalUnmatchedCall(
   conversations: ConversationFileContext,
-  sessionId: GlobalConversationSessionId,
+  sessionId: ConversationSessionId,
 ): void {
   const conversation = readConversation(conversations.projectRoot, sessionId);
   if (conversation.unmatchedCall)

@@ -98,7 +98,7 @@ const REQUIRED_VALIDATION_PROFILES = [
   },
   {
     name: 'validate:routine',
-    mustInclude: ['npm run typecheck', EXPORT_CONSUMER_COMMAND, 'npm run docs:verify'],
+    mustInclude: ['npm run typecheck', EXPORT_CONSUMER_COMMAND, 'npm run test:direct -- --runInBand tests/architecture', 'npm run docs:verify'],
     description: 'routine backend/runtime validation profile',
   },
   {
@@ -1212,6 +1212,7 @@ function validateExportConsumerCadence({ scripts }) {
     'npm run typecheck',
     EXPORT_CONSUMER_COMMAND,
     'npm run check:canonical-persistence-drift',
+    'npm run test:direct -- --runInBand tests/architecture',
     'npm run docs:verify',
   ];
   if (JSON.stringify(routineSegments) !== JSON.stringify(expectedRoutine)) {

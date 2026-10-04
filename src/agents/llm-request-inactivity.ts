@@ -4,8 +4,26 @@ const PROVIDER_INACTIVITY_MS = 120_000;
 
 export class ProviderInactivityTimeoutError extends Error {
   constructor() {
-    super('Provider request inactive for 120000 ms.');
+    super(`Provider request inactive for ${PROVIDER_INACTIVITY_MS} ms.`);
     this.name = 'ProviderInactivityTimeoutError';
+  }
+}
+
+export async function readBodyTextBestEffort(
+  consumption: LlmResponseConsumption,
+  response: Response,
+): Promise<string> {
+  try {
+    return await consumption.readText(response);
+  } catch (error) {
+    if (
+      error instanceof ProviderInactivityTimeoutError ||
+      (consumption.signal.aborted &&
+        (error === consumption.signal.reason ||
+          (error instanceof Error && error.name === 'AbortError')))
+    )
+      throw error;
+    return '';
   }
 }
 

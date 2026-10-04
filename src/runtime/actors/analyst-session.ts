@@ -30,7 +30,8 @@ import {
   type LLMProviderPort,
   type LlmTerminalHandoff,
 } from './llm-actor.js';
-import { appendUncertainPriorToolResult, buildLlmTurnMessage } from './llm-delivery-log.js';
+import { buildLlmTurnMessage } from './llm-delivery-log.js';
+import { settleFinalUnmatchedCall } from './conversation-recovery.js';
 import {
   appendConversationBatch,
   readConversation,
@@ -130,7 +131,6 @@ type AnalystTurnOperation = {
   readonly tracker: ActivationOperationTracker;
   step: AnalystTurnStep;
   readonly toolInvocations: AnalystToolInvocations;
-  toolInFlight: string | null;
   newlyRequestedRestart: boolean;
 };
 type AnalystSessionPhase =
@@ -258,7 +258,6 @@ export class AnalystSession {
           ? { kind: 'confirmed_restart_preparing' }
           : { kind: 'preparing' },
       toolInvocations: [],
-      toolInFlight: null,
       newlyRequestedRestart: false,
     };
     this.#phase = { kind: 'conversing', operation };
@@ -308,7 +307,7 @@ export class AnalystSession {
       throw error;
     }
     this.assertCurrent(operation, signal);
-    this.settlePriorFinalCallForSubmission();
+    settleFinalUnmatchedCall(this.#conversations, this.#sessionId);
     operation.step = { kind: 'starting', ingress: 'publishing' };
     appendConversationBatch(
       this.#conversations,
@@ -400,7 +399,6 @@ export class AnalystSession {
         );
       } else {
         params = parsed.args;
-        operation.toolInFlight = outcome.toolName;
         try {
           settlement = await invokeToolForLlm(
             surface,
@@ -417,7 +415,6 @@ export class AnalystSession {
           }
           throw new AbandonedToolInvocationError(error);
         }
-        operation.toolInFlight = null;
         if (
           signal.aborted ||
           (this.#phase.kind === 'disposed' && this.#phase.settling === operation)
@@ -500,12 +497,6 @@ export class AnalystSession {
     this.#restartCapability.port.schedule();
     operation.restartConfirmation = null;
     return this.response(operation, { status: 'scheduled' });
-  }
-
-  private settlePriorFinalCallForSubmission(): void {
-    const call = readConversation(this.#conversations.projectRoot, this.#sessionId).unmatchedCall;
-    if (!call) return;
-    appendUncertainPriorToolResult(this.#conversations, this.#sessionId, call, 'actual-use');
   }
 
   private terminalHandoff(operation: AnalystTurnOperation): LlmTerminalHandoff {

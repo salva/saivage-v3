@@ -50,7 +50,7 @@ tests/scripts/export-consumers.test.js`; this script enables Node's experimental
 VM modules for Jest. Direct Jest invocation likewise requires
 `NODE_OPTIONS=--experimental-vm-modules`. Export and boundary refactors also
 require the full `npm test`, including its serial terminal-child stage;
-`validate:routine` runs the export CLI but not that Jest coverage.
+`validate:routine` runs the export CLI and architecture Jest, but not that semantic export Jest coverage.
 
 ## Import-boundary ratchet
 
@@ -119,8 +119,11 @@ are authored deliberately rather than automatically formatted; build retains
 packaging parity, source/package byte comparison, and compiled composition checks.
 The existing `lint-guards` CI job runs this lint profile and is enforced by
 `validation-required` under its existing applies/skipped semantics.
-`validate:routine` remains typecheck, export-consumer guard,
-canonical-persistence drift, then `docs:verify`; it does not run Jest or lint.
+`validate:routine` runs typecheck, export-consumer guard,
+canonical-persistence drift, `npm run test:direct -- --runInBand tests/architecture`,
+then `docs:verify`, in that exact machine-enforced order. This is limited
+architecture Jest coverage, not the complete backend suite or lint; export and
+boundary refactors still require the focused semantic checks and full `npm test`.
 A fresh dual `npm ci` is required for CI setup, not before every ordinary local
 command invocation.
 

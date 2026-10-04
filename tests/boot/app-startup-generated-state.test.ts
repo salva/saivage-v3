@@ -27,6 +27,7 @@ import { appendActivationMarker } from '../../src/runtime/actors/conversation-se
 import { appendStartupEvidence, appendStartupPendingCall } from '../helpers/startup-session-fixtures.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { cardHeadFile, providerExchangeFile } from '../../src/persistence/layout.js';
+import { ModelRouter } from '../../src/agents/model-router.js';
 
 const roots: string[] = [];
 const apps: App[] = [];
@@ -73,6 +74,68 @@ describe('application startup generated-state admission', () => {
     const app = await start(root, false); apps.push(app);
     expect(readFileSync(evidence)).toEqual(before);
     expect(existsSync(globalAgentConversationVersionIndexFile(root, 'oversight'))).toBe(false);
+  });
+  it('admits a valid empty disabled Oversight index without publishing conversation state', async () => {
+    const root = projectRoot();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG); config.oversight.enabled = false;
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
+    publishInitialProjectRuntime(root, compileProjectWorkflows(config));
+    initializeMissingConversation(root, 'agent:oversight:global');
+    const index = globalAgentConversationVersionIndexFile(root, 'oversight');
+    const before = readFileSync(index);
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const app = await start(root, false); apps.push(app);
+    expect(readFileSync(index)).toEqual(before);
+    expect(readConversation(root, 'agent:oversight:global').physicalRows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a malformed optional Oversight index before card correction or MCP', async () => {
+    const root = projectRoot();
+    const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
+    publishInitialProjectRuntime(root, workflows);
+    const cards = new CardService(root, workflows); cards.setStatus('project', 'running');
+    initializeMissingConversation(root, 'agent:oversight:global');
+    const index = globalAgentConversationVersionIndexFile(root, 'oversight');
+    writeFileSync(index, '{invalid');
+    const correction = jest.spyOn(CardService.prototype, 'stopRunning');
+    const reconcile = jest.spyOn(McpManager.prototype, 'reconcilePersistedConfig');
+    await expect(start(root, false)).rejects.toThrow();
+    expect(correction).not.toHaveBeenCalled();
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(readFileSync(index, 'utf8')).toBe('{invalid');
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
+  it.each([false, true])('observes fresh Oversight establishment at composition after admission (initially %s)', async (initiallyEstablished) => {
+    const root = projectRoot();
+    const config = structuredClone(TEST_SAIVAGE_CONFIG); config.oversight.enabled = false;
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);
+    publishInitialProjectRuntime(root, compileProjectWorkflows(config));
+    const sessionId = 'agent:oversight:global' as const;
+    const index = globalAgentConversationVersionIndexFile(root, 'oversight');
+    if (initiallyEstablished) initializeMissingConversation(root, sessionId);
+    // Runtime route binding occurs in composition, after generated-state admission.
+    // Change this exact test-owned index between those two independent reader calls.
+    const resolveModels = ModelRouter.prototype.resolveModels;
+    const binding = jest.spyOn(ModelRouter.prototype, 'resolveModels').mockImplementationOnce(function (this: ModelRouter, ids, request) {
+      expect(existsSync(index)).toBe(initiallyEstablished);
+      if (initiallyEstablished) rmSync(index);
+      else {
+        initializeMissingConversation(root, sessionId);
+        const inputId = '11111111-1111-4111-8111-111111111111';
+        appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(sessionId, inputId, 'question'));
+        appendStartupPendingCall(root, sessionId, inputId);
+      }
+      return resolveModels.call(this, ids, request);
+    });
+    const app = await start(root, false); apps.push(app);
+    expect(binding).toHaveBeenCalled();
+    expect(existsSync(index)).toBe(!initiallyEstablished);
+    if (!initiallyEstablished) {
+      const conversation = readConversation(root, sessionId);
+      expect(conversation.unmatchedCall).toBeNull();
+      expect(conversation.physicalRows.at(-1)!.kind).toBe('tool_result');
+    }
   });
   it('consumes all running configured session tails before leaf-to-root correction, including the non-current reviewer', async () => {
     const root = projectRoot();

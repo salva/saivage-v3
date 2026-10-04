@@ -236,6 +236,71 @@ describe('CardStore exact card resources',()=>{
     expect(vi.mocked(listCardRecords).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(getCardRecord).mock.invocationCallOrder[0]!);
   });
 
+  it('lets exact card requests resolve a partial catalog and preserves current detail on server misses', async () => {
+    const store = useCardStore();
+    store.selectedCardId = A;
+    store.selectedDetail = { cardId: A, card: cardView(A, { title: 'current', version_seq: 4 }) };
+    const current = store.selectedDetail;
+    const header = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-07-22T00:00:00.000Z', artifact_kind: 'card-version' as const, change: null };
+    vi.mocked(listCardHistory).mockResolvedValue({ card_id: A, versions: [header], total: 1 });
+    await store.openCardHistory(A);
+    const selected = { card_id: A, version: 2, entry_id: '22222222-2222-4222-8222-222222222222', published_at: header.published_at, artifact: { kind: 'card-version' as const, card: historyCard(A, { version_seq: 2 }), change: null } };
+    const diff = { card_id: A, from: 2, to: { kind: 'current' as const, version_seq: 4, history_version: 2 }, diff: [{ field: 'title', before: 'old', after: 'current' }] };
+    vi.mocked(getCardHistoryEntry).mockResolvedValue(selected);
+    vi.mocked(getCardDiff).mockResolvedValue(diff);
+    await store.selectCardHistoryVersion(A, 2);
+    expect(getCardHistoryEntry).toHaveBeenLastCalledWith(A, 2, expect.any(AbortSignal));
+    expect(getCardDiff).toHaveBeenLastCalledWith({ cardId: A, fromSeq: 2, to: 'current' }, expect.any(AbortSignal));
+    expect(store.cardHistoryEntry).toEqual(selected);
+    expect(store.cardHistoryDiff).toEqual(diff.diff);
+    const missing = { error: 'historical_version_not_found' as const, resource: 'card' as const, owner_id: A, version: 3 };
+    vi.mocked(getCardHistoryEntry).mockRejectedValueOnce(new OperatorApiError('cards.history.get', 404, missing));
+    vi.mocked(getCardDiff).mockRejectedValueOnce(new OperatorApiError('cards.diff', 404, missing));
+    await store.selectCardHistoryVersion(A, 3);
+    expect(getCardHistoryEntry).toHaveBeenLastCalledWith(A, 3, expect.any(AbortSignal));
+    expect(getCardDiff).toHaveBeenLastCalledWith({ cardId: A, fromSeq: 3, to: 'current' }, expect.any(AbortSignal));
+    expect(store.cardHistorySelectedVersion).toBe(3);
+    expect(store.cardHistoryEntry).toBeNull();
+    expect(store.cardHistoryDiff).toEqual([]);
+    expect(store.cardHistoryDiffTarget).toBeNull();
+    expect(store.cardHistoryEntryError).toMatchObject({ kind: 'not-found', status: 404, message: 'historical_version_not_found' });
+    expect(store.cardHistoryDiffError).toMatchObject({ kind: 'not-found', status: 404, message: 'historical_version_not_found' });
+    expect(store.selectedDetail).toBe(current);
+    expect(store.cardHistory).toEqual([header]);
+  });
+
+  it('fences pending card version and diff responses after a newer exact selection fails', async () => {
+    const store = useCardStore();
+    store.selectedCardId = A;
+    store.selectedDetail = { cardId: A, card: cardView(A) };
+    vi.mocked(listCardHistory).mockResolvedValue({ card_id: A, versions: [], total: 0 });
+    await store.openCardHistory(A);
+    const oldVersion = deferred<Awaited<ReturnType<typeof getCardHistoryEntry>>>();
+    const oldDiff = deferred<Awaited<ReturnType<typeof getCardDiff>>>();
+    vi.mocked(getCardHistoryEntry).mockReturnValueOnce(oldVersion.promise);
+    vi.mocked(getCardDiff).mockReturnValueOnce(oldDiff.promise);
+    const oldSelection = store.selectCardHistoryVersion(A, 2);
+    const versionSignal = vi.mocked(getCardHistoryEntry).mock.calls.at(-1)![2]!;
+    const diffSignal = vi.mocked(getCardDiff).mock.calls.at(-1)![1]!;
+    const missing = { error: 'historical_version_not_found' as const, resource: 'card' as const, owner_id: A, version: 3 };
+    vi.mocked(getCardHistoryEntry).mockRejectedValueOnce(new OperatorApiError('cards.history.get', 404, missing));
+    vi.mocked(getCardDiff).mockRejectedValueOnce(new OperatorApiError('cards.diff', 404, missing));
+    await store.selectCardHistoryVersion(A, 3);
+    expect(versionSignal.aborted).toBe(true);
+    expect(diffSignal.aborted).toBe(true);
+    oldVersion.resolve({ card_id: A, version: 2, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-07-22T00:00:00.000Z', artifact: { kind: 'card-version', card: historyCard(A), change: null } });
+    oldDiff.resolve({ card_id: A, from: 2, to: { kind: 'current', version_seq: 4, history_version: 2 }, diff: [{ field: 'title', before: 'old', after: 'stale' }] });
+    await oldSelection;
+    expect(store.cardHistorySelectedVersion).toBe(3);
+    expect(store.cardHistoryEntry).toBeNull();
+    expect(store.cardHistoryDiff).toEqual([]);
+    expect(store.cardHistoryDiffTarget).toBeNull();
+    expect(store.cardHistoryEntryError?.message).toBe('historical_version_not_found');
+    expect(store.cardHistoryDiffError?.message).toBe('historical_version_not_found');
+    expect(store.cardHistoryEntryLoading).toBe(false);
+    expect(store.cardHistoryDiffLoading).toBe(false);
+  });
+
   it('stores route-derived history metadata and queue-free selected artifacts unchanged',async()=>{
     const first={entry_id:'11111111-1111-4111-8111-111111111111',version:1,published_at:'2026-07-22T00:00:00.000Z',artifact_kind:'card-version' as const,change:null};
     const second={entry_id:'22222222-2222-4222-8222-222222222222',version:2,published_at:'2026-07-22T00:00:01.000Z',artifact_kind:'card-version' as const,change:{summary:'lifecycle updated',changed_fields:['lifecycle' as const],actor:null}};

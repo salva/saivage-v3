@@ -15,8 +15,8 @@ import type { RuntimeProcessIdentity } from '../../runtime/runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../runtime/runtime-api.js';
 import { ProcessRunner } from '../../runtime/runtime-api.js';
 import { bindRuntimeWorkflows } from '../../runtime/runtime-api.js';
-import { stabilizeGlobalSessionAtStartup } from '../../runtime/runtime-api.js';
-import { readConversationCatalog } from '../../persistence/index.js';
+import { settleFinalUnmatchedCall } from '../../runtime/runtime-api.js';
+import { isConversationCatalogEstablished } from '../../persistence/index.js';
 import { ProviderRegistry, ModelRouter } from '../../agents/execution-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
@@ -140,16 +140,10 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  stabilizeGlobalSessionAtStartup({ projectRoot }, analystSessionId);
+  settleFinalUnmatchedCall({ projectRoot }, analystSessionId);
   const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
-  let oversightEstablished = true;
-  try {
-    readConversationCatalog(projectRoot, oversightSessionId);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    oversightEstablished = false;
-  }
-  if (oversightEstablished) stabilizeGlobalSessionAtStartup({ projectRoot }, oversightSessionId);
+  if (isConversationCatalogEstablished(projectRoot, oversightSessionId))
+    settleFinalUnmatchedCall({ projectRoot }, oversightSessionId);
   await runtimeApplication.runtimeApi.start();
   fastify.log.info('Runtime application started');
   const mcpReconciliation = await mcpManager.reconcilePersistedConfig();

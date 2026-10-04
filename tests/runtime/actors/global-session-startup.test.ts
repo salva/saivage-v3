@@ -3,7 +3,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { stabilizeGlobalSessionAtStartup } from '../../../src/runtime/runtime-api.js';
+import { settleFinalUnmatchedCall } from '../../../src/runtime/runtime-api.js';
 import { appendConversationBatch, initializeMissingConversation, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile } from '../../../src/persistence/layout.js';
 import { buildGlobalAgentIngressRows } from '../../../src/runtime/actors/conversation-session.js';
@@ -17,7 +17,7 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function stabilize(root: string, sessionId: typeof SESSION | typeof OVERSIGHT_SESSION): void {
-  stabilizeGlobalSessionAtStartup({ projectRoot: root }, sessionId);
+  settleFinalUnmatchedCall({ projectRoot: root }, sessionId);
 }
 
 describe('configured global fresh-startup settlement', () => {

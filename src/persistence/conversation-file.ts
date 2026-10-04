@@ -274,6 +274,18 @@ export function readConversationCatalog(
     currentVersion: index.current_version,
   });
 }
+export function isConversationCatalogEstablished(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+): boolean {
+  try {
+    readConversationCatalog(projectRoot, sessionId);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return false;
+  }
+}
 function selectSegment(
   projectRoot: string,
   sessionId: ConversationSessionId,

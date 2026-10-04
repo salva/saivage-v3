@@ -52,7 +52,7 @@ const PACKAGE_SCRIPTS = {
   'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-cockpit-smoke.test.ts',
   'web:test:analyst-ui': 'cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts',
   'validate:docs': 'npm run docs:verify',
-  'validate:routine': 'npm run typecheck && npm run check:export-consumers && npm run check:canonical-persistence-drift && npm run docs:verify',
+  'validate:routine': 'npm run typecheck && npm run check:export-consumers && npm run check:canonical-persistence-drift && npm run test:direct -- --runInBand tests/architecture && npm run docs:verify',
   'validate:ui-smoke': 'npm run web:test:operator-smoke',
   'validate:ui': 'npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke',
   'validate:release': 'npm run typecheck && npm run build && npm test && npm run test:e2e && npm run web:test:operator-smoke && npm run docs:verify',
@@ -182,6 +182,7 @@ describe('validation cadence guard', () => {
   describe('export-consumer cadence mutations', () => {
     it.each([
       ['drops the validate:routine edge', PACKAGE_SCRIPTS['validate:routine'].replace(' && npm run check:export-consumers', '')],
+      ['drops routine architecture coverage', PACKAGE_SCRIPTS['validate:routine'].replace(' && npm run test:direct -- --runInBand tests/architecture', '')],
       ['moves the validate:routine edge before typecheck', PACKAGE_SCRIPTS['validate:routine'].replace('npm run typecheck && npm run check:export-consumers', 'npm run check:export-consumers && npm run typecheck')],
     ])('rejects a package that %s', (_label, command) => {
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:routine': command } }), 'validate:routine" must run exactly');

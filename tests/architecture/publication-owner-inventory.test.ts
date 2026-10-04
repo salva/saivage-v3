@@ -44,6 +44,92 @@ function finallyCatchInventory(): Record<string, number> {
   }));
 }
 
+// Only the current direct startup statements are inspected; this is not control-flow analysis.
+function startupAst(text: string): ts.SourceFile {
+  return ts.createSourceFile('startup.ts', text, ts.ScriptTarget.Latest, true);
+}
+function statements(ast: ts.SourceFile, name: string): readonly ts.Statement[] {
+  const fn = ast.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === name);
+  expect(fn?.body).toBeDefined();
+  return fn!.body!.statements;
+}
+function imported(ast: ts.SourceFile, name: string, owner: string): void {
+  expect(ast.statements.some(node => ts.isImportDeclaration(node)
+    && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === owner
+    && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
+    && node.importClause.namedBindings.elements.some(binding => binding.name.text === name
+      && (binding.propertyName?.text ?? binding.name.text) === name))).toBe(true);
+}
+function directCall(statement: ts.Statement, awaited = false): ts.CallExpression | undefined {
+  let expression: ts.Expression | undefined;
+  if (ts.isExpressionStatement(statement)) expression = statement.expression;
+  if (ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1)
+    expression = statement.declarationList.declarations[0]!.initializer;
+  if (!expression) return undefined;
+  if (awaited) {
+    if (!ts.isAwaitExpression(expression)) return undefined;
+    expression = expression.expression;
+  }
+  return ts.isCallExpression(expression) ? expression : undefined;
+}
+const printer = ts.createPrinter({ removeComments: true });
+function syntax(node: ts.Node): string {
+  return printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile());
+}
+function orderedPositions(positions: number[]): void {
+  for (const position of positions) expect(position).toBeGreaterThanOrEqual(0);
+  for (let i = 1; i < positions.length; i++) expect(positions[i - 1]).toBeLessThan(positions[i]!);
+}
+function assertGlobalStartup(text: string): void {
+  const ast = startupAst(text);
+  imported(ast, 'globalAgentSessionId', '../../schemas/index.js');
+  imported(ast, 'settleFinalUnmatchedCall', '../../runtime/runtime-api.js');
+  imported(ast, 'isConversationCatalogEstablished', '../../persistence/index.js');
+  const body = statements(ast, 'createServerServices');
+  const identity = (name: string, agent: string): number => body.findIndex(node =>
+    ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === name
+      && declaration.initializer && ts.isCallExpression(declaration.initializer)
+      && syntax(declaration.initializer) === `globalAgentSessionId(workflows.${agent}.name)`));
+  const settlement = (node: ts.Statement, id: string): boolean => {
+    const call = directCall(node);
+    return !!call && syntax(call) === `settleFinalUnmatchedCall({ projectRoot }, ${id})`;
+  };
+  const oversight = body.findIndex(node => ts.isIfStatement(node)
+    && ts.isCallExpression(node.expression)
+    && syntax(node.expression) === 'isConversationCatalogEstablished(projectRoot, oversightSessionId)'
+    && !node.elseStatement
+    && (ts.isBlock(node.thenStatement)
+      ? node.thenStatement.statements.length === 1 && settlement(node.thenStatement.statements[0]!, 'oversightSessionId')
+      : settlement(node.thenStatement, 'oversightSessionId')));
+  const awaited = (name: string): number => body.findIndex(node => {
+    const call = directCall(node, true);
+    return !!call && syntax(call) === name;
+  });
+  orderedPositions([
+    identity('analystSessionId', 'analyst'),
+    body.findIndex(node => settlement(node, 'analystSessionId')),
+    identity('oversightSessionId', 'oversight'), oversight,
+    awaited('runtimeApplication.runtimeApi.start()'), awaited('mcpManager.reconcilePersistedConfig()'),
+  ]);
+}
+function assertServerStartup(text: string): void {
+  const ast = startupAst(text);
+  imported(ast, 'createServerServices', './composition/server-services.js');
+  imported(ast, 'registerServerRoutes', './composition/route-composition.js');
+  const position = (body: readonly ts.Statement[], callee: string, awaited: boolean): number =>
+    body.findIndex(node => {
+      const call = directCall(node, awaited);
+      return !!call && syntax(call.expression) === callee && call.arguments.length === 1
+        && (callee === 'createServer' ? syntax(call.arguments[0]!) === 'options' : ts.isObjectLiteralExpression(call.arguments[0]!));
+    });
+  const creation = statements(ast, 'createServer');
+  orderedPositions([position(creation, 'createServerServices', true), position(creation, 'registerServerRoutes', false)]);
+  const listening = statements(ast, 'startServer');
+  orderedPositions([position(listening, 'createServer', true), position(listening, 'server.fastify.listen', true)]);
+}
+
 describe('source-derived publication owner inventory', () => {
   it('keeps CardProcessActor as the sole production BaseActor subclass', () => {
     const inventory = occurrenceInventory(/extends\s+BaseActor\b/gu);
@@ -91,55 +177,40 @@ describe('source-derived publication owner inventory', () => {
   });
 
   it('settles configured globals before runtime startup, MCP reconciliation, and listening', () => {
-    const services = source('src/server/composition/server-services.ts');
-    const workflows = services.indexOf('const workflows = bindRuntimeWorkflows(');
-    const analystIdentity = services.indexOf('const analystSessionId = globalAgentSessionId(workflows.analyst.name);');
-    const analystSettlement = services.indexOf('stabilizeGlobalSessionAtStartup({ projectRoot }, analystSessionId);');
-    const oversightIdentity = services.indexOf('const oversightSessionId = globalAgentSessionId(workflows.oversight.name);');
-    const oversightEstablishment = services.indexOf('let oversightEstablished = true;');
-    const oversightCatalog = services.indexOf('readConversationCatalog(projectRoot, oversightSessionId);');
-    const oversightSettlement = services.indexOf('stabilizeGlobalSessionAtStartup({ projectRoot }, oversightSessionId);');
-    const runtimeStart = services.indexOf('await runtimeApplication.runtimeApi.start();');
-    const mcpReconciliation = services.indexOf('const mcpReconciliation = await mcpManager.reconcilePersistedConfig();');
-    for (const position of [workflows, analystIdentity, analystSettlement, oversightIdentity,
-      oversightEstablishment, oversightCatalog, oversightSettlement, runtimeStart, mcpReconciliation]) {
-      expect(position).toBeGreaterThanOrEqual(0);
-    }
-    expect(workflows).toBeLessThan(analystIdentity);
-    expect(workflows).toBeLessThan(oversightIdentity);
-    expect(analystIdentity).toBeLessThan(analystSettlement);
-    expect(analystSettlement).toBeLessThan(oversightIdentity);
-    expect(oversightIdentity).toBeLessThan(oversightEstablishment);
-    expect(oversightEstablishment).toBeLessThan(oversightCatalog);
-    expect(oversightCatalog).toBeLessThan(oversightSettlement);
-    expect(oversightIdentity).toBeLessThan(oversightSettlement);
+    assertGlobalStartup(source('src/server/composition/server-services.ts'));
+    assertServerStartup(source('src/server/server.ts'));
+  });
 
-    const optionalOversightBlock = new RegExp([
-      /^\s*let\s+oversightEstablished\s*=\s*true\s*;/u.source,
-      /try\s*\{/u.source,
-      /readConversationCatalog\s*\(\s*projectRoot\s*,\s*oversightSessionId\s*\)\s*;/u.source,
-      /\}\s*catch\s*\(\s*error\s*\)\s*\{/u.source,
-      /if\s*\(\s*\(\s*error\s+as\s+NodeJS\.ErrnoException\s*\)\s*\.code\s*!==\s*'ENOENT'\s*\)\s*throw\s+error\s*;/u.source,
-      /oversightEstablished\s*=\s*false\s*;\s*\}/u.source,
-      /if\s*\(\s*oversightEstablished\s*\)\s*stabilizeGlobalSessionAtStartup\s*\(\s*\{\s*projectRoot\s*\}\s*,\s*oversightSessionId\s*\)\s*;\s*$/u.source,
-    ].join('\\s*'), 'u');
-    expect(services.slice(oversightEstablishment, runtimeStart)).toMatch(optionalOversightBlock);
-    for (const settlement of [analystSettlement, oversightSettlement]) {
-      expect(settlement).toBeLessThan(runtimeStart);
-      expect(settlement).toBeLessThan(mcpReconciliation);
-    }
-    expect(runtimeStart).toBeLessThan(mcpReconciliation);
-
-    const server = source('src/server/server.ts');
-    const serviceCreation = server.indexOf('const services = await createServerServices({');
-    const routeRegistration = server.indexOf('registerServerRoutes({');
-    const serverCreation = server.indexOf('const server = await createServer(options);');
-    const listen = server.indexOf('await server.fastify.listen({');
-    for (const position of [serviceCreation, routeRegistration, serverCreation, listen]) {
-      expect(position).toBeGreaterThanOrEqual(0);
-    }
-    expect(serviceCreation).toBeLessThan(routeRegistration);
-    expect(serverCreation).toBeLessThan(listen);
+  it.each(['removed', 'unguarded', 'late', 'nested'] as const)('rejects %s Oversight settlement despite comment markers', (fault) => {
+    const imports = `
+      import { globalAgentSessionId } from '../../schemas/index.js';
+      import { settleFinalUnmatchedCall } from '../../runtime/runtime-api.js';
+      import { isConversationCatalogEstablished } from '../../persistence/index.js';`;
+    const guarded = 'if (isConversationCatalogEstablished(projectRoot, oversightSessionId)) settleFinalUnmatchedCall({ projectRoot }, oversightSessionId);';
+    const settlement = fault === 'removed' ? '' : fault === 'unguarded'
+      ? 'settleFinalUnmatchedCall({ projectRoot }, oversightSessionId);'
+      : fault === 'nested' ? `function unused() { ${guarded} }` : guarded;
+    const text = `${imports}
+      async function createServerServices() {
+        const analystSessionId = globalAgentSessionId(workflows.analyst.name);
+        settleFinalUnmatchedCall({ projectRoot }, analystSessionId);
+        const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
+        // ${guarded}
+        ${fault === 'late' ? '' : settlement}
+        await runtimeApplication.runtimeApi.start();
+        ${fault === 'late' ? settlement : ''}
+        const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
+      }`;
+    assertGlobalStartup(`${imports}
+      async function createServerServices() {
+        const analystSessionId = globalAgentSessionId(workflows.analyst.name);
+        settleFinalUnmatchedCall({ projectRoot }, analystSessionId);
+        const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
+        ${guarded}
+        await runtimeApplication.runtimeApi.start();
+        const mcpReconciliation = await mcpManager.reconcilePersistedConfig();
+      }`);
+    expect(() => assertGlobalStartup(text)).toThrow();
   });
 
   it('has no obsolete publication errors or retained process writer anywhere in production', () => {

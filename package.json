@@ -53,7 +53,7 @@
     "web:test:operator-smoke": "cd web && npx vitest run src/__tests__/operator-cockpit-smoke.test.ts && cd .. && npx playwright test -c tests/playwright/smoke/playwright.config.ts tests/playwright/smoke/operator-direct-load-routes.spec.ts tests/playwright/smoke/cockpit-conversation-navigation.spec.ts tests/playwright/smoke/cockpit-overview-clarity.spec.ts tests/playwright/smoke/cards-independent-scroll-selection.spec.ts tests/playwright/smoke/card-status-presentation.spec.ts tests/playwright/smoke/http-live-sync-lease.spec.ts tests/playwright/smoke/cards-bootstrap-request-order.spec.ts tests/playwright/smoke/cockpit-scale-and-a11y.spec.ts",
     "web:test:card-history-panel": "cd web && npx vitest run src/__tests__/card-history-panel.test.ts",
     "validate:docs": "npm run docs:verify",
-    "validate:routine": "npm run typecheck && npm run check:export-consumers && npm run check:canonical-persistence-drift && npm run docs:verify",
+    "validate:routine": "npm run typecheck && npm run check:export-consumers && npm run check:canonical-persistence-drift && npm run test:direct -- --runInBand tests/architecture && npm run docs:verify",
     "validate:ui-smoke": "npm run web:test:operator-smoke",
     "validate:ui": "npm run web:typecheck && npm run web:test && npm run web:test:operator-smoke",
     "validate:release": "npm run typecheck && npm run build && npm test && npm run test:e2e && npm run web:test:operator-smoke && npm run docs:verify",

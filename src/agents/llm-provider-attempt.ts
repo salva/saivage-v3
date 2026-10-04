@@ -17,7 +17,7 @@ import { createProviderExchangeRecorder } from './provider-exchange-recorder.js'
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import {
   consumeProviderRequest,
-  ProviderInactivityTimeoutError,
+  readBodyTextBestEffort,
 } from './llm-request-inactivity.js';
 
 export async function executeLlmProviderAttempt(args: {
@@ -70,16 +70,7 @@ export async function executeLlmProviderAttempt(args: {
       options.signal,
       async (response, consumption) => {
         if (!response.ok) {
-          const bodyText = await consumption.readText(response).catch((error: unknown) => {
-            if (
-              error instanceof ProviderInactivityTimeoutError ||
-              (consumption.signal.aborted &&
-                (error === consumption.signal.reason ||
-                  (error instanceof Error && error.name === 'AbortError')))
-            )
-              throw error;
-            return '';
-          });
+          const bodyText = await readBodyTextBestEffort(consumption, response);
           throw plan.adapter.classifyHttpFailure(
             plan.candidate,
             response,

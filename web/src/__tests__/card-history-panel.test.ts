@@ -23,12 +23,30 @@ describe('CardHistoryPanel', () => {
   it('renders loading then empty state', async () => { let resolveHistory: (value: CardHistoryListResponse) => void = () => {}; vi.mocked(listCardHistory).mockReturnValue(new Promise((resolve) => { resolveHistory = resolve; })); const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await Promise.resolve(); expect(wrapper.text()).toContain('Loading card history…'); resolveHistory({ card_id: CARD, versions: [], total: 0 }); await flushPromises(); expect(wrapper.text()).toContain('No tracked card history'); });
   it('renders unauthorized and detail failures', async () => { vi.mocked(listCardHistory).mockRejectedValue(new OperatorApiError('cards.history.list', 401, { error: 'Unauthorized', statusCode: 401 })); const unauthorized = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await flushPromises(); expect(unauthorized.text()).toContain('Unauthorized'); unauthorized.unmount(); success(); vi.mocked(getCardHistoryEntry).mockRejectedValue(new Error('History detail failed')); const failed = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await flushPromises(); expect(failed.text()).toContain('History detail failed'); });
   it('redacts arbitrary secret-bearing diff values while snapshot remains canonical', async () => { success(); vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 2, to: { kind: 'current', version_seq: 3, history_version: 2 }, diff: [{ field: 'config_blob', before: 'Bearer very-secret-token', after: 'sk-updated-secret' }, { field: 'safe_field', before: 'before', after: 'after' }] }); const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await flushPromises(); expect(wrapper.text()).toContain('[redacted]'); expect(wrapper.text()).not.toContain('very-secret-token'); expect(wrapper.text()).not.toContain('sk-updated-secret'); });
-  it('shows an explicit sparse gap locally without substituting the first entry', async () => {
+  it('renders an exact server success omitted from the loaded catalog', async () => {
     success();
+    vi.mocked(listCardHistory).mockResolvedValue({ card_id: CARD, versions: [{ ...header, entry_id: '22222222-2222-4222-8222-222222222222', version: 1 }], total: 1 });
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD, initialVersion: 2 }, global: { plugins: [pinia] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Snapshot version');
+    expect(wrapper.text()).toContain('Diff vs current card');
+    expect(wrapper.text()).toContain('before');
+    expect(getCardHistoryEntry).toHaveBeenCalledExactlyOnceWith(CARD, 2, expect.any(AbortSignal));
+    expect(getCardDiff).toHaveBeenCalledExactlyOnceWith({ cardId: CARD, fromSeq: 2, to: 'current' }, expect.any(AbortSignal));
+    expect(useCardStore().cardHistorySelectedVersion).toBe(2);
+  });
+  it('renders server not-found for an exact sparse selection without substituting the first entry', async () => {
+    success();
+    useCardStore().selectedCardId = CARD;
+    const missing = { error: 'historical_version_not_found' as const, resource: 'card' as const, owner_id: CARD, version: 3 };
+    vi.mocked(getCardHistoryEntry).mockRejectedValue(new OperatorApiError('cards.history.get', 404, missing));
+    vi.mocked(getCardDiff).mockRejectedValue(new OperatorApiError('cards.diff', 404, missing));
     const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD, initialVersion: 3 }, global: { plugins: [pinia] } });
     await flushPromises();
-    expect(wrapper.text()).toContain('Historical version 3 not found');
-    expect(getCardHistoryEntry).not.toHaveBeenCalled();
-    expect(getCardDiff).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('historical_version_not_found');
+    expect(getCardHistoryEntry).toHaveBeenCalledExactlyOnceWith(CARD, 3, expect.any(AbortSignal));
+    expect(getCardDiff).toHaveBeenCalledExactlyOnceWith({ cardId: CARD, fromSeq: 3, to: 'current' }, expect.any(AbortSignal));
+    expect(useCardStore().cardHistorySelectedVersion).toBe(3);
+    expect(useCardStore().selectedDetail?.card.title).toBe('after');
   });
 });

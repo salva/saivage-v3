@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from '@jest/globals';
 
-import { appendConversationBatch, initializeMissingConversation, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, initializeMissingConversation, isConversationCatalogEstablished, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { consumeGrowingFile } from '../../src/persistence/growing-file.js';
 import { cardConversationVersionFile, cardConversationVersionIndexFile, globalAgentConversationRoot } from '../../src/persistence/layout.js';
 import { agentMessageSchema, type AgentMessage } from '../../src/schemas/index.js';
@@ -16,6 +16,38 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it('freshly establishes only the exact catalog, including empty indexes, without consuming indexed content', () => {
+    const projectRoot = root();
+    const index = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const empty = readFileSync(index);
+    expect(isConversationCatalogEstablished(projectRoot, SESSION)).toBe(true);
+    unlinkSync(index);
+    expect(isConversationCatalogEstablished(projectRoot, SESSION)).toBe(false);
+    writeFileSync(index, empty);
+    expect(isConversationCatalogEstablished(projectRoot, SESSION)).toBe(true);
+    appendConversationBatch({ projectRoot }, [text('first')]);
+    const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
+    unlinkSync(cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename));
+    expect(isConversationCatalogEstablished(projectRoot, SESSION)).toBe(true);
+    expect(() => readConversation(projectRoot, SESSION)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+  });
+
+  it.each(['malformed', 'identity', 'not-directory'] as const)('propagates strict %s catalog failure without changing bytes', (fault) => {
+    const projectRoot = root();
+    const index = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    if (fault === 'not-directory') {
+      const target = globalAgentConversationRoot(projectRoot, 'oversight');
+      writeFileSync(target, 'not a directory');
+      expect(() => isConversationCatalogEstablished(projectRoot, 'agent:oversight:global')).toThrow(expect.objectContaining({ code: 'ENOTDIR' }));
+      expect(readFileSync(target, 'utf8')).toBe('not a directory');
+      return;
+    }
+    writeFileSync(index, fault === 'malformed' ? '{invalid' : JSON.stringify({ ...JSON.parse(readFileSync(index, 'utf8')), session_id: 'agent:executor:project' }));
+    const before = readFileSync(index);
+    expect(() => isConversationCatalogEstablished(projectRoot, SESSION)).toThrow();
+    expect(readFileSync(index)).toEqual(before);
+  });
+
   it.each([undefined, 123, null, 'A'.repeat(64), 'a'.repeat(63)])('rejects persisted invalid producer %p at exact consumption without rewriting complete bytes', (producer) => {
     const projectRoot = root();
     const marker = { ...text('activation'), role: 'system' as const, kind: 'activity' as const, context_policy: { kind: 'structural' as const, behavior: 'activation_boundary' as const }, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-08-11T00:00:00.000Z' }) };

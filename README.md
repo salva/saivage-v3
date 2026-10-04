@@ -184,7 +184,7 @@ Routine validation does not run these build checks.
 | Profile | Runs | Use for |
 | --- | --- | --- |
 | `npm run validate:docs` | `docs:verify` (docs build + all drift guards); excludes `npm test` and `web:test:operator-smoke` | Documentation-only changes |
-| `npm run validate:routine` | typecheck, `check:export-consumers`, canonical-persistence drift, `docs:verify` | Routine backend/runtime changes (no Jest or lint) |
+| `npm run validate:routine` | typecheck, `check:export-consumers`, canonical-persistence drift, architecture Jest, `docs:verify` | Routine backend/runtime changes (not complete backend Jest or lint) |
 | `npm run validate:ui-smoke` | `npm run web:test:operator-smoke` | Quick UI/operator smoke |
 | `npm run validate:ui` | web typecheck, complete `web:test`, operator browser smoke | Web UI changes |
 | `npm run validate:release` | typecheck, build, non-E2E Jest, backend E2E, operator smoke, docs | Release sign-off |
@@ -199,7 +199,7 @@ exceptional suite, and `npm run test:e2e` for the backend E2E tier.
 Export or backend boundary refactors require the focused semantic export test
 (`npm run test:direct -- --runInBand --runTestsByPath tests/scripts/export-consumers.test.js`),
 `npm run check:export-consumers`, `npm run test:import-boundaries`, and the full
-`npm test` parallel-plus-serial run. `validate:routine` alone does not run Jest
+`npm test` parallel-plus-serial run. `validate:routine` runs only architecture Jest
 and is not sufficient validation for these refactors. Shared-root export changes
 also require `node scripts/check-web-browser-imports.cjs`,
 `npm --prefix web run build`, and focused root-consuming browser tests; Node
@@ -219,7 +219,7 @@ and does not rewrite files. Shipped model-facing prompt bytes, including whitesp
 are edited deliberately; packaging parity, source/package byte comparison, and
 compiled composition checks remain in build. The existing CI `lint-guards` job enforces this
 profile through `validation-required` under its applies/skipped semantics;
-`validate:routine` does not run lint or Jest.
+`validate:routine` runs architecture Jest, not lint or the complete backend suite.
 
 CI notes: the always-run `routine-docs` job clean-installs both root and web
 dependencies before `validate:routine` and `validate:docs`; `backend-jest-build`
