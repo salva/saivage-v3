@@ -72,6 +72,25 @@ patch, truncate, append to, normalize, rewrite, merge or selectively replace ret
 generated roots, streams, files or rows. Cover the complete four-root boundary or
 the explicitly authorized complete replacement workspace.
 
+Derive candidate directories explicitly from the intended release's bootstrap and
+layout owners and the candidate's exact linked card identities and configured
+participants, not solely from copied regular files and their ancestors. Reproduce
+the [established conversation and card-owner directories](../../../docs/spec/system-specification.md#established-conversation-and-card-owner-directories)
+in this new separate complete candidate: an existing conversation index requires
+its session root and `versions/` even with no segments, and a card's fixed layout
+includes its initially empty `mailbox/`. Required Analyst/card sessions and already
+established Oversight follow that contract; never-established Oversight and other
+lazy paths remain distinct. The four-root boundary is replacement scope, not a
+requirement to precreate every root or possible descendant.
+
+Candidate review must account for these exact derived directory paths as well as
+canonical file contents. Current validators and startup/readiness alone do not
+certify absent empty publication parents; see [Storage and interruption](../../../docs/runbook/index.md#storage-and-interruption).
+This bounded external construction check stays under all preceding authorization,
+owner-exclusion and backup gates. Do not copy or inventory old directory trees,
+search siblings, preserve or adopt unlinked namespaces, or author a reusable layout
+reconstructor. It grants no product preflight or installation repair authority.
+
 Preserve configuration, credentials, identity, operator inputs, source and docs
 outside that boundary unless an exact separate change is authorized. Do not invent
 producer-account provenance, tool results/effects, prompt protection, acceptance,
@@ -134,7 +153,8 @@ chat/logs. Leave blocked work stopped; do not substitute reset or binary downgra
 
 ## Related authority
 
-- The canonical runbook governs ordinary deployment, lifecycle and reset procedures.
+- The [canonical runbook](../../../docs/runbook/index.md) governs ordinary deployment,
+  lifecycle and reset procedures.
 - `saivage-project-reset` is a separately authorized destructive reset, not fallback
   permission supplied by this exception.
 - `saivage-lxc-operations` supplies lifecycle procedures, not operational authority.
