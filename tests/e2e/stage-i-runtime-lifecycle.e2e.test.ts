@@ -191,7 +191,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     cards.setStatus(leaf.id, 'running');
     appendOpenMatchedRound(projectRoot, leaf.id);
     if (existingNotice) {
-      expect(stabilizeAgentSession({ sessionId: `agent:executor:${leaf.id}`, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
+      stabilizeAgentSession({ sessionId: `agent:executor:${leaf.id}`, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     }
     appendInvalidRootPlannerContinuation(projectRoot);
     const stop = jest.spyOn(cards, 'stopRunning');

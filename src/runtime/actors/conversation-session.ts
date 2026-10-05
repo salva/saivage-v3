@@ -145,7 +145,6 @@ export function appendRecoveryNotice(
   conversations: ConversationFileContext,
   sessionId: CardConversationSessionId,
   inputId: string,
-  _disposition: 'ordinary_interruption',
 ): AgentMessage {
   const message = agentMessageSchema.parse({
     id: `${inputId}:model-recovered`,

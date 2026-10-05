@@ -7,6 +7,7 @@ import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-rec
 import {
   appendConversationBatch,
   isConversationCatalogEstablished,
+  readConversation,
   readCurrentConversationSegment,
 } from '../../src/persistence/conversation-file.js';
 import {
@@ -28,7 +29,7 @@ function fixture() {
 }
 const session = 'agent:planner:project' as const;
 function stabilize(root: string) {
-  return stabilizeAgentSession({
+  stabilizeAgentSession({
     sessionId: session,
     conversations: { projectRoot: root },
     terminalToolNames: new Set(['emit_result']),
@@ -36,7 +37,11 @@ function stabilize(root: string) {
 }
 it('keeps valid empty required catalogs clean and lazy Oversight genuinely absent', () => {
   const root = fixture();
-  expect(stabilize(root)).toEqual({ disposition: 'clean', messages: [] });
+  const index = cardConversationVersionIndexFile(root, 'project', 'planner');
+  const before = readFileSync(index);
+  stabilize(root);
+  expect(readConversation(root, session).physicalRows).toEqual([]);
+  expect(readFileSync(index)).toEqual(before);
   expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).not.toThrow();
   expect(isConversationCatalogEstablished(root, 'agent:oversight:global')).toBe(false);
 });

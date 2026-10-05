@@ -80,15 +80,11 @@ function recoveryVisibility(kind: MessageKind): RecoveryVisibility {
   return recoveryVisibilityByKind[kind];
 }
 
-type AgentSessionStabilization =
-  | { disposition: 'clean'; messages: readonly AgentMessage[] }
-  | { disposition: 'ordinary_interruption'; messages: readonly AgentMessage[] };
-
 export function stabilizeAgentSession(args: {
   sessionId: CardConversationSessionId;
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
-}): AgentSessionStabilization {
+}): void {
   const conversation = readConversation(args.conversations.projectRoot, args.sessionId);
   const messages = conversation.physicalRows;
   const sourceRows = conversation.sourceRows;
@@ -102,7 +98,7 @@ export function stabilizeAgentSession(args: {
     );
     if (state !== 'empty' && state !== 'settled_terminal')
       throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
-    return { disposition: 'clean', messages };
+    return;
   }
   const latestActivationIndex =
     latestRound.rows.length === 0
@@ -138,11 +134,11 @@ export function stabilizeAgentSession(args: {
         `Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`,
       );
     validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
-    return { disposition: 'clean', messages };
+    return;
   }
   if (coveredRefusal) {
     validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
-    return { disposition: 'clean', messages };
+    return;
   }
   const exactFinalRecovery =
     final !== null && isExactRecoveryNotice(final, args.sessionId, marker.inputId);
@@ -155,11 +151,11 @@ export function stabilizeAgentSession(args: {
     if (recoveryRows.length !== 1)
       throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
     validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
-    return { disposition: 'clean', messages };
+    return;
   }
   if (coveredRecovery) {
     validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
-    return { disposition: 'clean', messages };
+    return;
   }
   const state = classifyConversation(
     activationRows,
@@ -168,17 +164,13 @@ export function stabilizeAgentSession(args: {
   );
   if (state === 'settled_terminal') {
     validateCallSettlementPairs(conversation, activationPhysicalIndex, false);
-    return { disposition: 'clean', messages };
+    return;
   }
   const unmatched = validateCallSettlementPairs(conversation, activationPhysicalIndex, true);
   if (unmatched) {
     appendUncertainPriorToolResult(args.conversations, args.sessionId, unmatched, 'recovery');
   }
-  appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');
-  return {
-    disposition: 'ordinary_interruption',
-    messages: readConversation(args.conversations.projectRoot, args.sessionId).physicalRows,
-  };
+  appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId);
 }
 
 function activationMarker(

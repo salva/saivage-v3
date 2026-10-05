@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { cardConversationVersionFile, cardConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
 import { type AgentMessage, type ConversationSessionId, MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY as TEXT_ROW_POLICY_FIXTURE, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
@@ -10,9 +11,19 @@ import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/conte
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
 
 const roots: string[] = [];
 const source = '11111111-1111-4111-8111-111111111111';
+const expectedNotice = {
+  id: `${source}:model-recovered`,
+  role: 'system',
+  kind: 'model_recovered',
+  content: MODEL_RECOVERY_NOTICE_TEXT,
+  round_id: deterministicRoundId('pre', source),
+  message_index: 0,
+  block_index: 1,
+};
 
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
@@ -28,14 +39,15 @@ describe('stable same-session recovery', () => {
       { ...base, context_policy: toolRowPolicies({ content: '' }).call, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
     ];
     appendConversationBatch({ projectRoot }, rows);
-    const result = stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
-    expect(result.disposition).toBe('ordinary_interruption');
+    stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
     expect(recovered).toHaveLength(rows.length + 2);
     const settlement = recovered.at(-2)!;
     expect(settlement.id).toBe(`${source}:tool-result:call-1`);
     expect(settlement).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-1' });
     expect(JSON.parse(settlement.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
+    expect(recovered.slice(0, rows.length)).toEqual(rows);
+    expect(recovered.at(-1)).toMatchObject({ ...expectedNotice, session_id: sessionId });
   });
 
   it('adds only one recovery notice after a matched nonterminal tool result and is read-only on repetition', () => {
@@ -52,13 +64,23 @@ describe('stable same-session recovery', () => {
       { ...base, context_policy: toolRowPolicies({ content: resultContent }).result, id: `${source}:tool-result:list-1`, role: 'tool', kind: 'tool_result', content: resultContent, tool: 'list_cards', tool_call_id: 'list-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
-    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
+    const original = readConversation(projectRoot, sessionId).physicalRows;
+    stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
+    expect(recovered).toHaveLength(original.length + 1);
+    expect(recovered.slice(0, original.length)).toEqual(original);
     expect(recovered.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
     expect(recovered.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
-    expect(recovered.at(-1)).toMatchObject({ kind: 'model_recovered', content: MODEL_RECOVERY_NOTICE_TEXT });
+    expect(recovered.at(-1)).toMatchObject({ ...expectedNotice, session_id: sessionId });
 
-    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('clean');
+    const segment = readCurrentConversationSegment(projectRoot, sessionId)!;
+    const segmentPath = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
+    const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const segmentBefore = readFileSync(segmentPath);
+    const indexBefore = readFileSync(indexPath);
+    stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    expect(readFileSync(segmentPath)).toEqual(segmentBefore);
+    expect(readFileSync(indexPath)).toEqual(indexBefore);
     expect(readConversation(projectRoot, sessionId).physicalRows).toEqual(recovered);
   });
 
@@ -76,7 +98,15 @@ describe('stable same-session recovery', () => {
       { ...base, context_policy: toolRowPolicies({ content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }) }).result, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
-    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
+    const original = readConversation(projectRoot, sessionId).physicalRows;
+    stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    const recovered = readConversation(projectRoot, sessionId).physicalRows;
+    expect(recovered).toHaveLength(original.length + 1);
+    expect(recovered.slice(0, original.length)).toEqual(original);
+    expect(recovered.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
+    expect(JSON.parse(recovered.at(-2)!.content)).toEqual({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } });
+    expect(recovered.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
+    expect(recovered.at(-1)).toMatchObject({ ...expectedNotice, session_id: sessionId });
   });
 
   it('projects the synthetic failed settlement and recovery notice through Generic, Chat, Codex, and Responses', () => {
@@ -143,7 +173,9 @@ describe('stable same-session recovery', () => {
     const activation: AgentMessage = { context_policy: ACTIVITY_ROW_POLICY, session_id: sessionId, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp }), round_id: 'r-pre-dddddddddddddddddddddddddddddddd', message_index: 0, block_index: 0, timestamp };
     const marker = buildContentPolicyRefusalMessage({ sessionId, sourceInputId: source, candidate: { provider: 'test', account: null, model: 'model' }, providerResponse: 'raw' });
     appendConversationBatch({ projectRoot }, [activation, marker]);
-    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) })).toMatchObject({ disposition: 'clean' });
+    const before = readConversation(projectRoot, sessionId).physicalRows;
+    stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    expect(readConversation(projectRoot, sessionId).physicalRows).toEqual(before);
     expect(readConversation(projectRoot, sessionId).sourceRows.at(-1)?.kind).toBe('content_policy_refusal');
     const after = { ...marker, context_policy: TEXT_ROW_POLICY_FIXTURE, id: 'after-marker', kind: 'text' as const, role: 'user' as const, content: 'invalid suffix' };
     appendConversationBatch({ projectRoot }, [after]);
