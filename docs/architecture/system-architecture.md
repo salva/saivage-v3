@@ -1199,6 +1199,7 @@ The separate public Agent-summary vocabulary is exactly `activity: busy | idle`,
 Credential ownership follows the selected provider contract.
 Public OpenAI Responses resolves the configured provider API key; the separate `openai-codex-backend` resolves an OpenAI Codex OAuth auth profile.
 The Registry and transport credential resolver do not treat those sources as aliases.
+The selected-candidate credential resolver returns only the URL, optional access credential, and optional derived Codex account identity; profile names remain internal to selection and refresh, with no provenance diagnostics.
 
 Candidate availability is one process-local map that resets on process restart.
 Provider completion checks the exact invocation signal before changing it.

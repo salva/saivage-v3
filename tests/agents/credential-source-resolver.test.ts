@@ -1,7 +1,8 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import type { AuthProfile, AuthProfilesFile } from '../../src/auth/auth-profile-file.js';
 import { CredentialSourceResolver } from '../../src/agents/credential-source-resolver.js';
 import { Provider } from '../../src/agents/provider.js';
+import { LlmRequestError } from '../../src/contracts/index.js';
 
 const ACCOUNT_KEY_SECRET = 'synthetic-account-api-key-SECRET';
 const PROVIDER_KEY_SECRET = 'synthetic-provider-api-key-SECRET';
@@ -9,6 +10,7 @@ const ACCOUNT_PROFILE_TOKEN_SECRET = 'synthetic-account-profile-access-token-SEC
 const PROVIDER_PROFILE_TOKEN_SECRET = 'synthetic-provider-profile-access-token-SECRET';
 const ALIAS_PROFILE_TOKEN_SECRET = 'synthetic-alias-profile-access-token-SECRET';
 const REFRESH_TOKEN_SECRET = 'synthetic-refresh-token-SECRET';
+const MALFORMED_CODEX_TOKEN_SECRET = 'synthetic-malformed-codex-token-SECRET';
 
 function provider(entry: ConstructorParameters<typeof Provider>[1], name = 'test-provider'): Provider {
   return new Provider(name, { models: ['test-model'], ...entry });
@@ -56,9 +58,27 @@ function expectNoSecrets(value: unknown): void {
     PROVIDER_PROFILE_TOKEN_SECRET,
     ALIAS_PROFILE_TOKEN_SECRET,
     REFRESH_TOKEN_SECRET,
+    MALFORMED_CODEX_TOKEN_SECRET,
   ]) {
     expect(serialized).not.toContain(secret);
   }
+}
+
+async function expectLocalSetupError(
+  result: Promise<unknown>,
+  expected: { provider: string; account: string; reason: string; message: string },
+): Promise<void> {
+  try {
+    await result;
+  } catch (error) {
+    expect(error).toBeInstanceOf(LlmRequestError);
+    if (!(error instanceof LlmRequestError)) throw error;
+    expect(error.failure).toStrictEqual({ kind: 'local_setup_error', ...expected });
+    expect(error.message).toBe(expected.message);
+    expectNoSecrets({ message: error.message, failure: error.failure });
+    return;
+  }
+  throw new Error('Expected local setup failure');
 }
 
 describe('CredentialSourceResolver', () => {
@@ -80,7 +100,7 @@ describe('CredentialSourceResolver', () => {
 
     const withOpenAiDefault = provider({}, 'unknown-provider');
     const resolved = await resolver().resolve(withOpenAiDefault, accountFor(withOpenAiDefault));
-    expect(resolved.baseUrl).toBe('https://api.openai.com');
+    expect(resolved).toStrictEqual({ baseUrl: 'https://api.openai.com', apiKey: undefined });
   });
 
   it('honors explicit auth profiles before inline key fallback', async () => {
@@ -120,7 +140,10 @@ describe('CredentialSourceResolver', () => {
     expect(providerProfile.apiKey).toBe(PROVIDER_PROFILE_TOKEN_SECRET);
 
     const inlineOnly = provider({ apiKey: PROVIDER_KEY_SECRET, accounts: { primary: { apiKey: ACCOUNT_KEY_SECRET } } });
-    expect((await resolver(profiles).resolve(inlineOnly, accountFor(inlineOnly, 'primary'))).apiKey).toBe(ACCOUNT_KEY_SECRET);
+    expect(await resolver(profiles).resolve(inlineOnly, accountFor(inlineOnly, 'primary')))
+      .toStrictEqual({ baseUrl: 'https://api.openai.com', apiKey: ACCOUNT_KEY_SECRET });
+    expect(await resolver(profiles).resolve(inlineOnly, accountFor(inlineOnly)))
+      .toStrictEqual({ baseUrl: 'https://api.openai.com', apiKey: PROVIDER_KEY_SECRET });
   });
 
   it('resolves explicit authProfile before alias fallback and rejects missing explicit profiles', async () => {
@@ -136,9 +159,20 @@ describe('CredentialSourceResolver', () => {
     const explicit = await resolver(profiles).resolve(explicitProvider, accountFor(explicitProvider));
     expect(explicit.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
 
-    const missingProvider = provider({ authProfile: 'missing-profile' }, 'openai-chat');
-    await expect(resolver(profiles).resolve(missingProvider, accountFor(missingProvider)))
-      .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_auth_profile' } });
+    const missingProvider = provider({
+      authProfile: 'missing-profile',
+      apiKey: PROVIDER_KEY_SECRET,
+      accounts: { primary: { apiKey: ACCOUNT_KEY_SECRET } },
+    }, 'openai-chat');
+    await expectLocalSetupError(
+      resolver(profiles).resolve(missingProvider, accountFor(missingProvider, 'primary')),
+      {
+        provider: 'openai-chat',
+        account: 'primary',
+        reason: 'missing_auth_profile',
+        message: "Configured auth profile 'missing-profile' was not found for provider 'openai-chat'.",
+      },
+    );
   });
 
   it('uses only same-provider implicit auth profiles and returns none when absent', async () => {
@@ -148,7 +182,11 @@ describe('CredentialSourceResolver', () => {
     };
     const p = provider({}, 'openai-codex');
     const resolved = await resolver(profiles).resolve(p, accountFor(p));
-    expect(resolved.openAICodexAccountId).toBe('acct_alias');
+    expect(resolved).toStrictEqual({
+      baseUrl: 'https://chatgpt.com/backend-api',
+      apiKey: profiles.profiles.alias.accessToken,
+      openAICodexAccountId: 'acct_alias',
+    });
 
     await expect(resolver(null).resolve(p, accountFor(p)))
       .rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_required_credential' } });
@@ -176,5 +214,107 @@ describe('CredentialSourceResolver', () => {
     expect(resolved.apiKey).toBe(ACCOUNT_KEY_SECRET);
     expect('cacheKey' in resolved).toBe(false);
     expectNoSecrets({ resolvedShape: Object.keys(resolved) });
+  });
+
+  it.each(['copilot', 'openai-codex'])('preserves a matched %s profile with an undefined token', async (providerName) => {
+    const matchedProfile = profile(
+      providerName === 'copilot' ? 'github-copilot' : providerName,
+      ALIAS_PROFILE_TOKEN_SECRET,
+    );
+    const loadAuthProfiles = jest.fn(async (): Promise<AuthProfilesFile> => ({
+      version: 1,
+      profiles: { matched: matchedProfile },
+    }));
+    const usableProfileAccessToken = jest.fn(async (
+      _name: string, _profile: AuthProfile, _signal?: AbortSignal,
+    ): Promise<string | undefined> => undefined);
+    const subject = new CredentialSourceResolver({ loadAuthProfiles, usableProfileAccessToken });
+    const p = provider({}, providerName);
+    const signal = new AbortController().signal;
+    const result = subject.resolve(p, accountFor(p), signal);
+
+    if (providerName === 'openai-codex') {
+      await expectLocalSetupError(result, {
+        provider: providerName,
+        account: '_implicit',
+        reason: 'missing_required_credential',
+        message: `Provider '${providerName}' requires a resolved credential before provider I/O.`,
+      });
+    } else {
+      expect(await result).toStrictEqual({ baseUrl: 'https://api.openai.com', apiKey: undefined });
+    }
+    expect(loadAuthProfiles).toHaveBeenCalledTimes(1);
+    expect(usableProfileAccessToken).toHaveBeenCalledTimes(1);
+    expect(usableProfileAccessToken).toHaveBeenCalledWith('matched', matchedProfile, signal);
+    expect(usableProfileAccessToken.mock.calls[0][1]).toBe(matchedProfile);
+    expect(usableProfileAccessToken.mock.calls[0][2]).toBe(signal);
+  });
+
+  it('rejects ambiguous aliases without requesting a token', async () => {
+    const usableProfileAccessToken = jest.fn(async (_name: string, p: AuthProfile) => p.accessToken);
+    const subject = new CredentialSourceResolver({
+      loadAuthProfiles: async () => ({
+        version: 1,
+        profiles: {
+          beta: profile('copilot', ACCOUNT_PROFILE_TOKEN_SECRET),
+          alpha: profile('github-copilot', ALIAS_PROFILE_TOKEN_SECRET),
+        },
+      }),
+      usableProfileAccessToken,
+    });
+    const p = provider({}, 'github-copilot');
+    await expectLocalSetupError(subject.resolve(p, accountFor(p)), {
+      provider: p.name,
+      account: '_implicit',
+      reason: 'ambiguous_auth_profile',
+      message: "Ambiguous auth profile match for provider 'github-copilot'. Configure account.authProfile or provider.authProfile explicitly.",
+    });
+    expect(usableProfileAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty explicit account profile without falling through to other credentials', async () => {
+    const p = provider({
+      authProfile: 'providerProfile',
+      apiKey: PROVIDER_KEY_SECRET,
+      accounts: { primary: { authProfile: 'empty', apiKey: ACCOUNT_KEY_SECRET } },
+    });
+    await expectLocalSetupError(resolver({
+      version: 1,
+      profiles: {
+        empty: profile(p.name, ''),
+        providerProfile: profile(p.name, PROVIDER_PROFILE_TOKEN_SECRET),
+      },
+    }).resolve(p, accountFor(p, 'primary')), {
+      provider: p.name,
+      account: 'primary',
+      reason: 'invalid_auth_profile',
+      message: "Configured auth profile 'empty' for provider 'test-provider' has no usable access token.",
+    });
+  });
+
+  it('translates auth-profile store failures without exposing their secret-bearing cause', async () => {
+    const usableProfileAccessToken = jest.fn(async (_name: string, p: AuthProfile) => p.accessToken);
+    const subject = new CredentialSourceResolver({
+      loadAuthProfiles: async () => { throw new Error(REFRESH_TOKEN_SECRET); },
+      usableProfileAccessToken,
+    });
+    const p = provider({ authProfile: 'explicit', apiKey: PROVIDER_KEY_SECRET });
+    await expectLocalSetupError(subject.resolve(p, accountFor(p)), {
+      provider: p.name,
+      account: '_implicit',
+      reason: 'auth_profile_store_error',
+      message: "Auth-profile store could not be loaded for provider 'test-provider' profile 'explicit'.",
+    });
+    expect(usableProfileAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed Codex token with a secret-free typed failure', async () => {
+    const p = provider({ apiKey: MALFORMED_CODEX_TOKEN_SECRET }, 'openai-codex');
+    await expectLocalSetupError(resolver().resolve(p, accountFor(p)), {
+      provider: p.name,
+      account: '_implicit',
+      reason: 'invalid_required_credential',
+      message: "Provider 'openai-codex' has an unusable credential for required local setup.",
+    });
   });
 });

@@ -19,20 +19,6 @@ const PROVIDER_AUTH_PROFILE_ALIASES: Record<string, string[]> = {
   openai: ['openai'],
 };
 
-type BaseUrlSource =
-  | 'account-base-url'
-  | 'provider-base-url'
-  | 'provider-default'
-  | 'openai-default';
-
-type CredentialSource =
-  | 'account-api-key'
-  | 'provider-api-key'
-  | 'explicit-account-auth-profile'
-  | 'explicit-provider-auth-profile'
-  | 'provider-alias-auth-profile'
-  | 'none';
-
 interface ResolvedCredentialSources {
   baseUrl: string;
   apiKey?: string;
@@ -51,7 +37,6 @@ interface CredentialSourceResolverOptions {
 interface ProfileCredentialResult {
   apiKey?: string;
   profileName?: string;
-  aliasProvider?: string;
 }
 
 /**
@@ -84,10 +69,10 @@ export class CredentialSourceResolver {
     account: Account,
     abortSignal?: AbortSignal,
   ): Promise<ResolvedCredentialSources> {
-    const { baseUrl } = this.resolveBaseUrl(provider, account);
-    const credential = await this.resolveCredential(provider, account, abortSignal);
+    const baseUrl = this.resolveBaseUrl(provider, account);
+    const apiKey = await this.resolveCredential(provider, account, abortSignal);
     if (provider.name === 'openai-codex') {
-      if (!credential.apiKey)
+      if (!apiKey)
         throw localSetupFailure({
           provider: provider.name,
           account: account.name,
@@ -96,71 +81,49 @@ export class CredentialSourceResolver {
         });
       return {
         baseUrl,
-        apiKey: credential.apiKey,
-        openAICodexAccountId: deriveOpenAICodexAccountId(
-          credential.apiKey,
-          provider.name,
-          account.name,
-        ),
+        apiKey,
+        openAICodexAccountId: deriveOpenAICodexAccountId(apiKey, provider.name, account.name),
       };
     }
-    return { baseUrl, apiKey: credential.apiKey };
+    return { baseUrl, apiKey };
   }
 
-  private resolveBaseUrl(
-    provider: Provider,
-    account: Account,
-  ): { baseUrl: string; source: BaseUrlSource } {
+  private resolveBaseUrl(provider: Provider, account: Account): string {
     if (isExplicitAccount(account) && account.baseUrl) {
-      return { baseUrl: account.baseUrl, source: 'account-base-url' };
+      return account.baseUrl;
     }
-    if (provider.baseUrl) return { baseUrl: provider.baseUrl, source: 'provider-base-url' };
+    if (provider.baseUrl) return provider.baseUrl;
     const providerDefault = PROVIDER_DEFAULT_BASE_URLS[provider.name];
-    if (providerDefault) return { baseUrl: providerDefault, source: 'provider-default' };
-    return { baseUrl: DEFAULT_OPENAI_BASE_URL, source: 'openai-default' };
+    if (providerDefault) return providerDefault;
+    return DEFAULT_OPENAI_BASE_URL;
   }
 
   private async resolveCredential(
     provider: Provider,
     account: Account,
     abortSignal?: AbortSignal,
-  ): Promise<{
-    source: CredentialSource;
-    apiKey?: string;
-    profileName?: string;
-    aliasProvider?: string;
-  }> {
+  ): Promise<string | undefined> {
     if (isExplicitAccount(account) && account.authProfile) {
-      const profile = await this.resolveExplicitProfile(
+      return this.resolveExplicitProfile(
         provider.name,
         account.name,
         account.authProfile,
         abortSignal,
       );
-      return {
-        source: 'explicit-account-auth-profile',
-        apiKey: profile.apiKey,
-        profileName: profile.profileName,
-      };
     }
     if (provider.authProfile) {
-      const profile = await this.resolveExplicitProfile(
+      return this.resolveExplicitProfile(
         provider.name,
         account.name,
         provider.authProfile,
         abortSignal,
       );
-      return {
-        source: 'explicit-provider-auth-profile',
-        apiKey: profile.apiKey,
-        profileName: profile.profileName,
-      };
     }
 
     if (isExplicitAccount(account) && account.apiKey) {
-      return { source: 'account-api-key', apiKey: account.apiKey };
+      return account.apiKey;
     }
-    if (provider.apiKey) return { source: 'provider-api-key', apiKey: provider.apiKey };
+    if (provider.apiKey) return provider.apiKey;
 
     const profile = await this.resolveImplicitAliasProfile(
       provider.name,
@@ -175,14 +138,9 @@ export class CredentialSourceResolver {
           reason: 'missing_required_credential',
           message: `Provider '${provider.name}' requires a resolved credential before provider I/O.`,
         });
-      return { source: 'none' };
+      return undefined;
     }
-    return {
-      source: 'provider-alias-auth-profile',
-      apiKey: profile.apiKey,
-      profileName: profile.profileName,
-      aliasProvider: profile.aliasProvider,
-    };
+    return profile.apiKey;
   }
 
   private async resolveExplicitProfile(
@@ -190,7 +148,7 @@ export class CredentialSourceResolver {
     accountName: string,
     profileName: string,
     abortSignal?: AbortSignal,
-  ): Promise<ProfileCredentialResult> {
+  ): Promise<string> {
     const file = await this.loadAuthProfileStore(providerName, accountName, profileName);
     const profile = file?.profiles[profileName];
     if (!profile)
@@ -208,11 +166,7 @@ export class CredentialSourceResolver {
         reason: 'invalid_auth_profile',
         message: `Configured auth profile '${profileName}' for provider '${providerName}' has no usable access token.`,
       });
-    return {
-      profileName,
-      aliasProvider: profile.provider,
-      apiKey,
-    };
+    return apiKey;
   }
 
   private async resolveImplicitAliasProfile(
@@ -241,7 +195,6 @@ export class CredentialSourceResolver {
     const match = matches[0];
     return {
       profileName: match.profileName,
-      aliasProvider: match.profile.provider,
       apiKey: await this.usableProfileAccessToken(match.profileName, match.profile, abortSignal),
     };
   }
