@@ -364,6 +364,7 @@ it.each(['current', 'previous'] as const)(
         'planner',
         selected.entry.filename,
       );
+      const selectedBytes = readFileSync(path);
       appendFileSync(path, 'torn suffix');
       const index = cardConversationVersionIndexFile(f.root, 'project', 'planner');
       if (mode === 'previous') {
@@ -376,7 +377,7 @@ it.each(['current', 'previous'] as const)(
       unchanged(bytes);
       const repaired = await repair(f, `conversation:${SESSION}`);
       expect(repaired.code).toBe(0);
-      expect(readFileSync(path)).toEqual(selected.bytes);
+      expect(readFileSync(path)).toEqual(selectedBytes);
       const report = readFileSync(repaired.report, 'utf8');
       expect(report).toContain('Truncate only');
       if (mode === 'previous')
@@ -405,19 +406,20 @@ it('spawned indexed rollback preserves predecessor, refuses torn historical qual
     const { before, after } = await compactFixture(f.root);
     const older = cardConversationVersionFile(f.root, 'project', 'planner', before.entry.filename);
     const newest = cardConversationVersionFile(f.root, 'project', 'planner', after.entry.filename);
+    const beforeBytes = readFileSync(older);
     writeFileSync(newest, 'complete malformed\n');
     appendFileSync(older, 'historical torn');
     const index = cardConversationVersionIndexFile(f.root, 'project', 'planner');
     const damaged = snapshot([older, newest, index]);
     expect((await repair(f, `conversation:${SESSION}`)).code).not.toBe(0);
     unchanged(damaged);
-    writeFileSync(older, before.bytes);
+    writeFileSync(older, beforeBytes);
     const result = await repair(f, `conversation:${SESSION}`);
     expect(result.code).toBe(0);
     expect(readCurrentConversationSegment(f.root, SESSION)!.entry.entry_id).toBe(
       before.entry.entry_id,
     );
-    expect(readFileSync(older)).toEqual(before.bytes);
+    expect(readFileSync(older)).toEqual(beforeBytes);
     expect(readFileSync(result.report, 'utf8')).toContain('Unknown potentially days-long');
     expect(existsSync(newest)).toBe(false);
     await ready(f.root, () => calls);

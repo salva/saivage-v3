@@ -116,13 +116,12 @@ describe('Stage-I versioned compaction', () => {
         if (current.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis.');
         expect(current.entry.version).toBe(publication + 1);
         expect(current.index.versions).toHaveLength(publication + 1);
-        expect(current.genesis.compaction.coverageCommitment.coveredThroughMessageId).toBe(cutoffId);
+        expect(current.genesis.source.covered_through_message_id).toBe(cutoffId);
         expect(current.rows.map(({ id }) => id)).toEqual(expectedTail.map(({ id }) => id));
         expect(Buffer.from(canonicalJson(current.rows))).toEqual(Buffer.from(canonicalJson(expectedTail)));
         expect(current.genesis.continuation).toEqual({ kind: 'inherited_open_round', activation: { marker_id: 'activation-1', input_id: '00000000-0000-4000-8000-000000000001' }, active_segment_kind: 'initial' });
         validateCompactedHistorySuccessor({
           source, sourceVersion: before.entry.version,
-          sourceGenesis: source.effectiveCompactedHistory === null ? null : { ...source.compactedGenesis!, history: source.effectiveCompactedHistory, sourceVersion: source.effectiveCompactedHistory.coverageCommitment.sourceVersion },
           successor: current.genesis.compaction, coveredRows: source.sourceRows.slice(0, cutoff),
         });
         const request = requests[publication - 1]!;
@@ -132,7 +131,7 @@ describe('Stage-I versioned compaction', () => {
         const projected = providerConversationProjection(current.conversation, []).messages;
         expect(projected.filter((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary')).toHaveLength(1);
         expect(readConversation(root, SESSION)).toEqual(current.conversation);
-        if (publication === 2) expect(current.genesis.compaction.source).toMatchObject({ kind: 'prior_genesis_plus_current_rows', priorGenesisId: before.genesis.id });
+        if (publication === 2) expect(current.genesis.source).toMatchObject({ version: before.entry.version, filename: before.entry.filename });
         if (publication === 1) appendConversationBatch({ projectRoot: root }, [7, 8, 9].flatMap(exchange));
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -250,7 +249,7 @@ describe('Stage-I versioned compaction', () => {
       const current = readCurrentConversationSegment(root, SESSION)!;
       expect(current.entry.version).toBe(2);
       expect(current.rows).toEqual([]);
-      expect(current.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('message-7');
+      expect(current.entry.genesis).toMatchObject({ covered_through_message_id: 'message-7' });
       expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toHaveLength(14);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -294,7 +293,6 @@ describe('Stage-I versioned compaction', () => {
       expect(after.entry).toEqual(before.entry);
       expect(after.genesis).toEqual(before.genesis);
       expect(after.rows).toEqual(before.rows);
-      expect(after.bytes).toEqual(before.bytes);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -400,7 +398,7 @@ describe('Stage-I versioned compaction', () => {
       const preventiveProvider = summaryProvider({ root: preventiveRoot, registry, candidate: sol, records: preventiveRecords, setTransport: (next) => { queued = next; }, correctionOnFirstNormal: false });
       const preventiveResult = await compact({ strategy: 'preventive', conversations: { projectRoot: preventiveRoot }, input: inputFor(readConversation(preventiveRoot, SESSION)), summarizerProvider: preventiveProvider, signal: new AbortController().signal, progress: noCompactionProgress });
       expect(preventiveResult.kind).toBe('compacted');
-      expect(readCurrentConversationSegment(preventiveRoot, SESSION)!.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe(before.sourceRows[endpoints[0]! - 1]!.id);
+      expect(readCurrentConversationSegment(preventiveRoot, SESSION)!.entry.genesis).toMatchObject({ covered_through_message_id: before.sourceRows[endpoints[0]! - 1]!.id });
       expect(preventiveRecords.every(({ correction }) => !correction)).toBe(true);
 
       const wires: SummaryWireRecord[] = [];
@@ -429,14 +427,16 @@ describe('Stage-I versioned compaction', () => {
       verifyExactSourceCoverage(normalWires.slice(0, firstAdditionalCall).flatMap(({ ranges }) => ranges), preferredComponents);
       expect(inheritedSummary(normalWires[firstAdditionalCall]!.input)).toBe(normalWires[firstAdditionalCall - 1]!.returnedSummary);
       const current = readCurrentConversationSegment(root, SESSION)!;
-      expect(current.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe(fixture.lastSettledResultId);
+      expect(current.entry.genesis).toMatchObject({ covered_through_message_id: fixture.lastSettledResultId });
       expect(current.conversation.effectiveCompactedHistory!.summaryText.length).toBeGreaterThan(15_000);
       expect(current.genesis.kind).toBe('compacted_segment_genesis');
       if (current.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis.');
       expect(current.genesis.continuation.kind).toBe('inherited_open_round');
       expect(composedProjectionBytes(result.kind === 'compacted' ? result.providerConversation : input.providerConversation)).toBeLessThan(rejectedProjectionBytes);
-      const sampleAtomicGroup = current.conversation.effectiveCompactedHistory!.source.groups.find((group) => group.message_ids.includes(fixture.sampleAtomicIds[1]!));
-      expect(sampleAtomicGroup?.message_ids).toEqual(fixture.sampleAtomicIds);
+      expect(current.rows.some(row => fixture.sampleAtomicIds.includes(row.id))).toBe(false);
+      const cutoffId = current.genesis.source.covered_through_message_id;
+      const coveredCount = before.sourceRows.findIndex(row => row.id === cutoffId) + 1;
+      validateCompactedHistorySuccessor({ source: before, sourceVersion: current.genesis.source.version, successor: current.genesis.compaction, coveredRows: before.sourceRows.slice(0, coveredCount) });
       expect(transportSends).toHaveLength(1 + preventiveRecords.length + wires.length);
       expect(transportSends.every(({ body, expectedBody, expectedHash }) => body === expectedBody && createHash('sha256').update(body, 'utf8').digest('hex') === expectedHash)).toBe(true);
       console.info('FULL_WINDOW_ACCEPTANCE', JSON.stringify({
@@ -491,7 +491,7 @@ function appendProcessSettlement(root: string, ordinal: number, callId: string, 
 function invocationFor(sessionId: ConversationSessionId, messages: readonly ProviderConversationItem[]): PreparedLlmInvocationInput { const agentName = conversationSessionIdentity(sessionId).agentName; const preparedCompaction = prepareCompaction(config, 'system', [], 8_000, 2_000); return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [...messages] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [TEST_CANDIDATE] }, episodeContext: {} }; }
 
 type ExpectedSourceComponent = Readonly<{ source: string; content: string; sourceRowIndex: number }>;
-type CapturedRange = Readonly<{ source: string; start: number; end: number; totalBytes: number; hash: string; content: string }>;
+type CapturedRange = Readonly<{ source: string; start: number; end: number; totalBytes: number; content: string }>;
 type SummaryWireRecord = Readonly<{
   input: Parameters<SummarizerProviderPort['completeTurn']>[0];
   body: string;
@@ -657,9 +657,9 @@ function summaryRanges(input: Parameters<SummarizerProviderPort['completeTurn']>
   return input.providerConversation.messages.flatMap((message) => {
     const wrapper = /^\[order \d+\/\d+\] (\[kind=new_source [^\n]+\])\n([\s\S]*)$/u.exec(message.content);
     if (!wrapper) return [];
-    const label = /source=(\S+) .*range=(\d+):(\d+) total_bytes=(\d+) source_sha256=([0-9a-f]{64})/u.exec(wrapper[1]!);
+    const label = /source=(\S+) .*range=(\d+):(\d+) total_bytes=(\d+) omitted_source_bytes=0/u.exec(wrapper[1]!);
     if (!label) throw new Error(`Invalid source range label: ${wrapper[1]}`);
-    return [{ source: label[1]!, start: Number(label[2]), end: Number(label[3]), totalBytes: Number(label[4]), hash: label[5]!, content: wrapper[2]! }];
+    return [{ source: label[1]!, start: Number(label[2]), end: Number(label[3]), totalBytes: Number(label[4]), content: wrapper[2]! }];
   });
 }
 
@@ -672,7 +672,7 @@ function verifyExactSourceCoverage(ranges: readonly CapturedRange[], expected: r
     expect(parts.at(-1)!.end).toBe(Buffer.byteLength(component.content, 'utf8'));
     expect(parts.every((part, index) => index === 0 || part.start === parts[index - 1]!.end)).toBe(true);
     expect(parts.every((part) => Buffer.byteLength(part.content, 'utf8') === part.end - part.start)).toBe(true);
-    expect(parts.every((part) => part.totalBytes === Buffer.byteLength(component.content, 'utf8') && part.hash === createHash('sha256').update(component.content, 'utf8').digest('hex'))).toBe(true);
+    expect(parts.every((part) => part.totalBytes === Buffer.byteLength(component.content, 'utf8'))).toBe(true);
     expect(parts.map(({ content }) => content).join('')).toBe(component.content);
   }
 }

@@ -2,12 +2,8 @@ export { canonicalJson } from './canonical-json.js';
 export { uuidV4Schema } from './uuid.js';
 export {
   compactedHistorySchema,
-  coveredSourceGroupsSha256,
-  foldDispositionCommitment,
   requiredModelFactSlotsSchema,
   type CompactedHistory,
-  type CoveredDisposition,
-  type CoveredSourceGroup,
   type ProtectedPrompt,
   type RequiredModelFactSlots,
 } from './context-compaction.js';
@@ -16,7 +12,6 @@ export {
   durablePrimaryContentPolicy,
   MODEL_RECOVERY_NOTICE_TEXT,
   STRUCTURAL_ROW_POLICY,
-  sha256HexSchema,
   type ContextAudience,
   type ContextEvidence,
   type ContextReplacement,

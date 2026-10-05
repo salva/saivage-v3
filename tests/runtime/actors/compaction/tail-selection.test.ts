@@ -88,17 +88,13 @@ function assertPublished(root: string, source: ValidatedConversation, cutoffId: 
   const segment = readCurrentConversationSegment(root, SESSION)!;
   if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis.');
   const history = segment.genesis.compaction;
-  expect(history.coverageCommitment.coveredThroughMessageId).toBe(cutoffId);
+  expect(segment.genesis.source.covered_through_message_id).toBe(cutoffId);
   expect(segment.rows.map(row => row.id)).toEqual(tail.map(row => row.id));
   expect(Buffer.from(canonicalJson(segment.rows))).toEqual(Buffer.from(canonicalJson(tail)));
   expect(readConversation(root, SESSION)).toEqual(segment.conversation);
   const cutoff = source.sourceRows.findIndex(row => row.id === cutoffId) + 1;
   validateCompactedHistorySuccessor({
     source, sourceVersion: segment.genesis.source.version,
-    sourceGenesis: source.effectiveCompactedHistory === null ? null : {
-      ...source.compactedGenesis!, history: source.effectiveCompactedHistory,
-      sourceVersion: source.effectiveCompactedHistory.coverageCommitment.sourceVersion,
-    },
     successor: history, coveredRows: source.sourceRows.slice(0, cutoff),
   });
   return segment;
@@ -226,7 +222,7 @@ describe('last agent-round tail selection through real publication', () => {
     assertTextSources(second.calls, [recent, older]);
     if (segment.genesis.kind !== 'compacted_segment_genesis' || firstSegment.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected genesis.');
     expect(segment.genesis.continuation).toEqual({ kind: 'inherited_open_round', activation: { marker_id: 'activation-1', input_id: INPUT }, active_segment_kind: 'repair' });
-    expect(segment.genesis.compaction.source).toMatchObject({ kind: 'prior_genesis_plus_current_rows', priorGenesisId: firstSegment.genesis.id });
+    expect(segment.genesis.source).toMatchObject({ version: firstSegment.entry.version, filename: firstSegment.entry.filename });
     expect(second.calls).toHaveLength(1);
     expect(second.calls[0]!.contents.join('')).toContain('INHERITED-SUMMARY');
     expect(second.calls[0]!.contents.join('')).not.toContain('old:');
@@ -246,7 +242,7 @@ describe('last agent-round tail selection through real publication', () => {
     const completed = await run(root, 1_000, 'compact_straddler', 'local_exact_admission');
     expect(completed.result).toMatchObject({ kind: 'no_smaller_projection', smallestCandidateEstimatedProviderMessageTokens: null });
     expect(completed.calls).toEqual([]);
-    expect(readCurrentConversationSegment(root, SESSION)!.bytes).toEqual(before.bytes);
+    expect(readCurrentConversationSegment(root, SESSION)).toEqual(before);
     expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
   });
 });

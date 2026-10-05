@@ -151,9 +151,13 @@ tombstone, the accepted record versions and current draft); conversations and
 logs are append-only JSONL streams with strict envelopes; generated work
 artifacts live in plain directories. There is no database, no migration, and
 no compatibility reader. When a durable format changes incompatibly, the
-cutover is **reset-only**: stop, rewrite configuration, reset generated state
-(preserving configuration, credentials, operator inputs, source, and docs),
-and start the current binary. See
+cutover is **reset-only**: stop the exact service, positively verify owner/process
+absence, obtain explicit irreversible-loss consent, retain a successful full
+stopped-project backup, then reset all four generated roots with the matching
+current binary (preserving configuration, credentials, identity, operator inputs,
+source, and docs) and start that build. Current conversation format 4 removes
+compaction checksums, not semantic prefix/continuation validation. Source completion
+authorizes no instance action; binary-only rollback is unsupported. See
 [Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)
 and the [global startup and invalid-history procedures](runbook/index.md#configured-global-startup-settlement-and-invalid-history).
 
@@ -191,7 +195,8 @@ and the [global startup and invalid-history procedures](runbook/index.md#configu
   before anything is sent.
 - **Compaction** — summarizing covered conversation history into a new
   immutable segment (with a replaced cumulative index) when a session
-  approaches its model window; only validated coverage omits rows.
+  approaches its model window; only successful compaction over a validated atomic
+  source prefix omits rows.
 - **Outcome-unknown** — a durable publication whose result cannot be known
   after a failure or interruption. It is never inspected, retried, or
   compensated; the process fails at the fatal boundary instead, and strict

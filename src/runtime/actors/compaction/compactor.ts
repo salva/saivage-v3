@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { ConversationContinuation } from '../../../persistence/index.js';
-import { canonicalValueSha256, sha256Hex } from '../../../schemas/index.js';
 import {
   publishCompactedConversationSegment,
   readCurrentConversationSegment,
@@ -10,14 +9,11 @@ import {
 } from '../../../persistence/session-api.js';
 import {
   compactedHistorySchema,
-  coveredSourceGroupsSha256,
-  foldDispositionCommitment,
   type AgentMessage,
   type CompactedHistory,
 } from '../../../schemas/index.js';
 import {
   deriveRequiredModelFacts,
-  selectAtomicCoveredSourceGroups,
   selectConversationProtection,
   validateCompactedHistorySuccessor,
   validateConversation,
@@ -251,17 +247,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const conversation = segment.conversation;
   assertFreshCompactionProjection(args.input, conversation);
   const sourceRows = conversation.sourceRows;
-  const sourceGenesis: CompactedGenesisSeed | null =
-    segment.genesis.kind === 'compacted_segment_genesis'
-      ? {
-          id: segment.genesis.id,
-          timestamp: segment.genesis.timestamp,
-          history: segment.genesis.compaction,
-          sourceVersion: segment.genesis.source.version,
-        }
-      : null;
   const sourceVersion = segment.entry.version;
-  const inheritedHistory = sourceGenesis?.history ?? null;
+  const inheritedHistory = conversation.effectiveCompactedHistory;
   const operationProtection = selectConversationProtection({
     inherited: inheritedHistory?.protectedPrompts ?? [],
     rows: sourceRows,
@@ -304,15 +291,12 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     const coveredRows = sourceRows.slice(0, cutoffCount);
     const successor = buildSuccessorHistory({
       conversation,
-      sessionId,
       sourceVersion,
-      sourceGenesis,
       coveredRows,
       summaryText,
     });
     validateCompactedHistorySuccessor({
       source: conversation,
-      sourceGenesis,
       sourceVersion,
       successor,
       coveredRows,
@@ -701,48 +685,21 @@ function composedProviderConversationBytes(projection: ProviderConversationProje
 
 function buildSuccessorHistory(args: {
   conversation: ValidatedConversation;
-  sessionId: string;
   sourceVersion: number;
-  sourceGenesis: CompactedGenesisSeed | null;
   coveredRows: readonly AgentMessage[];
   summaryText: string;
 }): CompactedHistory {
   const protection = selectConversationProtection({
-    inherited: args.sourceGenesis?.history.protectedPrompts ?? [],
+    inherited: args.conversation.effectiveCompactedHistory?.protectedPrompts ?? [],
     rows: args.conversation.sourceRows,
     sourceVersion: args.sourceVersion,
     cutoffCount: args.coveredRows.length,
   });
-  const selection = selectAtomicCoveredSourceGroups(
-    args.conversation,
-    args.coveredRows,
-    protection.protectedCoveredIds,
-  );
   return compactedHistorySchema.parse({
     summaryText: args.summaryText,
     protectedPrompts: protection.protectedPrompts,
-    source: args.sourceGenesis
-      ? {
-          kind: 'prior_genesis_plus_current_rows',
-          priorGenesisId: args.sourceGenesis.id,
-          priorHistoryHash: canonicalValueSha256(args.sourceGenesis.history),
-          groups: selection.groups,
-        }
-      : { kind: 'current_rows', groups: selection.groups },
-    dispositionCommitment: foldDispositionCommitment(
-      args.sourceGenesis?.history.dispositionCommitment ?? null,
-      selection.dispositions,
-    ),
-    coverageCommitment: {
-      sourceSessionId: args.sessionId,
-      sourceVersion: args.sourceVersion,
-      coveredThroughMessageId: args.coveredRows.at(-1)!.id,
-      coveredSourceGroupsSha256: coveredSourceGroupsSha256(selection.groups),
-      accumulatedSummarySha256: sha256Hex(args.summaryText),
-      protectedPromptsSha256: canonicalValueSha256(protection.protectedPrompts),
-    },
     requiredModelFacts: deriveRequiredModelFacts({
-      inherited: args.sourceGenesis?.history.requiredModelFacts ?? {
+      inherited: args.conversation.effectiveCompactedHistory?.requiredModelFacts ?? {
         latestRecovery: null,
         latestContentPolicyRefusal: null,
       },

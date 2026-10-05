@@ -1,4 +1,3 @@
-import { sha256Hex } from '../../../schemas/index.js';
 import { Buffer } from 'node:buffer';
 
 import {
@@ -56,7 +55,6 @@ type RefineSourceComponent = Readonly<{
 type PreparedRefineSourceComponent = Readonly<
   RefineSourceComponent & {
     totalBytes: number;
-    sourceSha256: string;
   }
 >;
 
@@ -535,7 +533,7 @@ function isCorrectableOutput(error: unknown): boolean {
 
 function rangeItem(part: Range): SummaryRequestItem {
   return {
-    label: `[kind=new_source source=${part.component.identity} source_kind=${part.component.kind} range=${part.startByte}:${part.endByte} total_bytes=${part.component.totalBytes} source_sha256=${part.component.sourceSha256} omitted_source_bytes=0]`,
+    label: `[kind=new_source source=${part.component.identity} source_kind=${part.component.kind} range=${part.startByte}:${part.endByte} total_bytes=${part.component.totalBytes} omitted_source_bytes=0]`,
     role: part.component.role,
     content: part.component.content.slice(part.startUtf16, part.endUtf16),
   };
@@ -545,7 +543,6 @@ function prepareComponent(component: RefineSourceComponent): PreparedRefineSourc
   return {
     ...component,
     totalBytes: Buffer.byteLength(component.content, 'utf8'),
-    sourceSha256: sha256Hex(component.content),
   };
 }
 

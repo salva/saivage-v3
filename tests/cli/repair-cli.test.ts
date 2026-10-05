@@ -312,12 +312,13 @@ it('tail-only consent reports then truncates without replacing the selector', as
   );
   const indexPath = cardConversationVersionIndexFile(f.root, 'project', 'planner');
   const index = fs.readFileSync(indexPath);
+  const segmentBytes = fs.readFileSync(path);
   fs.appendFileSync(path, 'torn');
   question.mockImplementation(async (text) =>
     text.includes('BACKUP COMPLETE') ? `BACKUP COMPLETE ${target}` : `REPAIR ${target}`,
   );
   await run(f.args(target));
-  expect(fs.readFileSync(path)).toEqual(segment.bytes);
+  expect(fs.readFileSync(path)).toEqual(segmentBytes);
   expect(fs.readFileSync(indexPath)).toEqual(index);
   expect(fs.readFileSync(f.report, 'utf8')).toContain('discard 4 unterminated suffix bytes');
 });

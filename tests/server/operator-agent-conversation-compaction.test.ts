@@ -70,6 +70,9 @@ describe('mounted operator compacted Agent conversations', () => {
       });
       expect(currentResponse.statusCode).toBe(200);
       const current = AgentConversationResponseSchema.parse(currentResponse.json());
+      for (const field of ['source_kind', 'prior_genesis_id', 'prior_history_hash', 'covered_group_count', 'dispositions', 'coverage']) {
+        expect(AgentConversationResponseSchema.safeParse({ ...current, segment_context: { ...current.segment_context, [field]: null } }).success).toBe(false);
+      }
       expect(Object.keys(current).sort()).toEqual([
         'cursor',
         'entries',
@@ -173,44 +176,13 @@ function assertCompactedContext(
   if (context === null) throw new Error('Expected compacted segment context.');
   expect(Object.keys(context).sort()).toEqual([
     'continuation',
-    'coverage',
-    'covered_group_count',
     'covered_through_message_id',
-    'dispositions',
     'kind',
-    'prior_genesis_id',
-    'prior_history_hash',
     'protected_prompts',
     'required_model_facts',
-    'source_kind',
     'source_version',
     'summary_text',
   ]);
-  expect(Object.keys(context.dispositions).sort()).toEqual([
-    'count',
-    'evidence_only',
-    'protected',
-    'sha256',
-    'summarized',
-    'superseded',
-  ]);
-  expect(context.dispositions).not.toHaveProperty('evidenceOnly');
-  expect(Object.keys(context.coverage).sort()).toEqual([
-    'accumulated_summary_sha256',
-    'covered_source_groups_sha256',
-    'covered_through_message_id',
-    'protected_prompts_sha256',
-    'source_session_id',
-    'source_version',
-  ]);
-  for (const domainKey of [
-    'accumulatedSummarySha256',
-    'coveredSourceGroupsSha256',
-    'coveredThroughMessageId',
-    'protectedPromptsSha256',
-    'sourceSessionId',
-    'sourceVersion',
-  ]) expect(context.coverage).not.toHaveProperty(domainKey);
   for (const entry of context.protected_prompts) {
     expect(entry.message.content).toContain('[REDACTED]');
     if (entry.message.context_policy.kind !== 'content') throw new Error('Expected protected content policy.');
@@ -243,12 +215,8 @@ function assertCompactedContext(
   expect(context.continuation.activation).not.toHaveProperty('inputId');
   expect(context.continuation.activation).not.toHaveProperty('markerId');
   if (expectLaterGeneration) {
-    expect(context.source_kind).toBe('prior_genesis_plus_current_rows');
-    expect(context.prior_genesis_id).not.toBeNull();
-    expect(context.prior_history_hash).not.toBeNull();
+    expect(context.source_version).toBeGreaterThan(1);
   } else {
-    expect(context.source_kind).toBe('current_rows');
-    expect(context.prior_genesis_id).toBeNull();
-    expect(context.prior_history_hash).toBeNull();
+    expect(context.source_version).toBe(1);
   }
 }

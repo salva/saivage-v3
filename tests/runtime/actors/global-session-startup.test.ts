@@ -118,7 +118,7 @@ describe('configured global fresh-startup settlement', () => {
   it.each(['schema', 'semantic'] as const)('does not discard a suffix after complete %s-invalid global history', (fault) => {
     const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
-    const envelope = JSON.parse(segment.bytes.toString().trim());
+    const envelope = JSON.parse(readFileSync(path, 'utf8').trim());
     appendFileSync(path, fault === 'schema' ? '{"complete":"invalid"}\n' : `${JSON.stringify({ ...envelope, rows: envelope.rows.slice(1) })}\n`);
     appendFileSync(path, '{"broken":'); const before = readFileSync(path);
     expect(() => stabilize(root, SESSION)).toThrow();

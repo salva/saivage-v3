@@ -145,44 +145,13 @@ describe('global agent-session observation tools', () => {
     const segmentContext = contextData.context.items[0];
     expect(Object.keys(segmentContext).sort()).toEqual([
       'continuation',
-      'coverage',
-      'covered_group_count',
       'covered_through_message_id',
-      'dispositions',
       'kind',
-      'prior_genesis_id',
-      'prior_history_hash',
       'protected_prompts',
       'required_model_facts',
-      'source_kind',
       'source_version',
       'summary_text',
     ]);
-    expect(Object.keys(segmentContext.dispositions).sort()).toEqual([
-      'count',
-      'evidence_only',
-      'protected',
-      'sha256',
-      'summarized',
-      'superseded',
-    ]);
-    expect(segmentContext.dispositions).not.toHaveProperty('evidenceOnly');
-    expect(Object.keys(segmentContext.coverage).sort()).toEqual([
-      'accumulated_summary_sha256',
-      'covered_source_groups_sha256',
-      'covered_through_message_id',
-      'protected_prompts_sha256',
-      'source_session_id',
-      'source_version',
-    ]);
-    for (const domainKey of [
-      'accumulatedSummarySha256',
-      'coveredSourceGroupsSha256',
-      'coveredThroughMessageId',
-      'protectedPromptsSha256',
-      'sourceSessionId',
-      'sourceVersion',
-    ]) expect(segmentContext.coverage).not.toHaveProperty(domainKey);
     expect(segmentContext.protected_prompts).toHaveLength(1);
     expect(segmentContext.protected_prompts[0]).toMatchObject({
       source: { segment_version: 2, row_index: 2 },
@@ -209,9 +178,7 @@ describe('global agent-session observation tools', () => {
       'activationInputId',
       'markerId',
     ]);
-    expect(segmentContext.source_kind).toBe('prior_genesis_plus_current_rows');
-    expect(segmentContext.prior_genesis_id).not.toBeNull();
-    expect(segmentContext.prior_history_hash).not.toBeNull();
+    expect(segmentContext.source_version).toBe(2);
     expect(segmentContext.continuation.kind).toBe('inherited_open_round');
     if (segmentContext.continuation.kind !== 'inherited_open_round')
       throw new Error('Expected inherited open-round continuation.');

@@ -8,7 +8,6 @@ import {
   conversationSessionIdentity,
   positiveSafeIntegerSchema,
   requiredModelFactSlotsSchema,
-  sha256HexSchema,
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -118,10 +117,6 @@ const ConversationSegmentContextSchema = z
     source_version: positiveSafeIntegerSchema,
     covered_through_message_id: z.string().min(1),
     summary_text: z.string().min(1),
-    source_kind: z.enum(['current_rows', 'prior_genesis_plus_current_rows']),
-    prior_genesis_id: z.string().uuid().nullable(),
-    prior_history_hash: sha256HexSchema.nullable(),
-    covered_group_count: positiveSafeIntegerSchema,
     protected_prompts: z.array(
       z
         .object({
@@ -135,26 +130,6 @@ const ConversationSegmentContextSchema = z
         })
         .strict(),
     ),
-    dispositions: z
-      .object({
-        sha256: sha256HexSchema,
-        count: positiveSafeIntegerSchema,
-        summarized: z.number().int().safe().nonnegative(),
-        evidence_only: z.number().int().safe().nonnegative(),
-        superseded: z.number().int().safe().nonnegative(),
-        protected: z.number().int().safe().nonnegative(),
-      })
-      .strict(),
-    coverage: z
-      .object({
-        source_session_id: z.string().min(1),
-        source_version: positiveSafeIntegerSchema,
-        covered_through_message_id: z.string().min(1),
-        covered_source_groups_sha256: sha256HexSchema,
-        accumulated_summary_sha256: sha256HexSchema,
-        protected_prompts_sha256: sha256HexSchema,
-      })
-      .strict(),
     required_model_facts: requiredModelFactSlotsSchema,
     continuation: continuationSchema,
   })

@@ -166,11 +166,13 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   persistent flagging blocks the owning card safely instead of continuing or
   exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-  The conversation index/genesis/segment format is version 3 with strict
-  protected-prompt declarations and locale-independent canonical commitments.
-  Adoption from format 2 is a **reset-only, history-losing cutover** across all
-  four generated roots, not a same-format upgrade; source completion authorizes
-  neither deployment nor reset. See the
+  Conversation index/genesis/segment format **4** retains summary, protected
+  instructions, required model facts, and continuation without compaction
+  checksums or accumulated accounting. Adoption from earlier formats is a
+  **reset-only, history-losing cutover** across all four generated roots, requiring
+  a stopped service, verified owner absence, explicit loss consent, and a full
+  preserved stopped-project backup; source completion authorizes no instance
+  action or binary-only rollback. See the
   [storage and cutover rules](docs/runbook/index.md#storage-and-interruption)
   ([prompt contract](docs/architecture/prompts.md),
   [cutover procedure](docs/runbook/index.md#configuration-file-cutovers)).
@@ -178,7 +180,7 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   same local provider/account identity retains encrypted reasoning, other
   identities omit only encrypted reasoning before request admission. Adopting
   this payload also requires the authorized whole-generated-state reset, even
-  from outer format 3; matching outer versions alone is not compatibility.
+  with matching outer versions; those alone are not compatibility.
   Card/record format-1 heads and immutable predecessor documents are a separate
   reset-only adoption boundary; this source change does not authorize deployment
   over retained history, retained-history conversion, reconstruction, or reset.

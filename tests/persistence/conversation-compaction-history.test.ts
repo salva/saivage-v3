@@ -12,7 +12,6 @@ import { composeContextProjection, providerConversationFromComposedContext, type
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
-import { canonicalJson } from '../../src/schemas/index.js';
 import {
   contentPolicyRefusalProjectionText,
   MODEL_RECOVERY_NOTICE_TEXT,
@@ -194,7 +193,6 @@ describe('accumulated compaction history generations', () => {
       const first=readCurrentConversationSegment(root,SESSION)!;
       const firstHistory=first.conversation.effectiveCompactedHistory!;
       expect(firstHistory.protectedPrompts.map(({message})=>message.id)).toEqual(['instruction-old']);
-      expect(firstHistory.dispositionCommitment.protected).toBe(1);
       expect(first.rows.some(({id})=>id==='instruction-old')).toBe(false);
       const firstItems=firstCalls.flatMap(parseSummaryContents);
       expect(firstItems.filter(({label,body})=>label.includes('kind=protected_instruction')&&body===oldInstruction)).toHaveLength(firstCalls.length);
@@ -227,15 +225,11 @@ describe('accumulated compaction history generations', () => {
       expect(segment.genesis.kind).toBe('compacted_segment_genesis');
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('unreachable');
       const history = segment.genesis.compaction;
-      expect(history.source.kind).toBe('current_rows');
       expect(history.requiredModelFacts).toEqual({ latestRecovery: null, latestContentPolicyRefusal: null });
-      expect(history.dispositionCommitment.count).toBe(history.dispositionCommitment.summarized + history.dispositionCommitment.evidenceOnly + history.dispositionCommitment.superseded);
-      expect(history.dispositionCommitment.count).toBeGreaterThan(0);
-      expect(history.coverageCommitment.coveredThroughMessageId).toBe('activation-3');
+      if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis');
+      expect(segment.genesis.source.covered_through_message_id).toBe('activation-3');
       expect(segment.rows.map((row) => row.id)).toEqual(['t3']);
       expect(segment.conversation.effectiveCompactedHistory).toEqual(history);
-      expect(segment.conversation.effectiveValidatedCoverage).toEqual(history.coverageCommitment);
-      expect(history.source.groups.every((group) => group.message_ids.length >= 1 && group.content_sha256.length === 64)).toBe(true);
       const tail = segment.conversation.sourceRows.map((row) => row.id);
       expect(tail).toEqual(['t3']);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -389,7 +383,6 @@ describe('accumulated compaction history generations', () => {
       expect(first.kind).toBe('compacted');
       const gen1 = readCurrentConversationSegment(root, SESSION)!;
       const history1 = gen1.conversation.effectiveCompactedHistory!;
-      expect(history1.source.kind).toBe('current_rows');
       expect(history1.requiredModelFacts.latestRecovery).toEqual({ sourceMessageId: '00000000-0000-4000-8000-000000000001:model-recovered', activationInputId: '00000000-0000-4000-8000-000000000001' });
       expect(history1.requiredModelFacts.latestContentPolicyRefusal?.activationInputId).toBe('00000000-0000-4000-8000-000000000002');
       const refusal2 = history1.requiredModelFacts.latestContentPolicyRefusal!.markerId;
@@ -414,12 +407,10 @@ describe('accumulated compaction history generations', () => {
       expect(second.kind).toBe('compacted');
       const gen2 = readCurrentConversationSegment(root, SESSION)!;
       const history2 = gen2.conversation.effectiveCompactedHistory!;
-      if (history2.source.kind !== 'prior_genesis_plus_current_rows') throw new Error('second generation must name its prior genesis');
-      expect(history2.source.priorGenesisId).toBe((gen1.genesis as { id: string }).id);
-      expect(history2.source.priorHistoryHash.length).toBe(64);
+      if (gen2.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis');
+      expect(gen2.genesis.source.version).toBe(gen1.entry.version);
+      expect(gen2.genesis.source.filename).toBe(gen1.entry.filename);
       expect(history2.requiredModelFacts).toEqual(history1.requiredModelFacts);
-      expect(history2.dispositionCommitment.evidenceOnly).toBeGreaterThanOrEqual(1);
-      expect(history2.dispositionCommitment.count).toBeGreaterThan(history1.dispositionCommitment.count);
       const mergeInputs2 = refineCalls(generationCalls[1]!);
       expect(mergeInputs2.length).toBeGreaterThan(0);
       expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(history1.summaryText)))).toBe(true);
@@ -474,7 +465,7 @@ describe('accumulated compaction history generations', () => {
       const mergeInputs2 = refineCalls(calls2);
       const supersededRefusalBody = `An earlier activation 00000000-0000-4000-8000-000000000001 ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(SESSION, marker1)}`;
       const supersededRefusalBytes = Buffer.byteLength(supersededRefusalBody, 'utf8');
-      const supersededRefusalLabel = `[kind=new_source source=${marker1} source_kind=superseded_refusal_notice range=0:${supersededRefusalBytes} total_bytes=${supersededRefusalBytes} source_sha256=${createHash('sha256').update(supersededRefusalBody, 'utf8').digest('hex')} omitted_source_bytes=0]`;
+      const supersededRefusalLabel = `[kind=new_source source=${marker1} source_kind=superseded_refusal_notice range=0:${supersededRefusalBytes} total_bytes=${supersededRefusalBytes} omitted_source_bytes=0]`;
       const supersededRefusalInputs = mergeInputs2
         .flatMap(parseSummaryContents)
         .filter(({ label }) => label === supersededRefusalLabel);
@@ -519,10 +510,8 @@ describe('accumulated compaction history generations', () => {
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('unreachable');
       expect(segment.rows).toEqual([]);
       expect(segment.genesis.continuation.kind).toBe('inherited_open_round');
-      expect(segment.genesis.retained_rows.row_count).toBe(0);
-      expect(segment.genesis.retained_rows.first_message_id).toBeNull();
       expect(segment.conversation.rounds[0]).toMatchObject({ state: 'open', activation: { source: 'compacted_genesis' } });
-      expect(segment.conversation.effectiveValidatedCoverage).not.toBeNull();
+      expect(segment.conversation.effectiveCompactedHistory!.summaryText).not.toBe('');
       const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(openRoundBody))).toBe(false);
       expect(projected.some((row) => row.content === `Historical summary:\n${segment.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
@@ -572,11 +561,6 @@ describe('accumulated compaction history generations', () => {
         active_segment_kind: 'initial',
       });
       expect(predecessor.rows).toEqual([]);
-      expect(predecessorGenesis.retained_rows).toMatchObject({
-        row_count: 0,
-        first_message_id: null,
-        last_message_id: null,
-      });
       const inheritedSummary = predecessor.conversation.effectiveCompactedHistory!.summaryText;
       expect(inheritedSummary).not.toBe('');
       expect(inheritedSummary).not.toBe(EMPTY_COVERAGE_SUMMARY);
@@ -718,17 +702,9 @@ describe('accumulated compaction history generations', () => {
       if (successorGenesis.kind !== 'compacted_segment_genesis') throw new Error('repeat fixture successor must be compacted');
       expect(successor.entry.version).toBe(predecessor.entry.version + 1);
       expect(successorGenesis.source.version).toBe(predecessor.entry.version);
-      expect(successorGenesis.compaction.source).toMatchObject({
-        kind: 'prior_genesis_plus_current_rows',
-        priorGenesisId: predecessorGenesis.id,
-        priorHistoryHash: createHash('sha256').update(canonicalJson(predecessorGenesis.compaction), 'utf8').digest('hex'),
-      });
-      expect(successorGenesis.compaction.coverageCommitment.coveredThroughMessageId).toBe(bundle[1]!.id);
-      expect(conversation.sourceRows.findIndex((row) => row.id === successorGenesis.compaction.coverageCommitment.coveredThroughMessageId) + 1).toBeGreaterThan(1);
-      expect(successorGenesis.compaction.source.groups.map((group) => group.message_ids)).toEqual([
-        [started.id],
-        bundle.map((row) => row.id),
-      ]);
+      expect(successorGenesis.source.filename).toBe(predecessor.entry.filename);
+      expect(successorGenesis.source.covered_through_message_id).toBe(bundle[1]!.id);
+      expect(conversation.sourceRows.slice(0, conversation.sourceRows.findIndex((row) => row.id === successorGenesis.source.covered_through_message_id) + 1).map(row => row.id)).toEqual([started.id, ...bundle.map(row => row.id)]);
       expect(successorGenesis.compaction.summaryText).not.toContain(EMPTY_COVERAGE_SUMMARY);
       expect(successor.rows).toEqual([]);
       expect(result.providerConversation).toEqual(providerConversationProjection(successor.conversation, []));

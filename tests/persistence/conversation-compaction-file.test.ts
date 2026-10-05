@@ -30,13 +30,14 @@ describe('conversation compaction file persistence', () => {
     try {
       for(let ordinal=1;ordinal<=7;ordinal++)appendConversationBatch({projectRoot:root},round(ordinal));
       const original=readCurrentConversationSegment(root,SESSION)!;
+      const originalBytes = readFileSync(cardConversationVersionFile(root, 'project', 'planner', original.entry.filename));
       const result=await compact({strategy:'preventive',conversations:{projectRoot:root},input:invocation(providerConversationProjection(original.conversation,[]).messages),summarizerProvider:{candidate:CANDIDATE,contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest:deterministicSummarySerialization,completeTurn:async()=>({result:{kind:'message' as const,content:'summary'},provider_exchanges:[]}),projectProviderExchanges:jest.fn()},signal:new AbortController().signal,progress:noCompactionProgress});
       expect(result.kind).toBe('compacted'); const newest=readCurrentConversationSegment(root,SESSION)!;
       const path=cardConversationVersionFile(root,'project','planner',newest.entry.filename); writeFileSync(path,'{complete malformed}\n');
       const decision=inspectRepairTarget(root,TEST_WORKFLOWS,{kind:'conversation',sessionId:SESSION});
       expect(decision.summary.join('\n')).toContain('potentially days-long'); expect(decision.steps.map(step=>step.description)).toEqual([expect.stringContaining('immediate wholly valid'),expect.stringContaining('Move exact corrupt')]);
       decision.recheck(); for(const step of decision.steps)step.apply(); decision.validate();
-      expect(readCurrentConversationSegment(root,SESSION)!.bytes).toEqual(original.bytes); expect(readConversationCatalog(root,SESSION).currentVersion).toBe(1);
+      expect(readCurrentConversationSegment(root,SESSION)!.rows).toEqual(original.rows); expect(readFileSync(cardConversationVersionFile(root, 'project', 'planner', original.entry.filename))).toEqual(originalBytes); expect(readConversationCatalog(root,SESSION).currentVersion).toBe(1);
     } finally {rmSync(root,{recursive:true,force:true});}
   });
   it('compacts a covered private bundle while preserving the exact mixed A/B retained tail and visible-only summary source', async () => {
@@ -71,6 +72,7 @@ describe('conversation compaction file persistence', () => {
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendConversationBatch({ projectRoot: root }, round(ordinal));
       const current = readCurrentConversationSegment(root, SESSION)!;
+      const currentBytes = readFileSync(cardConversationVersionFile(root, 'project', 'planner', current.entry.filename));
       const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(providerConversationProjection(current.conversation, []).messages), summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal, progress: noCompactionProgress });
       expect(result.kind).toBe('compacted');
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1, 2]);
@@ -86,20 +88,23 @@ describe('conversation compaction file persistence', () => {
       // Previous-index restoration may report restore-then-truncate of its selected current body.
       const previous = inspectConversationIndex(root, SESSION, readFileSync(conversationPreviousIndexFile(indexPath)));
       const candidate = inspectConversationSegment(root, SESSION, previous)!;
-      expect(candidate.retainedLength).toBe(current.bytes.length);
+      expect(candidate.retainedLength).toBe(currentBytes.length);
+      expect(candidate.bytes).toEqual(immutable);
+      expect(candidate.projection).not.toHaveProperty('bytes');
       expect(candidate.tornSuffixLength).toBe(Buffer.byteLength('torn immutable suffix'));
       expect(candidate.projection.entry.version).toBe(1);
       expect(readFileSync(predecessorPath)).toEqual(immutable);
       expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow(); expect(readFileSync(predecessorPath)).toEqual(immutable);
       const successor = readCurrentConversationSegment(root, SESSION)!;
       const successorPath = cardConversationVersionFile(root, 'project', 'planner', successor.entry.filename);
+      const successorBytes = readFileSync(successorPath);
       appendFileSync(successorPath, 'torn current suffix');
-      expect(readHistoricalConversationSegment(root, SESSION, 2).bytes).toEqual(successor.bytes); expect(readFileSync(successorPath)).toEqual(successor.bytes);
-      const envelopes = successor.bytes.toString().trimEnd().split('\n').map((line) => JSON.parse(line));
-      envelopes[0].rows[0].source.sha256 = '0'.repeat(64);
+      expect(readHistoricalConversationSegment(root, SESSION, 2).rows).toEqual(successor.rows); expect(readFileSync(successorPath)).toEqual(successorBytes);
+      const envelopes = successorBytes.toString().trimEnd().split('\n').map((line) => JSON.parse(line));
+      envelopes[0].rows[0].source.covered_through_message_id = 'wrong-cutoff';
       const invalid = Buffer.from(`${envelopes.map((envelope) => JSON.stringify(envelope)).join('\n')}\nsuffix`); writeFileSync(successorPath, invalid);
-      expect(() => inspectConversationSegment(root, SESSION, index)).toThrow(/commitment/);
-      expect(() => readCurrentConversationSegment(root, SESSION)).toThrow(/commitment/); expect(readFileSync(successorPath)).toEqual(invalid);
+      expect(() => inspectConversationSegment(root, SESSION, index)).toThrow(/metadata/);
+      expect(() => readCurrentConversationSegment(root, SESSION)).toThrow(/metadata/); expect(readFileSync(successorPath)).toEqual(invalid);
       // A corrupt current segment never qualifies an also-torn historical predecessor.
       expect(() => inspectRepairTarget(root,TEST_WORKFLOWS,{kind:'conversation',sessionId:SESSION})).toThrow(/incomplete/);
       expect(readFileSync(predecessorPath)).toEqual(immutable);
@@ -109,7 +114,7 @@ describe('conversation compaction file persistence', () => {
       expect(restoration.steps.map(step=>step.description)).toEqual([expect.stringContaining('Move exact corrupt'),expect.stringContaining('Fresh-publish'),expect.stringContaining('Truncate only')]);
       expect(readFileSync(predecessorPath)).toEqual(immutable); expect(readFileSync(indexPath,'utf8')).toBe('broken index');
       restoration.recheck(); for(const step of restoration.steps)step.apply(); restoration.validate();
-      expect(readCurrentConversationSegment(root,SESSION)!.entry.version).toBe(1); expect(readFileSync(predecessorPath)).toEqual(current.bytes); expect(readFileSync(successorPath)).toEqual(invalid);
+      expect(readCurrentConversationSegment(root,SESSION)!.entry.version).toBe(1); expect(readFileSync(predecessorPath)).toEqual(currentBytes); expect(readFileSync(successorPath)).toEqual(invalid);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

@@ -355,7 +355,7 @@ describe('Analyst parsed tool invocation', () => {
     const segment = readCurrentConversationSegment(test.projectRoot, 'agent:analyst:global')!;
     const path = globalAgentConversationVersionFile(test.projectRoot, 'analyst', segment.entry.filename);
     if (fixture === 'complete malformed data') {
-      appendFileSync(path, '{"version":3,"type":"conversation-segment","rows":[{"broken":true}]}\n');
+      appendFileSync(path, '{"version":4,"type":"conversation-segment","rows":[{"broken":true}]}\n');
     } else if (fixture === 'nonfinal unmatched call') {
       const marker = readConversation(test.projectRoot, 'agent:analyst:global').sourceRows.find((row) => row.kind === 'activity')!;
       const inputId = '22222222-2222-4222-8222-222222222222';
@@ -397,5 +397,5 @@ describe('Analyst parsed tool invocation', () => {
 });
 
 function appendRaw(path: string, row: unknown): void {
-  appendFileSync(path, `${JSON.stringify({ version: 3, type: 'conversation-segment', rows: [row] })}\n`);
+  appendFileSync(path, `${JSON.stringify({ version: 4, type: 'conversation-segment', rows: [row] })}\n`);
 }

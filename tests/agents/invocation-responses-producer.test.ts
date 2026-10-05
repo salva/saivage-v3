@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
@@ -43,7 +44,7 @@ describe('Responses producer through real ordinary invocation', () => {
   it('admits candidate-local bytes before ordinary A503 -> B failover and persists actual B provenance', async () => {
     const { root, service, request, admission } = fixture([RESPONSES_A, RESPONSES_B]);
     const before = JSON.stringify(request.providerConversation);
-    const durableBefore = readCurrentConversationSegment(root, SESSION)!.bytes;
+    const durableBefore = readFileSync(currentConversationSegmentPath(root, SESSION));
     const appLogBefore = readAppLogEntries(root);
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(success());
     const completion = await service.executeAdmittedWithRecovery(admission);
@@ -70,7 +71,7 @@ describe('Responses producer through real ordinary invocation', () => {
     expect(JSON.stringify(completion.provider_exchanges)).not.toContain('producer_account_id');
     expect(JSON.stringify(completion.provider_exchanges)).not.toContain(responsesProducerAccountId(RESPONSES_B));
     expect(JSON.stringify(request.providerConversation)).toBe(before);
-    expect(readCurrentConversationSegment(root, SESSION)!.bytes).toEqual(durableBefore);
+    expect(readFileSync(currentConversationSegmentPath(root, SESSION))).toEqual(durableBefore);
     const sentInputs = fetch.mock.calls.map(call => JSON.parse(call[1]!.body as string).input);
     expect(sentInputs[1]).toEqual(sentInputs[0].filter((item: { type: string; encrypted_content?: string }) => !(item.type === 'reasoning' && Object.hasOwn(item, 'encrypted_content'))));
     appendLlmTurnMessageBatch({ projectRoot: root }, { ...request, sessionId: SESSION, agentId: SESSION, compiledToolContracts: [], episodeContext: {} }, 'B visible completion', completion.provider_private_context);
@@ -90,12 +91,12 @@ describe('Responses producer through real ordinary invocation', () => {
 
   it('keeps equal-account invalid_encrypted_content terminal with one request and unchanged durable history', async () => {
     const { root, service, admission } = fixture([RESPONSES_A, RESPONSES_B]);
-    const before = readCurrentConversationSegment(root, SESSION)!.bytes;
+    const before = readFileSync(currentConversationSegmentPath(root, SESSION));
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { code: 'invalid_encrypted_content', message: 'invalid encrypted content' } }), { status: 400 }));
     await expect(service.executeAdmittedWithRecovery(admission)).rejects.toMatchObject({ originalFailure: { failure: { kind: 'provider_protocol_error', status: 400 } } });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]![1]!.body).toContain(`ciphertext-${SOURCE}`);
-    expect(readCurrentConversationSegment(root, SESSION)!.bytes).toEqual(before);
+    expect(readFileSync(currentConversationSegmentPath(root, SESSION))).toEqual(before);
   });
 
   it('reuses byte-identical mismatched-account admitted body for a same-candidate transient retry', async () => {

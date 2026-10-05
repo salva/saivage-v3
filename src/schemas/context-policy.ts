@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
+const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 const contextReplacementSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('retain') }).strict(),

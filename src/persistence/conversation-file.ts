@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { sha256Hex, canonicalValueSha256 } from '../schemas/index.js';
 import { mkdirSync, readFileSync } from 'node:fs';
 
 import {
@@ -84,7 +83,6 @@ export interface ConversationSegment {
   readonly entry: ConversationVersionEntry;
   readonly genesis: ConversationSegmentGenesis;
   readonly rows: readonly AgentMessage[];
-  readonly bytes: Buffer;
   readonly conversation: ValidatedConversation;
 }
 export class ConversationHistoricalVersionNotFoundError extends Error {}
@@ -223,7 +221,7 @@ export function restoreConversationIndex(
 function parseSegment(
   path: string,
   bytes: Buffer,
-): { bytes: Buffer; genesis: ConversationSegmentGenesis; rows: AgentMessage[] } {
+): { genesis: ConversationSegmentGenesis; rows: AgentMessage[] } {
   const text = decode(path, bytes);
   if (text.length === 0 || !text.endsWith('\n'))
     throw new Error(`Conversation segment '${path}' has an incomplete final envelope.`);
@@ -254,14 +252,13 @@ function parseSegment(
   )
     throw new Error(`Conversation segment '${path}' contains a non-initial genesis row.`);
   return {
-    bytes,
     genesis: genesis as ConversationSegmentGenesis,
     rows: rows.map((row) => agentMessageSchema.parse(row)),
   };
 }
 function emptyIndex(sessionId: ConversationSessionId): ConversationVersionIndex {
   return conversationVersionIndexSchema.parse({
-    format_version: 3,
+    format_version: 4,
     kind: 'conversation-version-index',
     session_id: sessionId,
     created_at: new Date().toISOString(),
@@ -399,30 +396,14 @@ function validateLoadedSegment(
   )
     throw new Error(`Conversation segment '${entry.filename}' does not match its index entry.`);
   if (genesis.kind === 'compacted_segment_genesis') {
-    const tailRows = rows.slice(0, genesis.retained_rows.row_count);
     if (
       entry.genesis.kind !== 'compacted' ||
       genesis.source.version !== entry.genesis.source_version ||
       genesis.source.filename !== entry.genesis.source_filename ||
-      genesis.source.sha256 !== entry.genesis.source_sha256 ||
-      genesis.source.covered_through_message_id !== entry.genesis.covered_through_message_id ||
-      genesis.compaction.coverageCommitment.coveredThroughMessageId !==
-        entry.genesis.covered_through_message_id ||
-      canonicalValueSha256(genesis.compaction) !== entry.genesis.compaction_payload_sha256 ||
-      canonicalValueSha256(genesis.continuation) !== entry.genesis.continuation_sha256 ||
-      canonicalValueSha256(tailRows) !== entry.genesis.retained_rows_sha256 ||
-      genesis.retained_rows.sha256 !== entry.genesis.retained_rows_sha256
+      genesis.source.covered_through_message_id !== entry.genesis.covered_through_message_id
     )
       throw new Error(
-        `Compacted conversation segment '${entry.filename}' does not match its index genesis commitment.`,
-      );
-    if (
-      rows.length < genesis.retained_rows.row_count ||
-      tailRows[0]?.id !== (genesis.retained_rows.first_message_id ?? undefined) ||
-      tailRows.at(-1)?.id !== (genesis.retained_rows.last_message_id ?? undefined)
-    )
-      throw new Error(
-        `Compacted conversation segment '${entry.filename}' retained-row metadata is invalid.`,
+        `Compacted conversation segment '${entry.filename}' does not match its index genesis metadata.`,
       );
   }
   try {
@@ -433,7 +414,6 @@ function validateLoadedSegment(
       entry,
       genesis,
       rows: Object.freeze(rows),
-      bytes: parsed.bytes,
       conversation,
     });
   } catch (error) {
@@ -485,7 +465,7 @@ function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {
 }
 function segmentEnvelope(rows: readonly (ConversationSegmentGenesis | AgentMessage)[]): Buffer {
   if (!rows.length) throw new Error('Conversation envelope requires at least one row.');
-  return Buffer.from(`${JSON.stringify({ version: 3, type: 'conversation-segment', rows })}\n`);
+  return Buffer.from(`${JSON.stringify({ version: 4, type: 'conversation-segment', rows })}\n`);
 }
 function serializeStrictJson(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value)}\n`);
@@ -514,7 +494,7 @@ export function appendConversationBatch(
     const filename = versionFilename(1, randomUUID());
     const timestamp = new Date().toISOString();
     const genesis = {
-      format_version: 3,
+      format_version: 4,
       kind: 'ordinary_segment_genesis',
       id: randomUUID(),
       entry_id: entryId,
@@ -617,18 +597,14 @@ export function publishCompactedConversationSegment(
   if (sourceRows[compaction.cutoffSourceIndex]?.id !== compaction.cutoffMessageId)
     throw new Error('Conversation compaction cutoff does not identify the source segment.');
   const coveredRows = sourceRows.slice(0, compaction.cutoffSourceIndex + 1);
-  const { inherited: currentInherited, compacted: currentCompacted } = validationSeeds(
-    current.genesis,
-  );
+  const { inherited: currentInherited } = validationSeeds(current.genesis);
   validateCompactedHistorySuccessor({
     source: current.conversation,
-    sourceGenesis: currentCompacted ?? null,
     sourceVersion: current.entry.version,
     successor: compaction.history,
     coveredRows,
   });
-  const tail = sourceRows.slice(compaction.cutoffSourceIndex + 1);
-  const rows = tail;
+  const rows = sourceRows.slice(compaction.cutoffSourceIndex + 1);
   let inherited:
     | import('../contracts/conversation-validation.js').InheritedConversationActivation
     | undefined;
@@ -657,12 +633,8 @@ export function publishCompactedConversationSegment(
   const entryId = compaction.identity.entryId;
   const timestamp = compaction.identity.timestamp;
   const filename = compaction.identity.filename;
-  const retainedHash = canonicalValueSha256(rows);
-  const sourceHash = sha256Hex(current.bytes);
-  const payloadHash = canonicalValueSha256(compaction.history);
-  const continuationHash = canonicalValueSha256(compaction.continuation);
   const genesis = {
-    format_version: 3,
+    format_version: 4,
     kind: 'compacted_segment_genesis',
     id: compaction.identity.genesisId,
     entry_id: entryId,
@@ -672,17 +644,10 @@ export function publishCompactedConversationSegment(
     source: {
       version: current.entry.version,
       filename: current.entry.filename,
-      sha256: sourceHash,
       covered_through_message_id: compaction.cutoffMessageId,
     },
     compaction: compaction.history,
     continuation: compaction.continuation,
-    retained_rows: {
-      first_message_id: rows[0]?.id ?? null,
-      last_message_id: rows.at(-1)?.id ?? null,
-      row_count: rows.length,
-      sha256: retainedHash,
-    },
   } as const;
   const entry = {
     entry_id: entryId,
@@ -693,11 +658,7 @@ export function publishCompactedConversationSegment(
       kind: 'compacted',
       source_version: current.entry.version,
       source_filename: current.entry.filename,
-      source_sha256: sourceHash,
       covered_through_message_id: compaction.cutoffMessageId,
-      compaction_payload_sha256: payloadHash,
-      continuation_sha256: continuationHash,
-      retained_rows_sha256: retainedHash,
     },
   } as const;
   const next = conversationVersionIndexSchema.parse({

@@ -259,7 +259,6 @@ export {
 export type { CompactedGenesisSeed, ValidatedConversation } from './conversation-validation.js';
 export {
   deriveRequiredModelFacts,
-  selectAtomicCoveredSourceGroups,
   selectConversationProtection,
 } from './conversation-validation.js';
 export type { InheritedConversationActivation, SourceRound } from './conversation-validation.js';

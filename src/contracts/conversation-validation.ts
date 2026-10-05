@@ -1,17 +1,11 @@
-import { sha256Hex, canonicalValueSha256 } from '../schemas/index.js';
-
 import {
   canonicalJson,
   conversationSessionIdentity,
-  coveredSourceGroupsSha256,
-  foldDispositionCommitment,
   MODEL_RECOVERY_NOTICE_TEXT,
   parseCanonicalContentPolicyRefusal,
   type AgentMessage,
   type CompactedHistory,
   type ConversationSessionId,
-  type CoveredDisposition,
-  type CoveredSourceGroup,
   type RequiredModelFactSlots,
   type ProtectedPrompt,
 } from '../schemas/index.js';
@@ -34,14 +28,6 @@ export type SourceRound = {
   readonly rows: readonly AgentMessage[];
   readonly segments: readonly SourceSegment[];
 };
-
-type ValidatedCompactionCoverage = Readonly<{
-  sourceSessionId: string;
-  sourceVersion: number;
-  coveredThroughMessageId: string;
-  coveredSourceGroupsSha256: string;
-  accumulatedSummarySha256: string;
-}>;
 
 type CanonicalConversationCall = {
   readonly sessionId: ConversationSessionId;
@@ -68,7 +54,6 @@ export type ValidatedConversation = {
   readonly unmatchedCall: CanonicalConversationCall | null;
   readonly compactedGenesis: CompactedGenesisIdentity | null;
   readonly effectiveCompactedHistory: CompactedHistory | null;
-  readonly effectiveValidatedCoverage: ValidatedCompactionCoverage | null;
   readonly effectiveRequiredModelFacts: RequiredModelFactSlots;
 };
 
@@ -76,7 +61,6 @@ type ConversationProtectionSelection = Readonly<{
   protectedPrompts: readonly ProtectedPrompt[];
   activePrompts: readonly ProtectedPrompt[];
   releasedInheritedMessages: readonly AgentMessage[];
-  protectedCoveredIds: ReadonlySet<string>;
 }>;
 
 export function selectConversationProtection(args: {
@@ -114,16 +98,10 @@ export function selectConversationProtection(args: {
   const releasedInheritedMessages = occurrences
     .slice(0, args.inherited.length)
     .flatMap((occurrence, index) => (selected.has(index) ? [] : [occurrence.message]));
-  const protectedCoveredIds = new Set(
-    protectedPrompts
-      .filter((entry) => entry.source.segmentVersion === args.sourceVersion)
-      .map((entry) => entry.message.id),
-  );
   return Object.freeze({
     protectedPrompts: Object.freeze(protectedPrompts),
     activePrompts: Object.freeze(activePrompts),
     releasedInheritedMessages: Object.freeze(releasedInheritedMessages),
-    protectedCoveredIds,
   });
 }
 
@@ -325,17 +303,10 @@ export function validateConversation(
   return materializeValidatedConversation(state, physicalRows, compactedGenesis ?? null);
 }
 
-type CoveredSourceSelection = Readonly<{
-  readonly groups: readonly CoveredSourceGroup[];
-  readonly rows: readonly AgentMessage[];
-  readonly dispositions: readonly { id: string; disposition: CoveredDisposition }[];
-}>;
-
-export function selectAtomicCoveredSourceGroups(
+export function validateAtomicCoveredSourcePrefix(
   conversation: ValidatedConversation,
   coveredRows: readonly AgentMessage[],
-  protectedIds: ReadonlySet<string> = new Set(),
-): CoveredSourceSelection {
+): void {
   if (coveredRows.length === 0) throw new Error('Compaction coverage requires source rows.');
   const ordinals = coveredRows.map((row) => {
     const ordinal = conversation.sourceRows.findIndex((source) => source.id === row.id);
@@ -349,7 +320,7 @@ export function selectAtomicCoveredSourceGroups(
   )
     throw new Error('Covered rows are not one exact contiguous canonical source prefix.');
   const coveredSet = new Set(coveredRows.map((row) => row.id));
-  const groups: { ids: string[]; rows: AgentMessage[] }[] = [];
+  const groups: string[][] = [];
   for (const row of coveredRows) {
     if (row.kind === 'tool_call') {
       if (
@@ -367,7 +338,7 @@ export function selectAtomicCoveredSourceGroups(
         throw new Error(
           `Compaction coverage would split the provider bundle of tool call '${row.id}'.`,
         );
-      groups.push({ ids: [row.id, result.id], rows: [row, result] });
+      groups.push([row.id, result.id]);
       continue;
     }
     if (row.kind === 'tool_result') continue;
@@ -380,7 +351,7 @@ export function selectAtomicCoveredSourceGroups(
           `Covered private row '${row.id}' would be split from its marked visible mate.`,
         );
       if (mate.kind !== 'tool_call') {
-        groups.push({ ids: [row.id, mate.id], rows: [row, mate] });
+        groups.push([row.id, mate.id]);
         continue;
       }
       const call = conversation.calls.find((candidate) => candidate.message.id === mate.id);
@@ -393,7 +364,7 @@ export function selectAtomicCoveredSourceGroups(
         throw new Error(
           `Compaction coverage would split the provider bundle of private tool call '${mate.id}'.`,
         );
-      groups.push({ ids: [row.id, mate.id, result.id], rows: [row, mate, result] });
+      groups.push([row.id, mate.id, result.id]);
       continue;
     }
     if (
@@ -403,173 +374,39 @@ export function selectAtomicCoveredSourceGroups(
       throw new Error(
         `Covered visible projection '${row.id}' must be grouped with its private mate.`,
       );
-    groups.push({ ids: [row.id], rows: [row] });
+    groups.push([row.id]);
   }
-  const flattened = groups.flatMap((group) => group.ids);
+  const flattened = groups.flat();
   if (JSON.stringify(flattened) !== JSON.stringify(coveredRows.map((row) => row.id)))
     throw new Error(
       'Atomic covered source groups do not reassemble the exact covered source order.',
     );
-  const dispositions = groups.flatMap((group) =>
-    group.rows.map((row) => ({
-      id: row.id,
-      disposition: protectedIds.has(row.id)
-        ? ('protected' as const)
-        : coveredGroupDisposition(group.rows, coveredRows),
-    })),
-  );
-  return Object.freeze({
-    groups: Object.freeze(
-      groups.map((group) => ({
-        message_ids: [...group.ids],
-        content_sha256: hashConversationRows(group.rows),
-      })),
-    ),
-    rows: Object.freeze([...coveredRows]),
-    dispositions: Object.freeze(dispositions),
-  });
-}
-
-function coveredGroupDisposition(
-  rows: readonly AgentMessage[],
-  coveredRows: readonly AgentMessage[],
-): CoveredDisposition {
-  const [first] = rows;
-  if (!first) throw new Error('Covered source groups are never empty.');
-  if (
-    first.kind === 'content_policy_refusal' ||
-    first.kind === 'model_recovered' ||
-    first.kind === 'model_issue'
-  ) {
-    if (first.kind === 'model_issue') return 'superseded';
-    const newer = coveredRows.some(
-      (candidate) =>
-        candidate.kind === first.kind &&
-        coveredRows.indexOf(candidate) > coveredRows.indexOf(first),
-    );
-    return newer ? 'superseded' : 'summarized';
-  }
-  const toolCall = rows.find((row) => row.kind === 'tool_call');
-  if (toolCall?.kind === 'tool_call' && toolCall.context_policy.kind === 'tool_call') {
-    const template = toolCall.context_policy.template;
-    if (template.settledAudience === 'evidence_only') return 'evidence_only';
-    if (
-      template.replacement.kind === 'latest_snapshot' &&
-      supersededSnapshotKey(template.replacement.key, toolCall, coveredRows)
-    )
-      return 'superseded';
-    return 'summarized';
-  }
-  if (first.context_policy.kind === 'content') {
-    if (first.context_policy.audience === 'evidence_only') return 'evidence_only';
-    if (
-      first.context_policy.replacement.kind === 'latest_snapshot' &&
-      supersededSnapshotKey(first.context_policy.replacement.key, first, coveredRows)
-    )
-      return 'superseded';
-  }
-  return 'summarized';
-}
-
-function supersededSnapshotKey(
-  key: string,
-  row: AgentMessage,
-  coveredRows: readonly AgentMessage[],
-): boolean {
-  return coveredRows.some((candidate) => {
-    if (candidate.id === row.id || coveredRows.indexOf(candidate) <= coveredRows.indexOf(row))
-      return false;
-    if (
-      candidate.kind === 'text' &&
-      candidate.context_policy.kind === 'content' &&
-      candidate.context_policy.replacement.kind === 'latest_snapshot'
-    )
-      return candidate.context_policy.replacement.key === key;
-    if (
-      candidate.kind === 'tool_call' &&
-      candidate.context_policy.kind === 'tool_call' &&
-      candidate.context_policy.template.replacement.kind === 'latest_snapshot'
-    )
-      return candidate.context_policy.template.replacement.key === key;
-    return false;
-  });
 }
 
 export function validateCompactedHistorySuccessor(args: {
   readonly source: ValidatedConversation;
-  readonly sourceGenesis: CompactedGenesisSeed | null;
   readonly sourceVersion: number;
   readonly successor: CompactedHistory;
   readonly coveredRows: readonly AgentMessage[];
 }): void {
-  const { source, sourceGenesis, successor } = args;
+  const { source, successor } = args;
   const protection = selectConversationProtection({
-    inherited: sourceGenesis?.history.protectedPrompts ?? [],
+    inherited: source.effectiveCompactedHistory?.protectedPrompts ?? [],
     rows: source.sourceRows,
     sourceVersion: args.sourceVersion,
     cutoffCount: args.coveredRows.length,
   });
-  if (sourceGenesis) {
-    if (successor.source.kind !== 'prior_genesis_plus_current_rows')
-      throw new Error('A successor of a compacted segment must name its prior genesis.');
-    if (successor.source.priorGenesisId !== sourceGenesis.id)
-      throw new Error('Successor prior genesis id does not identify the compacted source head.');
-    if (successor.source.priorHistoryHash !== canonicalValueSha256(sourceGenesis.history))
-      throw new Error(
-        'Successor prior history hash does not commit to the compacted source head history.',
-      );
-  } else if (successor.source.kind !== 'current_rows') {
-    throw new Error('A successor of an ordinary segment must cover current rows only.');
-  }
-  const selection = selectAtomicCoveredSourceGroups(
-    source,
-    args.coveredRows,
-    protection.protectedCoveredIds,
-  );
+  validateAtomicCoveredSourcePrefix(source, args.coveredRows);
   if (canonicalJson(protection.protectedPrompts) !== canonicalJson(successor.protectedPrompts))
     throw new Error(
       'Successor protected prompts do not exactly derive from the source protection selection.',
     );
-  if (
-    canonicalValueSha256(successor.protectedPrompts) !==
-    successor.coverageCommitment.protectedPromptsSha256
-  )
-    throw new Error('Successor protected prompts hash does not commit to its exact ordered list.');
-  if (canonicalJson(selection.groups) !== canonicalJson(successor.source.groups))
-    throw new Error(
-      'Successor covered source groups do not match the canonical atomic grouping of the covered rows.',
-    );
-  if (selection.rows.at(-1)!.id !== successor.coverageCommitment.coveredThroughMessageId)
-    throw new Error('Successor coverage cutoff does not identify the last covered source row.');
-  if (successor.coverageCommitment.sourceVersion !== args.sourceVersion)
-    throw new Error(
-      'Successor coverage source version does not identify the compacted source segment.',
-    );
-  if (successor.coverageCommitment.sourceSessionId !== source.sourceSessionId)
-    throw new Error(
-      'Successor coverage source session does not identify the compacted source conversation.',
-    );
-  if (
-    successor.coverageCommitment.coveredSourceGroupsSha256 !==
-    coveredSourceGroupsSha256(successor.source.groups)
-  )
-    throw new Error('Successor coverage groups hash does not commit to its covered source groups.');
-  if (successor.coverageCommitment.accumulatedSummarySha256 !== sha256Hex(successor.summaryText))
-    throw new Error('Successor coverage summary hash does not commit to its accumulated summary.');
-  const expectedDispositions = foldDispositionCommitment(
-    sourceGenesis?.history.dispositionCommitment ?? null,
-    selection.dispositions,
-  );
-  if (JSON.stringify(expectedDispositions) !== JSON.stringify(successor.dispositionCommitment))
-    throw new Error(
-      'Successor disposition commitment does not match the accumulated covered dispositions.',
-    );
   const expectedFacts = deriveRequiredModelFacts({
-    inherited: sourceGenesis?.history.requiredModelFacts ?? {
+    inherited: source.effectiveCompactedHistory?.requiredModelFacts ?? {
       latestRecovery: null,
       latestContentPolicyRefusal: null,
     },
-    coveredRows: selection.rows,
+    coveredRows: args.coveredRows,
     source,
   });
   if (JSON.stringify(expectedFacts) !== JSON.stringify(successor.requiredModelFacts))
@@ -637,26 +474,6 @@ function validateSelfContainedCompactedHistory(
   seed: CompactedGenesisSeed,
 ): void {
   const history = seed.history;
-  if (history.coverageCommitment.sourceSessionId !== sessionId)
-    throw new Error('Compacted genesis coverage does not name its own source session.');
-  if (history.coverageCommitment.sourceVersion !== seed.sourceVersion)
-    throw new Error('Compacted genesis coverage does not name its own source segment version.');
-  if (
-    coveredSourceGroupsSha256(history.source.groups) !==
-    history.coverageCommitment.coveredSourceGroupsSha256
-  )
-    throw new Error('Compacted genesis coverage groups hash does not commit to its named groups.');
-  if (sha256Hex(history.summaryText) !== history.coverageCommitment.accumulatedSummarySha256)
-    throw new Error(
-      'Compacted genesis coverage summary hash does not commit to its accumulated summary.',
-    );
-  if (
-    canonicalValueSha256(history.protectedPrompts) !==
-    history.coverageCommitment.protectedPromptsSha256
-  )
-    throw new Error(
-      'Compacted genesis protected prompts hash does not commit to its ordered list.',
-    );
   const ids = new Set<string>();
   let prior: ProtectedPrompt['source'] | null = null;
   for (const entry of history.protectedPrompts) {
@@ -764,9 +581,6 @@ function materializeValidatedConversation(
       ? Object.freeze({ id: genesis.id, timestamp: genesis.timestamp })
       : null,
     effectiveCompactedHistory: genesis?.history ?? null,
-    effectiveValidatedCoverage: genesis
-      ? Object.freeze({ ...genesis.history.coverageCommitment })
-      : null,
     effectiveRequiredModelFacts:
       genesis?.history.requiredModelFacts ??
       Object.freeze({ latestRecovery: null, latestContentPolicyRefusal: null }),
@@ -936,18 +750,4 @@ function isSafeFallbackBoundary(
   if (last.kind === 'tool_call' || next?.kind === 'tool_result') return false;
   if (last.kind === 'provider_private' || next?.projectedPrivateMessageId === last.id) return false;
   return true;
-}
-
-function hashConversationRows(rows: readonly AgentMessage[]): string {
-  return sha256Hex(rows.map(conversationRowHashText).join('\n'));
-}
-function conversationRowHashText(row: AgentMessage): string {
-  return JSON.stringify({
-    id: row.id,
-    role: row.role,
-    kind: row.kind,
-    content: row.content,
-    tool: row.tool,
-    tool_call_id: row.tool_call_id,
-  });
 }

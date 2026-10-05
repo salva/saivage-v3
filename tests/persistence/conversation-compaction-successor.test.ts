@@ -1,7 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { cardConversationVersionIndexFile, conversationPreviousIndexFile } from '../../src/persistence/layout.js';
-import { createHash } from 'node:crypto';
-import { conversationSegmentEnvelopeSchema } from '../../src/persistence/canonical-conversation-artifacts.js';
+import { cardConversationVersionFile, cardConversationVersionIndexFile, conversationPreviousIndexFile } from '../../src/persistence/layout.js';
+import { conversationSegmentEnvelopeSchema, conversationVersionIndexSchema } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -11,7 +10,7 @@ import { compact as compactWithoutProgress, prepareCompaction, type AutonomousCo
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import { ConversationSessionIdSchema, globalAgentSessionId, canonicalJson, canonicalValueSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
+import { ConversationSessionIdSchema, globalAgentSessionId, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
@@ -128,36 +127,40 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
-  it('rejects prospectively mutated protected rows and extraction coordinates even when their replacement list hash is self-consistent', async () => {
+  it('uses strict format 4 and rejects prospectively mutated protected rows and extraction coordinates without checksums', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const source = readConversation(root, SESSION);
-      const sourceBytes = readCurrentConversationSegment(root, SESSION)!.bytes;
       const result = await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary') }), source);
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(3);
-      expect(segment.genesis.format_version).toBe(3);
-      const envelope = JSON.parse(segment.bytes.toString('utf8'));
-      expect(envelope.version).toBe(3);
-      expect(segment.genesis.source.sha256).toBe(createHash('sha256').update(sourceBytes).digest('hex'));
-      expect(history.coverageCommitment.protectedPromptsSha256).toBe(createHash('sha256').update(canonicalJson(history.protectedPrompts)).digest('hex'));
-      expect(segment.genesis.retained_rows.sha256).toBe(createHash('sha256').update(canonicalJson(segment.rows)).digest('hex'));
-      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 2 }, ...segment.rows] }).success).toBe(false);
+      expect(segment.index.format_version).toBe(4);
+      expect(segment.genesis.format_version).toBe(4);
+      const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
+      expect(envelope.version).toBe(4);
+      expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 3 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 3 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 3 }, ...segment.rows] }).success).toBe(false);
+      for (const field of ['source_sha256', 'compaction_payload_sha256', 'continuation_sha256', 'retained_rows_sha256']) {
+        expect(conversationVersionIndexSchema.safeParse({ ...segment.index, versions: segment.index.versions.map(entry => entry.version === segment.entry.version ? { ...entry, genesis: { ...entry.genesis, [field]: '0'.repeat(64) } } : entry) }).success).toBe(false);
+      }
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, retained_rows: {} }, ...segment.rows] }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, source: { ...segment.genesis.source, sha256: '0'.repeat(64) } }, ...segment.rows] }).success).toBe(false);
       expect(readConversation(root, SESSION).effectiveCompactedHistory).toEqual(history);
       expect(history.protectedPrompts).toHaveLength(1);
-      const cutoff = source.sourceRows.findIndex(({ id }) => id === history.coverageCommitment.coveredThroughMessageId) + 1;
-      const validate = (successor: CompactedHistory) => validateCompactedHistorySuccessor({ source, sourceGenesis: null, sourceVersion: 1, successor, coveredRows: source.sourceRows.slice(0, cutoff) });
+      const cutoffId = segment.genesis.source.covered_through_message_id;
+      const cutoff = source.sourceRows.findIndex(({ id }) => id === cutoffId) + 1;
+      const validate = (successor: CompactedHistory) => validateCompactedHistorySuccessor({ source, sourceVersion: 1, successor, coveredRows: source.sourceRows.slice(0, cutoff) });
       expect(() => validate(history)).not.toThrow();
 
       const changedMessage = [{ ...history.protectedPrompts[0]!, message: { ...history.protectedPrompts[0]!.message, content: 'MUTATED INSTRUCTION' } }];
-      expect(() => validate({ ...history, protectedPrompts: changedMessage, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: canonicalValueSha256(changedMessage) } })).toThrow(/do not exactly derive/);
+      expect(() => validate({ ...history, protectedPrompts: changedMessage })).toThrow(/do not exactly derive/);
       const changedCoordinate = [{ ...history.protectedPrompts[0]!, source: { ...history.protectedPrompts[0]!.source, rowIndex: history.protectedPrompts[0]!.source.rowIndex + 1 } }];
-      expect(() => validate({ ...history, protectedPrompts: changedCoordinate, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: canonicalValueSha256(changedCoordinate) } })).toThrow(/do not exactly derive/);
-      expect(() => validate({ ...history, protectedPrompts: [], coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: canonicalValueSha256([]) } })).toThrow(/do not exactly derive/);
+      expect(() => validate({ ...history, protectedPrompts: changedCoordinate })).toThrow(/do not exactly derive/);
+      expect(() => validate({ ...history, protectedPrompts: [] })).toThrow(/do not exactly derive/);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -179,7 +182,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(segment.rows.map((row) => row.id)).toEqual([...bundle.map(row => row.id), unmatchedCall('00000000-0000-4000-8000-000000000003', 'call-unmatched').id]);
       expect(segment.genesis.kind === 'compacted_segment_genesis' && segment.genesis.continuation.kind).toBe('inherited_open_round');
       expect(segment.conversation.rounds.at(-1)!.state).toBe('open');
-      expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t3');
+      expect(segment.entry.genesis).toMatchObject({ covered_through_message_id: 't3' });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -202,7 +205,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       }), signal: new AbortController().signal });
       await expect(result).resolves.toMatchObject({ kind: 'compacted' });
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
-      expect(readCurrentConversationSegment(root, SESSION)!.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('activation-3');
+      expect(readCurrentConversationSegment(root, SESSION)!.entry.genesis).toMatchObject({ covered_through_message_id: 'activation-3' });
       const rawInputs = calls.flatMap((call) => call.contents);
       expect(rawInputs.filter((content) => content.includes('T1-PLAIN'))).toHaveLength(1);
       expect(rawInputs.filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
@@ -218,7 +221,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const result = await compactOnce(rootFurthest, 'local_exact_admission', summarizer({ calls: furthestCalls, summaryOf: constantSummary('Q'.repeat(200)) }), readConversation(rootFurthest, SESSION));
       if (result.kind !== 'compacted') throw new Error('expected compacted');
       const segment = readCurrentConversationSegment(rootFurthest, SESSION)!;
-      expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t3');
+      expect(segment.entry.genesis).toMatchObject({ covered_through_message_id: 't3' });
       expect(segment.rows).toEqual([]);
       expect(furthestCalls.flatMap((call) => call.contents).filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
     } finally { rmSync(rootFurthest, { recursive: true, force: true }); }
@@ -360,7 +363,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(statSync(conversationPreviousIndexFile(indexPath)).ino).toBe(priorInode);
       expect(readFileSync(conversationPreviousIndexFile(indexPath))).toEqual(priorIndex);
       expect(selectedPath).toBe(join(root, '.saivage', 'cards', 'project', 'conversations', 'planner', 'versions', segment.entry.filename));
-      expect(preparedEnvelope).toEqual(segment.bytes);
+      expect(preparedEnvelope).toEqual(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename)));
       expect(JSON.parse(preparedEnvelope!.toString()).rows[0].id).toBe(genesis!.id);
       expect(result.providerConversation).toEqual(providerConversationProjection(segment.conversation, []));
     } finally { rmSync(root, { recursive: true, force: true }); }

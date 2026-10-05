@@ -32,7 +32,6 @@ type ParsedSourceRange = Readonly<{
   start: number;
   end: number;
   totalBytes: number;
-  sourceSha256: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
 }>;
@@ -168,7 +167,6 @@ describe('sequential contextual refine accumulator', () => {
           sourceKind: expected.sourceKind,
           role: expected.role,
           totalBytes: Buffer.byteLength(expected.content, 'utf8'),
-          sourceSha256: sourceHash(expected.content),
         });
         expect(Buffer.byteLength(range.content, 'utf8')).toBe(range.end - range.start);
       }
@@ -283,7 +281,6 @@ describe('sequential contextual refine accumulator', () => {
       start: 0,
       end: 8,
       totalBytes: 8,
-      sourceSha256: sourceHash('abcdefgh'),
       role: 'user',
       content: 'abcdefgh',
     }]);
@@ -633,7 +630,7 @@ function sourceRanges(input: SummaryInput): ParsedSourceRange[] {
   return input.providerConversation.messages.flatMap((message) => {
     const wrapper = /^\[order \d+\/\d+\] ([^\n]+)\n([\s\S]*)$/u.exec(message.content);
     if (!wrapper?.[1].startsWith('[kind=new_source ')) return [];
-    const label = /^\[kind=new_source source=(\S+) source_kind=(\S+) range=(\d+):(\d+) total_bytes=(\d+) source_sha256=([0-9a-f]{64}) omitted_source_bytes=0\]$/u.exec(wrapper[1]);
+    const label = /^\[kind=new_source source=(\S+) source_kind=(\S+) range=(\d+):(\d+) total_bytes=(\d+) omitted_source_bytes=0\]$/u.exec(wrapper[1]);
     if (!label) throw new Error(`Invalid new-source label: ${wrapper[1]}`);
     if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant') throw new Error(`Invalid new-source role: ${message.role}`);
     return [{
@@ -642,7 +639,6 @@ function sourceRanges(input: SummaryInput): ParsedSourceRange[] {
       start: Number(label[3]),
       end: Number(label[4]),
       totalBytes: Number(label[5]),
-      sourceSha256: label[6]!,
       role: message.role,
       content: wrapper[2]!,
     }];
@@ -653,10 +649,6 @@ function onlySourceRange(input: SummaryInput): string {
   const ranges = sourceRanges(input);
   if (ranges.length !== 1) throw new Error(`Expected one source range, received ${ranges.length}.`);
   return `${ranges[0]!.start}:${ranges[0]!.end}`;
-}
-
-function sourceHash(content: string): string {
-  return createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 function activation(): AgentMessage {

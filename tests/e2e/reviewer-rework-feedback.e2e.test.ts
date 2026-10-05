@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { CardService } from '../helpers/canonical-project.js';
-import { readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { readConversation } from '../../src/persistence/conversation-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -77,7 +78,7 @@ describe('reviewer rework completion E2E', () => {
     const untouchedSession = `agent:executor:${untouched.id}` as const;
     seedFinalUnmatchedRead(projectRoot, reviewerSession, oldReviewerInputId, oldReviewerCallId);
     const reviewerPrefix = readConversation(projectRoot, reviewerSession).physicalRows;
-    const reviewerBytePrefix = readCurrentConversationSegment(projectRoot, reviewerSession)!.bytes;
+    const reviewerBytePrefix = readFileSync(currentConversationSegmentPath(projectRoot, reviewerSession));
     seedFinalUnmatchedRead(projectRoot, untouchedSession, '00000000-0000-4000-8000-000000000092', 'unselected-read');
     const untouchedBefore = readConversation(projectRoot, untouchedSession).physicalRows;
 
@@ -181,7 +182,7 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.readRecordVersion('project','review.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Approved after concrete remediation.'}}}}});
     expect(cards.readRecordCurrent('project','review-notes-1.md')).toMatchObject({kind:'found',value:{projection:{state:'closed',accepted:{content:'Repeatedly edited wildcard note.',writer_agent:'reviewer'}}}});
     const reviewerRows = readConversation(projectRoot, reviewerSession).physicalRows;
-    const reviewerFinalBytes = readCurrentConversationSegment(projectRoot, reviewerSession)!.bytes;
+    const reviewerFinalBytes = readFileSync(currentConversationSegmentPath(projectRoot, reviewerSession));
     expect(reviewerFinalBytes.subarray(0, reviewerBytePrefix.length)).toEqual(reviewerBytePrefix);
     expect(reviewerRows.slice(0, reviewerPrefix.length)).toEqual(reviewerPrefix);
     expect(reviewerRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === oldReviewerCallId)).toEqual([

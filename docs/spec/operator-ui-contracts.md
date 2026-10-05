@@ -308,6 +308,17 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   context as evidence. Private Responses producer identifiers and their field
   are excluded from public current/history/context DTOs and copied transcript
   values; this does not remove existing public routing/account aliases.
+- Ordinary segments return `segment_context:null`. Compacted current/history REST
+  reads and `read_agent_session` share exactly `{kind,source_version,
+  covered_through_message_id,summary_text,protected_prompts,required_model_facts,
+  continuation}`. Protected messages retain explicit outbound projection/redaction;
+  their projected extraction coordinates use `segment_version` and `row_index`,
+  required-model-fact members retain camelCase, and inherited-continuation
+  activation retains snake_case. No recursive key
+  conversion occurs. There are no compaction checksum, lineage, group-count,
+  disposition, or coverage objects. This changes no rendered history needs,
+  segment identities, cursors, catalog navigation, or separation of context from
+  transcript evidence.
 - Participant rails show backend-decorated `active · busy` or
   `inactive · idle` meaning only. The browser performs no join with actor
   state, process state, or graph agent mappings, and derives no

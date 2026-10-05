@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { validateConversation } from '../../src/contracts/conversation-validation.js';
-import { sha256Hex, agentMessageSchema, compactedHistorySchema, coveredSourceGroupsSha256, canonicalValueSha256, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
+import { validateAtomicCoveredSourcePrefix, validateConversation } from '../../src/contracts/conversation-validation.js';
+import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixture.js';
+import { agentMessageSchema, compactedHistorySchema, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -27,22 +28,46 @@ describe('canonical conversation validation', () => {
     expect(() => validateConversation(SESSION, [text('same'), text('same')])).toThrow(/duplicate message ids/);
   });
 
-  it('validates self-contained compacted genesis commitments on read', () => {
+  it('admits only a nonempty contiguous source prefix with complete settled tool/private bundles', () => {
+    const bundle = responsesBundle(SESSION, INPUT, RESPONSES_A, '{"success":true,"data":"settled"}');
+    const rows = [activation(), ...bundle, text('tail')];
+    const conversation = validateConversation(SESSION, rows);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, rows.slice(0, 4))).not.toThrow();
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, [])).toThrow(/requires source rows/);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, rows.slice(1, 4))).toThrow(/contiguous/);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, [rows[0]!, rows[2]!, rows[1]!, rows[3]!])).toThrow(/contiguous/);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, [rows[0]!, rows[0]!])).toThrow(/contiguous/);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, [text('unknown')])).toThrow(/not a source row/);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, rows.slice(0, 2))).toThrow(/split/);
+    expect(() => validateAtomicCoveredSourcePrefix(conversation, rows.slice(0, 3))).toThrow(/split/);
+
+    const ordinary = [activation(), { ...bundle[1]!, provider_projection: undefined }, bundle[2]!];
+    const ordinaryConversation = validateConversation(SESSION, ordinary);
+    expect(() => validateAtomicCoveredSourcePrefix(ordinaryConversation, ordinary.slice(0, 2))).toThrow(/split/);
+    expect(() => validateAtomicCoveredSourcePrefix(ordinaryConversation, ordinary)).not.toThrow();
+    const unmatched = validateConversation(SESSION, ordinary.slice(0, 2));
+    expect(unmatched.unmatchedCall?.message.id).toBe(bundle[1]!.id);
+    expect(() => validateAtomicCoveredSourcePrefix(unmatched, ordinary.slice(0, 2))).toThrow(/complete settled exchange/);
+    expect(() => validateConversation(SESSION, [...ordinary.slice(0, 2), text('after-unmatched')])).toThrow(/non-final unmatched/);
+  });
+
+  it('materializes self-contained compacted history and inherited open round on read', () => {
     const history = validHistory() as CompactedHistory;
     const conversation = validateConversation(SESSION, [], { markerId: 'activation', inputId: INPUT, activeSegmentKind: 'initial', startOrdinal: 0 }, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3 });
     expect(conversation.effectiveCompactedHistory).toEqual(history);
-    expect(conversation.effectiveValidatedCoverage).toEqual(history.coverageCommitment);
+    expect(conversation.rounds[0]!.rows).toEqual([]);
     expect(conversation.effectiveRequiredModelFacts).toEqual(history.requiredModelFacts);
     expect(conversation.compactedGenesis).toEqual({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z' });
   });
 
-  it('rejects compacted genesis commitments that do not tie to their own source identity', () => {
+  it('rejects removed compacted history fields', () => {
     const history = validHistory();
-    expect(() => validateConversation(SESSION, [], undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history: { ...history, coverageCommitment: { ...history.coverageCommitment, sourceVersion: 4 } }, sourceVersion: 3 })).toThrow(/does not name its own source segment version/);
-    expect(() => validateConversation(SESSION, [], undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history: { ...history, coverageCommitment: { ...history.coverageCommitment, accumulatedSummarySha256: '0'.repeat(64) } }, sourceVersion: 3 })).toThrow(/summary hash/);
+    for (const field of ['source', 'coverageCommitment', 'dispositionCommitment']) {
+      expect(compactedHistorySchema.safeParse({ ...history, [field]: {} }).success).toBe(false);
+    }
   });
 
-  it('strictly validates protected-list hashes, sessions, ids, coordinates, policies, and suffix disjointness at current read', () => {
+  it('strictly validates protected-list sessions, ids, coordinates, policies, and suffix disjointness at current read', () => {
     const first = protectedText('protected-a', 'instruction a');
     const second = protectedText('protected-b', 'instruction b');
     const valid = historyWithProtected([
@@ -51,7 +76,6 @@ describe('canonical conversation validation', () => {
     ]);
     const seed = (history: CompactedHistory) => ({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3 } as const);
     expect(validateConversation(SESSION, [], undefined, seed(valid)).effectiveCompactedHistory?.protectedPrompts).toHaveLength(2);
-    expect(() => validateConversation(SESSION, [], undefined, seed({ ...valid, coverageCommitment: { ...valid.coverageCommitment, protectedPromptsSha256: '0'.repeat(64) } }))).toThrow(/protected prompts hash/);
 
     const wrongSession = protectedText('protected-other-session', 'instruction', 'agent:planner:card-a');
     expect(() => validateConversation(SESSION, [], undefined, seed(historyWithProtected([{ source: { segmentVersion: 1, rowIndex: 0 }, message: wrongSession }])))).toThrow(/another session/);
@@ -71,7 +95,6 @@ describe('canonical conversation validation', () => {
   it('rejects malformed required-model-fact slots', () => {
     expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: { sourceMessageId: `${INPUT}:other`, activationInputId: INPUT }, latestContentPolicyRefusal: null } }))).toThrow(/activation-derived recovery identity/);
     expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: null, latestContentPolicyRefusal: { markerId: 'not-a-uuid', activationInputId: INPUT } } }))).toThrow();
-    expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: null, latestContentPolicyRefusal: null }, dispositionsOverride: { sha256: 'a'.repeat(64), count: 5, summarized: 2, evidenceOnly: 2, superseded: 2 } }))).toThrow(/sum of its kinds/);
   });
 
   it('admits historical search arguments and opaque old-array, plaintext-slice, and hex-slice results unchanged', () => {
@@ -117,13 +140,9 @@ function activation(id = 'activation', inputId = INPUT): AgentMessage { const ti
 function text(id: string): AgentMessage { return agentMessageSchema.parse({ id, context_policy: TEXT_ROW_POLICY, session_id: SESSION, role: 'assistant', kind: 'text', content: id, round_id: `r-assistant-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
 function protectedText(id: string, content: string, sessionId: ConversationSessionId = SESSION): AgentMessage { return agentMessageSchema.parse({ id, context_policy: { ...TEXT_ROW_POLICY, compactable: false }, session_id: sessionId, role: 'user', kind: 'text', content, round_id: `r-user-${'2'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
 
-function validHistory(overrides: { requiredModelFactsOverride?: Record<string, unknown>; dispositionsOverride?: Partial<CompactedHistory['dispositionCommitment']> } = {}): CompactedHistory {
-  const groups = [{ message_ids: ['activation', 'tail'], content_sha256: 'b'.repeat(64) }];
+function validHistory(overrides: { requiredModelFactsOverride?: Record<string, unknown> } = {}): CompactedHistory {
   return {
     summaryText: 'accumulated prose',
-    source: { kind: 'current_rows', groups },
-    dispositionCommitment: { sha256: 'c'.repeat(64), count: 2, summarized: 2, evidenceOnly: 0, superseded: 0, protected: 0, ...overrides.dispositionsOverride },
-    coverageCommitment: { sourceSessionId: SESSION, sourceVersion: 3, coveredThroughMessageId: 'tail', coveredSourceGroupsSha256: coveredSourceGroupsSha256(groups), accumulatedSummarySha256: sha256Hex('accumulated prose'), protectedPromptsSha256: canonicalValueSha256([]) },
     protectedPrompts: [],
     requiredModelFacts: {
       latestRecovery: { sourceMessageId: `${INPUT}:model-recovered`, activationInputId: INPUT },
@@ -135,5 +154,5 @@ function validHistory(overrides: { requiredModelFactsOverride?: Record<string, u
 
 function historyWithProtected(protectedPrompts: CompactedHistory['protectedPrompts']): CompactedHistory {
   const history = validHistory();
-  return { ...history, protectedPrompts, coverageCommitment: { ...history.coverageCommitment, protectedPromptsSha256: canonicalValueSha256(protectedPrompts) } };
+  return { ...history, protectedPrompts };
 }
