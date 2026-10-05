@@ -11,10 +11,16 @@ import { createEventLog } from '../../src/observability/index.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { UnauthorizedErrorSchema } from '../../src/contracts/operator-api-core.js';
+import { agentOperatorApiContracts } from '../../src/contracts/operator-api-agents.js';
+import { runtimeCardsOperatorApiContracts } from '../../src/contracts/operator-api-runtime-cards.js';
+import { ConversationSessionIdSchema, cardIdSchema } from '../../src/schemas/index.js';
 import { testApplicationFatalDelivery, testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => {
+  jest.restoreAllMocks();
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
 const contract = {
   operationId: 'test.response', method: 'GET', path: '/test', auth: 'public',
   success: z.object({ ok: z.literal(true) }).strict(),
@@ -129,10 +135,10 @@ describe('ContractRuntime app-log ownership', () => {
     expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
   });
 
-  it('logs the exact handler error while preserving the fixed 500 response', async () => {
+  it('logs only allowlisted fields while preserving the fixed 500 response', async () => {
     let mounted: ((request: unknown, reply: unknown) => Promise<unknown>) | undefined;
     const fastify = { route: (route: { handler: typeof mounted }) => { mounted = route.handler; } } as unknown as FastifyInstance;
-    const failure = new Error('ordinary failure', { cause: new Error('underlying failure') });
+    const failure = new Error('secret-error-sentinel', { cause: new Error('secret-cause-sentinel') });
     new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
       operation: () => { throw failure; },
     });
@@ -143,10 +149,104 @@ describe('ContractRuntime app-log ownership', () => {
     await mounted!({ params: {}, query: {}, headers: {}, log: { error } }, { status, raw: { once: jest.fn() }, header: jest.fn() });
 
     expect(error).toHaveBeenCalledWith(
-      { err: failure, operation: 'test.response', failureCode: 'handler_failed' },
+      { operation: 'test.response', failureCode: 'handler_failed' },
       'Operator contract operation failed',
     );
     expect(status).toHaveBeenCalledWith(500);
     expect(send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(JSON.stringify([error.mock.calls, send.mock.calls])).not.toContain('sentinel');
+  });
+
+  const identityCases = [
+    { route: runtimeCardsOperatorApiContracts['cards.get'], id: 'card-a', key: 'cardId', schema: cardIdSchema },
+    { route: agentOperatorApiContracts['agents.detail'], id: 'agent:planner:card-a', key: 'sessionId', schema: ConversationSessionIdSchema },
+  ] as const;
+
+  it.each(identityCases)('copies admitted $key before handler mutation and excludes secret data', async ({ route, id, key }) => {
+    let mounted: ((request: unknown, reply: unknown) => Promise<unknown>) | undefined;
+    const fastify = { route: (value: { handler: typeof mounted }) => { mounted = value.handler; } } as unknown as FastifyInstance;
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: route }, {
+      operation: ({ params }) => {
+        (params as { id: string }).id = 'mutated-id-sentinel';
+        throw new Error('secret-error-sentinel', { cause: new Error('secret-cause-sentinel') });
+      },
+    });
+    const error = jest.fn();
+    const send = jest.fn();
+    const status = jest.fn(() => ({ send }));
+    await mounted!({ params: { id }, query: { secret: 'secret-query-sentinel' }, body: { secret: 'secret-body-sentinel' }, headers: {}, url: '/secret-url-sentinel', log: { error } }, { status, raw: { once: jest.fn() }, header: jest.fn() });
+
+    expect(error.mock.calls).toEqual([[
+      { operation: route.operationId, failureCode: 'handler_failed', [key]: id },
+      'Operator contract operation failed',
+    ]]);
+    expect(status.mock.calls).toEqual([[500]]);
+    expect(send.mock.calls).toEqual([[{ error: 'InternalServerError', message: 'Internal server error' }]]);
+    expect(JSON.stringify([error.mock.calls, send.mock.calls])).not.toContain('sentinel');
+  });
+
+  it.each(identityCases)('admits canonical $key without calling its public parse again', async ({ route, id, schema }) => {
+    const parse = jest.spyOn(schema, 'parse');
+    const fastify = Fastify({ logger: false });
+    const handler = jest.fn(() => { throw new Error('ordinary failure'); });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: route }, { operation: handler });
+    const response = await fastify.inject({ method: 'GET', url: route.path.replace(':id', encodeURIComponent(id)) });
+    await fastify.close();
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(parse).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+  });
+
+  it.each(identityCases)('rejects a malformed canonical $key before invoking the handler', async ({ route }) => {
+    const fastify = Fastify({ logger: false });
+    const handler = jest.fn(() => ({ body: { ok: true } }));
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: route }, { operation: handler });
+    const response = await fastify.inject({ method: 'GET', url: route.path.replace(':id', 'invalid-id') });
+    await fastify.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(expect.objectContaining({ error: 'ValidationError' }));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('authenticates before parsing malformed canonical params', async () => {
+    const route = agentOperatorApiContracts['agents.detail'];
+    const parse = jest.spyOn(route.params, 'safeParse');
+    const handler = jest.fn(() => ({ body: { ok: true } }));
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'required-token' }), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: route }, { operation: handler });
+    const response = await fastify.inject({ method: 'GET', url: '/api/agents/invalid-id' });
+    await fastify.close();
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: 'Unauthorized', statusCode: 401 });
+    expect(parse).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each(['query', 'body'] as const)('does not capture identity when %s admission throws after valid params', async (target) => {
+    let mounted: ((request: unknown, reply: unknown) => Promise<unknown>) | undefined;
+    const fastify = { route: (value: { handler: typeof mounted }) => { mounted = value.handler; } } as unknown as FastifyInstance;
+    const route = {
+      ...runtimeCardsOperatorApiContracts['cards.get'],
+      [target]: z.object({ secret: z.string() }).transform(() => { throw new Error('secret-transform-sentinel'); }),
+    };
+    const handler = jest.fn(() => ({ body: { ok: true } }));
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: route }, { operation: handler });
+    const error = jest.fn();
+    const send = jest.fn();
+    const status = jest.fn(() => ({ send }));
+    await mounted!({ params: { id: 'card-a' }, query: { secret: 'secret-query-sentinel' }, body: { secret: 'secret-body-sentinel' }, headers: {}, log: { error } }, { status, raw: { once: jest.fn() }, header: jest.fn() });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(error.mock.calls).toEqual([[
+      { operation: 'cards.get', failureCode: 'request_validation_failed' },
+      'Operator contract operation failed',
+    ]]);
+    expect(status.mock.calls).toEqual([[500]]);
+    expect(send.mock.calls).toEqual([[{ error: 'InternalServerError', message: 'Internal server error' }]]);
+    expect(JSON.stringify([error.mock.calls, send.mock.calls])).not.toContain('sentinel');
   });
 });

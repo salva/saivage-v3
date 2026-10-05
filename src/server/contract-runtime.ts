@@ -7,7 +7,6 @@ import {
   UNEXPECTED_INTERNAL_SERVER_ERROR,
   type OperatorRouteContract,
 } from '../contracts/index.js';
-import { ConversationSessionIdSchema, cardIdSchema } from '../schemas/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 function assertNever(value: never): never {
@@ -62,7 +61,6 @@ interface ContractRuntimeOptions {
 type FailureCode =
   | 'auth_evaluation_failed'
   | 'request_validation_failed'
-  | 'failure_identity_projection_failed'
   | 'handler_failed'
   | 'response_validation_failed';
 
@@ -152,12 +150,8 @@ export class ContractRuntime {
           }
 
           if (!candidate && parsed) {
-            failureCode = 'failure_identity_projection_failed';
-            safeIdentity = this.projectFailureIdentity(contract, parsed);
-          }
-
-          if (!candidate && parsed) {
             failureCode = 'handler_failed';
+            safeIdentity = this.projectFailureIdentity(contract, parsed);
             const replyCapability: ContractPreSendReply = {
               raw: reply.raw,
               header: (name, value) => {
@@ -204,7 +198,7 @@ export class ContractRuntime {
             this.fatalPort.publicationOutcomeUnknown(error);
           throwIfPublicationOutcomeUnknown(error);
           request.log.error(
-            { err: error, operation: contract.operationId, failureCode, ...safeIdentity },
+            { operation: contract.operationId, failureCode, ...safeIdentity },
             'Operator contract operation failed',
           );
           final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
@@ -256,12 +250,13 @@ export class ContractRuntime {
     parsed: ParsedContractRequest<TContract>,
   ): SafeFailureIdentity {
     if (!contract.failureIdentity) return {};
-    const params = parsed.params as unknown as Record<string, unknown>;
+    // Concrete declarations admit canonical IDs; complete request admission precedes this copy.
+    const params = parsed.params as unknown as { id: string };
     if (contract.failureIdentity.kind === 'session') {
       return {
-        sessionId: ConversationSessionIdSchema.parse(params[contract.failureIdentity.parameter]),
+        sessionId: params[contract.failureIdentity.parameter],
       };
     }
-    return { cardId: cardIdSchema.parse(params[contract.failureIdentity.parameter]) };
+    return { cardId: params[contract.failureIdentity.parameter] };
   }
 }

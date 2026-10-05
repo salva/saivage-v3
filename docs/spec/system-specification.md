@@ -1061,10 +1061,10 @@ Agent detail/conversation absence is exactly `{error:'Agent session not found'}`
 Process-list status is exactly `running | exited | failed | killed`.
 
 Each request computes one response descriptor inside one complete pre-send `ContractRuntime` boundary.
-The ordered phases are authentication evaluation, request-schema execution and transformation, optional validated failure-identity projection, handler execution, exact declared response-schema execution, and contract-violation publication.
+The ordered phases are authentication evaluation, request-schema execution and transformation, handler preparation/execution, exact declared response-schema execution, and contract-violation publication.
 Ordinary authentication denial and request rejection remain declared 401 and 400 outcomes.
-A throw in a pre-send phase instead selects the unexpected-internal variant in the [exact shared operator error contracts](#exact-shared-operator-error-contracts) and logs only the fixed operation plus `auth_evaluation_failed`, `request_validation_failed`, `failure_identity_projection_failed`, `handler_failed`, or `response_validation_failed`.
-Only a successfully parsed canonical card or conversation-session identity may be added to that log; exception objects, text, request data, response data, and schema issues are excluded.
+A throw in a pre-send phase instead selects the unexpected-internal variant in the [exact shared operator error contracts](#exact-shared-operator-error-contracts) and logs only the fixed operation plus `auth_evaluation_failed`, `request_validation_failed`, `handler_failed`, or `response_validation_failed`.
+Only after complete params, query, and body admission may the declared canonical card or conversation-session identity be copied from parsed params into that log. This scalar is captured before handler invocation without another grammar check; incomplete admission has no failure identity. Exception objects, text, request data, response data, and schema issues are excluded.
 Fastify request logs retain request ID, method, host, remote address/port, and the other standard request metadata, but serialize the URL only through the path before the first `?`; routing and query parsing still receive the complete URL.
 WebSocket tickets and all other query contents therefore never enter request logs.
 

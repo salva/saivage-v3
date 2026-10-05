@@ -1404,7 +1404,8 @@ Stores narrow that typed error by operation/status and use validated discriminan
 Fixed producer-owned request, response, nested-row, and error objects are strict, while records and explicitly opaque leaves remain open.
 Operation-indexed handler and read-model types are compile-time projections of that same registry, including transformed request values, exact success bodies, declared non-200 bodies, and complete operation ownership; they are not a second contract.
 
-`ContractRuntime` owns each REST registry operation from authentication evaluation through request parsing/transforms, validated canonical card/session failure-identity projection, handler execution, exact status-map response validation, and fixed contract-violation publication.
+`ContractRuntime` owns each REST registry operation from authentication evaluation through request parsing/transforms, handler preparation/execution, exact status-map response validation, and fixed contract-violation publication.
+Params admission owns canonical card/session identity grammar. After complete params, query, and body admission, handler preparation copies only the metadata-declared scalar from parsed params into an allowlisted failure identity before invoking the handler; projection is not another validation phase and incomplete admission has no identity.
 It sends no body schema-less.
 One outer catch maps a throw in any of those pre-send phases to the strict shared unexpected-500 body and an allowlisted operation/phase/validated-identity log.
 Ordinary 400/401 decisions stay typed.
