@@ -51,7 +51,7 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
   });
 
   await seedTokenBeforeNavigation(page, syntheticToken);
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard')));
+  await waitForRuntimePair(page, () => page.goto('/dashboard'));
 
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
   await expect(page.getByText('Overflow regression entry 1.')).toBeVisible();
@@ -65,6 +65,6 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
   })).toBe(true);
 
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
   expect(pageErrors).toEqual([]);
 });

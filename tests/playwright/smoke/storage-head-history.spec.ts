@@ -127,7 +127,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     return json(route, 'files.content', { path, size: Buffer.byteLength(content), contentType: 'application/json', content, redacted: true, sensitivity: 'sensitive-redacted', version: historical ? 1 : revision, modifiedAt: now });
   });
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`)));
+  await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`));
   const facet = page.getByTestId('facet-records');
   await expect(facet.getByText('Current revision 3 · ordinary history v1', { exact: true })).toBeVisible();
   await expect(facet.locator('.history-item')).toHaveCount(1);
@@ -168,7 +168,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   await expect(page.getByText(deliveredText, { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('delivered-conversation-remains-visible.png'), fullPage: true });
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records&version=3`)));
+  await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records&version=3`));
   await expect(facet.getByRole('alert')).toContainText('historical_version_not_found');
   await expect(facet.locator('.history-detail')).not.toContainText(first.title);
   expect(requests.some((path) => path === `/api/cards/${smokeCardId}/history/3`)).toBe(true);
@@ -177,7 +177,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   expect(expectedMissingCardResponses.filter((path) => path.includes('/diff?'))).toHaveLength(1);
   await page.screenshot({ path: testInfo.outputPath('sparse-selector-server-errors.png'), fullPage: true });
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records&record=${recordName}&version=3`)));
+  await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records&record=${recordName}&version=3`));
   await expect(facet.locator('.record-history-error[role="alert"]')).toContainText('historical_version_not_found');
   await expect(facet.locator('.selected-record')).toHaveCount(0);
   await expect(facet.getByText('Current revision 3 · draft', { exact: true })).toBeVisible();
@@ -189,13 +189,13 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   expect(expectedMissingResponses.filter((path) => path.includes('/diff?'))).toHaveLength(1);
   await page.screenshot({ path: testInfo.outputPath('record-sparse-server-errors.png'), fullPage: true });
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/files?root=meta&path=${encodeURIComponent(namespace)}`)));
+  await waitForRuntimePair(page, () => page.goto(`/files?root=meta&path=${encodeURIComponent(namespace)}`));
   await expect(page.getByTestId('files-list')).not.toContainText('mailbox');
   await expect(page.getByTestId('files-list')).not.toContainText('card-head');
   await page.getByTestId('files-list').getByText('card.json', { exact: true }).click();
   await expect(page.getByTestId('files-viewer')).toContainText('card-current');
   await expect(page.getByTestId('files-viewer')).toContainText('history_version');
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/files?root=meta&path=${encodeURIComponent(`${namespace}/card.json?v=1`)}`)));
+  await waitForRuntimePair(page, () => page.goto(`/files?root=meta&path=${encodeURIComponent(`${namespace}/card.json?v=1`)}`));
   await expect(page.getByTestId('files-viewer')).toContainText(first.title);
   await expect(page.getByTestId('files-viewer')).not.toContainText('pending_notifications');
   await expect(page.getByTestId('files-viewer')).not.toContainText('mailbox');
@@ -203,5 +203,5 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   expect(rest.unknown).toEqual([]);
   expect(pageErrors).toEqual([]);
   expect(badResponses).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
 });

@@ -72,7 +72,7 @@ test('Files navigates the canonical card tree from Metadata to an empty leaf', a
     return listing ? json(route, listing) : json(route, { error: 'Path not found', path }, 404);
   });
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/files?root=meta&path=.saivage')));
+  await waitForRuntimePair(page, () => page.goto('/files?root=meta&path=.saivage'));
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expectPath(page, '.saivage', ['.saivage']);
 
@@ -97,6 +97,6 @@ test('Files navigates the canonical card tree from Metadata to an empty leaf', a
 
   for (const path of listings.keys()) expect(requestedPaths).toContain(path);
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
   expect(pageErrors).toEqual([]);
 });

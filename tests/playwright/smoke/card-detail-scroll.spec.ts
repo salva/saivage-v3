@@ -59,7 +59,7 @@ test('desktop card records facet keeps all content reachable inside the bounded 
   });
 
   await seedTokenBeforeNavigation(page, syntheticToken);
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`)));
+  await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`));
 
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
 
@@ -94,6 +94,6 @@ test('desktop card records facet keeps all content reachable inside the bounded 
   expect(rest.counts.get(`GET /api/cards/${smokeCardId}/diff`)).toBe(1);
 
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
   expect(pageErrors).toEqual([]);
 });

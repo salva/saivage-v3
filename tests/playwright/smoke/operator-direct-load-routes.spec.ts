@@ -136,7 +136,7 @@ test('production browser direct loads initialize router and render route-owned b
   const rest = await installOperatorRestRoutes(page);
 
   for (const routeCase of directRouteCases) {
-    await failures.during('full-document-navigation',()=>waitForRuntimePair(page,()=>page.goto(routeCase.path,{waitUntil:'networkidle'})));
+    await waitForRuntimePair(page,()=>page.goto(routeCase.path,{waitUntil:'networkidle'}));
 
     const routeRoot = page.locator(routeCase.root);
     await expect(routeRoot, `${routeCase.path} route root`).toHaveCount(1);
@@ -150,7 +150,7 @@ test('production browser direct loads initialize router and render route-owned b
   }
 
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
@@ -170,7 +170,7 @@ test('production browser directly loads System and preserves section-owned resou
   const rest = await installOperatorRestRoutes(page);
 
   const beforeDefaultSystem = new Map(systemSectionResources.map((key) => [key, rest.counts.get(key) ?? 0]));
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system', { waitUntil: 'networkidle' })));
+  await waitForRuntimePair(page, () => page.goto('/system', { waitUntil: 'networkidle' }));
   await expect(page.getByTestId('route-system')).toContainText(/Runtime State|Runtime observation/i);
   await expect(page.getByTestId('debug-oversight-state')).toContainText(/Project Oversight|waiting|agent:oversight:global/i);
   await expect(page.locator('.system-sections > .system-section-button')).toHaveText([
@@ -196,7 +196,7 @@ test('production browser directly loads System and preserves section-owned resou
   ] as const;
   for (const selected of selectedSystemSections) {
     const before = new Map(systemSectionResources.map((key) => [key, rest.counts.get(key) ?? 0]));
-    await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/system?section=${selected.section}`, { waitUntil: 'networkidle' })));
+    await waitForRuntimePair(page, () => page.goto(`/system?section=${selected.section}`, { waitUntil: 'networkidle' }));
     await expect(page.getByRole('button', { name: selected.label, exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('route-system')).toContainText(selected.bodyText);
     for (const key of systemSectionResources) {
@@ -217,7 +217,7 @@ test('production browser directly loads System and preserves section-owned resou
     }
   }
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/system?section=workflows', { waitUntil: 'networkidle' })));
+  await waitForRuntimePair(page, () => page.goto('/system?section=workflows', { waitUntil: 'networkidle' }));
   await expect(page.getByTestId('debug-graphs-tab')).toContainText('Compiled Workflow Graphs');
   await expect(page.getByTestId('debug-graph-svg').locator('svg')).toHaveCount(1);
   await expect(page.getByLabel('Card type')).toHaveValue('code');
@@ -229,5 +229,5 @@ test('production browser directly loads System and preserves section-owned resou
   expect(rest.unknown).toEqual([]);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
 });

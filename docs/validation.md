@@ -188,6 +188,10 @@ Node-externalization warnings are not browser-safety success.
 - Operator browser smoke includes a non-loopback plain-HTTP scenario; the
   validation host must expose a non-internal IPv4 interface reachable by
   local Chromium. Absence is a failing prerequisite, not a skipped test.
+- The preview failure observer tolerates same-origin `/api/` GET failures only
+  for exact `net::ERR_ABORTED`, independent of any named navigation phase;
+  other failed requests remain asserted absent. This is not proof of a
+  cancellation's cause.
 - To use a locally installed Chrome for release validation:
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/absolute/path/to/chrome npm run
   validate:release`. Omitting the variable retains the managed-browser

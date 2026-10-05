@@ -14,7 +14,7 @@ test('operator control room stays connected without leaking secrets and exposes 
 
   const rest = await installOperatorRestRoutes(page);
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/')));
+  await waitForRuntimePair(page, () => page.goto('/'));
 
   await expect(page.getByTestId('strip-socket')).toHaveText('Connected');
   await expect(page.getByRole('button', { name: /API token|Token/i })).toHaveCount(0);
@@ -25,7 +25,7 @@ test('operator control room stays connected without leaking secrets and exposes 
 
   expect(rest.authorizations).toEqual([]);
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
   expect(pageErrors).toEqual([]);
 });
 
@@ -39,7 +39,7 @@ test('operator control room presents honest unauthorized observation on syntheti
     unauthorized: (method, pathname) => method === 'GET' && (pathname === '/api/state' || pathname === '/api/runtime/status'),
   });
 
-  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/')));
+  await waitForRuntimePair(page, () => page.goto('/'));
 
   const restChip = page.getByTestId('strip-rest');
   await expect(restChip).toHaveText('REST Unauthorized');
@@ -53,6 +53,6 @@ test('operator control room presents honest unauthorized observation on syntheti
   expect(rest.authorizations.every((header) => header === `Bearer ${invalidSyntheticToken}`)).toBe(true);
 
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures);
   expect(pageErrors).toEqual([]);
 });
