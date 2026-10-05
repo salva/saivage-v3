@@ -15,7 +15,6 @@ class InvocationInterruptedError extends Error {
 
 type OwnedInvocationLease = InvocationLease & {
   readonly owner: InvocationLifecycle;
-  readonly turn: number;
   readonly signal: AbortSignal;
 };
 
@@ -60,7 +59,6 @@ export class ActivationOperationTracker {
 
 /** Owns provider-turn admission and all Saivage callbacks caused by those turns. */
 export class InvocationLifecycle {
-  #turn = 0;
   #current: OwnedInvocationLease | null = null;
   #controller: AbortController | null = null;
   readonly #operations = new ContainedOperations(
@@ -76,7 +74,6 @@ export class InvocationLifecycle {
     const invocation = Object.freeze({
       [INVOCATION_LEASE]: true as const,
       owner: this,
-      turn: ++this.#turn,
       signal,
     });
     this.#controller = controller;
