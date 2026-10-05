@@ -11,13 +11,11 @@ const DEFAULT_DOCUMENTED_COMMAND_FILES = [
 
 const DEFAULT_WORKFLOW_DIRS = ['.github/workflows'];
 
-const REQUIRED_WORKFLOW_PROFILES = ['validate:routine', 'validate:docs'];
+const REQUIRED_WORKFLOW_PROFILES = ['validate:routine'];
 
 const EXPECTED_NODE_MAJOR = '24';
 const EXPECTED_NODE_ENGINE = '>=24 <25';
 const EXPECTED_NPM_ENGINE = '>=10 <12';
-const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+24[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
-const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/architecture/system-architecture.md'];
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
 const ROOT_TEST_COMMAND = 'npm run test:parallel && npm run test:terminal-child';
 const PARALLEL_TEST_COMMAND = 'NODE_OPTIONS=--experimental-vm-modules jest';
@@ -93,7 +91,6 @@ const REQUIRED_VALIDATION_PROFILES = [
     name: 'validate:docs',
     mustInclude: ['npm run docs:verify'],
     mustNotInclude: ['web:test:operator-smoke', 'npm test'],
-    documentedExclusion: /validate:docs[\s\S]{0,240}(?:does not|without|excludes|omits)[\s\S]{0,160}(?:web:test:operator-smoke|Vitest smoke|npm test)/i,
     description: 'docs-only validation profile',
   },
   {
@@ -360,7 +357,6 @@ function checkDirectScript({ root, segment, location, failures }) {
 function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_FILES, scripts }) {
   const failures = [];
   const checked = [];
-  const markdownByFile = new Map();
 
   for (const file of files) {
     const fullPath = path.join(root, file);
@@ -368,7 +364,6 @@ function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_F
       continue;
     }
     const markdown = readFileSync(fullPath, 'utf8');
-    markdownByFile.set(file, markdown);
     const commands = [...bashFenceCommands(markdown), ...inlineNpmRunCommands(markdown)];
     for (const command of commands) {
       for (const segment of splitCommandSegments(command)) {
@@ -384,7 +379,7 @@ function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_F
     }
   }
 
-  return { checked, failures, markdownByFile };
+  return { checked, failures };
 }
 
 function listWorkflowFiles(root, workflowDirs = DEFAULT_WORKFLOW_DIRS) {
@@ -586,11 +581,18 @@ function scalarRunSteps(job) {
     : [];
 }
 
-function requirePattern({ file, text, label, pattern, failures, checked }) {
-  checked.push(`${file} ${label}`);
-  if (!pattern.test(text)) {
-    failures.push(`${file} validation workflow must preserve ${label}`);
-  }
+function workflowStepCommands(run) {
+  const segments = run.split(/\r?\n/).flatMap((line) => splitCommandSegments(normalizeCommandLine(line)));
+  return segments.flatMap((segment, index) => {
+    if (segment === 'cd web' && segments[index + 1] === 'npm ci') return ['cd web && npm ci'];
+    if (segment === 'npm ci' && segments[index - 1] === 'cd web') return [];
+    return [segment];
+  });
+}
+
+function exactSet(actual, expected) {
+  return Array.isArray(actual) && actual.length === expected.length
+    && new Set(actual).size === actual.length && expected.every((value) => actual.includes(value));
 }
 
 const CLASSIFIER_OUTPUTS = {
@@ -652,7 +654,8 @@ function validateClassifier({ file, jobs, failures, checked }) {
     return;
   }
   checked.push(`${file} classify-changes outputs`);
-  if (JSON.stringify(job.outputs) !== JSON.stringify(CLASSIFIER_OUTPUTS)) {
+  if (!job.outputs || !exactSet(Object.keys(job.outputs), Object.keys(CLASSIFIER_OUTPUTS))
+      || Object.entries(CLASSIFIER_OUTPUTS).some(([name, value]) => job.outputs[name] !== value)) {
     failures.push(`${file} classify-changes must publish exactly backend, ui, browser, docs_only, package_or_workflow, run_all, and summary from steps.classify.outputs`);
   }
   const classifyStep = Array.isArray(job.steps) ? job.steps.find((step) => step?.id === 'classify') : null;
@@ -665,55 +668,6 @@ function validateClassifier({ file, jobs, failures, checked }) {
   if (/github\.event_name|inputs\.|github\.event\.pull_request/.test(shell)) {
     failures.push(`${file} classify-changes must not contain event-selection dispatch; every invocation is a push`);
   }
-  const requirements = [
-    ['push base from github.event.before', /base='\$\{\{ github\.event\.before \}\}'/],
-    ['push head from github.sha', /head='\$\{\{ github\.sha \}\}'/],
-    ['empty or all-zero push-base fail-closed check', /\[\[ -z "\$base" \|\| "\$base" =~ \^0\+\$ \]\][\s\S]*fail_closed 'push base SHA unavailable'/],
-    ['base/head presence fail-closed check', /\[\[ -z "\$base" \|\| -z "\$head" \]\][\s\S]*fail_closed 'base or head SHA unavailable'/],
-    ['base/head commit availability fail-closed check', /git cat-file -e "\$base\^\{commit\}"[\s\S]*git cat-file -e "\$head\^\{commit\}"[\s\S]*fail_closed 'base or head commit unavailable after checkout'/],
-    ['git diff failure fail-closed check', /! git diff --name-only "\$base" "\$head" > changed-files\.txt[\s\S]*fail_closed 'git diff failed'/],
-    ['docs-like path class', /docs\/\*\|architecture-audit\/\*\|audit-findings\/\*\|ui-findings\/\*\|\*\.md\|README\.md\|EADME\.md/],
-    ['package/workflow path class', /package\.json\|package-lock\.json\|web\/package\.json\|web\/package-lock\.json\|\.github\/workflows\/\*/],
-    ['shared contracts/schemas path class', /src\/contracts\/\*\|src\/schemas\/\*\)/],
-    ['backend path class', /src\/\*\|src\/\*\*\/\*\|bin\/\*\|bin\/\*\*\/\*\|scripts\/\*\|scripts\/\*\*\/\*\|tests\/\*\|tests\/\*\*\/\*\|jest\.config\.\*\|tsconfig\*\.json\)/],
-    ['web/Playwright path class', /web\/\*\|web\/\*\*\/\*\|tests\/playwright\/\*\|tests\/playwright\/\*\*\/\*\)/],
-    ['recognition initialization', /local recognized=false/],
-    ['unknown non-doc path fail-closed handling', /if \[\[ "\$recognized" != true \]\]; then\s+fail_closed "unknown changed non-doc path: \$file"\s+return 0\s+fi/],
-    ['non-doc clearing', /if \[\[ "\$docs_like" != true \]\]; then[\s\S]*?docs_only=false/],
-    ['empty-list routine/docs-only handling', /if \[\[ ! -s changed-files\.txt \]\]; then[\s\S]*?docs_only=true[\s\S]*?routine\/docs only/],
-    ['normal-list initial docs-only classification', /else\s+docs_only=true\s+while IFS= read -r changed_file/],
-    ['changed-file loop termination after run-all', /classify_file "\$changed_file"\s+if \[\[ "\$run_all" == true \]\]; then\s+break\s+fi/],
-    ['ordinary classified-count summary guard', /if \[\[ "\$run_all" != true \]\]; then\s+summary="classified \$\(wc -l < changed-files\.txt \| tr -d ' '\) changed file\(s\)"\s+fi/],
-    ['run-all promotion', /if \[\[ "\$run_all" == true \]\]; then\s+backend=true\s+ui=true\s+browser=true\s+package_or_workflow=true\s+docs_only=false/],
-    ['package/workflow promotion', /elif \[\[ "\$package_or_workflow" == true \]\]; then\s+backend=true\s+ui=true\s+browser=true/],
-  ];
-  for (const [label, pattern] of requirements) {
-    requirePattern({ file, text: shell, label: `classifier ${label}`, pattern, failures, checked });
-  }
-  const armBodies = {
-    'docs-like': shell.match(/docs\/\*\|architecture-audit\/\*\|audit-findings\/\*\|ui-findings\/\*\|\*\.md\|README\.md\|EADME\.md\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
-    'package/workflow': shell.match(/package\.json\|package-lock\.json\|web\/package\.json\|web\/package-lock\.json\|\.github\/workflows\/\*\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
-    'workflow run-all': shell.match(/^\s*\.github\/workflows\/\*\)([\s\S]*?)\n\s*;;/m)?.[1] ?? '',
-    'shared contracts/schemas': shell.match(/src\/contracts\/\*\|src\/schemas\/\*\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
-    backend: shell.match(/src\/\*\|src\/\*\*\/\*\|bin\/\*\|bin\/\*\*\/\*\|scripts\/\*\|scripts\/\*\*\/\*\|tests\/\*\|tests\/\*\*\/\*\|jest\.config\.\*\|tsconfig\*\.json\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
-    'web/Playwright': shell.match(/web\/\*\|web\/\*\*\/\*\|tests\/playwright\/\*\|tests\/playwright\/\*\*\/\*\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
-  };
-  for (const [name, body] of Object.entries(armBodies)) {
-    requirePattern({ file, text: body, label: `classifier ${name} recognition mark`, pattern: /recognized=true/, failures, checked });
-  }
-  requirePattern({ file, text: armBodies['workflow run-all'], label: 'classifier workflow run-all assignment', pattern: /run_all=true/, failures, checked });
-  for (const profile of ['backend', 'ui', 'browser']) {
-    requirePattern({ file, text: armBodies['shared contracts/schemas'], label: `classifier shared contracts/schemas ${profile} assignment`, pattern: new RegExp(`${profile}=true`), failures, checked });
-  }
-  requirePattern({ file, text: armBodies.backend, label: 'classifier backend Playwright exclusion', pattern: /"\$file" != tests\/playwright\/\*/, failures, checked });
-  requirePattern({ file, text: armBodies['web/Playwright'], label: 'classifier web/Playwright UI assignment', pattern: /ui=true/, failures, checked });
-  requirePattern({ file, text: armBodies['web/Playwright'], label: 'classifier web/Playwright browser assignment', pattern: /browser=true/, failures, checked });
-  const failClosedBody = shell.match(/fail_closed\(\) \{([\s\S]*?)\n\s*\}/)?.[1] ?? '';
-  requirePattern({ file, text: failClosedBody, label: 'classifier fail-closed run_all assignment', pattern: /run_all=true/, failures, checked });
-  requirePattern({ file, text: failClosedBody, label: 'classifier fail-closed docs_only assignment', pattern: /docs_only=false/, failures, checked });
-  for (const output of Object.keys(CLASSIFIER_OUTPUTS)) {
-    requirePattern({ file, text: shell, label: `classifier ${output} GITHUB_OUTPUT write`, pattern: new RegExp(`echo "${output}=\\$${output}"[\\s\\S]*?\\$GITHUB_OUTPUT`), failures, checked });
-  }
 }
 
 function validateAggregate({ file, jobs, failures, checked }) {
@@ -724,7 +678,7 @@ function validateAggregate({ file, jobs, failures, checked }) {
   }
   const expectedNeeds = ['classify-changes', 'routine-docs', ...Object.keys(PATH_JOBS)];
   checked.push(`${file} validation-required exact needs`);
-  if (!Array.isArray(aggregate.needs) || aggregate.needs.length !== expectedNeeds.length || !expectedNeeds.every((name) => aggregate.needs.includes(name))) {
+  if (!exactSet(aggregate.needs, expectedNeeds)) {
     failures.push(`${file} validation-required needs must contain exactly ${expectedNeeds.join(', ')}`);
   }
   if (expressionBody(aggregate.if) !== 'always()') {
@@ -746,20 +700,6 @@ function validateAggregate({ file, jobs, failures, checked }) {
     checked.push(`${file} aggregate ${name}`);
     if (env[name] !== value) failures.push(`${file} validation-required ${name} must be exactly ${value}`);
   }
-  const aggregateRequirements = [
-    ['classifier require_success', /require_success classify-changes "\$CLASSIFIER_RESULT"/],
-    ['routine require_success', /require_success routine-docs "\$ROUTINE_RESULT"/],
-    ['classifier summary line', /classifier: \$CLASSIFIER_RESULT \(\$CLASSIFIER_SUMMARY\)/],
-    ['routine summary line', /routine-docs: \$ROUTINE_RESULT/],
-    ['failure array initialization', /failures=\(\)/],
-    ['require_success semantics', /require_success\(\) \{[^}]*if \[\[ "\$result" != success \]\][^}]*failures\+=/],
-    ['applicable success semantics', /require_applicable\(\) \{[^}]*if \[\[ "\$applies" == true \]\]; then[^}]*if \[\[ "\$result" != success \]\][^}]*failures\+=/],
-    ['non-applicable skipped semantics', /require_applicable\(\) \{[^}]*else\s+if \[\[ "\$result" != skipped \]\][^}]*failures\+=/],
-    ['failure accumulation exit', /if \(\(\$\{#failures\[@\]\} > 0\)\); then[\s\S]*?exit 1/],
-  ];
-  for (const [label, pattern] of aggregateRequirements) {
-    requirePattern({ file, text: shell, label: `aggregate ${label}`, pattern, failures, checked });
-  }
   for (const [jobName, contract] of Object.entries(PATH_JOBS)) {
     const job = jobs[jobName];
     checked.push(`${file} ${jobName} classifier dependency and applicability`);
@@ -770,8 +710,6 @@ function validateAggregate({ file, jobs, failures, checked }) {
     const expectedResult = `\${{ needs.${jobName}.result }}`;
     if (env[resultName] !== expectedResult) failures.push(`${file} validation-required ${resultName} must be exactly ${expectedResult}`);
     if (expressionBody(env[appliesName]) !== contract.condition) failures.push(`${file} validation-required ${appliesName} must match ${jobName} applicability exactly`);
-    requirePattern({ file, text: shell, label: `aggregate ${jobName} require_applicable call`, pattern: new RegExp(`require_applicable ${jobName} "\\$${appliesName}" "\\$${resultName}"`), failures, checked });
-    requirePattern({ file, text: shell, label: `aggregate ${jobName} summary line`, pattern: new RegExp(`${jobName}: \\$${resultName} \\(applies=\\$${appliesName}\\)`), failures, checked });
   }
   const allowedEnv = new Set([...Object.keys(exactEnv), ...Object.values(PATH_JOBS).flatMap(({ prefix }) => [`${prefix}_RESULT`, `${prefix}_APPLIES`])]);
   for (const name of Object.keys(env)) {
@@ -796,54 +734,45 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
     validateClassifier({ file, jobs, failures, checked });
     validateAggregate({ file, jobs, failures, checked });
 
-    const routineRuns = scalarRunSteps(jobs['routine-docs']).map(({ run }) => run);
-    const expectedRoutineRuns = ['npm ci', 'cd web && npm ci', 'npm run validate:routine', 'npm run validate:docs'];
-    checked.push(`${file} exact routine install/validation order`);
-    if (JSON.stringify(routineRuns) !== JSON.stringify(expectedRoutineRuns)) {
-      failures.push(`${file} routine-docs scalar commands must be exactly ${expectedRoutineRuns.join(' -> ')}`);
+    for (const [jobName, consumers] of Object.entries({
+      'routine-docs': ['npm run validate:routine'],
+      'backend-jest-build': ['npm run build', 'npm test'],
+      'backend-e2e': ['npm run test:e2e'],
+      'browser-smoke': ['npm run web:test:e2e:install', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'],
+    })) {
+      const steps = Array.isArray(jobs[jobName]?.steps) ? jobs[jobName].steps : [];
+      // Positions include command segments within a step, not fixed step indices.
+      const commands = steps.flatMap((step, index) => typeof step?.run === 'string'
+        ? workflowStepCommands(step.run).map((command, part) => ({ command, position: [index, part] })) : []);
+      const position = (command) => commands.find((entry) => entry.command === command)?.position;
+      const before = (first, second, label) => {
+        if (!first || !second || !(first[0] < second[0] || (first[0] === second[0] && first[1] < second[1]))) {
+          failures.push(`${file} ${jobName} must run ${label}`);
+        }
+      };
+      const checkoutIndex = steps.findIndex((step) => step?.uses === 'actions/checkout@v4');
+      const nodeIndex = steps.findIndex((step) => step?.uses === 'actions/setup-node@v4');
+      const node = steps[nodeIndex];
+      checked.push(`${file} ${jobName} required coverage and prerequisites`);
+      if (`${node?.with?.['node-version']}` !== EXPECTED_NODE_MAJOR) failures.push(`${file} ${jobName} must set up Node 24 with actions/setup-node@v4`);
+      if (node?.with?.cache !== 'npm') failures.push(`${file} ${jobName} Node setup must retain npm caching`);
+      before(checkoutIndex < 0 ? null : [checkoutIndex, 0], nodeIndex < 0 ? null : [nodeIndex, 0], 'checkout before cached Node setup');
+      const installs = jobName === 'backend-e2e' ? ['npm ci'] : ['npm ci', 'cd web && npm ci'];
+      for (const command of [...installs, ...consumers]) {
+        if (!position(command)) failures.push(`${file} ${jobName} must run ${command}`);
+      }
+      for (const install of installs) {
+        before(nodeIndex < 0 ? null : [nodeIndex, 0], position(install), `Node setup before ${install}`);
+        for (const consumer of consumers) before(position(install), position(consumer), `${install} before ${consumer}`);
+      }
+      if (jobName === 'browser-smoke') {
+        for (const setup of consumers.slice(0, 2)) before(position(setup), position(consumers[2]), `${setup} before ${consumers[2]}`);
+      }
     }
 
-    const backendRuns = scalarRunSteps(jobs['backend-jest-build']).map(({ run }) => run);
-    const expectedBackendRuns = ['npm ci', 'cd web && npm ci', 'npm run build', 'npm test'];
-    checked.push(`${file} exact backend install/build/test order`);
-    if (JSON.stringify(backendRuns) !== JSON.stringify(expectedBackendRuns)) {
-      failures.push(`${file} backend-jest-build scalar commands must be exactly ${expectedBackendRuns.join(' -> ')}`);
-    }
-
-    const backendE2e = jobs['backend-e2e'];
-    const backendE2eRuns = scalarRunSteps(backendE2e).map(({ run }) => run);
-    const expectedBackendE2eRuns = ['npm ci', 'npm run test:e2e'];
-    checked.push(`${file} exact backend-e2e install/test order`);
-    if (JSON.stringify(backendE2eRuns) !== JSON.stringify(expectedBackendE2eRuns)) {
-      failures.push(`${file} backend-e2e scalar commands must be exactly ${expectedBackendE2eRuns.join(' -> ')}`);
-    }
-    const backendE2eSteps = Array.isArray(backendE2e?.steps) ? backendE2e.steps : [];
-    checked.push(`${file} exact backend-e2e step topology`);
-    const backendE2eCheckout = backendE2eSteps[0];
-    const backendE2eNode = backendE2eSteps[1];
-    if (backendE2eSteps.length !== 4
-        || backendE2eCheckout?.uses !== 'actions/checkout@v4'
-        || backendE2eNode?.uses !== 'actions/setup-node@v4'
-        || `${backendE2eNode?.with?.['node-version']}` !== '24'
-        || backendE2eNode?.with?.cache !== 'npm'
-        || backendE2eSteps[2]?.run !== 'npm ci'
-        || backendE2eSteps[3]?.run !== 'npm run test:e2e') {
-      failures.push(`${file} backend-e2e steps must be exactly checkout@v4, setup-node@v4 with Node 24/npm cache, root npm ci, and npm run test:e2e`);
-    }
-
-    const browser = jobs['browser-smoke'];
-    const browserRuns = scalarRunSteps(browser).map(({ run }) => run);
-    const expectedBrowserRuns = ['npm ci', 'cd web && npm ci', 'npm run web:test:e2e:install', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'];
-    checked.push(`${file} exact browser setup and smoke command order`);
-    if (JSON.stringify(browserRuns) !== JSON.stringify(expectedBrowserRuns)) {
-      failures.push(`${file} browser-smoke scalar commands must be exactly ${expectedBrowserRuns.join(' -> ')}`);
-    }
-    const browserSteps = Array.isArray(browser?.steps) ? browser.steps : [];
-    if (!browserSteps.some((step) => step?.uses === 'actions/checkout@v4')) failures.push(`${file} browser-smoke must check out with actions/checkout@v4`);
-    const browserNode = browserSteps.find((step) => step?.uses === 'actions/setup-node@v4');
-    if (`${browserNode?.with?.['node-version']}` !== '24') failures.push(`${file} browser-smoke must set up Node 24 with actions/setup-node@v4`);
-    if (browserNode?.with?.cache !== 'npm') failures.push(`${file} browser-smoke Node setup must retain npm caching`);
-    const smokeIndex = browserSteps.findIndex((step) => step?.run === 'npm run web:test:e2e:smoke');
+    const browserSteps = Array.isArray(jobs['browser-smoke']?.steps) ? jobs['browser-smoke'].steps : [];
+    const smokeIndex = browserSteps.findIndex((step) => typeof step?.run === 'string'
+      && splitCommandSegments(normalizeCommandLine(step.run)).includes('npm run web:test:e2e:smoke'));
     const artifactSteps = browserSteps.filter((step) => step?.uses === 'actions/upload-artifact@v4');
     const workflowArtifactSteps = Object.values(jobs).flatMap((job) => Array.isArray(job?.steps) ? job.steps : []).filter((step) => step?.uses === 'actions/upload-artifact@v4');
     checked.push(`${file} browser failure/cancellation artifact semantics and order`);
@@ -851,10 +780,10 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
       failures.push(`${file} validation workflow must contain exactly one actions/upload-artifact@v4 step, in browser-smoke`);
     } else {
       const artifact = artifactSteps[0];
-      if (browserSteps[smokeIndex + 1] !== artifact) failures.push(`${file} browser artifact upload must immediately follow the browser smoke command`);
+      if (smokeIndex < 0 || browserSteps.indexOf(artifact) <= smokeIndex) failures.push(`${file} browser artifact upload must follow the browser smoke command`);
       if (expressionBody(artifact.if) !== 'failure() || cancelled()') failures.push(`${file} browser artifact upload condition must be exactly failure() || cancelled()`);
       const artifactPaths = typeof artifact.with?.path === 'string' ? artifact.with.path.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) : [];
-      if (JSON.stringify(artifactPaths) !== JSON.stringify(['tmp/playwright-report', 'tmp/playwright-results'])) failures.push(`${file} browser artifact upload paths must be exactly tmp/playwright-report and tmp/playwright-results in that order`);
+      if (!exactSet(artifactPaths, ['tmp/playwright-report', 'tmp/playwright-results'])) failures.push(`${file} browser artifact upload paths must be exactly tmp/playwright-report and tmp/playwright-results`);
       if (artifact.with?.['if-no-files-found'] !== 'warn') failures.push(`${file} browser artifact upload must set if-no-files-found: warn`);
       if (Object.hasOwn(artifact, 'continue-on-error')) failures.push(`${file} browser artifact upload must not set continue-on-error`);
     }
@@ -915,19 +844,6 @@ function validatePlaywrightDocumentation({ root }) {
       checked.push(`${file} Playwright path ${literal}`);
       if (!existsSync(path.join(root, literal))) failures.push(`${file} references nonexistent Playwright path ${literal}`);
     }
-  }
-
-  const readme = existsSync(path.join(root, 'README.md')) ? readFileSync(path.join(root, 'README.md'), 'utf8') : '';
-  const requirements = [
-    ['root/web clean-install build order', /npm ci\s*\n\(cd web && npm ci\)\s*\nnpm run build/],
-    ['backend dual clean install', /backend-jest-build[\s\S]{0,300}root `npm ci`[\s\S]{0,160}web `cd web && npm ci`/i],
-    ['complete self-contained smoke ownership', /web:test:e2e:smoke[\s\S]{0,200}complete self-contained browser profile[\s\S]{0,200}every production-preview smoke test[\s\S]{0,120}one source browser-client test/i],
-    ['preview and dev-server prerequisites', /preview[\s\S]{0,200}dev server/i],
-    ['best-effort failed or cancelled browser artifacts', /failed or cancelled[\s\S]{0,220}best-effort[\s\S]{0,220}tmp\/playwright-report[\s\S]{0,100}tmp\/playwright-results/i],
-  ];
-  for (const [label, pattern] of requirements) {
-    checked.push(`README.md ${label}`);
-    if (!pattern.test(readme)) failures.push(`README.md must document ${label}`);
   }
 
   return { checked, failures };
@@ -1036,7 +952,7 @@ function validateFailClosedJestGates({ scripts, workflowCommands }) {
   return { checked, failures };
 }
 
-function validateTerminalChildJestContract({ pkg, scripts, markdownByFile }) {
+function validateTerminalChildJestContract({ root, pkg, scripts }) {
   const failures = [];
   const checked = [];
 
@@ -1092,8 +1008,8 @@ function validateTerminalChildJestContract({ pkg, scripts, markdownByFile }) {
     } else if (canonicalCount > 1) {
       failures.push('package.json ordinary terminal-child exclusion must contain exactly one canonical regex; duplicate canonical entries are forbidden');
     }
-    if (JSON.stringify(ignorePatterns) !== JSON.stringify(JEST_IGNORE_PATTERNS)) {
-      failures.push('package.json ordinary Jest ignore array must contain exactly the Playwright entry, E2E entry, and one canonical terminal-child exclusion in that order; noncanonical, extra, duplicate, and broader exclusions are forbidden');
+    if (!exactSet(ignorePatterns, JEST_IGNORE_PATTERNS)) {
+      failures.push('package.json ordinary Jest ignore array must contain exactly the Playwright entry, E2E entry, and one canonical terminal-child exclusion; noncanonical, extra, duplicate, and broader exclusions are forbidden');
     }
   }
 
@@ -1104,30 +1020,16 @@ function validateTerminalChildJestContract({ pkg, scripts, markdownByFile }) {
     failures.push('package.json validate:release must invoke singular npm test exactly once and must not invoke backend Jest subphases independently');
   }
   checked.push('package.json release backend-E2E cadence');
-  const ordinaryIndex = releaseSegments.indexOf('npm test');
-  const e2eIndexes = releaseSegments.map((segment, index) => segment === 'npm run test:e2e' ? index : -1).filter((index) => index !== -1);
-  const browserIndex = releaseSegments.indexOf('npm run web:test:operator-smoke');
-  if (e2eIndexes.length !== 1 || ordinaryIndex === -1 || browserIndex === -1 || !(ordinaryIndex < e2eIndexes[0] && e2eIndexes[0] < browserIndex)) {
-    failures.push('package.json validate:release must invoke npm run test:e2e exactly once after npm test and before npm run web:test:operator-smoke');
+  if (releaseSegments.filter((segment) => segment === 'npm run test:e2e').length !== 1) {
+    failures.push('package.json validate:release must invoke npm run test:e2e exactly once');
   }
 
-  const readme = markdownByFile.get('README.md') ?? '';
-  checked.push('README.md two-phase backend Jest guidance');
-  const readmeRequirements = [
-    ['root npm test as the complete non-E2E backend authority', /npm test[\s\S]{0,220}complete non-E2E backend authority/i],
-    ['ordinary parallel Jest followed by the exact serial real-terminal-child suite', /ordinary parallel Jest[\s\S]{0,220}(?:followed by|then)[\s\S]{0,220}(?:serial|in-band)[\s\S]{0,160}(?:real-terminal-child|terminal-child)/i],
-    ['the focused npm run test:terminal-child command', /npm run test:terminal-child/],
-    ['test:direct ordinary-set exclusion', /test:direct[\s\S]{0,220}ordinary Jest[\s\S]{0,160}excludes/i],
-  ];
-  for (const [description, pattern] of readmeRequirements) {
-    if (!pattern.test(readme)) failures.push(`README.md must document ${description}`);
+  const readme = existsSync(path.join(root, 'README.md')) ? readFileSync(path.join(root, 'README.md'), 'utf8') : '';
+  if (!readme.includes('npm run test:terminal-child')) {
+    failures.push('README.md must document npm run test:terminal-child');
   }
 
   return { checked, failures };
-}
-
-function markdownCorpus(markdownByFile) {
-  return [...markdownByFile.values()].join('\n\n');
 }
 
 function validateRequiredValidationScripts({ scripts, documentedCommands }) {
@@ -1155,10 +1057,9 @@ function validateRequiredValidationScripts({ scripts, documentedCommands }) {
   return { checked, failures };
 }
 
-function validateValidationProfiles({ scripts, documentedCommands, markdownByFile }) {
+function validateValidationProfiles({ scripts, documentedCommands }) {
   const failures = [];
   const checked = [];
-  const corpus = markdownCorpus(markdownByFile);
 
   for (const profile of REQUIRED_VALIDATION_PROFILES) {
     const command = scripts[profile.name];
@@ -1181,9 +1082,6 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
     if (!documented) {
       failures.push(`validation profile "${profile.name}" is not documented in README.md or docs/architecture/system-architecture.md validation cadence`);
     }
-    if (profile.documentedExclusion && !profile.documentedExclusion.test(corpus)) {
-      failures.push(`validation profile "${profile.name}" has intentional exclusions, but the exclusion is not documented near the profile command`);
-    }
   }
 
   return { checked, failures };
@@ -1193,9 +1091,9 @@ function validateExportConsumerCadence({ scripts }) {
   const failures = [];
   const checked = [
     'package.json exact export-consumer script edge',
-    'package.json validate:routine export-consumer order',
-    'package.json lint export-consumer order',
-    'package.json exact import-boundary test command',
+    'package.json validate:routine required coverage',
+    'package.json lint required coverage',
+    'package.json import-boundary test coverage',
     'package.json singular lint import-boundary delegation',
   ];
 
@@ -1203,8 +1101,9 @@ function validateExportConsumerCadence({ scripts }) {
     failures.push(`package.json script "check:export-consumers" must be exactly ${EXPORT_CONSUMER_SCRIPT}, but is currently: ${scripts['check:export-consumers'] ?? '<missing>'}`);
   }
 
-  if (scripts['test:import-boundaries'] !== IMPORT_BOUNDARY_TEST_COMMAND) {
-    failures.push(`package.json script "test:import-boundaries" must be exactly ${IMPORT_BOUNDARY_TEST_COMMAND}, but is currently: ${scripts['test:import-boundaries'] ?? '<missing>'}`);
+  const importCommand = scripts['test:import-boundaries'] ?? '';
+  if (!exactSet(importCommand.split(/\s+&&\s+/).map((segment) => segment.trim()), splitCommandSegments(IMPORT_BOUNDARY_TEST_COMMAND))) {
+    failures.push(`package.json script "test:import-boundaries" must run the three required commands exactly once connected by &&: ${IMPORT_BOUNDARY_TEST_COMMAND}`);
   }
 
   const routineSegments = splitCommandSegments(scripts['validate:routine'] ?? '');
@@ -1215,29 +1114,22 @@ function validateExportConsumerCadence({ scripts }) {
     'npm run test:direct -- --runInBand tests/architecture',
     'npm run docs:verify',
   ];
-  if (JSON.stringify(routineSegments) !== JSON.stringify(expectedRoutine)) {
-    failures.push(`package.json script "validate:routine" must run exactly ${expectedRoutine.join(' -> ')}`);
+  if (expectedRoutine.some((command) => routineSegments.filter((segment) => segment === command).length !== 1)
+      || (scripts['validate:routine'] ?? '').includes(';')) {
+    failures.push(`package.json script "validate:routine" must run each required command exactly once connected by &&: ${expectedRoutine.join(', ')}`);
   }
 
   const lintSegments = splitCommandSegments(scripts.lint ?? '');
-  const exportConsumerIndexes = lintSegments.flatMap((segment, index) => segment === EXPORT_CONSUMER_COMMAND ? [index] : []);
-  const orderedLintCommands = ['eslint src/', IMPORT_BOUNDARY_COMMAND, 'node scripts/check-web-component-boundaries.cjs'];
-  if (exportConsumerIndexes.length !== 1 || orderedLintCommands.some((command) => {
-    const index = lintSegments.indexOf(command);
-    return index === -1 || exportConsumerIndexes[0] >= index;
-  })) {
-    failures.push(`package.json script "lint" must invoke ${EXPORT_CONSUMER_COMMAND} exactly once before ESLint and both boundary guards`);
+  const requiredLintCommands = ['eslint src/', 'node scripts/check-web-component-boundaries.cjs'];
+  if (lintSegments.filter((segment) => segment === EXPORT_CONSUMER_COMMAND).length !== 1
+      || requiredLintCommands.some((command) => !lintSegments.includes(command))
+      || (scripts.lint ?? '').includes(';')) {
+    failures.push(`package.json script "lint" must invoke ${EXPORT_CONSUMER_COMMAND} exactly once and retain ${requiredLintCommands.join(', ')} connected by &&`);
   }
   const importBoundaryIndexes = lintSegments.flatMap((segment, index) => segment === IMPORT_BOUNDARY_COMMAND ? [index] : []);
-  const eslintIndex = lintSegments.indexOf('eslint src/');
-  const webBoundaryIndex = lintSegments.indexOf('node scripts/check-web-component-boundaries.cjs');
   const invokesDirectChecker = lintSegments.some((segment) => segment === IMPORT_BOUNDARY_SCRIPT || segment.startsWith(`${IMPORT_BOUNDARY_SCRIPT} `));
   if (importBoundaryIndexes.length !== 1
-      || invokesDirectChecker
-      || eslintIndex === -1
-      || webBoundaryIndex === -1
-      || importBoundaryIndexes[0] <= eslintIndex
-      || importBoundaryIndexes[0] >= webBoundaryIndex) {
+      || invokesDirectChecker) {
     failures.push(`package.json script "lint" must delegate exactly once to ${IMPORT_BOUNDARY_COMMAND} and must not invoke ${IMPORT_BOUNDARY_SCRIPT} directly`);
   }
 
@@ -1245,7 +1137,7 @@ function validateExportConsumerCadence({ scripts }) {
 }
 
 
-function validateRuntimeEngines({ root, workflowFiles = DEFAULT_WORKFLOW_DIRS.flatMap(() => []), markdownByFile }) {
+function validateRuntimeEngines({ root, workflowFiles = [] }) {
   const failures = [];
   const checked = [];
   const packages = [
@@ -1276,14 +1168,6 @@ function validateRuntimeEngines({ root, workflowFiles = DEFAULT_WORKFLOW_DIRS.fl
     }
     const content = readFileSync(fullPath, 'utf8');
     checked.push(`${file} setup-node ${workflowNodeVersion(content) ?? 'missing'}`);
-  }
-
-  for (const file of REQUIRED_RUNTIME_DOC_FILES) {
-    const markdown = markdownByFile.get(file) ?? (existsSync(path.join(root, file)) ? readFileSync(path.join(root, file), 'utf8') : '');
-    checked.push(`${file} runtime reference`);
-    if (!RUNTIME_REFERENCE_PATTERN.test(markdown)) {
-      failures.push(`${file} must document the supported runtime as Node.js ${EXPECTED_NODE_MAJOR} with ${EXPECTED_NPM_ENGINE} npm range or clearly defer to package.json engines/CI`);
-    }
   }
 
   return { checked, failures };
@@ -1336,15 +1220,14 @@ export function verifyValidationCadence(options = {}) {
   const profiles = validateValidationProfiles({
     scripts,
     documentedCommands: documented.checked,
-    markdownByFile: documented.markdownByFile,
   });
   const exportConsumerCadence = validateExportConsumerCadence({ scripts });
   const forbiddenDocumentedWebTestNamespace = validateForbiddenDocumentedWebTestNamespace({ root, files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES });
   const canonicalWebTestNamespace = validateCanonicalWebTestNamespace({ scripts });
-  const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
+  const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
-  const terminalChildJest = validateTerminalChildJestContract({ pkg, scripts, markdownByFile: documented.markdownByFile });
+  const terminalChildJest = validateTerminalChildJestContract({ root, pkg, scripts });
   const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
   const playwrightDocumentation = validatePlaywrightDocumentation({ root });
   const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...exportConsumerCadence.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];

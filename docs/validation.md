@@ -104,24 +104,27 @@ and `node scripts/check-import-boundaries.cjs`. Admission does not prove cycle
 freedom or complete import-syntax coverage; routed value imports also need
 focused execution coverage of their actual semantic owners.
 
-## Lint profile ordering
+## Profile coverage and prerequisites
 
 Both root and web dependencies must be installed before `npm run lint` or
 `npm run validate:routine`; both installs retain development dependencies so
-the validation toolchain remains available. The lint profile runs the
+the validation toolchain remains available. The lint profile currently runs the
 export-consumer guard, stamp-producer guard, ESLint, backend import-boundary
 checks, web-component boundary check, reachable-browser import guard
 (`node scripts/check-web-browser-imports.cjs`), then the `npm run format`
-Prettier check, in that order. The formatter checks `src/` excluding
+Prettier check. This is the current script sequence, not a required relative
+order for independent checks; the cadence guard enforces required coverage and
+fail-propagating composition. The formatter checks `src/` excluding
 `src/config/system-templates/**/prompts/**` using the existing Prettier settings
 and does not rewrite files. Shipped model-facing prompt bytes, including whitespace,
 are authored deliberately rather than automatically formatted; build retains
 packaging parity, source/package byte comparison, and compiled composition checks.
 The existing `lint-guards` CI job runs this lint profile and is enforced by
 `validation-required` under its existing applies/skipped semantics.
-`validate:routine` runs typecheck, export-consumer guard,
+`validate:routine` includes typecheck, export-consumer guard,
 canonical-persistence drift, `npm run test:direct -- --runInBand tests/architecture`,
-then `docs:verify`, in that exact machine-enforced order. This is limited
+and `docs:verify`, each once. Their independent relative order is not a cadence
+contract. This is limited
 architecture Jest coverage, not the complete backend suite or lint; export and
 boundary refactors still require the focused semantic checks and full `npm test`.
 A fresh dual `npm ci` is required for CI setup, not before every ordinary local
@@ -134,7 +137,9 @@ The push-only `master` workflow in
 least-privilege, secret-free Node 24 jobs and cancels superseded runs.
 
 - `routine-docs` (always run) clean-installs root and web dependencies, then
-  runs `validate:routine` and `validate:docs`.
+  runs `validate:routine` once. Its included `docs:verify` is the job's sole
+  docs gate; there is no separate `validate:docs` invocation. The local
+  `validate:docs` profile remains available.
 - Fail-closed path classification gates the remaining jobs: `backend-jest-build`
   (dual clean install, `npm run build`, non-E2E Jest), the independent
   `backend-e2e` (root clean install, `npm run test:e2e`; no web install,
@@ -145,8 +150,17 @@ least-privilege, secret-free Node 24 jobs and cancels superseded runs.
 - `docs-pages-build`/`docs-pages-deploy` build this documentation site with
   its Pages base and publish it to GitHub Pages after `routine-docs`
   succeeds; deployment is intentionally outside the `validation-required`
-  aggregate. The same build output is served by every running instance at
-  `/docs/` (guarded by `npm run test:static-serving`).
+  aggregate. Pages and instance `/docs/` use separate builds from the same
+  documentation sources: Pages retains `DOCS_BASE=/saivage-v3/`, while the
+  instance build uses `/docs/` (guarded by `npm run test:static-serving`).
+
+The cadence guard requires command coverage and real prerequisite relations:
+checkout precedes cached Node setup, Node 24 setup precedes installs, and root
+and web installs precede their routine, build, or browser consumers. Backend E2E
+requires the root install. Chromium and host browser dependencies are installed
+before browser smoke, and artifact upload follows smoke. Independent installs
+and browser setup operations need no relative order; harmless extra steps do
+not change this contract.
 
 ## Browser and E2E profiles
 

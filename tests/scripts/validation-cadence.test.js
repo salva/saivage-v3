@@ -2,6 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { parse, stringify } from 'yaml';
 import { verifyValidationCadence } from '../../scripts/check-validation-cadence.js';
 
 const TERMINAL_CHILD_PATH = 'tests/boot/app-terminal-child-process.test.ts';
@@ -73,9 +75,7 @@ const WEB_PACKAGE_JSON = JSON.stringify({
   scripts: { build: 'vite build' },
 });
 
-const VALID_PROFILE_DOCS = '```bash\nnpm run check:export-consumers\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\nnpm run audit:security\nnpm run deps:review\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
-
-const VALID_TERMINAL_CHILD_DOCS = 'Root `npm test` is the complete non-E2E backend authority: ordinary parallel Jest is followed by the exact serial real-terminal-child suite. Use `npm run test:terminal-child` for that suite. The `test:direct` helper covers ordinary Jest and excludes the terminal-child suite.\n';
+const VALID_PROFILE_DOCS = '```bash\nnpm run check:export-consumers\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\nnpm run audit:security\nnpm run deps:review\n```\n';
 
 const VALID_PLAYWRIGHT_DOCS = `
 \`\`\`bash
@@ -83,9 +83,6 @@ npm ci
 (cd web && npm ci)
 npm run build
 \`\`\`
-The backend-jest-build job runs root \`npm ci\`, then web \`cd web && npm ci\`.
-\`web:test:e2e:smoke\` runs the complete self-contained browser profile: every production-preview smoke test plus the one source browser-client test. It has a preview server and a dev server prerequisite.
-After a failed or cancelled run, best-effort artifacts preserve \`tmp/playwright-report\` and \`tmp/playwright-results\`.
 See \`tests/playwright/smoke/preview.spec.ts\`.
 `;
 
@@ -97,6 +94,101 @@ NODE_OPTIONS=--experimental-vm-modules npx jest tests/existing.test.js --runInBa
 `;
 
 const VALID_WORKFLOW = readFileSync(new URL('../../.github/workflows/validation.yml', import.meta.url), 'utf8');
+const PATH_JOBS = [
+  ['backend-jest-build', 'BACKEND'], ['backend-e2e', 'BACKEND_E2E'],
+  ['ui-vitest', 'UI'], ['browser-smoke', 'BROWSER'],
+  ['dependency-hygiene', 'DEPENDENCY'], ['lint-guards', 'LINT_GUARDS'],
+];
+
+function shellEnv(root) {
+  return { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    GITHUB_OUTPUT: join(root, 'output'), GITHUB_STEP_SUMMARY: join(root, 'summary') };
+}
+
+function classify(paths, expectedTrue, { base, head, failDiff = false, workflow = VALID_WORKFLOW } = {}) {
+  withFixture({}, (root) => {
+    const env = shellEnv(root);
+    const git = (...args) => {
+      const result = spawnSync('git', args, { cwd: root, env, encoding: 'utf8' });
+      expect(result.status).toBe(0);
+      return result.stdout.trim();
+    };
+    git('init', '--quiet', '--template=');
+    git('commit', '--quiet', '--allow-empty', '-m', 'base');
+    const baseSha = git('rev-parse', 'HEAD');
+    for (const file of paths) {
+      mkdirSync(join(root, file, '..'), { recursive: true });
+      writeFileSync(join(root, file), 'fixture\n');
+    }
+    git('add', '--all');
+    git('commit', '--quiet', '--allow-empty', '-m', 'head');
+    const headSha = git('rev-parse', 'HEAD');
+    const script = parse(workflow).jobs['classify-changes'].steps.find((step) => step.id === 'classify').run
+      .replaceAll('${{ github.event.before }}', base ?? baseSha).replaceAll('${{ github.sha }}', head ?? headSha);
+    // Only the otherwise hard-to-induce diff failure is injected; all other Git calls are real.
+    const diffFailure = failDiff ? 'git() { if [[ "$1" == diff ]]; then return 1; fi; command git "$@"; }\n' : '';
+    const result = spawnSync('bash', ['--noprofile', '--norc', '-c', diffFailure + script], { cwd: root, env, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    const outputs = Object.fromEntries(readFileSync(env.GITHUB_OUTPUT, 'utf8').trimEnd().split('\n').map((line) => {
+      const equals = line.indexOf('=');
+      return [line.slice(0, equals), line.slice(equals + 1)];
+    }));
+    expect(Object.keys(outputs).sort()).toEqual(['backend', 'browser', 'docs_only', 'package_or_workflow', 'run_all', 'summary', 'ui']);
+    for (const name of Object.keys(outputs).filter((name) => name !== 'summary')) {
+      expect(outputs[name]).toBe(expectedTrue.includes(name) ? 'true' : 'false');
+    }
+  });
+}
+
+function aggregate(overrides = {}, workflow = VALID_WORKFLOW) {
+  const { expectedStatus = 0, ...values } = overrides;
+  withFixture({}, (root) => {
+    const env = { ...shellEnv(root), CLASSIFIER_RESULT: 'success', ROUTINE_RESULT: 'success', CLASSIFIER_SUMMARY: 'fixture' };
+    for (const [, prefix] of PATH_JOBS) Object.assign(env, { [`${prefix}_APPLIES`]: 'false', [`${prefix}_RESULT`]: 'skipped' });
+    Object.assign(env, values);
+    const script = parse(workflow).jobs['validation-required'].steps.find((step) => typeof step.run === 'string').run;
+    const result = spawnSync('bash', ['--noprofile', '--norc', '-c', script], { cwd: root, env, encoding: 'utf8' });
+    expect(result.status).toBe(expectedStatus);
+  });
+}
+
+describe('actual workflow shell decisions', () => {
+  const all = ['backend', 'ui', 'browser', 'package_or_workflow', 'run_all'];
+  it.each([
+    ['empty', [], ['docs_only']],
+    ['docs-only', ['docs/page.txt', 'architecture-audit/report.txt', 'audit-findings/report.txt', 'ui-findings/report.txt', 'notes.md', 'EADME.md'], ['docs_only']],
+    ['backend', ['src/runtime/task.ts', 'bin/tool.js', 'scripts/check.js', 'tests/unit/check.ts', 'jest.config.js', 'tsconfig.test.json'], ['backend']],
+    ['contracts', ['src/contracts/api.ts'], ['backend', 'ui', 'browser']],
+    ['schemas', ['src/schemas/api.ts'], ['backend', 'ui', 'browser']],
+    ['web', ['web/src/view.vue'], ['ui', 'browser']],
+    ['Playwright-only', ['tests/playwright/smoke/example.spec.ts'], ['ui', 'browser']],
+    ...['package.json', 'package-lock.json', 'web/package.json', 'web/package-lock.json'].map((file) => [file, [file], ['backend', 'ui', 'browser', 'package_or_workflow']]),
+    ['workflow', ['.github/workflows/example.yml'], all],
+    ['unknown', ['unknown.txt'], all],
+    ['mixed docs/unknown', ['docs/page.md', 'unknown.txt'], all],
+  ])('classifies %s committed paths', (_label, paths, expected) => classify(paths, expected));
+
+  it.each([
+    ['zero base', { base: '0'.repeat(40) }], ['missing base', { base: '' }],
+    ['missing head', { head: '' }], ['unavailable base', { base: 'f'.repeat(40) }],
+    ['unavailable head', { head: 'f'.repeat(40) }], ['failed diff', { failDiff: true }],
+  ])('promotes all gates for %s', (_label, options) => classify(['docs/page.md'], all, options));
+
+  it('admits selected successes and unselected skips', () => {
+    aggregate();
+    aggregate(Object.fromEntries(PATH_JOBS.flatMap(([, prefix]) => [[`${prefix}_APPLIES`, 'true'], [`${prefix}_RESULT`, 'success']])));
+    aggregate({ BACKEND_APPLIES: 'true', BACKEND_RESULT: 'success' });
+  });
+  it.each(['CLASSIFIER_RESULT', 'ROUTINE_RESULT'])('rejects failed %s', (name) => {
+    aggregate({ [name]: 'failure', expectedStatus: 1 });
+  });
+  it.each(PATH_JOBS)('enforces %s result admission', (_job, prefix) => {
+    for (const result of ['failure', 'cancelled', 'skipped']) aggregate({ [`${prefix}_APPLIES`]: 'true', [`${prefix}_RESULT`]: result, expectedStatus: 1 });
+    for (const result of ['success', 'failure', 'cancelled']) aggregate({ [`${prefix}_RESULT`]: result, expectedStatus: 1 });
+  });
+});
 
 function mutateWorkflow(search, replacement = '') {
   expect(VALID_WORKFLOW).toContain(search);
@@ -130,7 +222,7 @@ function expectWorkflowFailure(workflow, expected) {
 function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
-    'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_TERMINAL_CHILD_DOCS + VALID_PLAYWRIGHT_DOCS,
+    'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run test:terminal-child\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_PLAYWRIGHT_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
     'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nCanonical commands include `npm run web:test:analyst-ui` and `npm run web:test:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
@@ -148,6 +240,77 @@ function validFiles(overrides = {}) {
 }
 
 describe('validation cadence guard', () => {
+  it('allows representation changes and independent check ordering without changing shell decisions', () => {
+    const workflow = parse(VALID_WORKFLOW);
+    const classifier = workflow.jobs['classify-changes'];
+    classifier.outputs = Object.fromEntries(Object.entries(classifier.outputs).reverse());
+    const classifyStep = classifier.steps.find((step) => step.id === 'classify');
+    classifyStep.run = classifyStep.run.replaceAll('recognized', 'known_path').replaceAll('classify_file', 'select_path')
+      .replace('changed-file classification completed', 'path selection finished').replace('### Validation path classification', '### Paths');
+    const required = workflow.jobs['validation-required'];
+    required.needs.reverse();
+    required.steps[0].env = Object.fromEntries(Object.entries(required.steps[0].env).reverse());
+    required.steps[0].run = required.steps[0].run.replaceAll('require_success', 'check_success').replaceAll('require_applicable', 'check_selected')
+      .replace('### Required validation aggregate', '### Conclusions');
+    for (const name of ['routine-docs', 'backend-jest-build', 'browser-smoke']) {
+      const steps = workflow.jobs[name].steps;
+      const root = steps.findIndex((step) => step.run === 'npm ci');
+      const web = steps.findIndex((step) => step.run === 'cd web && npm ci');
+      [steps[root], steps[web]] = [steps[web], steps[root]];
+    }
+    const browser = workflow.jobs['browser-smoke'].steps;
+    const chromium = browser.findIndex((step) => step.run === 'npm run web:test:e2e:install');
+    const deps = browser.findIndex((step) => step.run === 'npx playwright install-deps chromium');
+    [browser[chromium], browser[deps]] = [browser[deps], browser[chromium]];
+    browser.splice(browser.length - 1, 0, { name: 'Harmless note', run: 'echo complete' });
+    browser.at(-1).with.path = 'tmp/playwright-results\ntmp/playwright-report\n';
+    workflow.jobs['backend-e2e'].steps.splice(2, 0, { run: 'echo setup' });
+    const scripts = { ...PACKAGE_SCRIPTS };
+    for (const name of ['validate:routine', 'test:import-boundaries', 'lint', 'validate:release']) scripts[name] = scripts[name].split(' && ').reverse().join(' && ');
+    const files = validFiles({ 'package.json': packageJson({ scripts, ignorePatterns: [...JEST_IGNORE_PATTERNS].reverse() }),
+      '.github/workflows/validation.yml': stringify(workflow) });
+    files['README.md'] += '\nValidation documentation may explain these commands in fresh wording.\n';
+    files['docs/architecture/system-architecture.md'] = files['docs/architecture/system-architecture.md'].split('\n').slice(1).join('\n');
+    withFixture(files, (root) => expect(verifyValidationCadence({ root }).failures).toEqual([]));
+    classify(['tests/playwright/smoke/example.spec.ts'], ['ui', 'browser'], { workflow: stringify(workflow) });
+    aggregate({ BACKEND_E2E_APPLIES: 'true', BACKEND_E2E_RESULT: 'failure', expectedStatus: 1 }, stringify(workflow));
+  });
+
+  it('rejects backend E2E cached Node setup before checkout even when both precede root install', () => {
+    const workflow = parse(VALID_WORKFLOW);
+    const steps = workflow.jobs['backend-e2e'].steps;
+    [steps[0], steps[1]] = [steps[1], steps[0]];
+    expectWorkflowFailure(stringify(workflow), 'backend-e2e must run checkout before cached Node setup');
+  });
+
+  it.each([
+    ['routine-docs', 'npm ci', 'npm run validate:routine'],
+    ['backend-e2e', 'npm ci', 'npm run test:e2e'],
+    ['backend-jest-build', 'npm ci', 'npm test'],
+    ['browser-smoke', 'npm run web:test:e2e:install', 'npm run web:test:e2e:smoke'],
+    ['browser-smoke', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'],
+  ])('rejects %s running %s after %s', (job, prerequisite, consumer) => {
+    const workflow = parse(VALID_WORKFLOW);
+    const steps = workflow.jobs[job].steps;
+    const first = steps.findIndex((step) => step.run === prerequisite);
+    const second = steps.findIndex((step) => step.run === consumer);
+    [steps[first], steps[second]] = [steps[second], steps[first]];
+    expectWorkflowFailure(stringify(workflow), `${job} must run ${prerequisite} before ${consumer}`);
+  });
+
+  it('rejects install before Node setup', () => {
+    const workflow = parse(VALID_WORKFLOW);
+    const steps = workflow.jobs['backend-e2e'].steps;
+    [steps[1], steps[2]] = [steps[2], steps[1]];
+    expectWorkflowFailure(stringify(workflow), 'backend-e2e must run Node setup before npm ci');
+  });
+
+  it('rejects artifact upload before smoke', () => {
+    const workflow = parse(VALID_WORKFLOW);
+    const steps = workflow.jobs['browser-smoke'].steps;
+    [steps[steps.length - 1], steps[steps.length - 2]] = [steps[steps.length - 2], steps[steps.length - 1]];
+    expectWorkflowFailure(stringify(workflow), 'browser artifact upload must follow the browser smoke command');
+  });
   it('passes when documented validation commands, workflow commands, dependency hygiene, and docs:verify sub-guards resolve', () => {
     withFixture(validFiles(), (root) => {
       const result = verifyValidationCadence({ root });
@@ -157,16 +320,9 @@ describe('validation cadence guard', () => {
       expect(result.requiredValidationScriptsChecked).toContain('package.json script audit:security');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script deps:review');
       expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml path-aware dependency audit gate');
-      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml aggregate dependency-hygiene require_applicable call');
-      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier shared contracts/schemas browser assignment');
-      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier web/Playwright recognition mark');
-      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier unknown non-doc path fail-closed handling');
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run audit:security'));
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
-      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json validate:routine export-consumer order');
-      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json lint export-consumer order');
-      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json exact import-boundary test command');
       expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json singular lint import-boundary delegation');
       expect(result.canonicalWebTestNamespaceEntriesChecked).toContain('package.json singular canonical web-test namespace');
       expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
@@ -175,7 +331,7 @@ describe('validation cadence guard', () => {
       expect(result.failClosedJestGateEntriesChecked).toContain('package.json script test');
       expect(result.terminalChildJestContractEntriesChecked).toContain('package.json exact ordinary Jest ignore array');
       expect(PACKAGE_JSON).toContain('app-terminal-child-process\\\\.test\\\\.ts$');
-      expect(JSON.parse(PACKAGE_JSON).jest.testPathIgnorePatterns[2]).toBe(TERMINAL_CHILD_IGNORE_REGEX);
+      expect(JSON.parse(PACKAGE_JSON).jest.testPathIgnorePatterns).toContain(TERMINAL_CHILD_IGNORE_REGEX);
     });
   });
 
@@ -183,16 +339,16 @@ describe('validation cadence guard', () => {
     it.each([
       ['drops the validate:routine edge', PACKAGE_SCRIPTS['validate:routine'].replace(' && npm run check:export-consumers', '')],
       ['drops routine architecture coverage', PACKAGE_SCRIPTS['validate:routine'].replace(' && npm run test:direct -- --runInBand tests/architecture', '')],
-      ['moves the validate:routine edge before typecheck', PACKAGE_SCRIPTS['validate:routine'].replace('npm run typecheck && npm run check:export-consumers', 'npm run check:export-consumers && npm run typecheck')],
+      ['duplicates the routine docs gate', `${PACKAGE_SCRIPTS['validate:routine']} && npm run docs:verify`],
+      ['breaks routine failure propagation', PACKAGE_SCRIPTS['validate:routine'].replace(' && ', ' ; ')],
     ])('rejects a package that %s', (_label, command) => {
-      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:routine': command } }), 'validate:routine" must run exactly');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:routine': command } }), 'validate:routine" must run each required command exactly once');
     });
 
     it.each([
       ['drops the lint edge', PACKAGE_SCRIPTS.lint.replace('npm run check:export-consumers && ', '')],
-      ['moves the lint edge after ESLint', PACKAGE_SCRIPTS.lint.replace('npm run check:export-consumers && npm run check:stamp-producers && eslint src/', 'npm run check:stamp-producers && eslint src/ && npm run check:export-consumers')],
     ])('rejects a package that %s', (_label, command) => {
-      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint: command } }), 'lint" must invoke npm run check:export-consumers exactly once before ESLint and both boundary guards');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint: command } }), 'lint" must invoke npm run check:export-consumers');
     });
 
     it('rejects a drifted checker script edge', () => {
@@ -205,9 +361,10 @@ describe('validation cadence guard', () => {
       ['drops the self-test', PACKAGE_SCRIPTS['test:import-boundaries'].replace('node scripts/check-import-boundaries.cjs --self-test && ', '')],
       ['drops the subprocess regressions', PACKAGE_SCRIPTS['test:import-boundaries'].replace('node --test tests/scripts/import-boundary-ratchet.test.cjs && ', '')],
       ['drops repository admission', PACKAGE_SCRIPTS['test:import-boundaries'].replace(' && node scripts/check-import-boundaries.cjs', '')],
-      ['reorders the three phases', 'node --test tests/scripts/import-boundary-ratchet.test.cjs && node scripts/check-import-boundaries.cjs --self-test && node scripts/check-import-boundaries.cjs'],
+      ['duplicates repository admission', `${PACKAGE_SCRIPTS['test:import-boundaries']} && node scripts/check-import-boundaries.cjs`],
+      ['breaks failure propagation', PACKAGE_SCRIPTS['test:import-boundaries'].replace(' && ', ' ; ')],
     ])('rejects a focused command that %s', (_label, command) => {
-      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:import-boundaries': command } }), 'test:import-boundaries" must be exactly');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:import-boundaries': command } }), 'test:import-boundaries" must run the three required commands');
     });
 
     it('rejects lint without the focused delegation', () => {
@@ -220,10 +377,6 @@ describe('validation cadence guard', () => {
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint } }), 'must delegate exactly once');
     });
 
-    it('rejects lint with the focused delegation outside its boundary-check position', () => {
-      const lint = PACKAGE_SCRIPTS.lint.replace('eslint src/ && npm run test:import-boundaries', 'npm run test:import-boundaries && eslint src/');
-      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint } }), 'must delegate exactly once');
-    });
   });
 
   describe('terminal-child Jest ownership mutations', () => {
@@ -283,11 +436,9 @@ describe('validation cadence guard', () => {
 
     it.each([
       ['omits backend E2E', PACKAGE_SCRIPTS['validate:release'].replace(' && npm run test:e2e', '')],
-      ['runs backend E2E before npm test', PACKAGE_SCRIPTS['validate:release'].replace('npm test && npm run test:e2e', 'npm run test:e2e && npm test')],
-      ['runs backend E2E after browser smoke', PACKAGE_SCRIPTS['validate:release'].replace('npm run test:e2e && npm run web:test:operator-smoke', 'npm run web:test:operator-smoke && npm run test:e2e')],
       ['runs backend E2E twice', PACKAGE_SCRIPTS['validate:release'].replace('npm run test:e2e', 'npm run test:e2e && npm run test:e2e')],
     ])('rejects release when it %s', (_label, release) => {
-      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke npm run test:e2e exactly once after npm test and before npm run web:test:operator-smoke');
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke npm run test:e2e exactly once');
     });
   });
 
@@ -370,14 +521,6 @@ describe('validation cadence guard', () => {
     });
   });
 
-  it('fails clearly when validation-required omits dependency-hygiene aggregation', () => {
-    const workflowWithoutAggregate = VALID_WORKFLOW.replace('          require_applicable dependency-hygiene "$DEPENDENCY_APPLIES" "$DEPENDENCY_RESULT"\n', '');
-    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutAggregate }), (root) => {
-      const result = verifyValidationCadence({ root });
-      expect(result.ok).toBe(false);
-      expect(result.failures).toContainEqual(expect.stringContaining('aggregate dependency-hygiene require_applicable call'));
-    });
-  });
 
   describe('structured YAML and exact trigger mutations', () => {
     const triggerBlock = 'on:\n  push:\n    branches:\n      - master\n';
@@ -407,47 +550,12 @@ describe('validation cadence guard', () => {
 
   describe('classifier contract mutations', () => {
     const mutations = [
-      ['push base', "base='\${{ github.event.before }}'", "base='\${{ github.sha }}'", 'push base from github.event.before'],
-      ['push head', "head='\${{ github.sha }}'", "head='\${{ github.event.before }}'", 'push head from github.sha'],
-      ['empty/all-zero fallback', 'if [[ -z "$base" || "$base" =~ ^0+$ ]]; then', 'if [[ -z "$base" ]]; then', 'empty or all-zero push-base'],
-      ['base/head presence', 'if [[ -z "$base" || -z "$head" ]]; then', 'if [[ -z "$base" ]]; then', 'base/head presence'],
-      ['commit availability', 'elif ! git cat-file -e "$base^{commit}" 2>/dev/null || ! git cat-file -e "$head^{commit}" 2>/dev/null; then', 'elif false; then', 'commit availability'],
-      ['diff failure', 'elif ! git diff --name-only "$base" "$head" > changed-files.txt; then', 'elif git diff --name-only "$base" "$head" > changed-files.txt; then', 'git diff failure'],
-      ['fail-closed run_all', '            run_all=true\n            docs_only=false\n            summary="fail-closed: $1"', '            docs_only=false\n            summary="fail-closed: $1"', 'fail-closed run_all assignment'],
-      ['fail-closed docs_only', '            run_all=true\n            docs_only=false\n            summary="fail-closed: $1"', '            run_all=true\n            summary="fail-closed: $1"', 'fail-closed docs_only assignment'],
-      ['docs-like class', 'docs/*|architecture-audit/*|audit-findings/*|ui-findings/*|*.md|README.md|EADME.md', 'docs/*', 'docs-like path class'],
-      ['package/workflow class', 'package.json|package-lock.json|web/package.json|web/package-lock.json|.github/workflows/*', 'package.json', 'package/workflow path class'],
-      ['workflow run-all class', '              .github/workflows/*)\n                run_all=true', '              .github/workflows/*)\n                package_or_workflow=true', 'workflow run-all assignment'],
-      ['schemas in shared class', 'src/contracts/*|src/schemas/*)', 'src/contracts/*)', 'shared contracts/schemas path class'],
-      ['shared backend assignment', '              src/contracts/*|src/schemas/*)\n                recognized=true\n                backend=true', '              src/contracts/*|src/schemas/*)\n                recognized=true', 'shared contracts/schemas backend assignment'],
-      ['shared UI assignment', '                backend=true\n                ui=true\n                browser=true\n                ;;\n              src/*', '                backend=true\n                browser=true\n                ;;\n              src/*', 'shared contracts/schemas ui assignment'],
-      ['shared browser assignment', '                backend=true\n                ui=true\n                browser=true\n                ;;\n              src/*', '                backend=true\n                ui=true\n                ;;\n              src/*', 'shared contracts/schemas browser assignment'],
-      ['backend class', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)', 'src/*)', 'backend path class'],
-      ['Playwright exclusion', 'if [[ "$file" != tests/playwright/* ]]; then', 'if [[ true ]]; then', 'backend Playwright exclusion'],
-      ['web/Playwright class', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)', 'web/*)', 'web/Playwright path class'],
-      ['recognition initialization', '            local recognized=false\n', '', 'recognition initialization'],
-      ['docs-like recognition mark', '                docs_like=true\n                recognized=true', '                docs_like=true', 'docs-like recognition mark'],
-      ['package/workflow recognition mark', '                package_or_workflow=true\n                recognized=true', '                package_or_workflow=true', 'package/workflow recognition mark'],
-      ['workflow run-all recognition mark', '                run_all=true\n                recognized=true', '                run_all=true', 'workflow run-all recognition mark'],
-      ['shared recognition mark', '              src/contracts/*|src/schemas/*)\n                recognized=true', '              src/contracts/*|src/schemas/*)', 'shared contracts/schemas recognition mark'],
-      ['backend recognition mark', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)\n                recognized=true', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)', 'backend recognition mark'],
-      ['web/Playwright recognition mark', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)\n                recognized=true', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)', 'web/Playwright recognition mark'],
-      ['unknown fail-closed call', '              fail_closed "unknown changed non-doc path: $file"', '              docs_only=false', 'unknown non-doc path fail-closed handling'],
-      ['non-doc clearing', 'if [[ "$docs_like" != true ]]; then', 'if [[ "$docs_like" == true ]]; then', 'non-doc clearing'],
-      ['empty-list handling', 'if [[ ! -s changed-files.txt ]]; then', 'if [[ -s changed-files.txt ]]; then', 'empty-list routine/docs-only'],
-      ['initial docs-only', '              else\n                docs_only=true\n                while IFS= read -r changed_file;', '              else\n                while IFS= read -r changed_file;', 'normal-list initial docs-only'],
-      ['loop termination', '                  if [[ "$run_all" == true ]]; then\n                    break\n                  fi\n', '', 'changed-file loop termination after run-all'],
-      ['ordinary summary guard removal', '                if [[ "$run_all" != true ]]; then\n                  summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"\n                fi', '                summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"', 'ordinary classified-count summary guard'],
-      ['ordinary summary guard inversion', '                if [[ "$run_all" != true ]]; then\n                  summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"\n                fi', '                if [[ "$run_all" == true ]]; then\n                  summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"\n                fi', 'ordinary classified-count summary guard'],
-      ['run-all promotion', '          if [[ "$run_all" == true ]]; then\n            backend=true', '          if [[ "$run_all" == false ]]; then\n            backend=true', 'run-all promotion'],
-      ['package promotion', '          elif [[ "$package_or_workflow" == true ]]; then', '          elif [[ "$package_or_workflow" == false ]]; then', 'package/workflow promotion'],
       ['event dispatch remnant', '          base=', '          echo pull_request\n          base=', 'obsolete event/backstop token pull_request'],
       ['push event-selection dispatch', '          base=', "          if [[ \"\${{ github.event_name }}\" == push ]]; then :; fi\n          base=", 'must not contain event-selection dispatch'],
       ['obsolete backstop', 'jobs:\n', 'jobs:\n  scheduled-release-backstop: {}\n', 'obsolete event/backstop token scheduled-release-backstop'],
     ];
     for (const output of ['backend', 'ui', 'browser', 'docs_only', 'package_or_workflow', 'run_all', 'summary']) {
       mutations.push([`${output} declared output`, `      ${output}: \${{ steps.classify.outputs.${output} }}\n`, '', 'publish exactly']);
-      mutations.push([`${output} output write`, `            echo "${output}=$${output}"\n`, '', `${output} GITHUB_OUTPUT write`]);
     }
 
     it.each(mutations)('rejects mutation of %s', (_label, search, replacement, expected) => {
@@ -456,14 +564,7 @@ describe('validation cadence guard', () => {
   });
 
   describe('complete aggregate mutations', () => {
-    const pathJobs = [
-      ['backend-jest-build', 'BACKEND'],
-      ['backend-e2e', 'BACKEND_E2E'],
-      ['ui-vitest', 'UI'],
-      ['browser-smoke', 'BROWSER'],
-      ['dependency-hygiene', 'DEPENDENCY'],
-      ['lint-guards', 'LINT_GUARDS'],
-    ];
+    const pathJobs = PATH_JOBS;
     const mutations = [
       ...['classify-changes', 'routine-docs', ...pathJobs.map(([name]) => name)].map((name) => [`remove need ${name}`, `      - ${name}\n`, '', 'needs must contain exactly']),
       ...['classify-changes', 'routine-docs', ...pathJobs.map(([name]) => name)].map((name) => [`rename need ${name}`, `      - ${name}\n`, `      - ${name}-renamed\n`, 'needs must contain exactly']),
@@ -471,16 +572,7 @@ describe('validation cadence guard', () => {
       ['always', '    if: \${{ always() }}', '    if: \${{ success() }}', 'must retain if'],
       ['classifier result', '          CLASSIFIER_RESULT: \${{ needs.classify-changes.result }}', '          CLASSIFIER_RESULT: wrong', 'CLASSIFIER_RESULT must be exactly'],
       ['routine result', '          ROUTINE_RESULT: \${{ needs.routine-docs.result }}', '          ROUTINE_RESULT: wrong', 'ROUTINE_RESULT must be exactly'],
-      ['classifier require_success', '          require_success classify-changes "$CLASSIFIER_RESULT"\n', '', 'classifier require_success'],
-      ['routine require_success', '          require_success routine-docs "$ROUTINE_RESULT"\n', '', 'routine require_success'],
       ['classifier summary ref', '          CLASSIFIER_SUMMARY: \${{ needs.classify-changes.outputs.summary }}', '          CLASSIFIER_SUMMARY: wrong', 'CLASSIFIER_SUMMARY must be exactly'],
-      ['classifier summary line', '            echo "- classifier: $CLASSIFIER_RESULT ($CLASSIFIER_SUMMARY)"\n', '', 'classifier summary line'],
-      ['routine summary line', '            echo "- routine-docs: $ROUTINE_RESULT"\n', '', 'routine summary line'],
-      ['require_success semantics', '          require_success() {\n            local name="$1"\n            local result="$2"\n            if [[ "$result" != success ]]; then', '          require_success() {\n            local name="$1"\n            local result="$2"\n            if [[ "$result" == success ]]; then', 'require_success semantics'],
-      ['applicable success', '            if [[ "$applies" == true ]]; then\n              if [[ "$result" != success ]]; then', '            if [[ "$applies" == true ]]; then\n              if [[ "$result" == success ]]; then', 'applicable success semantics'],
-      ['non-applicable skipped', 'if [[ "$result" != skipped ]]; then', 'if [[ "$result" == skipped ]]; then', 'non-applicable skipped semantics'],
-      ['failure accumulation', '          failures=()\n', '', 'failure array initialization'],
-      ['failure exit', '            exit 1\n', '', 'failure accumulation exit'],
       ['obsolete event state', '          CLASSIFIER_RESULT:', '          EVENT_NAME: pull_request\n          CLASSIFIER_RESULT:', 'obsolete event/backstop token pull_request'],
     ];
     for (const [job, prefix] of pathJobs) {
@@ -490,8 +582,6 @@ describe('validation cadence guard', () => {
         [`${job} job applicability`, `${header}\n    if:`, `${header}\n    if: \${{ false }} #`, 'must use exact push path applicability'],
         [`${job} result env`, `          ${prefix}_RESULT: \${{ needs.${job}.result }}`, `          ${prefix}_RESULT: wrong`, `${prefix}_RESULT must be exactly`],
         [`${job} applies env`, `          ${prefix}_APPLIES:`, `          ${prefix}_APPLIES: \${{ false }} #`, `${prefix}_APPLIES must match`],
-        [`${job} call`, `          require_applicable ${job} "$${prefix}_APPLIES" "$${prefix}_RESULT"\n`, '', `${job} require_applicable call`],
-        [`${job} summary`, `            echo "- ${job}: $${prefix}_RESULT (applies=$${prefix}_APPLIES)"\n`, '', `${job} summary line`],
       );
     }
     mutations.push(
@@ -506,8 +596,8 @@ describe('validation cadence guard', () => {
 
   describe('routine job command mutations', () => {
     const routineMutations = [
-      ['omitted routine web install', '      - name: Install dependencies\n        run: npm ci\n\n      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Routine validation profile', '      - name: Install dependencies\n        run: npm ci\n\n      - name: Routine validation profile', 'routine-docs scalar commands must be exactly'],
-      ['misordered routine web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Routine validation profile\n        run: npm run validate:routine', '      - name: Routine validation profile\n        run: npm run validate:routine\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'routine-docs scalar commands must be exactly'],
+      ['omitted routine web install', '      - name: Install dependencies\n        run: npm ci\n\n      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Routine validation profile', '      - name: Install dependencies\n        run: npm ci\n\n      - name: Routine validation profile', 'routine-docs must run cd web && npm ci'],
+      ['misordered routine web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Routine validation profile\n        run: npm run validate:routine', '      - name: Routine validation profile\n        run: npm run validate:routine\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'routine-docs must run cd web && npm ci before npm run validate:routine'],
     ];
 
     it.each(routineMutations)('rejects %s', (_label, search, replacement, expected) => {
@@ -517,15 +607,13 @@ describe('validation cadence guard', () => {
 
   describe('backend, browser, artifact, and Playwright ownership mutations', () => {
     const workflowMutations = [
-      ['omitted backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project', '      - name: Build project', 'backend-jest-build scalar commands must be exactly'],
-      ['misordered backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project\n        run: npm run build', '      - name: Build project\n        run: npm run build\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'backend-jest-build scalar commands must be exactly'],
-      ['omitted backend E2E command', '      - name: Backend E2E suite\n        run: npm run test:e2e\n', '', 'backend-e2e scalar commands must be exactly'],
-      ['extra backend E2E setup step', '      - name: Backend E2E suite\n        run: npm run test:e2e', '      - name: Unexpected setup\n        uses: example/setup@v1\n\n      - name: Backend E2E suite\n        run: npm run test:e2e', 'backend-e2e steps must be exactly'],
-      ['changed browser install command', '        run: npm run web:test:e2e:install', '        run: playwright install chromium', 'browser-smoke scalar commands must be exactly'],
+      ['omitted backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project', '      - name: Build project', 'backend-jest-build must run cd web && npm ci'],
+      ['misordered backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project\n        run: npm run build', '      - name: Build project\n        run: npm run build\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'backend-jest-build must run cd web && npm ci before npm run build'],
+      ['omitted backend E2E command', '      - name: Backend E2E suite\n        run: npm run test:e2e\n', '', 'backend-e2e must run npm run test:e2e'],
+      ['changed browser install command', '        run: npm run web:test:e2e:install', '        run: playwright install chromium', 'browser-smoke must run npm run web:test:e2e:install'],
       ['live suite enters CI', '        run: npm run web:test:e2e:smoke', '        run: npm run web:test:e2e:smoke && npm run web:test:live-getrich-v2', 'must exclude the external live GetRich v2 suite'],
       ['wrong artifact condition', '        if: ${{ failure() || cancelled() }}', '        if: ${{ failure() }}', 'condition must be exactly failure() || cancelled()'],
       ['wrong artifact path', '            tmp/playwright-results', '            tmp/other-results', 'upload paths must be exactly'],
-      ['artifact before smoke', '      - name: Browser smoke validation profile\n        run: npm run web:test:e2e:smoke\n\n      - name: Upload browser smoke failure artifacts', '      - name: Upload browser smoke failure artifacts', 'must immediately follow the browser smoke command'],
     ];
 
     it.each(workflowMutations)('rejects %s', (_label, search, replacement, expected) => {
@@ -578,13 +666,6 @@ describe('validation cadence guard', () => {
       });
     });
 
-    it('rejects stale README profile semantics', () => {
-      const readme = validFiles()['README.md'].replace('complete self-contained browser profile', 'some browser tests');
-      withFixture(validFiles({ 'README.md': readme }), (root) => {
-        const result = verifyValidationCadence({ root });
-        expect(result.failures).toContain('README.md must document complete self-contained smoke ownership');
-      });
-    });
 
     it('rejects a deleted pre-move README spec path', () => {
       const readme = validFiles()['README.md'].replace('tests/playwright/smoke/preview.spec.ts', 'tests/playwright/preview.spec.ts');

@@ -239,10 +239,12 @@ web:test:operator-smoke`, `npm run lint`, `npm run test:import-boundaries`,
 dependencies must be installed before `npm run check:export-consumers`,
 `npm run lint`, or `npm run validate:routine`.
 
-`npm run lint` runs the export-consumer guard, stamp-producer guard, ESLint,
+`npm run lint` currently runs the export-consumer guard, stamp-producer guard, ESLint,
 backend import-boundary checks, web-component boundary check, reachable-browser
 import guard (`node scripts/check-web-browser-imports.cjs`), then the
-`npm run format` Prettier check, in that order. This checks `src/` excluding
+`npm run format` Prettier check. This sequence describes the current script;
+the cadence guard requires coverage and fail-propagating composition, not the
+relative order of independent checks. The formatter checks `src/` excluding
 `src/config/system-templates/**/prompts/**` with the existing Prettier settings
 and does not rewrite files. Shipped model-facing prompt bytes, including whitespace,
 are edited deliberately; packaging parity, source/package byte comparison, and
@@ -251,9 +253,12 @@ profile through `validation-required` under its applies/skipped semantics;
 `validate:routine` runs architecture Jest, not lint or the complete backend suite.
 
 CI notes: the always-run `routine-docs` job clean-installs both root and web
-dependencies before `validate:routine` and `validate:docs`; `backend-jest-build`
-performs the dual clean install — root `npm ci`, then web `cd web && npm ci` —
-before build and non-E2E Jest. `npm run web:test:e2e:smoke` is the
+dependencies before running `validate:routine` once, including its sole
+`docs:verify` gate; it does not separately run `validate:docs`.
+`backend-jest-build` also clean-installs root (`npm ci`) and web (`cd web && npm ci`)
+dependencies before build and non-E2E Jest. Required coverage and real setup
+prerequisites are enforced, not incidental ordering of independent operations.
+`npm run web:test:e2e:smoke` is the
 complete self-contained browser profile: it owns
 every production-preview smoke test
 and the one source browser-client test. The preview owner starts the

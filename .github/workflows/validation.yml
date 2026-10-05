@@ -204,9 +204,6 @@ jobs:
       - name: Routine validation profile
         run: npm run validate:routine
 
-      - name: Documentation validation profile
-        run: npm run validate:docs
-
   backend-jest-build:
     name: backend-jest-build
     runs-on: ubuntu-latest
@@ -367,9 +364,9 @@ jobs:
       - name: Lint guards
         run: npm run lint
 
-  # Publishes the VitePress documentation site to GitHub Pages. The same
-  # relative-base build output is served by every running Saivage instance at
-  # /docs/ (guarded by tests/scripts/static-serving-smoke.ts). This is a
+  # Publishes the VitePress documentation site to GitHub Pages. The same docs
+  # sources are built separately with a Pages-specific base and a relative base
+  # for instance /docs/ (guarded by tests/scripts/static-serving-smoke.ts). This is a
   # deployment, not a validation gate: it is intentionally not part of the
   # validation-required aggregate.
   docs-pages-build:
