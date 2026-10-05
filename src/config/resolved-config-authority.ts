@@ -105,6 +105,18 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     workflows: CompiledProjectWorkflows;
     warnings: readonly string[];
   } {
+    const { config, warnings } = this.decodeDocument(document);
+    return {
+      config,
+      workflows: compileProjectWorkflows(config, this.#compileOptions),
+      warnings,
+    };
+  }
+
+  private decodeDocument(document: ConfigDocument): {
+    config: SaivageConfig;
+    warnings: readonly string[];
+  } {
     const { value, warnings } = interpolateValue(
       documentObject(document),
       this.#interpolationEnvironment,
@@ -127,7 +139,6 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     });
     return {
       config,
-      workflows: compileProjectWorkflows(config, this.#compileOptions),
       warnings: Object.freeze([...warnings]),
     };
   }
@@ -143,7 +154,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   applyChange(mutation: ConfigMutation): ConfigMutationResult {
     try {
       const document = this.readDocument();
-      const current = this.validateDocument(document).config;
+      const current = this.decodeDocument(document).config;
       const precondition = this.applyMutation(document, mutation, current);
       if (precondition) return precondition;
       const effective = this.validateDocument(document);

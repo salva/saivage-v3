@@ -271,5 +271,10 @@ Optional `.saivage/skills/index.json` registers skill files for
 The Analyst's `reconfigure` tool supports only strict validation-style
 changes (`set_agent_model_route`, `set_model_failover`, host/port
 `set_server_setting`); every success reports `requires_restart: true`.
+Current configuration must pass source/effective-schema decoding and mutation
+preconditions; the complete edited candidate must also compile before replacement.
+A supported edit can correct a compiler-only current error (such as an agent's
+missing model route), but cannot bypass invalid current schemas or publish an
+invalid candidate. This is neither general config repair nor hot reload.
 Everything else — prompts, tool lists, workflows, providers — is a stopped
 edit followed by a fresh start.

@@ -1593,7 +1593,8 @@ Navigation is an executable browser effect over that opaque data: only a success
 Malformed or cross-wired successful navigation data fails before any route effect.
 
 `reconfigure` is a closed restart-only union: `set_agent_model_route` accepts one existing agent and existing route; `set_model_failover` accepts one known source model and duplicate-free ordered known models; and `set_server_setting` has strict host and positive-port variants.
-The complete candidate is structurally compiled before file replacement.
+The current YAML is interpolated, source/effective-schema decoded, and checked against mutation preconditions without compiling its workflows; schema-invalid current data fails before mutation.
+The complete edited candidate is schema-validated and structurally compiled before file replacement. A compiler-only error in the current configuration does not independently veto a supported correcting mutation whose complete candidate is valid.
 Success returns `requires_restart:true` and does not mutate current workflows, routing, tools, MCP, or listener state.
 Deleted role, runtime, and MCP mutation actions are schema-invalid.
 
