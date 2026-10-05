@@ -610,23 +610,43 @@ function selectedCoverageEndpoints(
   tailBudgetTokens: number,
   snap: AutonomousCompactionPolicy['snap'],
 ): readonly number[] {
-  const closed = classified.rounds.filter((round) => round.state === 'closed');
-  let retained = 0;
-  let firstRetained = closed.length;
-  for (let index = closed.length - 1; index >= 0; index--) {
-    const round = closed[index]!;
-    if (retained + round.estimated_tokens <= tailBudgetTokens) {
-      retained += round.estimated_tokens;
+  const rounds = classified.rounds;
+  const newest = rounds.at(-1);
+  let base: number;
+  if (newest && newest.estimated_tokens > tailBudgetTokens) {
+    let retained = 0;
+    let firstRetained = newest.rows.length;
+    for (let index = newest.rows.length - 1; index >= 0 && retained < tailBudgetTokens; index--) {
+      retained += newest.rows[index]!.estimated_tokens;
       firstRetained = index;
-      continue;
     }
-    if (snap === 'keep_straddler_verbatim') firstRetained = index;
-    break;
+    const desiredBase = conversation.sourceRows.length - newest.rows.length + firstRetained;
+    base = 0;
+    for (let index = conversation.safeSourcePrefixEnds.length - 1; index >= 0; index--) {
+      const end = conversation.safeSourcePrefixEnds[index]!;
+      if (end <= desiredBase) {
+        base = end;
+        break;
+      }
+    }
+  } else {
+    let retained = 0;
+    let firstRetained = rounds.length;
+    for (let index = rounds.length - 1; index >= 0; index--) {
+      const round = rounds[index]!;
+      if (retained + round.estimated_tokens <= tailBudgetTokens) {
+        retained += round.estimated_tokens;
+        firstRetained = index;
+        continue;
+      }
+      if (snap === 'keep_straddler_verbatim') firstRetained = index;
+      break;
+    }
+    const desiredBase =
+      classified.preamble.length +
+      rounds.slice(0, firstRetained).reduce((count, round) => count + round.rows.length, 0);
+    base = conversation.safeSourcePrefixEnds.includes(desiredBase) ? desiredBase : 0;
   }
-  const desiredBase =
-    classified.preamble.length +
-    closed.slice(0, firstRetained).reduce((count, round) => count + round.rows.length, 0);
-  const base = conversation.safeSourcePrefixEnds.includes(desiredBase) ? desiredBase : 0;
   const furthest = conversation.safeSourcePrefixEnds.at(-1) ?? 0;
   const endpoints = [base, furthest].filter(
     (value, index, values) => value > 0 && (index === 0 || value > values[index - 1]!),

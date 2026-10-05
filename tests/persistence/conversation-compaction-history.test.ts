@@ -231,13 +231,13 @@ describe('accumulated compaction history generations', () => {
       expect(history.requiredModelFacts).toEqual({ latestRecovery: null, latestContentPolicyRefusal: null });
       expect(history.dispositionCommitment.count).toBe(history.dispositionCommitment.summarized + history.dispositionCommitment.evidenceOnly + history.dispositionCommitment.superseded);
       expect(history.dispositionCommitment.count).toBeGreaterThan(0);
-      expect(history.coverageCommitment.coveredThroughMessageId).toBe('t2');
-      expect(segment.rows.map((row) => row.id)).toEqual(['activation-3', 't3']);
+      expect(history.coverageCommitment.coveredThroughMessageId).toBe('activation-3');
+      expect(segment.rows.map((row) => row.id)).toEqual(['t3']);
       expect(segment.conversation.effectiveCompactedHistory).toEqual(history);
       expect(segment.conversation.effectiveValidatedCoverage).toEqual(history.coverageCommitment);
       expect(history.source.groups.every((group) => group.message_ids.length >= 1 && group.content_sha256.length === 64)).toBe(true);
       const tail = segment.conversation.sourceRows.map((row) => row.id);
-      expect(tail).toEqual(['activation-3', 't3']);
+      expect(tail).toEqual(['t3']);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -393,7 +393,7 @@ describe('accumulated compaction history generations', () => {
       expect(history1.requiredModelFacts.latestRecovery).toEqual({ sourceMessageId: '00000000-0000-4000-8000-000000000001:model-recovered', activationInputId: '00000000-0000-4000-8000-000000000001' });
       expect(history1.requiredModelFacts.latestContentPolicyRefusal?.activationInputId).toBe('00000000-0000-4000-8000-000000000002');
       const refusal2 = history1.requiredModelFacts.latestContentPolicyRefusal!.markerId;
-      expect(gen1.rows.map((row) => row.id)).toEqual(['activation-3', 't3']);
+      expect(gen1.rows.map((row) => row.id)).toEqual(['t3']);
       expect(gen1.conversation.effectiveRequiredModelFacts).toEqual(history1.requiredModelFacts);
       const primary1 = providerConversationProjection(gen1.conversation, []).messages;
       expect(primary1.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
@@ -424,7 +424,7 @@ describe('accumulated compaction history generations', () => {
       expect(mergeInputs2.length).toBeGreaterThan(0);
       expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(history1.summaryText)))).toBe(true);
       expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes('superseded_')))).toBe(false);
-      expect(gen2.rows.map((row) => row.id)).toEqual(['activation-6', 't6']);
+      expect(gen2.rows.map((row) => row.id)).toEqual(['t6']);
       const projected2 = providerConversationProjection(gen2.conversation, []).messages;
       expect(projected2.some((row) => row.content.includes(bundleFiveBody))).toBe(false);
       expect(projected2.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);

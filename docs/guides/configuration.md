@@ -188,10 +188,20 @@ compaction:
   enabled: true
   context_utilization_fraction: 0.80   # usable fraction of the window
   trigger_fraction: 0.90               # when to prepare compaction
-  tail_fraction: 0.25                  # recent history always kept verbatim
+  tail_fraction: 0.25                  # preferred recent-source tail target
   snap: keep_straddler_verbatim        # or compact_straddler
   summarizer_candidate: { provider: my-provider, account: null, model: my-model }
 ```
+
+The tail target is `floor(I * tail_fraction)` for route usable input `I`, not a
+verbatim-retention guarantee. All agent-session rounds count, including the
+newest open/inherited round. When newest fits, whole rounds are retained
+backward; `snap` retains or covers the first older straddling round whole. Only
+an oversized newest round uses a recent row suffix, retaining the crossing row
+and snapping the covered prefix backward to a safe atomic boundary under either
+snap setting. Atomic groups can retain more than the target, while the existing
+furthest fallback can cover the whole settled tail. This policy adds no setting
+or reset requirement.
 
 `summarizer_candidate` must be a Registry-resolved model with a large window
 (it summarizes with its own 2,000-token output request). Removed legacy keys

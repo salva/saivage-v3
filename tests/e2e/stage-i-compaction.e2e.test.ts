@@ -5,14 +5,14 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { compact, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
-import { validateConversation } from '../../src/contracts/conversation-validation.js';
+import { validateConversation, validateCompactedHistorySuccessor } from '../../src/contracts/conversation-validation.js';
 import { estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { classifyConversationRounds } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { estimateUtf8Tokens } from '../../src/runtime/actors/compaction/token-estimator.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { ProviderConversationItem } from '../../src/contracts/index.js';
-import { agentMessageSchema, conversationSessionIdentity, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, conversationSessionIdentity, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -72,6 +72,69 @@ describe('Stage-I versioned compaction', () => {
       const summaryRequestPrefix = 'Historical summary:\n';
       expect(historySummaries[0]!.content.startsWith(summaryRequestPrefix)).toBe(true);
       expect(historySummaries[0]!.content.slice(summaryRequestPrefix.length)).toBe(durableSummaryText);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('retains a recent exchange suffix within one open round across publication, continuation, and recompaction', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-open-round-compaction-')); initProjectTree(root);
+    const requests: Array<Parameters<SummarizerProviderPort['completeTurn']>[0]> = [];
+    const summarizerProvider: SummarizerProviderPort = {
+      candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+      serializeSummaryRequest: deterministicSummarySerialization,
+      completeTurn: async (input) => {
+        requests.push(input);
+        return { result: { kind: 'message', content: `accumulated-summary-${requests.length}` }, provider_exchanges: [] };
+      },
+      projectProviderExchanges: jest.fn(),
+    };
+    const exchange = (ordinal: number): AgentMessage[] => (['user', 'assistant'] as const).map((role, index) => agentMessageSchema.parse({
+      id: `exchange-${ordinal}-${role}`, session_id: SESSION, role, kind: 'text', context_policy: TEXT_ROW_POLICY,
+      content: realisticPayload(`exchange-${ordinal}-${role}`, 4_000),
+      round_id: `r-user-${String(ordinal + 100).padStart(32, '0')}`, message_index: index, block_index: 0,
+      timestamp: '2026-10-05T00:00:00.000Z',
+    }));
+    try {
+      appendRound(root, 1); // The only activation marker; provider exchanges do not start agent rounds.
+      appendConversationBatch({ projectRoot: root }, Array.from({ length: 6 }, (_, index) => exchange(index + 1)).flat());
+      for (let publication = 1; publication <= 2; publication++) {
+        const before = readCurrentConversationSegment(root, SESSION)!;
+        const source = before.conversation;
+        const classified = classifyConversationRounds(source);
+        const input = invocationFor(SESSION, providerConversationProjection(source, []).messages);
+        const expectedTail = exchange(publication === 1 ? 6 : 9);
+        const cutoffId = `exchange-${publication === 1 ? 5 : 8}-assistant`;
+        const cutoff = source.sourceRows.findIndex(({ id }) => id === cutoffId) + 1;
+        expect(classified.rounds).toHaveLength(1);
+        expect(classified.rounds[0]!.state).toBe('open');
+        expect(classified.rounds[0]!.estimated_tokens).toBeGreaterThan(input.preparedCompaction.tailBudgetTokens);
+        expect(expectedTail.reduce((sum, row) => sum + estimateMessageTokens(row), 0)).toBeGreaterThanOrEqual(input.preparedCompaction.tailBudgetTokens);
+        expect(estimateMessageTokens(expectedTail[1]!)).toBeLessThan(input.preparedCompaction.tailBudgetTokens);
+        const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input, summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress });
+        expect(result.kind).toBe('compacted');
+        expect(requests).toHaveLength(publication); // Preferred endpoint accepted without fallback.
+        const current = readCurrentConversationSegment(root, SESSION)!;
+        if (current.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis.');
+        expect(current.entry.version).toBe(publication + 1);
+        expect(current.index.versions).toHaveLength(publication + 1);
+        expect(current.genesis.compaction.coverageCommitment.coveredThroughMessageId).toBe(cutoffId);
+        expect(current.rows.map(({ id }) => id)).toEqual(expectedTail.map(({ id }) => id));
+        expect(Buffer.from(canonicalJson(current.rows))).toEqual(Buffer.from(canonicalJson(expectedTail)));
+        expect(current.genesis.continuation).toEqual({ kind: 'inherited_open_round', activation: { marker_id: 'activation-1', input_id: '00000000-0000-4000-8000-000000000001' }, active_segment_kind: 'initial' });
+        validateCompactedHistorySuccessor({
+          source, sourceVersion: before.entry.version,
+          sourceGenesis: source.effectiveCompactedHistory === null ? null : { ...source.compactedGenesis!, history: source.effectiveCompactedHistory, sourceVersion: source.effectiveCompactedHistory.coverageCommitment.sourceVersion },
+          successor: current.genesis.compaction, coveredRows: source.sourceRows.slice(0, cutoff),
+        });
+        const request = requests[publication - 1]!;
+        verifyExactSourceCoverage(summaryRanges(request), source.sourceRows.slice(0, cutoff).flatMap((row, sourceRowIndex) => row.kind === 'text' ? [{ source: row.id, content: row.content, sourceRowIndex }] : []));
+        expect(inheritedSummary(request)).toBe(publication === 1 ? null : 'accumulated-summary-1');
+        expect(current.genesis.compaction.summaryText).toBe(`accumulated-summary-${publication}`);
+        const projected = providerConversationProjection(current.conversation, []).messages;
+        expect(projected.filter((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary')).toHaveLength(1);
+        expect(readConversation(root, SESSION)).toEqual(current.conversation);
+        if (publication === 2) expect(current.genesis.compaction.source).toMatchObject({ kind: 'prior_genesis_plus_current_rows', priorGenesisId: before.genesis.id });
+        if (publication === 1) appendConversationBatch({ projectRoot: root }, [7, 8, 9].flatMap(exchange));
+      }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -148,10 +211,12 @@ describe('Stage-I versioned compaction', () => {
     } finally { globalThis.fetch = originalFetch; rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('walks multiple cutoffs with disjoint raw inputs, sequential calls, and one canonical selected successor', async () => {
+  it('advances preferred then furthest coverage with disjoint raw inputs, sequential calls, and one canonical selected successor', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-incremental-compaction-')); initProjectTree(root);
     try {
-      for (let ordinal = 1; ordinal <= 7; ordinal++) appendRound(root, ordinal);
+      // 400-byte rounds all fit the now all-round tail budget and yield only furthest.
+      // Larger rounds preserve this test's distinct preferred/furthest fallback evidence.
+      for (let ordinal = 1; ordinal <= 7; ordinal++) appendRound(root, ordinal, 4_000);
       const before = readConversation(root, SESSION);
       const rawRequests: string[][] = [];
       let activeCalls = 0;
@@ -176,6 +241,9 @@ describe('Stage-I versioned compaction', () => {
       });
       expect(result.kind).toBe('compacted');
       expect(maximumActiveCalls).toBe(1);
+      expect(rawRequests).toHaveLength(2);
+      expect(rawRequests[0]!.some((content) => content.includes('source=message-7'))).toBe(false);
+      expect(rawRequests[1]!.some((content) => content.includes('[kind=inherited_history]') && summaryWrappedBody(content) === 'summary')).toBe(true);
       const allInputs = rawRequests.flat();
       for (let ordinal = 1; ordinal <= 7; ordinal++)
         expect(allInputs.filter((content) => content.includes(`source=message-${ordinal}`))).toHaveLength(1);
@@ -274,7 +342,18 @@ describe('Stage-I versioned compaction', () => {
       expect(rawSourceBytes).toBeLessThanOrEqual(3_200_000);
       expect(fixture.expectedComponents.length).toBeGreaterThan(200);
       expect(classifyConversationRounds(before).rounds.at(-1)?.state).toBe('open');
-      const endpoints = safeEndpoints(before, preparedCompaction.tailBudgetTokens);
+      // Explicit fixture cutoff: the oversized open round retains tool bundles 27–55.
+      // The crossing result is kept whole, and safe snapping also retains its call.
+      const preferred = before.sourceRows.findIndex(({ id }) => id === '20000000-0000-4000-8000-000000000010:tool-result:audit-10-26') + 1;
+      const furthest = before.sourceRows.length;
+      const endpoints = [preferred, furthest];
+      expect(preferred).toBeGreaterThan(0);
+      expect(before.safeSourcePrefixEnds).toContain(preferred);
+      expect(before.safeSourcePrefixEnds).toContain(furthest);
+      const crossingResult = before.sourceRows.findIndex(({ id }) => id === '20000000-0000-4000-8000-000000000010:tool-result:audit-10-27');
+      const suffixTokens = (start: number) => before.sourceRows.slice(start).reduce((sum, row) => sum + estimateMessageTokens(row), 0);
+      expect(suffixTokens(crossingResult)).toBeGreaterThanOrEqual(preparedCompaction.tailBudgetTokens);
+      expect(suffixTokens(crossingResult + 1)).toBeLessThan(preparedCompaction.tailBudgetTokens);
       expect(endpoints).toHaveLength(2);
       expect(endpoints[0]).toBeLessThan(endpoints[1]!);
       expect(before.sourceRows[endpoints[1]! - 1]!.id).toBe(fixture.lastSettledResultId);
@@ -389,7 +468,7 @@ describe('Stage-I versioned compaction', () => {
 });
 
 const SESSION = 'agent:planner:project' as const;
-function appendRound(root: string, ordinal: number): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(400), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
+function appendRound(root: string, ordinal: number, contentBytes = 400): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(contentBytes), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
 function appendProtectedRound(root: string, ordinal: number, id: string, content: string, compactionKey: string): void { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id, session_id: SESSION, role: 'user', kind: 'text', context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: compactionKey }, content, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]); }
 function appendProcessSettlement(root: string, ordinal: number, callId: string, flags: { stdout_complete: boolean; stderr_complete: boolean }): Readonly<{ process_id: string; stdout_url: string; stderr_url: string; content: string; resultId: string }> {
   const suffix = ordinal.toString(16).padStart(12, '0');
@@ -517,22 +596,6 @@ function actorProjectionTokens(projection: ReturnType<typeof providerConversatio
   return projection.messages.reduce((sum, item) => sum + (item.kind === 'synthetic_context'
     ? Math.max(1, estimateUtf8Tokens(`${item.role} ${item.kind} ${item.origin} ${item.block_identity} ${item.content}`))
     : estimateMessageTokens(item)), 0);
-}
-
-function safeEndpoints(conversation: ReturnType<typeof readConversation>, tailBudgetTokens: number): readonly number[] {
-  const classified = classifyConversationRounds(conversation);
-  const closed = classified.rounds.filter((round) => round.state === 'closed');
-  let retained = 0;
-  let firstRetained = closed.length;
-  for (let index = closed.length - 1; index >= 0; index--) {
-    const round = closed[index]!;
-    if (retained + round.estimated_tokens <= tailBudgetTokens) { retained += round.estimated_tokens; firstRetained = index; continue; }
-    break;
-  }
-  const desired = classified.preamble.length + closed.slice(0, firstRetained).reduce((count, round) => count + round.rows.length, 0);
-  const base = conversation.safeSourcePrefixEnds.includes(desired) ? desired : 0;
-  const furthest = conversation.safeSourcePrefixEnds.at(-1) ?? 0;
-  return [base, furthest].filter((value, index, values) => value > 0 && (index === 0 || value > values[index - 1]!));
 }
 
 function invocationService(projectRoot: string, registry: ProviderRegistry): InvocationService {

@@ -161,7 +161,7 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('advances deterministically across closed rounds and a partial open prefix, never completing the open round', async () => {
+  it('accepts a reducing preferred prefix while retaining the crossing tool bundle and final unmatched call', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-fallback-open-'));
     initProjectTree(root);
     try {
@@ -176,10 +176,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.genesis.kind).toBe('compacted_segment_genesis');
-      expect(segment.rows.map((row) => row.id)).toEqual([unmatchedCall('00000000-0000-4000-8000-000000000003', 'call-unmatched').id]);
+      expect(segment.rows.map((row) => row.id)).toEqual([...bundle.map(row => row.id), unmatchedCall('00000000-0000-4000-8000-000000000003', 'call-unmatched').id]);
       expect(segment.genesis.kind === 'compacted_segment_genesis' && segment.genesis.continuation.kind).toBe('inherited_open_round');
       expect(segment.conversation.rounds.at(-1)!.state).toBe('open');
-      expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe(bundle[1]!.id);
+      expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t3');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -202,7 +202,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       }), signal: new AbortController().signal });
       await expect(result).resolves.toMatchObject({ kind: 'compacted' });
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
-      expect(readCurrentConversationSegment(root, SESSION)!.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t2');
+      expect(readCurrentConversationSegment(root, SESSION)!.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('activation-3');
       const rawInputs = calls.flatMap((call) => call.contents);
       expect(rawInputs.filter((content) => content.includes('T1-PLAIN'))).toHaveLength(1);
       expect(rawInputs.filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
@@ -251,8 +251,8 @@ describe('compaction fallback, successor identity, and internal summary identity
       })).rejects.toMatchObject({ name: 'CompactionSummaryConstructionError', reason: 'no_reduction', correctionCount: 1 });
       const leafInputs = calls.flatMap((call) => call.contents);
       expect(leafInputs.filter((content) => content.includes('ROW-ONE'))).toHaveLength(1);
-      for (const marker of ['ROW-TWO', 'ROW-THREE'])
-        expect(leafInputs.filter((content) => content.includes(marker))).toHaveLength(2);
+      expect(leafInputs.filter((content) => content.includes('ROW-TWO'))).toHaveLength(1);
+      expect(leafInputs.filter((content) => content.includes('ROW-THREE'))).toHaveLength(2);
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
 
       const exactCalls: SummaryCall[] = [];
