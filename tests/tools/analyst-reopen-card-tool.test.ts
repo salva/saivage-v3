@@ -15,7 +15,7 @@ afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: tru
 function harness(outcome: { kind: 'returned'; success: true; data: unknown } | { kind: 'denied'; reason: string }) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-reopen-tool-'));
   roots.push(projectRoot);
-  const reopen = jest.fn(() => outcome);
+  const reopen = jest.fn((_cardId: string) => outcome);
   const assertInterventionReady = jest.fn();
   const context = {
     projectRoot,

@@ -11,9 +11,9 @@ import {
   releaseRuntimeLifecycleLock,
 } from '../../src/runtime/lock.js';
 
-const question = jest.fn(async () => 'RESTART SERVER');
+const question = jest.fn(async (_prompt: string) => 'RESTART SERVER');
 const close = jest.fn();
-const createInterface = jest.fn(() => ({ question, close }));
+const createInterface = jest.fn((_options: { input: NodeJS.ReadableStream; output: NodeJS.WritableStream }) => ({ question, close }));
 
 jest.unstable_mockModule('node:readline/promises', () => ({ createInterface }));
 

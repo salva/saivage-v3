@@ -119,7 +119,8 @@ describe('current runtime composition', () => {
     const request = prepareAdmission.mock.calls[0]![0];
     expect(request.routePass).toEqual({ kind: 'ordinary', candidateChain });
     expect(request.routePass).not.toBe(input.routePass);
-    await provider.executeAdmittedWithRecovery(admission as never, signal);
+    if (admission.kind !== 'admitted') throw new Error('Expected admitted primary request');
+    await provider.executeAdmittedWithRecovery(admission, signal);
     expect(admittedExecution).toHaveBeenCalledWith(admission, signal);
     const context = { assistantOutputIds: [], terminalConversationOutputId: null };
     provider.projectProviderExchanges!('agent:planner:project', 'primary', 'turn', [], context);

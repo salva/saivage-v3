@@ -55,6 +55,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     const outcome = await fixture.actor.turn(fixture.input, undefined, terminal);
 
     expect(outcome).toEqual({ type: 'blocked', agentId: fixture.input.sessionId, result: { kind: 'compaction-summary-blocked', summary: 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.', session_id: fixture.input.sessionId, summary_input_id: '00000000-0000-4000-8000-000000000099' } });
+    if (outcome.type !== 'blocked') throw new Error('Expected blocked summary outcome');
     expect(terminal).toHaveBeenCalledWith({ input: fixture.input, outcome });
     expect(fixture.compact.mock.calls[0]![0].strategy).toBe(strategy);
     expect(readConversation(fixture.root, fixture.input.sessionId).sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
@@ -77,6 +78,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     const outcome = await fixture.actor.turn(input, undefined, terminal);
 
     expect(outcome).toEqual({ type: 'error', agentId: 'agent:analyst:global', error: 'Internal conversation summarization was blocked by the provider after bounded recovery. No further automatic retry was attempted.' });
+    if (outcome.type !== 'error') throw new Error('Expected global summary error outcome');
     expect(terminal).toHaveBeenCalledWith({ input, outcome });
     expect(readConversation(fixture.root, input.sessionId).sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
     fixture.actor.suppressContinuation(new Error('test join'));

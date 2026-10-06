@@ -225,12 +225,16 @@ Routine validation does not run these build checks.
 | `npm run validate:release` | typecheck, build, non-E2E Jest, backend E2E, operator smoke, docs | Release sign-off |
 
 Focused backend commands: `npm test` is the
-complete non-E2E backend authority — it runs ordinary parallel Jest followed by the exact serial
+complete non-E2E backend authority — it runs ordinary parallel Jest 30 (ts-jest ESM) followed by the exact serial
 real-terminal-child suite after ordinary workers exit. Use `npm run
 test:parallel -- <Jest arguments>` or `npm run test:direct -- <Jest
 arguments>` for focused tests in the ordinary Jest set, which excludes the
 terminal-child suite; run `npm run test:terminal-child` for that in-band
 exceptional suite, and `npm run test:e2e` for the backend E2E tier.
+Jest owns explicit JS/TS test families; the import-boundary `.cjs` regression
+suite remains owned by `node --test` through `npm run test:import-boundaries`.
+Release-profile success does not replace the separately required
+`npm run audit:security` high/critical gate for both root and web graphs.
 Export or backend boundary refactors require the focused semantic export test
 (`npm run test:direct -- --runInBand --runTestsByPath tests/scripts/export-consumers.test.js`),
 `npm run check:export-consumers`, `npm run test:import-boundaries`, and the full

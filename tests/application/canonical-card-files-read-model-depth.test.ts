@@ -20,7 +20,7 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 
 describe('CanonicalCardFilesReadModel card depth', () => {
   it('delegates a depth-twelve path and rejects a thirteenth without a reader call', () => {
-    const getCanonicalCardFilesMetadata = jest.fn(() => ({ kind: 'card-not-found' as const }));
+    const getCanonicalCardFilesMetadata = jest.fn((_cardId: string) => ({ kind: 'card-not-found' as const }));
     const reader = {
       getCanonicalCardFilesMetadata,
     } as unknown as CanonicalCardFilesReader;

@@ -144,7 +144,7 @@ describe('ContractRuntime app-log ownership', () => {
     });
     const error = jest.fn();
     const send = jest.fn();
-    const status = jest.fn(() => ({ send }));
+    const status = jest.fn((_statusCode: number) => ({ send }));
 
     await mounted!({ params: {}, query: {}, headers: {}, log: { error } }, { status, raw: { once: jest.fn() }, header: jest.fn() });
 

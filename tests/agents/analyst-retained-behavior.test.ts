@@ -129,7 +129,7 @@ describe('audited Analyst mutation settlement', () => {
 
   it('returns and audits an exported reorder_child zero-change success exactly once', async () => {
     const test = harness();
-    const reorder = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { parent_id: 'project', changed: 0 } }));
+    const reorder = jest.fn((_parentId: string, _orderedChildIds: readonly string[]) => ({ kind: 'returned' as const, success: true as const, data: { parent_id: 'project', changed: 0 } }));
     (test.context as { analystMutations: unknown }).analystMutations = { cards: { reorder } };
 
     await expect(reorder_child(test.context, { parentId: 'project', orderedChildIds: [] })).resolves.toEqual(executedToolOutcome('none', toolSucceeded({ parent_id: 'project', changed: 0 })));

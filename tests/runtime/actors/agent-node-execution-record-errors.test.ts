@@ -142,8 +142,8 @@ describe('AgentNodeExecution authored-record absence handling', () => {
 
   it('prepares only clean requirements by discard then open and captures the post-preparation exact head', () => {
     const openProjection={revision:2,state:'open',draft:{content:'old'}};
-    const discardRecord=jest.fn(()=>({revision:3}));
-    const openRecord=jest.fn(()=>({revision:4}));
+    const discardRecord=jest.fn((_cardId:string,_name:string)=>({revision:3}));
+    const openRecord=jest.fn((_cardId:string,_name:string)=>({revision:4}));
     const readRecordCurrent=jest.fn()
       .mockReturnValueOnce({kind:'found',value:{projection:openProjection}})
       .mockReturnValue({kind:'found',value:{projection:{revision:4,headId:'11111111-1111-4111-8111-111111111111'}}});

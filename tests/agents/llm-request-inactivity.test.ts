@@ -8,7 +8,7 @@ afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 describe('best-effort request body consumption', () => {
   it('returns the consumed text unchanged', async () => {
     const response = new Response('body');
-    const readText = jest.fn(async () => 'body');
+    const readText = jest.fn(async (_response: Response) => 'body');
     await expect(readBodyTextBestEffort({ signal: new AbortController().signal, onData() {}, readText }, response)).resolves.toBe('body');
     expect(readText).toHaveBeenCalledWith(response);
     expect(readText).toHaveBeenCalledTimes(1);

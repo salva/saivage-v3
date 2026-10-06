@@ -32,9 +32,9 @@ describe('ConversationLLMActor compaction ownership', () => {
       const projection = [agentMessageSchema.parse({ id: 'projected', session_id: 'agent:planner:project', role: 'system', kind: 'text', content: 'canonical compacted projection', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' })];
       const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'agent:planner:project', messages: projection }, compactionMessage: projection[0]!, estimatedProviderMessageTokens: 1 }));
       const compactor: CompactorPort = { shouldCompact: () => true, compact };
-      const providerInput = jest.fn(async (_input: PreparedLlmInvocationInput): Promise<ProviderTurnCompletion> => ({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] }));
+      const providerInput = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal): Promise<ProviderTurnCompletion> => ({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] }));
       const provider = scriptedAdmissionProvider<PreparedLlmInvocationInput>(providerInput);
-      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: ownerRoot }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(providerInput) });
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: ownerRoot }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer((input, _admitted, signal) => providerInput(input, signal)) });
       await actor.turn(input(), undefined, terminalHandoff);
 
       expect(compact).toHaveBeenCalledTimes(1);

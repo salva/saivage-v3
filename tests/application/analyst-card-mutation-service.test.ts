@@ -124,7 +124,7 @@ describe('analyst stopped card mutations', () => {
 describe('analyst child reorder propagation', () => {
   function reorderHarness(result: ReturnType<CardService['reorderChildren']>) {
     const parent = card('backlog', 'project', 'project');
-    const reorderChildren = jest.fn(() => result);
+    const reorderChildren = jest.fn((_parentId: string, _orderedChildIds: readonly string[]) => result);
     const getAncestors = jest.fn(() => [] as string[]);
     const setStatus = jest.fn();
     const store = { read: jest.fn(() => parent), listChildren: jest.fn(() => []), reorderChildren, getAncestors, setStatus } as unknown as CardService;

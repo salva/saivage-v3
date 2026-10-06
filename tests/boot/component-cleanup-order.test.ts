@@ -17,7 +17,7 @@ const failedReport: ProcessStopReport = { selected: ['p'], stopped: [], failed: 
 describe('termination-first component cleanup', () => {
   it.each(['runtime', 'mcp'] as const)('starts exactly one %s root termination synchronously and rejects a failed report', async (component) => {
     const termination = deferred<ProcessStopReport>();
-    const terminateScopeTree = jest.fn(() => termination.promise);
+    const terminateScopeTree = jest.fn((_options: { rootScope: object; categories: string[]; reason: string }) => termination.promise);
     const runner = { terminateScopeTree };
     const rootScope = {};
     let cleanup: Promise<void>;

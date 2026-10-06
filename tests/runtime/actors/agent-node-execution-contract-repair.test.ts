@@ -107,7 +107,7 @@ function harness(args: {
     : args.terminalVariant === 'stale' && args.executeContinuationHook
       ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([]).mockReturnValueOnce([{ id: '00000000-0000-4000-8000-000000000001', content: 'operator context' }]).mockReturnValue([])
       : () => [];
-  const removeNotifications=jest.fn(() => { events.push('remove-notifications'); });
+  const removeNotifications=jest.fn((_ids: readonly string[]) => { events.push('remove-notifications'); });
   const input = {
     card,
     activationId: 'activation-1',

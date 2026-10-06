@@ -275,7 +275,7 @@ describe('Analyst parsed tool invocation', () => {
 
   it('keeps invoked-tool publication uncertainty fatal and permanently unadmitted for settlement', async () => {
     const publication = new PublicationOutcomeUnknownError(new Error('uncertain tool publication'));
-    const publicationOutcomeUnknown = jest.fn(() => undefined as never);
+    const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError) => undefined as never);
     const abandonParkedTurn = jest.spyOn(ConversationLLMActor.prototype, 'abandonParkedTurn');
     const test = analyst('{"value":"uncertain"}', jest.fn(async () => { throw publication; }), {
       fatalPort: { publicationOutcomeUnknown },
@@ -324,7 +324,7 @@ describe('Analyst parsed tool invocation', () => {
   it.each(['settlement', 'following ingress'] as const)('keeps %s publication uncertainty fatal without replay or provider continuation', async (boundary) => {
     const toolFailure = new Error('strand one call');
     const publication = new PublicationOutcomeUnknownError(new Error(`${boundary} uncertain`));
-    const publicationOutcomeUnknown = jest.fn(() => undefined as never);
+    const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError) => undefined as never);
     let armed = false;
     let publications = 0;
     const test = analyst('{"value":"strand"}', jest.fn(async () => { throw toolFailure; }), {

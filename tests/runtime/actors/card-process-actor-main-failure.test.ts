@@ -98,7 +98,7 @@ async function waitForError(supervisor: ReturnType<typeof createSupervisorRuntim
 }
 
 function fatalNotificationSpy(supervisor: ReturnType<typeof createSupervisorRuntimeApi>) {
-  return jest.spyOn(supervisor as never, 'onProcessorActorMainFailure' as never);
+  return jest.spyOn(supervisor as unknown as { onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void }, 'onProcessorActorMainFailure');
 }
 
 describe('real CardProcess actor-main fatal containment', () => {

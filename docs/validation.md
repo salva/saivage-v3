@@ -112,6 +112,17 @@ and `node scripts/check-import-boundaries.cjs`. Admission does not prove cycle
 freedom or complete import-syntax coverage; routed value imports also need
 focused execution coverage of their actual semantic owners.
 
+## Backend test runner ownership
+
+Backend suites use Jest 30 with ts-jest 29.4.9's ESM transformation and the
+Node test environment. Explicit `testMatch` patterns retain the JS/TS families
+`**/__tests__/**/*.[jt]s?(x)` and `**/?(*.)+(spec|test).[tj]s?(x)`.
+The Node-owned `tests/scripts/import-boundary-ratchet.test.cjs` is not a Jest
+suite; `npm run test:import-boundaries` runs it with `node --test`.
+Ordinary Jest excludes Playwright, backend E2E, and the real-terminal-child
+suite. `npm test` runs ordinary parallel Jest, then the exact terminal-child
+suite serially; `npm run test:e2e` separately owns backend E2E.
+
 ## Profile coverage and prerequisites
 
 Both root and web dependencies must be installed before `npm run lint` or
@@ -235,3 +246,5 @@ so npm's explicit inclusion takes precedence over the audit scripts' retained
 dependencies. `npm run audit:security:all` uses the lower moderate threshold.
 `npm run deps:review` runs that broader audit plus local
 dependency-freshness review; it does not replace the CI gate.
+Passing `npm run validate:release` does not run or replace the separately
+required root-and-web `npm run audit:security` gate.

@@ -534,7 +534,7 @@ function mountedDoctorHandler(options: {
   );
   if (!handler) throw new Error('Doctor contract handler was not mounted.');
   const send = jest.fn();
-  const status = jest.fn(() => ({ send }));
+  const status = jest.fn((_statusCode: number) => ({ send }));
   const reply = { value: { status, send, raw: { once: jest.fn() }, header: jest.fn() } as unknown as FastifyReply, status, send };
   const request = { params: {}, query: {}, body: {}, headers: {}, log: { error: jest.fn() } };
   return { handler, request, reply, appendEventPrepared };
