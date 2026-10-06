@@ -434,6 +434,18 @@ Effects are nontransactional. Each known completed step is reported only after s
 
 Exact corrupt canonical paths and the six eligible own roots move into a fresh `.saivage/repair-attic/<UUID>`; never inspect/adopt prior attic contents. Files hides/refuses attic and resolved aliases before content/list/preview reads. No attic browser/restore endpoint exists. Ordinary reset owns only cards/agents/logs/work and **does not delete attic**; retained disk usage is intentional. Unsupported record/global damage is not implicit card discard or permission to rewrite histories. Separately authorized whole-generated-state reset remains the format-adoption/unsupported-loss alternative, not a migration or corruption-normalization path.
 
+## Codex cache affinity and bounded commissioning
+
+Codex requests carry a stable opaque owner-session digest in body `prompt_cache_key` and header `session-id`, included before request measurement/admission. Primary and internal-summary owners remain distinct. The label depends on the supplied absolute project root and actual owner session, not input UUIDs; moving roots changes it, while equal root/session names across installations are not globally unique. It is not encryption, a secret or authentication. There is no affinity setting or durable state to reset.
+
+Reuse is provider-dependent: keys are not cache-hit, retention, cost or quota guarantees. Cold requests, eviction and legitimate prefix changes at activation/submission or compaction can reduce reuse. Offline consecutive-turn tests prove client composition and exact admitted bytes, not backend hits or incident resolution. Do not retain obsolete context, suppress compaction, expand budgets or expose raw requests/headers to improve a cache metric.
+
+Source validation authorizes no deployment, restart, Run or spending. Commissioning is a separately owned, explicitly authorized operation using a validated pinned release, normal stopped-deployment safeguards, preserved configuration/accounts/budgets, a finite pre-agreed time/attempt/input-spend ceiling, and an operator able to stop. Agree success/stop criteria beforehand; no paid prewarm or unrestricted resume as a test.
+
+Distinguish the first cold request from later ordinary same-owner/model/account requests. Record per-attempt reported input/cached/other available usage, weighted cached/input ratio, zero-hit count, time gaps, owner changes and activation/compaction boundaries; use safely available prefix evidence without adding production body logging. Unknown usage is not zero, and reported usage is not billing. Poor or unmeasurable later reuse, or reaching the ceiling, requires containing expenditure and reporting unresolved efficacy, not silently continuing.
+
+**This source-only affinity change requires no reset and changes no durable format or usage schema.** It does not waive any other existing reset-only cutover for the selected release. Follow the separate format-adoption rules below when applicable; source completion is neither deployment nor irreversible-loss authorization.
+
 ## Provider-usage payload adoption
 
 The five-field provider-reported token metadata is a named **reset-only provider-usage

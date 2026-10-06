@@ -49,10 +49,15 @@ describe('Responses producer through real ordinary invocation', () => {
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(success());
     const completion = await service.executeAdmittedWithRecovery(admission);
     expect(fetch).toHaveBeenCalledTimes(2);
+    const ownerKey = sha256Hex(JSON.stringify(['saivage-provider-session', root, SESSION]));
+    expect(admission.execution.options.providerSessionId).toBe(ownerKey);
     for (const [index, verdict] of admission.candidates.entries()) {
       if (verdict.kind !== 'admitted') throw new Error('candidate not admitted');
       const init = fetch.mock.calls[index]![1]!;
       const body = init.body as string;
+      expect(body).not.toContain(ownerKey);
+      expect(JSON.parse(body)).not.toHaveProperty('prompt_cache_key');
+      expect(new Headers(init.headers).has('session-id')).toBe(false);
       expect(body).toBe(verdict.plan.request.serializedBody);
       expect(sha256Hex(body)).toBe(verdict.plan.request.requestHash);
       expect(Math.ceil(Buffer.byteLength(body) / 4)).toBe(verdict.plan.request.estimatedWireInputTokens);
@@ -69,6 +74,8 @@ describe('Responses producer through real ordinary invocation', () => {
     expect(completion.provider_private_context?.producer_account_id).toBe(responsesProducerAccountId(RESPONSES_B));
     expect(completion.provider_exchanges).toMatchObject([{ account: 'a', response_status: 503 }, { account: 'b', status: 'ok' }]);
     expect(JSON.stringify(completion.provider_exchanges)).not.toContain('producer_account_id');
+    expect(JSON.stringify(completion.provider_exchanges)).not.toContain(ownerKey);
+    expect(JSON.stringify(completion.provider_exchanges)).not.toContain(root);
     expect(JSON.stringify(completion.provider_exchanges)).not.toContain(responsesProducerAccountId(RESPONSES_B));
     expect(JSON.stringify(request.providerConversation)).toBe(before);
     expect(readFileSync(currentConversationSegmentPath(root, SESSION))).toEqual(durableBefore);
@@ -82,6 +89,8 @@ describe('Responses producer through real ordinary invocation', () => {
     expect(evidence).toHaveLength(2);
     expect(evidence[1]!.data).toMatchObject({ payload: { status: 'ok', account: 'b' } });
     for (const data of [evidence, readAppLogEntries(root)]) {
+      expect(JSON.stringify(data)).not.toContain(ownerKey);
+      expect(JSON.stringify(data)).not.toContain(root);
       expect(JSON.stringify(data)).not.toContain('producer_account_id');
       expect(JSON.stringify(data)).not.toContain(responsesProducerAccountId(RESPONSES_B));
       expect(JSON.stringify(data)).not.toContain('new-ciphertext');

@@ -1,4 +1,4 @@
-import type { AgentName } from '../schemas/index.js';
+import { sha256Hex, type AgentName } from '../schemas/index.js';
 import type { LlmCompleteOptions, LlmModelParams } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 
@@ -9,9 +9,13 @@ export function buildLlmOptions(
   modelParams: LlmModelParams,
   signal: AbortSignal | undefined,
   inputId: string,
+  owner: { projectRoot: string; sessionId: string },
 ): LlmCompleteOptions {
   return {
     inputId,
+    providerSessionId: sha256Hex(
+      JSON.stringify(['saivage-provider-session', owner.projectRoot, owner.sessionId]),
+    ),
     temperature: modelParams.temperature,
     max_tokens: modelParams.max_tokens,
     signal,

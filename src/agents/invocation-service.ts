@@ -538,6 +538,7 @@ export class InvocationService {
       { temperature: request.modelParams.temperature, max_tokens: outputTokens },
       undefined,
       request.inputId,
+      { projectRoot: this.projectRoot, sessionId: request.sessionId },
     );
   }
 

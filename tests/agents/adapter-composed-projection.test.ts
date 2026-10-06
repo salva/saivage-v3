@@ -21,7 +21,7 @@ const INPUT_A = '11111111-1111-4111-8111-111111111111';
 const INPUT_B = '22222222-2222-4222-8222-222222222222';
 const TS = '2026-08-17T00:00:00.000Z';
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
-const OPTS: LlmCompleteOptions = { inputId: 'ordering-check', temperature: 0, max_tokens: 512, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+const OPTS: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'ordering-check', temperature: 0, max_tokens: 512, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
 const capabilities = (transportProtocol: 'openai-chat-completions' | 'openai-responses' | 'openai-codex-backend') => ({ transportProtocol, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] });
 const requestBody = (transportProtocol: 'openai-chat-completions' | 'openai-responses' | 'openai-codex-backend', providerConversation: ProviderConversationProjection) => selectLlmProtocolAdapter(transportProtocol).buildRequestBody({ candidate: CANDIDATE, systemPrompt: 'prefix-instructions', providerConversation, options: OPTS, capabilities: capabilities(transportProtocol) });
 

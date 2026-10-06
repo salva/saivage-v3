@@ -11,7 +11,7 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { controlledResponse } from '../helpers/provider-inactivity.js';
 
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
-const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
+const options = (signal?: AbortSignal): LlmCompleteOptions => ({ providerSessionId: 'synthetic-provider-session', inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
 const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
 const capabilityRequest = { requiresTools: false, requiresExclusiveToolChoice: true } as const;
 

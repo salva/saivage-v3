@@ -19,6 +19,7 @@ export interface LlmModelParams {
 
 export interface LlmCompleteOptions extends LlmModelParams {
   inputId: string;
+  providerSessionId: string;
   signal?: AbortSignal;
   capabilityRequest?: CapabilityRequest;
   contract_id: string;

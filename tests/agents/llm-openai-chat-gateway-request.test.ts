@@ -80,7 +80,7 @@ describe('OpenAI Chat adapter request shape', () => {
 
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
-      inputId: 'test:input:1',
+      providerSessionId: 'synthetic-provider-session', inputId: 'test:input:1',
       temperature: 0.2,
       max_tokens: 1234,
       contract_id: 'test.v1',
@@ -120,7 +120,7 @@ describe('OpenAI Chat adapter request shape', () => {
 
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {
     const opts: LlmCompleteOptions = {
-      inputId: 'test:input:1',
+      providerSessionId: 'synthetic-provider-session', inputId: 'test:input:1',
       temperature: 0.3,
       max_tokens: 2345,
       contract_id: 'test.v1',
@@ -144,7 +144,7 @@ describe('OpenAI Chat adapter request shape', () => {
       return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 });
     });
     const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, {
-      inputId: 'test:input:record', temperature: 0.4, max_tokens: 3456, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
+      providerSessionId: 'synthetic-provider-session', inputId: 'test:input:record', temperature: 0.4, max_tokens: 3456, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
     });
 
     expect(sentBody?.stream).toBe(false);
@@ -156,7 +156,7 @@ describe('OpenAI Chat adapter request shape', () => {
 
 function options(): LlmCompleteOptions {
   return {
-    inputId: 'test:input:wire',
+    providerSessionId: 'synthetic-provider-session', inputId: 'test:input:wire',
     temperature: 0,
     max_tokens: 100,
     contract_id: 'test.v1',

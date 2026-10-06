@@ -36,7 +36,7 @@ it('keeps valid Codex completion immediately before expiry successful throughout
   };
   const account = { name: '_implicit', models: ['model'] };
   const registry = { get: () => ({ implicitAccount: account, apiKey: 'synthetic', baseUrl: 'https://test.invalid', getAllAccounts: () => [] }) } as never;
-  const options: LlmCompleteOptions = { inputId: 'settlement', temperature: 0, max_tokens: 10, tools: [], tool_choice: 'auto', terminalToolOffered: [], contract_id: 'test.v1', contractName: 'test' };
+  const options: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'settlement', temperature: 0, max_tokens: 10, tools: [], tool_choice: 'auto', terminalToolOffered: [], contract_id: 'test.v1', contractName: 'test' };
   let stream!: ReturnType<typeof controlledResponse>;
   let effective!: AbortSignal;
   const owner = new AbortController();

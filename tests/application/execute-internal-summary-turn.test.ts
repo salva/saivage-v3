@@ -30,7 +30,7 @@ describe('executeInternalSummaryTurn byte reuse', () => {
     const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: 'agent:planner:project', instruction: 'instruction', items: [] });
     const capabilities = registry.getEffectiveCapabilities(CANDIDATE);
     const pack = (instruction: string): AdmittedSummaryRequest => {
-      const plan = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: instruction, providerConversation: input.providerConversation, options: buildLlmOptions(input.agentName, input.tools, input.terminalToolNames, { temperature: 0, max_tokens: 2000 }, undefined, input.inputId) });
+      const plan = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: instruction, providerConversation: input.providerConversation, options: buildLlmOptions(input.agentName, input.tools, input.terminalToolNames, { temperature: 0, max_tokens: 2000 }, undefined, input.inputId, { projectRoot, sessionId: input.sessionId }) });
       const result = admitSummaryRequest({ serialization: { serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens }, contextUtilizationFraction: .9, contextWindowTokens: capabilities.contextWindowTokens!, maxOutputTokens: capabilities.maxOutputTokens! });
       if (result.kind !== 'admitted') throw new Error('fixture must fit');
       return result;

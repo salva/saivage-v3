@@ -23,7 +23,7 @@ describe('OpenAI Responses request shape', () => {
     const rows = responsesBundle(MSG.session_id, '11111111-1111-4111-8111-111111111111', RESPONSES_A, '{"success":true,"data":"exact-result"}');
     const original = JSON.stringify(rows);
     const output = JSON.parse(rows[0]!.content).output;
-    const options: LlmCompleteOptions = { inputId: 'next', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+    const options: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'next', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
     for (const candidate of [RESPONSES_A, { ...RESPONSES_A, model: 'other-model' }, RESPONSES_B]) {
       const body = ADAPTER.buildRequestBody({ candidate, capabilities: CAPABILITIES, systemPrompt: 'sys', providerConversation: { sourceSessionId: MSG.session_id, messages: rows }, options });
       expect(body.input).toEqual([...(candidate.account === 'a' ? output : output.slice(1)), { type: 'function_call_output', call_id: rows[2]!.tool_call_id, output: rows[2]!.content }]);
@@ -33,7 +33,7 @@ describe('OpenAI Responses request shape', () => {
   });
   it('keeps non-OK HTTP failure classification owned by the Responses adapter', () => {
     const bodyText = JSON.stringify({ error: { code: 'context_length_exceeded', param: 'input', message: 'request too large' } });
-    const options: LlmCompleteOptions = { inputId: 'input-http-failure', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+    const options: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'input-http-failure', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
     const error = ADAPTER.classifyHttpFailure(CANDIDATE, new Response(bodyText, { status: 400 }), bodyText, {}, options);
 
     expect(error).toBeInstanceOf(LlmRequestError);
@@ -46,7 +46,7 @@ describe('OpenAI Responses request shape', () => {
   });
 
   it('sends stateless fields and preserves the ordered operational and terminal tool surface', () => {
-    const opts: LlmCompleteOptions = { inputId: 'input-1', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: ['emit_result'], tools: [TOOL, TERMINAL_TOOL], tool_choice: 'auto', max_tokens: 1234 };
+    const opts: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'input-1', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: ['emit_result'], tools: [TOOL, TERMINAL_TOOL], tool_choice: 'auto', max_tokens: 1234 };
     const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: 'sys', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [MSG] }, options: opts, capabilities: CAPABILITIES });
 
     expect(body.model).toBe('gpt-5.6');
@@ -68,7 +68,7 @@ describe('OpenAI Responses request shape', () => {
   });
 
   it('keeps static instructions singular and sends latest context plus suffix as ordered input without compaction metadata', () => {
-    const opts: LlmCompleteOptions = { inputId: 'input-2', temperature: 0.3, max_tokens: 2345, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+    const opts: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'input-2', temperature: 0.3, max_tokens: 2345, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
     const latest: AgentMessage = { ...MSG, id: 'c2:rendered', role: 'system', content: 'latest C2 rendered context' };
     const suffix: AgentMessage = { ...MSG, id: 'suffix', content: 'uncovered suffix' };
     const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: 'role prompt', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [latest, suffix] }, options: opts, capabilities: CAPABILITIES }) as unknown as { instructions: string; input: unknown[] };
@@ -115,7 +115,7 @@ describe('OpenAI Responses request shape', () => {
       CANDIDATE,
       'sys',
       { sourceSessionId: 'agent:analyst:global', messages: [MSG] },
-      { inputId: 'input-json', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 1234 },
+      { providerSessionId: 'synthetic-provider-session', inputId: 'input-json', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 1234 },
     );
 
     expect(sentBody?.stream).toBe(false);

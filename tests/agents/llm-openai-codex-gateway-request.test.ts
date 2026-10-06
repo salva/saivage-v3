@@ -52,7 +52,7 @@ const SAMPLE_TOOL: ToolDefinition = {
 describe('OpenAI Codex adapter request shape', () => {
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
-      inputId: 'test:input:1',
+      providerSessionId: 'synthetic-provider-session', inputId: 'test:input:1',
       temperature: 0.2,
       max_tokens: 1234,
       contract_id: 'test.v1',
@@ -87,10 +87,11 @@ describe('OpenAI Codex adapter request shape', () => {
   });
 
   it('keeps static instructions singular, maps system context into ordered input, and omits completion quantity', () => {
-    const opts: LlmCompleteOptions = { inputId: 'test:input:1', temperature: 0.2, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
+    const opts: LlmCompleteOptions = { providerSessionId: 'synthetic-provider-session', inputId: 'test:input:1', temperature: 0.2, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
     const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }, MESSAGES[0]!] }, options: opts, capabilities: CAPABILITIES });
     expect(body).toEqual({
       model: 'gpt-5',
+      prompt_cache_key: opts.providerSessionId,
       store: false,
       stream: true,
       instructions: SYSTEM,
@@ -108,7 +109,7 @@ describe('OpenAI Codex adapter request shape', () => {
 
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {
     const opts: LlmCompleteOptions = {
-      inputId: 'test:input:1',
+      providerSessionId: 'synthetic-provider-session', inputId: 'test:input:1',
       temperature: 0.3,
       max_tokens: 2345,
       contract_id: 'test.v1',
@@ -128,7 +129,7 @@ describe('OpenAI Codex adapter request shape', () => {
 
 describe('OpenAI Codex adapter and runner context failure evidence', () => {
   const opts = (): LlmCompleteOptions => ({
-    inputId: 'test:input:context',
+    providerSessionId: 'synthetic-provider-session', inputId: 'test:input:context',
     temperature: 0.4,
     max_tokens: 3456,
     contract_id: 'test.v1',

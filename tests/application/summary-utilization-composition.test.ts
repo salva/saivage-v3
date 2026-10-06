@@ -43,6 +43,7 @@ const { TEST_SAIVAGE_CONFIG } = await import('../helpers/test-saivage-config.js'
 const { createTestConfigAuthority } = await import('../helpers/project-config.js');
 const { initProjectTree, TEST_WORKFLOWS } = await import('../helpers/canonical-project.js');
 const { unusedMcpToolInvocation } = await import('../helpers/llm-test-helpers.js');
+const { makeCodexJwt } = await import('../helpers/llm-test-helpers.js');
 
 const roots: string[] = [];
 afterEach(() => {
@@ -53,6 +54,64 @@ afterEach(() => {
 });
 
 describe('configured summary utilization through production composition', () => {
+  it('retains Codex summary-owner identity from production probes through exact admission and split sends', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'summary-codex-affinity-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const config = effectiveSaivageConfigSchema.parse({
+      ...structuredClone(TEST_SAIVAGE_CONFIG),
+      providers: { 'openai-codex': { models: ['test-model'], apiKey: makeCodexJwt('synthetic-account'), baseUrl: 'https://codex.example.test', capabilities: { transportProtocol: 'openai-codex-backend', toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', contextWindowTokens: 30_000, maxOutputTokens: 10_000 } } },
+      compaction: { ...TEST_SAIVAGE_CONFIG.compaction, tail_fraction: 0, summarizer_candidate: { provider: 'openai-codex', account: null, model: 'test-model' } },
+    });
+    const registry = new ProviderRegistry(config);
+    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const processes = new ManagedProcessGroupRegistry();
+    const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
+    const sent: Array<{ body: string; header: string | null }> = [];
+    const primary: Array<{ body: string; header: string | null }> = [];
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const body = String(init!.body);
+      const parsed = JSON.parse(body);
+      const summary = !parsed.tools;
+      (summary ? sent : primary).push({ body, header: new Headers(init!.headers).get('session-id') });
+      const events = [
+        { type: 'response.output_item.done', item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: summary ? 'compact history' : 'done' }] } },
+        { type: 'response.completed', response: { id: 'synthetic-response' } },
+      ];
+      return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    });
+    const app = createRuntimeApplication({ projectRoot, processIdentity: { pid: 42, startedAt: '2026-10-01T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner: new ProcessRunner(projectRoot, processes, testApplicationFatalPort), runtimeProcessRootScope: processes.createContainerScope(processes.rootScope, 'runtime'), analystProcessRootScope: processes.createContainerScope(processes.rootScope, 'analyst'), mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
+    try {
+      await app.analystRuntime.submit({ userContent: 'source material '.repeat(14_000) });
+      expect(sent.length).toBeGreaterThan(1);
+      expect(sent.length).toBeLessThanOrEqual(16);
+      expect(packedRequests).toHaveLength(sent.length);
+      expect(admissions).toHaveLength(sent.length);
+      const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+      const summaryOwner = `internal:compaction-summary:${hash('agent:analyst:global')}`;
+      const expected = hash(JSON.stringify(['saivage-provider-session', projectRoot, summaryOwner]));
+      for (const [index, wire] of sent.entries()) {
+        const packed = packedRequests[index]!;
+        const verdict = admissions[index]!.candidates[0]!;
+        if (verdict.kind !== 'admitted') throw new Error('expected retained plan');
+        expect(wire.body).toBe(packed.serializedRequest);
+        expect(hash(wire.body)).toBe(packed.requestSha256);
+        expect(verdict.plan.request.serializedBody).toBe(wire.body);
+        expect(verdict.plan.request.estimatedWireInputTokens).toBe(packed.estimatedInputTokens);
+        expect(packed.estimatedInputTokens).toBe(Math.ceil(Buffer.byteLength(wire.body, 'utf8') / 4));
+      }
+      expect(new Set(admissions.map(item => item.bindings.inputId)).size).toBe(sent.length);
+      expect(sent.map(wire => ({ key: JSON.parse(wire.body).prompt_cache_key, header: wire.header }))).toEqual(sent.map(() => ({ key: expected, header: expected })));
+      const primaryKey = hash(JSON.stringify(['saivage-provider-session', projectRoot, 'agent:analyst:global']));
+      expect(primary).toHaveLength(1);
+      expect(JSON.parse(primary[0]!.body).prompt_cache_key).toBe(primaryKey);
+      expect(primary[0]!.header).toBe(primaryKey);
+      expect(primaryKey).not.toBe(expected);
+    } finally {
+      await app.cleanupAnalystForApplicationStop();
+    }
+  });
+
   it.each([.90, 1, .60])('retains U=%s through real normal/split/corrective packing to fetch', async (u) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'summary-utilization-'));
     roots.push(projectRoot);

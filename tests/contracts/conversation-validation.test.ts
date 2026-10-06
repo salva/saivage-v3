@@ -119,7 +119,7 @@ describe('canonical conversation validation', () => {
         candidate: { provider: 'openai', model: 'fixture', account: null },
         systemPrompt: 'system',
         providerConversation,
-        options: { inputId, contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10 },
+        options: { providerSessionId: 'synthetic-provider-session', inputId, contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10 },
         capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
       });
       const providerResult = (request.messages as Array<{ role: string; content: string; tool_call_id?: string }>).find((message) => message.role === 'tool');

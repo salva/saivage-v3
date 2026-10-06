@@ -25,7 +25,10 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
   credentialRequirement: 'standard',
   buildRequestBody: ({ candidate, systemPrompt, providerConversation, options }) =>
     buildOpenAICodexRequest(candidate, systemPrompt, providerConversation, options),
-  deriveWire(candidate, transport, _body, options) {
+  deriveWire(candidate, transport, body, options) {
+    const providerSessionId = body.prompt_cache_key;
+    if (typeof providerSessionId !== 'string' || providerSessionId.length === 0)
+      throw new Error('Codex admitted request requires a non-empty prompt_cache_key.');
     if (!transport.apiKey || !transport.openAICodexAccountId)
       throw new LlmRequestError({
         kind: 'auth_permanent',
@@ -48,6 +51,7 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
         Connection: 'close',
         Authorization: `Bearer ${transport.apiKey}`,
         'chatgpt-account-id': transport.openAICodexAccountId,
+        'session-id': providerSessionId,
         originator: 'saivage',
         'OpenAI-Beta': 'responses=experimental',
       },
@@ -104,6 +108,7 @@ function buildOpenAICodexRequest(
     stream: true,
     instructions: systemPrompt,
     input,
+    prompt_cache_key: opts.providerSessionId,
   };
   if (opts.tools.length) {
     body.tools = serializeToolsForCodex(opts.tools);

@@ -129,6 +129,12 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 ## Notable current behaviors
 
+- Codex uses stable owner-session cache affinity; reuse remains provider-dependent,
+  with no guaranteed hits or savings. This source-only change requires no reset;
+  other format cutovers still apply. Live efficacy needs separately authorized
+  [bounded commissioning](docs/runbook/index.md#codex-cache-affinity-and-bounded-commissioning),
+  not just source tests.
+
 - Latest provider-exchange metadata retains provider-reported input/output/total,
   cached-input and reasoning-output tokens when reported; unknown is not zero and
   subsets are not additional totals. This is not billing or complete accounting.

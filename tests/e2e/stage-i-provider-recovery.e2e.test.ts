@@ -129,7 +129,7 @@ describe('stable same-session recovery', () => {
     expect(JSON.parse(failed.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
     expect(generic).toContainEqual(expect.objectContaining({ role: 'system', kind: 'synthetic_context', origin: 'recovery_notice', content: MODEL_RECOVERY_NOTICE_TEXT }));
 
-    const options = { inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto' as const, terminalToolOffered: [], temperature: 0, max_tokens: 10 };
+    const options = { providerSessionId: 'synthetic-provider-session', inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto' as const, terminalToolOffered: [], temperature: 0, max_tokens: 10 };
     const codex = selectLlmProtocolAdapter('openai-codex-backend').buildRequestBody({
       candidate: { provider: 'openai-codex', model: 'gpt-test', account: 'default' },
       systemPrompt: 'system',

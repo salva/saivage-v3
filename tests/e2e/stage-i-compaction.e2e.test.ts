@@ -630,7 +630,7 @@ function summaryProvider(args: {
   let normalCalls = 0;
   const serializeSummaryRequest = (input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0]): SummaryRequestSerialization => {
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
-    const plan = buildCandidateRequest({ candidate: args.candidate, capabilities, adapter, systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
+    const plan = buildCandidateRequest({ candidate: args.candidate, capabilities, adapter, systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { providerSessionId: 'synthetic-provider-session', inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
     return { serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
   };
   return {

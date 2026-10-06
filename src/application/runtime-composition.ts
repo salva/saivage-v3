@@ -136,6 +136,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         { temperature: input.modelParams.temperature, max_tokens: maxTokens },
         undefined,
         input.inputId,
+        { projectRoot, sessionId: input.sessionId },
       ),
     });
     return {

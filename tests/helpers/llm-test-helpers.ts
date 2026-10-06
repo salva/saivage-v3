@@ -141,7 +141,7 @@ export const testAutonomousCompaction = {
 };
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { inputId: 'test:input:1', temperature: 0, max_tokens: 2000, tools: [], tool_choice: 'auto', contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...extra };
+  return { providerSessionId: 'synthetic-provider-session', inputId: 'test:input:1', temperature: 0, max_tokens: 2000, tools: [], tool_choice: 'auto', contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...extra };
 }
 
 export function asMessage(value: LlmCompleteResult | ProviderTurnCompletion): { content: string; tool_calls: ToolCall[]; finishReason: string } {
