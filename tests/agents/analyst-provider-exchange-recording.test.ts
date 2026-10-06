@@ -47,7 +47,7 @@ function toolCalls(...calls: Array<{ id: string; name: string }>): Response {
       },
       finish_reason: 'tool_calls',
     }],
-    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, prompt_tokens_details: { cached_tokens: 40, audio_tokens: 99 }, completion_tokens_details: { reasoning_tokens: 5 }, private_marker: 'must-not-escape' },
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
@@ -193,6 +193,8 @@ describe('production-composed Analyst provider-exchange recording', () => {
       expect(appLog).toContainEqual(expect.objectContaining({ type: 'event', data: expect.objectContaining({ id: 'seed-current-app-log-event' }) }));
       const exchanges = readProviderExchangeEntries(projectRoot, app.analystSessionId);
       expect(exchanges).toHaveLength(2);
+      for (const exchange of exchanges) expect(exchange.data.payload).toMatchObject({ token_usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 } });
+      expect(JSON.stringify(exchanges)).not.toContain('must-not-escape');
       const toolCallRow = rows[firstToolCall]!;
       const issueRow = rows[continuationIssue]!;
       expect(exchanges[0]!.data.payload).toMatchObject({

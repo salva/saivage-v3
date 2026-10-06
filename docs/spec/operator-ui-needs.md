@@ -189,7 +189,10 @@ continuous transcript, summary prose, or loss of the usable current selection is
 
 **F15 — Should — Provider evidence.** From an exact session, inspect its latest available
 settled provider exchange's safe provider/model/account and settlement/request-parameter
-metadata. Check no exchange, failed refresh, and absent usage: unknown usage is not zero;
+metadata, including reported input/output/total, cached-input and reasoning-output token facts.
+Check partial and absent usage: unreported values are unknown, not zero; cached input is
+part of input and reasoning output part of output, not additional totals. Check no
+exchange and failed refresh separately. Latest-only scope remains unchanged;
 the resource is not a raw HTTP body, prompt viewer, or all-exchanges history.
 
 **F16 — Should — Global activity with purpose.** Permit inspection of published global

@@ -5,13 +5,13 @@ import {
   type Candidate,
   type LlmCompleteOptions,
   type LlmCompleteResult,
-  type LlmUsage,
   type ProviderConversationItem,
   type ProviderConversationProjection,
   type ToolCall,
   type LlmProtocolAdapter,
 } from '../contracts/index.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
+import { extractChatUsage } from './llm-usage.js';
 import {
   serializeToolsForChat,
   type WireToolDefinitionChat,
@@ -38,7 +38,7 @@ interface ChatCompletionResponse {
     message?: { content: string | null; tool_calls?: ToolCall[] };
     finish_reason?: string | null;
   }>;
-  usage?: LlmUsage;
+  usage?: unknown;
 }
 
 export const openAIChatAdapter: LlmProtocolAdapter = {
@@ -105,9 +105,10 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       });
     const choice = parsed.choices[0]!;
     const toolCalls = choice.message?.tool_calls ?? [];
+    const usage = extractChatUsage(parsed.usage, candidate.provider);
     const result: LlmCompleteResult = toolCalls.length
-      ? { kind: 'tool_calls', tool_calls: toolCalls, usage: parsed.usage }
-      : { kind: 'message', content: choice.message?.content ?? '', usage: parsed.usage };
+      ? { kind: 'tool_calls', tool_calls: toolCalls, usage }
+      : { kind: 'message', content: choice.message?.content ?? '', usage };
     return { result, finishReason: choice.finish_reason };
   },
 };

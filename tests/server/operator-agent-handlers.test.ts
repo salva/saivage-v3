@@ -274,7 +274,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
         expect(response.exchange.status).toBe('ok');
         if (response.exchange.status !== 'ok') throw new Error('Expected success response.');
         expect(response.exchange.assistant_output_ids).toEqual(['assistant-output-identity']);
-        expect(response.exchange.token_usage).toEqual({ total_tokens: 12 });
+        expect(response.exchange.token_usage).toEqual({ total_tokens: 12, cached_input_tokens: 0, reasoning_output_tokens: 5 });
       } else {
         expect(response.exchange.status).toBe('error');
         if (response.exchange.status !== 'error') throw new Error('Expected error response.');
@@ -536,7 +536,7 @@ function sensitiveExchange(status: 'ok' | 'error'): ProviderExchangePayload {
         ...base,
         status,
         finish_reason: 'finish tok_operator_finish_ok',
-        token_usage: { total_tokens: 12 },
+        token_usage: { total_tokens: 12, cached_input_tokens: 0, reasoning_output_tokens: 5 },
         terminal_tool_fired: 'tool tok_operator_tool_ok',
         assistant_output_ids: ['assistant-output-identity'],
       }

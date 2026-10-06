@@ -7,7 +7,7 @@ import { InvocationService } from '../../src/agents/invocation-service.js';
 import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log.js';
 import { providerExchangeFile } from '../../src/persistence/layout.js';
-import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
+import { readProviderExchangeEntries, readLatestProviderExchangePayload } from '../../src/persistence/provider-exchange-log.js';
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
 import { dirname } from 'node:path';
 import type { ConversationSessionId } from '../../src/schemas/index.js';
@@ -28,6 +28,18 @@ afterEach(() => {
 });
 
 describe('provider exchange publication security projection', () => {
+  it('publishes summary usage through the same owner stream without replacing primary selection', () => {
+    const root = projectRoot(); const service = invocationService(root, { llmExchangeChanged() {} });
+    const base = providerAttempts()[1]!;
+    if (base.status !== 'ok') throw new Error('Expected successful fixture');
+    const token_usage = { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 };
+    service.projectProviderExchanges(sessionId, 'primary', sourceInputId, [{ ...base, token_usage }], noOutputs);
+    const primary = readLatestProviderExchangePayload(root, sessionId);
+    service.projectProviderExchanges(sessionId, 'internal-summary', 'summary-usage', [{ ...base, source_input_id: 'summary-usage', completed_at: '2026-07-19T10:00:03.000Z', token_usage: { cached_input_tokens: 0 } }], noOutputs);
+    expect(primary).toMatchObject({ token_usage });
+    expect(readProviderExchangeEntries(root, sessionId)[1]!.data.payload).toMatchObject({ token_usage: { cached_input_tokens: 0 } });
+    expect(readLatestProviderExchangePayload(root, sessionId)).toEqual(primary);
+  });
   it('keeps successful assistant ids disjoint from required nullable error terminal output identity', () => {
     const error = { ...providerAttempts()[0]!, terminal_conversation_output_id: null };
     expect(providerExchangePayloadSchema.parse(error)).toMatchObject({ status: 'error', terminal_conversation_output_id: null });

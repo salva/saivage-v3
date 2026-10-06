@@ -34,6 +34,25 @@ function publish(root: string, sessionId: string, model: string, timestamp = fir
 }
 
 describe('strict selected provider evidence', () => {
+  it('retains partial/zero usage and summary facts without replacing latest primary', () => {
+    const root = project();
+    const primary = row(owner, 'primary');
+    Object.assign(primary.data.payload, { token_usage: { cached_input_tokens: 0, reasoning_output_tokens: 5 } });
+    appendProviderExchangeEntry(root, owner, primary);
+    const summary = row(internalCompactionSummarySessionId(owner), 'summary', later);
+    Object.assign(summary.data.payload, { token_usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 } });
+    appendProviderExchangeEntry(root, owner, summary);
+    expect(readProviderExchangeEntries(root, owner)[1]!.data.payload).toEqual(summary.data.payload);
+    expect(readLatestProviderExchangePayload(root, owner)).toEqual(primary.data.payload);
+  });
+  it.each([{ cached_input_tokens: -1 }, { reasoning_output_tokens: 0.5 }, { vendor_tokens: 1 }])('rejects malformed complete durable usage without rewriting %#', usage => {
+    const root = project(); const entry = row(owner, 'bad');
+    Object.assign(entry.data.payload, { token_usage: usage });
+    const bytes = serializeGrowingEnvelope([entry]); const path = providerExchangeFile(root, owner);
+    writeFileSync(path, bytes);
+    expect(() => readProviderExchangeEntries(root, owner)).toThrow();
+    expect(readFileSync(path)).toEqual(bytes);
+  });
   it('truncates a valid torn prefix at read and append use, including interrupted multibyte bytes', () => {
     const root = project(); publish(root, owner, 'first'); const path = providerExchangeFile(root, owner); const prefix = readFileSync(path);
     writeFileSync(path, Buffer.concat([prefix, Buffer.from([0xe2, 0x82])]));

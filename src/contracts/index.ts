@@ -62,10 +62,11 @@ export type {
   ProviderConversationProjection,
 } from './provider-conversation.js';
 export { ProviderTurnFailure } from './provider-turn.js';
+export { llmUsageSchema } from './llm-usage.js';
+export type { LlmUsage } from './llm-usage.js';
 export type {
   ToolDefinition,
   ToolCall,
-  LlmUsage,
   LlmCompleteResult,
   OpenAIResponsesPrivateContext,
   ProviderPrivateContext,

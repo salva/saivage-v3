@@ -83,6 +83,11 @@
 
         <div class="rlp-pane">
           <h3 class="rlp-pane-title">Settlement</h3>
+          <p v-if="exchange.status === 'ok'">
+            Counts are provider-reported. Unreported values are unknown, not zero.
+            Cached input is part of input; reasoning output is part of output.
+          </p>
+          <p v-if="exchange.status === 'ok' && !exchange.token_usage">Token usage not reported</p>
 
           <div v-if="exchange.status === 'error'" class="rlp-error-box">
             <div class="rlp-error-name">{{ exchange.error.name }}</div>

@@ -434,6 +434,25 @@ Effects are nontransactional. Each known completed step is reported only after s
 
 Exact corrupt canonical paths and the six eligible own roots move into a fresh `.saivage/repair-attic/<UUID>`; never inspect/adopt prior attic contents. Files hides/refuses attic and resolved aliases before content/list/preview reads. No attic browser/restore endpoint exists. Ordinary reset owns only cards/agents/logs/work and **does not delete attic**; retained disk usage is intentional. Unsupported record/global damage is not implicit card discard or permission to rewrite histories. Separately authorized whole-generated-state reset remains the format-adoption/unsupported-loss alternative, not a migration or corruption-normalization path.
 
+## Provider-usage payload adoption
+
+The five-field provider-reported token metadata is a named **reset-only provider-usage
+payload cutover**, even though its counters are optional and the shared growing-file
+envelope stays version 1. Omission means unknown; it does not certify retained-state
+compatibility. Old binaries reject new detail keys, so mixed-version operation and
+binary-only downgrade against current rows are unsupported.
+
+Adopt only through the existing [complete stopped-reset procedure](#agent-and-workflow-identity-cutovers):
+stop the exact service, positively verify no owner/process, obtain explicit consent
+for irreversible loss of all generated cards, records, conversations, logs and work,
+retain a successful complete fresh stopped-project backup, preserve configuration,
+credentials, identity, operator inputs, source and docs, then reset all four generated
+roots with the matching current build and separately start/verify it.
+Never selectively reset evidence files, probe old rows, migrate, rewrite or backfill counters. Any rollback
+needs another separately authorized matching-release whole-generated-state reset.
+Source completion or plan approval grants no deployment, reset or live operation.
+See [usage semantics and observation limits](../spec/system-specification.md#provider-reported-token-usage).
+
 ## Storage and interruption
 
 Established empty directories are state, not dispensable packaging: an existing conversation index requires its session root and `versions/` even with no segments, and initial card publication establishes an initially empty `mailbox/`. See the canonical [established conversation and card-owner directories](../spec/system-specification.md#established-conversation-and-card-owner-directories) contract for fixed layout versus lazy paths. File-content/schema validation and successful startup/readiness can leave a missing empty publication parent unconsumed; they do not certify future first-segment or mailbox publication. Missing parents fail at actual use, without automatic directory repair or a startup layout sweep.

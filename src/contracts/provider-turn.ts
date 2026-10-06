@@ -1,5 +1,6 @@
 import type { ProviderExchangeAttempt } from './provider-exchange.js';
 import type { Candidate } from './provider-candidate.js';
+import type { LlmUsage } from './llm-usage.js';
 
 interface ToolFunctionDefinition {
   name: string;
@@ -19,12 +20,6 @@ export interface ToolCall {
     name: string;
     arguments: string;
   };
-}
-
-export interface LlmUsage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
 }
 
 export type LlmCompleteResult =

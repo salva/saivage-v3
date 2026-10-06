@@ -1,4 +1,10 @@
-import { LlmRequestError, type LlmCompleteResult, type ToolCall } from '../contracts/index.js';
+import {
+  LlmRequestError,
+  type LlmCompleteResult,
+  type LlmUsage,
+  type ToolCall,
+} from '../contracts/index.js';
+import { extractResponsesUsage } from './llm-usage.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import {
   classifyDirectProviderFailure,
@@ -18,6 +24,10 @@ export async function readOpenAICodexStream(
   let naturalEOF = false;
   const sse = new IncrementalSseReader();
   let message: string | undefined;
+  let usage: LlmUsage | undefined;
+  const setUsage = (value: LlmUsage | undefined): void => {
+    usage = value;
+  };
   const pendingToolCalls = new Map<string, PendingCodexToolCall>();
   const finalizedToolCalls = new Set<string>();
   const toolCalls: ToolCall[] = [];
@@ -38,10 +48,11 @@ export async function readOpenAICodexStream(
             finalizedToolCalls,
             toolCalls,
             setMessage,
+            setUsage,
             onData,
           )
         ) {
-          return completedCodexResult(toolCalls, message);
+          return completedCodexResult(toolCalls, message, usage);
         }
         throw new Error('OpenAI Codex stream truncated before response.completed.');
       }
@@ -53,10 +64,11 @@ export async function readOpenAICodexStream(
           finalizedToolCalls,
           toolCalls,
           setMessage,
+          setUsage,
           onData,
         )
       ) {
-        return completedCodexResult(toolCalls, message);
+        return completedCodexResult(toolCalls, message, usage);
       }
     }
   } catch (err) {
@@ -81,9 +93,11 @@ export async function readOpenAICodexStream(
 function completedCodexResult(
   toolCalls: ToolCall[],
   message: string | undefined,
+  usage: LlmUsage | undefined,
 ): LlmCompleteResult {
-  if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls };
-  if (message !== undefined) return { kind: 'message', content: message };
+  const metadata = usage === undefined ? {} : { usage };
+  if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls, ...metadata };
+  if (message !== undefined) return { kind: 'message', content: message, ...metadata };
   throw new Error(
     'OpenAI Codex response completed without a finalized tool call or completed assistant message.',
   );
@@ -96,6 +110,7 @@ function consumeCodexEvents(
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   setMessage: (content: string) => void,
+  setUsage: (usage: LlmUsage | undefined) => void,
   onData: () => void,
 ): boolean {
   for (const output of outputs) {
@@ -110,6 +125,7 @@ function consumeCodexEvents(
         finalizedToolCalls,
         toolCalls,
         setMessage,
+        setUsage,
       )
     )
       return true;
@@ -124,6 +140,7 @@ export function handleOpenAICodexEvent(
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   setMessage: (content: string) => void,
+  setUsage: (usage: LlmUsage | undefined) => void,
 ): boolean {
   const event = JSON.parse(dataText) as Record<string, unknown>;
 
@@ -196,6 +213,7 @@ export function handleOpenAICodexEvent(
         'OpenAI Codex response.completed must carry an object response with a string id.',
       );
     }
+    setUsage(extractResponsesUsage(response['usage'], 'openai-codex'));
     return true;
   }
   return false;

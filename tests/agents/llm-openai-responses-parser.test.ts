@@ -6,6 +6,28 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 const CTX = { provider: 'openai', producerAccountId: responsesProducerAccountId({ provider: 'openai', account: null }), model: 'gpt-5.6', sourceInputId: 'input-1', responseStatus: 200 };
 
 describe('OpenAI Responses parser', () => {
+  it.each([undefined, null, {}, { input_tokens: null, output_tokens_details: null }])('keeps omitted Responses usage unknown %#', usage => {
+    expect(parseOpenAIResponsesJson(JSON.stringify({ status: 'completed', output: [], usage }), CTX).result.usage).toBeUndefined();
+  });
+  it('retains Responses detail-only zero without deriving totals', () => {
+    expect(parseOpenAIResponsesJson(JSON.stringify({ status: 'completed', output: [], usage: { output_tokens_details: { reasoning_tokens: 0 } } }), CTX).result.usage).toEqual({ reasoning_output_tokens: 0 });
+  });
+  it.each(['failed', 'cancelled', 'incomplete'])('does not consume usage on noncompleted %s response', status => {
+    const failure = failureFor({ status, output: [], usage: { input_tokens: 'private-invalid-count' } });
+    expect(failure.kind).not.toBe('parse_error');
+    expect(failure).not.toHaveProperty('usage');
+  });
+  it.each([
+    [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }],
+    [{ type: 'function_call', call_id: 'call-1', name: 'lookup', arguments: '{}' }],
+  ])('retains terminal usage for message and tool results %#', (item) => {
+    const parsed = parseOpenAIResponsesJson(JSON.stringify({ status: 'completed', output: [item], usage: {
+      input_tokens: 100, output_tokens: 10, total_tokens: 110,
+      input_tokens_details: { cached_tokens: 40, cache_write_tokens: 99 },
+      output_tokens_details: { reasoning_tokens: 5 }, private_marker: 'ignored',
+    } }), CTX);
+    expect(parsed.result.usage).toEqual({ prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 });
+  });
   it('accepts only completed responses and preserves raw output in private context', () => {
     const output = [
       { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' },

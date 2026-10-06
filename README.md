@@ -129,6 +129,12 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 
 ## Notable current behaviors
 
+- Latest provider-exchange metadata retains provider-reported input/output/total,
+  cached-input and reasoning-output tokens when reported; unknown is not zero and
+  subsets are not additional totals. This is not billing or complete accounting.
+  See [semantics](docs/spec/system-specification.md#provider-reported-token-usage) and
+  the separately authorized [reset-only payload adoption](docs/runbook/index.md#provider-usage-payload-adoption).
+
 - Strict startup errors require stop/disable restarts, positive no-owner verification,
   a successful complete fresh preserved backup, then one exact offline report/consent
   repair and separate restart. For example, from the project root:

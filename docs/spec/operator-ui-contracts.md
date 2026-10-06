@@ -457,6 +457,12 @@ honesty-rule changes. Owners: `web/src/utils/legibility.ts` and
 - The provider-exchange surface is named **Provider exchange metadata**
   everywhere; segment-context and retained-instruction IDs render compact
   with full values in `title` and copy.
+  Its existing copyable Settlement JSON retains known provider-reported token fields,
+  including explicit zeros, without fabricated null/zero counters or totals. Successful
+  exchanges explain that unreported values are unknown, not zero; cached input is part
+  of input and reasoning output part of output. An `ok` exchange without usage shows
+  **Token usage not reported**. Error and no-exchange states remain distinct. This is
+  latest-attempt metadata, not accounting, aggregation, or a history dashboard.
 - Record diffs carry a "Changes from previous version" label; card-version
   diffs carry explicit Before/After columns; EventsPanel coverage counts
   derive from returned data, never the request limit.

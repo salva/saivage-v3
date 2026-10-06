@@ -36,6 +36,43 @@ function fixture(overrides: Partial<LlmProtocolAdapter> = {}): { plan: Candidate
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 
 describe('shared LLM provider attempt', () => {
+  it.each([undefined, null, {}, { prompt_tokens: null }, { completion_tokens: 0 }, { prompt_tokens_details: { cached_tokens: 0 } }])('retains Chat tool-result omission/zero semantics %#', async usage => {
+    const value = fixture(); value.plan.adapter = selectLlmProtocolAdapter('openai-chat-completions');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-usage', type: 'function', function: { name: 'done', arguments: '{}' } }] } }], usage })));
+    const completion = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options() });
+    const expected = usage && 'completion_tokens' in usage ? { completion_tokens: 0 }
+      : usage && 'prompt_tokens_details' in usage ? { cached_input_tokens: 0 } : undefined;
+    expect(completion.result.kind).toBe('tool_calls');
+    expect(completion.result.usage).toEqual(expected);
+    expect(completion.provider_exchanges[0]).toMatchObject({ status: 'ok' });
+    const evidence = completion.provider_exchanges[0]!;
+    if (evidence.status !== 'ok') throw new Error('Expected successful exchange');
+    expect(evidence.token_usage).toEqual(expected);
+  });
+  it.each(['openai-chat-completions', 'openai-responses'] as const)('projects real %s success usage without changing request bytes', async protocol => {
+    const value = fixture(); value.plan.adapter = selectLlmProtocolAdapter(protocol);
+    const usage = protocol === 'openai-responses'
+      ? { input_tokens: 100, output_tokens: 10, total_tokens: 110, input_tokens_details: { cached_tokens: 40 }, output_tokens_details: { reasoning_tokens: 5 } }
+      : { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, prompt_tokens_details: { cached_tokens: 40 }, completion_tokens_details: { reasoning_tokens: 5 } };
+    const payload = protocol === 'openai-responses'
+      ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }], usage }
+      : { choices: [{ message: { content: 'ok' } }], usage };
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(payload)));
+    const result = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options() });
+    const expected = { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 };
+    expect(result.result.usage).toEqual(expected);
+    expect(result.provider_exchanges[0]).toMatchObject({ status: 'ok', token_usage: expected });
+    expect(fetch.mock.calls[0]![1]!.body).toBe(value.plan.request.serializedBody);
+  });
+  it('keeps malformed Chat usage as safe existing parse failure, not successful evidence', async () => {
+    const value = fixture(); value.plan.adapter = selectLlmProtocolAdapter('openai-chat-completions');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 'private-secret' } })));
+    const failure = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options() }).catch(error => error);
+    expect(failure.originalFailure.failure).toEqual({ kind: 'parse_error', provider: 'test', message: 'Invalid provider token usage at usage.prompt_tokens.' });
+    expect(failure.provider_exchanges[0].status).toBe('error');
+    expect(failure.provider_exchanges[0]).not.toHaveProperty('token_usage');
+    expect(JSON.stringify(failure.provider_exchanges)).not.toContain('private-secret');
+  });
   it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend', 'error-body'] as const)('keeps exact owner body abort evidence for %s', async protocol => {
     jest.useFakeTimers();
     const owner = new AbortController(); const reason = new Error('body owner stopped');

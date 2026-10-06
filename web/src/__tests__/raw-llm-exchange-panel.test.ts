@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import RawLlmExchangePanel from '../components/agents/RawLlmExchangePanel.vue';
@@ -8,6 +8,7 @@ import { useAgentStore } from '../stores/agents';
 
 const live = vi.hoisted(() => ({ openLlmExchange: vi.fn(), close: vi.fn() }));
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
+beforeEach(() => { live.close.mockClear(); live.openLlmExchange.mockClear(); });
 
 function exchange(overrides: Partial<ProviderExchangePayload> = {}): ProviderExchangePayload {
   return {
@@ -54,6 +55,25 @@ function mountPanel(payload: ProviderExchangePayload | null) {
 }
 
 describe('RawLlmExchangePanel', () => {
+  it.each([
+    { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 },
+    { cached_input_tokens: 0 },
+  ])('renders exact reported usage in copyable settlement without fabricated counts %#', async token_usage => {
+    const { wrapper } = mountPanel(exchange({ token_usage })); await flushPromises();
+    const block = wrapper.findAllComponents(CodeBlock)[1];
+    expect(JSON.parse(block.props('code')).token_usage).toEqual(token_usage);
+    expect(block.props('copyable')).toBe(true);
+    expect(wrapper.text()).toContain('unknown, not zero');
+    expect(wrapper.text()).toContain('Cached input is part of input');
+    expect(wrapper.text()).not.toContain('Token usage not reported');
+    wrapper.unmount();
+  });
+  it('labels unreported successful usage without creating JSON counters', async () => {
+    const { wrapper } = mountPanel(exchange()); await flushPromises();
+    expect(wrapper.text()).toContain('Token usage not reported');
+    expect(JSON.parse(wrapper.findAllComponents(CodeBlock)[1].props('code'))).not.toHaveProperty('token_usage');
+    wrapper.unmount();
+  });
   it('claims and fetches once on mount, reuses its token for Refresh, and clears it on unmount', async () => {
     const { wrapper, begin, fetch, clear } = mountPanel(exchange());
     await flushPromises();
@@ -101,12 +121,14 @@ describe('RawLlmExchangePanel', () => {
     await flushPromises();
     expect(wrapper.find('.rlp-error-box').text()).toContain('LlmRequestError');
     expect(wrapper.find('.rlp-error-box').text()).toContain('rate limited');
+    expect(wrapper.text()).not.toContain('Token usage not reported');
   });
 
   it('renders an accepted 404-style empty result without an error', async () => {
     const { wrapper } = mountPanel(null);
     await flushPromises();
     expect(wrapper.text()).toContain('No LLM exchange recorded');
+    expect(wrapper.text()).not.toContain('Token usage not reported');
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
   });
 });

@@ -64,6 +64,51 @@ async function expectFailure(body: ReadableStream<Uint8Array>, expected: LlmTran
 }
 
 describe('OpenAI Codex stream parser', () => {
+  it.each([message('done'), finalizedTool()])('uses only the first terminal response usage for either result %#', async (output) => {
+    // https://raw.githubusercontent.com/openai/codex/main/codex-rs/codex-api/src/sse/responses.rs
+    const terminal = event({ type: 'response.completed', response: { id: 'usage', usage: {
+      input_tokens: 100, output_tokens: 10, total_tokens: 110,
+      input_tokens_details: { cached_tokens: 40, cache_write_tokens: 99 },
+      output_tokens_details: { reasoning_tokens: 5 }, extra: 'ignored',
+    } } });
+    const prefix = event({ type: 'response.created', response: { usage: { input_tokens: -1 } } }) + output;
+    const split = terminal.indexOf('cached_tokens') + 5;
+    const result = await readOpenAICodexStream(stream(prefix + terminal.slice(0, split), terminal.slice(split) + completion()), 200);
+    expect(result.usage).toEqual({ prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 });
+  });
+  it.each([undefined, null, {}, { input_tokens_details: null }])('keeps terminal omissions unknown %#', async usage => {
+    const result = await readOpenAICodexStream(stream(message('ok') + event({ type: 'response.completed', response: { id: 'usage', usage } })), 200);
+    expect(result).toEqual({ kind: 'message', content: 'ok' });
+  });
+  it.each([
+    { wire: { input_tokens: 7, output_tokens: null, total_tokens: null }, expected: { prompt_tokens: 7 } },
+    { wire: { input_tokens_details: { cached_tokens: 4 }, output_tokens_details: { reasoning_tokens: null } }, expected: { cached_input_tokens: 4 } },
+    { wire: { output_tokens_details: { reasoning_tokens: 3 } }, expected: { reasoning_output_tokens: 3 } },
+    { wire: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, expected: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+  ])('retains partial/detail-only terminal facts without deriving missing counters %#', async ({ wire, expected }) => {
+    const result = await readOpenAICodexStream(stream(finalizedTool() + event({ type: 'response.completed', response: { id: 'partial', usage: wire } })), 200);
+    expect(result.kind).toBe('tool_calls');
+    expect(result.usage).toEqual(expected);
+  });
+  it('does not use nonterminal usage when the terminal response omits it', async () => {
+    const earlier = event({ type: 'response.created', response: { usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 40 } } } });
+    expect(await readOpenAICodexStream(stream(earlier + message('ok') + completion()), 200)).toEqual({ kind: 'message', content: 'ok' });
+  });
+  it('returns terminal detail-only zero promptly even when stream and cancellation never settle', async () => {
+    const cancel = jest.fn(() => new Promise<void>(() => {}));
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(encoder.encode(message('ok') + event({ type: 'response.completed', response: { id: 'zero', usage: { input_tokens_details: { cached_tokens: 0 } } } })));
+    }, cancel });
+    const result = await readOpenAICodexStream(body, 200);
+    expect(result.usage).toEqual({ cached_input_tokens: 0 });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(body.locked).toBe(false);
+  });
+  it('rejects malformed terminal usage without retaining raw values', async () => {
+    await expectFailure(stream(message('ok') + event({ type: 'response.completed', response: { id: 'bad', usage: { output_tokens: 'private-value' } } })), {
+      kind: 'parse_error', provider: 'openai-codex', message: 'Invalid provider token usage at usage.output_tokens.',
+    });
+  });
   it('reports consumed push and EOF data outputs only, stopping activity at valid completion', async () => {
     let count = 0;
     const onData = () => { count++; };

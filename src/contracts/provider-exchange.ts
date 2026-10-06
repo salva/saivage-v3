@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { llmUsageSchema } from './llm-usage.js';
 
 const providerExchangeTransportSchema = z.enum(['generic', 'codex', 'openai-responses']);
 
@@ -27,14 +28,7 @@ export const providerExchangePayloadSchema = z.discriminatedUnion('status', [
       status: z.literal('ok'),
       response_status: z.number().int().optional(),
       finish_reason: z.string().nullable().optional(),
-      token_usage: z
-        .object({
-          prompt_tokens: z.number().int().nonnegative().optional(),
-          completion_tokens: z.number().int().nonnegative().optional(),
-          total_tokens: z.number().int().nonnegative().optional(),
-        })
-        .strict()
-        .optional(),
+      token_usage: llmUsageSchema.optional(),
       latency_ms: z.number().nonnegative().optional(),
       terminal_tool_fired: z.string().nullable(),
       assistant_output_ids: z.array(z.string()),

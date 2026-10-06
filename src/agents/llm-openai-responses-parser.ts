@@ -1,11 +1,11 @@
 import {
   LlmRequestError,
   type LlmCompleteResult,
-  type LlmUsage,
   type OpenAIResponsesPrivateContext,
   type ToolCall,
 } from '../contracts/index.js';
 import { classifyDirectProviderFailure } from './llm-failure-classifiers.js';
+import { extractResponsesUsage } from './llm-usage.js';
 
 interface ParsedOpenAIResponsesCompletion {
   result: LlmCompleteResult;
@@ -92,7 +92,7 @@ function parseOpenAIResponsesObject(
     }
     collectOutputText(item, textParts);
   }
-  const usage = parseUsage(response.usage);
+  const usage = extractResponsesUsage(response.usage, ctx.provider);
   const result: LlmCompleteResult =
     toolCalls.length > 0
       ? { kind: 'tool_calls', tool_calls: toolCalls, usage }
@@ -220,16 +220,6 @@ function collectOutputText(item: unknown, textParts: string[]): void {
         textParts.push((content as { text: string }).text);
     }
   }
-}
-
-function parseUsage(usage: unknown): LlmUsage | undefined {
-  if (usage === null || typeof usage !== 'object') return undefined;
-  const u = usage as Record<string, unknown>;
-  return {
-    prompt_tokens: typeof u.input_tokens === 'number' ? u.input_tokens : undefined,
-    completion_tokens: typeof u.output_tokens === 'number' ? u.output_tokens : undefined,
-    total_tokens: typeof u.total_tokens === 'number' ? u.total_tokens : undefined,
-  };
 }
 
 function objectField(

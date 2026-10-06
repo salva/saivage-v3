@@ -36,6 +36,8 @@ import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { executeInternalSummaryTurn } from '../../src/application/invocation-service-provider.js';
 import type { SummaryRequestSerialization, SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
+import { internalCompactionSummarySessionId } from '../../src/contracts/index.js';
+import { readLatestProviderExchangePayload, readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 
 const config: AutonomousCompactionPolicy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' };
 const TEST_CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
@@ -381,7 +383,7 @@ describe('Stage-I versioned compaction', () => {
         transportSends.push({ model: parsed.model, body, expectedBody: expected.body, expectedHash: expected.hash });
         return expected.model === astra.model
           ? new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', id: 'primary-message', content: [{ type: 'output_text', text: expected.response }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } })
-          : new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: expected.response }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+          : new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: expected.response }, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, prompt_tokens_details: { cached_tokens: 40 }, completion_tokens_details: { reasoning_tokens: 5 } } }), { status: 200, headers: { 'content-type': 'application/json' } });
       }) as typeof fetch;
 
       const primaryService = invocationService(root, registry);
@@ -391,7 +393,12 @@ describe('Stage-I versioned compaction', () => {
       if (!primaryVerdict || primaryVerdict.kind !== 'admitted') throw new Error('Astra primary request was not admitted.');
       expect(primaryVerdict.plan.request.estimatedWireInputTokens).toBeLessThanOrEqual(plannerBinding.routeUsableInputTokens);
       queued = { model: astra.model, body: primaryVerdict.plan.request.serializedBody, hash: primaryVerdict.plan.request.requestHash, response: 'primary transport identity verified' };
-      await expect(primaryService.executeAdmittedWithRecovery(primaryAdmission)).resolves.toMatchObject({ result: { kind: 'message', content: 'primary transport identity verified' } });
+      const primaryCompletion = await primaryService.executeAdmittedWithRecovery(primaryAdmission);
+      expect(primaryCompletion).toMatchObject({ result: { kind: 'message', content: 'primary transport identity verified' } });
+      primaryService.projectProviderExchanges(SESSION, 'primary', input.inputId, primaryCompletion.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
+      const latestPrimary = readLatestProviderExchangePayload(root, SESSION);
+      if (latestPrimary?.status !== 'ok') throw new Error('Expected successful primary provider evidence.');
+      expect(latestPrimary.token_usage).toEqual({ prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 });
       expect(queued).toBeNull();
 
       const preventiveRecords: SummaryWireRecord[] = [];
@@ -409,6 +416,13 @@ describe('Stage-I versioned compaction', () => {
       expect(wires.length).toBeGreaterThan(2);
       expect(wires.length).toBeLessThanOrEqual(16);
       expect(wires.filter(({ correction }) => correction)).toHaveLength(1);
+      const summaryEntries = readProviderExchangeEntries(root, SESSION).filter(({ data }) => data.session_id === internalCompactionSummarySessionId(SESSION));
+      expect(summaryEntries).toHaveLength(wires.length);
+      for (const { data } of summaryEntries) {
+        if (data.payload.status !== 'ok') throw new Error('Expected successful internal-summary provider evidence.');
+        expect(data.payload.token_usage).toEqual({ prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cached_input_tokens: 40, reasoning_output_tokens: 5 });
+      }
+      expect(readLatestProviderExchangePayload(root, SESSION)).toEqual(latestPrimary);
       expect(wires.every(({ estimated }) => estimated <= 94_000)).toBe(true);
       expect(wires.every(({ orientationBytes }) => orientationBytes >= 15_000)).toBe(true);
       expect(wires.some(({ inheritedBytes }) => inheritedBytes >= 15_000 && inheritedBytes <= 20_000)).toBe(true);
