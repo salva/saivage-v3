@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fsyncSync, lstatSync, openSync, renameSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  renameSync,
+  writeSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import { writeAllExact } from './write-all-exact.js';

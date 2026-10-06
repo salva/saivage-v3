@@ -42,7 +42,7 @@ const CARD_RECORD_CATEGORIES = [
   ['card/authored-record index/head selection authority', 'indexed head'],
   ['random immutable card/record artifact naming', 'N-<uuid>.json'],
   ['cumulative card/authored-record index/catalog authority', 'card cumulative index'],
-  ['optional existing-empty card/record authority', 'strictly empty'],
+  ['optional existing-empty card/record authority', 'card index is strictly empty'],
   ['existing-empty app-log acceptance', 'missing or truly zero-byte'],
   ['positive migration instruction', 'migrate'],
   ['positive fallback instruction', 'falls back to'],
@@ -101,6 +101,89 @@ function removeExact(root, path, phrase) {
 }
 
 describe('canonical persistence drift documentation scopes', () => {
+  it.each([
+    ['docs/spec/system-specification.md', "Initial card publication establishes sessions for the distinct card-scoped node agents in that card type's compiled workflow, not a fixed list of role names. Initial runtime publication additionally establishes the selected global Analyst conversation. The same layout requirement applies to selected global Oversight once an actual check establishes it; a never-established Oversight conversation remains legitimately absent. Required Analyst/card indexes remain required, and directories alone do not establish session identity or authorize discovering sessions."],
+    ['docs/spec/system-specification.md', 'This is a producer layout requirement, not a runtime admission guarantee. Empty-index reads and startup can succeed without accessing `versions/`; file-content validation and readiness do not certify every future publication parent. First-segment and compacted-successor publication rely on the established directory and fail at actual use if it is missing. No directory sweep, append-time mkdir, automatic repair, stronger startup rejection, remembered admission, or storage coordination follows from this requirement.'],
+    ['docs/architecture/system-architecture.md', 'An established index retains its root and `versions/` requirement even before any segment exists. Empty-index selection returns no segment without reading `versions/`; first ingress and compaction use exact segment paths and same-directory fresh publication without creating parents. The initially empty mailbox and the card-established accepted-record parent similarly support later direct publication. Missing parents fail at the consuming publication, not through a layout preflight or automatic repair. Optional record heads and provider evidence need not exist merely because their parent does.'],
+  ])('accepts unchanged established-directory excerpt in %s: %s', (path, text) => {
+    withRepository((root) => {
+      append(root, path, text);
+      const result = run(root);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+    });
+  });
+
+  it.each([
+    'Empty conversation catalogs are legitimate.',
+    'The conversation index is strictly empty.',
+    'Empty session catalogs select no current segment.',
+    'The session index is strictly empty.',
+    'Analyst/card indexes remain required.',
+    'Empty-index selection returns no segment.',
+    'The optional index is empty.',
+    'The declared index is empty.',
+    'Empty optional indexes select no segment.',
+    'Empty declared indexes select no segment.',
+    'The catalog is strictly empty.',
+  ])('accepts non-card/record empty-catalog language: %s', (text) => {
+    withRepository((root) => {
+      append(root, 'README.md', text);
+      const result = run(root);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+    });
+  });
+
+  it.each([
+    ['Card indexes are authoritative.', 'cumulative card/authored-record index/catalog authority'],
+    ['Record indexes are authoritative.', 'cumulative card/authored-record index/catalog authority'],
+    ['The card index is strictly empty.', 'optional existing-empty card/record authority'],
+    ['The record index is strictly empty.', 'optional existing-empty card/record authority'],
+    ['Empty card index is valid.', 'optional existing-empty card/record authority'],
+    ['Empty record index is valid.', 'optional existing-empty card/record authority'],
+    ['The authored-record catalog is empty.', 'optional existing-empty card/record authority'],
+    ['Empty authored-record catalog is valid.', 'optional existing-empty card/record authority'],
+    ['Analyst/card indexes and empty conversation catalogs use `versions/`; card indexes are authoritative.', 'cumulative card/authored-record index/catalog authority'],
+    ['No card indexes are used. Record indexes are authoritative.', 'cumulative card/authored-record index/catalog authority'],
+  ])('rejects explicit retired authority: %s', (text, label) => {
+    withRepository((root) => {
+      append(root, 'README.md', text);
+      const result = run(root);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('README.md:');
+      expect(result.stderr).toContain(label);
+    });
+  });
+
+  it('keeps negation local to each index assertion', () => {
+    withRepository((root) => {
+      append(root, 'README.md', 'No card indexes are used.');
+      const accepted = run(root);
+      expect(accepted.status).toBe(0);
+      expect(accepted.stderr).toBe('');
+      append(root, 'README.md', 'No card indexes are used. Record indexes are authoritative.');
+      const rejected = run(root);
+      expect(rejected.status).toBe(1);
+      expect(rejected.stderr).toContain('cumulative card/authored-record index/catalog authority');
+      expect(rejected.stderr).toContain('README.md:3:');
+    });
+  });
+
+  it.each([
+    ['src/persistence/card-files.ts', 'readdirSync(root);', 'canonical version discovery is forbidden'],
+    ['src/persistence/layout.ts', 'cardVersionIndexFile(root);', "retired card/authored-record identifier 'cardVersionIndexFile'"],
+    ['src/persistence/provider-exchange-log.ts', 'readAppLogEntries(root);', 'selected provider evidence must use only its exact owner stream'],
+  ])('retains exact source restrictions in %s', (path, text, label) => {
+    withRepository((root) => {
+      if (path === 'src/persistence/layout.ts') append(root, path, text);
+      else write(root, path, `${text}\n`);
+      const result = run(root);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`${path}: ${label}`);
+    });
+  });
+
   it.each(CARD_RECORD_DOCS)('applies cardRecordDocRules to exact canonical path %s', (path) => {
     withRepository((root) => {
       append(root, path, 'card index.json');

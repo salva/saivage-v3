@@ -52,6 +52,14 @@ VM modules for Jest. Direct Jest invocation likewise requires
 require the full `npm test`, including its serial terminal-child stage;
 `validate:routine` runs the export CLI and architecture Jest, but not that semantic export Jest coverage.
 
+## Canonical-persistence drift guard
+
+`npm run check:canonical-persistence-drift` provides bounded lexical hints
+against retired card/authored-record index authority. Established conversation
+session indexes and empty catalogs remain legitimate. Its source restrictions
+and semantic owner tests provide independent evidence; the documentation checks
+do not fully interpret natural language or verify runtime persistence invariants.
+
 ## Import-boundary ratchet
 
 Backend import-boundary findings are pinned by both their count and a SHA-256

@@ -9,10 +9,7 @@ import {
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
 import { parseRetryAfterMs } from './llm-failure-classifiers.js';
-import {
-  consumeProviderRequest,
-  readBodyTextBestEffort,
-} from './llm-request-inactivity.js';
+import { consumeProviderRequest, readBodyTextBestEffort } from './llm-request-inactivity.js';
 import {
   isProfileExpired,
   readAuthProfiles,

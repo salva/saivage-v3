@@ -15,10 +15,7 @@ import { CandidateRequestPlanIntegrityError } from './candidate-request.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
-import {
-  consumeProviderRequest,
-  readBodyTextBestEffort,
-} from './llm-request-inactivity.js';
+import { consumeProviderRequest, readBodyTextBestEffort } from './llm-request-inactivity.js';
 
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;

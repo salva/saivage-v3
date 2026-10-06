@@ -88,12 +88,12 @@ const cardRecordDocRules = [
   },
   {
     label: 'cumulative card/authored-record index/catalog authority',
-    positive: /strict cumulative (?:card|record)|(?:card|record)\b[^.\n]{0,40}cumulative index|cumulative index[^.\n]{0,40}\b(?:card|record)\b|version catalogs? are durable|card-version index|version-index catalog|\bcard index(?:es)?\b|\brecord index(?:es)?\b|indexes?\/artifacts?|namespace\/index/giu,
+    positive: /strict cumulative (?:card|record)|(?<!\/)\b(?:card|record)\b[^.\n]{0,40}cumulative index|cumulative index[^.\n]{0,40}(?<!\/)\b(?:card|record)\b|version catalogs? are durable|(?<!\/)\bcard-version index|version-index catalog|(?<!\/)\bcard index(?:es)?\b|(?<!\/)\brecord index(?:es)?\b|indexes?\/artifacts?|namespace\/index/giu,
     negated: [negatedBefore(String.raw`version catalogs?`, 120), negatedBefore(String.raw`card index`, 120), negatedBefore(String.raw`record index`, 120)],
   },
   {
     label: 'optional existing-empty card/record authority',
-    positive: /\bstrict(?:ly)? empty\b|\bempty-index\b|(?:optional|record|declared)[^.\n]{0,4}index(?:es)?[^.\n]{0,30}\bempty\b|empty (?:optional|record|declared)[^.\n]{0,30}index/giu,
+    positive: /(?<!\/)\b(?:card|(?:authored[- ])?record)[-\s]+(?:index(?:es)?|catalogs?)\b[^.\n]{0,30}\bempty\b|\bempty\s+(?:card|(?:authored[- ])?record)[-\s]+(?:index(?:es)?|catalogs?)\b/giu,
     negated: [negatedBefore(String.raw`strict(?:ly)? empty`), negatedBefore(String.raw`empty-index`), negatedBefore(String.raw`empty history`), negatedBefore(String.raw`empty (?:optional|record|declared)[^.\n]{0,30}index`)],
   },
   {

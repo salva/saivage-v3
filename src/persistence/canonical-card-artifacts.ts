@@ -52,7 +52,12 @@ export const cardMailboxMessageSchema = z
   .strict();
 
 export function ordinaryCardPayload(card: CardRecord): z.infer<typeof ordinaryCardPayloadSchema> {
-  const { version_seq, updated_at, pending_notifications, ...payload } = card;
+  const {
+    version_seq: _version_seq,
+    updated_at: _updated_at,
+    pending_notifications: _pending_notifications,
+    ...payload
+  } = card;
   return payload;
 }
 

@@ -296,10 +296,10 @@ export const filesDebugOperatorApiContracts = {
       401: UnauthorizedErrorSchema,
       403: WorkspaceFileContentForbiddenSchema,
       404: z.union([
-        WorkspaceFilePathErrorSchema.refine(
-          (value) => value.error !== 'workspace_card_not_found',
-          { path: ['error'], message: 'Card absence requires card_id.' },
-        ),
+        WorkspaceFilePathErrorSchema.refine((value) => value.error !== 'workspace_card_not_found', {
+          path: ['error'],
+          message: 'Card absence requires card_id.',
+        }),
         WorkspaceCardNotFoundSchema,
         WorkspaceHistoricalVersionNotFoundSchema,
       ]),
