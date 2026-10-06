@@ -496,8 +496,8 @@ Publication-fatal operator behavior, and system-specification Sections 7–12.
   unavailable, without fabricated context or replacement search.
 - Tombstones remain absent from active discovery. Exact known retained evidence exceptions
   do not authorize a deleted-card inventory, forensic browser, restoration, or orphan scan.
-- Cutovers remain reset-only; this spec authorizes no migration, compatibility reader,
-  reset control, automatic lock repair, publication retry, or new recovery protocol.
+- Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations), outside the UI. This spec adds no migration/reset/recovery UI.
+  It adds no compatibility reader, automatic lock repair, publication retry or recovery protocol.
 - Notification queues remain private. Known enqueue/interruption facts prove neither
   delivery nor action; chronology cannot manufacture queue membership or receipts.
 - Analyst may queue normal steering while work runs without Pausing. Urgent results

@@ -14,10 +14,17 @@ the target projects it manages. It is not the general workspace LXC playbook.
 
 - Operating the old `saivage` v2-on-GetRich deployment unless the user explicitly asks for that legacy service.
 - Resetting target-project `.saivage/` state; use `saivage-project-reset` for resets.
+- External format migration; use `saivage-format-migration` only on an explicit owner migration request.
 - Editing OpenCode state, skills, sessions, or `.opencode/` config.
 - Broad container maintenance unrelated to Saivage v3.
 
 ## Ground Rules
+
+- Examples and successful source validation grant no deployment/service, migration,
+  reset or Run consent. Before an authorized restart, establish matching release/
+  durable contracts from release knowledge. Same-format deployment retains valid
+  state; incompatibility stays stopped pending explicit external migration request
+  or destructive reset consent. Neither action is automatic fallback.
 
 - Work from `/home/salva/g/ml/saivage-v3` for Saivage v3 source/build commands.
 - Prefer passwordless SSH for in-container inspection and service control. Use `root@<ip>` for privileged actions and `salva@<ip>` for non-privileged inspection.
@@ -102,6 +109,11 @@ Then probe the matching health endpoint.
 For deployments that bind mount `/home/salva/g/ml/saivage-v3` into
 `/opt/saivage-v3`, build the source repo before restart when TypeScript/runtime
 code changed:
+
+The build/restart recipes below require separate authorization for the exact
+deployment and matching format/adoption decision above; never restart incompatible
+state simply because a build passed. Complete the selected authorized adoption
+workflow first. No recipe authorizes generated-state inspection or conversion.
 
 ```bash
 cd /home/salva/g/ml/saivage-v3

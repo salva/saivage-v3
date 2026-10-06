@@ -59,6 +59,9 @@ against retired card/authored-record index authority. Established conversation
 session indexes and empty catalogs remain legitimate. Its source restrictions
 and semantic owner tests provide independent evidence; the documentation checks
 do not fully interpret natural language or verify runtime persistence invariants.
+Migration-policy scope is established by semantic review of AGENTS and current
+operator guidance, not word detection. This guard does not ban affirmative
+external-migration prose or certify that an operation is authorized.
 
 ## Import-boundary ratchet
 

@@ -44,7 +44,6 @@ const CARD_RECORD_CATEGORIES = [
   ['cumulative card/authored-record index/catalog authority', 'card cumulative index'],
   ['optional existing-empty card/record authority', 'card index is strictly empty'],
   ['existing-empty app-log acceptance', 'missing or truly zero-byte'],
-  ['positive migration instruction', 'migrate'],
   ['positive fallback instruction', 'falls back to'],
   ['positive compatibility/probing/old-layout instruction', 'format probing'],
   ['positive mixed-format/dual-path instruction', 'mixed-format'],

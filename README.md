@@ -87,7 +87,7 @@ keeps its tree and **Overview**, **Conversations**, **Records & History**, and
 See the authoritative [operator UI contracts](docs/spec/operator-ui-contracts.md).
 For selected-segment activation markers and bounded direct-control Events, see
 [exact evidence navigation](docs/runbook/index.md#open-exact-activation-evidence);
-the new durable event kind requires [stopped reset-only adoption](docs/runbook/index.md#direct-runtime-control-event-adoption).
+the new durable event kind requires [incompatible adoption](docs/runbook/index.md#direct-runtime-control-event-adoption).
 Analyst submissions use REST only (`POST /api/chat`); WebSocket carries live observation subscriptions and freshness hints, not submissions or turn acknowledgements.
 
 ```bash
@@ -139,7 +139,7 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   cached-input and reasoning-output tokens when reported; unknown is not zero and
   subsets are not additional totals. This is not billing or complete accounting.
   See [semantics](docs/spec/system-specification.md#provider-reported-token-usage) and
-  the separately authorized [reset-only payload adoption](docs/runbook/index.md#provider-usage-payload-adoption).
+  the separately authorized [incompatible payload adoption](docs/runbook/index.md#provider-usage-payload-adoption).
 
 - Strict startup errors require stop/disable restarts, positive no-owner verification,
   a successful complete fresh preserved backup, then one exact offline report/consent
@@ -160,17 +160,17 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   revision, and every card/record head and conversation index maintains one
   previous hardlink slot. Normal reads/startup never use it as fallback; the
   sequence is nontransactional and does not guarantee a usable prior selection.
-  The required identity field is a separate **reset-only format adoption**, even
+  The required identity field is a separate **incompatible format adoption**, even
   with unchanged outer format 1. Exact-target offline repair is available; see the
   [runbook](docs/runbook/index.md#previous-selectors-and-head-identity-adoption).
 
-- Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. Adoption is [reset-only](docs/runbook/index.md#storage-and-interruption), never migration or implicit deployment permission.
+- Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. [Incompatible adoption](docs/runbook/index.md#external-migrations) chooses separately consented destructive reset or explicitly owner-requested external offline migration. No core compatibility/migration code, automatic conversion or implicit deployment/loss consent.
 
 - Provider-exchange evidence now belongs to each exact conversation session rather
   than the app log; adopting this layout from an existing three-lane app log is a
-  **reset-only, history-losing cutover**, not a same-format upgrade. Source
+  **incompatible cutover**, not a same-format upgrade. Source
   completion is not deployment or loss authorization. See the
-  [stopped-reset procedure](docs/runbook/index.md#storage-and-interruption).
+  [reset-versus-external-migration decision](docs/runbook/index.md#external-migrations).
 - Conversation compaction is model-aware (`context_utilization_fraction` 0.80,
   `trigger_fraction` 0.90, `tail_fraction` 0.25) with one contextual
   sequential-refine accumulator inside a shared 16-logical-call bound. A narrowly
@@ -181,9 +181,10 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   Conversation index/genesis/segment format **4** retains summary, protected
   instructions, required model facts, and continuation without compaction
   checksums or accumulated accounting. Adoption from earlier formats is a
-  **reset-only, history-losing cutover** across all four generated roots, requiring
-  a stopped service, verified owner absence, explicit loss consent, and a full
-  preserved stopped-project backup; source completion authorizes no instance
+  **incompatible cutover** across all four generated roots: separately consented
+  reset loses history; explicitly requested external migration reports evidenced
+  fidelity and confirms any unavoidable concrete loss. Both require stopped exclusion
+  and a successful complete preserved backup; source completion authorizes no instance
   action or binary-only rollback. See the
   [storage and cutover rules](docs/runbook/index.md#storage-and-interruption)
   ([prompt contract](docs/architecture/prompts.md),
@@ -191,11 +192,11 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   Responses private rows additionally require successful-producer provenance;
   same local provider/account identity retains encrypted reasoning, other
   identities omit only encrypted reasoning before request admission. Adopting
-  this payload also requires the authorized whole-generated-state reset, even
+  this payload also requires the separate incompatible-adoption decision, even
   with matching outer versions; those alone are not compatibility.
   Card/record format-1 heads and immutable predecessor documents are a separate
-  reset-only adoption boundary; this source change does not authorize deployment
-  over retained history, retained-history conversion, reconstruction, or reset.
+  incompatible adoption boundary; this source change authorizes no deployment,
+  external migration or destructive reset.
 - New projects enable an independent two-hour
   [Project Oversight](docs/spec/system-specification.md#project-oversight)
   check by default; its only project effect is an evidenced notification.
@@ -207,7 +208,7 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 - Process tools return bounded, redacted inline stdout/stderr heads with
   completeness flags and durable log URLs
   ([process result contract](docs/spec/system-specification.md#7-run-pause-resume-stop-and-restart));
-  adopting that payload from metadata-only rows is a reset-only cutover
+   adopting that payload from metadata-only rows is an incompatible cutover
   ([procedure](docs/runbook/index.md#card-process-configuration-and-prompt-cutover)).
 - `glob`/`grep` results are packed into byte-bounded stateless pages
   ([search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction)).

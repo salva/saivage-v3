@@ -7,6 +7,10 @@ description: 'Validate Saivage v3 code, docs, web UI, and live deployment after 
 
 ## Local Validation
 
+Select the README validation profile for the actual change. Documentation-only
+work uses `npm run validate:docs`, plus any focused guard/skill checks in its plan;
+the backend/build recipes below are not mandatory for policy-only documentation.
+
 Run from `/home/salva/g/ml/saivage-v3`:
 
 ```bash
@@ -26,6 +30,13 @@ done
 
 ## Live Verification
 
+Validation alone authorizes no deployment, restart, migration, reset or Run. Use
+live recipes only with separate authorization for the exact deployment. Establish
+matching durable contracts from the selected releases before restart: same-format
+deployment retains valid state; incompatibility stays stopped until separately
+consented reset or explicit owner-requested external migration through
+`saivage-format-migration` completes. Never infer consent from a passing build.
+
 Use passwordless SSH (`root@<ip>`) for service control when reachable; `sudo lxc-attach` is fallback only. Verify current container IPs before service control because 2026-06-03 host health probes for Saivage services failed or timed out.
 
 For the v2-on-v3 harness:
@@ -35,7 +46,7 @@ ssh root@10.0.3.112 'systemctl is-active saivage.service'
 curl -fsS http://10.0.3.112:8080/health
 ```
 
-For the Saivage v3 GetRich-v2 deployment, the codebase is bind mounted. Build on the host, restart the service, then probe health:
+For an authorized same-format Saivage v3 GetRich-v2 deployment, the codebase is bind mounted. Build on the host, restart only the authorized service, then probe health. If an incompatible adoption applies, complete its separately authorized workflow first:
 
 ```bash
 cd /home/salva/g/ml/saivage-v3

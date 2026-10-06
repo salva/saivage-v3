@@ -21,8 +21,8 @@ runtime/build used to recreate target-project state; it is not the reset target.
 - Keep backup artifacts under `/home/salva/g/ml/tmp/`.
 - Do not put new reset notes or operator reminders into the target project's `.saivage/instructions/`; existing `.saivage/instructions/` is durable operator state and must be preserved when applicable.
 - Build or verify the Saivage v3 source tree before using `dist/` helpers if the reset depends on freshly changed runtime code.
-- Reset is authorized only when the operator explicitly requests a reset operation or a named incompatible durable-format/config cutover requires it. Release format knowledge is authoritative; never start first to probe, classify, or normalize old generated state to infer compatibility.
-- An ordinary same-format binary deployment does not authorize reset: stop the old service, deploy and start the new binary, and strictly reopen retained current-format generated state. Unsupported, mixed, or malformed canonical state fails fast; do not reset, migrate, normalize, or choose a compatibility interpretation unless reset is separately authorized.
+- Reset requires an explicit destructive reset request/consent. A named incompatibility identifies a stopped adoption decision, not reset consent: separately consented reset or explicit owner-requested external migration via `saivage-format-migration`. Release source/contracts determine compatibility, never speculative starts or generated-state probing.
+- Same-format deployment retains valid state without reset. Unsupported, mixed or malformed state stays stopped; no automatic reset, migration, normalization or compatibility fallback. Reset consent is not migration consent, and migration consent is not blanket loss consent.
 
 ## Current Reset Contract
 
@@ -51,10 +51,10 @@ enumerating descendants. Every path outside those four exact roots is preserved.
 classifies, or cleans arbitrary lock siblings and exact-owner release removes only the
 command's `runtime.lock`.
 
-Use this contract only for an explicitly requested reset or a named incompatible
-durable-format/config cutover. The reset-only rule for an incompatible cutover
-remains mandatory for every affected deployment and never permits format probing,
-sampling, compatibility reading, migration, or normalization. A same-format rollout
+Use this contract only for an explicitly requested/consented destructive reset.
+Incompatible adoption can instead follow an explicit owner migration request through
+`saivage-format-migration`, outside core; neither path is inferred from the other.
+Saivage adds no format probing, compatibility reading or normalization. A same-format rollout
 uses service stop followed by strict startup of the replacement binary against the
 retained current-format roots and does not enter the workflow below.
 
@@ -74,9 +74,9 @@ Successful reset postcondition:
 
 ## Reset Workflow
 
-Proceed only after confirming the explicit reset request or naming the incompatible
-durable-format/config cutover that requires this destructive workflow. Deployment or
-binary-update approval alone is not reset authority.
+Proceed only after explicit destructive reset consent, including concrete generated
+history loss. A named incompatibility, deployment or update approval is not reset
+authority. Route explicit migration requests to `saivage-format-migration` instead.
 
 1. Verify the target service and bind mount.
 2. Stop only the matching service; do not stop unrelated Saivage deployments.
@@ -100,7 +100,7 @@ cd /path/to/target-project
 8. Restart only the current binary and verify `/health` plus any authenticated readiness/API checks required for that deployment.
 9. Ask the analyst/control surface to derive new objectives from preserved source/spec documents. Do not copy old card/runtime state back in.
 
-There is no migration, compatibility reader, selected-log restore, config normalization, mixed-version operation, or binary-only rollback. Rollback requires another complete stopped backup/manual-input-conversion/reset/start cycle using the selected matching binary.
+This destructive workflow performs no migration or selected-log restoration. Core has no compatibility reader/normalization; mixed-version operation and binary-only downgrade are unsupported. A future rollback needs a separately scoped matched-state/release decision; a consented reset branch repeats complete stopped backup/input-reconciliation/reset/authorized-start. Explicit external migration follows its own skill, never restoration after this reset or permission inferred from reset consent.
 
 ## Target-Specific Service Commands
 

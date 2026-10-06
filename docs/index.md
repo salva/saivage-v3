@@ -49,9 +49,9 @@ features:
     title: Plain-file durability
     details: >-
       All durable state is ordinary files with exact immutable version
-      histories. No
-      database, no migrations; incompatible format changes are explicit
-      reset-only cutovers.
+      histories. No database or core compatibility/migration code. Incompatible
+      adoption chooses separately consented reset or explicitly owner-requested
+      external offline migration, never automatic conversion.
   - icon: 📚
     title: Docs built with the product
     details: >-

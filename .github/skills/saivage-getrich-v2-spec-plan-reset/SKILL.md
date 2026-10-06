@@ -9,6 +9,11 @@ Use this skill only for the `saivage-v3-getrich-v2` deployment that runs
 Saivage v3 against `/home/salva/g/ml/getrich-v2`, mounted in the container as
 `/work/getrich-v2`.
 
+Require explicit consent to the destructive generated-state reset and the separate
+source-prune scope below. An incompatibility or deployment request is not consent.
+An explicit owner migration request instead uses `saivage-format-migration`; it
+does not enter this reset/prune workflow, and reset consent authorizes no migration.
+
 ## Preserve
 
 Always preserve these source documents:
@@ -141,7 +146,8 @@ logical row is exactly one `{type,data}` union member with lane `event`,
 `control_action`, or `provider_exchange`; event kinds are exactly
 `runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`.
 Outer app-log identity/time fields, old lanes, and old event kinds are
-unsupported. The cutover is reset-only.
+unsupported by current core. This procedure is the explicitly consented reset branch,
+not the only incompatible-adoption option; external migration is separately requested.
 
 8. Restart only the current binary and verify health.
 
@@ -156,4 +162,4 @@ curl -fsS http://10.0.3.170:8080/health/ready
 - The target project is not a Git repository, so the backup under `tmp/` is the recovery point.
 - The target-specific prune step deletes tests, outputs, Python packages, and all docs except the restored `SPEC.md` and `PLAN.md`. The CLI reset itself deletes only its four exact generated roots wholesale and preserves everything outside them.
 - The root card is created by Saivage reset, not by a hand-written skeleton. Persisted model routing, credentials, project identity, prompt overrides, skills, and instructions must come from the preserved inputs when present.
-- There is no migration, compatibility reader, selected-log restore, config normalization, mixed-version operation, or binary-only rollback. Rollback requires another complete stopped backup/manual-input-conversion/reset/start cycle with the matching selected binary.
+- This reset/prune workflow performs no migration or selected-log restore. Core has no compatibility reader/normalization; mixed versions and binary-only downgrade are unsupported. Any later rollback needs a separately scoped matched-state/release decision. A consented reset rollback repeats stopped backup/input-reconciliation/reset/authorized-start; explicit external migration follows its own skill, not permission to restore generated state after reset.

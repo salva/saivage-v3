@@ -102,14 +102,6 @@ const cardRecordDocRules = [
     negated: [],
   },
   {
-    label: 'positive migration instruction',
-    positive: /\bmigrat(?:e|es|ed|ion|ing)\b/giu,
-    negated: [
-      negatedBefore(String.raw`migrat`),
-      /migrat\w*[^.\n]{0,160}?\b(?:unsupported|not supported|do(?:es)? not exist)\b/giu,
-    ],
-  },
-  {
     label: 'positive fallback instruction',
     positive: /\bfalls? back to\b|\bfallback (?:to|route|reader|path|mode|interpretation|summarizer|shape|format)\b|(?:config|file|physical|compatibility|format|legacy) fallback\b/giu,
     negated: [

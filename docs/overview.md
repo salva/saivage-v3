@@ -16,7 +16,8 @@ by separate restart. It never regenerates heads or scans history. Catastrophic
 both-unusable-card-selections discard loses own data and unlinks former descendants,
 leaving physical children ignored. Its synthetic FAILED replacement is not an
 operator-only hold: later explicit ancestor Run can Planner-reopen and execute
-placeholder requirements. Format adoption remains reset-only. See the
+placeholder requirements. Incompatible adoption separately chooses consented reset
+or explicitly owner-requested [external migration](runbook/index.md#external-migrations). See the
 [operator ladder](runbook/index.md#exact-target-offline-repair).
 
 Saivage is autonomous software engineering built for the long run. Its aim is
@@ -149,13 +150,16 @@ Saivage stores all durable state as ordinary files under the target project's
 that selects immutable versioned documents (the current card snapshot or
 tombstone, the accepted record versions and current draft); conversations and
 logs are append-only JSONL streams with strict envelopes; generated work
-artifacts live in plain directories. There is no database, no migration, and
-no compatibility reader. When a durable format changes incompatibly, the
-cutover is **reset-only**: stop the exact service, positively verify owner/process
-absence, obtain explicit irreversible-loss consent, retain a successful full
-stopped-project backup, then reset all four generated roots with the matching
-current binary (preserving configuration, credentials, identity, operator inputs,
-source, and docs) and start that build. Current conversation format 4 removes
+artifacts live in plain directories. There is no database or core migration/
+compatibility reader. Incompatible adoption has two separately authorized offline
+choices: destructive reset with explicit irreversible-loss consent, or an explicit
+owner-requested external migration. Neither is automatic deployment fallback. Both
+require stopped exclusion, successful complete preserved backup, preserved outside
+inputs and matching release/state before authorized start. External migration uses
+an independent complete candidate, strict full validation and evidence-based factual/
+historical fidelity; structural changes are not automatically loss, and unavoidable
+concrete loss needs confirmation before cutover. See [External migrations](runbook/index.md#external-migrations).
+Current conversation format 4 removes
 compaction checksums, not semantic prefix/continuation validation. Source completion
 authorizes no instance action; binary-only rollback is unsupported. See
 [Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)
@@ -203,8 +207,8 @@ and the [global startup and invalid-history procedures](runbook/index.md#configu
   canonical reads govern any later start.
 - **Tombstone** — a deleted card's retained terminal link; traversal stops
   there, evidence stays readable.
-- **Cutover / reset-only** — an incompatible durable-format change; no
-  migration path exists, generated state is reset deliberately.
+- **Cutover** — adoption of an incompatible durable contract: separately consented
+  destructive reset or explicitly requested external migration, never core conversion.
 - **Lifecycle lock** — the process-exclusion lock owning a project's runtime;
   the runtime-control CLI commands (`status`, `pause`, `resume`, `stop`,
   `restart_server`) delegate only through a verified live lock record.

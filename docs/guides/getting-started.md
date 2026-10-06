@@ -4,8 +4,9 @@ Strict startup does not automatically restore previous selections or reconstruct
 history. On same-format corruption, stop/disable restarts, verify no owner, preserve
 a successful complete fresh backup, and follow [exact-target offline repair](../runbook/index.md#exact-target-offline-repair)
 with external report/typed consent and separate restart. No unattended repair or
-availability guarantee; incompatible format adoption remains separately authorized
-reset-only. Catastrophic card discard requires both unusable selections and extra
+availability guarantee; incompatible adoption separately chooses consented reset or
+explicitly owner-requested [external migration](../runbook/index.md#external-migrations).
+Catastrophic card discard requires both unusable selections and extra
 destructive consent (explicit configured type for non-root), loses own state and
 unlinks children without moving them. Later ancestor Run may Planner-reopen the
 synthetic FAILED replacement and execute unchanged placeholder requirements.

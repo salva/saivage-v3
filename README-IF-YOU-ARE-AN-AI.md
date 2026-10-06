@@ -157,7 +157,8 @@ pre-existing or newly published, and report the selected lifecycle-lock kind.
 If initialization reports old, mixed, malformed, or partially published state,
 stop: do not inspect generated descendants, retry an uncertain publication,
 repair individual files, or improvise a reset. Follow the linked runbook owner
-only after the separate Stage 7 authorization gate.
+only after the separate Stage 7 decision gate; explicit migration requests use the
+runbook's external workflow, not an added setup step.
 
 Preserve the complete generated topology. Ask now about authorized provider and
 cost constraints, choose a strong current tool-capable model by default, and
@@ -370,7 +371,9 @@ controls the guest. In tokenless mode, confirmed application-level
 `restart_server` is unavailable, so restart the server through
 `saivage.service`.
 
-For an incompatible-format reset, follow the runbook's
+For incompatible adoption, choose separately consented destructive reset or an
+explicit owner-requested [external migration](docs/runbook/index.md#external-migrations),
+not automatic setup/deployment fallback. For a selected and consented reset, follow the runbook's
 [storage and interruption](docs/runbook/index.md#storage-and-interruption)
 procedure. First stop the service and positively establish that no live lifecycle owner
 remains. Obtain explicit destructive authorization, then run the
@@ -378,9 +381,11 @@ current built `saivage reset` to replace the complete four generated roots whole
 while preserving configuration, credentials, operator inputs, source,
 and documentation; start only the current binary and repeat Stage 6
 verification. Reset permanently destroys generated cards, records, conversations, and history.
-The current card/record representation uses exact owner heads selecting immutable ordinary/accepted predecessors and current-only mailbox pointers/drafts. Older card/record streams are unsupported; source approval is not permission to adopt this format over retained generated state. Follow the same complete stopped-reset procedure with separately confirmed loss authorization. Unreferenced files remain ignored forever during normal operation; do not inspect or selectively clean them. Startup does not certify every historical document or implement check-once trust.
-There is no migration, selective repair, stream
-reconstruction, orphan adoption, or mixed-version rollback.
+The current card/record representation uses exact owner heads selecting immutable ordinary/accepted predecessors and current-only mailbox pointers/drafts. Older streams are unsupported by core; source approval is not adoption permission. Choose the relevant explicit adoption authorization, never a compatibility start. Unreferenced files remain ignored forever; do not inspect/adopt/clean them. Startup does not certify every historical document or implement check-once trust.
+Same-format corruption may use only the existing separately backed-up/consented
+[exact-target repair](docs/runbook/index.md#exact-target-offline-repair), not ad hoc
+history edits. Core has no migration/reconstruction path or mixed-version rollback;
+explicit external migration follows its own stopped complete-candidate workflow.
 
 Only now offer compact, deliberate alternatives: bearer authentication and
 remote access; custom firewall, bridge, proxy, or TLS design; guest SSH using
