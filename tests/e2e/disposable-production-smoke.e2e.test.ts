@@ -9,7 +9,7 @@ import { stringify } from 'yaml';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { startApp, type App } from '../../src/boot/app.js';
 import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { readConversation } from '../../src/persistence/conversation-file.js';
+import { readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { providerExchangeFile } from '../../src/persistence/layout.js';
 import { readCommittedCardCurrent } from '../../src/persistence/card-files.js';
 import { CardService } from '../helpers/canonical-project.js';
@@ -20,7 +20,12 @@ const TOKEN = 'disposable-e2e-token';
 const roots: string[] = [];
 const apps = new Set<App>();
 
-type ChatMessage = { role: string; content: string; tool_call_id?: string };
+type ChatMessage = {
+  role: string;
+  content: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+};
 type ChatRequest = {
   model: string;
   max_tokens: number;
@@ -438,6 +443,19 @@ describe('disposable production-composition smoke', () => {
     const requestedMaxTokens = new Map<string, number>();
     const providerUrls: string[] = [];
     const summaryRequests: ChatRequest[] = [];
+    const summaryExecutorCounts: number[] = [];
+    let originalExecutorConversation: ReturnType<typeof readConversation> | undefined;
+    let publishedExecutorSegment: ReturnType<typeof readCurrentConversationSegment> = null;
+    let continuedExecutorSegment: ReturnType<typeof readCurrentConversationSegment> = null;
+    let publishedExecutorRequest: ChatRequest | undefined;
+    let continuedExecutorRequest: ChatRequest | undefined;
+    let summaryCallsBeforeC = 0;
+    const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`;
+    const sourceB = `Refreshed unresolved task from the second observation. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`;
+    const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(31_000)}`;
+    const incompleteSummary = 'INCOMPLETE SUMMARY MUST NEVER CONTINUE';
+    const correctedSummary = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(30_000)}`;
+    const finalSummary = 'Refreshed history: the status write and A/B reads succeeded. Constraint: do not duplicate settled tool effects. Decision: emit verification next. Exact identifier: card-a. Next action: call emit_result.';
     const executorEffects: string[] = [];
     const analystTools: Array<{ name: string; args: object }> = [
       { name: 'write', args: { path: 'record:///brief.md?card=project', content: 'Disposable Analyst bootstrap edit.' } },
@@ -459,13 +477,15 @@ describe('disposable production-composition smoke', () => {
       if (isSummary) {
         summaryCalls += 1;
         summaryRequests.push(body);
+        summaryExecutorCounts.push(executorCalls);
         if (summaryCalls === 1) {
+          originalExecutorConversation = readConversation(root, 'agent:executor:card-a');
           response.setHeader('content-type', 'application/json');
-          response.end(JSON.stringify({ choices: [{ message: { content: 'INCOMPLETE SUMMARY MUST NEVER CONTINUE' }, finish_reason: 'length' }] }));
+          response.end(JSON.stringify({ choices: [{ message: { content: incompleteSummary }, finish_reason: 'length' }] }));
         } else if (summaryCalls === 2) {
-          finalMessage(response, `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(30_000)}`);
+          finalMessage(response, correctedSummary);
         } else if (summaryCalls === 3) {
-          finalMessage(response, 'Refreshed history: the later distinct reads succeeded. Constraint: do not duplicate settled tool effects. Decision: emit verification next. Exact identifier: card-a. Next action: call emit_result.');
+          finalMessage(response, finalSummary);
         } else throw new Error(`Unexpected summary call ${summaryCalls}.`);
         return;
       }
@@ -524,10 +544,16 @@ describe('disposable production-composition smoke', () => {
           executorEffects.push('second-large-read');
           toolCall(response, 302, 'read', { path: 'project:///compaction-source-b.txt' });
         } else if (executorCalls === 4) {
+          publishedExecutorRequest = body;
+          publishedExecutorSegment = readCurrentConversationSegment(root, 'agent:executor:card-a');
+          summaryCallsBeforeC = summaryCalls;
           executorEffects.push('third-large-read');
           toolCall(response, 303, 'read', { path: 'project:///compaction-source-c.txt' });
-        } else if (executorCalls === 5) toolCall(response, 304, 'emit_result', { outcome: 'verify', summary: 'Promoted executor summary.' });
-        else throw new Error(`Unexpected Executor call ${executorCalls}.`);
+        } else if (executorCalls === 5) {
+          continuedExecutorRequest = body;
+          continuedExecutorSegment = readCurrentConversationSegment(root, 'agent:executor:card-a');
+          toolCall(response, 304, 'emit_result', { outcome: 'verify', summary: 'Promoted executor summary.' });
+        } else throw new Error(`Unexpected Executor call ${executorCalls}.`);
         return;
       }
 
@@ -548,9 +574,9 @@ describe('disposable production-composition smoke', () => {
       expect(freshInitOutput).toContain(`Project layout initialized at ${root}`);
       expect(freshInitOutput).toContain('Configuration materialized from template classic');
       expect(readCommittedCardCurrent(root, 'project')).toMatchObject({ kind: 'found', value: { card: { id: 'project' } } });
-      writeFileSync(join(root, 'compaction-source-a.txt'), `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`);
-      writeFileSync(join(root, 'compaction-source-b.txt'), `Refreshed unresolved task after first compaction. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`);
-      writeFileSync(join(root, 'compaction-source-c.txt'), `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(31_000)}`);
+      writeFileSync(join(root, 'compaction-source-a.txt'), sourceA);
+      writeFileSync(join(root, 'compaction-source-b.txt'), sourceB);
+      writeFileSync(join(root, 'compaction-source-c.txt'), sourceC);
       const config = testConfig(providerPort, appPort);
       config.providers.fake!.modelCapabilities = { 'analyst-model': { contextWindowTokens: 100_000 } };
       writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(config));
@@ -626,9 +652,88 @@ describe('disposable production-composition smoke', () => {
       expect(summaryRequests[0]!.messages.some((message) => message.content.includes('record:///status.md?card=card-a'))).toBe(true);
       expect(summaryRequests[0]!.messages.some((message) => message.content.includes('"cardId":"card-a"'))).toBe(true);
       expect(summaryRequests[1]!.messages[0]!.content).toContain('6000 UTF-8 bytes');
-      expect(summaryRequests[2]!.messages.some((message) => message.content.includes('Later refreshed history after two distinct reads'))).toBe(true);
+      // Correction regenerates write/A; the furthest endpoint folds only B before C executes.
+      expect(summaryExecutorCounts).toEqual([3, 3, 3]);
+      expect(summaryCallsBeforeC).toBe(3);
+      const originalRows = originalExecutorConversation!.sourceRows;
+      expect(originalExecutorConversation!.effectiveCompactedHistory).toBeNull();
+      expect(originalRows.some((row) => row.tool_call_id === 'call-303')).toBe(false);
+      const canonicalPair = (rows: typeof originalRows, id: string) => {
+        const calls = rows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === id);
+        const results = rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === id);
+        expect(calls).toHaveLength(1);
+        expect(results).toHaveLength(1);
+        expect(rows.indexOf(results[0]!)).toBe(rows.indexOf(calls[0]!) + 1);
+        const callBody = JSON.parse(calls[0]!.content) as { tool_calls: NonNullable<ChatMessage['tool_calls']> };
+        expect(callBody.tool_calls).toHaveLength(1);
+        const call = callBody.tool_calls[0]!;
+        expect(call.id).toBe(id);
+        expect(call.type).toBe('function');
+        return { call: calls[0]!, result: results[0]!, arguments: call.function.arguments, name: call.function.name };
+      };
+      const writePair = canonicalPair(originalRows, 'call-300');
+      const aPair = canonicalPair(originalRows, 'call-301');
+      const bPair = canonicalPair(originalRows, 'call-302');
+      expect(writePair.name).toBe('write');
+      expect(JSON.parse(writePair.arguments)).toEqual({ path: 'record:///status.md?card=card-a', content: 'Ordered child status export.' });
+      expect(JSON.parse(writePair.result.content).success).toBe(true);
+      for (const [pair, path, text] of [[aPair, 'a', sourceA], [bPair, 'b', sourceB]] as const) {
+        expect(pair.name).toBe('read');
+        expect(JSON.parse(pair.arguments)).toEqual({ path: `project:///compaction-source-${path}.txt` });
+        expect(JSON.parse(pair.result.content)).toMatchObject({ success: true, data: { content: { content: text } } });
+      }
+      // Labels separate new source from orientation and accumulated history; compare complete bodies.
+      const newSource = (request: ChatRequest) => request.messages.flatMap((message) => {
+        const match = /^\[order \d+\/\d+\] \[kind=new_source source=(\S+) source_kind=(\S+) [^\n]*\]\n/.exec(message.content);
+        return match ? [{ source: match[1]!, kind: match[2]!, body: message.content.slice(match[0].length) }] : [];
+      });
+      const sourceComponents = (pair: ReturnType<typeof canonicalPair>) => {
+        const inputId = pair.call.id.slice(0, pair.call.id.indexOf(':tool-call:'));
+        return [
+          { source: `${inputId}:${pair.call.tool_call_id}:arguments`, kind: `tool_arguments:${pair.name}`, body: pair.arguments },
+          { source: `${inputId}:${pair.call.tool_call_id}:result`, kind: `tool_result:${pair.name}`, body: pair.result.content },
+        ];
+      };
+      expect(newSource(summaryRequests[0]!)).toEqual([...sourceComponents(writePair), ...sourceComponents(aPair)]);
+      expect(newSource(summaryRequests[2]!)).toEqual(sourceComponents(bPair));
+      const inheritedHistory = (request: ChatRequest) => request.messages
+        .filter((message) => /^\[order \d+\/\d+\] \[kind=inherited_history\]\n/.test(message.content))
+        .map((message) => message.content.slice(message.content.indexOf('\n') + 1));
+      expect(inheritedHistory(summaryRequests[0]!)).toEqual([]);
+      expect(inheritedHistory(summaryRequests[1]!)).toEqual([]);
+      expect(inheritedHistory(summaryRequests[2]!)).toEqual([correctedSummary]);
+      expect(summaryRequests.every((request) => request.messages.every((message) => !message.content.includes(incompleteSummary)))).toBe(true);
+      const published = publishedExecutorSegment!;
+      expect(published.entry.version).toBe(2);
+      expect(published.genesis).toMatchObject({
+        kind: 'compacted_segment_genesis', source: { covered_through_message_id: bPair.result.id }, compaction: { summaryText: finalSummary },
+      });
+      // Primary admission has already appended its activity row by this HTTP callback.
+      expect(published.rows.some((row) => row.kind === 'tool_call' || row.kind === 'tool_result')).toBe(false);
+      expect(publishedExecutorRequest!.messages.filter((message) => message.content === `Historical summary:\n${finalSummary}`)).toHaveLength(1);
+      expect(continuedExecutorSegment!.entry).toEqual(published.entry);
+      expect(continuedExecutorSegment!.genesis).toEqual(published.genesis);
+      const cPair = canonicalPair(continuedExecutorSegment!.rows, 'call-303');
+      expect(cPair.name).toBe('read');
+      expect(JSON.parse(cPair.arguments)).toEqual({ path: 'project:///compaction-source-c.txt' });
+      expect(JSON.parse(cPair.result.content)).toMatchObject({ success: true, data: { content: { content: sourceC } } });
+      const cMessages = continuedExecutorRequest!.messages;
+      const cCalls = cMessages.filter((message) => message.tool_calls?.some((call) => call.id === 'call-303'));
+      const cResults = cMessages.filter((message) => message.role === 'tool' && message.tool_call_id === 'call-303');
+      expect(cCalls).toHaveLength(1);
+      expect(cResults).toHaveLength(1);
+      expect(cCalls[0]!.tool_calls).toEqual([{ id: 'call-303', type: 'function', function: { name: 'read', arguments: cPair.arguments } }]);
+      expect(cMessages.indexOf(cResults[0]!)).toBe(cMessages.indexOf(cCalls[0]!) + 1);
+      expect(cResults[0]!.content).toBe(cPair.result.content);
       const executorConversation = readConversation(root, 'agent:executor:card-a');
-      expect(executorConversation.effectiveCompactedHistory?.summaryText).toContain('Refreshed history');
+      expect(executorConversation.effectiveCompactedHistory?.summaryText).toBe(finalSummary);
+      const finalSegment = readCurrentConversationSegment(root, 'agent:executor:card-a')!;
+      expect(finalSegment.entry).toEqual(published.entry);
+      expect(finalSegment.genesis).toEqual(published.genesis);
+      const finalCPair = canonicalPair(finalSegment.rows, 'call-303');
+      expect(finalCPair).toEqual(cPair);
+      expect(finalCPair.result.content).toBe(cResults[0]!.content);
+      expect(JSON.parse(finalCPair.result.content)).toMatchObject({ success: true, data: { content: { content: sourceC } } });
       const internalExchanges = readFileSync(providerExchangeFile(root, 'agent:executor:card-a'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: string; data: { session_id?: string } }> }).rows).filter((row) => row.type === 'provider_exchange' && row.data.session_id?.startsWith('internal:compaction-summary:'));
       expect(internalExchanges).toHaveLength(3);
       const beforeRestart = await api(app, '/api/agents/agent%3Aexecutor%3Acard-a/llm-exchange');
