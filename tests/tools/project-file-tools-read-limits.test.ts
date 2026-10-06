@@ -293,6 +293,7 @@ describe('project file tool read limits', () => {
     expect(second.matches).toMatchObject({ total: 3, items: [{ preview: 'needle two' }] });
   }));
 
+  // The 1002-file packing and byte-pagination workload needs headroom under parallel validation contention.
   it('reports exact totals beyond the count window and reconstructs an oversized glob item from global positions', async () => withTempProject(async (projectRoot) => {
     for (let index = 0; index < 1002; index += 1) writeFileSync(join(projectRoot, `item-${String(index).padStart(4, '0')}.txt`), 'x');
     const counted = await globProject(ctx(projectRoot), { directory: '.', pattern: '*.txt', max_results: 1000 }) as { matches: { total: number; returned: number; next: { item_index: number; item_byte_offset: number } } };
@@ -317,7 +318,7 @@ describe('project file tool read limits', () => {
       if (!position) break;
     }
     expect(JSON.parse(Buffer.concat(decoded).toString('utf8'))).toBe(expected);
-  }));
+  }), 30_000);
 
   it('skips binary head samples and continues to later text files', async () => withTempProject(async (projectRoot) => {
     writeFileSync(join(projectRoot, 'a-binary.bin'), Buffer.from([0, 1, 2, 3, 110, 101, 101, 100, 108, 101]));

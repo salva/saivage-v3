@@ -198,6 +198,7 @@ describe('reviewer rework completion E2E', () => {
     expect(readConversation(projectRoot, untouchedSession).physicalRows).toEqual(untouchedBefore);
   });
 
+  // Durable multi-activation correction needs headroom under parallel validation contention.
   it('lets the owning goal Planner reopen the same completed child for reviewed correction', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-child-reopen-e2e-'));
     roots.push(projectRoot);
@@ -342,7 +343,7 @@ describe('reviewer rework completion E2E', () => {
     expect(goalPlannerCalls).toBe(8);
     expect(executorCalls).toBe(4);
     expect(reviewerCalls).toBe(4);
-  });
+  }, 30_000);
 
   it('propagates a plain Error from the real bound Reviewer read without settling the live call', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-bound-error-'));

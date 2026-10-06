@@ -126,6 +126,16 @@ Ordinary Jest excludes Playwright, backend E2E, and the real-terminal-child
 suite. `npm test` runs ordinary parallel Jest, then the exact terminal-child
 suite serially; `npm run test:e2e` separately owns backend E2E.
 
+Three heavy functional fixtures use explicit per-test 30-second harness deadlines
+for parallel validation contention, not a new default or global multiplier:
+
+- `tests/e2e/reviewer-rework-feedback.e2e.test.ts`: `lets the owning goal Planner reopen the same completed child for reviewed correction` — durable multi-activation correction.
+- `tests/e2e/specialized-card-type-flows.e2e.test.ts`: `cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence` — durable review/redraft cycles.
+- `tests/tools/project-file-tools-read-limits.test.ts`: `reports exact totals beyond the count window and reconstructs an oversized glob item from global positions` — 1002-file packing and byte pagination.
+
+Completion waits, assertions, fixture/result limits, and application timers remain
+unchanged. These harness deadlines do not suppress process-exit diagnostics.
+
 ## Profile coverage and prerequisites
 
 Both root and web dependencies must be installed before `npm run lint` or

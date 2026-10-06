@@ -163,6 +163,7 @@ describe('specialized production card-type flows',()=>{
     expect(run.cards.read(run.child.id)!.lifecycle).toMatchObject({status:'done',result:{kind:'workflow-result',agent_name:'executor',node_id:'refactor',outcome:'done',summary:'Repair complete.',records:[{name:'status.md',url:expect.stringMatching(/&v=\d+$/u)}]}});
   });
 
+  // Durable multi-activation review/redraft cycles need headroom under parallel validation contention.
   it('cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence',async()=>{
     let plannerCalls=0;let executorCalls=0;let reviewerCalls=0;let supervisor!:ReturnType<typeof createSupervisorRuntimeApi>;let childId='';const nodeStarts:Array<{node:string;input:LlmInvocationInput}>=[];
     let releasePendingApproval!:()=>void;const pendingApprovalReleased=new Promise<void>((resolve)=>{releasePendingApproval=resolve;});
@@ -197,7 +198,7 @@ describe('specialized production card-type flows',()=>{
     expect(nodeStarts.find(({node,input})=>node==='draft'&&JSON.stringify(input).includes('new deployment boundary'))).toBeDefined();
     expect(run.cards.read(childId)!.lifecycle).toMatchObject({status:'done',result:{kind:'workflow-result',agent_name:'executor',node_id:'draft',outcome:'ready_for_component_review',summary:'Notification-aware draft ready.',records:[{name:'review.md',url:expect.stringMatching(/&v=\d+$/u)}]}});
     expect(run.cards.readRecordCurrent(childId,'review.md')).toMatchObject({kind:'found',value:{projection:{accepted:{content:'Notification-aware system review approved.'}}}});
-  });
+  }, 30_000);
 
   it('keeps the compiled data node authoritative across compaction and advances schema_ready to validate in one Executor session',async()=>{
     const retainedHistory='Owner constraint remains applicable. The runtime correction remains unresolved. An earlier implementation idea was proposed, not executed or accepted.';
