@@ -252,6 +252,33 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ## 6. Conversation readers
 
+- Orientation reads **Conversation — current segment N** or **Conversation — exact
+  segment N**. Retained conversation and compacted context are used in request
+  assembly, not an exact model request: static/prepared additions, tool definitions,
+  protocol encoding and private replay can differ and are not reconstructed here.
+- Actual selected compacted genesis is separate from source rows. Its visible header
+  names selected/source segments, between-rounds or inherited-open-round continuation,
+  protected-instruction count and required-fact presence. **Accumulated summary**,
+  **Retained instructions (N)**, **Required model facts**, and **Source and continuation**
+  are independent, keyboard-operable and initially closed. Full safe summary and all
+  ordered instructions remain inspectable without preview truncation; individual
+  instructions disclose full content, protection and exact source coordinates/identity.
+  Original adjacency to summarized prose is not preserved. Facts are retained context,
+  not fresh occurrences or liveness; continuation is not another activation entry.
+  Current readers may include notices derived from compacted facts, not fresh physical
+  events. Ordinary null context creates no genesis or static-prompt panel.
+- Only ordinary typed system-role text uses **Recorded system context**, initially
+  closed at its exact source position with full safe content, role, identity and time.
+  Node-looking prose is not interpreted as current compiled authority. Diagnostics,
+  refusals, activation entries and tool statuses remain visible. Exact entry targeting
+  reveals the needed disclosure and focuses/highlights its original anchor.
+- The inspector has no Expand all, Collapse all or Pause auto-scroll controls; Analyst
+  controls remain unchanged. Scroll-away pauses implicit bottom following; **Jump to
+  latest** resumes current following. History/entry targeting never auto-follows.
+  Disclosure changes do not force a bottom jump. Same accepted identity refresh
+  preserves disclosures; session/segment identity replacement (even at the same ordinal)
+  or leaving resets them. No cross-visit viewing state is retained.
+
 - Current REST responses and cursors carry `segment_id` (immutable entry UUID) and
   displayed `segment_version`; incremental queries require both plus `since`.
   Segment-changed errors carry requested/current IDs and versions before cursor lookup.
@@ -334,10 +361,11 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   through the native disclosure button; resource links stay separate and focusable.
   Summaries retain presenter abbreviations rather than promising the entire raw
   command; complete safe projected values remain available in secondary disclosures.
-- Current content, compacted-context metadata, retained instructions, and an
+- Current content, compacted summary context, retained instructions, and an
   explicitly selected historical segment remain separate; no stitched
-  cross-segment transcript and no summary prose or prepared provider-private
-  context as evidence. Private Responses producer identifiers and their field
+  cross-segment transcript. Summary prose is inspectable historical context, not
+  execution/acceptance evidence; prepared provider-private context is not exposed.
+  Private Responses producer identifiers and their field
   are excluded from public current/history/context DTOs and copied transcript
   values; this does not remove existing public routing/account aliases.
 - Ordinary segments return `segment_context:null`. Compacted current/history REST

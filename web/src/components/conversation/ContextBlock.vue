@@ -1,4 +1,17 @@
-<template><article class="context-block" :class="`role-${entry.role}`" data-testid="context-block" :data-entry-id="entry.id"><MarkdownText class="msg-body" :source="content" /><div v-if="entry.links?.length" class="msg-links"><button v-for="link in entry.links" :key="`${link.entity_type}:${link.entity_id}`" type="button" class="msg-link" @click="navigate(link)">{{ link.label ?? link.entity_id }}</button></div></article></template>
+<template>
+  <article class="context-block" :class="`role-${entry.role}`" data-testid="context-block" :data-entry-id="entry.id">
+    <details v-if="entry.role === 'system' && entry.kind === 'text'" class="recorded-system-context">
+      <summary>Recorded system context</summary>
+      <p>Role {{ entry.role }} · {{ entry.timestamp }} · {{ entry.id }}</p>
+      <pre class="msg-body">{{ content }}</pre>
+      <div v-if="entry.links?.length" class="msg-links"><button v-for="link in entry.links" :key="`${link.entity_type}:${link.entity_id}`" type="button" class="msg-link" @click="navigate(link)">{{ link.label ?? link.entity_id }}</button></div>
+    </details>
+    <template v-else>
+      <MarkdownText class="msg-body" :source="content" />
+      <div v-if="entry.links?.length" class="msg-links"><button v-for="link in entry.links" :key="`${link.entity_type}:${link.entity_id}`" type="button" class="msg-link" @click="navigate(link)">{{ link.label ?? link.entity_id }}</button></div>
+    </template>
+  </article>
+</template>
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
@@ -18,6 +31,9 @@ function navigate(link: EntityLink): void {
 </script>
 <style scoped>
 .context-block { padding:6px 10px; border-radius:6px; }
+summary { cursor:pointer; font-size:12px; }
+.recorded-system-context p { font-size:11px; color:var(--text-muted); overflow-wrap:anywhere; }
+.recorded-system-context pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0; }
 .context-block.role-user { border-left:2px solid var(--accent-2); padding-left:10px; background:var(--entry-user-bg); }
 .context-block.role-assistant { border-left:2px solid var(--accent); padding-left:10px; background:var(--entry-accent-bg); }
 .context-block .msg-body { font-size:13px; line-height:1.55; color:var(--text); }

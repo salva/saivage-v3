@@ -214,6 +214,28 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(rawPanelSource).not.toContain('maybeFetch');
     expect(conversationsFacetSource).toContain(':entry-id="entryId"');
   });
+  it('preserves selected disclosures on same-identity refresh and resets on same-ordinal identity replacement', async () => {
+    const context: NonNullable<AgentConversationResponse['segment_context']> = {
+      kind: 'compacted', source_version: 1, covered_through_message_id: 'covered', summary_text: 'Actual selected summary final-Z',
+      protected_prompts: [], required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null }, continuation: { kind: 'between_rounds' },
+    };
+    let identity = '11111111-1111-4111-8111-111111111111';
+    api.getAgentConversation.mockImplementation(async () => ({ ...response([]), segment_id: identity, segment_context: context }));
+    const { wrapper, callback } = await mountConversation('');
+    await callback(null); await flushPromises();
+    const summary = wrapper.get('[data-testid="compacted-summary"]').element as HTMLDetailsElement;
+    summary.open = true;
+    expect(wrapper.findAll('button').some(button => ['Expand all', 'Collapse all'].includes(button.text()))).toBe(false);
+    expect(wrapper.text()).not.toContain('Pause auto-scroll');
+    await callback(null); await flushPromises();
+    expect(wrapper.get('[data-testid="compacted-summary"]').element).toBe(summary);
+    expect(summary.open).toBe(true);
+    identity = '22222222-2222-4222-8222-222222222222';
+    await callback(null); await flushPromises();
+    expect((wrapper.get('[data-testid="compacted-summary"]').element as HTMLDetailsElement).open).toBe(false);
+    expect(wrapper.get('[data-testid="compacted-summary"]').element).not.toBe(summary);
+    wrapper.unmount();
+  });
 
   it('presents the gated first transcript as waiting until acknowledgement loads its baseline', async () => {
     live.connectionState!.value = 'offline';
@@ -403,6 +425,22 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(centerScrolls).toBe(0);
     expect(wrapper.get('[data-entry-id="target"]').classes()).toContain('targeted-conversation-entry');
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+  });
+  it('does not refocus an unchanged target anchor during same-selection live arrival', async () => {
+    api.getAgentConversation
+      .mockResolvedValueOnce(response([textEntry('target', 1)]))
+      .mockResolvedValueOnce(response([textEntry('arrival', 2)]));
+    const { wrapper, callback } = await mountConversation('target');
+    await callback(null); await flushPromises();
+    const viewport = wrapper.get('.conv-rounds').element as HTMLElement;
+    viewport.scrollTop = 120;
+    centerScrolls = 0;
+    await callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: 'arrival' });
+    await flushPromises();
+    expect(centerScrolls).toBe(0);
+    expect(viewport.scrollTop).toBe(120);
+    expect(wrapper.find('.targeted-conversation-entry').attributes('data-entry-id')).toBe('target');
+    wrapper.unmount();
   });
 
   it('shows initial 401 as unavailable but keeps accepted content mounted on refresh 401', async () => {
@@ -653,7 +691,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     const marker = activation('agent:planner:project', '0123456789abcdef');
     const context = {
       kind: 'compacted', source_version: 1, covered_through_message_id: 'old-row', summary_text: 'Prior context',
-      protected_prompts: [], continuation: { kind: 'inherited_open_round', activation: { marker_id: marker.id, input_id: '11111111-1111-4111-8111-111111111111' }, active_segment_kind: 'assistant' },
+      protected_prompts: [], required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null }, continuation: { kind: 'inherited_open_round', activation: { marker_id: marker.id, input_id: '11111111-1111-4111-8111-111111111111' }, active_segment_kind: 'initial' },
     };
     api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 2, entries: [], segment_context: context });
     const router = makeRouter();

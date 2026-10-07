@@ -4,12 +4,123 @@ import { installOperatorRestRoutes, smokeCardId, retainedInstructionContext } fr
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
+import { redactTextForOutbound } from '../../../src/redaction/index.js';
 
 const token = 'synthetic-cockpit-conversation-token';
 const executor = `agent:executor:${smokeCardId}`;
 const reviewer = `agent:reviewer:${smokeCardId}`;
 const marker = '99999999-9999-4999-8999-999999999999';
 const now = '2026-09-28T12:00:00.000Z';
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 }]) {
+  test(`selected genesis and recorded context remain independent and stable ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const rest = await setup(page);
+    let mode = 0;
+    let reads = 0;
+    const context = retainedInstructionContext(executor);
+    context.summary_text = redactTextForOutbound(`${'Actual historical summary. '.repeat(150)} token=summary-egress-canary final-summary-Z`);
+    context.protected_prompts = Array.from({ length: 7 }, (_, index) => ({
+      source: { segment_version: 1, row_index: index },
+      message: { ...context.protected_prompts[0]!.message, id: `protected-${index}`, content: redactTextForOutbound(`Instruction ${index} token=instruction-egress-canary final-instruction-Z`) },
+    }));
+    const inheritedContext = { ...context,
+      required_model_facts: { latestRecovery: { sourceMessageId: '11111111-1111-4111-8111-111111111111:model-recovered', activationInputId: '11111111-1111-4111-8111-111111111111' }, latestContentPolicyRefusal: { markerId: '33333333-3333-4333-8333-333333333333', activationInputId: '22222222-2222-4222-8222-222222222222' } },
+      continuation: { kind: 'inherited_open_round', activation: { marker_id: 'real-inherited-marker', input_id: '11111111-1111-4111-8111-111111111111' }, active_segment_kind: 'initial' },
+    };
+    const pair = callRows('context-call', 'r-assistant-33333333333343338333333333333333', 0);
+    const text = (id: string, content: string, role = 'assistant') => ({ ...context.protected_prompts[0]!.message, id, role, content,
+      context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } });
+    const rows = [pair[0], text('recorded-system-row', 'Recorded node-looking text, not current authority. final-system-Z', 'system'),
+      text('interleaved-prose', 'Correction before the result'), pair[1],
+      { ...text('visible-diagnostic', '{"message":"visible recovery issue"}', 'system'), kind: 'model_issue', context_policy: { kind: 'structural', behavior: 'provider_failure' } },
+      ...Array.from({ length: 35 }, (_, index) => text(`ongoing-${index}`, `Ongoing work ${index}. ${'Readable source prose. '.repeat(12)}`))];
+    const identity = () => mode === 2 ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await page.route('**/api/agents/*/conversation**', async route => {
+      const url = new URL(route.request().url());
+      if (decodeURIComponent(url.pathname.split('/')[3]!) !== executor) return route.fallback();
+      if (url.pathname.endsWith('/versions')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversationVersions.list', 200, {
+        session_id: executor, versions: [
+          { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: now, genesis_kind: 'ordinary', source_version: null },
+          { entry_id: identity(), version: 2, published_at: now, genesis_kind: 'compacted', source_version: 1 },
+        ], total: 2,
+      })) });
+      if (url.pathname.endsWith('/versions/1')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversationVersions.get', 200, {
+        session_id: executor, version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: now, segment_context: null, entries: [text('old-only-row', 'Exact old source, no current summary')],
+      })) });
+      reads++;
+      const selectedRows = url.searchParams.has('since') ? [text('live-arrival', 'New live arrival')] : rows;
+      const body = parseOperatorResponse('agents.conversation', 200, {
+        session_id: executor, segment_id: identity(), segment_version: 2, segment_context: mode === 2 ? context : inheritedContext,
+        entries: selectedRows, cursor: { segment_id: identity(), segment_version: 2, message_id: selectedRows.at(-1)!.id },
+      });
+      expect(JSON.stringify(body)).not.toMatch(/summary-egress-canary|instruction-egress-canary/);
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await page.goto(`/agents/${executor}`);
+    const inspector = page.locator('.conversation-container');
+    await expect(inspector.getByTestId('conversation-segment-context')).toContainText('inherited open round');
+    await expect(inspector.getByRole('button', { name: 'Expand all', exact: true })).toHaveCount(0);
+    await expect(inspector.getByRole('button', { name: 'Collapse all', exact: true })).toHaveCount(0);
+    await expect(inspector.getByText('Pause auto-scroll', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Analyst chat composer')).toBeEnabled();
+    await expect(page.getByRole('region', { name: 'Analyst chat', exact: true }).getByLabel('Pause auto-scroll')).toBeVisible();
+    const genesis = inspector.getByTestId('conversation-segment-context');
+    expect(await genesis.locator('details').evaluateAll(details => details.every(detail => !(detail as HTMLDetailsElement).open))).toBe(true);
+    const summary = genesis.getByTestId('compacted-summary');
+    await summary.locator('summary').focus(); await summary.locator('summary').press('Enter');
+    await expect(summary.locator('pre')).toHaveText(context.summary_text);
+    await expect(genesis.getByTestId('compacted-facts')).not.toHaveAttribute('open', '');
+    const instructions = genesis.getByTestId('retained-instruction-context');
+    await instructions.locator(':scope > summary').click();
+    await instructions.locator('li').last().locator('summary').click();
+    await expect(instructions.locator('li').last()).toContainText('Instruction 6 token=[REDACTED] final-instruction-Z');
+    await genesis.getByTestId('compacted-facts').locator('summary').click();
+    await expect(genesis.getByTestId('compacted-facts')).toContainText('33333333-3333-4333-8333-333333333333');
+    await genesis.getByTestId('compacted-source').locator('summary').click();
+    await expect(genesis.getByTestId('compacted-source')).toContainText('real-inherited-marker');
+    const scroller = inspector.locator('.conv-rounds');
+    await scroller.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+    const anchors = await scroller.locator('[data-entry-id]').evaluateAll(elements => elements.slice(0, 5).map(el => (el as HTMLElement).dataset.entryId));
+    expect(anchors).toEqual([pair[0]!.id, 'recorded-system-row', 'interleaved-prose', pair[1]!.id, 'visible-diagnostic']);
+    const recorded = scroller.locator('[data-entry-id="recorded-system-row"]');
+    await expect(recorded.locator('details')).not.toHaveAttribute('open', '');
+    await recorded.locator('summary').click();
+    await expect(recorded).toContainText('final-system-Z');
+    await expect(scroller.locator('[data-entry-id="visible-diagnostic"]')).toBeVisible();
+    const before = await scroller.evaluate(el => el.scrollTop);
+    await summary.locator('summary').click();
+    expect(await scroller.evaluate(el => el.scrollTop)).toBeLessThan(before + 80);
+    await summary.locator('summary').click();
+    mode = 1;
+    const priorReads = reads;
+    await page.evaluate(id => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', segment_version: 2, visible_message_id: 'live-arrival' }), executor);
+    await expect.poll(() => reads).toBeGreaterThan(priorReads);
+    await expect(summary).toHaveAttribute('open', '');
+    await expect(recorded.locator('details')).toHaveAttribute('open', '');
+    expect(await scroller.evaluate(el => el.scrollTop)).toBeLessThan(before + 80);
+    await inspector.getByRole('button', { name: /Jump to latest/ }).click();
+    await expect(scroller.getByText('New live arrival', { exact: true })).toBeVisible();
+    mode = 2;
+    await page.evaluate(id => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', segment_version: 2, visible_message_id: 'replacement' }), executor);
+    await expect(summary).not.toHaveAttribute('open', '');
+    await expect(genesis).toContainText('between rounds');
+    await inspector.locator('.version-history > summary').click();
+    await inspector.getByRole('button', { name: /Segment 1/ }).click();
+    await expect(scroller).toContainText('Exact old source, no current summary');
+    await expect(inspector.getByTestId('conversation-segment-context')).toHaveCount(0);
+    await expect(recorded).toHaveCount(0);
+    await page.reload();
+    await expect(scroller).toContainText('Exact old source, no current summary');
+    await inspector.getByRole('button', { name: 'Current segment', exact: true }).click();
+    await expect(genesis).toContainText('between rounds');
+    await page.goto(`/agents/${executor}?entry=recorded-system-row`);
+    await expect(recorded).toBeFocused();
+    await expect(recorded.locator('details')).toHaveAttribute('open', '');
+    expect(await page.locator('body').textContent()).not.toMatch(/summary-egress-canary|instruction-egress-canary/);
+    expect(rest.unknown).toEqual([]);
+  });
+}
 
 function activationRow(sessionId: string, suffix: string) {
   return { id: `${sessionId}:activation:${suffix}`, session_id: sessionId, role: 'system', kind: 'activity',
@@ -292,7 +403,7 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   await expect(page.locator(`[data-entry-id="${marker}"]`)).toHaveClass(/targeted-conversation-entry/);
 
   const toolbarButtons = page.locator('.conv-toolbar button');
-  await expect(toolbarButtons).toHaveCount(3);
+  await expect(toolbarButtons).toHaveCount(1);
   for (const button of await toolbarButtons.all()) await expect(button).toBeVisible();
   const toolbarFitsReader = await page.locator('.focused-reader').evaluate((reader) => {
     const boundary = reader.getBoundingClientRect();

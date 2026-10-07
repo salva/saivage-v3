@@ -46,6 +46,7 @@ export const useAgentStore = defineStore('agents', () => {
   const conversationUnauthorized = ref(false);
   const conversationSegmentContext = ref<AgentConversationResponse['segment_context']>(null);
   const conversationSegmentVersion = ref<number | null>(null);
+  const conversationSegmentId = ref<string | null>(null);
   const conversationVersions = ref<AgentConversationVersionListResponse['versions']>([]);
   const conversationVersionsLoading = ref(false);
   const conversationVersionsError = ref<string | null>(null);
@@ -81,6 +82,7 @@ export const useAgentStore = defineStore('agents', () => {
     },
     onAccepted({ acceptedEntries, response }) {
       conversationSegmentVersion.value = response.segment_version;
+      conversationSegmentId.value = response.segment_id;
       conversationSegmentContext.value = response.segment_context;
       conversationWarning.value = acceptedEntries.some((entry) => entry.kind === 'model_issue')
         ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
@@ -245,6 +247,7 @@ export const useAgentStore = defineStore('agents', () => {
     ++versionRequest;
     versionController?.abort();
     conversationSegmentVersion.value = null;
+    conversationSegmentId.value = null;
     conversation.reset();
     const token = Object.freeze({}) as ConversationSelectionToken;
     conversationIds.set(token, id);
@@ -364,6 +367,7 @@ export const useAgentStore = defineStore('agents', () => {
     ++versionRequest;
     versionController?.abort();
     conversationSegmentVersion.value = null;
+    conversationSegmentId.value = null;
     conversation.reset();
     sessionSummaryController?.abort();
     sessionSummaryController = null;
@@ -479,6 +483,7 @@ export const useAgentStore = defineStore('agents', () => {
     conversationUnauthorized,
     conversationSegmentContext,
     conversationSegmentVersion,
+    conversationSegmentId,
     conversationVersions,
     conversationVersionsLoading,
     conversationVersionsError,

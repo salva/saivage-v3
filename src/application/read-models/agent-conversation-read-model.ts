@@ -95,7 +95,7 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
         kind: 'compacted',
         source_version: genesis.source.version,
         covered_through_message_id: genesis.source.covered_through_message_id,
-        summary_text: genesis.compaction.summaryText,
+        summary_text: redactTextForOutbound(genesis.compaction.summaryText),
         protected_prompts: genesis.compaction.protectedPrompts.map((entry) => {
           const message = projectCanonicalConversationRow(entry.message, projectToolInvocation);
           return {

@@ -6,34 +6,17 @@
     <template v-if="currentSession">
       <div class="conv-header">
         <PanelHeader :title="currentSession.agent_name">
-          <template #actions
-            ><div class="conv-toolbar">
-              <div class="conv-toolbar-group">
-                <button class="conv-tb-btn" @click="timelineControls.expandAll()">Expand all</button
-                ><button class="conv-tb-btn" @click="timelineControls.collapseAll()">
-                  Collapse all
-                </button>
-              </div>
-              <div class="conv-toolbar-group">
-                <label class="auto-scroll-pause-toggle"
-                  ><input
-                    type="checkbox"
-                    :checked="timelineControls.autoScrollPaused.value"
-                    @change="timelineControls.toggleAutoScrollPause()"
-                  />Pause auto-scroll</label
-                >
-              </div>
-              <div class="conv-toolbar-group">
-                <button
-                  class="conv-tb-btn"
-                  :aria-pressed="rawPanelOpen"
-                  @click="rawPanelOpen = !rawPanelOpen"
-                >
-                  {{ rawPanelOpen ? 'Hide provider exchange metadata' : 'Provider exchange metadata' }}
-                </button>
-              </div>
-            </div></template
-          >
+          <template #actions>
+            <div class="conv-toolbar">
+              <button
+                class="conv-tb-btn"
+                :aria-pressed="rawPanelOpen"
+                @click="rawPanelOpen = !rawPanelOpen"
+              >
+                {{ rawPanelOpen ? 'Hide provider exchange metadata' : 'Provider exchange metadata' }}
+              </button>
+            </div>
+          </template>
         </PanelHeader>
       </div>
       <CompactionProgressBanner v-if="currentSession.compaction" :progress="currentSession.compaction" :last-known="sessionSummaryRefreshError !== null" />
@@ -57,17 +40,12 @@
         :key="props.sessionId"
         :session-id="props.sessionId"
       />
-      <section v-if="readerContext" class="segment-context" data-testid="conversation-segment-context">
-        <strong>Compacted segment {{ readerVersion }}</strong>
-        <span>Earlier history was compacted; this segment begins after message <span class="mono" :title="readerContext.covered_through_message_id">{{ compactUuid(readerContext.covered_through_message_id) }}</span>.</span>
-        <span v-if="readerContext.continuation.kind === 'inherited_open_round'">
-          Continuation context: an open activation from the previous segment continues here; this is not another activation entry.
-          <span class="segment-context-ids">Marker <ExactValue :value="readerContext.continuation.activation.marker_id" label="continuation marker ID" /> · input <ExactValue :value="readerContext.continuation.activation.input_id" label="continuation input ID" /> · active segment kind {{ readerContext.continuation.active_segment_kind }}</span>
-        </span>
-        <span v-else>Compacted between rounds</span>
-      </section>
-      <RetainedInstructionContext :context="readerContext" />
-      <details class="version-history" :open="segmentVersion !== null && segmentVersion !== undefined" @toggle="onVersionHistoryToggle">
+       <section class="segment-context">
+         <strong>Conversation — {{ exactVersion === null ? 'current' : 'exact' }} segment {{ readerVersion }}</strong>
+         <span>Retained conversation and compacted context. Used in request assembly; not an exact model request.</span>
+       </section>
+       <SelectedCompactedContext v-if="readerContext" :key="readerIdentity" :context="readerContext" :version="readerVersion" />
+       <details :key="`history:${readerIdentity}`" class="version-history" :open="segmentVersion !== null && segmentVersion !== undefined" @toggle="onVersionHistoryToggle">
         <summary>Segment history</summary>
         <ViewState v-if="conversationVersionsLoading" state="loading" title="Loading segment history" />
         <StatusBanner v-else-if="conversationVersionsError" tone="warning" :message="conversationVersionsError" />
@@ -76,7 +54,7 @@
           <button class="conv-tb-btn" @click="selectVersion(null)">Current segment</button>
         </div>
       </details>
-      <section class="activation-index segment-context" data-testid="activation-index">
+       <section :key="`activations:${readerIdentity}`" class="activation-index segment-context" data-testid="activation-index">
         <strong>Activation entries — this segment</strong>
         <span>Session {{ sessionId }} · segment {{ readerVersion }}{{ segmentVersion ? ' (exact selection)' : ' (current)' }}</span>
         <span>Markers retained in this segment only; earlier entries may have been compacted. Entry does not prove a provider call or completion.</span>
@@ -107,7 +85,7 @@
         class="conv-rounds"
         @scroll="timelineControls.handleTimelineScroll"
       >
-        <ConversationTimeline v-if="!projection.error"
+         <ConversationTimeline v-if="!projection.error" :key="readerIdentity"
           :timeline="timelineControls.timeline.value"
           :expanded-ids="timelineControls.expandedIds.value"
           @toggle="timelineControls.toggleExpanded"
@@ -117,7 +95,7 @@
         v-if="!segmentVersion && (!timelineControls.pinnedToLatest.value || timelineControls.unseenCount.value > 0)"
         type="button"
         class="conv-jump-latest"
-        @click="timelineControls.jumpToLatest"
+         @click="jumpToLatest"
       >
         Jump to latest<span v-if="timelineControls.unseenCount.value > 0">
           · {{ timelineControls.unseenCount.value }} new</span
@@ -135,14 +113,13 @@ import { useSelectedConversation } from '../../composables/useSelectedConversati
 import { useAgentStore } from '../../stores/agents';
 import { useSyncStore } from '../../stores/sync';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
-import { compactUuid } from '../../utils/legibility';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 import CompactionProgressBanner from './CompactionProgressBanner.vue';
-import RetainedInstructionContext from './RetainedInstructionContext.vue';
+import SelectedCompactedContext from './SelectedCompactedContext.vue';
 import ExactValue from '../ui/ExactValue.vue';
 import type { ConversationSessionId } from '../../api/contracts';
 import { activationEntries } from '../../utils/agent-timeline/activation';
@@ -168,6 +145,7 @@ const {
   conversationWarning,
   conversationSegmentContext,
   conversationSegmentVersion,
+  conversationSegmentId,
   conversationVersions,
   conversationVersionsLoading,
   conversationVersionsError,
@@ -181,6 +159,7 @@ const rawPanelOpen = ref(false);
 const readerEntries = computed(() => exactVersion.value ? selectedConversationVersion.value?.entries ?? [] : entries.value);
 const readerVersion = computed(() => exactVersion.value ? selectedConversationVersion.value?.version ?? null : conversationSegmentVersion.value);
 const readerContext = computed(() => exactVersion.value ? selectedConversationVersion.value?.segment_context ?? null : conversationSegmentContext.value);
+const readerIdentity = computed(() => `${props.sessionId}:${exactVersion.value === null ? 'current' : 'exact'}:${exactVersion.value ? selectedConversationVersion.value?.entry_id : conversationSegmentId.value}`);
 const readerLoading = computed(() => exactVersion.value ? selectedConversationVersionLoading.value : loading.value);
 const readerError = computed(() => exactVersion.value ? selectedConversationVersionError.value : errorMsg.value);
 const readerAccepted = computed(() => exactVersion.value ? selectedConversationVersion.value !== null : conversationBaselineAccepted.value);
@@ -209,10 +188,19 @@ function selectVersion(version: number | null): void {
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
 }
+function jumpToLatest(): void {
+  timelineControls.autoScrollPaused.value = false;
+  void timelineControls.jumpToLatest();
+}
+watch(readerIdentity, () => {
+  timelineControls.collapseAll();
+  if (exactVersion.value === null && props.entryId === null) timelineControls.resetScrollState();
+});
 watch([readerEntries, readerAccepted, readerLoading, readerError, () => props.sessionId, () => props.segmentVersion, () => props.entryId, () => props.invalidSegment], async (_values, _previous, onCleanup) => {
   let cancelled = false;
   onCleanup(() => { cancelled = true; });
   const container = timelineControls.scrollAreaRef.value;
+  const previousTarget = container?.querySelector<HTMLElement>('.targeted-conversation-entry') ?? null;
   container?.querySelectorAll('.targeted-conversation-entry').forEach((row) => row.classList.remove('targeted-conversation-entry'));
   if (!props.entryId || !readerAccepted.value || readerLoading.value || readerError.value || props.invalidSegment || projection.value.error) { entryTargetState.value = 'idle'; return; }
   const entryId = props.entryId;
@@ -222,8 +210,11 @@ watch([readerEntries, readerAccepted, readerLoading, readerError, () => props.se
   const row = [...(container?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((row) => row.dataset.entryId === entryId) ?? null;
   entryTargetState.value = row ? 'found' : 'missing';
   if (row) {
-    row.tabIndex = -1;
     row.classList.add('targeted-conversation-entry');
+    if (row === previousTarget) return;
+    const recordedContext = row.querySelector<HTMLDetailsElement>('.recorded-system-context');
+    if (recordedContext) recordedContext.open = true;
+    row.tabIndex = -1;
     row.scrollIntoView({ block: 'center' });
     row.focus({ preventScroll: true });
   }
@@ -273,24 +264,6 @@ watch([exactVersion, () => props.entryId], () => { timelineControls.autoScrollPa
   flex-wrap: wrap;
   min-width: 0;
 }
-.conv-toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.auto-scroll-pause-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-}
-.auto-scroll-pause-toggle input {
-  margin: 0;
-}
 .conv-tb-btn {
   padding: 3px 8px;
   background: var(--surface-3);
@@ -317,7 +290,6 @@ watch([exactVersion, () => props.entryId], () => { timelineControls.autoScrollPa
 .activation-index { overflow-wrap: anywhere; }
 .activation-index ol { margin: 4px 0; padding-left: 20px; }
 .activation-index a { margin-left: 8px; color: var(--accent-2); }
-.segment-context-ids { color:var(--text-muted); font-size:11px; }
 .segment-genesis { font-size:10px; color:var(--text-muted); }
 .version-list { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
 .conv-rounds :deep(.targeted-conversation-entry) { outline:2px solid var(--warn); outline-offset:2px; }

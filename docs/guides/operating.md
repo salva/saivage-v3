@@ -81,6 +81,15 @@ usable space. The workspace has four facets:
   four tabs, card header, and rail stay in view. Direct links to an admitted
   card session open that same contextual cockpit.
 
+  Open the independent **Accumulated summary**, **Retained instructions**, **Required
+  model facts** and **Source and continuation** sections to inspect actual selected
+  compacted context. They start closed, as does ordinary **Recorded system context**
+  at its source position; important statuses remain visible. Summary is context, not
+  proof of execution/acceptance. **Segment history** selects exact retained segments,
+  never stitches them. Scroll away to read without following arrivals; **Jump to latest**
+  resumes current following. The inspector has no global expand/collapse/pause controls;
+  Analyst controls remain. This conversation is not an exact model request.
+
   Read each requested action and separately recorded result in source order. Expand
   a tool row for its semantic sections: for example, a successful process observation
   may still report exit 1, while a record draft can retain an older accepted version.

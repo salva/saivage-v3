@@ -118,6 +118,17 @@ Startup correction is strict: branching/discontinuous or missing linked cards bl
 
 ## Prepared conversation compaction
 
+For read-only inspection, open the selected session's Conversations reader. Actual
+compacted genesis provides independent initially closed **Accumulated summary**,
+**Retained instructions**, **Required model facts**, and **Source and continuation**
+sections with complete safe public values. Instructions preserve ordered extraction
+coordinates, not original adjacency. Required facts and inherited continuation are
+retained context, not new events or activation entries; current derived notices do not
+prove fresh events. Between-rounds continuation is explicit. Use **Segment history**
+for separate exact retained history; no stitching or current-context substitution.
+Ordinary null context has no invented genesis. Inspection changes no runtime state and
+shows a basis for request assembly, not the actual model request.
+
 Ordinary first segments and compacted successors use the shared exact-target refusal and fresh-temporary/rename publication sequence, finishing segment directory synchronization before separate index replacement. This is a same-format publication alignment, not a new reset or deployment requirement. Temporary allocation/open/write/fsync/close failures are ordinary; segment rename or subsequent parent synchronization uncertainty is fatal, as for index replacement. Only successful index publication makes a segment discoverable. Unindexed segments and temporary leftovers remain ignored forever; no failure authorizes inspection, cleanup, retry, adoption, or repair.
 
 Before startup, provide `compaction.enabled: true`, `context_utilization_fraction` in `(0,1]` (default `0.80`), `trigger_fraction` in `(0,1]` (default `0.90`), `tail_fraction` in `0..trigger_fraction` (default `0.25`), and one exact structured `summarizer_candidate: { provider, account, model }` emitted by the configured Provider Registry. Removed absolute-budget, completion-reserve, merge/summary, and escalation keys are invalid; stop the service and rewrite YAML to the current singular contract rather than expecting aliases. `account: null` means the provider-level implicit account; explicit `"_implicit"` and `"_"` remain distinct exact names. Slash-bearing model IDs are ordinary data.

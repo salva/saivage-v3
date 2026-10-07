@@ -178,6 +178,9 @@ distinctions. Check user/agent prose, transitions, corrections, and tool rows; p
 must not fabricate hidden reasoning, prepared instructions, or missing transcript rows.
 Calls and results retain separate exact anchors and their physical positions, even with
 intervening prose or different rounds; no grouping conceals individual actions.
+Ordinary recorded system-role text is individually closed at its source position;
+diagnostic, refusal and activation statuses remain visible. The retained conversation
+is a basis for request assembly, not an exact model request or private reasoning viewer.
 
 **F13 — Must — Understand tool effects.** Distinguish a tool call, successful result,
 failed result, and final call with no recorded result; inspect the safe projected request
@@ -191,9 +194,11 @@ versus tool settlement, draft versus acceptance, output-head coverage and confir
 without inventing completion, delivery or unavailable content.
 
 **F14 — Must — Compaction and historical context.** Distinguish current transcript,
-compacted-context metadata, retained instruction context, and an explicitly selected
-older segment. Check a segment transition and unavailable historical content: no stitched
-continuous transcript, summary prose, or loss of the usable current selection is implied.
+selected compacted context, and an explicitly selected older segment. Independently
+inspect the full safe accumulated summary, ordered protected instructions, required
+facts and source/continuation in initially closed sections. Summary is historical context,
+not execution or acceptance evidence. Check a segment transition and unavailable
+historical content: no stitched continuous transcript or loss of current selection is implied.
 
 **F15 — Should — Provider evidence.** From an exact session, inspect its latest available
 settled provider exchange's safe provider/model/account and settlement/request-parameter

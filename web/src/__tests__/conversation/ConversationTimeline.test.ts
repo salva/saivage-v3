@@ -36,4 +36,19 @@ describe('ordered shared ConversationTimeline', () => {
     expect(wrapper.text()).toContain('Metadata only');
     expect(wrapper.find('.tool-group').exists()).toBe(false);
   });
+  it('discloses only typed recorded system text at its exact position, leaving refusal/diagnostic/activation status visible', async () => {
+    const c = call('read', { path: 'one' });
+    const system = { ...entry('recorded-node', 'text', 'Node-looking recorded prose final-Z'), role: 'system' as const };
+    const diagnostic = { ...entry('diagnostic', 'model_issue', '{"message":"visible issue"}'), role: 'system' as const };
+    const refusal = { ...entry('refusal', 'content_policy_refusal', '{}'), role: 'system' as const };
+    const r = result('read', { metadata_only: true });
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, system, diagnostic, refusal, r]), expandedIds: new Set<string>() } });
+    expect(wrapper.findAll('[data-entry-id]').map(row => row.attributes('data-entry-id'))).toEqual(['call', 'recorded-node', 'diagnostic', 'refusal', 'result']);
+    const details = wrapper.get('.recorded-system-context');
+    expect((details.element as HTMLDetailsElement).open).toBe(false);
+    expect(details.text()).toContain(system.id);
+    expect(details.text()).toContain(system.content);
+    expect(wrapper.find('[data-entry-id="diagnostic"] details.recorded-system-context').exists()).toBe(false);
+    expect(wrapper.find('[data-entry-id="refusal"] details').exists()).toBe(false);
+  });
 });

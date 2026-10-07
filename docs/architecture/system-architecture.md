@@ -1,5 +1,14 @@
 # System Architecture
 
+Conversation inspection keeps source-adjacent egress ownership in
+`agent-conversation-read-model.ts`: current and exact-history rows share the canonical
+public projector and selected genesis summaries use the existing outbound text redactor.
+The UI owns independent default-closed selected-genesis and ordinary recorded system-text
+disclosures, keyed by exact accepted segment identity. It preserves physical source anchors
+and same-selection refresh state, without reconstructing requests or changing provider,
+actor, composition, storage or durable contracts. See
+[conversation presentation](../spec/operator-ui-contracts.md#6-conversation-readers).
+
 ## Exact-target repair ownership
 
 CLI path admission compares lexical and resolved backup/report destinations against the exact layout-owned cards/agents/logs/work roots plus repair-attic and locks, not the whole project. Ordinary source-side project paths are permitted; absolute paths, fresh report and lexical/resolved report separation from the declared backup remain required. This uses exact path resolution, not an inventory or symlink-hardening framework.

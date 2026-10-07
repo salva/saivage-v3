@@ -38,7 +38,7 @@ describe('mounted operator compacted Agent conversations', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mounted-tool-egress-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture summary', {
+    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture summary token=summary-canary final-safe-character-Z', {
       first: { content: 'token=old-segment-canary', key: 'old-key' },
       replacement: { content: 'safe replacement', key: 'new-key' },
     });
@@ -85,10 +85,12 @@ describe('mounted operator compacted Agent conversations', () => {
       expect(current.entries.filter(row => selectedIds.has(row.id))).toEqual(history[1]!.entries);
       for (const projected of [current, ...history]) {
         const serialized = JSON.stringify(projected);
-        for (const canary of ['old-segment-canary', 'request-canary', 'result-canary', 'structured-canary', 'prose-canary', 'private-model-canary', 'producer_account_id', 'provider_projection', 'ciphertext-']) {
+        for (const canary of ['summary-canary', 'old-segment-canary', 'request-canary', 'result-canary', 'structured-canary', 'prose-canary', 'private-model-canary', 'producer_account_id', 'provider_projection', 'ciphertext-']) {
           expect(serialized).not.toContain(canary);
         }
       }
+      expect(current.segment_context?.summary_text).toContain('token=[REDACTED] final-safe-character-Z');
+      expect(history[1]!.segment_context?.summary_text).toBe(current.segment_context?.summary_text);
       const tail = current.entries.slice(-3);
       expect(tail.map(row => row.id)).toEqual([call!.id, 'interleaved-correction', result!.id]);
       expect(JSON.parse(JSON.parse(tail[0]!.content).tool_calls[0].function.arguments)).toEqual({ url: 'https://example.test/path?[REDACTED]' });

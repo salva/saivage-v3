@@ -19,6 +19,9 @@ import cardOverviewFacetSource from '../components/cockpit/CardOverviewFacet.vue
 import participantRailSource from '../components/cockpit/ParticipantRail.vue?raw';
 import restartDialogSource from '../components/cockpit/RestartServerDialog.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
+import selectedCompactedContextSource from '../components/agents/SelectedCompactedContext.vue?raw';
+import retainedInstructionContextSource from '../components/agents/RetainedInstructionContext.vue?raw';
+import contextBlockSource from '../components/conversation/ContextBlock.vue?raw';
 import debugAgentDetailSource from '../components/agents/DebugAgentDetail.vue?raw';
 import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
 import agentTimelineSource from '../composables/useAgentTimeline.ts?raw';
@@ -104,9 +107,19 @@ describe('read-only positive checklist', () => {
     expect(filesViewSource).toContain('fileStore.fetchFileContent(entry.path)');
     expect(filesViewSource).toContain('fileStore.clearViewedFile()');
 
-    // Conversation readers keep passive navigation, expand/collapse, provider metadata toggle.
-    expect(agentConversationSource).toContain('timelineControls.expandAll()');
-    expect(agentConversationSource).toContain('timelineControls.collapseAll()');
+    // The inspector keeps exact history, individual disclosures, Jump and provider metadata.
+    expect(agentConversationSource).toContain('Segment history');
+    expect(agentConversationSource).toContain('@click="selectVersion(version.version)"');
+    expect(agentConversationSource).toContain('@click="selectVersion(null)"');
+    expect(agentConversationSource).toContain('@click="jumpToLatest"');
+    expect(agentConversationSource).toContain('SelectedCompactedContext');
+    for (const summary of ['Accumulated summary', 'Required model facts', 'Source and continuation']) {
+      expect(selectedCompactedContextSource).toContain(`<summary>${summary}</summary>`);
+    }
+    expect(retainedInstructionContextSource).toContain('<summary>Retained instructions (');
+    expect(contextBlockSource).toContain('<summary>Recorded system context</summary>');
+    expect(agentConversationSource).not.toContain('Expand all');
+    expect(agentConversationSource).not.toContain('Collapse all');
     expect(agentConversationSource).toContain('rawPanelOpen = !rawPanelOpen');
     expect(agentConversationSource).toContain('Provider exchange metadata');
     expect(agentConversationSource).toContain('ConversationTimeline');
@@ -119,7 +132,7 @@ describe('read-only positive checklist', () => {
     expect(agentConversationSource).toContain('Jump to latest');
     expect(analystChatPanelSource).toContain('Jump to latest');
     expect(debugAgentDetailSource).toContain('timelineControls.jumpToLatest');
-    expect(agentConversationSource).toContain('Pause auto-scroll');
+    expect(agentConversationSource).not.toContain('Pause auto-scroll');
     expect(analystChatPanelSource).toContain('Pause auto-scroll');
     expect(debugAgentDetailSource).toContain('Pause auto-scroll');
     expect(agentTimelineSource).not.toContain('modelLabel');

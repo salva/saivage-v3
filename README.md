@@ -11,6 +11,11 @@ conversation.
 Conversation tails track exact immutable segment identity, not just the displayed
 ordinal; refreshed baselines replace rather than mix after a changed selection.
 See the [conversation contracts](docs/spec/operator-ui-contracts.md#6-conversation-readers).
+Selected compacted context exposes the full safe summary, retained instructions, required
+facts and source/continuation in independent initially closed sections. Recorded system
+text closes individually at its source position. Segment history selects exact retained
+history, not a stitched transcript; scroll away to read, or Jump to latest to follow.
+This is conversation used in request assembly, not an exact model-request viewer.
 Tool rows keep requests and recorded results in source order. Expand for semantic
 operation/effect sections and independent output heads; secondary safe-original
 disclosures copy complete received public values. Successful settlement need not

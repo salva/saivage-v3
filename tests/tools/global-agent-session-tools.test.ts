@@ -106,7 +106,7 @@ function rows(): AgentMessage[] {
 describe('global agent-session observation tools', () => {
   it('returns a strict compacted current session through the production binder and executor', async () => {
     const projectRoot = setup();
-    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture compacted summary', {
+    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture compacted summary token=tool-summary-canary final-summary-Z', {
       first: { content: 'token=obsolete-tool-context-secret', key: 'api_key=tool-context-key-secret' },
       replacement: { content: 'token=current-tool-context-secret', key: 'api_key=tool-context-key-secret' },
     }, RESPONSES_A);
@@ -143,6 +143,8 @@ describe('global agent-session observation tools', () => {
     const contextData=contextExecution.providerOutcome.data as any;
     expect(contextData).toMatchObject({section:'context',has_segment_context:true,context:{total:1,returned:1}});
     const segmentContext = contextData.context.items[0];
+    expect(segmentContext.summary_text).toBe('fixture compacted summary token=[REDACTED] final-summary-Z');
+    expect(JSON.stringify(contextData)).not.toContain('tool-summary-canary');
     expect(Object.keys(segmentContext).sort()).toEqual([
       'continuation',
       'covered_through_message_id',

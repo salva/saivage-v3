@@ -1,5 +1,13 @@
 # Saivage v3 System Specification
 
+The selected retained conversation and actual compacted genesis are inspectable through
+the existing operator contracts. Shared source-owned outbound projection redacts summary
+prose and current/exact-history text and tool rows; protected instructions retain their
+public coordinates and protection. Selection, cursors and strict consumption scopes are
+unchanged. This conversation is a basis for request assembly, not the exact model request:
+prepared/static instructions, tool definitions, protocol encoding and private replay differ.
+See [conversation presentation](operator-ui-contracts.md#6-conversation-readers).
+
 ## Explicit repair and coarse loss
 
 Backup and report paths are absolute and outside exact generated/lifecycle roots (`.saivage/cards`, `agents`, `logs`, `work`, `repair-attic`, `locks`), lexically and after alias resolution; ordinary project source-side paths are allowed. Report is fresh/absent and also outside the declared backup. “External report” means outside generated state and backup, not necessarily outside the project.

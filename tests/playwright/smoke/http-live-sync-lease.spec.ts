@@ -66,9 +66,16 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
   }), { id: sessionId, lease: subscribe.lease });
   await expect.poll(() => rest.counts.get(conversationKey) ?? 0).toBe(readsBeforeAcknowledgement + 1);
   const retained = page.getByTestId('retained-instruction-context');
-  await expect(retained).toContainText('Retained instruction context');
-  await expect(retained).toContainText('Preserve this exact operator constraint.');
-  await expect(retained).toContainText('key: smoke.constraint');
+  await expect(retained.locator(':scope > summary')).toHaveText('Retained instructions (1)');
+  await expect(retained).not.toHaveAttribute('open', '');
+  const instruction = retained.locator('li > details');
+  await expect(instruction).not.toHaveAttribute('open', '');
+  await retained.locator(':scope > summary').click();
+  await instruction.locator('summary').click();
+  await expect(instruction.locator('pre').filter({ hasText: 'Preserve this exact operator constraint.' })).toBeVisible();
+  await expect(instruction.locator('pre').filter({ hasText: 'Preserve this exact operator constraint.' })).toHaveText('Preserve this exact operator constraint.');
+  await expect(instruction.locator('.declaration')).toBeVisible();
+  await expect(instruction.locator('.declaration')).toHaveText('compactable: false · key: smoke.constraint');
 
   await page.evaluate(() => {
     window.history.pushState({}, '', '/cards');
