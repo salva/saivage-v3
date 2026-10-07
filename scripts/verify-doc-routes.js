@@ -531,6 +531,7 @@ function sameArray(a, b) { return a.length === b.length && a.every((value, index
 const VALUE_CONTRACT_DOCS = [
   'README.md',
   'docs/architecture/system-architecture.md',
+  'docs/architecture/durable-format-changes.md',
   'docs/spec/operator-ui-needs.md',
   'docs/spec/operator-ui-contracts.md',
   'docs/spec/system-specification.md',

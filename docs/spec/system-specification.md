@@ -780,7 +780,11 @@ non-secret: text redaction cannot certify or remove pixel secrets.
 
 Every successful executed image call selects exactly one immutable conversation-owned
 PNG through a strict `{id,mime_type:'image/png',width,height,byte_length,sha256}`
-descriptor. Failed/other-tool results cannot carry images. Strict safe data records
+descriptor. The common typed envelope is producer-neutral: only successful executed
+results can carry explicit images, with all canonical exchange/policy/evidence/hash
+commitments intact. Failed and non-executed results cannot select images. `view_image`
+is the only implemented authorized producer; no MCP image ingress or arbitrary
+`data.image`/`image_url` promotion exists. Its strict per-tool safe data records
 `source_path`, raw `source_dimensions`, upright `oriented_dimensions`, selected
 `sent_dimensions`, `orientation_applied`, spatial-only `resized`, actual sent/upright
 `scale:{x,y}` and selected `max_dimension`. Descriptor dimensions equal sent dimensions.

@@ -16,6 +16,7 @@ const DEFAULT_CURRENT_DOCS = [
   'docs/spec/operator-ui-contracts.md',
   'docs/architecture/index.md',
   'docs/architecture/system-architecture.md',
+  'docs/architecture/durable-format-changes.md',
 ];
 
 function parseArgs(argv) {

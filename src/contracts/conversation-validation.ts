@@ -12,6 +12,7 @@ import {
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/index.js';
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
 import { ToolResultSchema } from './tool-result.js';
+import { assertViewImageResult } from './view-image.js';
 import { parsePrivateContent } from './responses-conversation.js';
 
 type SourceSegment = {
@@ -646,17 +647,17 @@ function validateToolOrdering(
 function parseToolResultContent(row: AgentMessage): { success: boolean } {
   try {
     const result = ToolResultSchema.parse(JSON.parse(row.content));
-    if (result.success && (row.tool === 'view_image') !== !!result.image)
-      throw new Error(
-        'Successful executed view_image requires an image descriptor; other tools cannot carry images.',
-      );
+    if (result.success && row.tool === 'view_image') {
+      if (!result.image) throw new Error('Successful view_image requires an image descriptor.');
+      assertViewImageResult(result.data, result.image);
+    }
     if (
       result.success &&
       result.image &&
       row.context_policy.kind === 'tool_result' &&
       row.context_policy.settlement_origin !== 'executed'
     )
-      throw new Error('Only executed view_image results can select images.');
+      throw new Error('Only executed successful results can select images.');
     return { success: result.success === true };
   } catch (error) {
     throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);

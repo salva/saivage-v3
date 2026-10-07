@@ -7,3 +7,5 @@ Navigate the current Saivage v3 architecture documentation here.
 - [System architecture](./system-architecture.md) — component ownership,
   dependency direction, internal architecture, and source-derived inventories.
 - [Prompt handling](./prompts.md) — in-depth reference for prompt discovery, validation, rendering, and the startup-only prompt compilation stage.
+- [Durable format changes](./durable-format-changes.md) — evidenced incompatible
+  cutovers and adoption boundaries; subordinate inventory, not operational consent.

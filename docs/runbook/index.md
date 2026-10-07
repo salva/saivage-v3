@@ -2,6 +2,11 @@
 
 ## Image snapshots and native dependencies
 
+The [durable format changes inventory](../architecture/durable-format-changes.md)
+records the image-result 4→5 cutover and producer-neutral follow-up as the same
+undeployed source adoption unit. It grants no instance action or loss consent;
+the separate operational permissions and external-migration gates below still apply.
+
 `view_image` retains one immutable selected PNG per successful observation in its
 owning conversation's `images/<UUID>.png`. Complete stopped backups include these;
 reset removes their generated roots and eligible card discard moves conversations

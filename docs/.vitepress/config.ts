@@ -51,6 +51,7 @@ export default defineConfig({
         text: 'Architecture',
         items: [
           { text: 'System architecture', link: '/architecture/system-architecture' },
+          { text: 'Durable format changes', link: '/architecture/durable-format-changes' },
           { text: 'Prompt handling', link: '/architecture/prompts' },
         ],
       },

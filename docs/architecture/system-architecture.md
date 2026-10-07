@@ -2,8 +2,14 @@
 
 ## Conversation-owned image pipeline
 
-`contracts/image.ts` owns browser-safe strict descriptors/resize metadata and pure
-descriptor-based accounting. `tools/project-file-tools.ts` shares exact scoped read
+`contracts/image.ts` owns browser-safe strict descriptors and pure descriptor-based
+accounting. `contracts/tool-result.ts` owns the producer-neutral typed success/failure
+envelope and branded image outcome constructor. `contracts/view-image.ts` owns strict
+workspace input/resize metadata and descriptor consistency, checked by the producer
+and canonical successful `view_image` consumer. Only `view_image` is an implemented
+authorized image producer; future explicit producers can reuse the lower transport
+without invoking it. Arbitrary nested image-like data is never promoted, and no MCP
+image ingress is implemented. `tools/project-file-tools.ts` shares exact scoped read
 admission; `tools/image-decode.ts` uses backend-only Sharp; workspace binders expose
 explicit `view_image` with complete invocation-session ownership. Sources stay read-only.
 `persistence/conversation-image.ts`, exported through `session-api.ts`, publishes one
@@ -67,6 +73,8 @@ Both-unusable-card-selections discard uses explicit compiled/parent-permitted no
 Attic isolation is lexical/resolved-alias Files policy before content/list/preview reads, not a scanner or root-agent containment. Reset does not own attic. Report only known successful steps; first failure ends the nontransactional attempt. Move/durability/publication/truncation uncertainty is fatal before follow-up reads/writes/logging/report update or descriptor/lock/prompt release. No retry, compensation, attic adoption or guaranteed recovery.
 
 This document is the canonical architecture authority for Saivage v3.
+The subordinate [durable format changes](./durable-format-changes.md) inventory records
+evidenced incompatible cutovers, not an exhaustive compatibility history or operational consent.
 Saivage core/packaged utilities contain no migrations, old-format readers, probes, bridges or normalization in runtime/startup/init/reset/repair/ordinary deployment. Mixed formats and binary-only downgrade against incompatible state are unsupported. Incompatible adoption chooses separately consented reset or explicitly owner-requested [external offline migration](../runbook/index.md#external-migrations), outside all product paths; no new runtime owner/mechanism.
 Ordinary same-format binary replacement stops the old service and strictly starts the new binary against retained current-format generated state.
 

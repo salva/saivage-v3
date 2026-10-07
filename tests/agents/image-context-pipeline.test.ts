@@ -5,6 +5,7 @@ import { afterEach, expect, it, jest } from '@jest/globals';
 import { canonicalJson, type AgentMessage } from '../../src/schemas/index.js';
 import {
   imageAccountingBytes,
+  toolImageSucceeded,
   imageEstimatedTokens,
   rasterReservation,
   classifyCandidateLocalAdmission,
@@ -59,6 +60,7 @@ import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt
 import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 import { ProviderTurnFailure, LlmRequestError } from '../../src/contracts/index.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 
 const SESSION = 'agent:planner:project' as const;
 const encodedPartBytes = (image: ImageDescriptor) => JSON.stringify({ type: 'input_image', image_url: '' }).length + 'data:image/png;base64,'.length + 4 * Math.ceil(image.byte_length / 3);
@@ -118,7 +120,8 @@ function plan(
     options: options(),
   });
 }
-function rows(image: ImageDescriptor): AgentMessage[] {
+function rows(image: ImageDescriptor, alternateProducer = false): AgentMessage[] {
+  const tool = alternateProducer ? 'fixture_image_producer' : 'view_image';
   const data = {
     source_path: 'screen.png',
     source_dimensions: { width: image.width, height: image.height },
@@ -129,7 +132,7 @@ function rows(image: ImageDescriptor): AgentMessage[] {
     scale: { x: 1, y: 1 },
     max_dimension: 'original',
   };
-  const content = canonicalJson({ success: true, data, image });
+  const content = settleToolActionOutcome(toolImageSucceeded(alternateProducer ? { caption: 'fixture' } : data, image)).settledResultBytes;
   const policies = toolRowPolicies({
     content,
     template: {
@@ -168,7 +171,7 @@ function rows(image: ImageDescriptor): AgentMessage[] {
       id: `${INPUT}:tool-call:call-image`,
       role: 'assistant',
       kind: 'tool_call',
-      tool: 'view_image',
+      tool,
       tool_call_id: 'call-image',
       context_policy: policies.call,
       content: JSON.stringify({
@@ -177,7 +180,7 @@ function rows(image: ImageDescriptor): AgentMessage[] {
           {
             id: 'call-image',
             type: 'function',
-            function: { name: 'view_image', arguments: '{"path":"screen.png"}' },
+            function: { name: tool, arguments: alternateProducer ? '{}' : '{"path":"screen.png"}' },
           },
         ],
       }),
@@ -187,7 +190,7 @@ function rows(image: ImageDescriptor): AgentMessage[] {
       id: `${INPUT}:tool-result:call-image`,
       role: 'tool',
       kind: 'tool_result',
-      tool: 'view_image',
+      tool,
       tool_call_id: 'call-image',
       context_policy: policies.result,
       content,
@@ -252,6 +255,25 @@ function invocation(
     episodeContext: {},
   };
 }
+it.each(['openai-responses', 'openai-codex-backend'] as const)('materializes an alternate canonical producer through %s from its descriptor alone', async (protocol) => {
+  const projectRoot = root();
+  const bytes = await sharp({ create: { width: 33, height: 65, channels: 4, background: '#123456' } }).png().toBuffer();
+  const descriptor = publishConversationImage(projectRoot, SESSION, bytes, { width: 33, height: 65 });
+  appendConversationBatch({ projectRoot }, rows(descriptor, true));
+  const projection = providerConversationProjection(readConversation(projectRoot, SESSION), []);
+  expect(projection.messages.flatMap(providerItemImageDescriptors)).toEqual([descriptor]);
+  const materialized = await materializeProviderConversation(projectRoot, projection);
+  const built = plan(materialized, protocol);
+  const output = (JSON.parse(built.request.serializedBody).input as Array<Record<string, unknown>>).find(item => item.type === 'function_call_output')!;
+  const image = (output.output as Array<Record<string, unknown>>).find(item => item.type === 'input_image')!;
+  expect(Buffer.from(String(image.image_url).split(',')[1]!, 'base64')).toEqual(bytes);
+  expect(built.request.imageCount).toBe(1);
+  expect(built.request.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(built.request.serializedBody) / 4) + rasterReservation(descriptor));
+  expect(composedProviderConversationAccountingBytes(materialized)).toBe(composedProviderConversationAccountingBytes(projection));
+  unlinkSync(conversationImageFile(projectRoot, SESSION, descriptor.id));
+  await expect(materializeProviderConversation(projectRoot, projection)).rejects.toThrow();
+});
+
 function summaryProvider(
   projectRoot: string,
   output: string,

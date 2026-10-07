@@ -173,8 +173,6 @@ export {
 } from './tool-result.js';
 export {
   ImageDescriptorSchema,
-  ViewImageDataSchema,
-  viewImageInputSchema,
   MAX_IMAGE_SOURCE_BYTES,
   MAX_IMAGE_PIXELS,
   MAX_IMAGE_BYTES,
@@ -183,7 +181,9 @@ export {
   imageAccountingBytes,
   imageEstimatedTokens,
 } from './image.js';
-export type { ImageDescriptor, ViewImageData, MaterializedImage } from './image.js';
+export type { ImageDescriptor, MaterializedImage } from './image.js';
+export { ViewImageDataSchema, viewImageInputSchema, assertViewImageResult } from './view-image.js';
+export type { ViewImageData } from './view-image.js';
 export type { ToolResult, ToolActionOutcome } from './tool-result.js';
 export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-api-chats.js';
 export type { RestartChatAcknowledgement } from './operator-api-chats.js';

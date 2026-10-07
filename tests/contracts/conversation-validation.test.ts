@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { validateAtomicCoveredSourcePrefix, validateConversation } from '../../src/contracts/conversation-validation.js';
 import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixture.js';
-import { agentMessageSchema, compactedHistorySchema, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
+import { agentMessageSchema, compactedHistorySchema, type AgentMessage, type CompactedHistory, type ConversationSessionId, type ToolSettlementOrigin } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -12,12 +12,12 @@ import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.
 
 const SESSION = 'agent:planner:project' as const;
 describe('canonical conversation validation', () => {
-  it('permits image selection only for an executed successful matching view_image exchange', () => {
+  it('accepts producer-neutral executed images while preserving view_image metadata and exchange commitments', () => {
     const image = { id: '11111111-1111-4111-8111-111111111111', mime_type: 'image/png' as const, width: 10, height: 5, byte_length: 100, sha256: 'a'.repeat(64) };
     const dimensions = { width: 10, height: 5 };
     const data = { source_path: 'screen.png', source_dimensions: dimensions, oriented_dimensions: dimensions, sent_dimensions: dimensions, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 };
     const content = settleToolActionOutcome(toolImageSucceeded(data, image)).settledResultBytes;
-    const rowsFor = (tool: string, resultContent = content, settlementOrigin: 'executed' | 'rejected_before_execution' = 'executed'): AgentMessage[] => {
+    const rowsFor = (tool: string, resultContent = content, settlementOrigin: ToolSettlementOrigin = 'executed'): AgentMessage[] => {
       const policies = toolRowPolicies({ content: resultContent, settlementOrigin });
       return [activation(), {
         id: `${INPUT}:tool-call:image`, session_id: SESSION, role: 'assistant', kind: 'tool_call', tool, tool_call_id: 'image', context_policy: policies.call,
@@ -28,12 +28,32 @@ describe('canonical conversation validation', () => {
       }];
     };
     expect(() => validateConversation(SESSION, rowsFor('view_image'))).not.toThrow();
-    expect(() => validateConversation(SESSION, rowsFor('read'))).toThrow(/executed view_image/);
+    const alternateContent = settleToolActionOutcome(toolImageSucceeded({ caption: 'fixture' }, image)).settledResultBytes;
+    const alternate = rowsFor('fixture_image_producer', alternateContent);
+    expect(() => validateConversation(SESSION, alternate)).not.toThrow();
+    for (const origin of ['rejected_before_execution', 'unsupported_tool', 'execution_failed'] as const)
+      expect(() => validateConversation(SESSION, rowsFor('fixture_image_producer', alternateContent, origin))).toThrow();
+    expect(() => validateConversation(SESSION, [alternate[0]!, alternate[1]!, { ...alternate[2]!, tool: 'different' }])).toThrow();
+    expect(() => validateConversation(SESSION, [alternate[0]!, alternate[1]!, { ...alternate[2]!, tool_call_id: 'different' }])).toThrow();
+    expect(() => agentMessageSchema.parse({ ...alternate[2]!, content: alternateContent.replace('fixture', 'changed') })).toThrow();
+    const wrongPolicy = structuredClone(alternate);
+    if (wrongPolicy[2]!.context_policy.kind !== 'tool_result') throw new Error('Expected result policy.');
+    wrongPolicy[2]!.context_policy.call_policy_sha256 = 'f'.repeat(64);
+    expect(() => validateConversation(SESSION, wrongPolicy)).toThrow();
+    const wrongEvidence = structuredClone(alternate);
+    if (wrongEvidence[2]!.context_policy.kind !== 'tool_result') throw new Error('Expected result policy.');
+    wrongEvidence[2]!.context_policy.evidence = { kind: 'observational_query', observedSha256: 'f'.repeat(64) };
+    expect(() => validateConversation(SESSION, wrongEvidence)).toThrow();
     expect(() => validateConversation(SESSION, rowsFor('view_image', content, 'rejected_before_execution'))).toThrow();
     expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: false, error: 'failed', image })))).toThrow(/malformed/);
     expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":true}'))).toThrow(/requires an image/);
     expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, sent_dimensions: { width: 9, height: 5 } }, image })))).toThrow(/malformed/);
+    const differentDimensions = { width: 9, height: 5 };
+    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, source_dimensions: differentDimensions, oriented_dimensions: differentDimensions, sent_dimensions: differentDimensions }, image })))).toThrow(/consistent strict view_image/);
     expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":false,"error":"interrupted"}'))).not.toThrow();
+    for (const invalid of [undefined, { ...data, extra: true }, { ...data, scale: { x: 0.5, y: 1 } }, { ...data, resized: true }, { ...data, oriented_dimensions: { width: 5, height: 10 } }]) {
+      expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: invalid, image })))).toThrow(/malformed/);
+    }
   });
   it('materializes physical and inherited activation checkpoints without fabricating a marker', () => {
     const physical = validateConversation(SESSION, [activation(), text('tail')]);

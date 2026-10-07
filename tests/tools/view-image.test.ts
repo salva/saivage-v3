@@ -8,7 +8,7 @@ import { workspaceToolBinders, globalWorkspaceObservationToolBinders } from '../
 import { materializeConversationImage, publishConversationImage } from '../../src/persistence/session-api.js';
 import { conversationImageFile } from '../../src/persistence/layout.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
-import { MAX_IMAGE_SOURCE_BYTES, ToolResultSchema, rasterReservation, imageAccountingBytes, imageEstimatedTokens, viewImageInputSchema } from '../../src/contracts/index.js';
+import { MAX_IMAGE_SOURCE_BYTES, ToolResultSchema, assertViewImageResult, rasterReservation, imageAccountingBytes, imageEstimatedTokens, viewImageInputSchema } from '../../src/contracts/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/runtime-api.js';
 import type { AgentName } from '../../src/schemas/index.js';
 import type { CardService } from '../../src/cards/store-api.js';
@@ -153,7 +153,7 @@ describe('explicit immutable workspace image observations', () => {
     const selected = await normalizeWorkspaceImage(await png(10, 10), 'screen.png');
     const image = publishConversationImage(projectRoot, 'agent:analyst:global', selected.bytes, selected.data.sent_dimensions);
     expect(ToolResultSchema.safeParse({ success: false, error: 'failed', image }).success).toBe(false);
-    expect(ToolResultSchema.safeParse({ success: true, data: { ...selected.data, sent_dimensions: { width: 20, height: 10 } }, image }).success).toBe(false);
+    expect(() => assertViewImageResult({ ...selected.data, sent_dimensions: { width: 20, height: 10 } }, image)).toThrow();
     expect(rasterReservation({ width: 1024, height: 1024 })).toBe(2048);
     expect(rasterReservation({ width: 1600, height: 1600 })).toBe(5000);
     expect(rasterReservation({ width: 2048, height: 2048 })).toBe(8192);

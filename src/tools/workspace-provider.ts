@@ -19,6 +19,7 @@ import {
   toolFailed,
   toolSucceeded,
   toolImageSucceeded,
+  assertViewImageResult,
   viewImageInputSchema,
   MAX_IMAGE_SOURCE_BYTES,
   throwIfPublicationOutcomeUnknown,
@@ -159,6 +160,7 @@ async function viewImage(
     selected.bytes,
     selected.data.sent_dimensions,
   );
+  assertViewImageResult(selected.data, image);
   return toolImageSucceeded(selected.data, image);
 }
 
