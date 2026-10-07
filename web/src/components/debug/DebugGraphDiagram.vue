@@ -42,7 +42,7 @@
         <dt>Records</dt><dd><span v-for="record in graph.records" :key="record.name">{{ record.name }} · {{ record.schema }}<template v-if="record.bootstrap"> · bootstrap</template><br></span></dd>
       </dl>
       <h5>Selected element details</h5>
-      <pre>{{ detailJson }}</pre>
+      <pre><JsonText :text="detailJson" /></pre>
     </aside>
   </div>
 </template>
@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type DeepReadonly } from 'vue';
 import type { DebugGraph } from '../../api/types';
+import JsonText from '../content/JsonText.vue';
 
 type Graph = DeepReadonly<DebugGraph>;
 const props = defineProps<{ graph: Graph }>();
@@ -130,6 +131,6 @@ text { fill:var(--text); font-size:12px; font-family:'SF Mono', monospace; point
 .graph-summary { margin:0 0 18px; font-size:11px; }
 .graph-summary dt { color:var(--text-muted); font-weight:700; margin-top:8px; }
 .graph-summary dd { margin:3px 0 0; color:var(--text); }
-.graph-details pre { margin:0; color:var(--text); font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.graph-details pre { margin:0; color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere; }
 @media (max-width: 900px) { .graph-inspector { grid-template-columns:1fr; } .graph-details { position:static; } }
 </style>

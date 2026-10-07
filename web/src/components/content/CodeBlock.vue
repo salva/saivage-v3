@@ -1,5 +1,5 @@
 <template>
-  <div class="code-block" :class="{ 'code-block--wrap': wrap }">
+  <div class="code-block" :class="{ 'code-block--wrap': wrap, 'code-block--json': language === 'json', 'code-block--copyable': copyable }">
     <button
       v-if="copyable"
       type="button"
@@ -10,26 +10,26 @@
     <div
       v-if="oversized"
       class="code-block__notice highlighting-disabled"
-    >Syntax highlighting disabled (&gt;1 MB)</div>
+    >Syntax highlighting disabled (&gt;1,000,000 UTF-16 code units)</div>
     <pre
-      :class="['code-block__pre', `language-${resolvedLanguage}`, 'hljs']"
+      :class="['code-block__pre', `language-${language}`]"
       :style="preStyle"
       :aria-label="ariaLabel"
     ><code
-      v-if="oversized"
+      v-if="language === 'text'"
       class="code-block__code"
       v-text="code"
     /><code
       v-else
       class="code-block__code"
-      v-html="highlightedHtml"
-    /></pre>
+    ><JsonText :text="code" /></code></pre>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { highlight } from '../../utils/highlight';
+import JsonText from './JsonText.vue';
+import { JSON_HIGHLIGHT_LIMIT } from '../../utils/json-tokens';
 
 const props = withDefaults(defineProps<{
   code: string;
@@ -46,20 +46,9 @@ const props = withDefaults(defineProps<{
   ariaLabel: undefined,
 });
 
-const SIZE_LIMIT = 1_000_000;
 const copied = ref(false);
 
-const oversized = computed(() => (props.code?.length ?? 0) > SIZE_LIMIT);
-
-const resolvedLanguage = computed(() => {
-  if (props.language === 'text' || !props.language) return 'plaintext';
-  return props.language;
-});
-
-const highlightedHtml = computed(() => {
-  if (oversized.value) return '';
-  return highlight(props.code ?? '', resolvedLanguage.value);
-});
+const oversized = computed(() => props.code.length > JSON_HIGHLIGHT_LIMIT);
 
 const preStyle = computed<Record<string, string>>(() => {
   const style: Record<string, string> = {
@@ -125,11 +114,17 @@ function legacyCopy(text: string): boolean {
   padding: 12px 14px;
   overflow: auto;
   background: transparent;
+  border: 1px solid var(--code-block-border);
+  border-radius: 6px;
   color: inherit;
   font-family: inherit;
   font-size: inherit;
   line-height: 1.45;
 }
+
+.code-block--json { font-size:14px; }
+.code-block--json .code-block__pre { line-height:1.5; }
+.code-block--json.code-block--copyable { padding-top:32px; }
 
 .code-block__code {
   font-family: inherit;

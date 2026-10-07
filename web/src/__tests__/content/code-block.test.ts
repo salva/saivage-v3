@@ -18,9 +18,11 @@ describe('CodeBlock', () => {
     expect(pre.classes()).toContain('language-json');
   });
 
-  it('produces hljs-* classes for highlighted output', () => {
+  it('decorates JSON keys and numbers with lossless text tokens', () => {
     const wrapper = mount(CodeBlock, { props: { code: '{"a":1}', language: 'json' } });
-    expect(wrapper.html()).toMatch(/hljs-/);
+    expect(wrapper.find('.json-token-key').text()).toBe('"a"');
+    expect(wrapper.find('.json-token-number').text()).toBe('1');
+    expect(wrapper.find('code').element.textContent).toBe('{"a":1}');
   });
 
   it('shows a copy button only when copyable', () => {
@@ -82,13 +84,14 @@ describe('CodeBlock', () => {
     expect(html).toContain('&lt;script&gt;');
   });
 
-  it('renders fallback notice and plain code when code exceeds 1 MB', () => {
+  it('renders an exact plain path above the code-unit highlighting limit', () => {
     const big = 'a'.repeat(1_000_001);
     const wrapper = mount(CodeBlock, { props: { code: big, language: 'json' } });
     expect(wrapper.find('.highlighting-disabled').exists()).toBe(true);
     expect(wrapper.find('.highlighting-disabled').text()).toContain('Syntax highlighting disabled');
-    // No hljs spans
-    expect(wrapper.html()).not.toMatch(/hljs-attr|hljs-string|hljs-number/);
+    expect(wrapper.find('.highlighting-disabled').text()).toContain('UTF-16 code units');
+    expect(wrapper.find('[class^="json-token-"]').exists()).toBe(false);
+    expect(wrapper.find('code').element.textContent).toBe(big);
   });
 
   it('sets aria-label on the pre element when provided', () => {

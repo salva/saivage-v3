@@ -14,13 +14,14 @@
       >{{ cardLabel(part.id, part.fallbackLabel) }}</RouterLink>
       <RouterLink v-else-if="part.kind === 'session'" class="inline-part inline-part-card" :to="{ name: 'agent-detail', params: { id: part.id } }">{{ part.label }}</RouterLink>
       <button v-else-if="part.kind === 'entry'" type="button" class="inline-part inline-part-entry" @click="revealEntry($event, part.id)">{{ part.label }}</button>
-      <span v-else class="inline-part inline-part-text">{{ part.text }}</span>
+      <span v-else class="inline-part inline-part-text"><JsonText v-if="part.language === 'json'" :text="part.text" /><template v-else>{{ part.text }}</template></span>
     </template>
   </span>
 </template>
 
 <script setup lang="ts">
 import type { InlinePart } from '../../utils/tool-presenters';
+import JsonText from './JsonText.vue';
 
 defineProps<{ parts: InlinePart[] }>();
 
@@ -45,6 +46,7 @@ function cardTitle(id: string): string {
 <style scoped>
 .inline-parts { display:inline-flex; align-items:baseline; gap:4px; min-width:0; }
 .inline-part { min-width:0; overflow-wrap:anywhere; }
+.inline-part-text :deep(.json-text) { white-space:pre-wrap; }
 .inline-part-entry { border:0; background:transparent; color:var(--accent-2); cursor:pointer; font:inherit; padding:0; text-decoration:underline; }
 .inline-part-file,.inline-part-card { color:var(--accent-2); text-decoration:none; border-bottom:1px solid color-mix(in srgb, var(--accent-2) 55%, transparent); }
 .inline-part-file:hover,.inline-part-card:hover { color:var(--accent); border-bottom-color:var(--accent); }

@@ -33,8 +33,8 @@
         <button v-if="callContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawCall" @click="showRawCall = !showRawCall">{{ showRawCall ? 'Hide safe original request' : 'Safe original request' }}</button>
         <button v-if="resultContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawResult" @click="showRawResult = !showRawResult">{{ showRawResult ? 'Hide safe original result' : 'Safe original result' }}</button>
       </div>
-      <CodeBlock v-if="showRawCall && callContent !== null" class="tool-chip-raw" :code="callContent" language="text" copyable wrap aria-label="Safe original tool request" />
-      <CodeBlock v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :code="resultContent" language="text" copyable wrap aria-label="Safe original tool result" />
+      <CodeBlock v-if="showRawCall && callContent !== null" class="tool-chip-raw" :code="callContent" language="json" copyable wrap aria-label="Safe original tool request" />
+      <CodeBlock v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :code="resultContent" language="json" copyable wrap aria-label="Safe original tool result" />
     </div>
   </div>
 </template>

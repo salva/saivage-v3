@@ -28,6 +28,9 @@
   --c-orange:       #c75300;
   --c-teal:         #2e7d9a;
 
+  /* Data strings retain contrast on neutral and tinted inline surfaces. */
+  --c-json-string:  #14643f;
+
   /* High-saturation card status markers for readability on white surfaces. */
   --c-card-status-green:  #16a34a;
   --c-card-status-gray:   #9ca3af;

@@ -33,6 +33,12 @@ describe('selected actual compacted context', () => {
     expect(wrapper.get('[data-testid="compacted-source"]').text()).toContain('real-marker');
     expect(wrapper.text()).toContain('not another activation entry');
     expect(wrapper.text()).toContain('Latest recovery notice — absent');
+    expect(wrapper.get('[data-testid="compacted-source"] pre').element.textContent).toBe(JSON.stringify(context.continuation, null, 2));
+    expect(wrapper.get('[data-testid="compacted-source"]').find('.json-token-key').exists()).toBe(true);
+    expect(summary.find('.json-text').exists()).toBe(false);
+    const instructionBodies = wrapper.findAll('li').at(-1)!.findAll('pre');
+    expect(instructionBodies[0].find('.json-token-key').exists()).toBe(true);
+    expect(instructionBodies[1].find('.json-text').exists()).toBe(false);
     await wrapper.setProps({ context: { ...context, continuation: { kind: 'between_rounds' } } });
     expect(wrapper.text()).toContain('between rounds');
     expect((summary.element as HTMLDetailsElement).open).toBe(true);

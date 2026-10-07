@@ -39,6 +39,11 @@ operation/effect sections and independent output heads; secondary safe-original
 disclosures copy complete received public values. Successful settlement need not
 mean process completion, record acceptance or notification delivery.
 
+Dedicated JSON data inspection uses consistent safe, readable lexical highlighting
+without changing supplied text or existing copy payloads. Files JSON preserves the
+exact received safe text. See the
+[shared JSON display contract](docs/spec/operator-ui-contracts.md#shared-json-data-display).
+
 Start with the [documentation overview](docs/overview.md), the
 [getting-started guide](docs/guides/getting-started.md), or the
 [documentation site](https://salva.github.io/saivage-v3/) (also served by

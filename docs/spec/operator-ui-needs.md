@@ -42,6 +42,13 @@ owner intent and the 1,500+ card scale scenario.
 
 ### Reading and auditing requirements
 
+Operators need consistently distinguishable JSON keys and values in dedicated
+data displays without losing literal text, selection or existing safe-copy
+behavior. Files inspection must preserve the received safe text, not reconstruct
+it through parsing. Readable JSON decoration is not validation, an editor or an
+exact model-wire viewer; ordinary logs and authored prose remain ordinary text.
+See the [shared presentation contract](operator-ui-contracts.md#shared-json-data-display).
+
 - **Must:** necessary for the prime directive or its safe, truthful operation.
 - **Should:** strong operational value; absence is a substantive improvement opportunity.
 - **Could:** optional convenience, not necessary for acceptance of the core experience.

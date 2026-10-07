@@ -1,5 +1,5 @@
 export type InlinePart =
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; language?: 'json' | 'text' }
   | { kind: 'file'; root: 'meta' | 'output'; path: string; label?: string }
   | { kind: 'card'; id: string; fallbackLabel?: string }
   | { kind: 'session'; id: string; label: string }
@@ -11,6 +11,7 @@ export interface SemanticSection {
   title: string;
   fields?: SemanticField[];
   content?: string;
+  language?: 'json' | 'text';
   items?: SemanticSection[];
   disclosure?: boolean;
 }

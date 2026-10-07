@@ -63,6 +63,8 @@ describe('RawLlmExchangePanel', () => {
     const block = wrapper.findAllComponents(CodeBlock)[1];
     expect(JSON.parse(block.props('code')).token_usage).toEqual(token_usage);
     expect(block.props('copyable')).toBe(true);
+    expect(block.find('.json-token-key').exists()).toBe(true);
+    expect(block.find('code').element.textContent).toBe(block.props('code'));
     expect(wrapper.text()).toContain('unknown, not zero');
     expect(wrapper.text()).toContain('Cached input is part of input');
     expect(wrapper.text()).not.toContain('Token usage not reported');

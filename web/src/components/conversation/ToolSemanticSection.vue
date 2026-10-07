@@ -4,8 +4,8 @@
     <dl v-if="section.fields?.length">
       <div v-for="(field, index) in section.fields" :key="index"><dt>{{ field.label }}</dt><dd><InlineParts :parts="field.parts" /></dd></div>
     </dl>
-    <details v-if="section.content !== undefined && section.disclosure"><summary>Show {{ section.title }}</summary><CodeBlock :code="section.content" language="text" copyable wrap /></details>
-    <CodeBlock v-else-if="section.content !== undefined" :code="section.content" language="text" copyable wrap />
+    <details v-if="section.content !== undefined && section.disclosure"><summary>Show {{ section.title }}</summary><CodeBlock :code="section.content" :language="section.language" copyable wrap /></details>
+    <CodeBlock v-else-if="section.content !== undefined" :code="section.content" :language="section.language" copyable wrap />
     <ToolSemanticSection v-for="(item, index) in section.items" :key="index" :section="item" />
   </section>
 </template>

@@ -51,6 +51,9 @@ describe('Debug Graphs', () => {
     expect(global.text()).toContain('"agent_name": "analyst"');
     expect(global.text()).toContain('"compactable": false');
     expect(global.text()).not.toMatch(/prompt body|\.saivage|"path"/i);
+    expect(global.get('pre').element.textContent).toBe(JSON.stringify(globalAgent, null, 2));
+    expect(global.find('.json-token-key').exists()).toBe(true);
+    expect((global.get('details').element as HTMLDetailsElement).open).toBe(false);
   });
 
   it('renders a deterministic accessible SVG with cycle, terminal export, and selectable details', async () => {
@@ -66,6 +69,7 @@ describe('Debug Graphs', () => {
     await flushPromises();
     expect(wrapper.find('.graph-details pre').text()).toContain('"promotion"');
     expect(wrapper.find('.graph-details pre').text()).toContain('"status.md"');
+    expect(wrapper.find('.graph-details .json-token-key').exists()).toBe(true);
   });
 
   it('accepts and renders a custom leaf type with its effective create_card-free tools',async()=>{

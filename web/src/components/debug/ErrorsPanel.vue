@@ -22,7 +22,7 @@
             <span class="error-time">{{ fmtDate(err.timestamp) }}</span>
           </div>
           <div class="error-message">{{ err.message }}</div>
-          <CodeBlock v-if="err.details" :code="err.details" language="text" copyable wrap />
+          <CodeBlock v-if="err.details" :code="err.details" language="json" copyable wrap />
         </div>
       </div>
     </div>

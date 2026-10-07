@@ -53,6 +53,13 @@
   --code-block-border: var(--c-gray-200);
   --code-block-text:   var(--c-gray-800);
 
+  /* JSON lexical decoration on data-display and inline message surfaces. */
+  --json-key: var(--c-blue);
+  --json-string: var(--c-json-string);
+  --json-number: var(--c-yellow);
+  --json-boolean: var(--c-purple);
+  --json-null: var(--c-pink);
+
   /* Overlay / hover */
   --overlay-bg: rgba(0, 0, 0, 0.25);
   --hover-bg:   rgba(0, 0, 0, 0.02);

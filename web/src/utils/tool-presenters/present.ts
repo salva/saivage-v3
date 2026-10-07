@@ -1,5 +1,5 @@
 import { asRecord, readToolCallMessage, safeJsonParse, textPart, oneLine } from './helpers';
-import { getToolPresenter } from './presenters';
+import { getToolPresenter, valueParts } from './presenters';
 import type { ToolCallPresentation, ToolResultPresentation } from './types';
 
 export function presentToolCall(rawContent: string): ToolCallPresentation {
@@ -7,7 +7,7 @@ export function presentToolCall(rawContent: string): ToolCallPresentation {
   const descriptor = getToolPresenter(message.name);
   return descriptor
     ? { ...descriptor.call(message.args), name: message.name }
-    : { name: message.name, headline: textPart(oneLine(message.args)), sections: [{ title: 'Safe arguments (opaque tool)', content: JSON.stringify(message.args, null, 2) }] };
+    : { name: message.name, headline: textPart(oneLine(message.args)), sections: [{ title: 'Safe arguments (opaque tool)', content: JSON.stringify(message.args, null, 2), language: 'json' }] };
 }
 
 export function presentToolResult(rawContent: string, opts: { tool?: string } = {}): ToolResultPresentation {
@@ -28,10 +28,10 @@ export function presentToolResult(rawContent: string, opts: { tool?: string } = 
   const error = failed ? textPart(oneLine(envelope.error, 240)) : [];
   const failureData = asRecord(envelope.data);
   const refusalFields = failed && failureData ? ['code', 'reason', 'action', 'operation', 'resource', 'owner_id', 'card_id', 'name', 'current_head', 'version', 'from_version', 'to_version', 'side', 'session_id', 'runtime_status', 'restart_required'].flatMap((key) => Object.hasOwn(failureData, key)
-    ? [{ label: key.replaceAll('_', ' '), parts: textPart(typeof failureData[key] === 'string' ? failureData[key] : JSON.stringify(failureData[key])) }] : []) : [];
+    ? [{ label: key.replaceAll('_', ' '), parts: valueParts(failureData[key], false) }] : []) : [];
   const refusalSummary = failed && failureData ? ['code', 'reason'].flatMap((key) => typeof failureData[key] === 'string' ? [`${key}: ${oneLine(failureData[key], 160)}`] : []).join(' · ') : '';
   const domainOutcome = failed && rendered?.outcome ? [...textPart(`Recorded domain outcome: ${rendered.outcome}`), ...textPart(' · ')] : [];
-  const sections = rendered?.sections ?? (Object.hasOwn(envelope, 'data') ? [{ title: 'Safe result (opaque tool)', content: JSON.stringify(envelope.data, null, 2) }] : []);
+  const sections = rendered?.sections ?? (Object.hasOwn(envelope, 'data') ? [{ title: 'Safe result (opaque tool)', content: JSON.stringify(envelope.data, null, 2), language: 'json' as const }] : []);
   if (failed) sections.unshift({ title: uncertain ? 'Uncertainty' : 'Error', content: String(envelope.error) });
   if (refusalFields.length) sections.push({ title: 'Recorded refusal / error context', fields: refusalFields });
   return { name, status, outcome, headline: [...domainOutcome, ...error, ...(refusalSummary ? textPart(` · ${refusalSummary}`) : []), ...(failed && rendered?.headline.length ? textPart(' · ') : []), ...(rendered?.headline ?? [])], sections, target: rendered?.target };

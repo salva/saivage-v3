@@ -11,20 +11,21 @@
     <details data-testid="compacted-facts"><summary>Required model facts</summary>
       <p>Facts retained by compaction, not new recovery/refusal occurrences or liveness.</p>
       <strong>Latest recovery notice — {{ context.required_model_facts.latestRecovery ? 'present' : 'absent' }}</strong>
-      <pre v-if="context.required_model_facts.latestRecovery">{{ JSON.stringify(context.required_model_facts.latestRecovery, null, 2) }}</pre>
+      <pre v-if="context.required_model_facts.latestRecovery"><JsonText :text="JSON.stringify(context.required_model_facts.latestRecovery, null, 2)" /></pre>
       <strong>Latest content-policy refusal — {{ context.required_model_facts.latestContentPolicyRefusal ? 'present' : 'absent' }}</strong>
-      <pre v-if="context.required_model_facts.latestContentPolicyRefusal">{{ JSON.stringify(context.required_model_facts.latestContentPolicyRefusal, null, 2) }}</pre>
+      <pre v-if="context.required_model_facts.latestContentPolicyRefusal"><JsonText :text="JSON.stringify(context.required_model_facts.latestContentPolicyRefusal, null, 2)" /></pre>
     </details>
     <details data-testid="compacted-source"><summary>Source and continuation</summary>
       <p>Source segment {{ context.source_version }} · covered through {{ context.covered_through_message_id }}</p>
       <p>Continuation context, not another activation entry.</p>
-      <pre>{{ JSON.stringify(context.continuation, null, 2) }}</pre>
+      <pre><JsonText :text="JSON.stringify(context.continuation, null, 2)" /></pre>
     </details>
   </section>
 </template>
 <script setup lang="ts">
 import type { AgentConversationResponse } from '../../api/types';
 import RetainedInstructionContext from './RetainedInstructionContext.vue';
+import JsonText from '../content/JsonText.vue';
 defineProps<{ context: NonNullable<AgentConversationResponse['segment_context']>; version: number | null }>();
 </script>
 <style scoped>

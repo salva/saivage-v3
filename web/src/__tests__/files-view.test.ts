@@ -105,6 +105,7 @@ describe('FilesView', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders the strict Files v4 card document as ordinary JSON without a special policy surface', async () => {
@@ -122,7 +123,7 @@ describe('FilesView', () => {
           : { path: requested ?? '', files: [] };
       },
     });
-    expect(wrapper.text()).toContain('"format_version": 4');
+    expect(wrapper.text()).toContain('"format_version":4');
     expect(wrapper.text()).not.toMatch(/refusal badge|policy evidence|evidence browser/i);
     wrapper.unmount();
   });
@@ -210,6 +211,8 @@ describe('FilesView', () => {
     expect(getFileContent).toHaveBeenCalledWith(filePath, expect.any(AbortSignal));
     expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain('.saivage/work');
     expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain(filePath);
+    expect(wrapper.find('.json-text').exists()).toBe(false);
+    expect(wrapper.find('code').element.textContent).toBe('{"message":"ready"}\n');
     wrapper.unmount();
   });
 
@@ -488,6 +491,23 @@ describe('FilesView', () => {
     await flushPromises();
 
     expect(wrapper.find('.code-block').exists()).toBe(true);
+  });
+
+  it('displays and copies exact received JSON without reserializing or interpreting markup', async () => {
+    const content = ' \r\n{\t"dup":1,"dup":900719925474099312345, "markup":"</code><img src=x onerror=alert(1)>&", "escaped":"\\u0041", "n":-0.00e+2}\n\t';
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    vi.mocked(getFileContent).mockResolvedValue({ ...jsonContent, content, redacted: true });
+    const { wrapper } = await mountFilesView();
+    await wrapper.findAll('.file-list')[0].findAll('.file-entry')[1].trigger('click');
+    await flushPromises();
+    expect(wrapper.find('code').element.textContent).toBe(content);
+    expect(wrapper.find('.json-token-key').exists()).toBe(true);
+    expect(wrapper.find('img').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Sensitive values were redacted by the server.');
+    await wrapper.find('.code-block__copy').trigger('click');
+    expect(writeText).toHaveBeenCalledWith(content);
+    wrapper.unmount();
   });
 
   it('shows redaction notice for successful redacted preview', async () => {

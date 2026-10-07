@@ -36,7 +36,7 @@
         </div>
         <details class="global-agents-raw">
           <summary>Raw global agent data (JSON)</summary>
-          <pre v-for="agent in globalAgents" :key="agent.agent_name">{{ JSON.stringify(agent, null, 2) }}</pre>
+          <pre v-for="agent in globalAgents" :key="agent.agent_name"><JsonText :text="JSON.stringify(agent, null, 2)" /></pre>
         </details>
         </section>
         <label class="graph-selector-label" for="debug-graph-card-type">Card type</label>
@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
 import type { DeepReadonly } from 'vue';
+import JsonText from '../content/JsonText.vue';
 import type { DebugGlobalAgent, DebugGraph } from '../../api/types';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
@@ -103,7 +104,7 @@ function selectGraph(event: Event): void {
 }
 .global-agents { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); }
 .global-agents h5 { margin: 0 0 8px; color: var(--text-muted); text-transform: uppercase; font-size: 11px; }
-.global-agents pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.global-agents pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .global-agent-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .global-agent-name { font-weight: 600; }
 .global-agent-session { font-size: 10px; color: var(--text-muted); }

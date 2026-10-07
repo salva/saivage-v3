@@ -5,6 +5,11 @@ import { ConversationSessionIdSchema } from '@saivage/schemas/conversation-sessi
 type Facts = Record<string, unknown>;
 type Field = string | readonly [string, string];
 const valueText = (value: unknown): string => typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+const valueLanguage = (value: unknown): 'text' | 'json' => typeof value === 'string' ? 'text' : 'json';
+export function valueParts(value: unknown, pretty = true): InlinePart[] {
+  const text = pretty ? valueText(value) : typeof value === 'string' ? value : JSON.stringify(value);
+  return textPart(text).map((part) => ({ ...part, language: valueLanguage(value) }));
+}
 function fields(title: string, facts: Facts | null, keys: readonly Field[]): SemanticSection {
   return { title, fields: keys.flatMap((key) => {
     const [name, label] = typeof key === 'string' ? [key, key.replaceAll('_', ' ')] : key;
@@ -14,7 +19,7 @@ function fields(title: string, facts: Facts | null, keys: readonly Field[]): Sem
       ? [{ kind: 'session', id: value as string, label: value as string }]
       : ['card_id', 'parent_id', 'parent', 'id'].includes(name) && typeof value === 'string' && /^(project|card-[a-z]+(?:-[a-z]+){0,11})$/.test(value)
       ? cardPart(value, value) : ['path', 'target', 'current_url', 'accepted_version_url', 'version_url', 'record_url', 'saved_as'].includes(name) && typeof value === 'string'
-        ? pathParts(value) : textPart(valueText(value));
+        ? pathParts(value) : valueParts(value);
     return [{ label, parts }];
   }) };
 }
@@ -22,7 +27,7 @@ function content(title: string, value: unknown, disclosure = false): SemanticSec
   if (value === undefined) return [];
   const slice = asRecord(value);
   if (slice && typeof slice.content === 'string' && typeof slice.utf8_bytes === 'number' && typeof slice.offset_bytes === 'number' && typeof slice.next_offset_bytes === 'number') return [fields(`${title} — text slice coverage`, slice, ['utf8_bytes', 'offset_bytes', 'next_offset_bytes', 'total_bytes']), { title, content: slice.content, disclosure }];
-  return [{ title, content: valueText(value), disclosure }];
+  return [{ title, content: valueText(value), language: valueLanguage(value), disclosure }];
 }
 const cardFields = ['id', 'type', 'status', 'title', 'parent', 'depth', 'children_count', 'descendants', 'depth_omitted', 'head_id'] as const;
 const recordFields = ['name', 'format', 'state', ['revision', 'Mutable revision'], 'head_id', 'current_url', 'accepted_version_url'] as const;
@@ -39,7 +44,7 @@ function list(title: string, value: unknown, keys: readonly Field[] = []): Seman
   return [{ title, items: value.map((item, index) => {
     const row = asRecord(item);
     if (typeof row?.content_hex === 'string') return { ...fields(`Partial JSON item ${index + 1} (not a complete observation)`, row, ['utf8_bytes', 'offset_bytes', 'next_offset_bytes', 'total_bytes']), content: row.content_hex };
-    if (!row) return { title: `${title} ${index + 1}`, content: valueText(item) };
+    if (!row) return { title: `${title} ${index + 1}`, content: valueText(item), language: valueLanguage(item) };
     return fields(`${title} ${index + 1}`, row, keys);
   }) }];
 }
@@ -54,7 +59,7 @@ function observed(headline: string, sections: SemanticSection[], outcome = 'Obse
 function request(action: string, keys: readonly Field[], target: (a: Facts) => InlinePart[], blocks: readonly Field[] = []): ToolPresenter['call'] {
   return (a) => ({ headline: target(a), sections: [fields(`Requested ${action}`, a, keys), ...blocks.flatMap((key) => {
     const [name, label] = typeof key === 'string' ? [key, key.replaceAll('_', ' ')] : key;
-    return a[name] === undefined ? [] : [{ title: label, content: valueText(a[name]) }];
+    return a[name] === undefined ? [] : [{ title: label, content: valueText(a[name]), language: valueLanguage(a[name]) }];
   })] });
 }
 function propagation(r: Facts | null): SemanticSection[] {
@@ -202,7 +207,7 @@ export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
   skill: { action: 'Load / list skills', call: request('skill', ['name'], (a) => textPart(a.name ?? 'Available skills')), result: (ctx) => observed(str(ctx.dataRecord?.skill_name) || count(ctx.dataRecord?.skills, 'skills'), [...list('Available skills', ctx.dataRecord?.skills, ['name', 'description']), ...content('Skill name', ctx.dataRecord?.skill_name), ...content('Skill instructions', ctx.dataRecord?.skill_content)]) },
   show_config: { action: 'Inspect projected config', call: request('config inspection', [], () => textPart('Safe configuration')), result: (ctx) => { const config = asRecord(ctx.dataRecord?.config); return observed('Projected configuration', [fields('Server settings', asRecord(config?.server), ['host', 'port']), fields('Agent / workflow configuration', config, ['agents', 'analyst_agent', 'oversight', 'card_types']), fields('Model routing', asRecord(config?.models), ['routes', 'profiles', 'equivalents', 'failover']), fields('Projected providers / MCP', config, ['providers', 'mcpServers']), fields('Compaction settings', asRecord(config?.compaction), ['enabled', 'context_utilization_fraction', 'trigger_fraction', 'tail_fraction', 'snap', 'summarizer_candidate'])]); } },
   reconfigure: { action: 'Request config change', call: request('config action', ['action', 'agent', 'model_route', 'for_model', 'ordered_failover_models', 'key', 'value'], (a) => textPart(a.action)), result: (ctx) => observed(str(ctx.dataRecord?.action), [fields('Recorded configuration action', ctx.dataRecord, ['applied', 'requires_restart', 'action', 'agent', 'model_route', 'for_model', 'ordered_failover_models', 'key', 'value'])], ctx.dataRecord?.applied === true ? 'Action applied' : 'Action outcome not reported') },
-  mcp_tool_call: { action: 'Invoke MCP tool', call: request('MCP invocation', ['serverName', 'toolName'], (a) => textPart(`${str(a.serverName)}/${str(a.toolName)}`), [['args', 'Safe MCP arguments']]), result: (ctx) => observed(ctx.dataRecord?.result_complete === false ? 'Returned body truncated' : 'Opaque MCP response', [fields('MCP returned coverage', ctx.dataRecord, ['result_complete', ['result_utf8_bytes', 'Total JSON source bytes']]), ...(ctx.dataRecord?.result !== undefined ? [{ title: 'MCP result (effects opaque)', content: valueText(ctx.dataRecord.result) }] : [])]) },
+  mcp_tool_call: { action: 'Invoke MCP tool', call: request('MCP invocation', ['serverName', 'toolName'], (a) => textPart(`${str(a.serverName)}/${str(a.toolName)}`), [['args', 'Safe MCP arguments']]), result: (ctx) => observed(ctx.dataRecord?.result_complete === false ? 'Returned body truncated' : 'Opaque MCP response', [fields('MCP returned coverage', ctx.dataRecord, ['result_complete', ['result_utf8_bytes', 'Total JSON source bytes']]), ...(ctx.dataRecord?.result !== undefined ? [{ title: 'MCP result (effects opaque)', content: valueText(ctx.dataRecord.result), language: valueLanguage(ctx.dataRecord.result) }] : [])]) },
 };
 export function getToolPresenter(name: string): ToolPresenter | undefined {
   return Object.hasOwn(TOOL_PRESENTERS, name) ? TOOL_PRESENTERS[name] : undefined;

@@ -1644,6 +1644,11 @@ This publication projection does not mutate in-process attempts or effects, and 
 
 ## 11. API And Operator Projection
 
+Dedicated operator JSON data presentation follows the
+[shared JSON data-display contract](operator-ui-contracts.md#shared-json-data-display).
+Lossless lexical decoration and exact received Files text affect presentation only,
+not data validity, API, outbound projection/redaction or persistence semantics.
+
 REST remains authoritative.
 Application bootstrap owns only the initial runtime/project read and the sole ordinary root card-hierarchy request; it performs no Agent, event, error, process, graph, doctor, or MCP read.
 The persistent Analyst panel owns its exact mounted chat resources independently.

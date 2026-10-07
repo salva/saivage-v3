@@ -1,5 +1,35 @@
 # Operator UI: Exact Contracts Register
 
+## Shared JSON data display
+
+Dedicated JSON data displays share lossless lexical decoration: keys, strings,
+numbers, booleans and null are visually distinguishable, while punctuation and
+plain text retain the normal foreground. The renderer consumes an already safe
+public string, never parses, validates, reformats, decodes embedded JSON strings,
+or redacts it. Incomplete or malformed display text remains fully visible.
+Escaped text nodes, not content-derived HTML, classes, links or event handlers,
+carry the exact supplied text. Selection across token spans is continuous; existing
+copy controls copy that same string, including whitespace and numeric spelling.
+
+JSON data uses monospace 14–16px type (14px baseline, 1.5 line height) and token
+contrast of at least 4.5:1 against the actual background, including inline
+structured fields. Decoration is not the sole carrier of value, type or status.
+Above 1,000,000 UTF-16 code units, rendering is exact plain text without tokens;
+this is a highlighting cost bound, not a transport limit or copy truncation.
+Native disclosures, initial open/closed state, focus, labels, owner scrolling,
+redaction and existing copy availability remain unchanged. Noncopyable inspectors
+do not gain copy controls.
+
+This contract covers conversation safe-original request/result envelopes and
+explicitly structured semantic fields/content, compacted facts/continuation and
+retained instruction metadata, provider exchange metadata, System configuration,
+graph/error details, card history/snapshots and lifecycle results, and Files JSON.
+Formatting and JSON classification remain producer-owned. Ordinary prose, logs,
+stdout/stderr, commands, patches/diffs, text slices/partial hex, instruction and
+summary bodies, Markdown/YAML and authored Markdown code examples are excluded;
+JSON-looking text and JSONL/NDJSON icons do not opt a surface into JSON rendering.
+This is neither an editor nor a model-wire inspector.
+
 ## Image result presentation
 
 Successful `view_image` rows label **Image snapshot recorded** with sent dimensions
@@ -265,6 +295,10 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ## 6. Conversation readers
 
+Explicit JSON tool data and context/technical JSON use the
+[shared JSON data-display contract](#shared-json-data-display); string-valued
+prose and output heads remain text. Safe-original strings are not reconstructed.
+
 - Orientation reads **Conversation — current segment N** or **Conversation — exact
   segment N**. Retained conversation and compacted context are used in request
   assembly, not an exact model request: static/prepared additions, tool definitions,
@@ -436,6 +470,13 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
 
 ## 8. Files, processes, and evidence
 
+- Files JSON display and copy use the exact received safe `content` string under
+  the [shared JSON data-display contract](#shared-json-data-display), not a parsed
+  and pretty-printed reconstruction. Whitespace, duplicate keys, escapes and number
+  spelling/precision are preserved. This is projected/redacted received text, not
+  a claim to expose private original file bytes. Existing JSON content type,
+  `+json` or `.json` path classification is unchanged; text logs remain text.
+
 - Files is the canonical virtual-file read-only browser (metadata/output
   roots, breadcrumbs, `card.json[?v=N]` format reads, typed failures, safe
   redaction notice). Physical persistence paths are never disclosed. Files
@@ -471,6 +512,11 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   cross-session order.
 
 ## 9. System surface
+
+- Configuration, provider exchange metadata and technical graph/error JSON use
+  the [shared JSON data-display contract](#shared-json-data-display), after their
+  existing safe projection and formatting. Instruction bodies remain prose;
+  installed bindings remain distinct from saved configuration.
 
 - Events presents informational `operator_runtime_control` rows with their bounded
   `result`: **Pause/Resume returned runtime status: …**, **Stop returned stopped;

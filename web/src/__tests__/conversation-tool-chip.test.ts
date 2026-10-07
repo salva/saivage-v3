@@ -47,6 +47,8 @@ describe('semantic ToolChip', () => {
     const wrapper = await mounted(row);
     expect(wrapper.findAll('.tool-chip-raw')).toHaveLength(0);
     await wrapper.find('button.raw-toggle').trigger('click');
+    expect(wrapper.find('.tool-chip-raw .json-token-key').exists()).toBe(true);
+    expect(wrapper.find('.tool-chip-raw code').element.textContent).toBe(row.entry.content);
     await wrapper.find('.tool-chip-raw button.code-block__copy').trigger('click');
     expect(writeText).toHaveBeenLastCalledWith(row.entry.content);
     expect(wrapper.find('.tool-chip-raw').classes()).toContain('code-block--wrap');

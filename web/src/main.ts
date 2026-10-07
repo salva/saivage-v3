@@ -1,6 +1,4 @@
 import './styles/index.css';
-import 'highlight.js/styles/github.css';
-import './styles/highlight-overrides.css';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import type { Router } from 'vue-router';

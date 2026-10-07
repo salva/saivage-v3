@@ -1,5 +1,18 @@
 # System Architecture
 
+## Browser JSON data presentation
+
+`web/src/utils/json-tokens.ts` and `components/content/JsonText.vue` provide one
+browser-only, lossless lexical text-token path for block and inline JSON data.
+Vue text nodes render exact string slices; no HTML injection or parsing/value
+round trip occurs. `CodeBlock` retains copy and layout ownership. Presentation
+producers explicitly mark structured JSON and retain their existing safe formatting;
+Files instead passes the exact received content string without reserialization.
+The outbound projection/redaction boundary remains server-owned and unchanged.
+The renderer adds no API or durable state and falls back to exact plain rendering
+above its highlighting cost bound. See the
+[shared JSON display contract](../spec/operator-ui-contracts.md#shared-json-data-display).
+
 ## Conversation-owned image pipeline
 
 `contracts/image.ts` owns browser-safe strict descriptors and pure descriptor-based

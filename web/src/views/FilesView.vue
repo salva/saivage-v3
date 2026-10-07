@@ -57,7 +57,7 @@
       <ViewState v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass" :state="viewerStateTone === 'danger' ? 'error' : 'stale'" :tone="viewerStateTone" :title="viewerStateTitle" :message="viewerStateMessage" />
       <div v-else-if="viewedFile" class="viewer-content">
         <StatusBanner v-if="viewedFile.redacted" class="viewer-redaction-notice" tone="neutral" message="Sensitive values were redacted by the server." />
-        <CodeBlock v-if="isJsonContent" :code="prettyJsonContent" language="json" copyable />
+        <CodeBlock v-if="isJsonContent" :code="viewedFile.content" language="json" copyable />
         <DocumentFrame v-else-if="isMarkdownContent" :title="viewedFilePath" :name="viewedFilePath">
           <MarkdownText :source="viewedFile.content" />
         </DocumentFrame>
@@ -74,7 +74,6 @@ import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useSyncStore } from '../stores/sync';
 import { formatRecentTimestamp, timestampTitle } from '../utils/timestamp';
-import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import DocumentFrame from '../components/content/DocumentFrame.vue';
 import MarkdownText from '../components/content/MarkdownText.vue';
@@ -145,11 +144,6 @@ const viewerStateTone = computed<Tone>(() => {
   return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing' || viewerState.value === 'card-missing'
     ? 'danger'
     : 'warning';
-});
-
-const prettyJsonContent = computed(() => {
-  const raw = viewedFile.value?.content ?? '';
-  try { return formatJson(JSON.parse(raw)); } catch { return raw; }
 });
 
 function fileIcon(name: string): string {

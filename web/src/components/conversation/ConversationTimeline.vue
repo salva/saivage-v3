@@ -16,7 +16,7 @@
           <ContextBlock v-if="row.entry.kind === 'text' || row.entry.kind === 'content_policy_refusal'" :entry="row.entry" />
           <div v-else-if="activationEntry(row.entry)" :data-entry-id="row.entry.id" tabindex="-1" class="activation-marker">
             <strong>Activation entry recorded</strong>
-            <pre>{{ row.entry.content }}</pre>
+            <pre><JsonText :text="row.entry.content" /></pre>
           </div>
           <DiagnosticRow v-else-if="['model_issue', 'model_repair', 'model_recovered'].includes(row.entry.kind)" :entry="row.entry" />
           <ToolChip
@@ -44,6 +44,7 @@ import CompactedCluster from './CompactedCluster.vue';
 import ContextBlock from './ContextBlock.vue';
 import DiagnosticRow from './DiagnosticRow.vue';
 import ToolChip from './ToolChip.vue';
+import JsonText from '../content/JsonText.vue';
 
 const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string> }>();
 const emit = defineEmits<{ toggle: [id: string] }>();
@@ -61,7 +62,7 @@ function isAuthorBoundary(index: number): boolean {
   gap: 12px;
 }
 .activation-marker { padding: 8px; border: 1px solid var(--border); font-size: 12px; color: var(--text); }
-.activation-marker pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.activation-marker pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .round-card {
   display: flex;
   flex-direction: column;
