@@ -129,7 +129,7 @@ export function foldHistoricalConversationRows(
     .map((row) => {
       const clean = { ...row };
       delete clean.provider_projection;
-      return clean;
+      return projectCanonicalConversationRow(clean, projectToolInvocation);
     });
 }
 

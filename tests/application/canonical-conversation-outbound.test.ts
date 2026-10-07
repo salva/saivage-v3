@@ -9,6 +9,9 @@ import type { AgentMessage, ConversationSessionId } from '../../src/schemas/inde
 import { TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
+import { foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
+import { responsesBundle, RESPONSES_A } from '../helpers/responses-producer-fixture.js';
+import { sha256Hex } from '../../src/schemas/index.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
@@ -34,6 +37,30 @@ const classifiedProjector: ToolInvocationProjector = (input) => {
 };
 
 describe('canonical conversation outbound row projection', () => {
+  it('folds historical rows through tool-specific projection without private rows, reordering, or source mutation', () => {
+    const privateBundle = responsesBundle(sessionId, source, RESPONSES_A, '{"success":true,"data":null}');
+    const rows = [privateBundle[0]!, call(), ordinary(), result()];
+    rows[1] = { ...rows[1]!, provider_projection: privateBundle[1]!.provider_projection };
+    const stored = structuredClone(rows);
+    const projected = foldHistoricalConversationRows(rows);
+    expect(projected.map(({ id, timestamp, round_id, message_index, block_index }) => ({ id, timestamp, round_id, message_index, block_index })))
+      .toEqual(rows.slice(1).map(({ id, timestamp, round_id, message_index, block_index }) => ({ id, timestamp, round_id, message_index, block_index })));
+    const serialized = JSON.stringify(projected);
+    for (const excluded of ['tok_secret', 'private-model', 'private-requested-model', 'producer_account_id', 'ciphertext-', 'provider_projection']) {
+      expect(serialized).not.toContain(excluded);
+    }
+    const argumentsJson = JSON.parse(projected[0]!.content).tool_calls[0].function.arguments;
+    expect(JSON.parse(argumentsJson).url).toBe('https://example.test/?[REDACTED]');
+    expect(JSON.parse(projected[2]!.content)).toMatchObject({ success: false, error: 'failed tok-[REDACTED]' });
+    expect(projected[2]!.context_policy).toMatchObject({ result_content_sha256: sha256Hex(projected[2]!.content) });
+    expect(rows).toEqual(stored);
+  });
+
+  it('rejects malformed historical embedded tool content rather than returning it unprojected', () => {
+    expect(() => foldHistoricalConversationRows([{ ...call(), content: '{' }])).toThrow('malformed embedded content');
+    expect(() => foldHistoricalConversationRows([{ ...result(), content: '{' }])).toThrow(/tool_result/);
+  });
+
   it('redacts ordinary prose and removes provider/model decoration', () => {
     const projected = projectCanonicalConversationRow(ordinary(), identityProjector);
     expect(projected).toMatchObject({

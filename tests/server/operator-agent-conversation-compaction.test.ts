@@ -21,8 +21,11 @@ import { cardConversationVersionIndexFile, conversationPreviousIndexFile } from 
 import { publishHeadFile } from '../../src/persistence/publish-head.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
-import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
+import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixture.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
+import { appendConversationBatch, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
+import { TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
+import { sha256Hex } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 
@@ -31,6 +34,73 @@ afterEach(() => {
 });
 
 describe('mounted operator compacted Agent conversations', () => {
+  it('projects real current and exact-history tool rows safely while preserving selected source identity and order', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mounted-tool-egress-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot, 'fixture summary', {
+      first: { content: 'token=old-segment-canary', key: 'old-key' },
+      replacement: { content: 'safe replacement', key: 'new-key' },
+    });
+    const source = '11111111-1111-4111-8111-111111111111';
+    const argumentsJson = JSON.stringify({ url: 'https://example.test/path?token=request-canary' });
+    const content = JSON.stringify({ success: false, error: 'token=result-canary', data: { partial_effect: 'retained', token: 'structured-canary' } });
+    const [privateRow, call, result] = responsesBundle(sessionId, source, RESPONSES_A, content);
+    const privateBody = JSON.parse(privateRow!.content);
+    privateBody.output.at(-1).name = 'webfetch';
+    privateBody.output.at(-1).arguments = argumentsJson;
+    const callBody = JSON.parse(call!.content);
+    callBody.tool_calls[0].function = { name: 'webfetch', arguments: argumentsJson };
+    appendConversationBatch({ projectRoot }, [
+      { ...privateRow!, content: JSON.stringify(privateBody) },
+      { ...call!, tool: 'webfetch', content: JSON.stringify(callBody), model_spec: 'private-model-canary' },
+      { ...call!, id: 'interleaved-correction', kind: 'text', tool: undefined, tool_call_id: undefined, provider_projection: undefined, context_policy: TEXT_ROW_POLICY, content: 'Correction token=prose-canary' },
+      { ...result!, tool: 'webfetch' },
+    ]);
+    const stored = [1, 3].map(version => readHistoricalConversationSegment(projectRoot, sessionId, version));
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({
+      authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort,
+    }).mount(fastify, agentOperatorApiContracts, buildAgentOperatorContractHandlers({
+      projectRoot, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => executingLlmSnapshots([]),
+    }));
+    try {
+      const base = `/api/agents/${encodeURIComponent(sessionId)}/conversation`;
+      const currentResponse = await fastify.inject({ method: 'GET', url: base });
+      expect(currentResponse.statusCode).toBe(200);
+      const current = AgentConversationResponseSchema.parse(currentResponse.json());
+      const history = [];
+      for (const segment of stored) {
+        const response = await fastify.inject({ method: 'GET', url: `${base}/versions/${segment.entry.version}` });
+        expect(response.statusCode).toBe(200);
+        const projected = ConversationVersionContentResponseSchema.parse(response.json());
+        expect(projected.entry_id).toBe(segment.entry.entry_id);
+        expect(projected.entries.map(row => [row.id, row.timestamp, row.round_id, row.message_index, row.block_index]))
+          .toEqual(segment.rows.filter(row => row.kind !== 'provider_private').map(row => [row.id, row.timestamp, row.round_id, row.message_index, row.block_index]));
+        history.push(projected);
+      }
+      // Current additionally prepends covered required facts; history keeps exact physical rows.
+      // Compare only selected source rows, without changing either consumption contract.
+      const selectedIds = new Set(stored[1]!.rows.map(row => row.id));
+      expect(current.entries.filter(row => selectedIds.has(row.id))).toEqual(history[1]!.entries);
+      for (const projected of [current, ...history]) {
+        const serialized = JSON.stringify(projected);
+        for (const canary of ['old-segment-canary', 'request-canary', 'result-canary', 'structured-canary', 'prose-canary', 'private-model-canary', 'producer_account_id', 'provider_projection', 'ciphertext-']) {
+          expect(serialized).not.toContain(canary);
+        }
+      }
+      const tail = current.entries.slice(-3);
+      expect(tail.map(row => row.id)).toEqual([call!.id, 'interleaved-correction', result!.id]);
+      expect(JSON.parse(JSON.parse(tail[0]!.content).tool_calls[0].function.arguments)).toEqual({ url: 'https://example.test/path?[REDACTED]' });
+      expect(JSON.parse(tail[2]!.content)).toEqual({ success: false, error: 'token=[REDACTED]', data: { partial_effect: 'retained', token: '[REDACTED]' } });
+      expect(tail[2]!.context_policy).toMatchObject({ result_content_sha256: sha256Hex(tail[2]!.content) });
+      expect(stored.map(segment => readHistoricalConversationSegment(projectRoot, sessionId, segment.entry.version).rows))
+        .toEqual(stored.map(segment => segment.rows));
+    } finally {
+      await fastify.close();
+    }
+  });
+
   it('returns strict current and selected ordinary/compacted v1/v2/v3 wire projections', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mounted-compacted-conversation-'));
     roots.push(projectRoot);
