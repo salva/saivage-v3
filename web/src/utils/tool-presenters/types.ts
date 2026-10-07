@@ -1,58 +1,49 @@
 export type InlinePart =
   | { kind: 'text'; text: string }
   | { kind: 'file'; root: 'meta' | 'output'; path: string; label?: string }
-  | { kind: 'card'; id: string; fallbackLabel?: string };
+  | { kind: 'card'; id: string; fallbackLabel?: string }
+  | { kind: 'session'; id: string; label: string }
+  | { kind: 'entry'; id: string; label: string };
 
-type ToolStatus = 'ok' | 'error';
-
+export type ToolTone = 'neutral' | 'ok' | 'error';
+interface SemanticField { label: string; parts: InlinePart[] }
+export interface SemanticSection {
+  title: string;
+  fields?: SemanticField[];
+  content?: string;
+  items?: SemanticSection[];
+  disclosure?: boolean;
+}
 export interface ToolCallPresentation {
-  icon: string;
   name: string;
   headline: InlinePart[];
-  detail?: InlinePart[];
-  body: unknown;
-  bodyKind: 'json' | 'markdown' | 'text';
+  sections: SemanticSection[];
 }
-
-export interface ToolResultPresentation {
-  icon: string;
-  status: ToolStatus;
-  name: string;
-  headline: InlinePart[];
-  detail?: InlinePart[];
-  body: unknown;
-  bodyKind: 'json' | 'markdown' | 'text';
+export interface ToolResultPresentation extends ToolCallPresentation {
+  status: ToolTone;
+  outcome: string;
+  target?: InlinePart[];
 }
-
-export interface ToolCallMessage {
-  name: string;
-  args: Record<string, unknown>;
-}
-
-interface CallPresenterResult {
-  icon: string;
-  headline: InlinePart[];
-  detail?: InlinePart[];
-}
-
+export interface ToolCallMessage { name: string; args: Record<string, unknown> }
 export interface ResultPresenterContext {
   name: string;
-  envelope: { success: true; data?: unknown };
+  envelope: Record<string, unknown>;
   data: unknown;
   dataRecord: Record<string, unknown> | null;
 }
-
-interface ResultPresenterResult {
+interface CallPresenterResult {
   headline: InlinePart[];
-  detail?: InlinePart[];
+  sections: SemanticSection[];
 }
-
-type CallPresenter = (args: Record<string, unknown>) => CallPresenterResult;
-type ResultPresenter = (ctx: ResultPresenterContext) => ResultPresenterResult;
-
+export interface ResultPresenterResult {
+  headline: InlinePart[];
+  sections: SemanticSection[];
+  outcome?: string;
+  status?: ToolTone;
+  target?: InlinePart[];
+}
 export interface ToolPresenter {
   readonly action: string;
-  readonly group?: 'context' | 'web';
-  readonly call: CallPresenter;
-  readonly result?: ResultPresenter;
+  readonly call: (args: Record<string, unknown>) => CallPresenterResult;
+  readonly result: (ctx: ResultPresenterContext) => ResultPresenterResult;
 }

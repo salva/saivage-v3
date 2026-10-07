@@ -206,16 +206,30 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
-  it('renders durable messages and tool chips with explicit expansion', async () => {
+  it('renders ordered separate Analyst call/result anchors and semantic content with no expansion fetch', async () => {
+    api.getAgentConversation.mockResolvedValue({
+      session_id: analystSessionId,
+      segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null,
+      entries: [entries[0], entries[1], { ...entries[0], id: 'correction', content: 'Inspect only this document', message_index: 2 }, { ...entries[2], round_id: 'r-user-00000000000000000000000000000002' }],
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' },
+    });
     const wrapper = mountPanel();
     await flushPromises();
     expect(wrapper.text()).toContain('hello');
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['1', '2', 'correction', '3']);
+    expect(wrapper.findAll('.tool-chip')).toHaveLength(2);
     const chip = wrapper.find('.tool-chip');
     expect(chip.text()).toContain('Read');
     expect(chip.text()).toContain('README.md');
     await chip.find('button.tool-chip-toggle').trigger('click');
     expect(chip.find('button.tool-chip-toggle').attributes('aria-expanded')).toBe('true');
     expect(wrapper.find('.tool-chip-body').exists()).toBe(true);
+    const recorded = wrapper.findAll('.tool-chip')[1];
+    await recorded.find('button.tool-chip-toggle').trigger('click');
+    expect(recorded.text()).toContain('Recorded content');
+    expect(recorded.text()).toContain('docs');
+    expect(api.getAgentConversation).toHaveBeenCalledTimes(1);
+    expect(recorded.find('.tool-chip-raw').exists()).toBe(false);
     wrapper.unmount();
   });
 

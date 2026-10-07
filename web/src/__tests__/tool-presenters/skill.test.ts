@@ -1,45 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { presentToolResult } from '../../utils/tool-presenters';
-import { inlineText } from './_helpers';
-
-function present(envelope: unknown) {
-  return presentToolResult(JSON.stringify(envelope), { tool: 'skill' });
-}
-
-describe('skill result presenter', () => {
-  it.each([
-    [[], '0 skills'],
-    [[{ name: 'one' }], '1 skill'],
-    [[{ name: 'one' }, { name: 'two' }], '2 skills'],
-  ])('counts complete list envelopes', (skills, headline) => {
-    const view = present({ success: true, data: { skills } });
-
-    expect(view).toMatchObject({ name: 'skill', status: 'ok' });
-    expect(inlineText(view.headline)).toBe(headline);
+describe('skill evidence', () => {
+  it('exposes recorded skill instructions before safe original inspection', () => {
+    const view = presentToolResult('{"success":true,"data":{"skill_name":"review","skill_content":"Exact instructions\\nlast"}}', { tool: 'skill' });
+    expect(view.sections.find((s) => s.title === 'Skill instructions')?.content).toBe('Exact instructions\nlast');
   });
-
-  it('recognizes a complete named-load envelope', () => {
-    const view = present({ success: true, data: { skill_name: 'one', skill_content: 'exact text' } });
-
-    expect(view).toMatchObject({ name: 'skill', status: 'ok' });
-    expect(inlineText(view.headline)).toBe('skill loaded');
-  });
-
-  it('uses a semantic success fallback for an unexpected projection', () => {
-    const view = present({ success: true, data: { unexpected: true } });
-
-    expect(view).toMatchObject({ name: 'skill', status: 'ok' });
-    expect(inlineText(view.headline)).toBe('skills loaded');
-  });
-
-  it('keeps failed envelopes on the generic error path', () => {
-    const view = present({ success: false, error: 'unavailable' });
-
-    expect(view).toMatchObject({
-      icon: '⚠',
-      name: 'skill',
-      status: 'error',
-      headline: [{ kind: 'text', text: 'unavailable' }],
-    });
+  it('exposes names and descriptions in a recorded catalog', () => {
+    const view = presentToolResult('{"success":true,"data":{"skills":[{"name":"review","description":"How to review"}]}}', { tool: 'skill' });
+    expect(JSON.stringify(view.sections)).toContain('How to review');
   });
 });

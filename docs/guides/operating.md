@@ -81,9 +81,18 @@ usable space. The workspace has four facets:
   four tabs, card header, and rail stay in view. Direct links to an admitted
   card session open that same contextual cockpit.
 
-  ![Conversations facet with the project Planner selected, showing a real synthetic tool transcript beside the card tree and participant rail.](/screenshots/cockpit-conversations.png)
+  Read each requested action and separately recorded result in source order. Expand
+  a tool row for its semantic sections: for example, a successful process observation
+  may still report exit 1, while a record draft can retain an older accepted version.
+  Stdout/stderr heads open independently; **Safe original request/result** provide
+  complete received public values and copy, not private wire data. Coverage, partial
+  propagation, uncertainty and restart confirmation are not completion promises.
+  Details do not fetch missing content. See the
+  [conversation contracts](../spec/operator-ui-contracts.md#6-conversation-readers).
 
-  *Conversations — the Planner's settled session records a status write, child activation and review handoff; idle means the session is not currently executing.*
+  ![Conversations facet with a synthetic Executor selected: separate requested actions, intervening correction and recorded process results beside the card tree and shared Analyst transcript.](/screenshots/cockpit-conversations.png)
+
+  *Conversations — synthetic recorded evidence, not executed commands: a running observation and a separate failed process exit retain their source positions. Session liveness is independent of these historical results.*
 - **Records & History** — every declared record in declaration order plus
   card versions, snapshots, and diffs.
 

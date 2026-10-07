@@ -1,245 +1,164 @@
 import { describe, expect, it } from 'vitest';
 import { presentToolCall, presentToolResult } from '../utils/tool-presenters';
 import { TOOL_PRESENTERS } from '../utils/tool-presenters/presenters';
-import { buildToolDisplay, isKnownTool } from '../utils/tool-friendly';
-import type { ToolPair } from '../utils/agent-timeline';
-import { callEnvelope, inlineText } from './tool-presenters/_helpers';
+import { callEnvelope } from './tool-presenters/_helpers';
+import { collection, slice } from './tool-presenters/fixtures';
 
-// Oracle derived from provider-owned runtime tool specifications, autonomous
-// emit_result composition, and the canonical generated Agent-tools table.
-const CURRENT_TOOL_CALL_FIXTURES = {
-  activate_card: { card_id: 'card-a' }, apply_patch: { patch: '*** Begin Patch' },
-  cancel_card: { card_id: 'card-a', reason: 'done' },
-  create_card: { type: 'code', title: 'Build', brief: 'Do it' },
-  delete_card: { ids: ['card-a'] }, diff_card_versions: { card_id: 'card-a', from_version: 1, to_version: 2 },
-  edit: { path: 'a.ts', old_string: 'a', new_string: 'b' }, edit_card: { card_id: 'card-a', title: 'New' },
-  emit_result: { outcome: 'done', summary: 'complete' }, get_card: { id: 'card-a', section: 'summary' },
-  get_card_version: { card_id: 'card-a', version: 2, section: 'summary' }, get_status: {}, get_tree: { rootId: 'card-a', depth: 2 },
-  glob: { directory: '.', pattern: '**/*.ts' }, grep: { pattern: 'needle', path: 'src' }, kill_process: { process_id: 'proc-a' },
-  list_agent_sessions: {}, list_card_versions: { card_id: 'card-a' }, list_cards: { status: ['backlog'], type: 'code', parent: 'project' },
-  list_processes_tool: { status: 'running', cardId: 'card-a' },
-  mcp_tool_call: { serverName: 'github', toolName: 'issues', args: { state: 'open' } }, navigate_back: {},
-  navigate_workspace: { target: { kind: 'card', id: 'card-a', refinement: 'history' } }, pause_runtime: {},
-  queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working', urgency: 'normal' }, read: { path: 'README.md' },
-  read_agent_session: { session_id: 'agent:executor:card-a', last_n: 5 }, read_control_actions: { limit: 10, since: '2026-07-21T00:00:00Z' },
-  read_record_version: { card_id: 'card-a', record_name: 'status.md', version: 3 },
-  read_runtime_errors: { limit: 10 }, read_runtime_events: { limit: 10, kind: 'card' }, reconfigure: { action: 'set_agent_model_route', agent: 'executor', model_route: 'executor' },
-  reorder_child: { orderedChildIds: ['card-a', 'card-b'] }, reopen_card: { cardId: 'card-a' }, restart_server: {}, resume_runtime: {},
-  run_command: { command: 'npm test', cwd: '.', wait: true }, show_config: {}, skill: { name: 'review' }, start_project: {}, stop_project: {},
-  wait_process: { process_id: 'proc-a', timeout_ms: 1000 }, webfetch: { url: 'https://example.com' }, websearch: { query: 'saivage' },
-  write: { path: 'a.ts', content: 'text' },
-} satisfies Record<keyof typeof TOOL_PRESENTERS, Record<string, unknown>>;
+const present = (tool: string, data: unknown, success = true) => presentToolResult(JSON.stringify(success ? { success, data } : { success, error: 'Recorded refusal', data }), { tool });
+const details = (view: ReturnType<typeof present>) => JSON.stringify(view.sections);
+const compact = { id: 'card-a', type: 'code', parent: 'project', status: 'stopped', title: 'Recorded title', depends_on: ['card-b'], priority: 0, urgency: 'normal' };
+const draft = { card_id: 'card-a', name: 'brief.md', state: 'open', surface: 'card_agent', revision: 7, head_id: '11111111-1111-4111-8111-111111111111', current_url: 'record:///brief.md?card=card-a', accepted_version_url: 'record:///brief.md?card=card-a&v=4', bytes: 10, written: true };
 
-const EXPECTED_NAMES = [
-  'activate_card', 'apply_patch', 'cancel_card', 'create_card', 'delete_card', 'diff_card_versions', 'edit', 'edit_card', 'emit_result',
-  'get_card', 'get_card_version', 'get_status', 'get_tree', 'glob', 'grep', 'kill_process', 'list_agent_sessions',
-  'list_card_versions', 'list_cards', 'list_processes_tool', 'mcp_tool_call', 'navigate_back', 'navigate_workspace',
-  'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_record_version', 'read_runtime_errors', 'read_runtime_events',
-  'reconfigure', 'reopen_card', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project',
-  'wait_process', 'webfetch', 'websearch', 'write',
-].sort();
-
-const PLANNER_COMPACT_CARD = {
-  id: 'card-p', type: 'code', parent: 'project', status: 'backlog', title: 'Planner',
-  depends_on: [], priority: 0, urgency: 'normal',
-};
-
-const ANALYST_CARD_VIEW = {
-  card: {
-    id: 'card-a', type: 'code', title: 'Analyst', child_membership: [], active_child_order: [], subtype: null, priority: 0, urgency: 'normal', created_by: 'analyst',
-    created_at: '2026-07-21T00:00:00.000Z', updated_at: '2026-07-21T00:00:00.000Z', version_seq: 1,
-    assigned_to: null, depends_on: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
-  },
-  logical_path: '1', status: 'backlog', parent: 'project',
-  operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false },
-};
-
-describe('static tool presenter authority', () => {
-  it('contains exactly the 45 current tools with owned action and call rendering', () => {
-    expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(EXPECTED_NAMES);
-    expect(EXPECTED_NAMES).toHaveLength(45);
-    for (const [name, descriptor] of Object.entries(TOOL_PRESENTERS)) {
-      expect(descriptor.action.length).toBeGreaterThan(0);
-      expect(Object.hasOwn(descriptor, 'call')).toBe(true);
-      expect(typeof descriptor.call).toBe('function');
-      const view = presentToolCall(callEnvelope(name, CURRENT_TOOL_CALL_FIXTURES[name as keyof typeof TOOL_PRESENTERS]));
-      expect(view.icon).not.toBe('🔧');
+describe('current family semantic authority', () => {
+  it('exposes current Analyst CardView lifecycle, operator errors and partial propagation without adding Planner facts', () => {
+    const analyst = present('reopen_card', {
+      card: { id: 'card-a', type: 'code', title: 'Recorded Analyst title', depends_on: ['card-b'], priority: 0, urgency: 'normal', version_seq: 7, lifecycle: { status: 'changed', result: null, error: 'Recorded card failure', completed_at: null } },
+      status: 'changed', parent: 'project', logical_path: '1',
+      operator_summary: { blocked: false, hasError: true, error: 'Recorded card failure', completedAt: null, stale: true },
+      propagation: { ok: false, partial: true, error: 'Known propagation failure' },
+    });
+    expect(analyst.outcome).toBe('changed');
+    expect(JSON.stringify(analyst.headline)).toContain('Recorded card failure');
+    expect(JSON.stringify(analyst.headline)).toContain('Known propagation failure');
+    const summary = analyst.sections.find((s) => s.title === 'Recorded Analyst operator summary')!;
+    expect(summary.fields?.map((f) => f.label)).toEqual(['blocked', 'hasError', 'error', 'completedAt', 'stale']);
+    expect(analyst.sections.find((s) => s.title === 'Recorded card lifecycle')?.fields?.map((f) => f.label)).toEqual(['status', 'result', 'error', 'completed at']);
+    const planner = present('create_card', { card: compact });
+    expect(planner.sections.find((s) => s.title === 'Recorded Analyst operator summary')?.fields).toEqual([]);
+    expect(details(planner)).not.toContain('version seq');
+    expect(details(planner)).not.toContain('hasError');
+  });
+  it('keeps structured refusal qualifiers visible and selected error context accessible for every family', () => {
+    const denied = present('create_card', { action: 'card.create', reason: 'wrong_state' }, false);
+    expect(JSON.stringify(denied.headline)).toContain('reason: wrong_state');
+    const context = denied.sections.find((s) => s.title === 'Recorded refusal / error context')!;
+    expect(context.fields?.map((f) => f.label)).toEqual(['reason', 'action']);
+    const missing = present('get_card_version', { code: 'card_version_not_found', card_id: 'card-a', version: 9 }, false);
+    expect(JSON.stringify(missing.headline)).toContain('code: card_version_not_found');
+    expect(details(missing)).toContain('card-a');
+    expect(missing.sections.find((s) => s.title === 'Recorded refusal / error context')?.fields?.map((f) => f.label)).toEqual(['code', 'card id', 'version']);
+    const unavailable = present('edit', { code: 'current_state_unavailable', resource: 'authored_record', owner_id: 'card-a:brief.md', operation: 'edit', restart_required: true }, false);
+    expect(details(unavailable)).toContain('card-a:brief.md');
+    expect(details(unavailable)).toContain('authored_record');
+  });
+  it('owns all 45 actual tools through one full-envelope presenter', () => {
+    const names = ['activate_card','apply_patch','cancel_card','create_card','delete_card','diff_card_versions','edit','edit_card','emit_result','get_card','get_card_version','get_status','get_tree','glob','grep','kill_process','list_agent_sessions','list_card_versions','list_cards','list_processes_tool','mcp_tool_call','navigate_back','navigate_workspace','pause_runtime','queue_notification','read','read_agent_session','read_control_actions','read_record_version','read_runtime_errors','read_runtime_events','reconfigure','reorder_child','reopen_card','restart_server','resume_runtime','run_command','show_config','skill','start_project','stop_project','wait_process','webfetch','websearch','write'];
+    expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(names.sort());
+    for (const tool of names) {
+      expect(TOOL_PRESENTERS[tool].result).toBeTypeOf('function');
+      expect(presentToolCall(callEnvelope(tool, {})).sections.length).toBeGreaterThan(0);
     }
   });
-
-  it('uses explicit current role variants and corrected fields', () => {
-    expect(inlineText(presentToolCall(callEnvelope('cancel_card', { cardId: 'card-analyst' })).headline)).toContain('card-analyst');
-    expect(inlineText(presentToolCall(callEnvelope('create_card', { type: 'code', parent: 'project', title: 'Analyst', brief: 'x' })).detail ?? [])).toContain('project');
-    expect(inlineText(presentToolCall(callEnvelope('reorder_child', { parentId: 'project', orderedChildIds: ['card-b', 'card-a'] })).detail ?? [])).toContain('project');
-    expect(inlineText(presentToolCall(callEnvelope('reopen_card', { cardId: 'card-a' })).headline)).toContain('card-a');
-    expect(inlineText(presentToolCall(callEnvelope('reopen_card', { card_id: 'card-planner' })).headline)).toContain('card-planner');
-    expect(inlineText(presentToolCall(callEnvelope('activate_card', { card_id: 'card-current' })).headline)).toContain('card-current');
-    expect(inlineText(presentToolCall(callEnvelope('edit_card', { card_id: 'card-current', title: 'x' })).headline)).toContain('card-current');
-    expect(inlineText(presentToolCall(callEnvelope('queue_notification', { card_id: 'card-a', kind: 'progress', body: 'Current body', urgency: 'urgent' })).detail ?? [])).toContain('Current body');
-    expect(inlineText(presentToolCall(callEnvelope('navigate_workspace', { target: { kind: 'card', id: 'card-a' } })).headline)).toBe('card · card-a');
-    expect(inlineText(presentToolCall(callEnvelope('mcp_tool_call', { serverName: 's', toolName: 't' })).headline)).toBe('s/t');
+  it('shows supplied edits and patches separately from measured effects', () => {
+    const request = presentToolCall(callEnvelope('edit', { path: 'src/main.ts', old_string: 'before\n', new_string: 'after\n', replace_all: true }));
+    expect(request.sections.map((s) => s.content).filter(Boolean)).toEqual(['before\n', 'after\n']);
+    expect(JSON.stringify(request.sections)).toContain('not a full before/after snapshot');
+    const edit = present('edit', { path: 'src/main.ts', replacements: 3, bytes: 50, edited: true });
+    expect(edit.outcome).toBe('Applied');
+    expect(details(edit)).toContain('replacements');
+    expect(edit.headline).toEqual([{ kind: 'text', text: '3 replacements' }]);
+    const patch = present('apply_patch', { changed_files: ['b.ts', 'a.ts'], applied: true });
+    expect(patch.sections.find((s) => s.items)?.items?.map((s) => s.content)).toEqual(['b.ts', 'a.ts']);
+    expect(details(present('write', { destination_kind: 'project_relative', target: 'out.txt', bytes: 5, written: true }))).toContain('out.txt');
   });
-
-  it('keeps absent names generic', () => {
-    for (const name of ['mcp_reconcile', 'move_card', 'get_card_output', 'add_note', 'list_notes', 'get_note', 'mark_note_handled']) {
-      expect(isKnownTool(name)).toBe(false);
-      expect(presentToolCall(callEnvelope(name, { id: 'old' })).icon).toBe('🔧');
+  it('distinguishes metadata, too-large content, text/path slices and partial collection items', () => {
+    expect(present('read', { path: slice('project:///large'), metadata_only: true, size: 99 }).outcome).toBe('Metadata only');
+    expect(details(present('read', { path: slice('project:///large'), metadata_only: true }))).toContain('Returned path slice');
+    expect(present('read', { path: 'large', content: null, too_large: true, message: 'Not read inline' }).outcome).toContain('too large');
+    expect(present('read', { path: 'notes', content: slice('exact\ntext', 4) }).sections.find((s) => s.title === 'Recorded content')?.content).toBe('exact\ntext');
+    const fragment = { content_hex: '7b22', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 100 };
+    const read = present('read', { entries: collection([fragment], 4) });
+    expect(details(read)).toContain('not a complete observation');
+    expect(read.sections.flatMap((s) => s.items ?? []).flatMap((s) => s.fields ?? []).flatMap((f) => f.parts).some((p) => p.kind === 'card')).toBe(false);
+    expect(details(present('glob', { matches: collection(['src/a.ts']) }))).toContain('src/a.ts');
+    expect(details(present('grep', { matches: collection([{ path: 'src/a.ts', line: 4, preview: 'needle' }]), content_truncated: true, max_line_chars: 2000 }))).toContain('needle');
+  });
+  it('uses compact Planner and nested Analyst facts without inventing revisions', () => {
+    const planner = present('create_card', { card: compact });
+    expect(details(planner)).toContain('Recorded title');
+    expect(details(planner)).not.toContain('revision');
+    expect(details(planner)).not.toContain('version seq');
+    const analyst = present('create_card', { card: { ...compact, lifecycle: { status: 'stopped' }, version_seq: 3 }, status: 'stopped', parent: 'project' });
+    expect(details(analyst)).toContain('version seq');
+    expect(analyst.outcome).toBe('stopped');
+    expect(present('reorder_child', { parent_id: 'project', changed: 0 }).outcome).toBe('Unchanged');
+    expect(present('activate_card', { card_id: 'card-a', outcome: 'blocked', summary: 'Dependency missing', result: null }).outcome).toBe('blocked');
+    const deleted = present('delete_card', { deleted: ['card-a-b', 'card-a'], top_level_deleted: ['card-a'] });
+    expect(deleted.sections.find((s) => s.items)?.items?.map((s) => s.content)).toEqual(['card-a-b', 'card-a']);
+  });
+  it('keeps draft mutable revision 7 distinct from retained accepted v4 and partial acceptance', () => {
+    const view = present('write', draft);
+    expect(view.outcome).toBe('Draft updated');
+    expect(details(view)).toContain('Retained accepted version');
+    expect(details(view)).toContain('&v=4');
+    expect(details(view)).toContain('Mutable revision');
+    const accepted = present('edit', { ...draft, state: 'closed', surface: 'analyst', accepted_version_url: 'record:///brief.md?card=card-a&v=7', propagation: { ok: false, partial: true, error: 'Ancestor publication failed' } });
+    expect(accepted.outcome).toBe('Record accepted');
+    expect(accepted.headline[0]).toMatchObject({ text: expect.stringContaining('Partial propagation') });
+    expect(accepted.headline[0]).toMatchObject({ text: expect.stringContaining('Ancestor publication failed') });
+    const refused = present('edit', { code: 'record_open_conflict', card_id: 'card-a', name: 'brief.md', current_head: 7 }, false);
+    expect(refused.status).toBe('error');
+    expect(details(refused)).toContain('current head');
+  });
+  it.each(['pending_tool_settlement', 'suppressed', 'interrupted', 'not_requested', 'not_applicable'])('preserves notification %s without delivery claims', (status) => {
+    const view = present('queue_notification', { queued: true, card_id: 'card-a', notification_id: 'notice', body: 'full body', interruption: { status, reason: 'owner unavailable', stopped_card_ids: ['card-a-b'] } });
+    expect(view.outcome).toBe('Queued · Delivery not reported');
+    expect(details(view)).toContain(status);
+    expect(details(view)).toContain('card-a-b');
+    expect(view.headline[0]).toMatchObject({ text: expect.stringContaining('owner unavailable') });
+  });
+  it('preserves queue refusal, control partial failure, confirmation and false containment', () => {
+    expect(details(present('queue_notification', { queued: false, reason: 'activation_closed', card_id: 'card-a' }, false))).toContain('activation_closed');
+    const start = present('start_project', { status: 'stopped', started: true, stopped: true }, false);
+    expect(start.status).toBe('error');
+    expect(details(start)).toContain('started');
+    const restart = present('restart_server', { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+    expect(restart.outcome).toBe('confirmation_required');
+    expect(restart.headline[0]).toMatchObject({ text: 'RESTART SERVER' });
+    expect(present('stop_project', { status: 'stopped', contained: false }).outcome).toBe('Stopped · Not contained');
+    const proposed = presentToolCall(callEnvelope('emit_result', { outcome: 'done', summary: 'Proposed finish' }));
+    expect(proposed.sections[0].title).toBe('Requested node result');
+    expect(presentToolResult('{"success":true}', { tool: 'emit_result' }).outcome).toBe('Node result accepted');
+    expect(present('emit_result', { code: 'stale_review' }, false).outcome).toBe('Failed');
+  });
+  it('exposes inspection, immutable diff/content, selected observation coverage and safe config sections', () => {
+    expect(details(present('get_card', { card_id: 'card-a', section: 'summary', head_id: 'head', version_seq: 7, card: compact }))).toContain('Recorded title');
+    expect(details(present('list_card_versions', { card_id: 'card-a', versions: collection([{ version: 2, change: { kind: 'edit' } }, { version: 9 }]) }))).toContain('immutable');
+    expect(present('diff_card_versions', { card_id: 'card-a', from_version: 2, to_version: 9, diff: slice('exact diff') }).sections.find((s) => s.title === 'Recorded diff (text slice)')?.content).toBe('exact diff');
+    expect(details(present('read_record_version', { card_id: 'card-a', version: 4, content: slice('old accepted'), content_source: 'accepted' }))).toContain('old accepted');
+    expect(details(present('read_agent_session', { section: 'messages', total_visible_entries: 100, messages: collection([{ id: 'entry', content: 'selected message' }], 10) }))).toContain('selected message');
+    expect(details(present('read_runtime_errors', { total_lines: 100, errors: collection([{ id: 'event', kind: 'runtime_diagnostic', timestamp: '2026-10-07T00:00:00Z', error_message: 'real error' }], 10) }))).toContain('Full line count');
+    expect(details(present('read_control_actions', { total_lines: 100, returned: 1, actions: [{ id: 'audit', actor: 'analyst', surface: 'analyst_tool', action: 'pause', target_kind: 'runtime', target_id: null, params_summary: '', outcome: 'ok', outcome_summary: 'paused', created_at: '2026-10-07T00:00:00Z' }] }))).toContain('paused');
+    expect(details(present('get_status', { runtimeSummary: { status: 'stopped' }, counts: { total: 3 } }))).toContain('stopped');
+    expect(details(present('show_config', { config: { server: { port: 8080 }, models: { routes: { default: 'model' } }, agents: { analyst: {} }, providers: { safe: { apiKey: '[REDACTED]' } } } }))).toContain('Model routing');
+    expect(present('reconfigure', { applied: true, action: 'set_server_setting', key: 'port', value: 8080, requires_restart: true }).outcome).toBe('Action applied');
+  });
+  it('exposes actual tree, process, session, selected-context and search item fields', () => {
+    const tree = present('get_tree', { root_id: 'project', depth: 2, nodes: collection([{ ...compact, depth: 2, descendants: 1, depth_omitted: true }]) });
+    expect(details(tree)).toContain('depth omitted');
+    const processes = present('list_processes_tool', { processes: collection([{ id: 'proc-0123456789ab', command: 'npm test', status: 'running', cwd: '.', timed_out: false, exit_code: null, owner_kind: 'agent', owner_id: 'agent:executor:card-a', session_id: 'agent:executor:card-a', card_id: 'card-a', logs: { stdout: null, stderr: null } }]) });
+    expect(details(processes)).toContain('npm test');
+    const sessions = present('list_agent_sessions', { sessions: collection([{ id: 'agent:executor:card-a', agent_name: 'executor', session_scope: 'card', card_id: 'card-a', status: 'inactive', activity: 'idle', compaction: null, started_at: '2026-10-07T00:00:00Z' }]) });
+    expect(details(sessions)).toContain('agent name');
+    expect(sessions.sections.flatMap((s) => s.items ?? []).flatMap((s) => s.fields ?? []).flatMap((f) => f.parts)).toContainEqual({ kind: 'session', id: 'agent:executor:card-a', label: 'agent:executor:card-a' });
+    const context = present('read_agent_session', { section: 'context', total_visible_entries: 100, has_segment_context: true, context: collection([{ kind: 'compacted', source_version: 2, summary_text: 'Retained context summary', protected_prompts: [], required_model_facts: {}, continuation: { kind: 'between_rounds' } }]) });
+    expect(details(context)).toContain('Retained context summary');
+    expect(details(context)).toContain('source version');
+    const search = present('websearch', { query: 'query', results: [{ title: 'Recorded web title', url: 'https://example.test/', snippet: 'Returned excerpt' }] });
+    expect(details(search)).toContain('Returned excerpt');
+    const navigation = present('navigate_workspace', { intent: 'navigate_workspace', target: { kind: 'card', id: 'card-a' } });
+    expect(details(navigation)).toContain('navigate_workspace');
+    expect(navigation.headline[0]).toMatchObject({ text: 'Browser receipt not reported' });
+    expect(details(present('cancel_card', { card_id: 'card-a', status: 'cancelled', cancelled_card_ids: ['card-a-b', 'card-a'] }))).toContain('card-a-b');
+  });
+  it('retains full-envelope uncertainty and rejects malformed public projections without green completion', () => {
+    const unknown = present('write', { outcome_unknown: true, ...draft }, false);
+    expect(unknown.outcome).toBe('Effects uncertain');
+    expect(details(unknown)).toContain('Mutable revision');
+    for (const raw of ['not json', 'null', '42', '{"success":true,"error":"bad"}', '{"success":false}', '{"success":true,"data":42}']) {
+      const view = presentToolResult(raw, { tool: 'read' });
+      expect(view.outcome).toBe('Presentation unavailable');
+      expect(view.status).toBe('error');
     }
-    expect(presentToolCall(callEnvelope('mcp__github__issue', { title: 'x' })).icon).toBe('🔧');
-  });
-
-  it('parses only wrapped success data and supports optional data', () => {
-    const textSlice = { content: 'a\nb', utf8_bytes: 3, offset_bytes: 0, next_offset_bytes: 3 };
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { total_bytes: 65536, content: textSlice } }), { tool: 'read' }).headline)).toBe('64.0 kB');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { entries: { total: 40, position: { item_index: 0, item_byte_offset: 0 }, returned: 12, next: { item_index: 12, item_byte_offset: 0 }, items: [] } } }), { tool: 'read' }).headline)).toBe('12 of 40 entries');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { cards: { total: 9, position: { item_index: 0, item_byte_offset: 0 }, returned: 3, next: null, items: [] } } }), { tool: 'list_cards' }).headline)).toBe('3 of 9 cards');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true }), { tool: 'read' }).headline)).toBe('read completed');
-    const unwrapped = presentToolResult(JSON.stringify({ stash_url: 'work:///tmp/stash/old.txt' }), { tool: 'webfetch' });
-    expect(unwrapped.headline).toEqual([{ kind: 'text', text: 'result unavailable' }]);
-    expect(unwrapped.headline[0]).not.toMatchObject({ kind: 'file' });
-  });
-
-  it('recognizes only the current result envelope and keeps all non-envelope bodies semantic-free', () => {
-    const longError = `permission denied ${'x'.repeat(140)}`;
-    const failureBody = { success: false, error: longError, data: { marker: 'failure-data-secret' } };
-    const failure = presentToolResult(JSON.stringify(failureBody), { tool: 'read' });
-    expect(failure).toMatchObject({ name: 'read', status: 'error', body: failureBody });
-    expect(inlineText(failure.headline)).toHaveLength(120);
-    expect(inlineText(failure.headline)).toContain('permission denied');
-    expect(inlineText([...(failure.headline), ...(failure.detail ?? [])])).not.toContain('failure-data-secret');
-
-    const malformed = [
-      { content: JSON.stringify({ success: true, error: 'success-error-secret', data: { marker: 'success-data-secret' } }), tool: 'read' },
-      { content: JSON.stringify({ success: false }), tool: 'read' },
-      { content: JSON.stringify({ success: false, error: { message: 'non-string-error-secret' } }), tool: 'read' },
-      { content: JSON.stringify({ tool: 'body-tool-secret', toolName: 'body-name-secret', marker: 'object-secret' }), tool: undefined },
-      { content: JSON.stringify(['array-secret']), tool: 'read' },
-      { content: JSON.stringify('json-string-secret'), tool: 'read' },
-      { content: JSON.stringify(42), tool: 'read' },
-      { content: JSON.stringify(true), tool: 'read' },
-      { content: 'null', tool: 'read' },
-      { content: 'plain-text-secret', tool: 'read' },
-      { content: '{invalid-json-secret', tool: 'read' },
-    ];
-    for (const item of malformed) {
-      const view = presentToolResult(item.content, { tool: item.tool });
-      expect(view.status).toBe('ok');
-      expect(view.name).toBe(item.tool ?? 'tool');
-      expect(inlineText([...(view.headline), ...(view.detail ?? [])])).toBe('result unavailable');
-    }
-  });
-
-  it('projects current MCP result metadata while keeping bare responses semantic-free', () => {
-    const wrapped = presentToolResult(JSON.stringify({ success: true, data: { result: 42, result_complete: true, result_utf8_bytes: 2 } }), { tool: 'mcp_tool_call' });
-    const bare = presentToolResult(JSON.stringify(42), { tool: 'mcp_tool_call' });
-    expect(inlineText(wrapped.headline)).toBe('MCP call completed');
-    expect(inlineText(wrapped.detail ?? [])).toBe('result complete · 2 B total JSON source');
-    expect(inlineText(bare.headline)).toBe('result unavailable');
-  });
-
-  it.each(['glob', 'grep'] as const)('uses one fixed successful %s headline while preserving opaque raw bodies', (tool) => {
-    const call = presentToolCall(callEnvelope(tool, tool === 'glob' ? { directory: 'project:///src', pattern: '**/*.ts' } : { pattern: 'needle', path: 'project:///src' }));
-    expect(TOOL_PRESENTERS[tool].group).toBe('context');
-    expect(inlineText(call.headline)).toContain(tool === 'glob' ? 'project:///src' : 'needle');
-
-    const bodies = [
-      { success: true, data: { matches: { total: 0, position: { item_index: 0, item_byte_offset: 0 }, returned: 0, next: null, items: [] } } },
-      { success: true, data: { matches: { total: 2, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: { item_index: 1, item_byte_offset: 0 }, items: ['first'] } } },
-      { success: true, data: { matches: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [{ content_hex: '2278', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 2 }] } } },
-      { success: true, data: { matches: ['historical-a', 'historical-b'], truncated: true } },
-    ];
-    for (const body of bodies) {
-      const view = presentToolResult(JSON.stringify(body), { tool });
-      expect(inlineText(view.headline)).toBe(`${tool} completed`);
-      expect(view.body).toEqual(body);
-      expect(inlineText(view.headline)).not.toMatch(/\d+ match/u);
-    }
-
-    const failure = presentToolResult(JSON.stringify({ success: false, error: 'search failed' }), { tool });
-    expect(failure.status).toBe('error');
-    expect(inlineText(failure.headline)).toBe('search failed');
-  });
-
-  it('uses exact current process, card, and terminal result payloads', () => {
-    const process = { process_id: 'proc-0123456789ab', exit_code: 0, status: 'exited', stdout: 'completed', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 10, stderr_bytes: 0 };
-    for (const tool of ['run_command', 'wait_process'] as const) {
-      const view = presentToolResult(JSON.stringify({ success: true, data: process }), { tool });
-      expect(inlineText(view.headline)).toContain('exit 0');
-      expect(inlineText(view.detail ?? [])).toContain('proc-0123456789ab');
-    }
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { processes: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [process] } } }), { tool: 'list_processes_tool' }).headline)).toBe('1 of 1 process');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: PLANNER_COMPACT_CARD } }), { tool: 'create_card' }).headline)).toContain('card-p');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: ANALYST_CARD_VIEW }), { tool: 'create_card' }).headline)).toContain('card-a');
-    const reopened = presentToolResult(JSON.stringify({ success: true, data: { ...ANALYST_CARD_VIEW, status: 'changed' } }), { tool: 'reopen_card' });
-    expect(inlineText(reopened.headline)).toContain('card-a');
-    expect(inlineText(reopened.detail ?? [])).toBe('changed');
-    const plannerReopened = presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-planner', status: 'changed' } }), { tool: 'reopen_card' });
-    expect(inlineText(plannerReopened.headline)).toContain('card-planner');
-    expect(inlineText(plannerReopened.detail ?? [])).toBe('changed');
-    expect(inlineText([...(plannerReopened.headline), ...(plannerReopened.detail ?? [])])).not.toContain('queue');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: { ...PLANNER_COMPACT_CARD, id: 'card-e', title: 'Edited' } } }), { tool: 'edit_card' }).headline)).toContain('card-e');
-    const getCard = presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', version_seq: 1, section: 'summary', card: { id: 'card-a', type: 'code', status: 'backlog', title: 'Analyst' } } }), { tool: 'get_card' });
-    expect(inlineText(getCard.headline)).toBe('Analyst');
-    expect(inlineText(getCard.detail ?? [])).toBe('code · backlog');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'x', result: null } }), { tool: 'activate_card' }).headline)).toBe('blocked');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { accepted: true } }), { tool: 'emit_result' }).headline)).toBe('result accepted');
-  });
-
-  it('presents current named observation pages without overstating slices or totals', () => {
-    const position = { item_index: 0, item_byte_offset: 0 };
-    const slice = { content_hex: '7b22', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 40 };
-    const sessions = presentToolResult(JSON.stringify({ success: true, data: { sessions: { total: 5, position, returned: 2, next: { item_index: 2, item_byte_offset: 0 }, items: [{}, {}] } } }), { tool: 'list_agent_sessions' });
-    expect(inlineText(sessions.headline)).toBe('2 of 5 sessions');
-
-    const messagesBody = { success: true, data: { section: 'messages', total_visible_entries: 12, messages: { total: 5, position, returned: 2, next: { item_index: 2, item_byte_offset: 0 }, items: [{}, {}] } } };
-    const messages = presentToolResult(JSON.stringify(messagesBody), { tool: 'read_agent_session' });
-    expect(inlineText(messages.headline)).toBe('2 of 5 selected messages');
-    expect(inlineText(messages.detail ?? [])).toBe('12 total visible messages');
-
-    const slicedMessagesBody = { success: true, data: { section: 'messages', total_visible_entries: 12, messages: { total: 5, position, returned: 1, next: { item_index: 0, item_byte_offset: 2 }, items: [slice] } } };
-    const slicedMessages = presentToolResult(JSON.stringify(slicedMessagesBody), { tool: 'read_agent_session' });
-    expect(inlineText(slicedMessages.headline)).toBe('1 partial message slice of 5 selected messages');
-    expect(slicedMessages.body).toEqual(slicedMessagesBody);
-
-    const context = presentToolResult(JSON.stringify({ success: true, data: { section: 'context', total_visible_entries: 12, context: { total: 1, position, returned: 1, next: { item_index: 0, item_byte_offset: 2 }, items: [slice] } } }), { tool: 'read_agent_session' });
-    expect(inlineText(context.headline)).toBe('1 partial context item slice of 1 context item');
-    expect(inlineText(context.detail ?? [])).toBe('12 total visible messages');
-
-    const events = presentToolResult(JSON.stringify({ success: true, data: { total_lines: 30, events: { total: 10, position, returned: 3, next: null, items: [{}, {}, {}] } } }), { tool: 'read_runtime_events' });
-    expect(inlineText(events.headline)).toBe('3 of 10 selected events');
-    expect(inlineText(events.detail ?? [])).toBe('30 total event lines');
-    const errors = presentToolResult(JSON.stringify({ success: true, data: { total_lines: 9, errors: { total: 2, position, returned: 1, next: null, items: [{}] } } }), { tool: 'read_runtime_errors' });
-    expect(inlineText(errors.headline)).toBe('1 of 2 selected errors');
-    expect(inlineText(errors.detail ?? [])).toBe('9 total error lines');
-
-    const historical = { success: true, data: [{ id: 'historical-session' }] };
-    const opaque = presentToolResult(JSON.stringify(historical), { tool: 'list_agent_sessions' });
-    expect(inlineText(opaque.headline)).toBe('session list loaded');
-    expect(opaque.body).toEqual(historical);
-  });
-
-  it('renders queue success but keeps activation-closed failure on the generic failure boundary', () => {
-    const successData = { queued: true, card_id: 'card-a', notification_id: 'notification-a' };
-    const success = presentToolResult(JSON.stringify({ success: true, data: successData }), { tool: 'queue_notification' });
-    expect(success.status).toBe('ok');
-    expect(inlineText(success.headline)).toBe('notification queued');
-    expect(success.body).toEqual({ success: true, data: successData });
-
-    const error = "Cannot queue notification for card 'card-a': its current activation is closed to new notifications.";
-    const failureData = { queued: false, reason: 'activation_closed', card_id: 'card-a' };
-    const failure = presentToolResult(JSON.stringify({ success: false, error, data: failureData }), { tool: 'queue_notification' });
-    expect(failure.status).toBe('error');
-    expect(inlineText(failure.headline)).toBe(error);
-    expect(inlineText(failure.headline)).not.toContain('notification queued');
-    expect(failure.body).toEqual({ success: false, error, data: failureData });
-    expect(failureData).not.toHaveProperty('status');
-    expect(failureData).not.toHaveProperty('winner');
-  });
-
-  it('exposes wrapped canonical webfetch content URLs as Files links', () => {
-    const call = { id: 'c', session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call', content: callEnvelope('webfetch', { url: 'https://example.com' }), context_policy: { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) }, round_id: 'assistant:1', message_index: 0, block_index: 0, timestamp: '2026-07-21T00:00:00Z', tool: 'webfetch', tool_call_id: 'c' } as ToolPair['call'];
-    const result = { ...call, id: 'r', role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: true, data: { kind: 'text', redacted_url: 'https://example.com/', status: 200, headers: {}, head: 'preview', head_utf8_bytes: 7, redacted_text_utf8_bytes: 20, fetched_text_utf8_bytes: 20, head_complete: false, fetch_truncated: false, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' } }), context_policy: { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } } as ToolPair['result'];
-    const display = buildToolDisplay({ call, result });
-    expect(display.links).toContainEqual({ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch-1-0123456789abcdef.txt', label: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' });
   });
 });

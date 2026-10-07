@@ -12,29 +12,23 @@
         <header v-if="isAuthorBoundary(index)" class="round-head">
           {{ round.kind }}<span class="round-position"> — turn {{ round.position }}</span>
         </header>
-        <ContextBlock v-for="entry in round.texts" :key="entry.id" :entry="entry" />
-        <div v-for="entry in round.activations" :key="entry.id" :data-entry-id="entry.id" tabindex="-1" class="activation-marker">
-          <strong>Activation entry recorded</strong>
-          <pre>{{ entry.content }}</pre>
-        </div>
-        <DiagnosticRow v-for="entry in round.diagnostics" :key="entry.id" :entry="entry" />
-        <template v-for="item in round.items" :key="itemKey(item)">
-          <ToolGroupRow
-            v-if="isToolGroup(item)"
-            :group="item"
-            :expanded-ids="expandedIds"
-            @toggle="emit('toggle', $event)"
-          />
+        <template v-for="row in round.rows" :key="row.entry.id">
+          <ContextBlock v-if="row.entry.kind === 'text' || row.entry.kind === 'content_policy_refusal'" :entry="row.entry" />
+          <div v-else-if="activationEntry(row.entry)" :data-entry-id="row.entry.id" tabindex="-1" class="activation-marker">
+            <strong>Activation entry recorded</strong>
+            <pre>{{ row.entry.content }}</pre>
+          </div>
+          <DiagnosticRow v-else-if="['model_issue', 'model_repair', 'model_recovered'].includes(row.entry.kind)" :entry="row.entry" />
           <ToolChip
             v-else
-            :entry-id="item.call.id"
-            :display="buildToolDisplay(item)"
-            :call-content="item.call.content"
-            :result-content="item.result?.content ?? null"
-            :expanded="expandedIds.has(item.call.id)"
-            :details-id="`tool-${item.call.id}`"
-            :timestamp="item.call.timestamp"
-            @toggle="emit('toggle', item.call.id)"
+            :entry-id="row.entry.id"
+            :display="buildToolDisplay(row)"
+            :call-content="row.entry.kind === 'tool_call' ? row.entry.content : null"
+            :result-content="row.entry.kind === 'tool_result' ? row.entry.content : null"
+            :expanded="expandedIds.has(row.entry.id)"
+            :details-id="`tool-${row.entry.id}`"
+            :timestamp="row.entry.timestamp"
+            @toggle="emit('toggle', row.entry.id)"
           />
         </template>
       </template>
@@ -43,20 +37,17 @@
 </template>
 
 <script setup lang="ts">
-import type { AgentTimeline, ToolListItem } from '../../utils/agent-timeline';
-import { buildToolDisplay, isToolGroup } from '../../utils/tool-friendly';
+import type { AgentTimeline } from '../../utils/agent-timeline';
+import { activationEntry } from '../../utils/agent-timeline/activation';
+import { buildToolDisplay } from '../../utils/tool-friendly';
 import CompactedCluster from './CompactedCluster.vue';
 import ContextBlock from './ContextBlock.vue';
 import DiagnosticRow from './DiagnosticRow.vue';
 import ToolChip from './ToolChip.vue';
-import ToolGroupRow from './ToolGroupRow.vue';
 
 const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string> }>();
 const emit = defineEmits<{ toggle: [id: string] }>();
 
-function itemKey(item: ToolListItem): string {
-  return isToolGroup(item) ? item.id : item.call.id;
-}
 function isAuthorBoundary(index: number): boolean {
   if (index <= 0) return true;
   return props.timeline.rounds[index - 1].kind !== props.timeline.rounds[index].kind;

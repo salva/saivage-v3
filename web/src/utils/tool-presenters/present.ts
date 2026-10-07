@@ -1,36 +1,38 @@
-import { argKeys, asRecord, oneLine, readToolCallMessage, safeJsonParse, textPart } from './helpers';
+import { asRecord, readToolCallMessage, safeJsonParse, textPart, oneLine } from './helpers';
 import { getToolPresenter } from './presenters';
 import type { ToolCallPresentation, ToolResultPresentation } from './types';
-
-const RESULT_ICON_OK = '↩';
-const RESULT_ICON_ERR = '⚠';
-const GENERIC_RESULT_LABEL = 'result unavailable';
-const SUCCESS_RESULT_LABEL = 'completed';
 
 export function presentToolCall(rawContent: string): ToolCallPresentation {
   const message = readToolCallMessage(rawContent);
   const descriptor = getToolPresenter(message.name);
-  if (descriptor) {
-    const rendered = descriptor.call(message.args);
-    return { ...rendered, name: message.name, body: message.args, bodyKind: 'json' };
-  }
-  const keys = argKeys(message.args);
-  return { icon: '🔧', name: message.name, headline: textPart(keys ? `(${keys})` : ''), detail: textPart(oneLine(message.args, 96)), body: message.args, bodyKind: 'json' };
+  return descriptor
+    ? { ...descriptor.call(message.args), name: message.name }
+    : { name: message.name, headline: textPart(oneLine(message.args)), sections: [{ title: 'Safe arguments (opaque tool)', content: JSON.stringify(message.args, null, 2) }] };
 }
 
 export function presentToolResult(rawContent: string, opts: { tool?: string } = {}): ToolResultPresentation {
   const name = opts.tool ?? 'tool';
-  const parsed = safeJsonParse(rawContent);
-  const record = asRecord(parsed);
-  if (record?.success === false && typeof record.error === 'string') {
-    return { icon: RESULT_ICON_ERR, status: 'error', name, headline: textPart(record.error, 120), body: parsed, bodyKind: 'json' };
+  const envelope = asRecord(safeJsonParse(rawContent));
+  if (!envelope || typeof envelope.success !== 'boolean' || (envelope.success === false && typeof envelope.error !== 'string') || (envelope.success === true && Object.hasOwn(envelope, 'error'))) {
+    return { name, status: 'error', outcome: 'Presentation unavailable', headline: textPart('Unexpected public result shape'), sections: [] };
   }
-  if (record?.success === true && !Object.hasOwn(record, 'error')) {
-    const envelope = record as { success: true; data?: unknown };
-    const data = envelope.data;
-    const rendered = getToolPresenter(name)?.result?.({ name, envelope, data, dataRecord: asRecord(data) });
-    const headline = rendered?.headline ?? textPart(SUCCESS_RESULT_LABEL);
-    return { icon: RESULT_ICON_OK, status: 'ok', name, headline, detail: rendered?.detail, body: parsed, bodyKind: 'json' };
+  const descriptor = getToolPresenter(name);
+  const rendered = descriptor?.result({ name, envelope, data: envelope.data, dataRecord: asRecord(envelope.data) });
+  if (descriptor && envelope.success === true && name !== 'emit_result' && !asRecord(envelope.data)) {
+    return { name, status: 'error', outcome: 'Presentation unavailable', headline: textPart('Expected named public result data'), sections: [] };
   }
-  return { icon: RESULT_ICON_OK, status: 'ok', name, headline: textPart(GENERIC_RESULT_LABEL), body: parsed ?? rawContent, bodyKind: parsed === null ? 'text' : 'json' };
+  const uncertain = asRecord(envelope.data)?.outcome_unknown === true;
+  const failed = envelope.success === false;
+  const outcome = uncertain ? 'Effects uncertain' : failed ? 'Failed' : rendered?.outcome ?? 'Tool returned success';
+  const status = uncertain || failed || rendered?.outcome === 'Presentation unavailable' ? 'error' : rendered?.status ?? 'neutral';
+  const error = failed ? textPart(oneLine(envelope.error, 240)) : [];
+  const failureData = asRecord(envelope.data);
+  const refusalFields = failed && failureData ? ['code', 'reason', 'action', 'operation', 'resource', 'owner_id', 'card_id', 'name', 'current_head', 'version', 'from_version', 'to_version', 'side', 'session_id', 'runtime_status', 'restart_required'].flatMap((key) => Object.hasOwn(failureData, key)
+    ? [{ label: key.replaceAll('_', ' '), parts: textPart(typeof failureData[key] === 'string' ? failureData[key] : JSON.stringify(failureData[key])) }] : []) : [];
+  const refusalSummary = failed && failureData ? ['code', 'reason'].flatMap((key) => typeof failureData[key] === 'string' ? [`${key}: ${oneLine(failureData[key], 160)}`] : []).join(' · ') : '';
+  const domainOutcome = failed && rendered?.outcome ? [...textPart(`Recorded domain outcome: ${rendered.outcome}`), ...textPart(' · ')] : [];
+  const sections = rendered?.sections ?? (Object.hasOwn(envelope, 'data') ? [{ title: 'Safe result (opaque tool)', content: JSON.stringify(envelope.data, null, 2) }] : []);
+  if (failed) sections.unshift({ title: uncertain ? 'Uncertainty' : 'Error', content: String(envelope.error) });
+  if (refusalFields.length) sections.push({ title: 'Recorded refusal / error context', fields: refusalFields });
+  return { name, status, outcome, headline: [...domainOutcome, ...error, ...(refusalSummary ? textPart(` · ${refusalSummary}`) : []), ...(failed && rendered?.headline.length ? textPart(' · ') : []), ...(rendered?.headline ?? [])], sections, target: rendered?.target };
 }

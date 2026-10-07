@@ -1,32 +1,15 @@
 import type { AgentConversationEntry } from '../../api/types';
-
 export type TimelineRoundKind = 'pre' | 'user' | 'assistant' | 'compacted';
-export interface ParsedRoundId {
-  kind: TimelineRoundKind;
+export interface ParsedRoundId { kind: TimelineRoundKind }
+export interface TimelineRow {
+  entry: AgentConversationEntry;
+  mate: AgentConversationEntry | null;
 }
-export interface ToolPair {
-  call: AgentConversationEntry;
-  result: AgentConversationEntry | null;
-}
-export interface ToolGroup {
-  kind: 'tool_group';
-  id: string;
-  label: string;
-  summary: string;
-  pairs: ToolPair[];
-}
-export type ToolListItem = ToolPair | ToolGroup;
 export interface TimelineRound {
   id: string;
   kind: TimelineRoundKind;
   position: number;
   entries: AgentConversationEntry[];
-  texts: AgentConversationEntry[];
-  activations: AgentConversationEntry[];
-  diagnostics: AgentConversationEntry[];
-  toolPairs: ToolPair[];
-  items: ToolListItem[];
+  rows: TimelineRow[];
 }
-export interface AgentTimeline {
-  rounds: TimelineRound[];
-}
+export interface AgentTimeline { rounds: TimelineRound[] }

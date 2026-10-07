@@ -1,5 +1,8 @@
 import { parseToolCallMessage } from '../persistedToolCall';
-import type { InlinePart, ResultPresenterContext, ToolCallMessage } from './types';
+import { parseScopedPathUrl, buildScopedPathUrl } from '@saivage/contracts/scoped-path-url';
+import { parseRecordUrl } from '@saivage/contracts/record-mutation';
+import { cardIdSchema } from '@saivage/schemas/card-id';
+import type { InlinePart, ToolCallMessage } from './types';
 
 export function safeJsonParse(content: string): unknown {
   try { return JSON.parse(content) as unknown; } catch { return null; }
@@ -23,20 +26,6 @@ export function oneLine(value: unknown, max = 72): string {
   return truncate(text.replace(/\s+/g, ' '), max);
 }
 
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return `${bytes} B`;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function shortPath(path: string): string { return path ? truncate(path, 64) : ''; }
-
-export function argKeys(args: unknown): string {
-  const record = asRecord(args);
-  return record ? Object.keys(record).join(', ') : '';
-}
-
 export function textPart(text: unknown, max?: number): InlinePart[] {
   const value = max ? oneLine(text, max) : str(text);
   return value ? [{ kind: 'text', text: value }] : [];
@@ -44,13 +33,24 @@ export function textPart(text: unknown, max?: number): InlinePart[] {
 
 export function cardPart(idValue: unknown, fallbackLabel?: string): InlinePart[] {
   const id = str(idValue);
-  return id ? [{ kind: 'card', id, fallbackLabel: fallbackLabel ?? `card ${id}` }] : [];
+  if (!id) return [];
+  return cardIdSchema.safeParse(id).success ? [{ kind: 'card', id, fallbackLabel: fallbackLabel ?? id }] : textPart(id);
 }
 
 function filePart(pathValue: unknown, label?: string): InlinePart | null {
   const path = str(pathValue);
-  if (path.startsWith('.saivage/work/')) return { kind: 'file', root: 'output', path, label: label ?? shortPath(path) };
-  if (path.startsWith('.saivage/')) return { kind: 'file', root: 'meta', path, label: label ?? shortPath(path) };
+  if (path.startsWith('record:///')) {
+    try { parseRecordUrl(path); } catch { return null; }
+    return { kind: 'file', root: 'meta', path, label: label ?? path };
+  }
+  if (path.startsWith('work:///')) {
+    let parsed;
+    try { parsed = parseScopedPathUrl(path, 'work'); } catch { return null; }
+    if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== path) return null;
+    return { kind: 'file', root: 'output', path: `.saivage/work/${parsed.segments.join('/')}`, label: label ?? path };
+  }
+  if (path.startsWith('.saivage/work/')) return { kind: 'file', root: 'output', path, label: label ?? path };
+  if (path.startsWith('.saivage/cards/')) return { kind: 'file', root: 'meta', path, label: label ?? path };
   return null;
 }
 
@@ -73,16 +73,11 @@ export function pathParts(pathValue: unknown): InlinePart[] {
   const path = str(pathValue);
   if (!path) return [];
   const file = filePart(path);
-  return [file ?? { kind: 'text', text: shortPath(path) }];
+  return [file ?? { kind: 'text', text: path }];
 }
 
 export function readToolCallMessage(rawContent: string): ToolCallMessage {
   const row = JSON.parse(rawContent);
   const call = parseToolCallMessage(row);
   return { name: call.name, args: call.args };
-}
-
-export function describeJsonlTail(ctx: ResultPresenterContext, key: string, label: string): { headline: InlinePart[] } {
-  const entries = Array.isArray(ctx.dataRecord?.[key]) ? ctx.dataRecord[key] as unknown[] : null;
-  return { headline: entries ? textPart(`${entries.length} ${label}`) : textPart(`${label} loaded`) };
 }

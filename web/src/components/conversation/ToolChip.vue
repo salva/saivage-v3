@@ -4,6 +4,7 @@
       <button type="button" class="tool-chip-toggle" :aria-expanded="expanded" :aria-controls="detailsId" :aria-label="toggleLabel" @click="$emit('toggle')">
         <span class="tool-chip-caret" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
         <strong class="tool-chip-action">{{ display.action }}</strong>
+        <code class="tool-chip-name">{{ display.toolName }}</code>
         <span v-if="display.target.length" class="tool-chip-target"><InlineParts :parts="display.target" /></span>
         <span v-if="display.status.length" class="tool-chip-status" :data-tone="display.statusTone"><InlineParts :parts="display.status" /></span>
         <span v-if="timestamp" class="tool-chip-time" :title="timeTitle">{{ formattedTimestamp }}</span>
@@ -26,14 +27,14 @@
             <dd><InlineParts :parts="detailTarget" /></dd>
           </div>
         </dl>
-        <div v-if="!display.known && resultContent !== null" class="detail-hint">Generic tool — view raw payload for full detail.</div>
+        <ToolSemanticSection v-for="(section, index) in display.sections" :key="index" :section="section" />
       </div>
       <div class="tool-chip-raw-bar">
-        <button type="button" class="raw-toggle" :aria-expanded="showRawCall" @click="showRawCall = !showRawCall">{{ showRawCall ? 'Hide raw request' : 'Show raw request' }}</button>
-        <button v-if="resultContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawResult" @click="showRawResult = !showRawResult">{{ showRawResult ? 'Hide raw response' : 'Show raw response' }}</button>
+        <button v-if="callContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawCall" @click="showRawCall = !showRawCall">{{ showRawCall ? 'Hide safe original request' : 'Safe original request' }}</button>
+        <button v-if="resultContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawResult" @click="showRawResult = !showRawResult">{{ showRawResult ? 'Hide safe original result' : 'Safe original result' }}</button>
       </div>
-      <CodeBlock v-if="showRawCall" class="tool-chip-raw" :code="callContent" language="text" copyable wrap aria-label="Raw tool request" />
-      <CodeBlock v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :code="resultContent" language="text" copyable wrap aria-label="Raw tool response" />
+      <CodeBlock v-if="showRawCall && callContent !== null" class="tool-chip-raw" :code="callContent" language="text" copyable wrap aria-label="Safe original tool request" />
+      <CodeBlock v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :code="resultContent" language="text" copyable wrap aria-label="Safe original tool result" />
     </div>
   </div>
 </template>
@@ -42,6 +43,7 @@
 import { computed, ref, watch } from 'vue';
 import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
+import ToolSemanticSection from './ToolSemanticSection.vue';
 import type { ToolDisplayModel, ToolTone } from '../../utils/tool-friendly';
 import { inlinePartsText } from '../../utils/tool-friendly';
 import { formatRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
@@ -49,7 +51,7 @@ import { formatRecentTimestamp, timestampTitle as absoluteTimestampTitle } from 
 const props = defineProps<{
   entryId: string;
   display: ToolDisplayModel;
-  callContent: string;
+  callContent: string | null;
   resultContent: string | null;
   expanded: boolean;
   detailsId: string;
@@ -86,6 +88,7 @@ watch(() => props.resultContent, () => { showRawResult.value = false; });
 .tool-chip-toggle:hover { background:var(--surface-2); }
 .tool-chip-caret { color:var(--text-muted); }
 .tool-chip-action { color:var(--accent-2); font-weight:600; min-width:0; max-width:100%; overflow-wrap:anywhere; }
+.tool-chip-name { min-width:0; max-width:100%; overflow-wrap:anywhere; }
 .tool-chip-target { flex:1 1 12rem; color:var(--text-muted); min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
 .tool-chip-status { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:1px 8px; line-height:1.35; }
 .tool-chip-status[data-tone="ok"] { color:var(--accent-2); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); }

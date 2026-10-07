@@ -1,161 +1,30 @@
 import { describe, expect, it } from 'vitest';
-const CALL_POLICY = { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) } as const;
-const RESULT_POLICY = { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } as const;
-import { buildToolDisplay, friendlyAction, groupToolPairs, isKnownTool, isToolGroup } from '../utils/tool-friendly';
-import type { ToolPair } from '../utils/agent-timeline';
-import type { AgentConversationEntry } from '../api/types';
-
-function callContent(name: string, args: Record<string, unknown>): string {
-  return JSON.stringify({ role: 'assistant', tool_calls: [{ id: `call-${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
-}
-
-function entry(id: string, kind: AgentConversationEntry['kind'], content: string, tool?: string): AgentConversationEntry {
-  return {
-    id,
-    session_id: 'agent:analyst:global',
-    role: kind === 'tool_result' ? 'tool' : 'assistant',
-    kind,
-    content,
-    context_policy: kind === 'tool_result' ? RESULT_POLICY : CALL_POLICY,
-    round_id: 'r',
-    message_index: 0,
-    block_index: 0,
-    timestamp: '2026-01-01T00:00:00Z',
-    tool,
-    tool_call_id: `call-${tool ?? 'x'}`,
-  } as AgentConversationEntry;
-}
-
-function pair(id: string, tool: string, args: Record<string, unknown> = {}, resultBody: unknown | null = { success: true }): ToolPair {
-  const call = entry(id, 'tool_call', callContent(tool, args), tool);
-  const result = resultBody === null ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool);
-  return { call, result };
-}
-
-function pairWithRawResult(id: string, tool: string, resultContent: string): ToolPair {
-  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: entry(`${id}-r`, 'tool_result', resultContent, tool) };
-}
-
-function displayText(display: ReturnType<typeof buildToolDisplay>): string {
-  return [...display.status, ...display.links].map((part) => 'text' in part ? part.text : 'label' in part ? part.label ?? '' : '').join('');
-}
-
-describe('friendlyAction', () => {
-  it('maps builtin tools to friendly verbs', () => {
-    expect(friendlyAction('read')).toBe('Read');
-    expect(friendlyAction('run_command')).toBe('Shell');
-    expect(friendlyAction('websearch')).toBe('Search');
-    expect(friendlyAction('create_card')).toBe('Create');
+import { buildToolDisplay, inlinePartsText, isKnownTool } from '../utils/tool-friendly';
+import { call, result, processData } from './tool-presenters/fixtures';
+describe('single row tool display', () => {
+  it('does not backdate a failed process outcome to its requested row', () => {
+    const c = call('run_command', { command: 'npm test' });
+    const r = result('run_command', { ...processData, exit_code: 1 });
+    const requested = buildToolDisplay({ entry: c, mate: r });
+    expect(requested.action).toBe('Requested Run command');
+    expect(requested.statusTone).toBe('neutral');
+    expect(requested.links).toContainEqual({ kind: 'entry', id: r.id, label: 'Result recorded below' });
+    const recorded = buildToolDisplay({ entry: r, mate: c });
+    expect(recorded.action).toBe('Recorded result');
+    expect(inlinePartsText(recorded.status)).toContain('Process failed · exit 1');
+    expect(recorded.statusTone).toBe('error');
+    expect(inlinePartsText(recorded.target)).toContain('npm test');
   });
-
-  it('falls back gracefully for unknown and MCP-registered tools', () => {
-    expect(friendlyAction('mcp__github__create_issue')).toBe('MCP');
-    expect(friendlyAction('custom_analyzer')).toBe('Analyzer');
-    expect(friendlyAction('totally_new_tool')).toBe('Tool');
-    expect(friendlyAction('restart_card')).toBe('Card');
-    expect(isKnownTool('read')).toBe(true);
-    expect(isKnownTool('mcp__anything')).toBe(false);
-    expect(isKnownTool('brand_new_tool')).toBe(false);
-    expect(isKnownTool('restart_card')).toBe(false);
+  it('renders unmatched calls and retained results honestly', () => {
+    expect(inlinePartsText(buildToolDisplay({ entry: call('read'), mate: null }).status)).toBe('No result recorded');
+    const recorded = buildToolDisplay({ entry: result('read', { metadata_only: true }), mate: null });
+    expect(inlinePartsText(recorded.target)).toBe('Requested context unavailable');
+    expect(inlinePartsText(recorded.status)).toContain('Metadata only');
   });
-});
-
-describe('buildToolDisplay', () => {
-  it('renders a known unmatched call with a neutral factual status and target routed from the call', () => {
-    const display = buildToolDisplay(pair('c1', 'read', { path: 'README.md' }, null));
-    expect(display.action).toBe('Read');
-    expect(display.known).toBe(true);
-    const parts = [...display.target, ...display.links] as { text?: string; path?: string }[];
-    expect(parts.some((p) => p.text === 'README.md' || p.path === 'README.md')).toBe(true);
-    expect(display.status).toEqual([{ kind: 'text', text: 'no result recorded' }]);
-    expect(display.statusTone).toBe('neutral');
-  });
-
-  it('keeps non-interactive targets inline and surfaces an ok outcome status', () => {
-    const display = buildToolDisplay(pair('c1', 'run_command', { command: 'npm test' }, { success: true, data: { process_id: 'proc-0123456789ab', exit_code: 0, status: 'exited', stdout: '', stderr: '', stdout_complete: true, stderr_complete: true, stdout_url: 'work:///processes/proc-0123456789ab/stdout.log', stderr_url: 'work:///processes/proc-0123456789ab/stderr.log', stdout_bytes: 0, stderr_bytes: 0 } }));
-    expect(display.action).toBe('Shell');
-    expect(display.statusTone).toBe('ok');
-    expect(display.links).toEqual([
-      { kind: 'file', root: 'output', path: '.saivage/work/processes/proc-0123456789ab/stdout.log', label: 'stdout Files' },
-      { kind: 'file', root: 'output', path: '.saivage/work/processes/proc-0123456789ab/stderr.log', label: 'stderr Files' },
-    ]);
-  });
-
-  it('produces a legible generic row for an unknown MCP tool', () => {
-    const display = buildToolDisplay(pair('c1', 'mcp__github__create_issue', {}, null));
-    expect(display.action).toBe('MCP');
-    expect(display.known).toBe(false);
-  });
-
-  it('uses only presenter-owned semantics for failures and malformed results', () => {
-    const longError = `permission denied ${'x'.repeat(140)}`;
-    const display = buildToolDisplay(pair('c1', 'run_command', { command: 'boom' }, { success: false, error: longError, data: { marker: 'failure-data-secret' } }));
-    expect(display.statusTone).toBe('error');
-    expect(displayText(display)).toHaveLength(120);
-    expect(displayText(display)).toContain('permission denied');
-    expect(displayText(display)).not.toContain('failure-data-secret');
-
-    const malformed = [
-      JSON.stringify({ success: true, error: 'success-error-secret', data: { marker: 'success-data-secret' } }),
-      JSON.stringify({ success: false }),
-      JSON.stringify({ success: false, error: { message: 'non-string-error-secret' } }),
-      JSON.stringify({ marker: 'object-secret' }),
-      JSON.stringify(['array-secret']),
-      JSON.stringify('json-string-secret'),
-      JSON.stringify(42),
-      'null',
-      'plain-text-secret',
-      '{invalid-json-secret',
-    ];
-    for (const [index, content] of malformed.entries()) {
-      const malformedDisplay = buildToolDisplay(pairWithRawResult(`m${index}`, 'read', content));
-      expect(malformedDisplay.statusTone).toBe('ok');
-      expect(displayText(malformedDisplay)).toBe('result unavailable');
-    }
-  });
-});
-
-function groupPair(id: string, tool: string, resultBody: unknown | null = { success: true }): ToolPair {
-  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: resultBody === null ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool) };
-}
-
-describe('groupToolPairs', () => {
-  it('collapses adjacent read-only context calls into a summary group', () => {
-    const items = groupToolPairs('r1', [
-      groupPair('c1', 'read'),
-      groupPair('c2', 'read'),
-      groupPair('c3', 'grep'),
-    ]);
-    expect(items).toHaveLength(1);
-    expect(isToolGroup(items[0])).toBe(true);
-    if (isToolGroup(items[0])) {
-      expect(items[0].label).toBe('Gathered context');
-      expect(items[0].summary).toBe('2 Read, 1 Grep');
-      expect(items[0].pairs).toHaveLength(3);
-      expect(items[0].id).toContain('r1:group:context:');
-    }
-  });
-
-  it('keeps web research separate from filesystem context', () => {
-    const items = groupToolPairs('r1', [
-      groupPair('c1', 'read'),
-      groupPair('c2', 'read'),
-      groupPair('c3', 'websearch'),
-      groupPair('c4', 'websearch'),
-    ]);
-    expect(items).toHaveLength(2);
-    expect(isToolGroup(items[0]) && items[0].label).toBe('Gathered context');
-    expect(isToolGroup(items[1]) && items[1].label).toBe('Web research');
-  });
-
-  it('never groups mutations, errors, unmatched calls, or singletons', () => {
-    const items = groupToolPairs('r1', [
-      groupPair('c1', 'read'),
-      groupPair('c2', 'write'),
-      groupPair('c3', 'read', { success: false, error: 'boom' }),
-      groupPair('c4', 'run_command', null),
-    ]);
-    expect(items.every((item) => !isToolGroup(item))).toBe(true);
-    expect(items).toHaveLength(4);
+  it('keeps exact unknown tool names and opaque safe values', () => {
+    expect(isKnownTool('custom_probe')).toBe(false);
+    const display = buildToolDisplay({ entry: call('custom_probe', { exact: 'received' }), mate: null });
+    expect(display.toolName).toBe('custom_probe');
+    expect(display.sections[0].content).toContain('received');
   });
 });

@@ -5,6 +5,8 @@ import DebugAgentDetail from '../components/agents/DebugAgentDetail.vue';
 import source from '../components/agents/DebugAgentDetail.vue?raw';
 import { useAgentStore } from '../stores/agents';
 import { OperatorApiError } from '../api/client';
+import { createRouter, createMemoryHistory } from 'vue-router';
+import { call, result, entry } from './tool-presenters/fixtures';
 
 const api = vi.hoisted(() => ({
   getAgentSession: vi.fn(),
@@ -178,5 +180,26 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     expect(source).toContain("props.kind === 'conversation' ? useSelectedConversation(props.sessionId) : null");
     expect(source).not.toContain('beginConversationSelection');
     expect(source).not.toContain('openConversation(');
+  });
+
+  it('uses separate ordered Debug call/result rows and edit details without extra conversation fetch', async () => {
+    const id = 'agent:executor:project';
+    const rows = [call('edit', { path: 'src/main.ts', old_string: 'before', new_string: 'after' }), entry('correction', 'text', 'Replace only this string'), result('edit', { path: 'src/main.ts', replacements: 1, bytes: 42, edited: true }, { round_id: 'r-user-0000000000000000000000000000000b' })].map((row) => ({ ...row, session_id: id }));
+    api.getAgentConversation.mockResolvedValue({ session_id: id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: rows, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'result' } });
+    live.openConversation.mockImplementation((_id, callback) => { void callback(null); return vi.fn(); });
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] });
+    await router.push('/'); await router.isReady();
+    const wrapper = mount(DebugAgentDetail, { props: { sessionId: id, kind: 'conversation' }, global: { plugins: [router] } });
+    await flushPromises();
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['call', 'correction', 'result']);
+    const chips = wrapper.findAll('.tool-chip');
+    expect(chips[0].text()).toContain('Requested Replace text');
+    expect(chips[1].text()).toContain('Applied · 1 replacements');
+    await chips[0].find('button.tool-chip-toggle').trigger('click');
+    expect(chips[0].text()).toContain('Supplied old string');
+    expect(chips[0].text()).toContain('before');
+    expect(chips[0].find('.tool-chip-raw').exists()).toBe(false);
+    expect(api.getAgentConversation).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
   });
 });

@@ -1,123 +1,39 @@
 import { mount } from '@vue/test-utils';
-const CALL_POLICY = { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) } as const;
-const RESULT_POLICY = { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } as const;
-import { describe, expect, it } from 'vitest';
-import { createPinia } from 'pinia';
-import { createRouter, createWebHistory } from 'vue-router';
+import { describe, expect, it, vi } from 'vitest';
+import { createRouter, createMemoryHistory } from 'vue-router';
 import ConversationTimeline from '../../components/conversation/ConversationTimeline.vue';
-import { entriesToTimeline, type AgentTimeline, type TimelineRound } from '../../utils/agent-timeline';
-import type { AgentConversationEntry } from '../../api/types';
+import { entriesToTimeline } from '../../utils/agent-timeline';
+import { call, result, entry, processData } from '../tool-presenters/fixtures';
 
-function emptyTimeline(overrides: Partial<AgentTimeline> = {}): AgentTimeline {
-  return { rounds: [], ...overrides };
-}
-
-function round(id: string, kind: TimelineRound['kind']): TimelineRound {
-  return {
-    id, kind, position: 1, entries: [], texts: [], activations: [], diagnostics: [], toolPairs: [], items: [],
-  };
-}
-
-const ROUND_ID = 'r-assistant-0123456789abcdef0123456789abcdef';
-
-function toolEntry(id: string, name: string, args: Record<string, unknown>, index: number): AgentConversationEntry {
-  return {
-    id, session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call',
-    content: JSON.stringify({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }),
-    context_policy: CALL_POLICY,
-    round_id: ROUND_ID, message_index: index, block_index: 0, timestamp: `2026-07-21T00:00:0${index}Z`, tool: name, tool_call_id: id,
-  } as AgentConversationEntry;
-}
-
-function resultEntry(id: string, callId: string, name: string, envelope: unknown, index: number): AgentConversationEntry {
-  return {
-    id, session_id: 'agent:analyst:global', role: 'tool', kind: 'tool_result', content: JSON.stringify(envelope),
-    context_policy: RESULT_POLICY,
-    round_id: 'r-user-fedcba9876543210fedcba9876543210', message_index: index, block_index: 0,
-    timestamp: `2026-07-21T00:00:0${index}Z`, tool: name, tool_call_id: callId,
-  } as AgentConversationEntry;
-}
-
-function router() {
-  return createRouter({ history: createWebHistory(), routes: [
-    { path: '/files', name: 'files', component: { template: '<div />' } },
-    { path: '/cards/:id', name: 'card-detail', component: { template: '<div />' } },
-  ] });
-}
-
-describe('ConversationTimeline', () => {
-  it('hides separator, agent name, and iteration number on consecutive same-author rounds', () => {
-    const timeline = emptyTimeline({
-      rounds: [
-        round('r-assistant-1', 'assistant'),
-        round('r-assistant-2', 'assistant'),
-        round('r-user-1', 'user'),
-      ],
-    });
-
-    const wrapper = mount(ConversationTimeline, { props: { timeline, expandedIds: new Set<string>() } });
-    const cards = wrapper.findAll('[data-testid="round-card"]');
-
-    expect(cards[0].classes()).not.toContain('continues-author');
-    expect(cards[0].find('.round-head').exists()).toBe(true);
-
-    expect(cards[1].classes()).toContain('continues-author');
-    expect(cards[1].find('.round-head').exists()).toBe(false);
-
-    expect(cards[2].classes()).not.toContain('continues-author');
-    expect(cards[2].find('.round-head').exists()).toBe(true);
+describe('ordered shared ConversationTimeline', () => {
+  it('renders separate exact anchors around corrections and diagnostics, including cross-round results', async () => {
+    const c = call('run_command', { command: 'npm test' });
+    const correction = entry('correction', 'text', 'Correction before settlement');
+    const diagnostic = entry('diagnostic', 'model_issue', '{"message":"provider interruption"}');
+    const r = result('run_command', { ...processData, exit_code: 1 }, { round_id: 'r-user-0000000000000000000000000000000b' });
+    const read = call('read', { path: 'one' }, 'read-one');
+    const other = call('read', { path: 'two' }, 'read-two');
+    const timeline = entriesToTimeline([c, correction, diagnostic, r, read, other]);
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }, { path: '/files', name: 'files', component: { template: '<div />' } }] });
+    await router.push('/'); await router.isReady();
+    const wrapper = mount(ConversationTimeline, { props: { timeline, expandedIds: new Set<string>() }, global: { plugins: [router] }, attachTo: document.body });
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['call', 'correction', 'diagnostic', 'result', 'read-one', 'read-two']);
+    expect(wrapper.findAll('.tool-chip')).toHaveLength(4);
+    expect(wrapper.findAll('.tool-chip')[0].text()).not.toContain('Process failed');
+    expect(wrapper.findAll('.tool-chip')[1].text()).toContain('Process failed · exit 1');
+    const scroll = vi.fn();
+    Object.defineProperty(wrapper.findAll('.tool-chip')[1].element, 'scrollIntoView', { value: scroll });
+    await wrapper.find('.inline-part-entry').trigger('click');
+    expect(scroll).toHaveBeenCalledWith({ block: 'center' });
+    expect(document.activeElement).toBe(wrapper.findAll('.tool-chip')[1].element);
+    wrapper.unmount();
   });
-
-  it('projects canonical tool rows to mounted unmatched, success, error, known, fallback, and Files-link chips', async () => {
-    const entries: AgentConversationEntry[] = [
-      toolEntry('call-read', 'read', { path: 'README.md' }, 0),
-      resultEntry('result-read', 'call-read', 'read', { success: true }, 1),
-      toolEntry('call-mcp', 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, 2),
-      resultEntry('result-mcp', 'call-mcp', 'mcp_tool_call', { success: true }, 3),
-      toolEntry('call-unknown', 'move_card', { id: 'old-card' }, 4),
-      resultEntry('result-unknown', 'call-unknown', 'move_card', { success: false, error: 'boom' }, 5),
-      toolEntry('call-fetch', 'webfetch', { url: 'https://example.com' }, 6),
-      resultEntry('result-fetch', 'call-fetch', 'webfetch', { success: true, data: { kind: 'text', redacted_url: 'https://example.com/', status: 200, headers: {}, head: 'preview', head_utf8_bytes: 7, redacted_text_utf8_bytes: 20, fetched_text_utf8_bytes: 20, head_complete: false, fetch_truncated: false, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' } }, 7),
-      toolEntry('call-unmatched-unknown', 'custom_probe', { exact: 'request-payload' }, 8),
-    ];
-    const timeline = entriesToTimeline(entries);
-    expect(timeline.rounds[0].toolPairs.map((pair) => pair.result?.id ?? null)).toEqual([
-      'result-read',
-      'result-mcp',
-      'result-unknown',
-      'result-fetch',
-      null,
-    ]);
-
-    const r = router(); await r.push('/files'); await r.isReady();
-    const wrapper = mount(ConversationTimeline, {
-      props: { timeline, expandedIds: new Set(['call-mcp', 'call-unknown', 'call-unmatched-unknown']) },
-      global: { plugins: [r, createPinia()] },
-    });
-    const chips = wrapper.findAll('.tool-chip');
-    expect(chips).toHaveLength(5);
-    expect(chips[0].classes()).toContain('tool-chip-ok');
-    expect(chips[0].text()).toContain('Read');
-    expect(chips[0].text()).toContain('README.md');
-    expect(chips[1].classes()).toContain('tool-chip-ok');
-    expect(chips[1].text()).toContain('MCP');
-    expect(chips[1].text()).toContain('server/tool');
-    expect(chips[1].text()).not.toContain('Generic tool');
-    expect(chips[2].classes()).toContain('tool-chip-error');
-    expect(chips[2].text()).toContain('Generic tool');
-    expect(chips[2].findAll('button.raw-toggle')).toHaveLength(2);
-    expect(chips[3].find('a.inline-part-file').text()).toBe('work:///tmp/stash/webfetch-1-0123456789abcdef.txt');
-    expect(chips[3].find('a.inline-part-file').attributes('href')).toContain('path=.saivage/work/tmp/stash/webfetch-1-0123456789abcdef.txt');
-    expect(chips[4].text()).toContain('no result recorded');
-    expect(chips[4].find('.tool-chip-status').attributes('data-tone')).toBe('neutral');
-    expect(chips[4].classes()).not.toContain('tool-chip-ok');
-    expect(chips[4].classes()).not.toContain('tool-chip-error');
-    expect(chips[4].classes()).not.toContain('tool-chip-pending');
-    expect(chips[4].find('.detail-hint').exists()).toBe(false);
-    expect(chips[4].findAll('button.raw-toggle')).toHaveLength(1);
-    await chips[4].find('button.raw-toggle').trigger('click');
-    expect(chips[4].find('[aria-label="Raw tool request"]').text()).toContain('request-payload');
-    expect(chips[4].find('[aria-label="Raw tool response"]').exists()).toBe(false);
-    expect(wrapper.text()).not.toContain('stash_path');
+  it('renders unmatched results with no requested-context substitution and no grouping', () => {
+    const r = result('read', { metadata_only: true });
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([r]), expandedIds: new Set<string>() } });
+    expect(wrapper.find('.tool-chip').attributes('data-entry-id')).toBe('result');
+    expect(wrapper.text()).toContain('Requested context unavailable');
+    expect(wrapper.text()).toContain('Metadata only');
+    expect(wrapper.find('.tool-group').exists()).toBe(false);
   });
 });

@@ -176,11 +176,19 @@ Analyst or Oversight shows global scope, not a fabricated card context.
 indexed segment in source order, with author, entry identity, and available time/context
 distinctions. Check user/agent prose, transitions, corrections, and tool rows; presentation
 must not fabricate hidden reasoning, prepared instructions, or missing transcript rows.
+Calls and results retain separate exact anchors and their physical positions, even with
+intervening prose or different rounds; no grouping conceals individual actions.
 
 **F13 — Must — Understand tool effects.** Distinguish a tool call, successful result,
 failed result, and final call with no recorded result; inspect the safe projected request
 and recorded response. Check all four, including an unknown tool. “No result recorded”
 must not imply pending execution, failure, success, or permission to replay.
+Always-visible summaries identify requested action or recorded result, exact tool,
+meaningful target, outcome and salient error, including uncertainty and partial effects.
+Expansion first shows tool-specific operations, observations and content; complete received
+safe projected values are secondary, separately copyable inspection. Check process exit
+versus tool settlement, draft versus acceptance, output-head coverage and confirmation
+without inventing completion, delivery or unavailable content.
 
 **F14 — Must — Compaction and historical context.** Distinguish current transcript,
 compacted-context metadata, retained instruction context, and an explicitly selected

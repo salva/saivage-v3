@@ -18,12 +18,13 @@ function activationRow(sessionId: string, suffix: string) {
 }
 
 function callRows(id: string, round: string, index: number, tool = 'read') {
-  const resultContent = JSON.stringify({ success: true, data: { content: 'synthetic-raw-response-only' } });
+  const content = 'synthetic-raw-response-only';
+  const resultContent = JSON.stringify({ success: true, data: { path: 'README.md', content: { content, utf8_bytes: Buffer.byteLength(content), offset_bytes: 0, next_offset_bytes: Buffer.byteLength(content) }, total_bytes: Buffer.byteLength(content) } });
   const policies = toolRowPolicies({ content: resultContent });
   const source = round.slice('r-assistant-'.length).replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
   const base = { session_id: executor, tool, tool_call_id: id, round_id: round, message_index: index, block_index: 0, timestamp: now };
   return [
-    { ...base, id: `${source}:tool-call:${id}`, role: 'assistant', kind: 'tool_call', context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: 'README.md', synthetic: 'raw-request-only' }) } }] }) },
+    { ...base, id: `${source}:tool-call:${id}`, role: 'assistant', kind: 'tool_call', context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: 'README.md' }) } }] }) },
     { ...base, id: `${source}:tool-result:${id}`, role: 'tool', kind: 'tool_result', block_index: 1, context_policy: policies.result, content: resultContent },
   ];
 }
@@ -54,11 +55,11 @@ const analyst = 'agent:analyst:global';
 function layoutRows(sessionId: string) {
   const cases = [
     { tool: 'run_command', args: { command: layoutCommand }, result: { success: true, data: {
-      process_id: layoutProcess, exit_code: 0, status: 'completed', stdout_complete: true, stderr_complete: false,
+      process_id: layoutProcess, exit_code: 0, status: 'exited', stdout: 'Synthetic stdout head', stderr: 'Synthetic stderr head', stdout_bytes: 21, stderr_bytes: 100, stdout_complete: true, stderr_complete: false,
       stdout_url: `work:///processes/${layoutProcess}/stdout.log`, stderr_url: `work:///processes/${layoutProcess}/stderr.log`,
     } } },
     { tool: 'wait_process', args: { process_id: layoutProcess }, result: { success: true, data: {
-      process_id: layoutProcess, exit_code: 1, status: 'completed', stdout_complete: false, stderr_complete: true,
+      process_id: layoutProcess, exit_code: 1, status: 'exited', stdout: 'Synthetic stdout head', stderr: 'Synthetic exit failure', stdout_bytes: 100, stderr_bytes: 22, stdout_complete: false, stderr_complete: true,
       stdout_url: `work:///processes/${layoutProcess}/stdout.log`, stderr_url: `work:///processes/${layoutProcess}/stderr.log`,
     } } },
     { tool: 'run_command', args: { command: layoutCommand }, result: { success: false, error: `Synthetic command failed: ${'unbroken_failure_'.repeat(6)}` } },
@@ -145,22 +146,21 @@ async function expectReadableToolRow(chip: Locator) {
   expect(violations).toEqual([]);
 }
 
-for (const viewport of [{ width: 1296, height: 899 }, { width: 900, height: 700 }, { width: 1920, height: 1080 }]) {
+for (const viewport of [{ width: 1296, height: 899 }, { width: 1440, height: 900 }, { width: 900, height: 700 }, { width: 1920, height: 1080 }]) {
   test(`tool summaries wrap without overlap or clipping at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const rest = await setupLayoutRows(page);
     await page.goto(`/agents/${executor}`);
     const chips = page.getByTestId('route-cockpit').locator('.tool-chip');
-    await expect(chips).toHaveCount(4);
-    await expect(chips.nth(0).locator('.tool-chip-status .inline-part')).toHaveText([
-      'exit 0 · completed', `process ${layoutProcess} · stdout complete`, '·', '· stderr partial', '·',
-    ]);
-    await expect(chips.nth(2)).toHaveClass(/tool-chip-error/);
-    await expect(chips.nth(3).locator('.tool-chip-status')).toHaveText('no result recorded');
+    await expect(chips).toHaveCount(7);
+    await expect(chips.nth(1).locator('.tool-chip-status')).toContainText('Exited · exit 0');
+    await expect(chips.nth(3)).toHaveClass(/tool-chip-error/);
+    await expect(chips.nth(5)).toContainText('Synthetic command failed');
+    await expect(chips.nth(6).locator('.tool-chip-status')).toHaveText('No result recorded');
     await screenshot(page, testInfo, `tool-rows-${viewport.width}x${viewport.height}.png`);
     for (const chip of await chips.all()) await expectReadableToolRow(chip);
     const analystChips = page.locator('.analyst-chat-panel .tool-chip');
-    await expect(analystChips).toHaveCount(4);
+    await expect(analystChips).toHaveCount(7);
     await screenshot(page, testInfo, `analyst-tool-rows-${viewport.width}x${viewport.height}.png`);
     await expectReadableToolRow(analystChips.first());
     expect(rest.unknown).toEqual([]);
@@ -184,7 +184,7 @@ test('tool disclosure and raw request retain native keyboard focus and separate 
   })).toBe(true);
   const detailsId = await toggle.getAttribute('aria-controls');
   await expect(chip.locator('.tool-chip-detail')).toHaveAttribute('id', detailsId!);
-  const raw = chip.getByRole('button', { name: 'Show raw request', exact: true });
+  const raw = chip.getByRole('button', { name: 'Safe original request', exact: true });
   for (let tabs = 0; tabs < 10 && !(await raw.evaluate((button) => button === document.activeElement)); tabs++) await page.keyboard.press('Tab');
   await expect(raw).toBeFocused();
   await raw.press('Enter');
@@ -196,9 +196,14 @@ test('tool disclosure and raw request retain native keyboard focus and separate 
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await expect(toggle).toBeFocused();
   await expect(chip.locator('.tool-chip-detail')).toHaveCount(0);
+  const resultChip = page.getByTestId('route-cockpit').locator('.tool-chip').nth(1);
+  await resultChip.locator('.tool-chip-toggle').focus();
   for (const stream of ['stdout', 'stderr']) {
     await page.keyboard.press('Tab');
-    const link = chip.getByRole('link', { name: `${stream} Files`, exact: true });
+    // Output links are semantic result evidence, not backdated call effects.
+    if (stream === 'stdout') await resultChip.locator('.tool-chip-toggle').press('Enter');
+    const link = resultChip.getByRole('link', { name: `${stream} Files`, exact: true });
+    await link.focus();
     await expect(link).toBeFocused();
     await expect(link).toBeVisible();
     const href = new URL((await link.getAttribute('href'))!, page.url());
@@ -407,7 +412,7 @@ for (const sessionId of [executor, 'agent:oversight:global']) {
   });
 }
 
-test('exact call chips reveal only their group, retain focus through direct/reload/change/Back, and fail closed', async ({ page }, testInfo) => {
+test('exact call and result rows retain focus through direct/reload/change/Back and fail closed', async ({ page }, testInfo) => {
   const rest = await setup(page);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -450,8 +455,8 @@ test('exact call chips reveal only their group, retain focus through direct/relo
   };
   await page.goto(link(opaque));
   await assertTarget(opaque);
-  await expect(page.locator('.tool-group-body')).toHaveCount(1);
-  await expect(page.locator('.tool-group-toggle').nth(1)).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.tool-chip')).toHaveCount(10);
+  await expect(page.locator('.tool-group-toggle')).toHaveCount(0);
   await page.reload();
   await assertTarget(opaque);
   await page.goto(link(standalone));
@@ -459,15 +464,15 @@ test('exact call chips reveal only their group, retain focus through direct/relo
   await expect(page.locator('.tool-group-body')).toHaveCount(0);
   await page.goBack();
   await assertTarget(opaque);
-  await expect(page.locator('.tool-group-body')).toHaveCount(1);
+  await expect(page.locator('.tool-chip')).toHaveCount(10);
   const reads = currentReads;
   await page.evaluate((id) => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, visible_message_id: 'background-update' }), executor);
   await expect.poll(() => currentReads).toBeGreaterThan(reads);
   await assertTarget(opaque);
-  await screenshot(page, testInfo, 'exact-grouped-call-focused.png');
-  await page.goto(link(`22222222-2222-4222-8222-222222222222:tool-result:${opaqueSource}`));
-  await expect(page.getByText('The requested conversation entry was not found in the selected exact segment.')).toBeVisible();
-  await expect(chip()).toHaveCount(0);
+  await screenshot(page, testInfo, 'exact-call-focused.png');
+  const resultId = `22222222-2222-4222-8222-222222222222:tool-result:${opaqueSource}`;
+  await page.goto(link(resultId));
+  await assertTarget(resultId);
   const acceptedReads = exactReads;
   for (const segment of ['0', 'bad', '1.5', '9007199254740992']) {
     await page.goto(link(opaque, segment));

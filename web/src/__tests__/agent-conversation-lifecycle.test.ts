@@ -149,7 +149,7 @@ function installViewportModel(): void {
   });
 }
 
-async function mountConversation(entryId: string, revealed?: () => void) {
+async function mountConversation(entryId: string) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const router = makeRouter();
@@ -159,9 +159,6 @@ async function mountConversation(entryId: string, revealed?: () => void) {
     props: { sessionId: 'agent:planner:project', entryId },
     global: {
       plugins: [pinia, router],
-      mixins: [{ updated() {
-        if (this.$options.__name === 'ToolGroupRow' && this.$el.querySelector('.tool-group-body')) revealed?.();
-      } }],
       stubs: {
         ContextBlock: {
           props: ['entry'],
@@ -280,7 +277,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(wrapper.text()).toContain('requested conversation entry was not found');
   });
 
-  it('focuses standalone calls and reveals only the selected call group without raw payloads or result aliases', async () => {
+  it('focuses separate call and result anchors without disclosures or result aliases', async () => {
     const opaque = ' opaque "[] # % call ';
     api.getAgentConversation.mockResolvedValueOnce(response([
       ...toolRows('standalone', 1, 'custom_probe'),
@@ -298,36 +295,30 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(chip.attributes('data-entry-id')).toBe(opaque);
     expect(chip.classes()).toContain('tool-chip');
     expect(chip.attributes('tabindex')).toBe('-1');
-    expect(wrapper.findAll('.tool-group-body')).toHaveLength(1);
-    expect(wrapper.findAll('.tool-group-toggle').map((button) => button.attributes('aria-expanded'))).toEqual(['true', 'false']);
+    expect(wrapper.findAll('.tool-group-body')).toHaveLength(0);
+    expect(wrapper.findAll('.tool-chip')).toHaveLength(10);
     expect(wrapper.findAll('.tool-chip-detail, .tool-chip-raw')).toHaveLength(0);
     expect(wrapper.text()).not.toContain('raw-only-response');
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
     await wrapper.setProps({ entryId: `${opaque}:result` });
-    expect(wrapper.text()).toContain('requested conversation entry was not found');
-    expect(wrapper.find('.targeted-conversation-entry').exists()).toBe(false);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('requested conversation entry was not found');
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(`${opaque}:result`);
     wrapper.unmount();
   });
 
-  it.each(['change', 'invalid', 'unmount'] as const)('cancels render-delayed group focus on %s', async (action) => {
+  it.each(['change', 'invalid', 'unmount'] as const)('cancels obsolete exact-row focus on %s', async (action) => {
     api.getAgentConversation.mockResolvedValueOnce(response([
       ...toolRows('group-first', 1), ...toolRows('group-target', 1), ...toolRows('new-target', 2, 'custom_probe'),
     ]));
-    let intervene = () => {};
-    const { wrapper, callback } = await mountConversation('', () => intervene());
+    const { wrapper, callback } = await mountConversation('');
     await callback(null);
     await flushPromises();
-    let changed = false;
-    intervene = () => {
-      if (changed) return;
-      changed = true;
-      if (action === 'unmount') wrapper.unmount();
-      else void wrapper.setProps(action === 'invalid' ? { invalidSegment: true } : { entryId: 'new-target' });
-    };
     centerScrolls = 0;
-    await wrapper.setProps({ entryId: 'group-target' });
+    void wrapper.setProps({ entryId: 'group-target' });
+    if (action === 'unmount') wrapper.unmount();
+    else void wrapper.setProps(action === 'invalid' ? { invalidSegment: true } : { entryId: 'new-target' });
     await flushPromises();
-    expect(changed).toBe(true);
     expect(centerScrolls).toBe(action === 'change' ? 1 : 0);
     if (action !== 'unmount') {
       expect(wrapper.text()).not.toContain('requested conversation entry was not found');
@@ -337,7 +328,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     }
   });
 
-  it('keeps grouped exact selection isolated from current updates and fails closed for invalid segments and projection errors', async () => {
+  it('keeps exact row selection isolated from current updates and fails closed for invalid segments and projection errors', async () => {
     const id = 'exact-group-call';
     api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 1, segment_context: null, entries: [...toolRows('first', 1), ...toolRows(id, 1)] });
     const router = makeRouter();

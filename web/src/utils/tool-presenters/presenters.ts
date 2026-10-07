@@ -1,142 +1,203 @@
-import { argKeys, asRecord, cardPart, describeJsonlTail, formatBytes, oneLine, pathParts, processLogPart, str, textPart, webfetchContentPart } from './helpers';
-import type { ResultPresenterContext, ToolPresenter } from './types';
+import { asRecord, cardPart, oneLine, pathParts, processLogPart, str, textPart, webfetchContentPart } from './helpers';
+import type { InlinePart, ResultPresenterContext, ResultPresenterResult, SemanticSection, ToolPresenter } from './types';
+import { ConversationSessionIdSchema } from '@saivage/schemas/conversation-session-id';
 
-function cardResult(ctx: ResultPresenterContext, verb: string) {
-  const record = ctx.dataRecord;
-  const nested = asRecord(record?.card);
-  const card = nested ?? record;
-  const id = str(card?.id ?? record?.card_id);
-  return { headline: id ? [{ kind: 'text' as const, text: `${verb} ` }, ...cardPart(id)] : textPart(verb) };
+type Facts = Record<string, unknown>;
+type Field = string | readonly [string, string];
+const valueText = (value: unknown): string => typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+function fields(title: string, facts: Facts | null, keys: readonly Field[]): SemanticSection {
+  return { title, fields: keys.flatMap((key) => {
+    const [name, label] = typeof key === 'string' ? [key, key.replaceAll('_', ' ')] : key;
+    if (!facts || !Object.hasOwn(facts, name)) return [];
+    const value = facts[name];
+    const parts: InlinePart[] = ['session_id', 'id'].includes(name) && ConversationSessionIdSchema.safeParse(value).success
+      ? [{ kind: 'session', id: value as string, label: value as string }]
+      : ['card_id', 'parent_id', 'parent', 'id'].includes(name) && typeof value === 'string' && /^(project|card-[a-z]+(?:-[a-z]+){0,11})$/.test(value)
+      ? cardPart(value, value) : ['path', 'target', 'current_url', 'accepted_version_url', 'version_url', 'record_url', 'saved_as'].includes(name) && typeof value === 'string'
+        ? pathParts(value) : textPart(valueText(value));
+    return [{ label, parts }];
+  }) };
 }
-
-function processResult(ctx: ResultPresenterContext) {
+function content(title: string, value: unknown, disclosure = false): SemanticSection[] {
+  if (value === undefined) return [];
+  const slice = asRecord(value);
+  if (slice && typeof slice.content === 'string' && typeof slice.utf8_bytes === 'number' && typeof slice.offset_bytes === 'number' && typeof slice.next_offset_bytes === 'number') return [fields(`${title} — text slice coverage`, slice, ['utf8_bytes', 'offset_bytes', 'next_offset_bytes', 'total_bytes']), { title, content: slice.content, disclosure }];
+  return [{ title, content: valueText(value), disclosure }];
+}
+const cardFields = ['id', 'type', 'status', 'title', 'parent', 'depth', 'children_count', 'descendants', 'depth_omitted', 'head_id'] as const;
+const recordFields = ['name', 'format', 'state', ['revision', 'Mutable revision'], 'head_id', 'current_url', 'accepted_version_url'] as const;
+function page(title: string, value: unknown, keys: readonly Field[] = []): SemanticSection[] {
+  if (value === undefined) return [];
+  const p = asRecord(value);
+  const items = p?.items;
+  if (!Array.isArray(items)) return content(`${title} — presentation unavailable`, value);
+  return [fields(`${title} — recorded coverage`, p, ['total', 'position', 'returned', 'next']), ...list(title, items, keys)];
+}
+function list(title: string, value: unknown, keys: readonly Field[] = []): SemanticSection[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return content(`${title} — presentation unavailable`, value);
+  return [{ title, items: value.map((item, index) => {
+    const row = asRecord(item);
+    if (typeof row?.content_hex === 'string') return { ...fields(`Partial JSON item ${index + 1} (not a complete observation)`, row, ['utf8_bytes', 'offset_bytes', 'next_offset_bytes', 'total_bytes']), content: row.content_hex };
+    if (!row) return { title: `${title} ${index + 1}`, content: valueText(item) };
+    return fields(`${title} ${index + 1}`, row, keys);
+  }) }];
+}
+function count(value: unknown, noun: string): string {
+  const p = asRecord(value);
+  return Array.isArray(value) ? `${value.length} ${noun} recorded` : typeof p?.returned === 'number'
+    ? `${p.returned} of ${str(p.total)} selected ${noun}${Array.isArray(p.items) && p.items.some((x) => asRecord(x)?.content_hex !== undefined) ? ' · partial JSON items' : ''}` : `${noun} not reported`;
+}
+function observed(headline: string, sections: SemanticSection[], outcome = 'Observation recorded', target?: InlinePart[]): ResultPresenterResult {
+  return { headline: textPart(headline), sections, outcome, target };
+}
+function request(action: string, keys: readonly Field[], target: (a: Facts) => InlinePart[], blocks: readonly Field[] = []): ToolPresenter['call'] {
+  return (a) => ({ headline: target(a), sections: [fields(`Requested ${action}`, a, keys), ...blocks.flatMap((key) => {
+    const [name, label] = typeof key === 'string' ? [key, key.replaceAll('_', ' ')] : key;
+    return a[name] === undefined ? [] : [{ title: label, content: valueText(a[name]) }];
+  })] });
+}
+function propagation(r: Facts | null): SemanticSection[] {
+  const p = asRecord(r?.propagation);
+  return p ? [fields('Propagation (separate from principal effect)', p, ['ok', 'partial', 'error'])] : [];
+}
+function propagationSummary(r: Facts | null): string {
+  const p = asRecord(r?.propagation);
+  return p?.partial === true || p?.ok === false ? ` · Partial propagation · ${oneLine(p.error, 200)}` : '';
+}
+function processResult(ctx: ResultPresenterContext): ResultPresenterResult {
   const r = ctx.dataRecord;
-  const exit = typeof r?.exit_code === 'number' ? r.exit_code : null;
-  const status = typeof r?.status === 'string' ? r.status : null;
-  const procId = typeof r?.process_id === 'string' ? r.process_id : null;
-  const parts: string[] = [];
-  if (exit !== null) parts.push(`exit ${exit}`);
-  if (status) parts.push(status);
-  const stdoutLink = processLogPart(r?.stdout_url, 'stdout');
-  const stderrLink = processLogPart(r?.stderr_url, 'stderr');
-  const detail = [
-    ...textPart(`${procId ? `process ${procId} · ` : ''}stdout ${r?.stdout_complete === true ? 'complete' : 'partial'}`),
-    ...(stdoutLink ? [...textPart(' · '), stdoutLink] : []),
-    ...textPart(` · stderr ${r?.stderr_complete === true ? 'complete' : 'partial'}`),
-    ...(stderrLink ? [...textPart(' · '), stderrLink] : []),
-  ];
-  return { headline: textPart(parts.length ? parts.join(' · ') : 'completed'), detail };
-}
-
-function pageCount(page: unknown, noun: string, plural?: string, totalQualifier = '') {
-  const record = asRecord(page);
-  const returned = typeof record?.returned === 'number' ? record.returned : Array.isArray(record?.items) ? record.items.length : null;
-  const total = typeof record?.total === 'number' ? record.total : null;
-  if (returned === null) return { headline: textPart(`${noun} list loaded`) };
-  const pluralNoun = plural ?? `${noun}s`;
-  const items = Array.isArray(record?.items) ? record.items : [];
-  const containsSlice = items.some((item) => {
-    const value = asRecord(item);
-    return typeof value?.content_hex === 'string' && typeof value.total_bytes === 'number';
-  });
-  if (containsSlice) {
-    const slices = `${returned} partial ${noun} slice${returned === 1 ? '' : 's'}`;
-    return { headline: textPart(total === null ? slices : `${slices} of ${total}${totalQualifier} ${total === 1 ? noun : pluralNoun}`) };
+  if (!r) return observed('', [], 'Process observation not reported');
+  const exit = r.exit_code;
+  const outcome = r.status === 'running' ? 'Running at observation' : typeof exit === 'number'
+    ? `${exit === 0 ? 'Exited' : 'Process failed'} · exit ${exit}${typeof r.status === 'string' && r.status !== 'exited' ? ` · recorded status: ${r.status}` : ''}` : typeof r.status === 'string' ? `Recorded process status: ${r.status}` : 'Presentation unavailable';
+  const sections: SemanticSection[] = [fields('Recorded process', r, ['status', 'exit_code', 'process_id'])];
+  for (const stream of ['stdout', 'stderr'] as const) {
+    const link = processLogPart(r[`${stream}_url`], stream);
+    sections.push({ ...fields(`${stream} — recorded head coverage`, r, [[`${stream}_complete`, 'Head complete'], [`${stream}_bytes`, 'Source bytes'], [`${stream}_url`, 'Output URL']]), ...(link ? { fields: [...fields('', r, [[`${stream}_complete`, 'Head complete'], [`${stream}_bytes`, 'Source bytes']]).fields!, { label: 'Output', parts: [link] }] } : {}) });
+    sections.push(...content(stream, r[stream], true));
   }
-  if (total === null) return { headline: textPart(`${returned} ${returned === 1 ? noun : pluralNoun}`) };
-  return { headline: textPart(`${returned} of ${total}${totalQualifier} ${total === 1 ? noun : pluralNoun}`) };
+  const stream = (typeof exit === 'number' && exit !== 0 || r.status === 'failed') && r.stderr ? 'stderr' : 'stdout';
+  const excerpt = r[stream];
+  return { outcome, status: typeof exit === 'number' && exit !== 0 || r.status === 'failed' ? 'error' : 'neutral', headline: textPart(excerpt ? `${stream} head${r[`${stream}_complete`] === false ? ' (partial)' : ''}: ${oneLine(excerpt, 160)}` : ''), sections, target: textPart(r.process_id) };
+}
+function recordResult(r: Facts): ResultPresenterResult {
+  const draft = r.state === 'open' && r.surface === 'card_agent';
+  const accepted = r.state === 'closed' && r.surface === 'analyst';
+  return observed(`${str(r.name)}${propagationSummary(r)}`, [fields('Record mutation', r, ['card_id', 'name', 'state', 'surface', ['revision', 'Mutable revision'], 'head_id', 'current_url', ['accepted_version_url', draft ? 'Retained accepted version' : 'Accepted version'], 'bytes', 'written', 'code', 'reason', 'current_head', 'occurrences', 'replace_all_required', 'restart_required']), ...propagation(r)], draft ? 'Draft updated' : accepted ? 'Record accepted' : r.code ? 'Refused' : 'Record mutation reported', pathParts(r.current_url));
+}
+function fileMutation(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  if (r && (r.surface !== undefined || r.code !== undefined)) return recordResult(r);
+  const effect = ctx.name === 'write' ? r?.written : ctx.name === 'edit' ? r?.edited : r?.applied;
+  const detail = ctx.name === 'edit' && typeof r?.replacements === 'number' ? `${r.replacements} replacements` : ctx.name === 'apply_patch' ? count(r?.changed_files, 'changed paths') : str(r?.target);
+  return observed(detail, [fields('Recorded file effect', r, ['destination_kind', 'target', 'path', 'bytes', 'written', 'replacements', 'edited', 'applied']), ...list('Changed paths (returned order)', r?.changed_files)], effect === true ? 'Applied' : effect === false ? 'Not applied' : 'Effect not reported', pathParts(r?.target ?? r?.path));
+}
+function cardMutation(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  const card = asRecord(r?.card);
+  const lifecycle = asRecord(card?.lifecycle);
+  const operatorSummary = asRecord(r?.operator_summary);
+  const cardError = operatorSummary?.error ?? lifecycle?.error;
+  const outcome = ctx.name === 'reorder_child' && typeof r?.changed === 'number' ? (r.changed === 0 ? 'Unchanged' : `Reordered · ${r.changed} changed`)
+    : ctx.name === 'activate_card' ? str(r?.outcome) || 'Child outcome not reported'
+      : ctx.name === 'delete_card' ? count(r?.deleted, 'deleted cards') : str(card?.status) || str(r?.status) || 'Card effect not reported';
+  return observed(`${str(card?.title || card?.id || r?.card_id)}${r?.summary ? ` · ${oneLine(r.summary, 160)}` : ''}${cardError ? ` · Card error: ${oneLine(cardError, 200)}` : ''}${propagationSummary(r)}`, [fields('Recorded card', card, ['id', 'type', 'parent', 'status', 'title', 'depends_on', 'priority', 'urgency', 'version_seq', 'status_text']), fields('Recorded card lifecycle', lifecycle, ['status', 'result', 'error', 'completed_at']), fields('Recorded Analyst operator summary', operatorSummary, ['blocked', 'hasError', 'error', 'completedAt', 'stale']), fields('Recorded card effect', r, ['card_id', 'parent_id', 'parent', 'status', 'logical_path', 'outcome', 'summary', 'result', 'changed', 'reason', 'missing', 'extra']), ...list('Cancelled cards (returned order)', r?.cancelled_card_ids, ['card_id']), ...list('Deleted cards (returned order)', r?.deleted, ['card_id']), ...list('Top-level deleted roots', r?.top_level_deleted, ['card_id']), ...propagation(r)], outcome, cardPart(card?.id ?? r?.card_id ?? r?.parent_id));
+}
+function readResult(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  const outcome = r?.metadata_only === true ? 'Metadata only' : r?.too_large === true ? 'Content omitted — too large' : 'Read observation recorded';
+  return observed(str(r?.message) || (r?.entries !== undefined || r?.records !== undefined ? count(r?.entries ?? r?.records, 'entries') : typeof r?.total_bytes === 'number' ? `${r.total_bytes} source bytes` : 'Content coverage not reported'), [fields('Returned location and metadata', r, ['path', 'record_url', 'card_id', 'name', 'format', 'state', ['revision', 'Mutable revision'], 'head_id', 'version', 'accepted_version_url', 'committed_at', 'metadata_only', 'is_directory', 'entries_count', 'total_entries', 'size', 'mtime', 'total_bytes', 'too_large', 'max_bytes', 'message']), ...(asRecord(r?.path) ? content('Returned path slice', r?.path) : []), ...content('Recorded content', r?.content), ...page('Directory entries', r?.entries, ['name', 'type']), ...page('Records', r?.records, recordFields)], outcome);
+}
+function inspection(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  const catalogKey = ({ list_cards: 'cards', get_tree: 'nodes', list_card_versions: 'versions' } as Facts)[ctx.name];
+  return observed(catalogKey ? count(r?.[String(catalogKey)], String(catalogKey)) : str(asRecord(r?.card)?.title) || str(r?.section) || 'Selected evidence', [fields('Selected card / immutable history', r, ['card_id', 'root_id', 'depth', 'section', 'head_id', ['version_seq', 'Current mutation revision'], ['version', 'Immutable history version'], 'entry_id', 'published_at', 'artifact_kind', 'artifact_sha256', 'observation_sha256', 'from_version', 'to_version', 'from_artifact', 'to_artifact', 'record_name', 'version_url', 'content_source', 'content_sha256', 'total_bytes', 'notification_recipient', 'planning_target', 'permitted_child_types', 'current_process_position']), fields('Recorded card summary', asRecord(r?.card), ['id', 'type', 'status', 'title', 'priority', 'urgency', 'parent', 'created_at', 'updated_at', 'status_text']), ...(catalogKey ? page(String(catalogKey), r?.[String(catalogKey)], catalogKey === 'versions' ? ['entry_id', ['version', 'Immutable history version'], 'published_at', 'artifact_kind', 'change'] : cardFields) : []), ...(asRecord(r?.content)?.items ? page(`Selected ${str(r?.section)} (returned order)`, r?.content, r?.section === 'records' ? recordFields : cardFields) : content('Selected content', r?.content)), ...content('Recorded diff (text slice)', r?.diff)]);
+}
+function observation(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  const key = ({ list_processes_tool: 'processes', list_agent_sessions: 'sessions', read_agent_session: r?.section === 'context' ? 'context' : 'messages', read_runtime_events: 'events', read_runtime_errors: 'errors', read_control_actions: 'actions' } as Facts)[ctx.name];
+  const keys: readonly Field[] = ctx.name === 'list_processes_tool' ? ['id', 'status', 'command', 'cwd', 'exit_code', 'timed_out', 'started_at', 'ended_at', 'owner_kind', 'owner_id', 'card_id', 'session_id', 'logs']
+    : ctx.name === 'list_agent_sessions' ? ['id', 'agent_name', 'session_scope', 'card_id', 'started_at', 'status', 'activity', 'compaction']
+      : ctx.name === 'read_agent_session' ? r?.section === 'context' ? ['kind', 'source_version', 'covered_through_message_id', 'summary_text', 'protected_prompts', 'required_model_facts', 'continuation'] : ['id', 'role', 'kind', 'timestamp', 'content', 'tool', 'tool_call_id', 'context_policy', 'round_id', 'message_index', 'block_index', 'links']
+        : ctx.name === 'read_control_actions' ? ['id', 'actor', 'surface', 'action', 'target_kind', 'target_id', 'params_summary', 'safety_class', 'outcome', 'outcome_summary', 'error', 'created_at']
+          : ['id', 'timestamp', 'kind', 'goal_id', 'card_id', 'phase', 'error_message', 'actionable_error', 'server', 'tool', 'success', 'duration_ms', 'error', 'actor', 'surface', 'result'];
+  const items = asRecord(r?.[String(key)])?.items;
+  const first = Array.isArray(items) ? asRecord(items[0]) : null;
+  const salient = first?.error_message ?? first?.error;
+  return observed(`${key ? count(r?.[String(key)], String(key)) : str(asRecord(r?.runtimeSummary)?.status)}${salient ? ` · ${oneLine(salient, 160)}` : ''}`, [fields('Recorded observation (not a live monitor)', r, ['runtimeSummary', 'runtime', 'runningProcesses', 'statusCounts', 'counts', 'session', 'ownership', 'segment_version', 'segment_id', 'section', 'has_segment_context', ['total_visible_entries', 'Full visible message count'], ['total_lines', 'Full line count'], 'returned', 'parse_errors']), ...(key ? ctx.name === 'read_control_actions' ? list('Selected control actions', r?.actions, keys) : page(ctx.name.startsWith('read_') ? `Selected ${str(key)}` : str(key), r?.[String(key)], keys) : [])]);
+}
+function notification(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  const interruption = asRecord(r?.interruption);
+  const outcome = r?.queued === true ? 'Queued · Delivery not reported' : r?.queued === false ? 'Queue refused' : 'Queue status not reported';
+  return observed(`${str(interruption?.status)}${interruption?.reason ? ` · ${str(interruption.reason)}` : ''}${r?.reason ? ` · ${str(r.reason)}` : ''}${r?.body ? ` · ${oneLine(r.body, 160)}` : ''}`, [fields('Submission', r, ['queued', 'card_id', 'body', 'notification_id', 'reason', 'status']), fields('Interruption (not a delivery receipt)', interruption, ['status', 'reason', 'stopped_card_ids'])], outcome, cardPart(r?.card_id));
+}
+function control(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  const outcome = ctx.name === 'restart_server' ? str(r?.restart) || 'Restart disposition not reported' : ctx.name === 'stop_project' && r?.contained === false ? 'Stopped · Not contained' : str(r?.status) || 'Control response recorded';
+  return observed([str(r?.confirmationMessage ?? r?.error), ...(ctx.name === 'start_project' ? ['started', 'stopped'].flatMap((key) => r && Object.hasOwn(r, key) ? [`${key}: ${str(r[key])}`] : []) : [])].filter(Boolean).join(' · '), [fields('Recorded control response', r, ['status', 'runtime', 'runtime_status', 'started', 'stopped', 'contained', 'error', 'restart', 'confirmationMessage'])], outcome);
+}
+function webfetch(ctx: ResultPresenterContext): ResultPresenterResult {
+  const r = ctx.dataRecord;
+  if (r?.code !== undefined) return recordResult(r);
+  const write = asRecord(r?.write);
+  const saved = asRecord(write?.data);
+  const mutation = saved ? write?.kind === 'record' ? recordResult(saved) : fileMutation({ ...ctx, name: 'write', dataRecord: saved }) : null;
+  const link = webfetchContentPart(r?.content_url);
+  return observed(`${str(r?.redacted_url)}${r?.fetch_truncated === true ? ' · Fetch truncated' : ''}${mutation ? ` · ${mutation.outcome} ${propagationSummary(saved)}` : ''}`, [fields('Fetch metadata and recorded coverage', r, ['redacted_url', 'status', 'headers', 'metadata_only', 'kind', 'binary', 'bytes', 'saved_as', 'head_utf8_bytes', 'redacted_text_utf8_bytes', 'fetched_text_utf8_bytes', 'head_complete', 'fetch_truncated', 'content_url']), ...content('Recorded text head', r?.head), ...(link ? [{ title: 'Returned text artifact', fields: [{ label: 'Files', parts: [link] }] }] : []), ...(mutation ? [{ title: `Save effect — ${str(write?.kind)}`, items: mutation.sections }] : [])], r?.metadata_only === true ? 'Metadata only' : r?.binary === true ? 'Binary content omitted' : 'Fetch observation recorded');
 }
 
-function pageWithFullCount(ctx: ResultPresenterContext, key: string, noun: string, fullTotalKey: string, fullLabel: string, totalQualifier = '') {
-  const page = pageCount(ctx.dataRecord?.[key], noun, undefined, totalQualifier);
-  const fullTotal = ctx.dataRecord?.[fullTotalKey];
-  return {
-    ...page,
-    detail: typeof fullTotal === 'number' ? textPart(`${fullTotal} ${fullLabel}`) : undefined,
-  };
-}
-
-function webfetchResult(ctx: ResultPresenterContext) {
-  const result = ctx.dataRecord;
-  if (typeof result?.saved_as === 'string') return { headline: textPart(result.saved_as, 96) };
-  if (result?.kind !== 'text') return { headline: textPart(str(result?.redacted_url) || 'fetched', 96) };
-  const content = webfetchContentPart(result.content_url);
-  const headline = result.head_complete === false && content
-    ? [content]
-    : textPart(str(result.redacted_url) || 'fetched', 96);
-  const head = oneLine(result.head, 72);
-  const headBytes = typeof result.head_utf8_bytes === 'number' ? result.head_utf8_bytes : 0;
-  const totalBytes = typeof result.redacted_text_utf8_bytes === 'number' ? result.redacted_text_utf8_bytes : 0;
-  const completeness = result.head_complete === true ? 'head complete' : 'head incomplete';
-  const fetchState = result.fetch_truncated === true ? 'fetch truncated' : 'fetch complete';
-  return {
-    headline,
-    detail: textPart(`${head ? `head: ${head} · ` : 'empty head · '}${formatBytes(headBytes)} of ${formatBytes(totalBytes)} · ${completeness} · ${fetchState}`),
-  };
-}
-
-function mcpResult(ctx: ResultPresenterContext) {
-  const result = ctx.dataRecord;
-  const headline = textPart('MCP call completed');
-  if (typeof result?.result_complete !== 'boolean' || typeof result.result_utf8_bytes !== 'number') return { headline };
-  return {
-    headline,
-    detail: textPart(`result ${result.result_complete ? 'complete' : 'truncated'} · ${formatBytes(result.result_utf8_bytes)} total JSON source`),
-  };
-}
-
-export const TOOL_PRESENTERS = {
-  activate_card: { action: 'Activate', call: (a) => ({ icon: '▶', headline: cardPart(a.card_id) }), result: (ctx) => ({ headline: textPart(str(ctx.dataRecord?.outcome) || 'activated'), detail: cardPart(ctx.dataRecord?.card_id) }) },
-  apply_patch: { action: 'Patch', call: () => ({ icon: '🩹', headline: textPart('apply patch') }), result: (ctx) => { const n = Array.isArray(ctx.dataRecord?.changed_files) ? ctx.dataRecord.changed_files.length : null; return { headline: textPart(n === null ? 'patch applied' : `patched ${n} file${n === 1 ? '' : 's'}`) }; } },
-  cancel_card: { action: 'Cancel', call: (a) => ({ icon: '⏹', headline: cardPart(Object.hasOwn(a, 'card_id') ? a.card_id : a.cardId) }), result: (ctx) => ({ headline: textPart('cancelled'), detail: cardPart(ctx.dataRecord?.card_id) }) },
-  create_card: { action: 'Create', call: (a) => ({ icon: '➕', headline: textPart(oneLine(a.title, 64) || `${str(a.type)} card`), detail: [...textPart(a.type), ...cardPart(a.parent)] }), result: (ctx) => cardResult(ctx, 'created') },
-  delete_card: { action: 'Delete', call: (a) => ({ icon: '🗑', headline: textPart(Array.isArray(a.ids) ? a.ids.join(', ') : '') }), result: (ctx) => ({ headline: textPart(`deleted ${Array.isArray(ctx.dataRecord?.deleted) ? ctx.dataRecord.deleted.length : 0} card${Array.isArray(ctx.dataRecord?.deleted) && ctx.dataRecord.deleted.length === 1 ? '' : 's'}`) }) },
-  diff_card_versions: { action: 'Diff', group: 'context', call: (a) => ({ icon: '🔀', headline: cardPart(a.card_id), detail: textPart(`v${str(a.from_version)} → v${str(a.to_version)}`) }) },
-  edit: { action: 'Edit', call: (a) => ({ icon: '✎', headline: pathParts(a.path), detail: textPart('replace text') }), result: (ctx) => ({ headline: textPart(`edited ${str(ctx.dataRecord?.path) || 'file'}`) }) },
-  edit_card: { action: 'Edit card', call: (a) => { const keys = Object.keys(a).filter((key) => key !== 'card_id'); return { icon: '✎', headline: cardPart(a.card_id), detail: keys.length ? textPart(`change ${keys.join(', ')}`) : undefined }; }, result: (ctx) => cardResult(ctx, 'edited') },
-  emit_result: { action: 'Complete', call: (a) => ({ icon: '✅', headline: textPart(a.summary, 96), detail: textPart(a.outcome) }), result: () => ({ headline: textPart('result accepted') }) },
-  get_card: { action: 'Inspect', group: 'context', call: (a) => ({ icon: '🔎', headline: cardPart(a.id), detail: textPart(str(a.section)) }), result: (ctx) => { const data = ctx.dataRecord; const card = asRecord(data?.card); const content = asRecord(data?.content); const summary = card ?? asRecord(content?.card); if (summary) { const status = str(summary.status) || str(asRecord(summary.lifecycle)?.status); return { headline: textPart(str(summary.title) || `card ${str(summary.id)}`), detail: textPart([str(summary.type), status].filter(Boolean).join(' · ')) }; } return { headline: textPart(data?.section ? `section ${str(data.section)}` : 'card loaded') }; } },
-  get_card_version: { action: 'Version', group: 'context', call: (a) => ({ icon: '🕘', headline: cardPart(a.card_id), detail: textPart(`v${str(a.version)} · ${str(a.section)}`) }) },
-  get_status: { action: 'Status', group: 'context', call: () => ({ icon: '📊', headline: textPart('project status') }) },
-  get_tree: { action: 'Tree', group: 'context', call: (a) => ({ icon: '🌳', headline: textPart(`subtree ${str(a.rootId)}`), detail: textPart(`depth ${str(a.depth ?? 3)}`) }), result: () => ({ headline: textPart('tree fetched') }) },
-  glob: { action: 'Glob', group: 'context', call: (a) => ({ icon: '📂', headline: pathParts(a.directory), detail: textPart(a.pattern) }), result: () => ({ headline: textPart('glob completed') }) },
-  grep: { action: 'Grep', group: 'context', call: (a) => ({ icon: '🔎', headline: textPart(a.pattern, 80), detail: a.path === undefined ? undefined : pathParts(a.path) }), result: () => ({ headline: textPart('grep completed') }) },
-  kill_process: { action: 'Kill', call: (a) => ({ icon: '🛑', headline: textPart(`process ${str(a.process_id)}`) }), result: processResult },
-  list_agent_sessions: { action: 'List sessions', group: 'context', call: () => ({ icon: '👥', headline: textPart('agent sessions') }), result: (ctx) => pageCount(ctx.dataRecord?.sessions, 'session') },
-  list_card_versions: { action: 'Versions', group: 'context', call: (a) => ({ icon: '🕘', headline: cardPart(a.card_id) }), result: (ctx) => pageCount(ctx.dataRecord?.versions, 'version') },
-  list_cards: { action: 'List cards', group: 'context', call: (a) => ({ icon: '🔎', headline: textPart(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : str(v)}`).join(' · ') || 'all cards') }), result: (ctx) => pageCount(ctx.dataRecord?.cards, 'card') },
-  list_processes_tool: { action: 'List processes', call: (a) => ({ icon: '⚙', headline: textPart(Object.keys(a).length ? `filter ${argKeys(a)}` : 'all processes') }), result: (ctx) => pageCount(ctx.dataRecord?.processes, 'process', 'processes') },
-  mcp_tool_call: { action: 'MCP', call: (a) => ({ icon: '🔌', headline: textPart(`${str(a.serverName)}/${str(a.toolName)}`), detail: a.args === undefined ? undefined : textPart(a.args, 72) }), result: mcpResult },
-  navigate_back: { action: 'Back', call: () => ({ icon: '↩', headline: textPart('navigate back') }), result: () => ({ headline: textPart('back navigation queued') }) },
-  navigate_workspace: { action: 'Navigate', call: (a) => { const target = asRecord(a.target); return { icon: '🧭', headline: textPart([str(target?.kind), str(target?.id), str(target?.refinement)].filter(Boolean).join(' · ')) }; }, result: () => ({ headline: textPart('workspace navigation queued') }) },
-  pause_runtime: { action: 'Pause', call: () => ({ icon: '⏸', headline: textPart('pause runtime') }) },
-  queue_notification: { action: 'Notify', call: (a) => ({ icon: '🔔', headline: cardPart(a.card_id), detail: textPart(`${str(a.kind)} · ${oneLine(a.body, 96)}`) }), result: () => ({ headline: textPart('notification queued') }) },
-  read: { action: 'Read', group: 'context', call: (a) => ({ icon: '📖', headline: pathParts(a.path) }), result: (ctx) => { const r = ctx.dataRecord; const entries = asRecord(r?.entries); if (entries) return pageCount(entries, 'entry', 'entries'); const totalBytes = typeof r?.total_bytes === 'number' ? r.total_bytes : null; return { headline: textPart(totalBytes !== null && totalBytes > 0 ? formatBytes(totalBytes) : 'read completed') }; } },
-  read_agent_session: { action: 'Session', group: 'context', call: (a) => ({ icon: '🧵', headline: textPart(`session ${str(a.session_id)}`), detail: textPart(str(a.section) || 'messages') }), result: (ctx) => ctx.dataRecord?.section === 'context'
-    ? pageWithFullCount(ctx, 'context', 'context item', 'total_visible_entries', 'total visible messages')
-    : pageWithFullCount(ctx, 'messages', 'message', 'total_visible_entries', 'total visible messages', ' selected') },
-  read_control_actions: { action: 'Audit', group: 'context', call: (a) => ({ icon: '🧭', headline: textPart(`control actions × ${str(a.limit ?? 50)}${a.since ? ` since ${str(a.since)}` : ''}`) }), result: (ctx) => describeJsonlTail(ctx, 'actions', 'control actions') },
-  read_record_version: { action: 'Record version', group: 'context', call: (a) => ({ icon: '🕘', headline: cardPart(a.card_id), detail: textPart(`${str(a.record_name)} v${str(a.version)}`) }) },
-  read_runtime_errors: { action: 'Errors', group: 'context', call: (a) => ({ icon: '🩺', headline: textPart(`newest errors × ${str(a.limit ?? 50)}`) }), result: (ctx) => pageWithFullCount(ctx, 'errors', 'error', 'total_lines', 'total error lines', ' selected') },
-  read_runtime_events: { action: 'Events', group: 'context', call: (a) => ({ icon: '📜', headline: textPart(`newest events × ${str(a.limit ?? 50)}${a.kind ? ` [${str(a.kind)}]` : ''}`) }), result: (ctx) => pageWithFullCount(ctx, 'events', 'event', 'total_lines', 'total event lines', ' selected') },
-  reconfigure: { action: 'Reconfigure', call: (a) => ({ icon: '⚙', headline: textPart(str(a.action)) }), result: () => ({ headline: textPart('configuration updated') }) },
-  reorder_child: { action: 'Reorder', call: (a) => ({ icon: '↕', headline: textPart((Array.isArray(a.orderedChildIds) ? a.orderedChildIds : []).join(' → ')), detail: Object.hasOwn(a, 'parentId') ? cardPart(a.parentId) : undefined }), result: () => ({ headline: textPart('cards reordered') }) },
-  reopen_card: { action: 'Reopen', call: (a) => ({ icon: '↻', headline: cardPart(Object.hasOwn(a, 'card_id') ? a.card_id : a.cardId) }), result: (ctx) => ({ ...cardResult(ctx, 'reopened'), detail: textPart(str(ctx.dataRecord?.status) || 'changed') }) },
-  restart_server: { action: 'Restart server', call: () => ({ icon: '↻', headline: textPart('restart server') }), result: () => ({ headline: textPart('server restart requested') }) },
-  resume_runtime: { action: 'Resume', call: () => ({ icon: '▶', headline: textPart('resume runtime') }) },
-  run_command: { action: 'Shell', call: (a) => ({ icon: '⚡', headline: textPart(a.command, 80) }), result: processResult },
-  show_config: { action: 'Show config', call: () => ({ icon: '⚙', headline: textPart('configuration') }), result: () => ({ headline: textPart('configuration loaded') }) },
-  skill: { action: 'Skill', group: 'context', call: (a) => ({ icon: '🪄', headline: textPart(a.name ?? 'list skills') }), result: (ctx) => { const data = ctx.dataRecord; if (Array.isArray(data?.skills)) { const n = data.skills.length; return { headline: textPart(`${n} skill${n === 1 ? '' : 's'}`) }; } if (typeof data?.skill_name === 'string' && typeof data.skill_content === 'string') return { headline: textPart('skill loaded') }; return { headline: textPart('skills loaded') }; } },
-  start_project: { action: 'Start project', call: () => ({ icon: '▶', headline: textPart('start project') }), result: () => ({ headline: textPart('project start requested') }) },
-  stop_project: { action: 'Stop project', call: () => ({ icon: '■', headline: textPart('stop project') }), result: () => ({ headline: textPart('project stopped') }) },
-  wait_process: { action: 'Wait', call: (a) => ({ icon: '⏳', headline: textPart(`process ${str(a.process_id)}`) }), result: processResult },
-  webfetch: { action: 'Fetch', group: 'web', call: (a) => ({ icon: '🌐', headline: textPart(a.url, 80) }), result: webfetchResult },
-  websearch: { action: 'Search', group: 'web', call: (a) => ({ icon: '🌐', headline: textPart(a.query, 80) }), result: (ctx) => { const n = Array.isArray(ctx.dataRecord?.results) ? ctx.dataRecord.results.length : null; return { headline: n === null ? textPart('search completed') : textPart(`${n} result${n === 1 ? '' : 's'}`) }; } },
-  write: { action: 'Write', call: (a) => ({ icon: '✏️', headline: pathParts(a.path), detail: textPart(`${str(a.content).length} chars`) }), result: (ctx) => ({ headline: textPart(typeof ctx.dataRecord?.bytes === 'number' ? `wrote ${formatBytes(ctx.dataRecord.bytes)}` : 'wrote file') }) },
-} as const satisfies Readonly<Record<string, ToolPresenter>>;
-
-type BuiltInToolName = keyof typeof TOOL_PRESENTERS;
-
+const pathTarget = (a: Facts) => pathParts(a.path);
+const cardTarget = (a: Facts) => cardPart(a.card_id ?? a.cardId ?? a.id);
+const queryKeys = ['position', 'response_bytes', 'section', 'version', 'from_version', 'to_version', 'byte_offset', 'limit', 'since', 'kind', 'status', 'cardId', 'session_id', 'last_n', 'record_name', 'rootId', 'depth', 'type', 'parent'] as const;
+export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
+  run_command: { action: 'Run command', call: (a) => { const rendered = request('command', ['cwd', 'wait', 'timeout_ms'], (v) => textPart(v.command, 160), ['command'])(a); if (a.cwd === undefined) rendered.sections[0].fields!.push({ label: 'cwd', parts: textPart('Project workspace default') }); return rendered; }, result: processResult },
+  wait_process: { action: 'Wait for process', call: request('wait', ['process_id', 'timeout_ms'], (a) => textPart(a.process_id)), result: processResult },
+  kill_process: { action: 'Signal process', call: request('signal', ['process_id'], (a) => textPart(a.process_id)), result: processResult },
+  read: { action: 'Read', call: request('read', ['path', 'read_mode', 'metadata_only', 'position', 'response_bytes'], pathTarget), result: readResult },
+  glob: { action: 'Find paths', call: request('glob', ['directory', 'pattern', 'position', 'max_results', 'response_bytes'], (a) => [...pathParts(a.directory), ...textPart(a.pattern)]), result: (ctx) => observed(count(ctx.dataRecord?.matches, 'matches'), page('Matching paths', ctx.dataRecord?.matches)) },
+  grep: { action: 'Search text', call: request('grep', ['path', 'pattern', 'include', 'position', 'max_results', 'response_bytes'], (a) => [...textPart(a.pattern, 100), ...pathParts(a.path)]), result: (ctx) => observed(`${count(ctx.dataRecord?.matches, 'matches')}${ctx.dataRecord?.content_truncated === true ? ' · Line content truncated' : ''}`, [fields('Search coverage', ctx.dataRecord, ['content_truncated', 'max_line_chars']), ...page('Matches', ctx.dataRecord?.matches, ['path', 'line', 'preview'])]) },
+  write: { action: 'Write', call: request('write', ['path'], pathTarget, [['content', 'Supplied content']]), result: fileMutation },
+  edit: { action: 'Replace text', call: request('replacement (not a full before/after snapshot)', ['path', 'replace_all'], pathTarget, [['old_string', 'Supplied old string'], ['new_string', 'Supplied new string']]), result: fileMutation },
+  apply_patch: { action: 'Apply patch', call: request('patch', [], () => textPart('Project files'), [['patch', 'Full supplied patch']]), result: fileMutation },
+  create_card: { action: 'Create card', call: request('card creation', ['title', 'type', 'parent', 'priority', 'urgency', 'depends_on'], (a) => textPart(a.title, 120), [['bootstrap_content', 'Bootstrap content']]), result: cardMutation },
+  edit_card: { action: 'Edit card', call: request('card edit', ['card_id', 'title', 'depends_on', 'priority', 'urgency'], cardTarget), result: cardMutation },
+  reorder_child: { action: 'Reorder children', call: request('sibling order', ['parentId', 'orderedChildIds'], (a) => textPart(Array.isArray(a.orderedChildIds) ? a.orderedChildIds.join(' → ') : '')), result: cardMutation },
+  reopen_card: { action: 'Reopen card', call: request('reopen', ['card_id', 'cardId'], cardTarget), result: cardMutation },
+  cancel_card: { action: 'Cancel card', call: request('cancel', ['card_id', 'cardId', 'reason'], cardTarget), result: cardMutation },
+  delete_card: { action: 'Delete card roots', call: request('root deletion', ['ids'], (a) => textPart(Array.isArray(a.ids) ? a.ids.join(', ') : '')), result: cardMutation },
+  activate_card: { action: 'Activate child', call: request('activation', ['card_id'], cardTarget), result: cardMutation },
+  queue_notification: { action: 'Queue notification', call: request('notice', ['card_id', 'kind', 'urgency'], (a) => [...cardTarget(a), ...textPart(` · ${str(a.kind)} · ${str(a.urgency)} · ${oneLine(a.body, 160)}`)], [['body', 'Full notice body']]), result: notification },
+  emit_result: { action: 'Submit node result', call: request('node result', ['outcome'], (a) => textPart(a.summary, 160), ['summary']), result: (ctx) => observed('', [fields('Recorded node admission', ctx.dataRecord, ['accepted', 'outcome', 'summary', 'status'])], ctx.envelope.success === true ? 'Node result accepted' : 'Node result rejected') },
+  start_project: { action: 'Start project', call: request('start', [], () => textPart('Project')), result: control },
+  pause_runtime: { action: 'Pause runtime', call: request('pause', [], () => textPart('Runtime')), result: control },
+  resume_runtime: { action: 'Resume runtime', call: request('resume', [], () => textPart('Runtime')), result: control },
+  stop_project: { action: 'Stop project', call: request('stop', [], () => textPart('Project')), result: control },
+  restart_server: { action: 'Request server restart', call: request('restart', [], () => textPart('Server')), result: control },
+  navigate_workspace: { action: 'Publish navigation', call: request('navigation intent', ['target'], (a) => textPart(valueText(a.target))), result: (ctx) => observed('Browser receipt not reported', [fields('Published navigation intent', ctx.dataRecord, ['intent', 'target'])], 'Navigation intent published') },
+  navigate_back: { action: 'Publish back navigation', call: request('back navigation', [], () => textPart('Back')), result: (ctx) => observed('Browser receipt not reported', [fields('Navigation publication', ctx.dataRecord, ['intent'])], 'Navigation intent published') },
+  list_cards: { action: 'List cards', call: request('card query', [...queryKeys, 'statuses'], () => textPart('Cards')), result: inspection },
+  get_card: { action: 'Inspect card', call: request('card section', ['id', ...queryKeys], cardTarget), result: inspection },
+  get_tree: { action: 'Inspect tree', call: request('tree query', queryKeys, (a) => cardPart(a.rootId)), result: inspection },
+  list_card_versions: { action: 'List immutable versions', call: request('version catalog', ['card_id', ...queryKeys], cardTarget), result: inspection },
+  get_card_version: { action: 'Read immutable card version', call: request('immutable version', ['card_id', ...queryKeys], cardTarget), result: inspection },
+  diff_card_versions: { action: 'Compare immutable versions', call: request('version range', ['card_id', ...queryKeys], cardTarget), result: inspection },
+  read_record_version: { action: 'Read accepted record version', call: request('accepted source version', ['card_id', ...queryKeys], cardTarget), result: inspection },
+  get_status: { action: 'Observe status', call: request('status', [], () => textPart('Project / runtime')), result: observation },
+  list_processes_tool: { action: 'Observe processes', call: request('process query', queryKeys, () => textPart('Processes')), result: observation },
+  list_agent_sessions: { action: 'Observe sessions', call: request('session query', queryKeys, () => textPart('Agent sessions')), result: observation },
+  read_agent_session: { action: 'Read selected session', call: request('session section', queryKeys, (a) => textPart(a.session_id)), result: observation },
+  read_runtime_events: { action: 'Read event tail', call: request('selected newest events', queryKeys, () => textPart('Runtime events')), result: observation },
+  read_runtime_errors: { action: 'Read error tail', call: request('selected newest errors', queryKeys, () => textPart('Runtime errors')), result: observation },
+  read_control_actions: { action: 'Read control audit tail', call: request('selected control actions', queryKeys, () => textPart('Control actions')), result: observation },
+  websearch: { action: 'Search web', call: request('search', ['query', 'max_results'], (a) => textPart(a.query, 160)), result: (ctx) => observed(count(ctx.dataRecord?.results, 'search results'), [fields('Search query', ctx.dataRecord, ['query']), ...list('Search results', ctx.dataRecord?.results, ['title', 'url', 'snippet'])]) },
+  webfetch: { action: 'Fetch URL', call: request('fetch', ['url', 'metadata_only', 'read_mode', 'save_as', 'max_bytes', 'max_inline_bytes'], (a) => textPart(a.url, 160)), result: webfetch },
+  skill: { action: 'Load / list skills', call: request('skill', ['name'], (a) => textPart(a.name ?? 'Available skills')), result: (ctx) => observed(str(ctx.dataRecord?.skill_name) || count(ctx.dataRecord?.skills, 'skills'), [...list('Available skills', ctx.dataRecord?.skills, ['name', 'description']), ...content('Skill name', ctx.dataRecord?.skill_name), ...content('Skill instructions', ctx.dataRecord?.skill_content)]) },
+  show_config: { action: 'Inspect projected config', call: request('config inspection', [], () => textPart('Safe configuration')), result: (ctx) => { const config = asRecord(ctx.dataRecord?.config); return observed('Projected configuration', [fields('Server settings', asRecord(config?.server), ['host', 'port']), fields('Agent / workflow configuration', config, ['agents', 'analyst_agent', 'oversight', 'card_types']), fields('Model routing', asRecord(config?.models), ['routes', 'profiles', 'equivalents', 'failover']), fields('Projected providers / MCP', config, ['providers', 'mcpServers']), fields('Compaction settings', asRecord(config?.compaction), ['enabled', 'context_utilization_fraction', 'trigger_fraction', 'tail_fraction', 'snap', 'summarizer_candidate'])]); } },
+  reconfigure: { action: 'Request config change', call: request('config action', ['action', 'agent', 'model_route', 'for_model', 'ordered_failover_models', 'key', 'value'], (a) => textPart(a.action)), result: (ctx) => observed(str(ctx.dataRecord?.action), [fields('Recorded configuration action', ctx.dataRecord, ['applied', 'requires_restart', 'action', 'agent', 'model_route', 'for_model', 'ordered_failover_models', 'key', 'value'])], ctx.dataRecord?.applied === true ? 'Action applied' : 'Action outcome not reported') },
+  mcp_tool_call: { action: 'Invoke MCP tool', call: request('MCP invocation', ['serverName', 'toolName'], (a) => textPart(`${str(a.serverName)}/${str(a.toolName)}`), [['args', 'Safe MCP arguments']]), result: (ctx) => observed(ctx.dataRecord?.result_complete === false ? 'Returned body truncated' : 'Opaque MCP response', [fields('MCP returned coverage', ctx.dataRecord, ['result_complete', ['result_utf8_bytes', 'Total JSON source bytes']]), ...(ctx.dataRecord?.result !== undefined ? [{ title: 'MCP result (effects opaque)', content: valueText(ctx.dataRecord.result) }] : [])]) },
+};
 export function getToolPresenter(name: string): ToolPresenter | undefined {
-  return Object.hasOwn(TOOL_PRESENTERS, name) ? TOOL_PRESENTERS[name as BuiltInToolName] : undefined;
+  return Object.hasOwn(TOOL_PRESENTERS, name) ? TOOL_PRESENTERS[name] : undefined;
 }

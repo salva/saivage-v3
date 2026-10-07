@@ -104,9 +104,9 @@ contracts the current Card Cockpit implements.
 - Evidence-link grammar `/agents/<session>?entry=<marker>` is retained.
   `entry` targeting is validated separately, located only in the addressed
   source, and reported missing without searching elsewhere.
-  A rendered tool-call target reveals its containing group, then highlights,
-  scrolls to, and focuses the exact canonical call row without opening raw
-  request/result payloads or unrelated groups. Superseded render-delayed focus
+  A rendered call or result target highlights, scrolls to, and focuses its
+  exact canonical row without opening semantic details or safe original
+  request/result payloads. Superseded render-delayed focus
   is cancelled. Tool-result IDs are not aliases for call IDs, and omitted or
   private rows are not promised rendered targets.
 - A resolved card-session address selects Conversations in its exact owning
@@ -302,12 +302,38 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   last-known on failed refresh), never as agent liveness, heartbeat,
   percentage, or ETA. `model_recovered` uncertainty, failed uncertainty-only
   mates, later activation, and lifecycle corrections remain separate facts.
+- Each call reads **Requested action**, exact tool name and meaningful target;
+  an exact retained mate supplies a **Result recorded below** anchor, otherwise
+  **No result recorded**. Results read **Recorded result**, exact tool/target,
+  outcome and salient observation/error at their own source position. Association
+  supplies requested context only, never relocation, merging or backdated outcome.
+  An unmatched retained result identifies requested context as unavailable.
+- Tool settlement is distinct from domain outcome: **Running at observation** is
+  not completion; **Process failed · exit N** can accompany successful settlement;
+  **Exited · exit 0** is not proof that tests passed. **Effects uncertain** proves
+  neither execution nor non-execution and implies no replay. Errors, refusal,
+  partial propagation, confirmation and uncertainty stay visible outside disclosure.
+  A draft update is not acceptance; its accepted URL may select a retained older
+  version. Accepted principal effects and partial propagation are separate facts.
+  Restart `confirmation_required` is not restarted; navigation publication is not
+  browser receipt. Unexpected projection shapes show presentation unavailable,
+  not a green completion or a normalized alternate payload.
+- First expansion shows named tool-specific sections for supplied operation/content
+  and recorded observations/effects. Supplied edit old/new strings are not complete
+  before/after snapshots. Stdout and stderr disclose independently with actual output
+  links and recorded head completeness/byte coverage. Slices, selected pages/tails,
+  omissions and truncation remain explicit; opening Files does not fill historical
+  evidence. Expansion performs no content fetch or current-data enrichment.
+  Secondary **Safe original request** and **Safe original result** copy the complete
+  received public strings through the final character, not reserialized summaries,
+  private durable bytes or provider wire. All content and supported links use the
+  same source-owned public projection for current and selected history.
 - Tool summaries in the exact-session reader and Analyst panel wrap naturally
   at the available pane width: action, displayed target, status, time, and
   resource links remain readable without overlap. Details remain keyboard-operated
   through the native disclosure button; resource links stay separate and focusable.
   Summaries retain presenter abbreviations rather than promising the entire raw
-  command; full request/response payloads remain available in their existing disclosures.
+  command; complete safe projected values remain available in secondary disclosures.
 - Current content, compacted-context metadata, retained instructions, and an
   explicitly selected historical segment remain separate; no stitched
   cross-segment transcript and no summary prose or prepared provider-private
@@ -363,6 +389,9 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   and `interrupted` lists completed stopped cards, not delivery or model action.
   `not_applicable` does not start a Run; Pause needs explicit Resume. No queue
   field, new control, receipt refresh, or timeline state is presented.
+  **Delivery not reported** remains explicit. `suppressed` retains its reason and
+  any reported stopped IDs; neither suppression nor queue success promises receipt,
+  handling or re-entry. Failed queue refusal preserves the recorded reason/status.
 
 ## 8. Files, processes, and evidence
 

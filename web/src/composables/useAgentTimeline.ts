@@ -1,7 +1,6 @@
 import { computed, nextTick, ref, watch, type Ref } from 'vue';
 import type { AgentConversationEntry } from '../api/types';
 import { entriesToTimeline } from '../utils/agent-timeline';
-import { isToolGroup } from '../utils/tool-friendly';
 
 export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>) {
   const expandedIds = ref(new Set<string>());
@@ -55,25 +54,11 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     next.has(id) ? next.delete(id) : next.add(id);
     expandedIds.value = next;
   }
-  function revealCall(entryId: string): boolean {
-    for (const round of timeline.value.rounds) {
-      if (round.kind === 'compacted') continue;
-      for (const item of round.items) {
-        if (isToolGroup(item) && item.pairs.some((pair) => pair.call.id === entryId)) {
-          if (expandedIds.value.has(item.id)) return false;
-          expandedIds.value = new Set([...expandedIds.value, item.id]);
-          return true;
-        }
-      }
-    }
-    return false;
-  }
   function expandAll(): void {
     const ids = new Set<string>();
     for (const round of timeline.value.rounds) {
-      for (const item of round.items) {
-        if (isToolGroup(item)) ids.add(item.id);
-        else ids.add(item.call.id);
+      for (const { entry } of round.rows) {
+        if (entry.kind === 'tool_call' || entry.kind === 'tool_result') ids.add(entry.id);
       }
     }
     expandedIds.value = ids;
@@ -101,7 +86,6 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     unseenCount,
     autoScrollPaused,
     toggleExpanded,
-    revealCall,
     expandAll,
     collapseAll,
     handleTimelineScroll,

@@ -1,2 +1,2 @@
-export type { AgentTimeline, TimelineRound, ToolGroup, ToolListItem, ToolPair } from './types';
+export type { AgentTimeline, TimelineRow } from './types';
 export { entriesToTimeline } from './timeline';

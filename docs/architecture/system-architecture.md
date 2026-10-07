@@ -559,6 +559,15 @@ The durable conversation append owner uses the settlement authority's exact byte
 A shared live-invocation projector outbound-projects arguments but passes this complete result unchanged to Analyst REST; it does not narrow or re-redact the result. Socket conversation invalidations remain the live observation path, without tool activity fan-out.
 Historical/read-model rows remain strict wire values and use the application Agent conversation read-side projector rather than becoming current producer outcomes.
 
+The shared browser conversation renderer owns direct tool-family semantic presentation
+over source-owned safe DTOs, not runtime display metadata or persisted summaries.
+Current and selected-history folding use the same canonical outbound tool projector
+after private-row exclusion. Physical rows retain identity, time and order; exact
+call/result association supplies context and mate anchors only. Family presenters
+interpret full success/failure envelopes, preserving domain outcomes, uncertainty and
+known partial effects. Named semantic sections precede separate complete received-safe
+payload disclosures; expansion does not fetch or enrich evidence with current state.
+
 Bounded response admission measures the exact canonical bytes of the final post-outbound ToolResult.
 Current and immutable card summaries share one summary projector, ensuring identical final-byte truncation rules across those surfaces. There is no notification section.
 

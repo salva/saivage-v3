@@ -11,6 +11,10 @@ conversation.
 Conversation tails track exact immutable segment identity, not just the displayed
 ordinal; refreshed baselines replace rather than mix after a changed selection.
 See the [conversation contracts](docs/spec/operator-ui-contracts.md#6-conversation-readers).
+Tool rows keep requests and recorded results in source order. Expand for semantic
+operation/effect sections and independent output heads; secondary safe-original
+disclosures copy complete received public values. Successful settlement need not
+mean process completion, record acceptance or notification delivery.
 
 Start with the [documentation overview](docs/overview.md), the
 [getting-started guide](docs/guides/getting-started.md), or the

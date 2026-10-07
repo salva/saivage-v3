@@ -92,6 +92,14 @@ After an Analyst real reorder, `propagateChange()` walks from that parent toward
 
 Analyst create, cancel, and real reorder return `success:true` for the known applied principal mutation and include `propagation:{ok:true}` or, on an ordinary best-effort propagation failure, `propagation:{ok:false,partial:true,error}` in result data. Create preserves its direct card-view shape; cancel preserves its existing fields; reorder adds the report only when `changed > 0`. A no-op reorder neither propagates nor reports an attempt. `partial:true` means the overall request is only partially fulfilled and propagation may have applied a prefix; it certifies neither which ancestors changed nor that any did. Record mutation retains its existing propagation reporting; plain file edits have none, and reopen has distinct lifecycle/notification semantics. Audit `ok` describes the principal effect, not advisory delivery; detail remains in the settled tool result. Publication uncertainty propagates fatally without result construction, audit, follow-up reads/effects, retry, or rollback.
 
+Operator tool presentation distinguishes recorded settlement from domain outcome:
+successful process observation can report running or nonzero exit, an open record
+draft is not acceptance, and queue success is not notification delivery. Requested
+intent and separately anchored recorded result stay in physical transcript order.
+Semantic inspection exposes existing safe evidence and coverage, never inferred
+completion, replay permission or fresh enrichment. See the
+[conversation UI contract](operator-ui-contracts.md#6-conversation-readers).
+
 Record tool possession plus a matching `record_writes` glob is necessary but not complete admission.
 The current URL must resolve to an active linked card, card-scoped authority cannot cross cards, all operation-required tools must be present, Analyst lifecycle admission must be supported, and an Analyst mutation must find no open workflow draft.
 Content-specific checks then reject absent edit content, missing or multiple old strings, empty results, and unchanged content.

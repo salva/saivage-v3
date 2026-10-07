@@ -217,10 +217,8 @@ watch([readerEntries, readerAccepted, readerLoading, readerError, () => props.se
   if (!props.entryId || !readerAccepted.value || readerLoading.value || readerError.value || props.invalidSegment || projection.value.error) { entryTargetState.value = 'idle'; return; }
   const entryId = props.entryId;
   entryTargetState.value = 'idle';
-  if (timelineControls.revealCall(entryId)) {
-    await nextTick();
-    if (cancelled) return;
-  }
+  await nextTick();
+  if (cancelled) return;
   const row = [...(container?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((row) => row.dataset.entryId === entryId) ?? null;
   entryTargetState.value = row ? 'found' : 'missing';
   if (row) {

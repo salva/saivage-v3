@@ -20,7 +20,7 @@ describe('public selected-segment activation projection', () => {
     const second = { ...markerEntry('agent:planner:project', 'agent:planner:project:activation:fedcba9876543210'), timestamp: '2026-10-01T12:00:00.000Z' };
     second.content = first.content.replace(first.timestamp, second.timestamp);
     expect(activationEntries([first, second]).map((marker) => marker.entry.id)).toEqual([first.id, second.id]);
-    expect(entriesToTimeline([first]).rounds[0].activations).toEqual([first]);
+    expect(entriesToTimeline([first]).rounds[0].rows.map((row) => row.entry)).toEqual([first]);
     expect(activationEntries([first])[0]).toEqual({ entry: first, agentName: 'planner', cardId: 'project', inputId: '11111111-1111-4111-8111-111111111111' });
   });
 
