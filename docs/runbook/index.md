@@ -68,6 +68,13 @@ Reset is the separately consented destructive alternative; the numbered reset
 branches below apply only when reset is selected and authorized. Current-format
 [exact-target repair](#exact-target-offline-repair) is independent, not a converter.
 
+Compare selected releases using the [durable format reference](../architecture/durable-format-changes.md)
+**and** their actual source schemas/semantic consumers, including historical
+equal-number exceptions and unknown boundaries. The reference records source
+applicability, not installations or complete compatibility. Prospective discipline
+belongs to [AGENTS Storage Policy](https://github.com/salva/saivage-v3/blob/HEAD/AGENTS.md#durable-format-versioning);
+cumulative adoption of several changes is not permission to reuse a deployed version.
+
 An explicit project-owner migration request supports an **external offline** operation
 without per-rule extraordinary overrides. The agent chooses manual transformation or
 narrow task-specific scripting under `/home/salva/g/ml/tmp/`; no proactive, shipped or
@@ -76,7 +83,9 @@ tracked reusable migration infrastructure. Follow these ordered gates:
 1. Identify the exact project/service/container/workspace, source release and known
    source contracts, intended pinned release, complete generated boundary and intended
    input/release/service actions. Resolve unclear scope from release source/docs, not
-   speculative startup. Already explicit in-scope start/deployment needs no ceremonial
+   speculative startup; consult the pinned releases' format reference and actual
+   semantic contracts, resolving historical equal-number exceptions/unknowns.
+   Already explicit in-scope start/deployment needs no ceremonial
    reconfirmation; Run/resume and unrelated actions still need actual authorization.
 2. Stop the exact service, prevent automatic restart and positively establish no
    owner/process. Maintain exclusion through cutover; live, malformed, indeterminate
@@ -572,8 +581,9 @@ Distinguish the first cold request from later ordinary same-owner/model/account 
 ## Provider-usage payload adoption
 
 The five-field provider-reported token metadata is a named **incompatible provider-usage
-payload cutover**, even though its counters are optional and the shared growing-file
-envelope stays version 1. Omission means unknown; it does not certify retained-state
+payload cutover**: its pre-policy introduction retained the shared growing-file
+envelope version 1 despite strict optional-counter changes. This historical exception
+does not authorize future version reuse. Omission means unknown; it does not certify retained-state
 compatibility. Old binaries reject new detail keys, so mixed-version operation and
 binary-only downgrade against current rows are unsupported.
 
@@ -605,7 +615,7 @@ Every card/record head and conversation index publication maintains one exact si
 
 Normal runtime and strict startup never read or restore prev. These slots are reserved for [exact-target offline repair](#exact-target-offline-repair). Do not manually rename prev over current, edit generated state, scan history or regenerate heads. Immutable card/record predecessor history is not rollback authority. Existing automatic torn-tail handling and authorized semantic closings remain unchanged.
 
-Card and record heads now require fresh UUID `head_id` on every publication. Current detail/record/diff/tool/reviewer freshness uses exact identity plus mutable revision; restored older numbers must not alias a stale selection or approval. Historical provenance remains unchanged. Adoption of this required field is incompatible even from outer format 1: choose separately consented complete reset or explicitly requested [external migration](#external-migrations), preserving outside inputs. No core compatibility reader, field backfill, migration or format probing; no mixed-version operation or binary-only downgrade. Source completion grants no deployment, reset, migration, repair or live-state authority.
+Card and record heads now require fresh UUID `head_id` on every publication. Current detail/record/diff/tool/reviewer freshness uses exact identity plus mutable revision; restored older numbers must not alias a stale selection or approval. Historical provenance remains unchanged. The pre-policy introduction retained head format 1 despite incompatibility, a historical exception not permission for future version reuse: choose separately consented complete reset or explicitly requested [external migration](#external-migrations), preserving outside inputs. No core compatibility reader, field backfill, migration or format probing; no mixed-version operation or binary-only downgrade. Source completion grants no deployment, reset, migration, repair or live-state authority.
 
 Runtime state, actor snapshots, recovery diagnostics, and provider availability are not durable files. Direct transport control request outcomes are bounded app-log events, not durable runtime state or a complete lifecycle-control audit. Cards use exact `card-head.json` selecting immutable `card-history/<UUID>.json` and ordered current-only `mailbox/<UUID>.json` references. Records use `records/record-<stem>.json` heads selecting immutable `records/accepted/<UUID>.json` predecessors and current drafts. Conversation indexes retain their separate indexed-segment contract.
 
@@ -643,7 +653,7 @@ Adopting per-session evidence into an established installation is **not** a same
 
 The process-result payload cutover from metadata-only results to strict bounded inline stdout/stderr heads, completeness flags, raw byte counts and canonical fallback URLs is another cumulative incompatible item. Outer versions do not make old rows current. Saivage has no old-shape reader, row converter or compatibility probe. External conversion must establish required facts from canonical evidence, never invent stream content or effects.
 
-The Responses private-context producer payload is another independent cumulative incompatible item. Each private row requires lowercase 64-hex `producer_account_id`, derived solely from local provider/account aliases (including null implicit account), not credentials, endpoint, model or organization. Missing/invalid provenance fails canonical consumption, including public reads that later hide the row. Conversation index/genesis/envelope use format 5; payload adoption is independently incompatible even with equal outer versions. Choose consented complete reset or explicit external migration; multiple changes can share one complete adoption only when the selected release contains them all. External migration must evidence producer provenance; unresolved required provenance blocks, never fabricated identity. No runtime backfill, payload probing, selective installation edits or binary-only downgrade. Source completion establishes neither deployment nor loss consent.
+The Responses private-context producer payload is another independent cumulative incompatible item. Each private row requires lowercase 64-hex `producer_account_id`, derived solely from local provider/account aliases (including null implicit account), not credentials, endpoint, model or organization. Missing/invalid provenance fails canonical consumption, including public reads that later hide the row. Current conversation index/genesis/envelope use format 5; that is not evidence of the introducing payload's historical discriminator boundary (unestablished in the reference). Historical equal-number warnings remain valid, not permission for future reuse. Choose consented complete reset or explicit external migration; multiple changes can share one complete adoption only when the selected release contains them all, not thereby share a deployed discriminator. External migration must evidence producer provenance; unresolved required provenance blocks, never fabricated identity. No runtime backfill, payload probing, selective installation edits or binary-only downgrade. Source completion establishes neither deployment nor loss consent.
 
 Responses replay preserves encrypted reasoning only for the same local provider/account identity; other candidates omit whole encrypted reasoning items before request admission while retaining native visible text, calls and results. Normal failover remains enabled. Model changes under the same alias retain identity; credentials changed under the same alias also retain identity, so use a distinct local identity when intending that boundary. Two aliases sharing credentials compare different. This conservative local rule makes no remote organization/key compatibility claim. Residual HTTP 400 `invalid_encrypted_content` is terminal protocol failure absent higher-priority evidence: no strip-and-resend, repair, hidden alternate attempt or guaranteed reauthentication remedy follows it.
 The earlier canonical-hash format-3 and checksum-closure-removal 3→4 cutovers are historical provenance, not supported representations. Image results advance conversation index, ordinary/compacted genesis and segment envelope together to strict format 5; no other persistence format advances. Source/group/summary/protected-list/continuation/retained-tail hashes, serialized group inventories, prior-history attestations, accumulated disposition counters and `retained_rows` remain removed. Semantic validation, exact source metadata, physical suffix and explicit continuation remain strict. Valid semantic summary/retained-content edits are not detected by compaction checksums. Independent tool-row policy/result/evidence, prepared context, orientation, admitted request, identity/artifact, MCP and external backup hashes remain unchanged. No core compatibility reader/converter or replacement integrity machinery. Adoption chooses separately consented complete reset or explicit external migration to the matching release; reset loses all generated history, not just conversations, while external fidelity is evidenced. Source completion grants no deployment/reset/migration, including JSQLite2. Binary-only rollback remains unsupported; later action needs a separately scoped matching-state/release decision.
@@ -656,7 +666,7 @@ The current card/record cutover is format-1 owner heads and immutable predecesso
 
 Earlier card stream and parent-owned `children` cutover labels describe historical formats only; they authorize no old-layout read path. Current format-1 immutable ordinary payload uses `child_membership` plus `active_child_order`, not durable `children`.
 
-Ordinary same-format deployment is neither reset nor migration authority. Stop the old service, deploy and strictly start the new binary against retained current-format state only when both binaries match every durable contract: card/record format 1, Files projections, conversation format 5, process-result and required private-producer payloads. Equal outer versions do not establish compatibility; release knowledge determines it, never startup probing/normalization. Unsupported/mixed/malformed state stays stopped, not implicit reset/migration/repair permission. Supported same-format corruption uses separately backed-up/consented exact-target repair; incompatible adoption chooses separately consented reset or explicitly requested external migration. Process-log URLs remain independently readable while available; reset removes them with the complete work root.
+Ordinary same-format deployment is neither reset nor migration authority. Stop the old service, deploy and strictly start the new binary against retained current-format state only when both binaries match every durable contract: card/record format 1, Files projections, conversation format 5, process-result and required private-producer payloads. Equal outer versions do not establish compatibility; compare the [format reference](../architecture/durable-format-changes.md) and exact release source contracts, never startup probing/normalization. Unsupported/mixed/malformed state stays stopped, not implicit reset/migration/repair permission. Supported same-format corruption uses separately backed-up/consented exact-target repair; incompatible adoption chooses separately consented reset or explicitly requested external migration. Process-log URLs remain independently readable while available; reset removes them with the complete work root.
 ## Publication-outcome-unknown exit
 
 The fixed `PublicationOutcomeUnknownError` stderr line means the process exited without

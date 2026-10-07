@@ -31,6 +31,12 @@ Saivage core and packaged utilities contain no migration, compatibility reading,
 Incompatible adoption chooses separately consented destructive reset or explicitly owner-requested external offline migration under [runbook gates](../runbook/index.md#external-migrations), outside every product path. Deployment/plan approval and backup alone imply neither permission nor loss consent.
 Same-format deployment stops the old service and strictly starts the matching new binary against retained valid state; release contracts, not speculative startup or equal envelope versions, determine compatibility.
 
+Prospective durable shape/semantic changes follow
+[AGENTS Storage Policy](https://github.com/salva/saivage-v3/blob/HEAD/AGENTS.md#durable-format-versioning).
+The [durable format reference](../architecture/durable-format-changes.md) records
+the source baseline and evidenced cutovers, including historical equal-number
+incompatibilities; it is not runtime metadata or installation certification.
+
 
 ## Contents
 
@@ -377,7 +383,7 @@ Every card head, record head and conversation index publication maintains exactl
 
 Normal readers and publishers never read previous content, automatically restore it, or discover history to regenerate a head. The slot is reserved for stopped/excluded/backed-up/consented exact-target `saivage repair`. Unlink/link failures stop directly; slot directory-durability errors and ordinary publication uncertainty are fatal before follow-up, retries or cleanup. Hardlinks on the supported Linux filesystem are required, with no copy alternative. The sequence is nontransactional: interruption can leave no prev, prev equal to current, or old current; no usable prior selection is guaranteed. Shared-inode damage and a previous queue-only head selecting the same damaged artifact limit its usefulness. Strict startup remains strict.
 
-Required `head_id` is independently incompatible adoption even though head/document outer version remains 1. Missing identity fails strict consumption; no core migration/probing/normalization/compatibility reader or automatic adoption, and no binary-only downgrade. The [reset/external-migration decision](../runbook/index.md#external-migrations) is separate; source completion authorizes neither deployment nor adoption.
+Required `head_id` is independently incompatible adoption: its pre-policy introduction retained head outer version 1, a historical exception rather than permission for future reuse. Missing identity fails strict consumption; no core migration/probing/normalization/compatibility reader or automatic adoption, and no binary-only downgrade. The [reset/external-migration decision](../runbook/index.md#external-migrations) is separate; source completion authorizes neither deployment nor adoption.
 
 Current reads strictly validate exact heads and selected ordinary/accepted documents, not their entire predecessor chains. Pending bodies are read only when consumed. Historical selection follows committed exact UUID references with strictly decreasing source revisions until the exact selector or established absence; full catalogs traverse to initial card version 1/null or accepted null and reverse to ascending order. Every reached identity, document, link and hash remains strict: missing/malformed referenced data fails, never skips or promotes a predecessor. Live mutations enforce exact current +1 admission from the fresh head, not history length. No persistent index, filename guessing, directory scan, retained admission registry, check-once trust, or startup certification of unconsumed history exists.
 

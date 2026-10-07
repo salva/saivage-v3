@@ -19,6 +19,8 @@ The plan must satisfy the planning, finding/remedy, and scope guidance in **Desi
 
 Scope each plan to the minimal coherent unit that delivers the fix: list non-essential robustness and rare edge-case handling as deferred follow-ups rather than bundling them in (see Changeset Scope Discipline in `AGENTS.md`).
 
+Explicitly assess durable-format impact, including no impact, under [AGENTS Storage Policy](../../AGENTS.md#durable-format-versioning). Identify affected discriminators, source/cutover applicability, adoption and updates to the [format reference](../../docs/architecture/durable-format-changes.md).
+
 You also revise the plan from implementation feedback: when the primary gives you the `implementation-manager`'s report (partial progress, plan divergences, or learnings that might warrant a redesign), revise or partially redesign the plan to reflect the intended design and what implementation learned, before further implementation.
 
 Do not implement the fix; produce only the design/plan document.

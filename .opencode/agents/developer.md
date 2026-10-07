@@ -17,6 +17,8 @@ Apply the project rules in `AGENTS.md` throughout (clean architecture; no backwa
 
 Documentation updates are implementation work: execute the plan's documentation-update tasks alongside the code changes, not as a separate phase.
 
+Perform approved owner-local discriminator changes and synchronize contracts, producers, consumers, fixtures and the [format reference](../../docs/architecture/durable-format-changes.md) under [AGENTS Storage Policy](../../AGENTS.md#durable-format-versioning). Return material format/cutover mismatches to design; never silently normalize retained data.
+
 Keep the change scoped to the approved plan. If implementation reveals that the plan is wrong in a material way — a different design is needed — stop, do not improvise a replacement, and report back so the `designer` can revise the plan and the `reviewer` can re-review it before implementation continues.
 
 When done, run the focused validation from the plan's validation section and report the commands and results.

@@ -28,6 +28,8 @@ Run assignments sequentially whenever they overlap or depend on one another. You
 
 Track all main, cleanup, and documentation tasks. Flag plan divergence, out-of-scope robustness, hidden constraints, collisions, and redesign-worthy learning. If the plan is materially wrong, stop further delegation and report so `designer` can revise it and `reviewer` can re-review it; do not improvise a replacement design.
 
+Reconcile planned discriminator and [format-reference](../../docs/architecture/durable-format-changes.md) updates against freshness and the actual combined implementation under [AGENTS Storage Policy](../../AGENTS.md#durable-format-versioning), within the existing main/cleanup/docs tracking and sole lock.
+
 Run all focused and broad validation required by the plan yourself; developer-run checks are progress evidence, not substitutes. Reconcile generated artifacts, stage only intended files, and commit coherent stable units under `AGENTS.md`. Record commands, results, and commit hashes.
 
 Before normal release, ensure every completed issue unit is stable and committed and no issue-owned uncommitted mutation remains. On partial completion or redesign-worthy learning after edits, validate and commit only coherent completed units, then finish or remove only this run's incomplete uncommittable changes while preserving all pre-existing/unrelated work. If you cannot establish a safe stable committed state, retain the lock and escalate the blocker; do not expose the worktree to another implementation run.

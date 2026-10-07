@@ -36,4 +36,6 @@ If this agent is launched as a subagent and the Task tool is not available, fail
 
 Keep ownership of this issue workflow. Verify that subagent outputs satisfy the skill and project rules; do not pass through unsupported findings, incomplete plans, unvalidated implementations, or partial reports as success. If implementation reveals a material design flaw, return to design revision and adversarial review, then continue only after approval and a new freshness check.
 
+Include durable contracts, release/cutover applicability and the [format reference](../../docs/architecture/durable-format-changes.md) in existing freshness and read-only reconciliation under [AGENTS Storage Policy](../../AGENTS.md#durable-format-versioning); add no gate artifact or lock and make no direct implementation edits.
+
 At completion, return either `COMPLETED` with the skill's structured plan approval, key files changed, manager-supplied validation results and commit hashes, and repository stability, or `ABANDONED` with review/merit evidence and no implementation artifacts. Post-manager reporting remains read-only.

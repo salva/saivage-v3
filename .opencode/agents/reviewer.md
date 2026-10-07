@@ -22,6 +22,7 @@ Apply the project rules in `AGENTS.md` throughout (clean architecture; no backwa
 
 Look specifically for:
 
+- Durable shape and semantic incompatibility under [AGENTS Storage Policy](../../AGENTS.md#durable-format-versioning): justified bumps/grouping and accurate source applicability in the [format reference](../../docs/architecture/durable-format-changes.md); reject unsupported equal-version or unreleased claims.
 - Correctness gaps and hidden assumptions.
 - Missed root causes and over-local fixes.
 - Contract mismatches and missing call-site updates.

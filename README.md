@@ -147,7 +147,7 @@ them.
 | [System specification](docs/spec/system-specification.md) | Sole authority for product, runtime, CLI-visible behavior, and exact functional contracts. |
 | [Operator UI needs](docs/spec/operator-ui-needs.md) + [contracts](docs/spec/operator-ui-contracts.md) | Authority for operator web UI requirements and exact presentation contracts. |
 | [System architecture](docs/architecture/system-architecture.md) | Sole authority for component ownership, dependency direction, internal architecture, and source-derived inventories. |
-| [Durable format changes](docs/architecture/durable-format-changes.md) | Subordinate inventory of evidenced incompatible cutovers, not exhaustive compatibility certification or operational consent. |
+| [Durable format changes](docs/architecture/durable-format-changes.md) | Source-contract baseline and evidenced cutovers under [AGENTS Storage Policy](AGENTS.md#durable-format-versioning), not exhaustive compatibility certification or operational consent. |
 | [Operator runbook](docs/runbook/index.md) | Sole authority for deployment, startup, lifecycle, recovery, reset, and other operator procedures. |
 | [Validation internals](docs/validation.md) | Validation toolchain detail: guard contracts, CI job topology, and browser/E2E profiles. |
 | [README](README.md) | Introduction, minimal quick start, authority navigation, and repository validation profiles. |
@@ -189,7 +189,8 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   previous hardlink slot. Normal reads/startup never use it as fallback; the
   sequence is nontransactional and does not guarantee a usable prior selection.
   The required identity field is a separate **incompatible format adoption**, even
-  with unchanged outer format 1. Exact-target offline repair is available; see the
+  with unchanged outer format 1 at its pre-policy introduction, not permission for
+  future version reuse. Exact-target offline repair is available; see the
   [runbook](docs/runbook/index.md#previous-selectors-and-head-identity-adoption).
 
 - Cards use small current heads selecting immutable ordinary history and current-only mailbox UUID pointers; records select accepted predecessor history and current drafts. Queue-only revisions and draft-only record revisions are not historical selectors. Current freshness counts every mutation, catalogs count retained entries, and accepted provenance separates observed current card revision from its ordinary history link. Delivery appends conversation bodies before removing pointers and can repeat after interruption. Forgotten physical files remain ignored forever; this is not physical erasure, a queue audit, or solved check-once/startup certification. [Incompatible adoption](docs/runbook/index.md#external-migrations) chooses separately consented destructive reset or explicitly owner-requested external offline migration. No core compatibility/migration code, automatic conversion or implicit deployment/loss consent.

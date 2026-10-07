@@ -11,6 +11,12 @@ Select the README validation profile for the actual change. Documentation-only
 work uses `npm run validate:docs`, plus any focused guard/skill checks in its plan;
 the backend/build recipes below are not mandatory for policy-only documentation.
 
+When durable contracts change, review affected discriminator, producer, strict
+consumer, fixture and [format-reference](../../../docs/architecture/durable-format-changes.md)
+synchronization under [AGENTS Storage Policy](../../../AGENTS.md#durable-format-versioning).
+Versions/reference assist release comparison; they neither prove complete
+compatibility nor authorize live actions.
+
 Run from `/home/salva/g/ml/saivage-v3`:
 
 ```bash

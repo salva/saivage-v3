@@ -17,6 +17,7 @@ project policy; “thin” here concerns duplicated project policy, not JSON siz
 - `docs/architecture/system-architecture.md` for system architecture.
 - `docs/runbook/index.md` for deployment, startup, lifecycle, recovery, reset, and operator procedures.
 - `README.md` for introduction, quick start, authority navigation, and validation profiles.
+- `docs/architecture/durable-format-changes.md` for the evidenced durable source-contract baseline and change record, under the Storage Policy below.
 
 Superseded and stale design documents are provenance available only through Git history, not implementation authority.
 
@@ -106,6 +107,48 @@ large or cross-cutting refactor.
 
 ## Storage Policy
 
+### Durable format versioning
+
+For every on-disk shape or meaning/interpretation change requiring migration of
+retained state, increase each affected existing family discriminator in the same
+coherent source changeset. Include nested payloads, selection/link/provenance and
+layout semantics; even optional additions can be incompatible with strict old
+consumers. API/UI-only changes and refactors preserving durable contracts need no
+bump. Update owners, producers, strict consumers, tests/fixtures and canonical
+format/adoption docs together. Format identity is not mutable card/record revision,
+conversation segment ordinal, UUID selection identity, package version or an
+unrelated API version. Do not bump unrelated families or describe a shared envelope
+discriminator as independent per-family numbering.
+
+A new durable family declares an explicit initial version at its owning contract;
+do not relabel an existing incompatible family as new to evade its bump. Raw
+artifacts selected by a versioned owning descriptor (for example format-5
+conversation PNG selections) use that identified descriptor contract/version,
+without artificial wrappers or a global registry. Existing unversioned inputs are
+not retrofitted by this policy; a future incompatible change must establish their
+explicit owning format contract as part of that change.
+
+Related incompatible edits may share one bump only within an explicitly named
+unreleased cutover whose source/target contracts and accumulated changes are
+documented and whose target is evidenced not deployed. After deployment, further
+incompatibility requires another bump. Unknown release/deployment applicability,
+repository HEAD or absent tags do not prove unreleased status: resolve applicability
+before relying on this exception, otherwise use a fresh bump.
+
+With implementation, update the [durable format reference](docs/architecture/durable-format-changes.md)
+with affected family/discriminator, old→new (or new-family initial version), source
+release applicability, concise change/adoption consequences and evidence. Preserve
+historical equal-number incompatibilities honestly; invent neither retrospective
+bumps nor deployment dates. The reference is a bounded source-contract record,
+not a supported-version matrix or installation inventory.
+
+Runtime remains singular and strict: no registry, startup detector, format probing,
+dual reader, compatibility fallback, core/packaged migration or implicit reset.
+Versions are necessary change labels, not proof of whole-project compatibility.
+External migration still requires the explicit owner request and full offline
+gates below; reset, repair and deployment permissions remain distinct. Adopting
+this policy alone changes no durable contract or discriminator.
+
 ### Coarse loss-tolerant repair ladder
 
 Prefer coarse, simple handling over preservation machinery. Interruption may lose routine queue/draft changes or potentially days of conversation interactions; explicitly consented catastrophic card discard can lose all own data and descendant reachability. A fresh backup preserves evidence, not correctness, availability, or a small loss bound.
@@ -127,7 +170,7 @@ For normal Saivage operations, the following absolute storage rules include only
 - A growing Saivage-owned JSONL file is append-only. Each logical append is exactly one newline-terminated physical line containing one strict, versioned, type-discriminated envelope with a non-empty `rows` array in semantic order. An owning reader may truncate only an identifiable unterminated final suffix of the exact canonical JSONL file. Every complete malformed envelope, unsupported version or type, invalid row, and other complete malformed exact canonical data fails clearly and is never normalized, prefix-salvaged or rewritten. Only the explicit repair ladder may move an exact corrupt selected body or wholesale eligible card-owned root into attic; complete corruption never qualifies as a torn tail.
 - Replacement and first publication use one fresh random UUID same-directory temporary path opened exactly once with `O_CREAT | O_EXCL | O_WRONLY`. Write and `fsync` the temporary file, rename it over the one target, then `fsync` the parent directory. A collision or any other error fails directly. Never retry, choose an alternate name, inspect, scan, clean, reuse, validate, warn about, quarantine, or delete a temporary path; a crash-left temporary remains a harmless noncanonical orphan ignored forever.
 - Every card head, authored-record head and conversation index publication maintains one deterministic canonical sibling previous slot: `card-head.prev.json`, the injective record-head filename with `.prev.json` suffix, or `index.prev.json`. For owner-established current state: exact `unlink(prev)` (only that unlink's `ENOENT` is accepted), `link(current, prev)`, parent-directory fsync, then existing fresh-temp current replacement. Owner-established initial absence clears that exact slot, fsyncs the parent and skips link; never infer initial mode from a failed link. No previous bytes are read during normal publication, startup or runtime; no copy fallback, retry, scan, cleanup, or degradation is allowed. Unlink/link errors propagate directly; slot directory-durability failure and ordinary replacement uncertainty reach the fatal boundary before any follow-up. This is not transactional: interruption may leave no previous selection or prev equal to current, and in-place inode damage affects both links. Only the stopped, lifecycle-excluded, freshly backed-up, explicitly consented exact-target repair CLI may consume that previous slot and fresh-publish selected content; never rename prev over current or regenerate heads by discovering disk history. Queue-only previous selections may still select the same broken artifact.
-- Card and authored-record heads require a fresh random `head_id` UUID on every publication, including queue-only, draft, tombstone and future restoration publications. Current selection/freshness stamps pair that exact identity with displayed mutable revision; equality of a numeric revision alone is not currentness. Read models, tool observations and reviewer snapshots preserve the exact selection identity. Immutable source provenance stays unchanged, historical selections have no current head identity, and old authored review text is not a new verdict. No registry, generation protocol, remembered admission or carried write authority is introduced. Adoption of this strict required field follows the incompatible-adoption decision below, with no missing-field compatibility path in Saivage.
+- Card and authored-record heads require a fresh random `head_id` UUID on every publication, including queue-only, draft, tombstone and future restoration publications. Current selection/freshness stamps pair that exact identity with displayed mutable revision; equality of a numeric revision alone is not currentness. Read models, tool observations and reviewer snapshots preserve the exact selection identity. Immutable source provenance stays unchanged, historical selections have no current head identity, and old authored review text is not a new verdict. No registry, generation protocol, remembered admission or carried write authority is introduced. The pre-policy adoption retained outer format 1 despite incompatibility; this historical exception is not permission for future version reuse. Adoption of this strict required field follows the incompatible-adoption decision below, with no missing-field compatibility path in Saivage.
 - All Saivage file and directory creation, replacement, append, `mkdir`, and lifecycle-lock creation uses ordinary Node defaults filtered only by the process/user umask. Supply no mode argument, mode option, or default override, and perform no permission enforcement, mode probing, `chmod`/`fchmod` repair, or umask orchestration.
 - **Standing orphan-simplicity review gate:** harmless noncanonical files and directories left by interrupted publication remain ignored forever during normal operation. Startup, runtime, and review code must never discover, classify, inspect, selectively clean, delete, reuse, warn on, quarantine, or repair them. Reviews must reject orphan or allocation scans, aggregate validation, startup cleanup, restabilization, adoption, and every other mechanism that handles such orphans. Exact canonical state remains strict. The separately consented repair ladder permits only exact identified corrupt canonical-path moves and the six wholesale own-root discard moves, never inspection or adoption of attic, temporary or unlinked child contents.
 - Card identity is the fixed root `project` or `card-<segment>[-<segment>...]`, with one to twelve lowercase alphabetic segments. A child created at resulting depth twelve must select a compiled card type whose `permittedChildTypes` set is empty. After the exact parent read, resulting depth above twelve is rejected before ordinary parent workflow admission and before namespace claim or any other write effect; in-limit ordinary admission and child-workflow resolution precede the depth-twelve leaf check, and that complete initial sequence precedes every namespace/write effect. Each child-creation call starts at parent-local segment `a` and derives each exact candidate namespace directly. Exclusive candidate `mkdir` success is the sole claim; only that `mkdir` returning `EEXIST` advances through the spreadsheet sequence (`a` through `z`, then `aa`, and so on). Never inspect or enumerate a collided candidate or siblings, and never derive allocation from parent history, active children, positions, discovery, scans, adoption, cleanup, or reuse. A successfully claimed namespace remains consumed even when later publication or linking fails, and incomplete or unlinked namespaces stay ignored forever. Canonical membership exists only after complete initial publication and one parent immutable version adds the child to both monotonic `child_membership` and complete `active_child_order`, followed by parent head selection. The two arrays always contain the same IDs; retained tombstones remain in both, while filtering `active_child_order` through exact live child projections is the sole semantic sibling order.

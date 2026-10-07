@@ -48,6 +48,7 @@ The design/plan must include:
 - Root-cause analysis, or the best current hypothesis.
 - Scope and non-scope. List non-essential robustness and rare edge cases as deferred follow-ups unless deferral blocks the core fix or leaves the system unsafe.
 - Proposed design, including affected modules, contracts, APIs, and UI/runtime surfaces as applicable.
+- Explicit durable-format impact (including no impact): affected discriminators, source/cutover applicability, adoption and [format-reference](../../../docs/architecture/durable-format-changes.md) updates under [AGENTS Storage Policy](../../../AGENTS.md#durable-format-versioning).
 - Alternatives, including a broader/root-cause alternative when reasonable.
 - An ordered implementation plan with three explicit sections:
   - Main work tasks.
@@ -64,6 +65,7 @@ The issue fixer must use `designer` for all plan authoring and `reviewer` for ev
 1. Ask `designer` to write or revise the self-contained plan at the issue's unique path. For revisions, provide all confirmed material findings.
 2. Invoke `reviewer` on the complete current plan.
 3. Triage every finding.
+   Review durable shape and semantic incompatibility, justified bumps/grouping and evidenced source applicability under the same policy; reject unsupported equal-version or unreleased claims.
 4. If any finding is material, determine whether the periodic design-value reassessment below is due. When it is not due, revise and repeat directly. When it is due, continue to revision only on `WORTH_CONTINUING`.
 5. When every finding is false, minor, or explicitly deferred and no confirmed material finding remains, run the mandatory final design-value reassessment. Review closure alone never authorizes freshness or implementation.
 
@@ -137,6 +139,8 @@ Immediately before every implementation-manager attempt, including every attempt
 
 Compare the plan's assumptions, named files, contracts, call sites, cleanup, documentation, and validation:
 
+Include affected durable contracts, discriminator/reference changes and release/cutover applicability; the reference assists source comparison, not deployment certification.
+
 - **`PLAN_STILL_VALID`:** intervening changes do not materially affect root cause, intended contract, affected components/call sites, ordered tasks, or validation. Record the evidence and invoke the manager.
 - **`PLAN_REVIEW_REQUIRED`:** a contract or assumption changed, a target was removed/substantially rewritten, planned changes conflict, scope changed, or validation/docs no longer establish correctness. Do not invoke the manager. Send current evidence to `designer` and repeat the complete review/triage loop.
 - **`BLOCKED`:** the shared workspace is broken, unclassified, or unsafe for a reliable check. Do not mutate or improvise.
@@ -153,6 +157,7 @@ The manager must:
 2. Capture pre-existing Git status/diff sufficiently to preserve unrelated work and avoid staging or removing it.
 3. Decompose the approved plan into developer assignments. Assign sequentially when work overlaps or has ordering dependencies. It may launch a concurrent developer group only after positively determining that the assignments do not conflict in files, contracts, generated outputs, validation side effects, or required order.
 4. Await every developer in a concurrent group and reconcile each result plus the combined repository state against assigned scopes and the approved plan. No shared/integration validation, staging, or commit may start while any developer remains active.
+   Include planned discriminator/producer/consumer/fixture/reference synchronization in that reconciliation and completion reporting, without adding another gate or coordination mechanism.
 5. Run all validation required by the plan, including focused and broad checks; handle generated artifacts; selectively stage only intended paths; and commit coherent stable units under `AGENTS.md`. Developer checks may inform progress but do not replace manager-run required validation.
 6. Prepare its final report with command results and commit hashes. Before normal release, ensure completed issue work is stable and committed and no issue-owned uncommitted mutation remains.
 7. For partial completion or redesign-worthy learning after edits, validate and commit only coherent completed units, then finish or remove only this run's incomplete uncommittable changes while preserving pre-existing/unrelated work. If safe stabilization is impossible, retain the lock and escalate; do not expose an unsafe worktree to another run.

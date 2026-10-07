@@ -26,6 +26,12 @@ acting. Determine differences from release source/docs, not speculative startup 
 equal envelope versions. Already explicit in-scope deployment/start actions need no
 ceremonial reconfirmation; Run/resume and unrelated actions need actual authorization.
 
+Consult each pinned release's [format reference](../../../docs/architecture/durable-format-changes.md)
+alongside its actual source schemas and semantic consumers, including historical
+equal-number incompatibilities and unestablished boundaries. The reference is not
+complete compatibility certification; [AGENTS Storage Policy](../../../AGENTS.md#durable-format-versioning)
+governs prospective changes, not retrospective renumbering or migration consent.
+
 ### 2. Stop and exclude
 
 Stop the exact service, prevent automatic restart and positively establish no project
