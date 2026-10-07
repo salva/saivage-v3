@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route, type TestInfo } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { installOperatorRestRoutes, smokeCardId, retainedInstructionContext } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
@@ -46,6 +46,176 @@ async function sendAnalyst(page: Page, text: string): Promise<void> {
 async function screenshot(page: Page, testInfo: TestInfo, name: string): Promise<void> {
   await page.screenshot({ path: testInfo.outputPath(name), fullPage: false });
 }
+
+const layoutCommand = `printf '%s\\n' ${'synthetic_unbroken_argument_'.repeat(7)} --full-raw-command-only`;
+const layoutProcess = 'proc-012345abcdef';
+const analyst = 'agent:analyst:global';
+
+function layoutRows(sessionId: string) {
+  const cases = [
+    { tool: 'run_command', args: { command: layoutCommand }, result: { success: true, data: {
+      process_id: layoutProcess, exit_code: 0, status: 'completed', stdout_complete: true, stderr_complete: false,
+      stdout_url: `work:///processes/${layoutProcess}/stdout.log`, stderr_url: `work:///processes/${layoutProcess}/stderr.log`,
+    } } },
+    { tool: 'wait_process', args: { process_id: layoutProcess }, result: { success: true, data: {
+      process_id: layoutProcess, exit_code: 1, status: 'completed', stdout_complete: false, stderr_complete: true,
+      stdout_url: `work:///processes/${layoutProcess}/stdout.log`, stderr_url: `work:///processes/${layoutProcess}/stderr.log`,
+    } } },
+    { tool: 'run_command', args: { command: layoutCommand }, result: { success: false, error: `Synthetic command failed: ${'unbroken_failure_'.repeat(6)}` } },
+    { tool: 'wait_process', args: { process_id: layoutProcess }, result: null },
+  ];
+  return cases.flatMap(({ tool, args, result }, index) => {
+    const rows = callRows(`layout-${index}`, 'r-assistant-44444444444444448444444444444444', index, tool);
+    const content = JSON.stringify(result);
+    const policies = toolRowPolicies({ content });
+    rows[0] = { ...rows[0]!, session_id: sessionId, context_policy: policies.call,
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: `layout-${index}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }) };
+    rows[1] = { ...rows[1]!, session_id: sessionId, context_policy: policies.result, content };
+    return result === null ? rows.slice(0, 1) : rows;
+  });
+}
+
+async function setupLayoutRows(page: Page) {
+  const rest = await setup(page);
+  await page.route('**/api/agents/*/conversation', async (route) => {
+    const sessionId = decodeURIComponent(new URL(route.request().url()).pathname.split('/')[3]!);
+    if (sessionId !== executor && sessionId !== analyst) return route.fallback();
+    const entries = layoutRows(sessionId);
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, {
+      session_id: sessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
+      segment_context: null, entries, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries.at(-1)!.id },
+    })) });
+  });
+  return rest;
+}
+
+// Inspect painted text fragments as well as boxes: a zero-width/hidden target or
+// a nowrap child can otherwise pass a parent-only containment assertion.
+async function expectReadableToolRow(chip: Locator) {
+  await chip.scrollIntoViewIfNeeded();
+  const violations = await chip.evaluate((row) => {
+    const failures: string[] = [];
+    const tolerance = 1;
+    const contains = (owner: DOMRect, child: DOMRect) => child.left >= owner.left - tolerance
+      && child.right <= owner.right + tolerance && child.top >= owner.top - tolerance && child.bottom <= owner.bottom + tolerance;
+    const intersects = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > tolerance
+      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > tolerance;
+    const main = row.querySelector<HTMLElement>('.tool-chip-main')!;
+    const toggle = row.querySelector<HTMLElement>('.tool-chip-toggle')!;
+    const target = row.querySelector<HTMLElement>('.tool-chip-target')!;
+    if (target.getBoundingClientRect().width <= 1 || target.getBoundingClientRect().height <= 1) failures.push('target has no visible area');
+    for (const owner of [main, toggle, ...row.querySelectorAll<HTMLElement>('.tool-chip-target, .tool-chip-status, .inline-parts')]) {
+      const children = [...owner.children] as HTMLElement[];
+      children.forEach((child, index) => {
+        const rect = child.getBoundingClientRect();
+        if (!contains(owner.getBoundingClientRect(), rect)) failures.push(`${child.className} escapes ${owner.className}`);
+        if (!contains(row.getBoundingClientRect(), rect)) failures.push(`${child.className} escapes row`);
+        for (const sibling of children.slice(index + 1)) {
+          if (intersects(rect, sibling.getBoundingClientRect())) failures.push(`${child.className} overlaps ${sibling.className}`);
+        }
+      });
+    }
+    for (const owner of row.querySelectorAll<HTMLElement>('.tool-chip-target, .tool-chip-status')) {
+      const style = getComputedStyle(owner);
+      if (['hidden', 'clip'].includes(style.overflowX) || ['hidden', 'clip'].includes(style.overflowY)) failures.push(`${owner.className} clips summary`);
+      for (const run of owner.querySelectorAll<HTMLElement>('.inline-part')) {
+        const walker = document.createTreeWalker(run, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const text = walker.currentNode;
+          for (let offset = 0; offset < (text.textContent?.length ?? 0); offset++) {
+            if (/\s/u.test(text.textContent![offset]!)) continue;
+            const range = document.createRange();
+            range.setStart(text, offset);
+            range.setEnd(text, offset + 1);
+            for (const rect of range.getClientRects()) {
+              if (![run, run.parentElement!, owner, toggle, row].every((boundary) => contains(boundary.getBoundingClientRect(), rect))) {
+                failures.push(`${owner.className} text fragment escapes its wrapping owners`);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    const next = row.parentElement?.querySelectorAll('.tool-chip');
+    const following = next && [...next][[...next].indexOf(row) + 1];
+    if (following && following.getBoundingClientRect().top < row.getBoundingClientRect().bottom - tolerance) failures.push('following row overlaps preceding content');
+    return [...new Set(failures)];
+  });
+  expect(violations).toEqual([]);
+}
+
+for (const viewport of [{ width: 1296, height: 899 }, { width: 900, height: 700 }, { width: 1920, height: 1080 }]) {
+  test(`tool summaries wrap without overlap or clipping at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const rest = await setupLayoutRows(page);
+    await page.goto(`/agents/${executor}`);
+    const chips = page.getByTestId('route-cockpit').locator('.tool-chip');
+    await expect(chips).toHaveCount(4);
+    await expect(chips.nth(0).locator('.tool-chip-status .inline-part')).toHaveText([
+      'exit 0 · completed', `process ${layoutProcess} · stdout complete`, '·', '· stderr partial', '·',
+    ]);
+    await expect(chips.nth(2)).toHaveClass(/tool-chip-error/);
+    await expect(chips.nth(3).locator('.tool-chip-status')).toHaveText('no result recorded');
+    await screenshot(page, testInfo, `tool-rows-${viewport.width}x${viewport.height}.png`);
+    for (const chip of await chips.all()) await expectReadableToolRow(chip);
+    const analystChips = page.locator('.analyst-chat-panel .tool-chip');
+    await expect(analystChips).toHaveCount(4);
+    await screenshot(page, testInfo, `analyst-tool-rows-${viewport.width}x${viewport.height}.png`);
+    await expectReadableToolRow(analystChips.first());
+    expect(rest.unknown).toEqual([]);
+  });
+}
+
+test('tool disclosure and raw request retain native keyboard focus and separate output links', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1296, height: 899 });
+  const rest = await setupLayoutRows(page);
+  await page.goto(`/agents/${executor}`);
+  const chip = page.getByTestId('route-cockpit').locator('.tool-chip').first();
+  const toggle = chip.locator('button.tool-chip-toggle');
+  await expect(toggle).toHaveAccessibleName('Expand tool run_command details');
+  await toggle.focus();
+  await toggle.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toBeFocused();
+  expect(await toggle.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return element.matches(':focus-visible') && ((style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0) || style.boxShadow !== 'none');
+  })).toBe(true);
+  const detailsId = await toggle.getAttribute('aria-controls');
+  await expect(chip.locator('.tool-chip-detail')).toHaveAttribute('id', detailsId!);
+  const raw = chip.getByRole('button', { name: 'Show raw request', exact: true });
+  for (let tabs = 0; tabs < 10 && !(await raw.evaluate((button) => button === document.activeElement)); tabs++) await page.keyboard.press('Tab');
+  await expect(raw).toBeFocused();
+  await raw.press('Enter');
+  await expect(chip.locator('.tool-chip-raw')).toContainText('synthetic_unbroken_argument_'.repeat(7));
+  await expect(chip.locator('.tool-chip-raw')).toContainText('--full-raw-command-only');
+  await expect(toggle).toHaveAccessibleName('Collapse tool run_command details');
+  await toggle.focus();
+  await toggle.press('Space');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toBeFocused();
+  await expect(chip.locator('.tool-chip-detail')).toHaveCount(0);
+  for (const stream of ['stdout', 'stderr']) {
+    await page.keyboard.press('Tab');
+    const link = chip.getByRole('link', { name: `${stream} Files`, exact: true });
+    await expect(link).toBeFocused();
+    await expect(link).toBeVisible();
+    const href = new URL((await link.getAttribute('href'))!, page.url());
+    expect(href.pathname).toBe('/files');
+    expect(href.searchParams.get('root')).toBe('output');
+    expect(href.searchParams.get('path')).toBe(`.saivage/work/processes/${layoutProcess}/${stream}.log`);
+    expect(await link.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return element.matches(':focus-visible') && ((style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0) || style.boxShadow !== 'none')
+        && (hit === element || element.contains(hit));
+    })).toBe(true);
+  }
+  await screenshot(page, testInfo, 'tool-row-keyboard-output-focus.png');
+  expect(rest.unknown).toEqual([]);
+});
 
 test('card conversations retain cockpit context through automatic, explicit, facet, and browser navigation', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });

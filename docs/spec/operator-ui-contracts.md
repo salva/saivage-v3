@@ -302,6 +302,12 @@ pivot.ui-cards-diff-current-request = {"currentness":{"abortPreviousOwner":true,
   last-known on failed refresh), never as agent liveness, heartbeat,
   percentage, or ETA. `model_recovered` uncertainty, failed uncertainty-only
   mates, later activation, and lifecycle corrections remain separate facts.
+- Tool summaries in the exact-session reader and Analyst panel wrap naturally
+  at the available pane width: action, displayed target, status, time, and
+  resource links remain readable without overlap. Details remain keyboard-operated
+  through the native disclosure button; resource links stay separate and focusable.
+  Summaries retain presenter abbreviations rather than promising the entire raw
+  command; full request/response payloads remain available in their existing disclosures.
 - Current content, compacted-context metadata, retained instructions, and an
   explicitly selected historical segment remain separate; no stitched
   cross-segment transcript and no summary prose or prepared provider-private

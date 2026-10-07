@@ -80,20 +80,22 @@ watch(() => props.resultContent, () => { showRawResult.value = false; });
 </script>
 
 <style scoped>
-.tool-chip { display:flex; flex-direction:column; gap:2px; width:100%; }
-.tool-chip-main { display:flex; align-items:stretch; width:100%; }
-.tool-chip-toggle { display:grid; grid-template-columns: 14px auto minmax(0, 1fr) auto auto; align-items:baseline; gap:8px; flex:1; min-width:0; border:0; padding:4px 6px; background:transparent; color:var(--text-muted); cursor:pointer; font:inherit; font-size:12px; text-align:left; border-radius:var(--radius-sm); }
+.tool-chip { display:flex; flex-direction:column; gap:2px; width:100%; min-width:0; max-width:100%; }
+.tool-chip-main { display:flex; flex-wrap:wrap; align-items:baseline; width:100%; min-width:0; max-width:100%; }
+.tool-chip-toggle { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; flex:1 1 12rem; min-width:0; max-width:100%; border:0; padding:4px 6px; background:transparent; color:var(--text-muted); cursor:pointer; font:inherit; font-size:12px; text-align:left; border-radius:var(--radius-sm); }
 .tool-chip-toggle:hover { background:var(--surface-2); }
 .tool-chip-caret { color:var(--text-muted); }
-.tool-chip-action { color:var(--accent-2); font-weight:600; }
-.tool-chip-target { color:var(--text-muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tool-chip-status { justify-self:end; max-width:min(42vw, 520px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:1px 8px; line-height:1.35; }
+.tool-chip-action { color:var(--accent-2); font-weight:600; min-width:0; max-width:100%; overflow-wrap:anywhere; }
+.tool-chip-target { flex:1 1 12rem; color:var(--text-muted); min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.tool-chip-status { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:1px 8px; line-height:1.35; }
 .tool-chip-status[data-tone="ok"] { color:var(--accent-2); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); }
 .tool-chip-status[data-tone="error"] { color:var(--danger); border-color:var(--entry-danger-border); background:var(--entry-danger-bg); }
 .tool-chip-time { color:var(--text-muted); font-size:11px; white-space:nowrap; }
 .tool-chip-error .tool-chip-action { color:var(--danger); }
 .tool-chip-error .tool-chip-toggle { background:var(--entry-danger-bg); }
-.tool-chip-links { align-items:baseline; padding:3px 0 3px 8px; font-size:12px; min-width:0; }
+.tool-chip-links { flex-wrap:wrap; align-items:baseline; padding:3px 0 3px 8px; font-size:12px; min-width:0; max-width:100%; }
+.tool-chip-target :deep(.inline-parts), .tool-chip-status :deep(.inline-parts) { flex-wrap:wrap; min-width:0; max-width:100%; }
+.tool-chip-target :deep(.inline-part), .tool-chip-status :deep(.inline-part), .tool-chip-links :deep(.inline-part) { min-width:0; max-width:100%; white-space:normal; }
 
 .tool-chip-detail { display:flex; flex-direction:column; gap:8px; background:var(--surface-1); border-left:2px solid var(--surface-3); border-radius:0 var(--radius-sm) var(--radius-sm) 0; padding:8px 12px; margin:4px 0 4px 22px; }
 .tool-chip-error .tool-chip-detail { border-left-color:var(--danger); background:var(--entry-danger-bg); }
@@ -113,9 +115,4 @@ watch(() => props.resultContent, () => { showRawResult.value = false; });
 .raw-toggle[aria-expanded="true"] { color:var(--accent-2); border-color:var(--accent-2); }
 .tool-chip-raw { border-left:2px solid var(--surface-3); padding-left:10px; }
 
-@media (max-width: 720px) {
-  .tool-chip-toggle { grid-template-columns: 14px auto auto; }
-  .tool-chip-target { grid-column: 2 / -1; }
-  .tool-chip-status { justify-self:start; }
-}
 </style>
