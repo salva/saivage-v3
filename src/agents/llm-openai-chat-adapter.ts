@@ -1,6 +1,8 @@
 import { COPILOT_CLIENT_IDENTITY } from './copilot-client-identity.js';
 import {
   parseToolCallMessageForModel,
+  providerConversationRequiresImages,
+  assertProviderItemImageMaterialized,
   LlmRequestError,
   type Candidate,
   type LlmCompleteOptions,
@@ -26,7 +28,7 @@ interface ChatMessage {
 interface ChatCompletionRequest {
   model: string;
   messages: ChatMessage[];
-  temperature: number;
+  temperature?: number;
   max_tokens: number;
   stream: false;
   tools?: readonly WireToolDefinitionChat[];
@@ -69,7 +71,7 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       headers,
       transport: 'generic',
       requestParams: {
-        temperature: options.temperature,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         max_tokens: options.max_tokens,
         stream: false,
         offered_tools_count: request.tools?.length ?? 0,
@@ -119,11 +121,14 @@ function buildOpenAIChatRequest(
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): ChatCompletionRequest {
+  if (providerConversationRequiresImages(providerConversation))
+    throw new Error('Chat image input is unsupported.');
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     ...providerConversation.messages
       .filter((m) => m.kind !== 'provider_private')
       .map((m): ChatMessage => {
+        assertProviderItemImageMaterialized(m);
         if (m.kind === 'synthetic_context') return { role: m.role, content: m.content };
         if (m.role === 'assistant' && m.kind === 'tool_call') {
           const call = parseToolCallMessageForModel(JSON.parse(m.content));
@@ -147,7 +152,9 @@ function buildOpenAIChatRequest(
   const body: ChatCompletionRequest = {
     model: candidate.model,
     messages,
-    temperature: opts.temperature,
+    ...(candidate.model === 'gpt-6.1-sol' || candidate.model === 'gpt-6-astra'
+      ? {}
+      : { temperature: opts.temperature }),
     max_tokens: opts.max_tokens,
     stream: false,
   };

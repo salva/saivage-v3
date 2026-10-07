@@ -45,15 +45,17 @@ describe('provider capability axes', () => {
     });
   });
 
-  it('capabilityRequestForTools derives only tool requirements', () => {
+  it('capabilityRequestForTools derives tool and image requirements', () => {
     expect(capabilityRequestForTools([])).toEqual({
       requiresTools: false,
+      requiresImages: false,
       requiresExclusiveToolChoice: true,
     });
     expect(capabilityRequestForTools([
       { type: 'function', function: { name: 'f', description: 'd', parameters: {} } },
     ])).toEqual({
       requiresTools: true,
+      requiresImages: false,
       requiresExclusiveToolChoice: true,
     });
   });

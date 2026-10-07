@@ -81,16 +81,16 @@ describe('compaction summarizer projection boundary', () => {
   });
 
   it('requires declared positive fixed-candidate limits and 2000-token output without exclusive tool choice', () => {
-    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 10_000, maxOutputTokens: 2_000, quirks: [] })).not.toThrow();
-    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] })).toThrow(/contextWindowTokens/u);
-    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 10_000, maxOutputTokens: 1_999, quirks: [] })).toThrow(/at least 2000/u);
+    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 10_000, maxOutputTokens: 2_000, quirks: [] })).not.toThrow();
+    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] })).toThrow(/contextWindowTokens/u);
+    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 10_000, maxOutputTokens: 1_999, quirks: [] })).toThrow(/at least 2000/u);
   });
 
   it('delivers every settled result body unchanged to the summarizer under the internal summary identity', async () => {
     const rows = durableRound(SESSION, SOURCE_INPUT_ID);
     const conversation = validateConversation(SESSION, rows);
     const completeTurn = jest.fn(async (input: Parameters<SummarizerProviderPort['completeTurn']>[0]) => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
-    const provider: SummarizerProviderPort = { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
+    const provider: SummarizerProviderPort = { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
     await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
@@ -101,7 +101,7 @@ describe('compaction summarizer projection boundary', () => {
     }).materializeThrough(rows.length)).resolves.toBe('summary');
     expect(completeTurn).toHaveBeenCalledTimes(1);
     const input = completeTurn.mock.calls[0]![0];
-    expect(input.capabilityRequest).toEqual({ requiresTools: false });
+    expect(input.capabilityRequest).toEqual({ requiresTools: false, requiresImages: false });
     expect(input.modelParams).toEqual({ temperature: 0, maxTokens: SUMMARY_COMPLETION_TOKENS });
     expect(input.sessionId).toBe(internalCompactionSummarySessionId(SESSION));
     expect(input.sessionId).not.toMatch(/^agent:/);
@@ -117,6 +117,7 @@ describe('compaction summarizer projection boundary', () => {
       candidate: CANDIDATE,
       contextWindowTokens: 100_000,
       maxOutputTokens: 10_000,
+      materializeImage: async () => { throw new Error('Unexpected image.'); },
       serializeSummaryRequest: (input) => {
         const serialization = deterministicSummarySerialization(input);
         serializations.push(serialization);
@@ -144,7 +145,7 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => { throw providerFailure; }, projectProviderExchanges: projected },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => { throw providerFailure; }, projectProviderExchanges: projected },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBe(providerFailure);
@@ -156,7 +157,7 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [attempt('summary-input')] }), projectProviderExchanges: () => { throw publicationFailure; } },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [attempt('summary-input')] }), projectProviderExchanges: () => { throw publicationFailure; } },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
@@ -169,7 +170,7 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: controller.signal,
     }).materializeThrough(rows.length)).rejects.toBe(abortReason);
@@ -179,7 +180,7 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: emptyCalls, projectProviderExchanges: jest.fn() },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: emptyCalls, projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBeInstanceOf(SummaryResultValidationError);
@@ -189,7 +190,7 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: `  ${'x'.repeat(12_001)}  ` }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: `  ${'x'.repeat(12_001)}  ` }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).resolves.toBe('x'.repeat(12_001));
@@ -205,7 +206,7 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: projected },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: projected },
       budget: BUDGET,
       signal: new AbortController().signal,
     });
@@ -222,7 +223,7 @@ describe('compaction summarizer projection boundary', () => {
     expect(accumulator.correctionCount).toBe(0);
 
     const publicationFailure = new Error('prompt-policy evidence publication failed');
-    const publicationProvider = { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: () => { throw publicationFailure; } };
+    const publicationProvider = { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: () => { throw publicationFailure; } };
     await expect(createSequentialRefineAccumulator({ conversation, inheritedHistory: null, preparedBlocks: [], summarizerProvider: publicationProvider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
   });
 
@@ -230,7 +231,7 @@ describe('compaction summarizer projection boundary', () => {
     const text = `Recoverable evidence is discussed as ordinary history. ${'é'.repeat(SUMMARY_OUTPUT_TARGET_BYTES)}`;
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: text }, provider_exchanges: [okAttempt('summary-input', 'stop')] }));
     const rows = durableRound(SESSION, SOURCE_INPUT_ID);
-    const result = await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() }, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+    const result = await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() }, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
     expect(Buffer.byteLength(result, 'utf8')).toBeGreaterThan(SUMMARY_OUTPUT_TARGET_BYTES);
     expect(completeTurn).toHaveBeenCalledTimes(1);
   });
@@ -300,5 +301,5 @@ function okAttempt(source_input_id: string, finish_reason?: string | null): Prov
 }
 
 function summarizerProvider(completeTurn: SummarizerProviderPort['completeTurn']): SummarizerProviderPort {
-  return { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
+  return { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
 }

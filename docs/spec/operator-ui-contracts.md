@@ -1,5 +1,18 @@
 # Operator UI: Exact Contracts Register
 
+## Image result presentation
+
+Successful `view_image` rows label **Image snapshot recorded** with sent dimensions
+and safe source/upright/sent, orientation, spatial resize, scale and maximum metadata.
+Source paths in call/result presentation are text, not automatic Files preview links.
+Safe-original disclosure and copy include only strict descriptors and safe metadata,
+never PNG/base64/data URLs or internal physical snapshot paths. REST and websocket
+entries share that boundary. Failures retain ordinary failure presentation. Recording
+is not a model-delivery/perception receipt; this UI is not an exact-request viewer.
+Provider evidence retains bounded approved request parameters, not full materialized
+requests. Image-bearing HTTP error previews are suppressed while structured failure
+classification, status and safe diagnostics remain. No binary endpoint is added.
+
 ## Repair visibility and selection identity
 
 No degraded UI, repair button or attic browser is provided. Strict startup failure keeps readiness unavailable; repair is the separately consented offline CLI procedure in the [runbook](../runbook/index.md#exact-target-offline-repair). Files omits `.saivage/repair-attic` and resolved aliases from parent listings and rejects direct directory/content/preview access before attic bytes or directory contents are inspected. Similarly named ordinary siblings remain accessible. Missing owning-card current/historical `record:///` URLs show **Card not found**, distinct from existing-card record/version misses and consumed corruption.

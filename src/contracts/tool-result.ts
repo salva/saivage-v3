@@ -1,20 +1,46 @@
 import { z } from 'zod';
+import {
+  ImageDescriptorSchema,
+  ViewImageDataSchema,
+  type ImageDescriptor,
+  type ViewImageData,
+} from './image.js';
 
 const actionOutcomeToken: unique symbol = Symbol('ToolActionOutcome');
 
-export const ToolResultSchema = z.discriminatedUnion('success', [
-  z.object({ success: z.literal(true), data: z.unknown().optional() }).strict(),
-  z
-    .object({ success: z.literal(false), error: z.string().min(1), data: z.unknown().optional() })
-    .strict(),
-]);
+export const ToolResultSchema = z
+  .discriminatedUnion('success', [
+    z
+      .object({
+        success: z.literal(true),
+        data: z.unknown().optional(),
+        image: ImageDescriptorSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({ success: z.literal(false), error: z.string().min(1), data: z.unknown().optional() })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (!result.success || !result.image) return;
+    const data = ViewImageDataSchema.safeParse(result.data);
+    if (
+      !data.success ||
+      data.data.sent_dimensions.width !== result.image.width ||
+      data.data.sent_dimensions.height !== result.image.height
+    )
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Image result requires consistent strict view_image metadata.',
+      });
+  });
 
 export type ToolResult = z.infer<typeof ToolResultSchema>;
 
 type OutcomeToken = { readonly [actionOutcomeToken]: true };
 
 export type ToolActionOutcome<Data = unknown> = (
-  | Readonly<{ kind: 'succeeded'; data?: Data; error?: never }>
+  | Readonly<{ kind: 'succeeded'; data?: Data; error?: never; image?: ImageDescriptor }>
   | Readonly<{ kind: 'failed'; error: string; data?: unknown }>
 ) &
   OutcomeToken;
@@ -46,4 +72,12 @@ export function toolFailed(error: string, data?: unknown): ToolActionOutcome<nev
 export function assertToolActionOutcome(value: ToolActionOutcome): void {
   if (value[actionOutcomeToken] !== true)
     throw new Error('Tool action outcome was not created by the authority constructors.');
+}
+
+export function toolImageSucceeded(
+  data: ViewImageData,
+  image: ImageDescriptor,
+): ToolActionOutcome<ViewImageData> {
+  ToolResultSchema.parse({ success: true, data, image });
+  return brand({ kind: 'succeeded' as const, data, image });
 }

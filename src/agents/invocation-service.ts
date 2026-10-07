@@ -51,6 +51,7 @@ import {
 import type { ProviderRegistry } from './provider.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import { supportsCapabilityRequest } from './provider-capabilities.js';
+import { providerConversationRequiresImages } from '../contracts/index.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
 import { appendProviderExchangeEntry } from '../persistence/index.js';
 import { buildCandidateRequest, CandidateRequestPlanIntegrityError } from './candidate-request.js';
@@ -155,30 +156,41 @@ export class InvocationService {
         throw new Error(
           `Ordinary candidate chain contains a duplicate configured identity: ${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}.`,
         );
-    const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
+    const capabilityRequest = effectiveImageCapabilityRequest(request);
     const capabilityHash = canonicalValueSha256(capabilityRequest);
     const limits = admissionSizeLimits(request);
     const options = this.buildRequestOptions(request);
-    const candidates: CandidateLocalAdmission[] = chain.map((candidate) => {
-      const capabilities = this.registry.getEffectiveCapabilities(candidate);
-      const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
-      const plan = buildCandidateRequest({
-        candidate,
-        capabilities,
-        adapter,
-        systemPrompt: request.systemPrompt,
-        providerConversation: request.providerConversation,
-        options,
-      });
-      return admissionVerdict(
-        candidate,
-        capabilityRequest,
-        capabilityHash,
-        capabilities,
-        plan,
-        limits,
-      );
-    });
+    const candidates: CandidateLocalAdmission[] = chain.map(
+      (candidate): CandidateLocalAdmission => {
+        const capabilities = this.registry.getEffectiveCapabilities(candidate);
+        const match = supportsCapabilityRequest(capabilities, capabilityRequest);
+        if (!match.supported && capabilityRequest.requiresImages)
+          return Object.freeze({
+            candidate,
+            capabilityRequest,
+            capabilityRequestSha256: capabilityHash,
+            kind: 'candidate_ineligible',
+            reason: { kind: 'capability_mismatch' as const, reasons: [...new Set(match.reasons)] },
+          });
+        const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
+        const plan = buildCandidateRequest({
+          candidate,
+          capabilities,
+          adapter,
+          systemPrompt: request.systemPrompt,
+          providerConversation: request.providerConversation,
+          options,
+        });
+        return admissionVerdict(
+          candidate,
+          capabilityRequest,
+          capabilityHash,
+          capabilities,
+          plan,
+          limits,
+        );
+      },
+    );
     const bindings = executionBindings(request, capabilityRequest, capabilityHash);
     const execution: OrdinaryAdmittedExecutionInputs = Object.freeze({
       capabilityRequest,
@@ -219,11 +231,24 @@ export class InvocationService {
       throw new Error('Pinned content-policy preflight requires a pinned route pass.');
     assertProviderConversationSourceRows(request.providerConversation);
     const candidate = this.registry.assertCandidate(request.routePass.candidate);
-    const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
+    const capabilityRequest = effectiveImageCapabilityRequest(request);
     const capabilityHash = canonicalValueSha256(capabilityRequest);
     const limits = admissionSizeLimits(request);
     const options = this.buildRequestOptions(request);
     const capabilities = this.registry.getEffectiveCapabilities(candidate);
+    const match = supportsCapabilityRequest(capabilities, capabilityRequest);
+    if (!match.supported && capabilityRequest.requiresImages)
+      return Object.freeze({
+        kind: 'rejected',
+        candidate,
+        verdict: {
+          candidate,
+          capabilityRequest,
+          capabilityRequestSha256: capabilityHash,
+          kind: 'candidate_ineligible' as const,
+          reason: { kind: 'capability_mismatch' as const, reasons: [...new Set(match.reasons)] },
+        },
+      });
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
     const plan = buildCandidateRequest({
       candidate,
@@ -331,7 +356,7 @@ export class InvocationService {
       );
     assertProviderConversationSourceRows(request.providerConversation);
     verifySuspendedAdmittedExecution(suspension);
-    const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
+    const capabilityRequest = effectiveImageCapabilityRequest(request);
     const capabilityHash = canonicalValueSha256(capabilityRequest);
     const bindings = executionBindings(request, capabilityRequest, capabilityHash);
     assertBindingsUnchanged(suspension.bindings, bindings);
@@ -858,6 +883,15 @@ function contextUtilizationFractionOf(request: InvocationRequest): number | null
   return request.preparedCompaction !== undefined
     ? request.preparedCompaction.contextUtilizationFraction
     : (request.contextUtilizationFraction ?? null);
+}
+
+function effectiveImageCapabilityRequest(request: InvocationRequest): Readonly<CapabilityRequest> {
+  return Object.freeze({
+    ...request.capabilityRequest,
+    ...(providerConversationRequiresImages(request.providerConversation)
+      ? { requiresImages: true }
+      : {}),
+  });
 }
 
 function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {

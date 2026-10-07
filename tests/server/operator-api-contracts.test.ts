@@ -300,6 +300,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const capabilities = {
       transportProtocol: 'openai-responses',
       toolsMode: 'native',
+      imageInput: false,
       exclusiveToolChoiceSupport: 'parallel_off',
       responsesReasoning: { effort: 'high' },
       contextWindowTokens: 128000,

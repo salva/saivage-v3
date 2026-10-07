@@ -30,9 +30,9 @@ it('keeps valid Codex completion immediately before expiry successful throughout
   const adapter = selectLlmProtocolAdapter('openai-codex-backend');
   const serializedBody = '{}';
   const plan: CandidateRequestPlan = {
-    candidate, capabilities: { transportProtocol: 'openai-codex-backend', toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', quirks: [] },
+    candidate, capabilities: { transportProtocol: 'openai-codex-backend', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', quirks: [] },
     adapter: { ...adapter, deriveWire: () => ({ endpoint: 'https://test.invalid', headers: {}, requestParams: {}, transport: 'codex' }) },
-    request: { body: {}, serializedBody, requestHash: createHash('sha256').update(serializedBody).digest('hex'), estimatedWireInputTokens: 1 },
+    request: { body: {}, serializedBody, requestHash: createHash('sha256').update(serializedBody).digest('hex'), imageCount: 0, estimatedWireInputTokens: 1 },
   };
   const account = { name: '_implicit', models: ['model'] };
   const registry = { get: () => ({ implicitAccount: account, apiKey: 'synthetic', baseUrl: 'https://test.invalid', getAllAccounts: () => [] }) } as never;

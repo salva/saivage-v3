@@ -55,7 +55,12 @@ export {
   providerExchangeLogId,
 } from './provider-exchange-log.js';
 export type { ProviderExchangeLogEntry } from './provider-exchange-log.js';
-export { assertProviderConversationSourceRows } from './provider-conversation.js';
+export {
+  assertProviderConversationSourceRows,
+  providerItemImageDescriptors,
+  providerConversationRequiresImages,
+  assertProviderItemImageMaterialized,
+} from './provider-conversation.js';
 export type {
   SyntheticProviderContextItem,
   ProviderConversationItem,
@@ -160,7 +165,25 @@ export type {
 export { parseProtocolToolArgs } from './tool-arguments.js';
 
 export { candidatesEqual } from './provider-candidate.js';
-export { toolFailed, toolSucceeded, assertToolActionOutcome } from './tool-result.js';
+export {
+  toolFailed,
+  toolSucceeded,
+  toolImageSucceeded,
+  assertToolActionOutcome,
+} from './tool-result.js';
+export {
+  ImageDescriptorSchema,
+  ViewImageDataSchema,
+  viewImageInputSchema,
+  MAX_IMAGE_SOURCE_BYTES,
+  MAX_IMAGE_PIXELS,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_REQUEST_BYTES,
+  rasterReservation,
+  imageAccountingBytes,
+  imageEstimatedTokens,
+} from './image.js';
+export type { ImageDescriptor, ViewImageData, MaterializedImage } from './image.js';
 export type { ToolResult, ToolActionOutcome } from './tool-result.js';
 export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-api-chats.js';
 export type { RestartChatAcknowledgement } from './operator-api-chats.js';

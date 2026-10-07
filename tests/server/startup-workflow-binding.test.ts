@@ -64,9 +64,9 @@ describe('startup workflow binding authority', () => {
     const planner = runtimeAgentBinding(bound, 'planner');
 
     expect(analyst.toolSet.names).toEqual([]);
-    expect(analyst.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true });
-    expect(oversight.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
-    expect(planner.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
+    expect(analyst.capabilityRequest).toEqual({ requiresTools: false, requiresImages: false, requiresExclusiveToolChoice: true });
+    expect(oversight.capabilityRequest).toEqual({ requiresTools: true, requiresImages: false, requiresExclusiveToolChoice: true });
+    expect(planner.capabilityRequest).toEqual({ requiresTools: true, requiresImages: false, requiresExclusiveToolChoice: true });
     expect(requests[0]).toBe(analyst.capabilityRequest);
     expect(requests[1]).toBe(oversight.capabilityRequest);
     expect(requests[2]).toBe(planner.capabilityRequest);
@@ -115,7 +115,7 @@ describe('startup workflow binding authority', () => {
     } as ModelRouter;
 
     expect(() => bindRuntimeWorkflows(structural, recording, providerRegistry, source.compaction.context_utilization_fraction)).toThrow("Agent 'empty' model route 'empty' has no capability-compatible configured provider candidate.");
-    expect(requests).toEqual([{ requiresTools: true, requiresExclusiveToolChoice: true }]);
+    expect(requests).toEqual([{ requiresTools: true, requiresImages: false, requiresExclusiveToolChoice: true }]);
   });
 
   it('binds the maximum positive candidate capacity while preserving route order', () => {

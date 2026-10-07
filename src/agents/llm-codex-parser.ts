@@ -19,6 +19,7 @@ export async function readOpenAICodexStream(
   responseStatus: number,
   signal?: AbortSignal,
   onData: () => void = () => {},
+  suppressBodyPreview = false,
 ): Promise<LlmCompleteResult> {
   const reader = body.getReader();
   let naturalEOF = false;
@@ -50,6 +51,7 @@ export async function readOpenAICodexStream(
             setMessage,
             setUsage,
             onData,
+            suppressBodyPreview,
           )
         ) {
           return completedCodexResult(toolCalls, message, usage);
@@ -66,6 +68,7 @@ export async function readOpenAICodexStream(
           setMessage,
           setUsage,
           onData,
+          suppressBodyPreview,
         )
       ) {
         return completedCodexResult(toolCalls, message, usage);
@@ -81,7 +84,10 @@ export async function readOpenAICodexStream(
     throw new LlmRequestError({
       kind: 'parse_error',
       provider: 'openai-codex',
-      message: `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`,
+      message:
+        suppressBodyPreview && err instanceof SyntaxError
+          ? 'Error reading OpenAI Codex stream: invalid JSON payload.'
+          : `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`,
     });
   } finally {
     // Cancellation may never settle; cleanup must not replace the known result or failure.
@@ -112,6 +118,7 @@ function consumeCodexEvents(
   setMessage: (content: string) => void,
   setUsage: (usage: LlmUsage | undefined) => void,
   onData: () => void,
+  suppressBodyPreview: boolean,
 ): boolean {
   for (const output of outputs) {
     onData();
@@ -126,6 +133,7 @@ function consumeCodexEvents(
         toolCalls,
         setMessage,
         setUsage,
+        suppressBodyPreview,
       )
     )
       return true;
@@ -141,6 +149,7 @@ export function handleOpenAICodexEvent(
   toolCalls: ToolCall[],
   setMessage: (content: string) => void,
   setUsage: (usage: LlmUsage | undefined) => void,
+  suppressBodyPreview = false,
 ): boolean {
   const event = JSON.parse(dataText) as Record<string, unknown>;
 
@@ -203,9 +212,21 @@ export function handleOpenAICodexEvent(
     );
     removePendingCodexToolCall(pendingToolCalls, pending);
   } else if (type === 'response.failed') {
-    throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus, dataText);
+    throw createCodexStreamError(
+      'OpenAI Codex response failed',
+      event,
+      responseStatus,
+      dataText,
+      suppressBodyPreview,
+    );
   } else if (type === 'error') {
-    throw createCodexStreamError('OpenAI Codex stream error', event, responseStatus, dataText);
+    throw createCodexStreamError(
+      'OpenAI Codex stream error',
+      event,
+      responseStatus,
+      dataText,
+      suppressBodyPreview,
+    );
   } else if (type === 'response.completed') {
     const response = directObject(event['response']);
     if (!response || typeof response['id'] !== 'string') {
@@ -279,12 +300,15 @@ function createCodexStreamError(
   payload: Record<string, unknown>,
   responseStatus: number,
   providerResponse: string,
+  suppressBodyPreview: boolean,
 ): LlmRequestError {
   const error = codexDirectError(payload) ?? payload;
   const code = typeof error['code'] === 'string' ? error['code'] : '';
   const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
   const codePrefix = code ? `${code}: ` : '';
-  const message = `${prefix}: ${codePrefix}${redactTextForOutbound(rawMessage)}`;
+  const message = suppressBodyPreview
+    ? `${prefix} (provider diagnostics omitted for image input).`
+    : `${prefix}: ${codePrefix}${redactTextForOutbound(rawMessage)}`;
   const embeddedStatus = statusFromCodexPayload(payload, error);
   const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
   const classified = classifyDirectProviderFailure({
@@ -293,7 +317,7 @@ function createCodexStreamError(
     error,
     allowedContextParams: ['input'],
     message,
-    providerResponse,
+    providerResponse: suppressBodyPreview ? '' : providerResponse,
     retryAfterMs,
   });
   if (classified) return new LlmRequestError(classified);
@@ -302,7 +326,7 @@ function createCodexStreamError(
     provider: 'openai-codex',
     status: responseStatus,
     message,
-    bodyPreview: JSON.stringify(payload).slice(0, 500),
+    bodyPreview: suppressBodyPreview ? '' : JSON.stringify(payload).slice(0, 500),
   });
 }
 

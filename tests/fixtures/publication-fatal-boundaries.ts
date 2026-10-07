@@ -169,7 +169,7 @@ if (mode === 'llm-conversation' || mode === 'llm-segment-compaction') {
         publishHeadFile: () => { appendFileSync(path, 'index'); throw new Error('not reached'); },
       } } }),
     },
-    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges() { if (uncertain) appendFileSync(path, 'summary'); } },
+    summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges() { if (uncertain) appendFileSync(path, 'summary'); } },
   });
   const policy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' as const };
   const preparedCompaction = prepareCompaction(policy, 'system', [], 8_000, 2_000);

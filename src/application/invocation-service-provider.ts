@@ -9,24 +9,51 @@ import {
 import type { LLMProviderPort, AdmittedSummaryRequest } from '../runtime/runtime-api.js';
 import type { LlmInvocationInput } from '../runtime/runtime-api.js';
 import type { ProviderTurnCompletion } from '../contracts/index.js';
+import { materializeProviderConversation } from './conversation-image-materialization.js';
 
 export function createInvocationServiceProvider(
   invocationService: InvocationService,
+  projectRoot: string,
 ): LLMProviderPort {
   return {
-    preparePrimaryRequestAdmission: (input, signal) =>
-      invocationService.preparePrimaryRequestAdmission(invocationRequest(input, signal)),
+    preparePrimaryRequestAdmission: async (input, signal) => {
+      const providerConversation = await materializeProviderConversation(
+        projectRoot,
+        input.providerConversation,
+        signal,
+      );
+      signal.throwIfAborted();
+      return invocationService.preparePrimaryRequestAdmission(
+        invocationRequest({ ...input, providerConversation }, signal),
+      );
+    },
     executeAdmittedWithRecovery: (admission, signal) =>
       invocationService.executeAdmittedWithRecovery(admission, signal),
-    prepareAdmittedRecovery: ({ suspension, input, signal }) =>
-      invocationService.prepareAdmittedRecovery({
+    prepareAdmittedRecovery: async ({ suspension, input, signal }) => {
+      const providerConversation = await materializeProviderConversation(
+        projectRoot,
+        input.providerConversation,
+        signal,
+      );
+      signal.throwIfAborted();
+      return invocationService.prepareAdmittedRecovery({
         suspension,
-        request: invocationRequest(input, signal),
-      }),
+        request: invocationRequest({ ...input, providerConversation }, signal),
+      });
+    },
     resumeAdmittedExecution: (preparation, signal) =>
       invocationService.resumeAdmittedExecution(preparation, signal),
-    preflightPinnedContentPolicyRequest: (input, signal) =>
-      invocationService.preflightPinnedContentPolicyRequest(invocationRequest(input, signal)),
+    preflightPinnedContentPolicyRequest: async (input, signal) => {
+      const providerConversation = await materializeProviderConversation(
+        projectRoot,
+        input.providerConversation,
+        signal,
+      );
+      signal.throwIfAborted();
+      return invocationService.preflightPinnedContentPolicyRequest(
+        invocationRequest({ ...input, providerConversation }, signal),
+      );
+    },
     executePinnedContentPolicyRequest: (preflight, signal) =>
       invocationService.executePinnedContentPolicyRequest(preflight, signal),
     projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) =>

@@ -39,7 +39,7 @@ const roots: string[] = [];
 function fixture() { const root = realFs.mkdtempSync(join(tmpdir(), 'segment-publication-')); roots.push(root); return root; }
 afterEach(() => { observing = false; failAt = undefined; trace.length = 0; descriptors.clear(); while (roots.length) realFs.rmSync(roots.pop()!, { recursive: true, force: true }); });
 const id = '11111111-1111-4111-8111-111111111111';
-const bytes = Buffer.from('{"version":4,"type":"conversation-segment","rows":[{"id":"row"}]}\n');
+const bytes = Buffer.from('{"version":5,"type":"conversation-segment","rows":[{"id":"row"}]}\n');
 
 describe('actual first-envelope segment publication', () => {
   it('propagates non-ENOENT target admission unchanged before asking for a temporary', () => {

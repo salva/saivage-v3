@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats.js';
+import { agentOperatorApiContracts } from '../../src/contracts/operator-api-agents.js';
+import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
@@ -14,7 +16,7 @@ import { appendConversationBatch, readConversation } from '../../src/persistence
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
-import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { CardService, initProjectTree, TEST_WORKFLOWS, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { projectLiveToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
@@ -37,6 +39,16 @@ import { analystCapacityFixture, capacityAdmission } from '../helpers/analyst-ca
 import { deferred } from '../../src/runtime/actors/deferred.js';
 import { executedToolOutcome } from '../../src/tools/invocation.js';
 import { toolSucceeded } from '../../src/contracts/tool-result.js';
+import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
+import sharp from 'sharp';
+import { conversationImageFile } from '../../src/persistence/layout.js';
+import { materializeConversationImage } from '../../src/persistence/session-api.js';
+import { globalWorkspaceObservationToolBinders } from '../../src/tools/workspace-provider.js';
+import { InvocationService } from '../../src/agents/invocation-service.js';
+import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
+import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
+import { createInvocationServiceProvider } from '../../src/application/invocation-service-provider.js';
+import { invocationProviderRegistry } from '../helpers/invocation-provider-fixture.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -70,6 +82,7 @@ describe('operator chat route request contracts', () => {
       eventLogger: createEventLog(projectRoot),
       fatalPort: testApplicationFatalPort,
     }).mount(fastify, chatOperatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, agentOperatorApiContracts, buildAgentOperatorContractHandlers({ projectRoot, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() }));
     await fastify.ready();
   });
 
@@ -258,11 +271,11 @@ describe('operator chat route request contracts', () => {
     },
   );
 
-  it('publishes one settled invocation identically through chat, WebSocket, Agent, and bounded session paths', async () => {
+  it.each(['run_command', 'view_image'])('publishes %s metadata identically through chat, WebSocket invalidation, Agent, and bounded session paths', async (toolName) => {
     const sourceInputId = '11111111-1111-4111-8111-111111111111';
     const toolCallId = 'call-tok_primary';
     const timestamp = '2026-07-22T10:00:00.000Z';
-    const invocation = {
+    const processInvocation = {
       tool: 'run_command',
       params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` },
       result: {
@@ -284,6 +297,15 @@ describe('operator chat route request contracts', () => {
       sourceInputId,
       toolCallId,
     };
+    const invocation = toolName === 'run_command' ? processInvocation : {
+      tool: 'view_image', params: { path: 'screen.png' }, sourceInputId, toolCallId,
+      result: { success: true as const, image: { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png' as const, width: 20, height: 10, byte_length: 120, sha256: 'a'.repeat(64) }, data: { source_path: 'screen.png', source_dimensions: { width: 20, height: 10 }, oriented_dimensions: { width: 20, height: 10 }, sent_dimensions: { width: 20, height: 10 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 } },
+    };
+    const live = new LiveSyncSocket();
+    const frames: string[] = [];
+    const ws = { OPEN: 1, readyState: 1, send: (frame: string) => frames.push(frame) } as any;
+    live.add(ws);
+    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:analyst:global', lease: 'image-confidentiality' });
     submit.mockResolvedValueOnce({
       sessionId: 'agent:analyst:global',
       toolInvocations: [invocation],
@@ -303,7 +325,7 @@ describe('operator chat route request contracts', () => {
       { projectRoot },
       buildGlobalAgentIngressRows('agent:analyst:global', sourceInputId, 'invoke'),
     );
-    appendConversationBatch({ projectRoot }, [
+    appendConversationBatch({ projectRoot, changes: { agentMembershipChanged() {}, conversationChanged: (change) => live.invalidate({ resource: 'conversation', id: change.session_id, segment_id: change.segment_id, segment_version: change.segment_version, visible_message_id: change.visible_message_id }) } }, [
       {
         id: `${sourceInputId}:tool-call:${toolCallId}`,
         session_id: 'agent:analyst:global',
@@ -349,6 +371,10 @@ describe('operator chat route request contracts', () => {
        () => new Map(),
     ).getConversation('agent:analyst:global');
     const agentRows = agentResult.entries.slice(-2);
+    const conversationResponse = await fastify.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent('agent:analyst:global')}/conversation`, headers: authHeaders });
+    expect(conversationResponse.statusCode).toBe(200);
+    expect(conversationResponse.json()).toEqual(agentResult);
+    expect((await fastify.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent('agent:analyst:global')}/conversation` })).statusCode).toBe(401);
     const got = await fastify.inject({ method: 'GET', url: '/api/chat', headers: authHeaders });
     expect(got.json()).toEqual({ session_id: 'agent:analyst:global' });
 
@@ -371,6 +397,9 @@ describe('operator chat route request contracts', () => {
     expect(JSON.stringify({ chatInvocation, agentRows, bounded })).not.toContain(
       OUTBOUND_RAW_MARKER,
     );
+    expect(frames.length).toBeGreaterThan(0);
+    expect(JSON.stringify({ chatInvocation, agentRows, bounded, frames })).not.toMatch(/data:image|base64|\/images\//);
+    if ('image' in invocation.result) expect(result.image).toEqual(invocation.result.image);
   });
 
   it.each([
@@ -415,6 +444,67 @@ describe('operator chat route request contracts', () => {
     });
     expect(response.body).not.toContain(marker);
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a missing selected image strict and path-free in the real Analyst transcript and REST', async () => {
+    await fastify.close();
+    const sessionId = 'agent:analyst:global' as const;
+    const candidate = { provider: 'image-test', account: null, model: 'gpt-6.1-sol' };
+    const fetch = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'image-call', status: 'completed', output: [{ type: 'function_call', id: 'image-item', call_id: 'inspect', name: 'view_image', arguments: '{"path":"screen.png"}' }] }), { status: 200 }));
+    const registry = invocationProviderRegistry([candidate], { 'image-test': { transportProtocol: 'openai-responses' } });
+    const provider = createInvocationServiceProvider(new InvocationService({ projectRoot, registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS }), projectRoot);
+    const cardStore = new CardService(projectRoot);
+    const tool = globalWorkspaceObservationToolBinders.find(binder => binder.name === 'view_image')!.bind({ projectRoot, store: cardStore, agentName: 'analyst' });
+    const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [{ providerName: 'workspace', tools: [tool] }] };
+    let physicalPath = '';
+    const changes = {
+      agentMembershipChanged() {},
+      conversationChanged(change: { visible_message_id: string | null }) {
+        if (!change.visible_message_id?.endsWith(':tool-result:inspect')) return;
+        // Simulate loss after known result selection, before the continuation consumes pixels.
+        const result = readConversation(projectRoot, sessionId).sourceRows.find(row => row.id === change.visible_message_id)!;
+        physicalPath = conversationImageFile(projectRoot, sessionId, JSON.parse(result.content).image.id);
+        unlinkSync(physicalPath);
+      },
+    };
+    const session = new AnalystSession({
+      cardTypeVocabulary: ['project'], fatalPort: testApplicationFatalPort, sessionId, agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresImages: true, requiresExclusiveToolChoice: true }, candidateChain: [candidate], routeUsableInputTokens: 80_000, promptTemplates: { render: () => 'Saivage Analyst' }, restartCapability: { available: false }, provider, conversations: { projectRoot, changes }, compactionPolicy: testCompactionPolicy, compactor: { shouldCompact: () => false, compact: async () => { throw new Error('unexpected compaction'); } }, summarizerProvider: unusedSummarizerProvider, cardStore, runtimeCurrent: () => ({ status: 'stopped', currentCardId: null }), runtimeProjectionChanged() {}, createInvocationSurface: () => surface, shutdownProcesses: async () => {},
+    });
+    const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => ['view_image'], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
+    fastify = Fastify({ logger: false });
+    const contracts = new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort });
+    contracts.mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: sessionId, cardStore } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    contracts.mount(fastify, agentOperatorApiContracts, buildAgentOperatorContractHandlers({ projectRoot, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() }));
+    await fastify.ready();
+    try {
+      writeFileSync(join(projectRoot, 'screen.png'), await sharp({ create: { width: 20, height: 10, channels: 3, background: '#123456' } }).png().toBuffer());
+      const failed = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'inspect screen.png' } });
+      expect(failed.statusCode).toBe(500);
+      expect(failed.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+      expect(physicalPath).not.toBe('');
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const rows = readConversation(projectRoot, sessionId).sourceRows;
+      const result = rows.at(-1)!;
+      expect(result.kind).toBe('tool_result'); // No fabricated delivery or continuation response.
+      const diagnostic = await materializeConversationImage(projectRoot, sessionId, JSON.parse(result.content).image).catch(error => error);
+      expect(diagnostic).toBeInstanceOf(Error);
+      expect(diagnostic.message).toBe('Selected conversation image read failed (ENOENT).');
+      expect(diagnostic).not.toHaveProperty('cause');
+      expect(diagnostic).not.toHaveProperty('path');
+      const transcript = await fastify.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation`, headers: authHeaders });
+      expect(transcript.statusCode).toBe(200);
+      expect(transcript.body).toContain('screen.png');
+      for (const text of [diagnostic.message, failed.body, transcript.body, JSON.stringify(rows)]) {
+        expect(text).not.toContain(physicalPath);
+        expect(text).not.toContain('/images/');
+        expect(text).not.toContain(projectRoot);
+      }
+    } finally {
+      fetch.mockRestore();
+      session.disposeSession(new Error('test closed'));
+      await session.joinSession();
+    }
   });
 
   it('uses the retained real Analyst owner for HTTP failure followed by fresh-session settlement', async () => {
@@ -466,7 +556,7 @@ describe('operator chat route request contracts', () => {
     });
     const base = scriptedAdmissionProvider(complete);
     const { session } = analystCapacityFixture(projectRoot, {
-      provider: { ...base, preparePrimaryRequestAdmission: (input, signal) => pressure && calls === 1 ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal) },
+      provider: { ...base, preparePrimaryRequestAdmission: async (input, signal) => pressure && calls === 1 ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal) },
       surface: { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [] },
       compactor: { shouldCompact: () => false, compact: async () => { started.resolve(); await finish.promise; return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens: 10000, smallestCandidateEstimatedProviderMessageTokens: null }; } },
     });

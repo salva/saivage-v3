@@ -40,6 +40,7 @@ import {
   TERMINAL_RESULT_TOOL_NAME,
   WebfetchInvocationSchema,
   ToolResultSchema,
+  viewImageInputSchema,
   McpToolCallArgumentsSchema,
   type ToolInvocationProjectionInput,
   type ToolResult,
@@ -82,6 +83,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'diff_card_versions',
   'read_record_version',
   'read',
+  'view_image',
   'write',
   'edit',
   'glob',
@@ -260,6 +262,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'diff_card_versions':
     case 'read_record_version':
     case 'read':
+    case 'view_image':
     case 'wait_process':
     case 'kill_process':
     case 'skill':
@@ -366,6 +369,8 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return readRecordVersionInputSchema;
     case 'read':
       return readWorkspaceInputSchema;
+    case 'view_image':
+      return viewImageInputSchema;
     case 'write':
       return writeWorkspaceInputSchema;
     case 'edit':

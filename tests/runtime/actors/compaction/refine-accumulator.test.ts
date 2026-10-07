@@ -212,14 +212,14 @@ describe('sequential contextual refine accumulator', () => {
   });
 
   it('refines actual JSON wire admission across escaping, supplementary characters, and range-label digit transitions until the next code point rejects', async () => {
-    const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, contextWindowTokens: 4_000, maxOutputTokens: 10_000, quirks: [] };
+    const capabilities = { transportProtocol: 'openai-chat-completions' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, contextWindowTokens: 4_000, maxOutputTokens: 10_000, quirks: [] };
     const attempts: Array<{ range: ParsedSourceRange; serialization: SummaryRequestSerialization }> = [];
     const sent: SummaryInput[] = [];
     const provider = recordingProvider({
       contextWindowTokens: capabilities.contextWindowTokens,
       serialize: (input) => {
         const plan = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { providerSessionId: 'synthetic-provider-session', inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
-        const result = { serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
+        const result = { imageCount: plan.request.imageCount, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
         const ranges = sourceRanges(input);
         if (ranges.length === 1) attempts.push({ range: ranges[0]!, serialization: result });
         return result;
@@ -485,7 +485,7 @@ describe('sequential contextual refine accumulator', () => {
       conversation: validateConversation(SESSION, rows),
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
       budget: BUDGET,
       signal: controller.signal,
       progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
@@ -523,7 +523,7 @@ describe('sequential contextual refine accumulator', () => {
       conversation: validateConversation(SESSION, rows),
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
       budget: BUDGET,
       signal: controller.signal,
       progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
@@ -556,7 +556,7 @@ describe('sequential contextual refine accumulator', () => {
       conversation: validateConversation(SESSION, rows),
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+      summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
       budget: BUDGET,
       signal: controller.signal,
       progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
@@ -611,6 +611,7 @@ function recordingProvider(args: {
     candidate: CANDIDATE,
     contextWindowTokens: args.contextWindowTokens,
     maxOutputTokens: 10_000,
+    materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
     serializeSummaryRequest: args.serialize ?? ((input) => serialization(input, Buffer.byteLength(JSON.stringify(input.providerConversation.messages), 'utf8') / 4)),
     completeTurn: args.completeTurn ?? (async (input) => ({ result: { kind: 'message' as const, content: await args.complete!(input) }, provider_exchanges: [] })),
     projectProviderExchanges: jest.fn(),
@@ -619,7 +620,7 @@ function recordingProvider(args: {
 
 function serialization(input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0], estimatedInputTokens: number): SummaryRequestSerialization {
   const serializedRequest = JSON.stringify({ systemPrompt: input.systemPrompt, messages: input.providerConversation.messages });
-  return { serializedRequest, requestSha256: createHash('sha256').update(serializedRequest).digest('hex'), estimatedInputTokens };
+  return { imageCount: 0, serializedRequest, requestSha256: createHash('sha256').update(serializedRequest).digest('hex'), estimatedInputTokens };
 }
 
 function sourceByteCount(input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0]): number {

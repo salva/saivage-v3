@@ -136,7 +136,7 @@ export interface LLMProviderPort {
   preparePrimaryRequestAdmission(
     input: PreparedLlmInvocationInput,
     signal: AbortSignal,
-  ): OrdinaryPrimaryRequestAdmission;
+  ): Promise<OrdinaryPrimaryRequestAdmission>;
   executeAdmittedWithRecovery(
     admission: OrdinaryAdmittedExecution,
     signal: AbortSignal,
@@ -147,7 +147,7 @@ export interface LLMProviderPort {
       input: PreparedLlmInvocationInput;
       signal: AbortSignal;
     }>,
-  ): AdmittedRecoveryPreparation;
+  ): Promise<AdmittedRecoveryPreparation>;
   resumeAdmittedExecution(
     preparation: AdmittedRecoveryPreparation,
     signal: AbortSignal,
@@ -155,7 +155,7 @@ export interface LLMProviderPort {
   preflightPinnedContentPolicyRequest(
     input: LlmInvocationInput,
     signal: AbortSignal,
-  ): PinnedContentPolicyPreflight;
+  ): Promise<PinnedContentPolicyPreflight>;
   executePinnedContentPolicyRequest(
     preflight: PinnedAdmittedContentPolicyRequest,
     signal: AbortSignal,
@@ -768,6 +768,8 @@ export class ConversationLLMActor {
     }
     this.#assertPersistenceOwnership(input);
     const admitted = await this.#admitPrimaryRequest(operation, input, signal);
+    signal.throwIfAborted();
+    this.#invocations.assertCurrent(operation.lease!);
     input = admitted.input;
     operation.input = input;
     appendLlmTurnStarted(this.conversations, input);
@@ -790,7 +792,9 @@ export class ConversationLLMActor {
   ): Promise<
     Readonly<{ input: PreparedLlmInvocationInput; admission: OrdinaryAdmittedExecution }>
   > {
-    const first = this.provider.preparePrimaryRequestAdmission(input, signal);
+    const first = await this.provider.preparePrimaryRequestAdmission(input, signal);
+    signal.throwIfAborted();
+    this.#invocations.assertCurrent(operation.lease!);
     if (first.kind === 'admitted') return { input, admission: first };
     if (first.kind === 'local_admission_failed')
       throw new LocalExactAdmissionError({
@@ -836,7 +840,9 @@ export class ConversationLLMActor {
       ...input,
       providerConversation: compacted.providerConversation,
     };
-    const second = this.provider.preparePrimaryRequestAdmission(recomposed, signal);
+    const second = await this.provider.preparePrimaryRequestAdmission(recomposed, signal);
+    signal.throwIfAborted();
+    this.#invocations.assertCurrent(operation.lease!);
     if (second.kind === 'admitted') return { input: recomposed, admission: second };
     throw new LocalExactAdmissionError({
       source: 'primary_local',
@@ -1390,11 +1396,13 @@ export class ConversationLLMActor {
     operation.input = recoveryInput;
     let preparation: AdmittedRecoveryPreparation;
     try {
-      preparation = this.provider.prepareAdmittedRecovery({
+      preparation = await this.provider.prepareAdmittedRecovery({
         suspension: handoff.suspension,
         input: recoveryInput,
         signal,
       });
+      signal.throwIfAborted();
+      this.#invocations.assertCurrent(operation.lease!);
     } catch (error) {
       this.#deliverPublicationFatal(error);
       throw error;
@@ -1451,9 +1459,10 @@ export class ConversationLLMActor {
     operation.input = retryInput;
     let preflight: PinnedContentPolicyPreflight;
     try {
-      preflight = this.provider.preflightPinnedContentPolicyRequest(retryInput, signal);
+      preflight = await this.provider.preflightPinnedContentPolicyRequest(retryInput, signal);
     } catch (error) {
       this.#deliverPublicationFatal(error);
+      signal.throwIfAborted();
       throw new ProviderTurnFailure({
         failure_phase: 'provider_attempt',
         provider_exchanges: firstAttempts,
@@ -1461,6 +1470,8 @@ export class ConversationLLMActor {
         candidate: firstFailure.candidate,
       });
     }
+    signal.throwIfAborted();
+    this.#invocations.assertCurrent(operation.lease!);
     if (preflight.kind === 'rejected') {
       throw new ProviderTurnFailure({
         failure_phase: 'provider_attempt',

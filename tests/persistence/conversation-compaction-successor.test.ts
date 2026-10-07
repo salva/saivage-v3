@@ -39,6 +39,7 @@ function summarizer(args: { calls: SummaryCall[]; summaryOf: (call: SummaryCall)
     candidate: CANDIDATE,
     contextWindowTokens: 100_000,
     maxOutputTokens: 10_000,
+    materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
     serializeSummaryRequest: deterministicSummarySerialization,
     completeTurn: async (input): Promise<{ result: { kind: 'message'; content: string }; provider_exchanges: never[] }> => {
       const call: SummaryCall = { sessionId: input.sessionId, systemPrompt: input.systemPrompt, contents: input.providerConversation.messages.map((row) => row.content) };
@@ -127,7 +128,7 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
-  it('uses strict format 4 and rejects prospectively mutated protected rows and extraction coordinates without checksums', async () => {
+  it('uses strict format 5 and rejects prospectively mutated protected rows and extraction coordinates without checksums', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -137,10 +138,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(4);
-      expect(segment.genesis.format_version).toBe(4);
+      expect(segment.index.format_version).toBe(5);
+      expect(segment.genesis.format_version).toBe(5);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(4);
+      expect(envelope.version).toBe(5);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 3 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 3 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 3 }, ...segment.rows] }).success).toBe(false);
@@ -288,6 +289,7 @@ describe('compaction fallback, successor identity, and internal summary identity
         candidate: CANDIDATE,
         contextWindowTokens: 100_000,
         maxOutputTokens: 10_000,
+        materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
         serializeSummaryRequest: deterministicSummarySerialization,
         completeTurn: async () => {
           calls++;

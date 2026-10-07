@@ -5,6 +5,7 @@ export {
   readConversation,
   readCurrentConversationSegment,
 } from './conversation-file.js';
+export { publishConversationImage, materializeConversationImage } from './conversation-image.js';
 export type {
   CompactionPublicationOptions,
   CompactionSuccessorIdentity,

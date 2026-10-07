@@ -17,6 +17,7 @@ import type { ProviderExchangeAttempt } from './provider-exchange.js';
 import type { InvocationRoutePass } from './prepared-invocation.js';
 import { utf8SafeSlice } from '../utils/index.js';
 import { usableInputTokens } from './context-budget.js';
+import { MAX_IMAGE_REQUEST_BYTES } from './image.js';
 
 type CandidateIdentity = Candidate;
 const DEFAULT_CONTEXT_UTILIZATION_FRACTION = 0.8;
@@ -85,7 +86,11 @@ export function classifyCandidateLocalAdmission(args: {
   );
   if (inputCapacity <= 0)
     return { kind: 'candidate_ineligible', reason: { kind: 'nonpositive_usable_input' } };
-  if (args.plan.request.estimatedWireInputTokens > inputCapacity)
+  if (
+    args.plan.request.estimatedWireInputTokens > inputCapacity ||
+    (args.plan.request.imageCount > 0 &&
+      Buffer.byteLength(args.plan.request.serializedBody, 'utf8') > MAX_IMAGE_REQUEST_BYTES)
+  )
     return {
       kind: 'projection_too_large',
       protocol: args.capabilities.transportProtocol,

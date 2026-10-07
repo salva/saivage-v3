@@ -9,6 +9,7 @@ import type {
 const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
   transportProtocol: 'openai-chat-completions',
   toolsMode: 'native',
+  imageInput: false,
   exclusiveToolChoiceSupport: 'native',
   quirks: [],
 };
@@ -37,6 +38,7 @@ export function mergeCapabilities(
   return {
     transportProtocol: override.transportProtocol ?? base.transportProtocol,
     toolsMode: override.toolsMode ?? base.toolsMode,
+    imageInput: override.imageInput ?? base.imageInput,
     exclusiveToolChoiceSupport:
       override.exclusiveToolChoiceSupport ?? base.exclusiveToolChoiceSupport,
     responsesReasoning: override.responsesReasoning ?? base.responsesReasoning,
@@ -60,6 +62,11 @@ export function supportsCapabilityRequest(
 ): CapabilityMatch {
   if (!request) return { supported: true };
   const reasons: CapabilitySkipReason[] = [];
+  if (
+    request.requiresImages &&
+    (!capabilities.imageInput || capabilities.transportProtocol === 'openai-chat-completions')
+  )
+    reasons.push('unsupported_image_input');
   if (request.transportProtocol && capabilities.transportProtocol !== request.transportProtocol) {
     reasons.push('unsupported_transport_protocol');
   }

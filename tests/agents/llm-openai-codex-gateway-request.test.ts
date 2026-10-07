@@ -14,7 +14,7 @@ afterEach(() => { jest.restoreAllMocks(); });
 
 const CANDIDATE: Candidate = { provider: 'openai-codex', account: null, model: 'gpt-5' };
 const ADAPTER = selectLlmProtocolAdapter('openai-codex-backend');
-const CAPABILITIES = { transportProtocol: 'openai-codex-backend' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'parallel_off' as const, quirks: ['openai-codex-backend'] };
+const CAPABILITIES = { transportProtocol: 'openai-codex-backend' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'parallel_off' as const, quirks: ['openai-codex-backend'] };
 const SYSTEM = 'system-prompt';
 const MESSAGES: AgentMessage[] = [
   {

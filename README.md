@@ -1,5 +1,23 @@
 # Saivage v3
 
+### Inspecting screenshots
+
+An agent can use `run_command` to save a **non-secret** screenshot in the project,
+then call `view_image({"path":"screenshots/settings.png"})`. Command output alone
+never attaches an image. Selected Analyst, Executor and Reviewer surfaces include
+this tool; custom agents must opt in. Image input requires a compatible Responses
+or Codex primary **and summary** route (including `gpt-6.1-sol` and `gpt-6-astra`);
+Chat remains text-only. The default longest side is 1600, with integer 1..16384 or
+`"original"` as `max_dimension`. Local original does not force provider-original
+processing. The UI reports recorded snapshot metadata, not pixels or delivery.
+
+Conversation index/genesis/envelope now use strict **format 5**. Format 4/mixed
+state stays a stopped blocker: adoption needs a separately consented complete
+reset or explicitly owner-requested external offline migration, never automatic
+conversion. Snapshots grow with observations and are included in complete backups;
+there is no GC. Installing Sharp requires optional native dependencies (see the
+[runbook](docs/runbook/index.md#image-snapshots-and-native-dependencies)).
+
 Saivage is autonomous software engineering built for the long run. Give it the
 specification for a software project and it carries the work from
 specification to accepted delivery — planning, implementing, testing, and

@@ -159,7 +159,7 @@ inputs and matching release/state before authorized start. External migration us
 an independent complete candidate, strict full validation and evidence-based factual/
 historical fidelity; structural changes are not automatically loss, and unavoidable
 concrete loss needs confirmation before cutover. See [External migrations](runbook/index.md#external-migrations).
-Current conversation format 4 removes
+Current conversation format 5 retains the format-4 removal of
 compaction checksums, not semantic prefix/continuation validation. Source completion
 authorizes no instance action; binary-only rollback is unsupported. See
 [Direct File Persistence](spec/system-specification.md#9-direct-file-persistence)

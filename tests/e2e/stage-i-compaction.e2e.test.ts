@@ -54,7 +54,7 @@ describe('Stage-I versioned compaction', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-versioned-compaction-')); initProjectTree(root);
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendRound(root, ordinal);
-      const before = readConversation(root, SESSION); const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(before, []).messages), summarizerProvider: { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal, progress: noCompactionProgress });
+      const before = readConversation(root, SESSION); const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(before, []).messages), summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal, progress: noCompactionProgress });
       expect(result.kind).toBe('compacted'); const current = readCurrentConversationSegment(root, SESSION)!;
       expect(current.entry.version).toBe(2); expect(current.genesis.kind).toBe('compacted_segment_genesis'); expect(current.rows.some((row) => row.kind === ('context_compaction' as never))).toBe(false);
       expect(readHistoricalConversationSegment(root, SESSION, 1).genesis.kind).toBe('ordinary_segment_genesis');
@@ -82,6 +82,7 @@ describe('Stage-I versioned compaction', () => {
     const requests: Array<Parameters<SummarizerProviderPort['completeTurn']>[0]> = [];
     const summarizerProvider: SummarizerProviderPort = {
       candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+      materializeImage: async () => { throw new Error('Unexpected image.'); },
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async (input) => {
         requests.push(input);
@@ -142,7 +143,7 @@ describe('Stage-I versioned compaction', () => {
   it('retains configured instructions across two compactions and releases a replaced key only into the successor summary', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-protected-compaction-')); initProjectTree(root);
     const summaryInputs: string[] = [];
-    const summarizerProvider: SummarizerProviderPort = { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async (input) => { summaryInputs.push(...input.providerConversation.messages.map(({ content }) => content)); return { result: { kind: 'message' as const, content: `summary-${summaryInputs.length}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
+    const summarizerProvider: SummarizerProviderPort = { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async (input) => { summaryInputs.push(...input.providerConversation.messages.map(({ content }) => content)); return { result: { kind: 'message' as const, content: `summary-${summaryInputs.length}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
     const originalFetch = globalThis.fetch;
     try {
       appendProtectedRound(root, 1, 'protected-old', 'EXACT OLD INSTRUCTION', 'workflow.rule');
@@ -228,6 +229,7 @@ describe('Stage-I versioned compaction', () => {
           candidate: TEST_CANDIDATE,
           contextWindowTokens: 100_000,
           maxOutputTokens: 10_000,
+          materializeImage: async () => { throw new Error('Unexpected image.'); },
           serializeSummaryRequest: deterministicSummarySerialization,
           completeTurn: async (input) => {
             activeCalls++;
@@ -279,7 +281,7 @@ describe('Stage-I versioned compaction', () => {
         strategy: 'preventive',
         conversations: { projectRoot: root },
         input: invocationFor(SESSION, providerConversationProjection(before.conversation, []).messages),
-        summarizerProvider: { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+        summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
         signal: controller.signal,
         progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
       })).rejects.toBe(reason);
@@ -631,13 +633,14 @@ function summaryProvider(args: {
   const serializeSummaryRequest = (input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0]): SummaryRequestSerialization => {
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
     const plan = buildCandidateRequest({ candidate: args.candidate, capabilities, adapter, systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { providerSessionId: 'synthetic-provider-session', inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
-    return { serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
+    return { imageCount: plan.request.imageCount, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
   };
   return {
     candidate: args.candidate,
     contextWindowTokens: capabilities.contextWindowTokens,
     maxOutputTokens: capabilities.maxOutputTokens,
     serializeSummaryRequest,
+    materializeImage: async () => { throw new Error('Unexpected image.'); },
     completeTurn: async (input, admitted, signal) => {
       const correction = input.systemPrompt.includes('6000 UTF-8 bytes');
       const response = args.correctionOnFirstNormal && !correction && normalCalls++ === 0 ? '   ' : `summary-${args.records.length + 1}: ${'S'.repeat(17_000)}`;

@@ -194,6 +194,9 @@ describe('Supervisor notification admission at terminal ownership', () => {
 
   it('re-enters typed architecture at Executor draft after interrupting Reviewer and repeats both reviews', async () => {
     const config=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic-typed').config));
+    // This scripted provider exercises text-only workflow re-entry, not image transport.
+    for (const agent of Object.values(config.agents)) agent.tools=agent.tools.filter(tool=>tool!=='view_image');
+    config.models={routes:Object.fromEntries(Object.entries(config.models.routes).map(([name,route])=>[name,{candidates:['gpt-5.6'],temperature:route.temperature,max_tokens:route.max_tokens}])),profiles:{},equivalents:[],failover:{}};
     config.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};
     const compiled=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot});
     const registry=new ProviderRegistry(config);

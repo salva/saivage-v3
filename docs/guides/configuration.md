@@ -1,5 +1,36 @@
 # Configuration
 
+## Image tool and routes
+
+Opt in with `view_image` in each intended named agent's exact tool list. Bundled
+Analyst/Executor/Reviewer declarations include it; materialized custom configuration
+does not inherit template changes. Image-enabled surfaces and fixed
+`compaction.summarizer_candidate` require compatible image input. Capability
+`imageInput` defaults unsupported; exact `gpt-6.1-sol` and `gpt-6-astra` resolve support
+on Responses/Codex. Explicit configuration can declare another compatible endpoint.
+Transport support is also required: Chat image input is not implemented. Native
+tools alone does not prove these models' Chat tool support; Sol/Astra tool routes
+require Responses or compatible Codex, without automatic rerouting. Retained images
+require image capability at use even after tool removal.
+
+Use an existing command to create a non-secret PNG/JPEG, then explicitly call
+`view_image({path:"screenshots/settings.png",max_dimension:1600})`. Omission is 1600;
+integer 1..16384 or `'original'` is the sole override. Original disables local spatial
+reduction only, not orientation/PNG normalization, limits or backend preprocessing.
+Provider detail is omitted/default auto. Small text may need a focused screenshot
+or larger override; never invent unreadable text. Source limits are 32 MiB, one frame,
+40 million pixels; selected PNG is at most 16 MiB. Image-bearing wire is at most
+32 MiB. No retry ladder or source mutation. Avoid credential/configuration screens:
+pixel secrets cannot be redacted. `read` and command stdout stay text-only.
+
+Local estimation is complete serialized UTF-8 bytes/4 plus
+`2*ceil(sentWidth/32)*ceil(sentHeight/32)` per emitted image: one heuristic for both
+models, not billing or guaranteed fit. Official context is 1,050,000, maximum input
+922,000 and maximum output 128,000; configure existing budgets conservatively.
+There is no independent maximum-input axis. Snapshots remain in backups and disk
+retention without GC after lossy compaction. See the
+[native prerequisites/adoption](../runbook/index.md#image-snapshots-and-native-dependencies).
+
 Status: non-authoritative guide. The selected configuration's exact contracts
 are owned by the [System specification](../spec/system-specification.md) and
 the [Operator runbook](../runbook/index.md); this page explains how to
@@ -35,6 +66,10 @@ exclusive tool-choice behavior must match the capabilities you declare. The
 example below assumes a Chat Completions model verified to support native
 tools and native exclusive tool choice; its context/output figures are
 illustrative, not defaults to copy:
+
+This example is text-only: remove `view_image` from intended agents if selecting
+Chat, or choose compatible image primary/summary Responses or Codex routes. In
+particular, do not substitute Sol/Astra into this Chat tool example.
 
 ```yaml
 providers:

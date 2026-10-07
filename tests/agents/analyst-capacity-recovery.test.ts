@@ -44,7 +44,7 @@ describe('retained Analyst primary-local capacity rejection', () => {
         : { result: { kind: 'message' as const, content: 'fresh success' }, provider_exchanges: [] };
     });
     const base = scriptedAdmissionProvider(complete);
-    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>((input, signal) => reject && (pass === 'initial' || calls === 1) ? capacityAdmission() : base.preparePrimaryRequestAdmission(input, signal));
+    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async (input, signal) => reject && (pass === 'initial' || calls === 1) ? capacityAdmission() : base.preparePrimaryRequestAdmission(input, signal));
     const { session } = analystCapacityFixture(projectRoot, { provider: { ...base, preparePrimaryRequestAdmission: prepare }, surface: { agentName: 'analyst', tools: new Map([[tool.name, tool]]), providers: [] } });
     await expect(session.submit({ userContent: 'rejected send' })).rejects.toMatchObject({ source: 'primary_local', reason: 'capacity' });
     expect(complete).toHaveBeenCalledTimes(pass === 'initial' ? 0 : 1);
@@ -76,7 +76,7 @@ describe('retained Analyst primary-local capacity rejection', () => {
       return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens: 10000, smallestCandidateEstimatedProviderMessageTokens: null };
     };
     const { session } = analystCapacityFixture(projectRoot, {
-      provider: { ...base, preparePrimaryRequestAdmission: (input, signal) => reject ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal) },
+      provider: { ...base, preparePrimaryRequestAdmission: async (input, signal) => reject ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal) },
       compactor: { shouldCompact: () => false, compact },
       runtimeProjectionChanged: () => {
         if (clearing && !observedBusy) observedBusy = session.submit({ userContent: 'observer concurrent send' }).catch((error: unknown) => error);
@@ -97,7 +97,7 @@ describe('retained Analyst primary-local capacity rejection', () => {
     const projectRoot = root();
     const sentinel = new Error('settlement observer failed');
     let clearing = false;
-    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(() => capacityAdmission('local_compaction_required'));
+    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async () => capacityAdmission('local_compaction_required'));
     const base = scriptedAdmissionProvider(async () => { throw new Error('primary must not run'); });
     const render = jest.fn(() => 'Analyst');
     const { session } = analystCapacityFixture(projectRoot, {
@@ -116,7 +116,7 @@ describe('retained Analyst primary-local capacity rejection', () => {
     const sentinel = new Error('capacity completion observer failed');
     let rejecting = false;
     const base = scriptedAdmissionProvider(async () => { throw new Error('primary must not run'); });
-    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(() => { rejecting = true; return capacityAdmission(); });
+    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async () => { rejecting = true; return capacityAdmission(); });
     const render = jest.fn(() => 'Analyst');
     const { session } = analystCapacityFixture(projectRoot, {
       render, provider: { ...base, preparePrimaryRequestAdmission: prepare },
@@ -133,7 +133,7 @@ describe('ineligible summary and configuration failures retain Analyst poison', 
   it('retains configuration-only primary admission rejection without fresh preparation', async () => {
     const projectRoot = root();
     const base = scriptedAdmissionProvider(async () => { throw new Error('primary must not run'); });
-    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(() => ({
+    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async () => ({
       ...capacityAdmission(), candidates: [{ candidate: { provider: 'test', account: null, model: 'test-model' }, capabilityRequest: {}, capabilityRequestSha256: '0'.repeat(64), kind: 'candidate_ineligible', reason: { kind: 'missing_context_window' } }],
     }));
     const render = jest.fn(() => 'Analyst');
@@ -151,7 +151,7 @@ describe('ineligible summary and configuration failures retain Analyst poison', 
     const service = { preparePrimaryRequestAdmission: summaryAdmission, executeSummaryWithRecovery: summaryExecute } as unknown as InvocationService;
     const base = scriptedAdmissionProvider(async () => { throw new Error('primary must not run'); });
     const execute = jest.fn(base.executeAdmittedWithRecovery);
-    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>((input, signal) => strategy === 'local' ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal));
+    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async (input, signal) => strategy === 'local' ? capacityAdmission('local_compaction_required') : base.preparePrimaryRequestAdmission(input, signal));
     const render = jest.fn(() => 'Analyst');
     let original: unknown;
     const compact = jest.fn<CompactorPort['compact']>(async ({ input, signal }) => {
@@ -162,7 +162,7 @@ describe('ineligible summary and configuration failures retain Analyst poison', 
         items: [{ label: 'source', role: 'user', content: 'Controlled summary material.' }],
       });
       try {
-        await executeInternalSummaryTurn(service, summaryInput, signal, { kind: 'admitted', contextUtilizationFraction: .8, requestSha256: '0'.repeat(64), serializedRequest: '{}', estimatedInputTokens: 1, usableInputTokens: 100 });
+        await executeInternalSummaryTurn(service, summaryInput, signal, { kind: 'admitted', imageCount: 0, contextUtilizationFraction: .8, requestSha256: '0'.repeat(64), serializedRequest: '{}', estimatedInputTokens: 1, usableInputTokens: 100 });
       } catch (error) { original = error; throw error; }
       throw new Error('summary must reject');
     });
@@ -184,7 +184,7 @@ describe('ineligible summary and configuration failures retain Analyst poison', 
     const projectRoot = root();
     const construction = new CompactionSummaryConstructionError({ reason: 'fold_limit', invocationCount: 16, correctionCount: 1, cause: new Error('private') });
     const base = scriptedAdmissionProvider(async () => { throw new Error('primary must not run'); });
-    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(() => capacityAdmission('local_compaction_required'));
+    const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async () => capacityAdmission('local_compaction_required'));
     const compact = jest.fn<CompactorPort['compact']>(async () => { throw construction; });
     const render = jest.fn(() => 'Analyst');
     const { session } = analystCapacityFixture(projectRoot, { render, provider: { ...base, preparePrimaryRequestAdmission: prepare }, compactor: { shouldCompact: () => strategy === 'preventive', compact } });
@@ -216,10 +216,10 @@ describe('authoritative re-admission remains separate from local capacity', () =
     const chain = mode === 'mandatory' ? [a] : [a, b];
     const service = new InvocationService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry(chain, { 'primary-a': { contextWindowTokens: mode === 'mandatory' ? 5000 : 100000 }, 'primary-b': { contextWindowTokens: 5000 } }), candidateAvailability: new MemoryCandidateAvailability() });
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(contextExhausted()).mockResolvedValue(chatSuccess('fresh authoritative send'));
-    const provider = createInvocationServiceProvider(service);
+    const provider = createInvocationServiceProvider(service, projectRoot);
     let original: unknown;
-    const prepareRecovery = jest.fn<LLMProviderPort['prepareAdmittedRecovery']>((args) => {
-      try { return provider.prepareAdmittedRecovery(args); }
+    const prepareRecovery = jest.fn<LLMProviderPort['prepareAdmittedRecovery']>(async (args) => {
+      try { return await provider.prepareAdmittedRecovery(args); }
       catch (error) { original = error; throw error; }
     });
     const render = jest.fn(() => 'Analyst');

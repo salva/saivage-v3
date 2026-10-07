@@ -86,6 +86,7 @@ function runCli(root: string, command: 'init' | 'reset'): string {
 
 function testConfig(providerPort: number, appPort: number): SaivageConfig {
   const config = effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
+  for (const agent of Object.values(config.agents)) agent.tools = agent.tools.filter(tool => tool !== 'view_image'); // scripted Chat fixture
   config.server = { host: '127.0.0.1', port: appPort };
   config.models = {
     routes: {
@@ -746,10 +747,10 @@ describe('disposable production-composition smoke', () => {
       const afterRestart = await api(app, '/api/agents/agent%3Aexecutor%3Acard-a/llm-exchange');
       expect(afterRestart).toEqual(beforeRestart);
 
-      expect(offeredTools.get('analyst')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.analyst.tools);
+      expect(offeredTools.get('analyst')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.analyst.tools.filter(tool => tool !== 'view_image'));
       expect(offeredTools.get('planner')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.planner.tools.concat('emit_result'));
-      expect(offeredTools.get('executor')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.executor.tools.concat('emit_result'));
-      expect(offeredTools.get('reviewer')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.reviewer.tools.concat('emit_result'));
+      expect(offeredTools.get('executor')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.executor.tools.filter(tool => tool !== 'view_image').concat('emit_result'));
+      expect(offeredTools.get('reviewer')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.reviewer.tools.filter(tool => tool !== 'view_image').concat('emit_result'));
       expect(offeredTools.get('reviewer')).not.toContain('mcp_tool_call');
 
       await stop(app);

@@ -371,9 +371,7 @@ export function validateAtomicCoveredSourcePrefix(
       row.provider_projection?.private_message_id &&
       coveredSet.has(row.provider_projection.private_message_id)
     )
-      throw new Error(
-        `Covered visible projection '${row.id}' must be grouped with its private mate.`,
-      );
+      continue; // Already included by its preceding canonical private mate.
     groups.push([row.id]);
   }
   const flattened = groups.flat();
@@ -647,7 +645,19 @@ function validateToolOrdering(
 
 function parseToolResultContent(row: AgentMessage): { success: boolean } {
   try {
-    return { success: ToolResultSchema.parse(JSON.parse(row.content)).success === true };
+    const result = ToolResultSchema.parse(JSON.parse(row.content));
+    if (result.success && (row.tool === 'view_image') !== !!result.image)
+      throw new Error(
+        'Successful executed view_image requires an image descriptor; other tools cannot carry images.',
+      );
+    if (
+      result.success &&
+      result.image &&
+      row.context_policy.kind === 'tool_result' &&
+      row.context_policy.settlement_origin !== 'executed'
+    )
+      throw new Error('Only executed view_image results can select images.');
+    return { success: result.success === true };
   } catch (error) {
     throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
   }

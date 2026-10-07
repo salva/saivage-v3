@@ -284,6 +284,47 @@ function resolveWritePath(ctx: WorkspaceContext, raw: string): WritableToolPath 
   return { ...writable, kind: writable.kind };
 }
 
+export function readWorkspaceImageSource(
+  ctx: WorkspaceContext,
+  path: string,
+  maxBytes: number,
+): { bytes: Buffer; sourcePath: string } {
+  if (path.startsWith('record:///') || path.startsWith('system:///'))
+    throw toolInputError('view_image supports project, work and own-card tmp paths only.');
+  if (path.startsWith('tmp:///') && parseScopedPathUrl(path, 'tmp').segments[0] !== ctx.cardId)
+    throw toolInputError('view_image tmp paths require the owning card context.');
+  const { resolved } = resolveReadPath(ctx, path);
+  if (resolved.kind !== 'project' && resolved.kind !== 'work' && resolved.kind !== 'tmp')
+    throw toolInputError('view_image supports project, work and own-card tmp paths only.');
+  if (
+    resolved.kind === 'project' &&
+    (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/'))
+  )
+    throw toolInputError('Internal Saivage paths require an admitted work or tmp URL.');
+  const contained = resolveContainedProjectPath(ctx.projectRoot, resolved.absolutePath);
+  const realRel = contained.realTargetProjectRelativePath ?? contained.relativePath;
+  const filterRel = realRel?.startsWith('.saivage/work/')
+    ? realRel.slice('.saivage/work/'.length)
+    : realRel;
+  if (
+    !contained.safe ||
+    !realRel ||
+    !filterRel ||
+    isHiddenPath(ctx.projectRoot, resolve(ctx.projectRoot, realRel), filterRel) ||
+    (realRel.startsWith('.saivage/') &&
+      (resolved.kind === 'project' || !realRel.startsWith('.saivage/work/')))
+  )
+    throw toolInputError('Image source resolves to a blocked path.');
+  const st = statSync(resolved.absolutePath);
+  if (!st.isFile()) throw toolInputError('view_image requires a file.');
+  if (st.size > maxBytes)
+    throw toolInputError('Image source exceeds 32 MiB; generate a smaller source.');
+  const bytes = readFileSync(resolved.absolutePath);
+  if (bytes.length > maxBytes)
+    throw toolInputError('Image source exceeds 32 MiB; generate a smaller source.');
+  return { bytes, sourcePath: displayPathForResolved(ctx.projectRoot, resolved) };
+}
+
 async function directoryEntriesForRead(
   ctx: WorkspaceContext,
   raw: string,

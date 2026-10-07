@@ -156,6 +156,12 @@ export const TOOL_PRESENTERS: Readonly<Record<string, ToolPresenter>> = {
   wait_process: { action: 'Wait for process', call: request('wait', ['process_id', 'timeout_ms'], (a) => textPart(a.process_id)), result: processResult },
   kill_process: { action: 'Signal process', call: request('signal', ['process_id'], (a) => textPart(a.process_id)), result: processResult },
   read: { action: 'Read', call: request('read', ['path', 'read_mode', 'metadata_only', 'position', 'response_bytes'], pathTarget), result: readResult },
+  view_image: { action: 'Inspect image', call: request('image inspection', ['path', 'max_dimension'], (a) => textPart(a.path)), result: (ctx) => {
+    if (ctx.envelope.success === false) return observed('', [], 'Image snapshot not recorded');
+    const r = ctx.dataRecord;
+    const dimensions = asRecord(r?.sent_dimensions);
+    return observed(`${str(dimensions?.width)} × ${str(dimensions?.height)}`, [fields('Recorded image snapshot (metadata only)', r, ['source_path', 'source_dimensions', 'oriented_dimensions', 'sent_dimensions', 'orientation_applied', 'resized', 'scale', 'max_dimension'])], 'Image snapshot recorded');
+  } },
   glob: { action: 'Find paths', call: request('glob', ['directory', 'pattern', 'position', 'max_results', 'response_bytes'], (a) => [...pathParts(a.directory), ...textPart(a.pattern)]), result: (ctx) => observed(count(ctx.dataRecord?.matches, 'matches'), page('Matching paths', ctx.dataRecord?.matches)) },
   grep: { action: 'Search text', call: request('grep', ['path', 'pattern', 'include', 'position', 'max_results', 'response_bytes'], (a) => [...textPart(a.pattern, 100), ...pathParts(a.path)]), result: (ctx) => observed(`${count(ctx.dataRecord?.matches, 'matches')}${ctx.dataRecord?.content_truncated === true ? ' · Line content truncated' : ''}`, [fields('Search coverage', ctx.dataRecord, ['content_truncated', 'max_line_chars']), ...page('Matches', ctx.dataRecord?.matches, ['path', 'line', 'preview'])]) },
   write: { action: 'Write', call: request('write', ['path'], pathTarget, [['content', 'Supplied content']]), result: fileMutation },

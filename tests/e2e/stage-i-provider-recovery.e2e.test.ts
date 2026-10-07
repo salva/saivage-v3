@@ -135,7 +135,7 @@ describe('stable same-session recovery', () => {
       systemPrompt: 'system',
       providerConversation,
       options,
-      capabilities: { transportProtocol: 'openai-codex-backend', toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', quirks: [] },
+      capabilities: { transportProtocol: 'openai-codex-backend', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', quirks: [] },
     });
     expect(codex.input).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),
@@ -146,7 +146,7 @@ describe('stable same-session recovery', () => {
       systemPrompt: 'system',
       providerConversation,
       options,
-      capabilities: { transportProtocol: 'openai-responses', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+      capabilities: { transportProtocol: 'openai-responses', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
     });
     expect(responses.input).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),
@@ -157,7 +157,7 @@ describe('stable same-session recovery', () => {
       systemPrompt: 'system',
       providerConversation,
       options,
-      capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+      capabilities: { transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
     });
     expect(chat.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'call-1' })] }),

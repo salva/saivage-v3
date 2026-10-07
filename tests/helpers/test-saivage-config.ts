@@ -3,6 +3,8 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/regist
 
 export const TEST_SAIVAGE_CONFIG = effectiveSaivageConfigSchema.parse({
   ...structuredClone(DEFAULT_SAIVAGE_CONFIG),
+  // This shared fixture deliberately exercises text-only Chat routes.
+  agents: Object.fromEntries(Object.entries(DEFAULT_SAIVAGE_CONFIG.agents).map(([name, agent]) => [name, { ...agent, tools: agent.tools.filter((tool) => tool !== 'view_image') }])),
   models: { routes:Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name)=>[name,{candidates:['test-model'],temperature:0.2,max_tokens:200}])),profiles:{},equivalents:[],failover:{} },
   providers: { test: { models: ['test-model'], capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 100000, maxOutputTokens: 10000 } } },
   compaction: {

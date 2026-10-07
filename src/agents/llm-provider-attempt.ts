@@ -33,7 +33,10 @@ export async function executeLlmProviderAttempt(args: {
       plan.request.requestHash,
       actualHash,
     );
-  const match = supportsCapabilityRequest(plan.capabilities, args.capabilityRequest);
+  const match = supportsCapabilityRequest(plan.capabilities, {
+    ...args.capabilityRequest,
+    ...(plan.request.imageCount > 0 ? { requiresImages: true } : {}),
+  });
   if (!match.supported)
     throw new AdmissionIntegrityError(
       `Admitted candidate request plan for ${plan.candidate.provider}/${plan.candidate.account ?? '_implicit'}/${plan.candidate.model} no longer supports its bound capability request: ${match.reasons.join(', ')}.`,
@@ -74,6 +77,7 @@ export async function executeLlmProviderAttempt(args: {
             bodyText,
             plan.request.body,
             options,
+            plan.request.imageCount > 0,
           );
         }
         const parsed = await plan.adapter.parseSuccess(
@@ -81,6 +85,7 @@ export async function executeLlmProviderAttempt(args: {
           response,
           options,
           consumption,
+          plan.request.imageCount > 0,
         );
         return { response, parsed };
       },

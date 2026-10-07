@@ -213,8 +213,8 @@ describe('Analyst non-record editor audit', () => {
   });
 
   it('preserves named shared observation composition and Analyst binding order', () => {
-    expect(analystWorkspaceToolBinders.map((binder) => binder.name)).toEqual(['read', 'write', 'edit', 'glob', 'grep']);
-    expect(globalWorkspaceObservationToolBinders.map((binder) => binder.name)).toEqual(['read', 'glob', 'grep']);
+    expect(analystWorkspaceToolBinders.map((binder) => binder.name)).toEqual(['read', 'view_image', 'write', 'edit', 'glob', 'grep']);
+    expect(globalWorkspaceObservationToolBinders.map((binder) => binder.name)).toEqual(['read', 'view_image', 'glob', 'grep']);
     for (const observation of globalWorkspaceObservationToolBinders) expect(analystWorkspaceToolBinders).toContain(observation);
   });
 });

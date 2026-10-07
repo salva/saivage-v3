@@ -7,9 +7,34 @@ import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helper
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
+import { toolImageSucceeded } from '../../src/contracts/index.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 
 const SESSION = 'agent:planner:project' as const;
 describe('canonical conversation validation', () => {
+  it('permits image selection only for an executed successful matching view_image exchange', () => {
+    const image = { id: '11111111-1111-4111-8111-111111111111', mime_type: 'image/png' as const, width: 10, height: 5, byte_length: 100, sha256: 'a'.repeat(64) };
+    const dimensions = { width: 10, height: 5 };
+    const data = { source_path: 'screen.png', source_dimensions: dimensions, oriented_dimensions: dimensions, sent_dimensions: dimensions, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 };
+    const content = settleToolActionOutcome(toolImageSucceeded(data, image)).settledResultBytes;
+    const rowsFor = (tool: string, resultContent = content, settlementOrigin: 'executed' | 'rejected_before_execution' = 'executed'): AgentMessage[] => {
+      const policies = toolRowPolicies({ content: resultContent, settlementOrigin });
+      return [activation(), {
+        id: `${INPUT}:tool-call:image`, session_id: SESSION, role: 'assistant', kind: 'tool_call', tool, tool_call_id: 'image', context_policy: policies.call,
+        content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'image', type: 'function', function: { name: tool, arguments: '{"path":"screen.png"}' } }] }), round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-10-07T00:00:01.000Z',
+      }, {
+        id: `${INPUT}:tool-result:image`, session_id: SESSION, role: 'tool', kind: 'tool_result', tool, tool_call_id: 'image', context_policy: policies.result, content: resultContent,
+        round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 2, block_index: 0, timestamp: '2026-10-07T00:00:02.000Z',
+      }];
+    };
+    expect(() => validateConversation(SESSION, rowsFor('view_image'))).not.toThrow();
+    expect(() => validateConversation(SESSION, rowsFor('read'))).toThrow(/executed view_image/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', content, 'rejected_before_execution'))).toThrow();
+    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: false, error: 'failed', image })))).toThrow(/malformed/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":true}'))).toThrow(/requires an image/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, sent_dimensions: { width: 9, height: 5 } }, image })))).toThrow(/malformed/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":false,"error":"interrupted"}'))).not.toThrow();
+  });
   it('materializes physical and inherited activation checkpoints without fabricating a marker', () => {
     const physical = validateConversation(SESSION, [activation(), text('tail')]);
     expect(physical.rounds[0]!.activation).toMatchObject({ source: 'row', message: { id: 'activation' } });
@@ -120,7 +145,7 @@ describe('canonical conversation validation', () => {
         systemPrompt: 'system',
         providerConversation,
         options: { providerSessionId: 'synthetic-provider-session', inputId, contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10 },
-        capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+        capabilities: { transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
       });
       const providerResult = (request.messages as Array<{ role: string; content: string; tool_call_id?: string }>).find((message) => message.role === 'tool');
       expect(providerResult?.tool_call_id).toBe(callId);

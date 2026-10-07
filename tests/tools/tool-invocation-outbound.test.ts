@@ -24,6 +24,7 @@ const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
+  view_image: { path: 'screen.png' },
   create_card: { type: 'code', title: marker, bootstrap_content: marker },
   cancel_card: { cardId: 'card-a', reason: marker },
   delete_card: { ids: ['card-a'] },

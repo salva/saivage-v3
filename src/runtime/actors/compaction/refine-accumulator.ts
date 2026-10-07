@@ -50,11 +50,13 @@ type RefineSourceComponent = Readonly<{
   kind: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
+  image?: import('../../../contracts/index.js').ImageDescriptor;
 }>;
 
 type PreparedRefineSourceComponent = Readonly<
   RefineSourceComponent & {
     totalBytes: number;
+    images?: readonly import('../../../contracts/index.js').MaterializedImage[];
   }
 >;
 
@@ -192,7 +194,20 @@ export function createSequentialRefineAccumulator(args: {
       ];
       let nextSummary = accumulatedSummary;
       let localLatestFold = latestFold;
-      const preparedComponents = components.map(prepareComponent);
+      const preparedComponents: PreparedRefineSourceComponent[] = [];
+      for (const component of components) {
+        args.signal.throwIfAborted();
+        const images = component.image
+          ? [
+              await args.summarizerProvider.materializeImage(
+                args.conversation.sourceSessionId,
+                component.image,
+              ),
+            ]
+          : undefined;
+        args.signal.throwIfAborted();
+        preparedComponents.push(prepareComponent(component, images));
+      }
       let cursor: PackingCursor = { componentIndex: 0, startUtf16: 0, startByte: 0 };
       while (cursor.componentIndex < preparedComponents.length) {
         args.signal.throwIfAborted();
@@ -318,6 +333,27 @@ function packNextActualRanges(args: {
     const prepared = args.components[componentIndex]!;
     let startUtf16 = componentIndex === args.cursor.componentIndex ? args.cursor.startUtf16 : 0;
     let startByte = componentIndex === args.cursor.componentIndex ? args.cursor.startByte : 0;
+    if (prepared.images?.length) {
+      const atomic: Range = {
+        component: prepared,
+        startByte: 0,
+        endByte: prepared.totalBytes,
+        startUtf16: 0,
+        endUtf16: prepared.content.length,
+      };
+      const admitted = admitRanges(args, [...current, atomic]);
+      if (!admitted) {
+        if (currentAdmission)
+          return {
+            group: currentAdmission,
+            nextCursor: { componentIndex, startUtf16: 0, startByte: 0 },
+          };
+        throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
+      }
+      current = [...current, atomic];
+      currentAdmission = admitted;
+      continue;
+    }
     if (prepared.content.length === 0) {
       const empty: Range = {
         component: prepared,
@@ -536,12 +572,17 @@ function rangeItem(part: Range): SummaryRequestItem {
     label: `[kind=new_source source=${part.component.identity} source_kind=${part.component.kind} range=${part.startByte}:${part.endByte} total_bytes=${part.component.totalBytes} omitted_source_bytes=0]`,
     role: part.component.role,
     content: part.component.content.slice(part.startUtf16, part.endUtf16),
+    ...(part.component.images ? { images: part.component.images } : {}),
   };
 }
 
-function prepareComponent(component: RefineSourceComponent): PreparedRefineSourceComponent {
+function prepareComponent(
+  component: RefineSourceComponent,
+  images?: readonly import('../../../contracts/index.js').MaterializedImage[],
+): PreparedRefineSourceComponent {
   return {
     ...component,
+    ...(images ? { images } : {}),
     totalBytes: Buffer.byteLength(component.content, 'utf8'),
   };
 }
@@ -592,6 +633,20 @@ function convertSummarizerItem(item: SummarizerContextItem): readonly RefineSour
       ];
     case 'settled_tool_bundle': {
       const identity = `${item.identity.source_input_id}:${item.identity.tool_call_id}`;
+      if (item.image)
+        return [
+          {
+            identity,
+            kind: `tool_bundle:${item.toolName}`,
+            role: 'user',
+            content: canonicalJson({
+              tool: item.toolName,
+              arguments: item.callArguments,
+              result: item.resultContent,
+            }),
+            image: item.image,
+          },
+        ];
       return [
         {
           identity: `${identity}:arguments`,

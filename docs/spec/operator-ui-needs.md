@@ -1,5 +1,13 @@
 # Operator UI: Functional Needs Specification
 
+## Recorded images are not delivery receipts
+
+Operators need to distinguish **image snapshot recorded** (safe source, sent
+dimensions and resize metadata) from successful model delivery or interpretation.
+Continuation may fail admission after recording. Expanded rows and copy stay
+metadata-only; no pixel viewer, binary fetch, thumbnail, source-path preview or
+claim that visible secrets were removed is introduced.
+
 ## Explicit loss visibility
 
 Operators need truthful coarse loss, not a guarantee of preservation or repaired availability. Strict startup errors direct a stopped, no-owner, fresh-complete-backup, exact-report/consent repair and separate restart flow; no degraded control room or automatic repair. See the [runbook](../runbook/index.md#exact-target-offline-repair). Files hides/refuses attic and resolved aliases before content inspection and offers no attic browser/repair control. Missing owning cards display **Card not found** separately from record/version misses.

@@ -5,6 +5,7 @@ import {
   type LlmCompleteOptions,
   type ProviderConversationProjection,
   type LlmProtocolAdapter,
+  type ImageDescriptor,
 } from '../contracts/index.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
@@ -30,13 +31,21 @@ interface OpenAIResponsesRequest {
 }
 export const openAIResponsesAdapter: LlmProtocolAdapter = {
   credentialRequirement: 'openai_responses_api_key',
-  buildRequestBody: ({ candidate, systemPrompt, providerConversation, options, capabilities }) =>
+  buildRequestBody: ({
+    candidate,
+    systemPrompt,
+    providerConversation,
+    options,
+    capabilities,
+    onImageEmitted,
+  }) =>
     buildOpenAIResponsesRequest(
       candidate,
       systemPrompt,
       providerConversation,
       options,
       capabilities,
+      onImageEmitted,
     ) as unknown as Record<string, unknown>,
   deriveWire(candidate, transport, body) {
     if (!transport.apiKey)
@@ -68,21 +77,23 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
       },
     };
   },
-  classifyHttpFailure(candidate, response, bodyText) {
+  classifyHttpFailure(candidate, response, bodyText, _body, _options, imageBearing) {
     return new LlmRequestError(
       classifyHttpFailure('responses', response, bodyText, {
+        suppressBodyPreview: imageBearing,
         provider: candidate.provider,
         model: candidate.model,
       }),
     );
   },
-  async parseSuccess(candidate, response, options, consumption) {
+  async parseSuccess(candidate, response, options, consumption, imageBearing) {
     const context = {
       provider: candidate.provider,
       producerAccountId: responsesProducerAccountId(candidate),
       model: candidate.model,
       sourceInputId: options.inputId,
       responseStatus: response.status,
+      suppressBodyPreview: imageBearing,
     };
     const parsed = parseOpenAIResponsesJson(await consumption.readText(response), context);
     return {
@@ -98,6 +109,7 @@ function buildOpenAIResponsesRequest(
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
   capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>,
+  onImageEmitted?: (descriptor: ImageDescriptor) => void,
 ): OpenAIResponsesRequest {
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
@@ -105,6 +117,7 @@ function buildOpenAIResponsesRequest(
     input: responsesInputFromProviderConversation(
       providerConversation,
       responsesProducerAccountId(candidate),
+      onImageEmitted,
     ),
     store: false,
     include: ['reasoning.encrypted_content'],

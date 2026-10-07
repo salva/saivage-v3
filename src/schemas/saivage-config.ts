@@ -55,6 +55,7 @@ export const providerCapabilitySchema = z
       .enum(['openai-chat-completions', 'openai-codex-backend', 'openai-responses'])
       .optional(),
     toolsMode: z.enum(['native', 'unsupported']).optional(),
+    imageInput: z.boolean().optional(),
     exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']).optional(),
     responsesReasoning: z
       .object({ effort: z.enum(['minimal', 'low', 'medium', 'high']).optional() })

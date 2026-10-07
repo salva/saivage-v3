@@ -29,9 +29,9 @@ const scriptedCandidate = { provider: 'test', account: null, model: 'test-model'
 function scriptedPlan(): CandidateRequestPlan {
   return {
     candidate: scriptedCandidate,
-    capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+    capabilities: { transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
     adapter: selectLlmProtocolAdapter('openai-chat-completions'),
-    request: { body: {}, serializedBody: '{}', estimatedWireInputTokens: 1, requestHash: '0'.repeat(64) },
+    request: { body: {}, serializedBody: '{}', imageCount: 0, estimatedWireInputTokens: 1, requestHash: '0'.repeat(64) },
   };
 }
 
@@ -75,14 +75,14 @@ export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: 
   const admission = scriptedAdmission();
   const pinned = scriptedPinnedPreflight();
   return {
-    preparePrimaryRequestAdmission: (input) => { ordinaryInput = input; return admission; },
+    preparePrimaryRequestAdmission: async (input) => { ordinaryInput = input; return admission; },
     executeAdmittedWithRecovery: (_admission, signal) => {
       if (!ordinaryInput) return Promise.reject(new Error('Scripted provider executed an ordinary turn before admission.'));
       return script(ordinaryInput as S, signal);
     },
     prepareAdmittedRecovery: () => { throw new Error('Unexpected admitted recovery preparation in scripted provider.'); },
     resumeAdmittedExecution: () => Promise.reject(new Error('Unexpected admitted recovery resume in scripted provider.')),
-    preflightPinnedContentPolicyRequest: (input) => { pinnedInput = input; return pinned; },
+    preflightPinnedContentPolicyRequest: async (input) => { pinnedInput = input; return pinned; },
     executePinnedContentPolicyRequest: (_preflight, signal) => {
       if (!pinnedInput) return Promise.reject(new Error('Scripted provider executed a pinned turn before preflight.'));
       return script(pinnedInput as S, signal);
@@ -92,6 +92,7 @@ export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: 
 
 export const testCompactor: CompactorPort = { shouldCompact, compact };
 export const unusedSummarizerProvider: SummarizerProviderPort = {
+  materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
   candidate:{provider:'test',account:null,model:'test-model'},
   contextWindowTokens: 100_000,
   maxOutputTokens: 10_000,

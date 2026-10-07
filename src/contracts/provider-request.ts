@@ -4,11 +4,13 @@ import type { CapabilityRequest } from './provider-capabilities.js';
 import type { ToolDefinition, LlmCompleteResult, ProviderPrivateContext } from './provider-turn.js';
 import type { ProviderConversationProjection } from './provider-conversation.js';
 import type { LlmRequestError } from './llm-failure.js';
+import type { ImageDescriptor } from './image.js';
 
 interface BuiltCandidateRequest {
   body: Record<string, unknown>;
   serializedBody: string;
   estimatedWireInputTokens: number;
+  imageCount: number;
   requestHash: string;
 }
 
@@ -43,6 +45,7 @@ interface LlmAdapterRequestInput {
   providerConversation: ProviderConversationProjection;
   options: LlmCompleteOptions;
   capabilities: EffectiveProviderCapabilities;
+  onImageEmitted?: (descriptor: ImageDescriptor) => void;
 }
 
 interface LlmAdapterWire {
@@ -79,12 +82,14 @@ export interface LlmProtocolAdapter {
     bodyText: string,
     body: Record<string, unknown>,
     options: LlmCompleteOptions,
+    imageBearing?: boolean,
   ): LlmRequestError;
   parseSuccess(
     candidate: Candidate,
     response: Response,
     options: LlmCompleteOptions,
     consumption: LlmResponseConsumption,
+    imageBearing?: boolean,
   ): Promise<LlmAdapterSuccess>;
 }
 

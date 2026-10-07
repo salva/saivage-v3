@@ -49,7 +49,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     const blocked = new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw flag', reason: 'prompt_policy_rejection' }));
     fixture.compact.mockRejectedValue(blocked);
     if (strategy === 'preventive') fixture.shouldCompact.mockReturnValue(true);
-    if (strategy === 'local_exact_admission') fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission());
+    if (strategy === 'local_exact_admission') fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
     const terminal = jest.fn<LlmTerminalHandoff>();
 
     const outcome = await fixture.actor.turn(fixture.input, undefined, terminal);
@@ -151,7 +151,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     });
     try {
       const fixture = actorFixture(invocation(), undefined, 'card', () => { if (order.includes('lease settled')) order.push('completion observer'); });
-      fixture.prepare.mockReturnValueOnce(capacityAdmission());
+      fixture.prepare.mockResolvedValueOnce(capacityAdmission());
       const failure = await fixture.actor.turn(fixture.input, undefined, jest.fn()).catch((error: unknown) => { order.push('public rejection'); return error; });
       expect(failure).toMatchObject({ source: 'primary_local', reason: 'capacity' });
       expect(order).toEqual(['lease settled', 'completion observer', 'public rejection']);
@@ -173,15 +173,15 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     expect(shouldCompact(input)).toBe(false);
     const candidate = input.routePass.kind === 'ordinary' ? input.routePass.candidateChain[0]! : CANDIDATE;
     const service = new InvocationService({ projectRoot: root, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate], { [candidate.provider]: { contextWindowTokens: 3_000, maxOutputTokens: 500 } }), candidateAvailability: new MemoryCandidateAvailability() });
-    const productionProvider = createInvocationServiceProvider(service);
+    const productionProvider = createInvocationServiceProvider(service, root);
     const admissionInputs: PreparedLlmInvocationInput[] = [];
     const admissionKinds: string[] = [];
-    const admissions: ReturnType<LLMProviderPort['preparePrimaryRequestAdmission']>[] = [];
+    const admissions: Awaited<ReturnType<LLMProviderPort['preparePrimaryRequestAdmission']>>[] = [];
     const provider: LLMProviderPort = {
       ...productionProvider,
-      preparePrimaryRequestAdmission(value, signal) {
+      async preparePrimaryRequestAdmission(value, signal) {
         admissionInputs.push(value);
-        const admission = productionProvider.preparePrimaryRequestAdmission(value, signal);
+        const admission = await productionProvider.preparePrimaryRequestAdmission(value, signal);
         admissions.push(admission);
         admissionKinds.push(admission.kind);
         return admission;
@@ -210,7 +210,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
       return contextExhausted();
     });
     const terminal = jest.fn<LlmTerminalHandoff>();
-    const actor = new ConversationLLMActor({ purpose: { kind: 'autonomous-card', cardId: 'project' }, gate: new RuntimeGate(), agentId: input.sessionId, provider, conversations: { projectRoot: root }, compactor, summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: summaryCompletion, projectProviderExchanges: summaryProjection }, fatalPort: { publicationOutcomeUnknown(error): never { throw error; } } });
+    const actor = new ConversationLLMActor({ purpose: { kind: 'autonomous-card', cardId: 'project' }, gate: new RuntimeGate(), agentId: input.sessionId, provider, conversations: { projectRoot: root }, compactor, summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: summaryCompletion, projectProviderExchanges: summaryProjection }, fatalPort: { publicationOutcomeUnknown(error): never { throw error; } } });
 
     const outcome = await actor.turn(input, undefined, terminal);
 
@@ -253,7 +253,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     const fixture = actorFixture();
     const compactedProjection = distinctProjection(fixture.input, 'local-p1');
     fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
-    fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission()).mockReturnValueOnce(scriptedOrdinaryAdmission());
+    fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission()).mockResolvedValueOnce(scriptedOrdinaryAdmission());
     fixture.execute.mockImplementation(async () => ({ result: { kind: 'message' as const, content: 'post-compaction answer' }, provider_exchanges: [attempt(fixture.input.inputId, 'ok', 0)] }));
     const terminal = jest.fn<LlmTerminalHandoff>();
     const outcome = await fixture.actor.turn(fixture.input, undefined, terminal);
@@ -273,7 +273,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
 
   it('terminates with a bounded LocalExactAdmissionError before turn-start or provider I/O when the second admission still does not fit', async () => {
     const fixture = actorFixture();
-    fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission()).mockReturnValueOnce(rejectedCompactionAdmission());
+    fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission()).mockResolvedValueOnce(rejectedCompactionAdmission());
     fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjectionOf(fixture), estimatedProviderMessageTokens: 1 });
     await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'capacity', localCompactionAttempted: true });
     expect(fixture.compact).toHaveBeenCalledTimes(1);
@@ -285,7 +285,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
 
   it('terminates without compaction when no candidate is size-fixable', async () => {
     const fixture = actorFixture();
-    fixture.prepare.mockReturnValueOnce({ kind: 'local_admission_failed', routePass: fixture.input.routePass, candidates: [], bindings: scriptedBindings() });
+    fixture.prepare.mockResolvedValueOnce({ kind: 'local_admission_failed', routePass: fixture.input.routePass, candidates: [], bindings: scriptedBindings() });
     await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'configuration', localCompactionAttempted: false });
     expect(fixture.compact).not.toHaveBeenCalled();
     expect(fixture.execute).not.toHaveBeenCalled();
@@ -294,7 +294,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
 
   it('terminates when local compaction finds no smaller projection', async () => {
     const fixture = actorFixture();
-    fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission());
+    fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
     fixture.compact.mockResolvedValue({ kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens: 10, smallestCandidateEstimatedProviderMessageTokens: null });
     await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'capacity', localCompactionAttempted: true });
     expect(fixture.compact).toHaveBeenCalledTimes(1);
@@ -303,7 +303,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
 
   it('adds only the fixed construction diagnostic to local exact-admission failure', async () => {
     const fixture = actorFixture();
-    fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission());
+    fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
     const construction = new CompactionSummaryConstructionError({ reason: 'fold_limit', invocationCount: 16, correctionCount: 1, cause: new Error('SENTINEL RAW CAUSE') });
     fixture.compact.mockRejectedValue(construction);
     const failure = await fixture.actor.turn(fixture.input, undefined, jest.fn()).catch((error: unknown) => error);
@@ -334,7 +334,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
     const compacted = { kind: 'compacted' as const, providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 };
     fixture.compact.mockResolvedValue(compacted);
     const resumeCompletion = { result: { kind: 'message' as const, content: 'recovered' }, provider_exchanges: [attempt(fixture.input.inputId, 'error', 0), attempt(fixture.input.inputId, 'ok', 1)] };
-    fixture.prepareRecovery.mockReturnValue({ kind: 'recovery_prepared' } as never);
+    fixture.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
     fixture.resume.mockResolvedValue(resumeCompletion);
     const terminal = jest.fn<LlmTerminalHandoff>();
     const outcome = await fixture.actor.turn(fixture.input, undefined, terminal);
@@ -406,7 +406,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
     const fixture = actorFixture(withTool(invocation()));
     const compactedProjection = distinctProjection(fixture.input, 'parked-p2');
     fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
-    fixture.prepareRecovery.mockReturnValue({ kind: 'recovery_prepared' } as never);
+    fixture.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
     const attempts = [attempt(fixture.input.inputId, 'error', 0), attempt(fixture.input.inputId, 'ok', 1)];
     fixture.resume.mockResolvedValue({ result: { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{"query":"x"}' } }] }, provider_exchanges: attempts });
     const terminal = jest.fn<LlmTerminalHandoff>();
@@ -474,6 +474,36 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
   });
 });
 
+it.each(['primary', 'recomposed', 'recovery'] as const)('fences a disposed owner returning from asynchronous %s preparation', async mode => {
+  const f = actorFixture();
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  let release!: () => void;
+  if (mode === 'recovery') {
+    f.compact.mockResolvedValue({ kind: 'compacted', providerConversation: distinctProjection(f.input, 'recovery'), estimatedProviderMessageTokens: 1 });
+    f.prepareRecovery.mockImplementation(() => new Promise(resolve => { release = () => resolve({ kind: 'recovery_prepared' } as never); entered(); }));
+  } else {
+    if (mode === 'recomposed') {
+      f.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
+      f.compact.mockResolvedValue({ kind: 'compacted', providerConversation: distinctProjection(f.input, 'recomposed'), estimatedProviderMessageTokens: 1 });
+    }
+    f.prepare.mockImplementation(() => new Promise(resolve => { release = () => resolve(scriptedOrdinaryAdmission()); entered(); }));
+  }
+  const terminal = jest.fn<LlmTerminalHandoff>();
+  const pending = f.actor.turn(f.input, undefined, terminal);
+  await started;
+  const before = readConversation(f.root, f.input.sessionId).physicalRows;
+  const reason = new Error('owner disposed during preparation');
+  f.actor.dispose(reason);
+  await expect(pending).rejects.toBe(reason);
+  release();
+  await f.actor.join();
+  expect(readConversation(f.root, f.input.sessionId).physicalRows).toEqual(before);
+  expect(f.execute).toHaveBeenCalledTimes(mode === 'recovery' ? 1 : 0);
+  expect(f.resume).not.toHaveBeenCalled();
+  expect(terminal).not.toHaveBeenCalled();
+});
+
 function compactedProjectionOf(fixture: ReturnType<typeof actorFixture>): PreparedLlmInvocationInput['providerConversation'] {
   return copyProjection(fixture.input.providerConversation);
 }
@@ -505,7 +535,7 @@ function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), 
   const compact = jest.fn<CompactorPort['compact']>();
   const shouldCompactMock = jest.fn(() => false);
   const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError) => undefined);
-  const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(() => scriptedOrdinaryAdmission());
+  const prepare = jest.fn<LLMProviderPort['preparePrimaryRequestAdmission']>(async () => scriptedOrdinaryAdmission());
   const execute = jest.fn<LLMProviderPort['executeAdmittedWithRecovery']>();
   const prepareRecovery = jest.fn<LLMProviderPort['prepareAdmittedRecovery']>();
   const resume = jest.fn<LLMProviderPort['resumeAdmittedExecution']>();
@@ -536,7 +566,7 @@ function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), 
     provider,
     conversations: { projectRoot: root },
     compactor: { shouldCompact: shouldCompactMock, compact },
-    summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn: summaryCompletion, projectProviderExchanges: summaryProjection },
+    summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn: summaryCompletion, projectProviderExchanges: summaryProjection },
     fatalPort: { publicationOutcomeUnknown: publicationOutcomeUnknown as unknown as (error: PublicationOutcomeUnknownError) => never },
   };
   const actor = purpose === 'card'

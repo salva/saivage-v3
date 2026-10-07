@@ -31,6 +31,8 @@ export function initializeProject(projectRoot: string): void {
 
 export function productionTestConfig(providerPort: number, customize?: (config: SaivageConfig) => void): SaivageConfig {
   const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+  // This fixture deliberately exercises text-only Chat; image E2E uses native routes.
+  for (const agent of Object.values(config.agents)) agent.tools = agent.tools.filter(tool => tool !== 'view_image');
   config.server = { host: '127.0.0.1', port: 8080 };
   config.models = {
     routes: Object.fromEntries(Object.keys(config.models.routes).map((name) => [name, { candidates: ['fixture-model'], temperature: 0, max_tokens: 512 }])),

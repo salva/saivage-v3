@@ -19,6 +19,7 @@ function projectOutcome(outcome: ToolActionOutcome): ToolResult {
     outcome.kind === 'succeeded'
       ? {
           success: true,
+          ...(outcome.image === undefined ? {} : { image: outcome.image }),
           ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }),
         }
       : {
@@ -44,6 +45,7 @@ export function projectHistoricalToolResultForOutbound(value: unknown): ToolResu
     result.success
       ? {
           success: true,
+          ...(result.image === undefined ? {} : { image: result.image }),
           ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
         }
       : {

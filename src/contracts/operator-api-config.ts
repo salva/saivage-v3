@@ -26,6 +26,7 @@ const EffectiveProviderCapabilitiesSchema = z
       'openai-responses',
     ]),
     toolsMode: z.enum(['native', 'unsupported']),
+    imageInput: z.boolean(),
     exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']),
     responsesReasoning: z
       .object({ effort: z.enum(['minimal', 'low', 'medium', 'high']).optional() })

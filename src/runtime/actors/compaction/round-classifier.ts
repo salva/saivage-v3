@@ -3,6 +3,7 @@ import type { SourceRound, ValidatedConversation } from '../../../contracts/inde
 import { isConversationBudgetVisible } from '../conversation-session.js';
 import { projectedCanonicalRowContent } from '../context/composition-projector.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
+import { providerItemImageDescriptors, imageEstimatedTokens } from '../../../contracts/index.js';
 
 type ClassifiedMessage = {
   message: AgentMessage;
@@ -47,7 +48,13 @@ export function estimateMessageTokens(message: AgentMessage): number {
   ]
     .filter(Boolean)
     .join(' ');
-  return Math.max(1, estimateUtf8Tokens(content + structural));
+  return (
+    Math.max(1, estimateUtf8Tokens(content + structural)) +
+    providerItemImageDescriptors(message).reduce(
+      (sum, image) => sum + imageEstimatedTokens(image),
+      0,
+    )
+  );
 }
 
 function buildRound(

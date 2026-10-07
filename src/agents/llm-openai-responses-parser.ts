@@ -20,6 +20,7 @@ interface ParserContext {
   model: string;
   sourceInputId: string;
   responseStatus: number;
+  suppressBodyPreview?: boolean;
 }
 
 const KNOWN_STATUSES = new Set([
@@ -42,11 +43,13 @@ export function parseOpenAIResponsesJson(
     throw new LlmRequestError({
       kind: 'parse_error',
       provider: ctx.provider,
-      message: `Failed to parse OpenAI Responses payload: ${error instanceof Error ? error.message : String(error)}`,
-      bodyPreview: text.slice(0, 500),
+      message: ctx.suppressBodyPreview
+        ? 'Failed to parse OpenAI Responses payload.'
+        : `Failed to parse OpenAI Responses payload: ${error instanceof Error ? error.message : String(error)}`,
+      bodyPreview: ctx.suppressBodyPreview ? '' : text.slice(0, 500),
     });
   }
-  return parseOpenAIResponsesObject(response, ctx, text);
+  return parseOpenAIResponsesObject(response, ctx, ctx.suppressBodyPreview ? '' : text);
 }
 
 function parseOpenAIResponsesObject(
@@ -131,7 +134,7 @@ function nonCompletedFailure(
       kind: 'provider_protocol_error',
       provider: ctx.provider,
       status: ctx.responseStatus,
-      message: `OpenAI Responses returned incomplete status${reason ? ` (${reason})` : ''}.`,
+      message: `OpenAI Responses returned incomplete status${reason && !ctx.suppressBodyPreview ? ` (${reason})` : ''}.`,
       bodyPreview: providerResponse.slice(0, 500),
     });
   }
@@ -153,7 +156,9 @@ function nonCompletedFailure(
       },
       error: ctx.responseStatus === 200 ? error : undefined,
       allowedContextParams: ['input'],
-      message: providerErrorMessage(response),
+      message: ctx.suppressBodyPreview
+        ? 'OpenAI Responses provider failed response before completion.'
+        : providerErrorMessage(response),
       providerResponse,
     });
     if (classified) return new LlmRequestError(classified);
@@ -161,7 +166,9 @@ function nonCompletedFailure(
       kind: 'server_transient',
       provider: ctx.provider,
       status: ctx.responseStatus,
-      message: providerErrorMessage(response),
+      message: ctx.suppressBodyPreview
+        ? 'OpenAI Responses provider failed response before completion.'
+        : providerErrorMessage(response),
     });
   }
   return new LlmRequestError({

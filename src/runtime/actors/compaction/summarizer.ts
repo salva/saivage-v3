@@ -18,6 +18,11 @@ import type { Candidate } from '../../../contracts/index.js';
 import type { EffectiveProviderCapabilities } from '../../../contracts/index.js';
 import { usableInputTokens } from '../../../contracts/index.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../schemas/index.js';
+import {
+  MAX_IMAGE_REQUEST_BYTES,
+  type ImageDescriptor,
+  type MaterializedImage,
+} from '../../../contracts/index.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
 export const SUMMARY_OUTPUT_TARGET_BYTES = 12_000;
@@ -29,9 +34,14 @@ export type SummaryRequestSerialization = Readonly<{
   serializedRequest: string;
   requestSha256: string;
   estimatedInputTokens: number;
+  imageCount: number;
 }>;
 
 export interface SummarizerProviderPort {
+  materializeImage(
+    sourceSessionId: ConversationSessionId,
+    descriptor: ImageDescriptor,
+  ): Promise<MaterializedImage>;
   readonly candidate: Candidate;
   readonly contextWindowTokens: number;
   readonly maxOutputTokens: number;
@@ -53,6 +63,7 @@ export interface SummarizerProviderPort {
 type SummaryRequestAdmission =
   | Readonly<{
       kind: 'admitted';
+      imageCount: number;
       serializedRequest: string;
       requestSha256: string;
       estimatedInputTokens: number;
@@ -80,7 +91,11 @@ export function admitSummaryRequest(args: {
   );
   if (inputCapacity <= 0)
     throw new Error('The fixed summary candidate has no positive usable input capacity.');
-  if (args.serialization.estimatedInputTokens > inputCapacity)
+  if (
+    args.serialization.estimatedInputTokens > inputCapacity ||
+    (args.serialization.imageCount > 0 &&
+      Buffer.byteLength(args.serialization.serializedRequest, 'utf8') > MAX_IMAGE_REQUEST_BYTES)
+  )
     return {
       kind: 'too_large',
       estimatedInputTokens: args.serialization.estimatedInputTokens,
@@ -88,6 +103,7 @@ export function admitSummaryRequest(args: {
     };
   return {
     kind: 'admitted',
+    imageCount: args.serialization.imageCount,
     contextUtilizationFraction: args.contextUtilizationFraction,
     serializedRequest: args.serialization.serializedRequest,
     requestSha256: args.serialization.requestSha256,
@@ -100,6 +116,7 @@ export type SummaryRequestItem = Readonly<{
   label: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
+  images?: readonly MaterializedImage[];
 }>;
 
 export function buildSummaryRequestInput(args: {
@@ -115,6 +132,7 @@ export function buildSummaryRequestInput(args: {
       content: `[order ${index + 1}/${args.items.length}] ${item.label}\n${item.content}`,
       origin: 'summary_material' as const,
       block_identity: `${index + 1}:${item.label}`,
+      ...(item.images?.length ? { images: item.images } : {}),
     }),
   );
   return {
@@ -128,7 +146,10 @@ export function buildSummaryRequestInput(args: {
     compiledToolContracts: [],
     terminalToolNames: [],
     modelParams: { temperature: 0, maxTokens: SUMMARY_COMPLETION_TOKENS },
-    capabilityRequest: { requiresTools: false },
+    capabilityRequest: {
+      requiresTools: false,
+      requiresImages: args.items.some((item) => !!item.images?.length),
+    },
     routePass: { kind: 'ordinary', candidateChain: [args.candidate] },
     episodeContext: { compaction: true },
   };

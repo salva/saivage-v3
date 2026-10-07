@@ -64,7 +64,7 @@ describe('OversightSession owned check settlement', () => {
     const definition = defineTool({ name: 'probe', description: 'probe', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor });
     const surface: InvocationSurface = { agentName: 'oversight', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'probe', tools: [definition] }] };
     const service = new InvocationService({ projectRoot: root, registry: invocationProviderRegistry([{ provider: 'test', account: null, model: 'test-model' }]), candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
-    const check = session(root, createInvocationServiceProvider(service), () => {}, surface);
+    const check = session(root, createInvocationServiceProvider(service, root), () => {}, surface);
     let release!: (response: Response) => void;
     let entered!: () => void;
     const started = new Promise<void>((resolve) => { entered = resolve; });
@@ -155,8 +155,8 @@ describe('OversightSession owned check settlement', () => {
     const base = scriptedAdmissionProvider(async () => finalMessage());
     const provider: LLMProviderPort = {
       ...base,
-      preparePrimaryRequestAdmission(input, signal) {
-        const admitted = base.preparePrimaryRequestAdmission(input, signal);
+      async preparePrimaryRequestAdmission(input, signal) {
+        const admitted = await base.preparePrimaryRequestAdmission(input, signal);
         return { kind: 'local_admission_failed', routePass: admitted.routePass, candidates: admitted.candidates, bindings: admitted.bindings };
       },
     };

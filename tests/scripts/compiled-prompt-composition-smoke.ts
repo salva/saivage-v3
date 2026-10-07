@@ -101,6 +101,10 @@ try {
       test: {
         models: ['test-model'],
         capabilities: {
+          transportProtocol: 'openai-responses',
+          imageInput: true,
+          toolsMode: 'native',
+          exclusiveToolChoiceSupport: 'native',
           contextWindowTokens: 100_000,
           maxOutputTokens: 10_000,
         },

@@ -57,6 +57,7 @@ function recordingProvider(outputs: string[] = ['summary']): { provider: Summari
     calls, maxInFlight: () => maximum,
     provider: {
       candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+      materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async (input) => {
         maximum = Math.max(maximum, ++inFlight);

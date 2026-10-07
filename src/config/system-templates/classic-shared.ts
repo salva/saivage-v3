@@ -46,6 +46,7 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
         'diff_card_versions',
         'read_record_version',
         'read',
+        'view_image',
         'write',
         'edit',
         'glob',
@@ -109,6 +110,7 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
       prompt: prompt('reviewer'),
       tools: [
         'read',
+        'view_image',
         'write',
         'edit',
         'glob',
@@ -131,6 +133,7 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
       prompt: prompt('executor'),
       tools: [
         'read',
+        'view_image',
         'write',
         'edit',
         'glob',
@@ -156,11 +159,11 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
     },
   };
   const routes: SaivageConfigSource['models']['routes'] = {
-    analyst: { candidates: ['gpt-5.6'], temperature: 0.7, max_tokens: 4096 },
+    analyst: { candidates: ['gpt-6.1-sol'], temperature: 0.7, max_tokens: 4096 },
     oversight: { profile: 'planning', temperature: 0.2, max_tokens: 4096 },
     planner: { profile: 'planning', temperature: 0.7, max_tokens: 4096 },
     reviewer: { profile: 'review', temperature: 0.2, max_tokens: 4096 },
-    executor: { candidates: ['gpt-5.6'], temperature: 0.3, max_tokens: 8192 },
+    executor: { candidates: ['gpt-6.1-sol'], temperature: 0.3, max_tokens: 8192 },
   };
   const config: SaivageConfigSource = {
     agents,
@@ -170,7 +173,7 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
       routes,
       profiles: {
         planning: { preferred: ['gpt-5.6'], allowed: [] },
-        review: { preferred: ['gpt-5.6'], allowed: [] },
+        review: { preferred: ['gpt-6.1-sol'], allowed: [] },
       },
       equivalents: [],
       failover: {},
@@ -183,7 +186,7 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
       trigger_fraction: 0.9,
       tail_fraction: 0.25,
       snap: 'keep_straddler_verbatim',
-      summarizer_candidate: { provider: 'openai', account: null, model: 'gpt-5.6' },
+      summarizer_candidate: { provider: 'openai', account: null, model: 'gpt-6.1-sol' },
     },
     card_types: cardTypes,
   };

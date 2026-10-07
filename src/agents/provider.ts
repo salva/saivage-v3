@@ -123,9 +123,19 @@ export class Provider {
         `Cannot resolve effective capabilities for unknown account "${accountName}" on provider "${this.name}".`,
       );
     const builtIn = builtInCapabilitiesForProvider(this.name);
-    const providerLevel = mergeCapabilities(builtIn, this.capabilities);
+    const modelBuiltIn =
+      model === 'gpt-6.1-sol' || model === 'gpt-6-astra'
+        ? { ...builtIn, imageInput: true }
+        : builtIn;
+    const providerLevel = mergeCapabilities(modelBuiltIn, this.capabilities);
     const accountLevel = mergeCapabilities(providerLevel, account.capabilities);
-    return mergeCapabilities(accountLevel, this.modelCapabilities?.[model]);
+    const effective = mergeCapabilities(accountLevel, this.modelCapabilities?.[model]);
+    if (
+      (model === 'gpt-6.1-sol' || model === 'gpt-6-astra') &&
+      effective.transportProtocol === 'openai-chat-completions'
+    )
+      return { ...effective, toolsMode: 'unsupported' };
+    return effective;
   }
 
   /** Get all accounts (explicit + implicit) in priority order. */

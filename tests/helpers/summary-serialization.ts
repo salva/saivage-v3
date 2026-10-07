@@ -10,6 +10,7 @@ export function deterministicSummarySerialization(input: LlmInvocationInput): Su
     messages: input.providerConversation.messages.map((message) => ({ identity: message.kind === 'synthetic_context' ? message.block_identity : message.id, role: message.role, content: message.content })),
   });
   return {
+    imageCount: 0,
     serializedRequest,
     requestSha256: createHash('sha256').update(serializedRequest, 'utf8').digest('hex'),
     estimatedInputTokens: Math.ceil(Buffer.byteLength(serializedRequest, 'utf8') / 4),

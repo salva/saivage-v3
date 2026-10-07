@@ -1,6 +1,8 @@
 import { canonicalJson, sha256Hex } from '../schemas/index.js';
 import {
   assertProviderConversationSourceRows,
+  rasterReservation,
+  type ImageDescriptor,
   type Candidate,
   type LlmCompleteOptions,
   type CandidateRequestPlan,
@@ -33,12 +35,14 @@ export function buildCandidateRequest(args: {
   options: LlmCompleteOptions;
 }): CandidateRequestPlan {
   assertProviderConversationSourceRows(args.providerConversation);
+  const emittedImages: ImageDescriptor[] = [];
   const body = args.adapter.buildRequestBody({
     candidate: args.candidate,
     capabilities: args.capabilities,
     systemPrompt: args.systemPrompt,
     providerConversation: args.providerConversation,
     options: args.options,
+    onImageEmitted: (descriptor) => emittedImages.push(descriptor),
   });
   const serializedBody = canonicalJson(body);
   return {
@@ -47,8 +51,11 @@ export function buildCandidateRequest(args: {
     adapter: args.adapter,
     request: {
       body,
+      imageCount: emittedImages.length,
       serializedBody,
-      estimatedWireInputTokens: Math.ceil(Buffer.byteLength(serializedBody, 'utf8') / 4),
+      estimatedWireInputTokens:
+        Math.ceil(Buffer.byteLength(serializedBody, 'utf8') / 4) +
+        emittedImages.reduce((sum, image) => sum + rasterReservation(image), 0),
       requestHash: sha256Hex(serializedBody),
     },
   };

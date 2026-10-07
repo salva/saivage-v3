@@ -10,7 +10,7 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 const CANDIDATE: Candidate = { provider: 'openai-chat', account: null, model: 'gpt-5' };
 const ADAPTER = selectLlmProtocolAdapter('openai-chat-completions');
-const CAPABILITIES = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
+const CAPABILITIES = { transportProtocol: 'openai-chat-completions' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
 const SYSTEM = 'system-prompt';
 const MESSAGES: AgentMessage[] = [
   {

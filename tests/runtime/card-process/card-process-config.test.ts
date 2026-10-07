@@ -78,7 +78,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(plan.prompt).toEqual({promptId:'plan',compactable:false});
     expect(plan.correctionPrompt).toEqual({promptId:'correct-plan-result',compactable:false,compactionKey:' correction key '});
     expect(workflow.processPrompts.get(plan.prompt.promptId)?.text).toBe(baseline.processPrompts.get('plan' as never)?.text);
-    config.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};
+    config.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};
     const registry=new ProviderRegistry(config);
     const bound=bindRuntimeWorkflows(compiled,new ModelRouter(registry),registry,config.compaction.context_utilization_fraction);
     const graph=projectCompiledGraphs(bound).graphs.find(({card_type})=>card_type==='project')!;
@@ -214,7 +214,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(registry.render({kind:'global-agent'},'oversight',{vocabularySnippet:'custom vocabulary'})).toContain('custom vocabulary');
   });
   it('projects exactly configured graphs and the same effective leaf tool selection used by execution',()=>{
-    const config=source();config.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};
+    const config=source();config.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};
     const project=structuredClone(config.card_types.project!);project.permitted_child_types=['leaf-plan'];
     const leaf=structuredClone(config.card_types.goal!);leaf.permitted_child_types=[];
     config.card_types={project,'leaf-plan':leaf};
@@ -530,8 +530,8 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('binds configured provider candidates once and fails when a required route has none',()=>{
-    const valid=source();valid.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};const structural=compileProjectWorkflows(valid);const registry=new ProviderRegistry(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(registry),registry,valid.compaction.context_utilization_fraction);
-    expect(bound.runtimeBound).toBe(true);expect(bound.agentBindings.get('reviewer')?.candidateChain).toEqual([expect.objectContaining({provider:'test',model:'gpt-5.6'})]);
+    const valid=source();valid.providers={test:{models:['gpt-5.6','gpt-6.1-sol'],capabilities:{transportProtocol:'openai-responses',contextWindowTokens:100_000,maxOutputTokens:10_000}}};const structural=compileProjectWorkflows(valid);const registry=new ProviderRegistry(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(registry),registry,valid.compaction.context_utilization_fraction);
+    expect(bound.runtimeBound).toBe(true);expect(bound.agentBindings.get('reviewer')?.candidateChain).toEqual([expect.objectContaining({provider:'test',model:'gpt-6.1-sol'})]);
     const unavailable=source();const unbound=compileProjectWorkflows(unavailable);const unavailableRegistry=new ProviderRegistry(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(unavailableRegistry),unavailableRegistry,unavailable.compaction.context_utilization_fraction)).toThrow(/no capability-compatible configured provider candidate/);
   });
 

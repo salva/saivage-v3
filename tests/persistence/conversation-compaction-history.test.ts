@@ -56,6 +56,7 @@ function recordingSummarizer(calls: SummaryCall[]) {
     candidate: CANDIDATE,
     contextWindowTokens: 100_000,
     maxOutputTokens: 10_000,
+    materializeImage: async () => { throw new Error('Unexpected image.'); },
     serializeSummaryRequest: deterministicSummarySerialization,
     completeTurn: async (input: Parameters<SummarizerProviderPort['completeTurn']>[0]) => {
       const previews = input.providerConversation.messages.map((row) => row.content.split('\n').slice(1).join('\n').slice(0, 120)).join('|');
@@ -277,6 +278,7 @@ describe('accumulated compaction history generations', () => {
         candidate: CANDIDATE,
         contextWindowTokens: 100_000,
         maxOutputTokens: 10_000,
+        materializeImage: async () => { throw new Error('Unexpected image.'); },
         serializeSummaryRequest: deterministicSummarySerialization,
         completeTurn: async () => { throw failure; },
         projectProviderExchanges: jest.fn(),
@@ -302,7 +304,7 @@ describe('accumulated compaction history generations', () => {
       const completeTurn = jest.fn(async () => ({ result: malformedResult, provider_exchanges: [] }));
       const operation = compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
-        summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() },
+        summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() },
         signal: new AbortController().signal,
       });
       const failure = await operation.catch((error: unknown) => error);
@@ -325,7 +327,7 @@ describe('accumulated compaction history generations', () => {
       const neverCalled = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
       await expect(compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
-        summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() }, signal: controller.signal,
+        summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() }, signal: controller.signal,
       })).rejects.toBe(abortReason);
       expect(neverCalled).not.toHaveBeenCalled();
 
@@ -333,7 +335,7 @@ describe('accumulated compaction history generations', () => {
       await expect(compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: {
-          candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization,
+          materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization,
           completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }),
           projectProviderExchanges: () => { throw publicationFailure; },
         }, signal: new AbortController().signal,
@@ -355,7 +357,8 @@ describe('accumulated compaction history generations', () => {
           candidate: CANDIDATE,
           contextWindowTokens: 100_000,
           maxOutputTokens: 10_000,
-          serializeSummaryRequest: () => ({ serializedRequest: 'oversized-summary-request', requestSha256: createHash('sha256').update('oversized-summary-request').digest('hex'), estimatedInputTokens: 100_000 }),
+          materializeImage: async () => { throw new Error('Unexpected image.'); },
+          serializeSummaryRequest: () => ({ imageCount: 0, serializedRequest: 'oversized-summary-request', requestSha256: createHash('sha256').update('oversized-summary-request').digest('hex'), estimatedInputTokens: 100_000 }),
           completeTurn,
           projectProviderExchanges: jest.fn(),
         }, signal: new AbortController().signal,

@@ -23,6 +23,7 @@ import type {
 } from '../../../contracts/index.js';
 import { parseToolCallMessageForModel } from '../../../contracts/index.js';
 import { ToolResultSchema } from '../../../contracts/index.js';
+import type { ImageDescriptor } from '../../../contracts/index.js';
 import type { ProcessToolResult } from '../../../contracts/index.js';
 import { validateProcessToolResult } from '../../../tools/tool-api.js';
 import { selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
@@ -79,6 +80,7 @@ export type SummarizerContextItem =
       toolName: string;
       callArguments: string;
       resultContent: string;
+      image?: ImageDescriptor;
       policy: SettledToolBundlePolicy;
       responsesPrivateMessageId: string | null;
     }>
@@ -234,6 +236,7 @@ export function composeContextProjection(args: {
             toolName: bundle.call.tool!,
             callArguments: bundle.callArguments,
             resultContent: row.content,
+            ...selectedResultImage(row),
             policy: bundle.policy,
             responsesPrivateMessageId: bundle.responsesPrivateMessageId,
           });
@@ -350,6 +353,11 @@ export function providerConversationFromComposedContext(
     }
   }
   return { sourceSessionId: composed.sourceSessionId, messages };
+}
+
+function selectedResultImage(row: AgentMessage): { image?: ImageDescriptor } {
+  const result = ToolResultSchema.parse(JSON.parse(row.content));
+  return result.success && result.image ? { image: result.image } : {};
 }
 
 type PrimaryProcessToolResult = Omit<ProcessToolResult, 'stdout_url' | 'stderr_url'> &

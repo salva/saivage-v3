@@ -1,5 +1,7 @@
 import {
   parsePrivateContent,
+  assertProviderItemImageMaterialized,
+  type ImageDescriptor,
   parseToolCallMessageForModel,
   type ProviderConversationProjection,
 } from '../contracts/index.js';
@@ -9,6 +11,7 @@ type ResponsesInputItem = Record<string, unknown>;
 export function responsesInputFromProviderConversation(
   providerConversation: ProviderConversationProjection,
   targetProducerAccountId: string,
+  onImageEmitted?: (descriptor: ImageDescriptor) => void,
 ): ResponsesInputItem[] {
   const input: ResponsesInputItem[] = [];
   const privateByProjection = new Map<string, ReturnType<typeof parsePrivateContent>>();
@@ -20,8 +23,17 @@ export function responsesInputFromProviderConversation(
     }
   }
   for (const message of providerConversation.messages) {
+    assertProviderItemImageMaterialized(message);
     if (message.kind === 'synthetic_context') {
-      input.push(textInput(message.role, message.content));
+      const item = textInput(message.role, message.content);
+      if (message.images?.length)
+        (item.content as unknown[]).push(
+          ...message.images.map((image) => {
+            onImageEmitted?.(image.descriptor);
+            return { type: 'input_image', image_url: image.dataUrl };
+          }),
+        );
+      input.push(item);
       continue;
     }
     if (message.kind === 'provider_private') continue;
@@ -45,10 +57,16 @@ export function responsesInputFromProviderConversation(
       continue;
     }
     if (message.kind === 'tool_result') {
+      if (message.image) onImageEmitted?.(message.image.descriptor);
       input.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: message.content,
+        output: message.image
+          ? [
+              { type: 'input_text', text: message.content },
+              { type: 'input_image', image_url: message.image.dataUrl },
+            ]
+          : message.content,
       });
       continue;
     }

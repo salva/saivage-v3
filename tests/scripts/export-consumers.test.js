@@ -769,10 +769,8 @@ describe('repository complete export boundary', () => {
       'web/src/utils/timestamp.ts::timestampTitle',
       'web/src/utils/tool-friendly.ts::buildToolDisplay',
       'web/src/utils/tool-friendly.ts::ToolDisplayModel',
-      'web/src/utils/agent-timeline/index.ts::ToolGroup',
-      'web/src/utils/agent-timeline/index.ts::ToolListItem',
     ];
-    expect(sfcReclassified).toHaveLength(23);
+    expect(sfcReclassified).toHaveLength(21);
     for (const key of sfcReclassified) {
       const separator = key.lastIndexOf('::');
       const item = record(result, key.slice(0, separator), key.slice(separator + 2));

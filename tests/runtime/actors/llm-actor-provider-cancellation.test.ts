@@ -33,7 +33,7 @@ function fixture() {
   let fatalEntered!: (error: PublicationOutcomeUnknownError) => void;
   const fatalDelivery = new Promise<PublicationOutcomeUnknownError>((resolve) => { fatalEntered = resolve; });
   const fatal = jest.fn((error: PublicationOutcomeUnknownError): never => { fatalEntered(error); throw error; });
-  const actor = new ConversationLLMActor({ purpose: { kind: 'global-agent' }, agentId: sessionId, provider: createInvocationServiceProvider(service), conversations, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider, fatalPort: { publicationOutcomeUnknown: fatal } });
+  const actor = new ConversationLLMActor({ purpose: { kind: 'global-agent' }, agentId: sessionId, provider: createInvocationServiceProvider(service, root), conversations, compactor: testCompactor, summarizerProvider: unusedSummarizerProvider, fatalPort: { publicationOutcomeUnknown: fatal } });
   const preparedCompaction = prepareCompaction({ context_utilization_fraction: .8, trigger_fraction: .8, tail_fraction: .25, snap: 'compact_straddler' }, 'system', [], 8_000, 2_000);
   const input = { inputId, agentId: sessionId, agentName: 'analyst' as const, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary' as const, candidateChain: [candidate] }, episodeContext: {} };
   let release!: (response: Response) => void;

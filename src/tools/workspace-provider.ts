@@ -4,6 +4,7 @@ import {
   globProject,
   grepProject,
   readProject,
+  readWorkspaceImageSource,
   WorkspaceToolInputError,
   writeProject,
   type WorkspaceMutationOutcome,
@@ -17,6 +18,9 @@ import {
   writeWorkspaceInputSchema,
   toolFailed,
   toolSucceeded,
+  toolImageSucceeded,
+  viewImageInputSchema,
+  MAX_IMAGE_SOURCE_BYTES,
   throwIfPublicationOutcomeUnknown,
   type ToolActionOutcome,
 } from '../contracts/index.js';
@@ -35,6 +39,9 @@ import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
 import { runAuditedAnalystTool } from '../agents/tool-api.js';
+import { normalizeWorkspaceImage } from './image-decode.js';
+import { publishConversationImage } from '../persistence/session-api.js';
+import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;
@@ -115,6 +122,46 @@ const observational = (action: () => Promise<ToolActionOutcome>) =>
   executeToolAction('observational_query', action);
 const operational = (action: () => Promise<ToolActionOutcome>) => executeToolAction('none', action);
 
+const imageDescription =
+  'Inspect one explicitly named non-secret PNG/JPEG at a project path, project:///, work:/// or own-card tmp:/// URL. Records an immutable PNG snapshot for model input. Never inspect credential/configuration screens: pixels cannot be redacted. Default longest side 1600; max_dimension integer 1..16384 or original overrides local resizing only. Orientation precedes aspect-preserving reduction; no upscaling or source edits. Provider detail is omitted (auto); local original does not force provider-original pixels. Source <=32 MiB/40 million pixels, single frame; selected PNG <=16 MiB. If text is illegible, use a larger override or a focused screenshot from existing commands; never invent unreadable text.';
+const imagePolicy = Object.freeze({
+  ...OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+  settledAudience: 'primary_and_summarizer' as const,
+});
+async function viewImage(
+  ctx: WorkspaceProviderContext,
+  args: { path: string; max_dimension?: number | 'original' },
+  signal: AbortSignal,
+  invocation?: LlmToolInvocationContext,
+): Promise<ToolActionOutcome> {
+  if (!invocation)
+    throw new Error('view_image requires the complete owning tool invocation context.');
+  signal.throwIfAborted();
+  let source: ReturnType<typeof readWorkspaceImageSource>;
+  try {
+    source = readWorkspaceImageSource(ctx, args.path, MAX_IMAGE_SOURCE_BYTES);
+  } catch (error) {
+    if (!isExpectedWorkspaceFailure(error)) throw error;
+    return failureFromError(error);
+  }
+  let selected: Awaited<ReturnType<typeof normalizeWorkspaceImage>>;
+  try {
+    selected = await normalizeWorkspaceImage(source.bytes, source.sourcePath, args.max_dimension);
+  } catch (error) {
+    if (!(error instanceof WorkspaceToolInputError)) throw error;
+    signal.throwIfAborted();
+    return failureFromError(error);
+  }
+  signal.throwIfAborted();
+  const image = publishConversationImage(
+    ctx.projectRoot,
+    invocation.sessionId,
+    selected.bytes,
+    selected.data.sent_dimensions,
+  );
+  return toolImageSucceeded(selected.data, image);
+}
+
 function auditedWorkspaceMutation<P extends { path: string }>(
   ctx: AnalystToolContext,
   args: P,
@@ -144,6 +191,14 @@ function auditedWorkspaceMutation<P extends { path: string }>(
 
 export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] =
   Object.freeze([
+    defineToolBinder({
+      name: 'view_image',
+      description: imageDescription,
+      resultPolicyTemplate: imagePolicy,
+      inputSchema: () => viewImageInputSchema,
+      executor: (ctx, args, signal, invocation) =>
+        observational(() => viewImage(ctx, args, signal, invocation)),
+    }),
     defineToolBinder({
       name: 'read',
       description: readDescription,
@@ -203,6 +258,14 @@ const globalReadBinder = defineToolBinder<typeof readWorkspaceInputSchema, Globa
   executor: (ctx, args) =>
     observational(() => runWorkspaceTool(() => readProject(analystWorkspace(ctx), args))),
 });
+const globalImageBinder = defineToolBinder<typeof viewImageInputSchema, GlobalWorkspaceContext>({
+  name: 'view_image',
+  description: imageDescription,
+  resultPolicyTemplate: imagePolicy,
+  inputSchema: () => viewImageInputSchema,
+  executor: (ctx, args, signal, invocation) =>
+    observational(() => viewImage(analystWorkspace(ctx), args, signal, invocation)),
+});
 const globalGlobBinder = defineToolBinder<typeof globWorkspaceInputSchema, GlobalWorkspaceContext>({
   name: 'glob',
   description: globDescription,
@@ -222,7 +285,7 @@ const globalGrepBinder = defineToolBinder<typeof grepWorkspaceInputSchema, Globa
 export const globalWorkspaceObservationToolBinders: readonly ToolBinder<
   GlobalWorkspaceContext,
   any
->[] = Object.freeze([globalReadBinder, globalGlobBinder, globalGrepBinder]);
+>[] = Object.freeze([globalReadBinder, globalImageBinder, globalGlobBinder, globalGrepBinder]);
 const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContext, any>[] =
   Object.freeze([
     defineToolBinder({
@@ -292,6 +355,7 @@ const analystWorkspaceMutationToolBinders: readonly ToolBinder<AnalystToolContex
 export const analystWorkspaceToolBinders: readonly ToolBinder<AnalystToolContext, any>[] =
   Object.freeze([
     globalReadBinder,
+    globalImageBinder,
     ...analystWorkspaceMutationToolBinders,
     globalGlobBinder,
     globalGrepBinder,

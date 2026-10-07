@@ -5,6 +5,7 @@ import { ProviderInactivityTimeoutError } from './llm-request-inactivity.js';
 interface ClassifierContext {
   provider: string;
   model: string;
+  suppressBodyPreview?: boolean;
 }
 
 export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
@@ -207,7 +208,9 @@ export function classifyHttpFailure(
   if (response.ok) throw new Error('classifyHttpFailure requires a non-OK HTTP response.');
   const status = response.status;
   const provider = ctx.provider;
-  const d = detail(bodyText);
+  // Consume structured error markers for classification, never echo submitted pixels.
+  const diagnosticBody = ctx.suppressBodyPreview ? '' : bodyText;
+  const d = detail(diagnosticBody);
   const body = parseJsonObject(bodyText);
   const error = body === undefined ? undefined : directObject(body['error']);
   const classified = classifyDirectProviderFailure({
@@ -216,7 +219,7 @@ export function classifyHttpFailure(
     error,
     allowedContextParams: transport === 'chat' ? ['input', 'messages'] : ['input'],
     message: `LLM request failed (HTTP ${status})${d}`,
-    providerResponse: bodyText,
+    providerResponse: diagnosticBody,
     retryAfterMs: parseRetryAfterMs(response.headers),
     resetsAt: parseResetsAt(response.headers),
   });
@@ -226,7 +229,7 @@ export function classifyHttpFailure(
     provider,
     status,
     message: `LLM provider protocol error (HTTP ${status})${d}`,
-    bodyPreview: bodyText.slice(0, 500),
+    bodyPreview: diagnosticBody.slice(0, 500),
   };
 }
 

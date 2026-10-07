@@ -11,7 +11,7 @@ import { RESPONSES_A, RESPONSES_B, responsesBundle } from '../helpers/responses-
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
 const ADAPTER = selectLlmProtocolAdapter('openai-responses');
-const CAPABILITIES = { transportProtocol: 'openai-responses' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, responsesReasoning: { effort: 'medium' as const }, quirks: [] };
+const CAPABILITIES = { transportProtocol: 'openai-responses' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, responsesReasoning: { effort: 'medium' as const }, quirks: [] };
 const MSG: AgentMessage = { id: 'm1', session_id: 'agent:analyst:global', role: 'user', kind: 'text', content: 'hi', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const TOOL: ToolDefinition = { type: 'function', function: { name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } };
 const TERMINAL_TOOL: ToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'finish', parameters: { type: 'object', properties: { summary: { type: 'string' } } } } };
@@ -106,6 +106,7 @@ describe('OpenAI Responses request shape', () => {
       apiKey: 'key',
       capabilities: {
         transportProtocol: 'openai-responses',
+        imageInput: false,
         toolsMode: 'native',
         exclusiveToolChoiceSupport: 'native',
         quirks: [],

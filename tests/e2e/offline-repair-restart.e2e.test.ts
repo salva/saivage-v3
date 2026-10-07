@@ -331,6 +331,7 @@ async function compactFixture(root: string) {
       candidate,
       contextWindowTokens: 100000,
       maxOutputTokens: 10000,
+      materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async () => ({
         result: { kind: 'message' as const, content: 'summary' },

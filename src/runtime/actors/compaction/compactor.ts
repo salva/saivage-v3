@@ -41,6 +41,11 @@ import { ProviderTurnFailure } from '../../../contracts/index.js';
 import { LlmRequestError } from '../../../contracts/index.js';
 import { versionFilename } from '../../../persistence/index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
+import {
+  providerItemImageDescriptors,
+  imageAccountingBytes,
+  imageEstimatedTokens,
+} from '../../../contracts/index.js';
 
 export type AutonomousCompactionPolicy = {
   context_utilization_fraction: number;
@@ -220,7 +225,7 @@ type Candidate = {
   cutoffMessageId: string;
   providerConversation: ProviderConversationProjection;
   estimatedProviderMessageTokens: number;
-  composedProviderConversationBytes: number;
+  composedProviderConversationAccountingBytes: number;
 };
 
 export async function compact(args: CompactArgs): Promise<CompactionResult> {
@@ -232,9 +237,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(
     args.input.providerConversation,
   );
-  const rejectedComposedProviderConversationBytes = composedProviderConversationBytes(
-    args.input.providerConversation,
-  );
+  const rejectedComposedProviderConversationAccountingBytes =
+    composedProviderConversationAccountingBytes(args.input.providerConversation);
   if (!segment) {
     if (args.strategy === 'preventive')
       throw new Error(`Conversation '${sessionId}' has no current segment to compact.`);
@@ -326,7 +330,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       cutoffMessageId: coveredRows[cutoffSourceIndex]!.id,
       providerConversation,
       estimatedProviderMessageTokens,
-      composedProviderConversationBytes: composedProviderConversationBytes(providerConversation),
+      composedProviderConversationAccountingBytes:
+        composedProviderConversationAccountingBytes(providerConversation),
     };
     return candidate;
   };
@@ -472,18 +477,19 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
         ? isPreventiveCandidate(value)
         : args.strategy === 'authoritative_context_recovery'
           ? isTokenReduction(value)
-          : value.composedProviderConversationBytes < rejectedComposedProviderConversationBytes,
+          : value.composedProviderConversationAccountingBytes <
+            rejectedComposedProviderConversationAccountingBytes,
     );
     if (args.strategy === 'authoritative_context_recovery') return qualifying[0] ?? null;
     return qualifying.reduce<Candidate | null>((best, value) => {
       if (!best) return value;
       const valueSize =
         args.strategy === 'local_exact_admission'
-          ? value.composedProviderConversationBytes
+          ? value.composedProviderConversationAccountingBytes
           : value.estimatedProviderMessageTokens;
       const bestSize =
         args.strategy === 'local_exact_admission'
-          ? best.composedProviderConversationBytes
+          ? best.composedProviderConversationAccountingBytes
           : best.estimatedProviderMessageTokens;
       return valueSize < bestSize ||
         (valueSize === bestSize && value.cutoffSourceIndex > best.cutoffSourceIndex)
@@ -508,7 +514,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       );
     if (
       args.strategy === 'local_exact_admission' &&
-      value.composedProviderConversationBytes >= rejectedComposedProviderConversationBytes
+      value.composedProviderConversationAccountingBytes >=
+        rejectedComposedProviderConversationAccountingBytes
     )
       return new ProjectionObstruction('no_reduction');
     return new ProjectionObstruction(
@@ -657,7 +664,14 @@ function providerConversationFingerprint(projection: ProviderConversationProject
     projection.sourceSessionId,
     projection.messages.map((item) =>
       item.kind === 'synthetic_context'
-        ? [item.kind, item.origin, item.block_identity, item.role, item.content]
+        ? [
+            item.kind,
+            item.origin,
+            item.block_identity,
+            item.role,
+            item.content,
+            ...(item.images?.length ? [item.images.map((image) => image.descriptor)] : []),
+          ]
         : [
             item.id,
             item.role,
@@ -670,16 +684,23 @@ function providerConversationFingerprint(projection: ProviderConversationProject
   ]);
 }
 
-function composedProviderConversationBytes(projection: ProviderConversationProjection): number {
-  return Buffer.byteLength(
-    JSON.stringify(
-      projection.messages.map((item) =>
-        item.kind === 'synthetic_context'
-          ? [item.kind, item.origin, item.block_identity, item.role, item.content]
-          : [item.id, item.role, item.kind, item.content],
+function composedProviderConversationAccountingBytes(
+  projection: ProviderConversationProjection,
+): number {
+  return (
+    Buffer.byteLength(
+      JSON.stringify(
+        projection.messages.map((item) =>
+          item.kind === 'synthetic_context'
+            ? [item.kind, item.origin, item.block_identity, item.role, item.content]
+            : [item.id, item.role, item.kind, item.content],
+        ),
       ),
-    ),
-    'utf8',
+      'utf8',
+    ) +
+    projection.messages
+      .flatMap(providerItemImageDescriptors)
+      .reduce((sum, image) => sum + imageAccountingBytes(image), 0)
   );
 }
 
@@ -772,6 +793,10 @@ function estimateProviderItemTokens(
         estimateUtf8Tokens(
           `${item.role} ${item.kind} ${item.origin} ${item.block_identity} ${item.content}`,
         ),
-      )
+      ) +
+        providerItemImageDescriptors(item).reduce(
+          (sum, image) => sum + imageEstimatedTokens(image),
+          0,
+        )
     : estimateMessageTokens(item);
 }

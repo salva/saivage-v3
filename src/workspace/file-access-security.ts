@@ -28,6 +28,13 @@ export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   if (clean === '.saivage/locks' || clean.startsWith('.saivage/locks/')) return true;
   if (clean === '.saivage/repair-attic' || clean.startsWith('.saivage/repair-attic/')) return true;
+  if (
+    /^\.saivage\/agents\/conversations\/[^/]+\/images(?:\/|$)/u.test(clean) ||
+    /^\.saivage\/cards\/project\/(?:children\/[a-z]+\/)*conversations\/[^/]+\/images(?:\/|$)/u.test(
+      clean,
+    )
+  )
+    return true;
   if (/^\.saivage\/agents\/conversations\/[^/]+\/index\.prev\.json$/.test(clean)) return true;
   if (NON_SECRET_READ_BLOCKED_PATHS.has(clean)) return true;
   try {

@@ -12,7 +12,7 @@ import { controlledResponse } from '../helpers/provider-inactivity.js';
 
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
 const options = (signal?: AbortSignal): LlmCompleteOptions => ({ providerSessionId: 'synthetic-provider-session', inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
-const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
+const capabilities = { transportProtocol: 'openai-chat-completions' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
 const capabilityRequest = { requiresTools: false, requiresExclusiveToolChoice: true } as const;
 
 function fixture(overrides: Partial<LlmProtocolAdapter> = {}): { plan: CandidateRequestPlan; registry: never; trace: string[] } {
@@ -26,7 +26,7 @@ function fixture(overrides: Partial<LlmProtocolAdapter> = {}): { plan: Candidate
     ...overrides,
   };
   const serializedBody = '{"value":1}';
-  const plan: CandidateRequestPlan = { candidate, capabilities, adapter, request: { body: { value: 1 }, serializedBody, estimatedWireInputTokens: 3, requestHash: createHash('sha256').update(serializedBody).digest('hex') } };
+  const plan: CandidateRequestPlan = { candidate, capabilities, adapter, request: { body: { value: 1 }, serializedBody, imageCount: 0, estimatedWireInputTokens: 3, requestHash: createHash('sha256').update(serializedBody).digest('hex') } };
   const account = { name: '_implicit', models: ['model'] };
   const provider = { name: 'test', models: ['model'], baseUrl: 'https://provider.test', apiKey: 'key', implicitAccount: account, getAllAccounts: () => [] };
   const registry = { get: () => { trace.push('credentials'); return provider; }, getEffectiveCapabilities: () => { throw new Error('must not rediscover capabilities'); } } as never;

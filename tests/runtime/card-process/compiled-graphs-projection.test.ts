@@ -88,6 +88,7 @@ describe('compiled Debug graph projection', () => {
   it('projects every specialized entry, node, requirement, edge, export, and promotion exactly',()=>{
     const expected=specializedCardTypes();
     const selected=specializedConfig();selected.models=structuredClone(TEST_SAIVAGE_CONFIG.models);selected.providers=structuredClone(TEST_SAIVAGE_CONFIG.providers);
+    selected.providers.test.capabilities={...selected.providers.test.capabilities,transportProtocol:'openai-responses',imageInput:true};
     const config=effectiveSaivageConfigSchema.parse(selected);
     const bound=bindConfigured(compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot}),config);
     const projected=projectCompiledGraphs(bound);

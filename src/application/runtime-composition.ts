@@ -27,6 +27,8 @@ import type { RestartCapability } from '../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from '../contracts/index.js';
 import type { ConversationFileContext } from '../persistence/index.js';
+import { materializeConversationImage } from '../persistence/session-api.js';
+import { providerConversationRequiresImages } from '../contracts/index.js';
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/runtime-api.js';
 import {
   admitSummaryRequest,
@@ -108,6 +110,14 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
   const summarizerCapabilities = registry.getEffectiveCapabilities(summarizerCandidate);
   assertSummarizerCapabilities(summarizerCapabilities);
+  if (
+    [...services.workflows.agentBindings.values()].some(
+      (binding) => binding.capabilityRequest.requiresImages,
+    ) &&
+    (!summarizerCapabilities.imageInput ||
+      summarizerCapabilities.transportProtocol === 'openai-chat-completions')
+  )
+    throw new Error('Image-enabled agents require an image-compatible summary candidate.');
   const invocationService = new InvocationService({
     projectRoot,
     registry,
@@ -122,6 +132,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       );
     const candidate = registry.assertCandidate(config.compaction.summarizer_candidate);
     const capabilities = registry.getEffectiveCapabilities(candidate);
+    if (
+      providerConversationRequiresImages(input.providerConversation) &&
+      (!capabilities.imageInput || capabilities.transportProtocol === 'openai-chat-completions')
+    )
+      throw new Error('Selected summary candidate cannot consume images.');
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
     const plan = buildCandidateRequest({
       candidate,
@@ -143,9 +158,12 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       serializedRequest: plan.request.serializedBody,
       requestSha256: plan.request.requestHash,
       estimatedInputTokens: plan.request.estimatedWireInputTokens,
+      imageCount: plan.request.imageCount,
     };
   };
   const summarizerProvider: SummarizerProviderPort = {
+    materializeImage: (sourceSessionId, descriptor) =>
+      materializeConversationImage(projectRoot, sourceSessionId, descriptor),
     candidate: summarizerCandidate,
     contextWindowTokens: summarizerCapabilities.contextWindowTokens,
     maxOutputTokens: summarizerCapabilities.maxOutputTokens,
@@ -194,7 +212,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     projectRoot,
     processIdentity: services.processIdentity,
     actorStore: cardStore,
-    provider: createInvocationServiceProvider(invocationService),
+    provider: createInvocationServiceProvider(invocationService, projectRoot),
     promptTemplates,
     workflows,
     compactionConfig: compactionPolicy,
@@ -213,7 +231,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const runtimeObservation = Object.freeze({ getStatus: runtimeApi.getStatus.bind(runtimeApi) });
   const analystSessionId = services.analystSessionId;
   let analystRuntimeCache: AnalystRuntime | null = null;
-  const analystProvider = createInvocationServiceProvider(invocationService);
+  const analystProvider = createInvocationServiceProvider(invocationService, projectRoot);
   const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {
     const directScope = processRunner.createDirectScope(
       services.analystProcessRootScope,
@@ -346,7 +364,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     return snapshots;
   };
   const oversightSessionId = globalAgentSessionId(workflows.oversight.name);
-  const oversightProvider = createInvocationServiceProvider(invocationService);
+  const oversightProvider = createInvocationServiceProvider(invocationService, projectRoot);
   const projectOversight = new ProjectOversight({
     enabled: config.oversight.enabled,
     intervalMs: config.oversight.interval_seconds * 1000,

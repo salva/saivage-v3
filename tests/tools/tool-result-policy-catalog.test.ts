@@ -9,7 +9,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/regist
 import { canonicalJson } from '../../src/schemas/index.js';
 
 const OBSERVATIONAL_READERS = new Set([
-  'get_card', 'list_cards', 'get_tree', 'read', 'glob', 'grep', 'skill', 'get_status', 'show_config',
+  'get_card', 'list_cards', 'get_tree', 'read', 'view_image', 'glob', 'grep', 'skill', 'get_status', 'show_config',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session',
   'list_card_versions', 'diff_card_versions',
 ]);
@@ -76,7 +76,8 @@ describe('runtime tool result policy catalog', () => {
       if (name === 'mcp_tool_call') continue;
       expect(template.settledAudience === 'primary_and_summarizer' || OBSERVATIONAL_READERS.has(name) || CANONICAL_READERS.has(name)).toBe(true);
       expect(template.evidenceMode === 'none' || template.evidenceMode === 'observational_query' || template.evidenceMode === 'canonical_locator').toBe(true);
-      expect(template.evidenceMode === 'observational_query').toBe(OBSERVATIONAL_READERS.has(name) && template.settledAudience !== 'primary_and_summarizer');
+      expect(template.evidenceMode === 'observational_query').toBe(OBSERVATIONAL_READERS.has(name));
+      if (name === 'view_image') expect(template.settledAudience).toBe('primary_and_summarizer');
       expect(template.evidenceMode === 'canonical_locator').toBe(CANONICAL_READERS.has(name));
     }
     const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { store: { read: () => null, list: () => [], listChildren: () => [] } as never, cardTypeVocabulary: ['project'] });

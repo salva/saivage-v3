@@ -81,6 +81,7 @@ export async function requireCompacted(
       candidate: CANDIDATE,
       contextWindowTokens: 100_000,
       maxOutputTokens: 10_000,
+      materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async () => ({
         result: { kind: 'message' as const, content: summaryText },

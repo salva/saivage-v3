@@ -63,6 +63,8 @@ describe('provider routing read model', () => {
             'model-alpha': {
               transportProtocol: 'openai-responses',
               toolsMode: 'unsupported',
+              imageInput: false,
+              responsesReasoning: undefined,
               exclusiveToolChoiceSupport: 'native',
               contextWindowTokens: 100000,
               maxOutputTokens: 4096,
@@ -71,6 +73,9 @@ describe('provider routing read model', () => {
             'model-beta': {
               transportProtocol: 'openai-responses',
               toolsMode: 'native',
+              imageInput: false,
+              responsesReasoning: undefined,
+              maxOutputTokens: undefined,
               exclusiveToolChoiceSupport: 'native',
               contextWindowTokens: 100000,
               quirks: ['provider-override'],

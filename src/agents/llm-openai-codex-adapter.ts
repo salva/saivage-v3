@@ -1,5 +1,7 @@
 import {
   parseToolCallMessageForModel,
+  assertProviderItemImageMaterialized,
+  type ImageDescriptor,
   LlmRequestError,
   type Candidate,
   type LlmCompleteOptions,
@@ -23,8 +25,8 @@ type CodexMessage =
 
 export const openAICodexAdapter: LlmProtocolAdapter = {
   credentialRequirement: 'standard',
-  buildRequestBody: ({ candidate, systemPrompt, providerConversation, options }) =>
-    buildOpenAICodexRequest(candidate, systemPrompt, providerConversation, options),
+  buildRequestBody: ({ candidate, systemPrompt, providerConversation, options, onImageEmitted }) =>
+    buildOpenAICodexRequest(candidate, systemPrompt, providerConversation, options, onImageEmitted),
   deriveWire(candidate, transport, body, options) {
     const providerSessionId = body.prompt_cache_key;
     if (typeof providerSessionId !== 'string' || providerSessionId.length === 0)
@@ -58,15 +60,16 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
       requestParams: { stream: true, offered_tools_count: options.tools.length },
     };
   },
-  classifyHttpFailure(candidate, response, bodyText) {
+  classifyHttpFailure(candidate, response, bodyText, _body, _options, imageBearing) {
     return new LlmRequestError(
       classifyHttpFailure('codex', response, bodyText, {
+        suppressBodyPreview: imageBearing,
         provider: candidate.provider,
         model: candidate.model,
       }),
     );
   },
-  async parseSuccess(candidate, response, _options, consumption) {
+  async parseSuccess(candidate, response, _options, consumption, imageBearing) {
     if (!response.body)
       throw new LlmRequestError({
         kind: 'server_transient',
@@ -80,6 +83,7 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
         response.status,
         consumption.signal,
         consumption.onData,
+        imageBearing,
       ),
     };
   },
@@ -90,11 +94,12 @@ function buildOpenAICodexRequest(
   systemPrompt: string,
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
+  onImageEmitted?: (descriptor: ImageDescriptor) => void,
 ): Record<string, unknown> {
   const messages = providerConversation.messages.filter(
     (message) => message.kind !== 'provider_private',
   );
-  const input = codexMessages(messages);
+  const input = codexMessages(messages, onImageEmitted);
   if (!input.length)
     input.push({
       role: 'user',
@@ -118,14 +123,28 @@ function buildOpenAICodexRequest(
   return body;
 }
 
-function codexMessages(messages: ProviderConversationItem[]): CodexMessage[] {
+function codexMessages(
+  messages: ProviderConversationItem[],
+  onImageEmitted?: (descriptor: ImageDescriptor) => void,
+): CodexMessage[] {
   const out: CodexMessage[] = [];
   for (const message of messages) {
+    assertProviderItemImageMaterialized(message);
     if (message.kind === 'synthetic_context') {
       if (message.role === 'assistant')
         out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
       else if (message.role === 'system') out.push({ role: 'system', content: message.content });
-      else out.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
+      else
+        out.push({
+          role: 'user',
+          content: [
+            { type: 'input_text', text: message.content },
+            ...(message.images ?? []).map((image) => {
+              onImageEmitted?.(image.descriptor);
+              return { type: 'input_image', image_url: image.dataUrl };
+            }),
+          ],
+        });
     } else if (message.role === 'system') out.push({ role: 'system', content: message.content });
     else if (message.role === 'user')
       out.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
@@ -140,10 +159,16 @@ function codexMessages(messages: ProviderConversationItem[]): CodexMessage[] {
     } else if (message.role === 'assistant')
       out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
     else if (message.role === 'tool') {
+      if (message.image) onImageEmitted?.(message.image.descriptor);
       out.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: message.content,
+        output: message.image
+          ? [
+              { type: 'input_text', text: message.content },
+              { type: 'input_image', image_url: message.image.dataUrl },
+            ]
+          : message.content,
       });
     }
   }

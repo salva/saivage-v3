@@ -165,6 +165,19 @@ export function saivageLogsRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'logs');
 }
 
+export function conversationImageFile(
+  projectRoot: string,
+  sessionId: ConversationSessionId,
+  imageId: string,
+): string {
+  const { agentName, cardId } = conversationSessionIdentity(sessionId);
+  const root =
+    cardId === null
+      ? globalAgentConversationRoot(projectRoot, agentName)
+      : cardConversationRoot(projectRoot, cardId, agentName);
+  return join(root, 'images', `${uuidV4Schema.parse(imageId)}.png`);
+}
+
 export function saivageLocksRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'locks');
 }

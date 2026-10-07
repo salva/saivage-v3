@@ -97,7 +97,7 @@ describe('current runtime composition', () => {
       executeAdmittedWithRecovery: admittedExecution,
       projectProviderExchanges,
     } as unknown as InvocationService;
-    const provider = createInvocationServiceProvider(service);
+    const provider = createInvocationServiceProvider(service, '/unused-text-only');
     const signal = new AbortController().signal;
     const candidateChain = [{ provider: 'test', account: null, model: 'test-model' }];
     const input: LlmInvocationInput = {
@@ -115,7 +115,7 @@ describe('current runtime composition', () => {
       routePass: { kind: 'ordinary', candidateChain },
       episodeContext: {},
     };
-    const admission = provider.preparePrimaryRequestAdmission(input as never, signal);
+    const admission = await provider.preparePrimaryRequestAdmission(input as never, signal);
     const request = prepareAdmission.mock.calls[0]![0];
     expect(request.routePass).toEqual({ kind: 'ordinary', candidateChain });
     expect(request.routePass).not.toBe(input.routePass);
