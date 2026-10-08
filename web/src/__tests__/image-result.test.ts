@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils';
 import ConversationTimeline from '../components/conversation/ConversationTimeline.vue';
 import { entriesToTimeline } from '../utils/agent-timeline';
 import { call, result } from './tool-presenters/fixtures';
+import { buildToolDisplay, inlinePartsText } from '../utils/tool-friendly';
 
 it('renders/copies only recorded image metadata without asserting delivery or linking source pixels', () => {
   const raw = JSON.stringify({ success: true, image: { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 1600, height: 800, byte_length: 1000, sha256: 'a'.repeat(64) }, data: { source_path: 'screen.png', source_dimensions: { width: 2048, height: 1024 }, oriented_dimensions: { width: 2048, height: 1024 }, sent_dimensions: { width: 1600, height: 800 }, orientation_applied: false, resized: true, scale: { x: 0.78125, y: 0.78125 }, max_dimension: 1600 } });
@@ -17,7 +18,7 @@ it('renders/copies only recorded image metadata without asserting delivery or li
   const copy = JSON.stringify({ call, result, raw });
   expect(copy).toContain('screen.png');
   expect(copy).not.toMatch(/data:image|base64|\/images\/|model saw|kind\\":\\"file/);
-  expect(presentToolResult('{"success":false,"error":"Invalid PNG/JPEG"}', { tool: 'view_image' }).outcome).toBe('Failed');
+  expect(presentToolResult('{"success":false,"error":"Invalid PNG/JPEG"}', { tool: 'view_image' }).outcome).toBe('Failed · Image snapshot not recorded');
 });
 
 it('keeps image paths plain text in both halves, including complete metadata-only RAW', () => {
@@ -43,4 +44,23 @@ it('preserves producer-neutral typed descriptors without requiring workspace dat
   expect(JSON.stringify(generic)).not.toContain('Image snapshot recorded');
   const opaque = presentToolResult(JSON.stringify({ success: true, data: { image: descriptor, image_url: 'opaque-value' } }), { tool: 'mcp_tool_call' });
   expect(opaque.sections.some(section => section.title.startsWith('Typed image descriptor'))).toBe(false);
+});
+
+it('abbreviates long image paths as text while preserving exact path, descriptor and both safe originals', () => {
+  const path = `work:///tmp/${'image-observations/'.repeat(200)}FINAL-SNAPSHOT.png`;
+  const c = call('view_image', { path, max_dimension: 800 });
+  const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 800, height: 400, byte_length: 1000, sha256: 'a'.repeat(64) };
+  const r = result('view_image', {}, { content: JSON.stringify({ success: true, image: descriptor, data: { source_path: path, sent_dimensions: { width: 800, height: 400 } } }) });
+  const display = buildToolDisplay({ entry: c, mate: r });
+  expect(inlinePartsText(display.target).length).toBeLessThanOrEqual(48);
+  expect(inlinePartsText(display.target)).toContain('FINAL-SNAPSHOT.png');
+  expect(display.links).toEqual([]);
+  expect(inlinePartsText(display.status)).toBe('Image snapshot recorded · sent 800 × 400');
+  const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set(['call']) } });
+  expect(wrapper.findAll('a, img, canvas, video')).toHaveLength(0);
+  expect(wrapper.get('.tool-request .semantic-section').text()).toContain(path);
+  expect(wrapper.get('.tool-result .semantic-section').text()).toContain(path);
+  expect(wrapper.get('.tool-request .safe-original code').element.textContent).toBe(c.content);
+  expect(wrapper.get('.tool-result .safe-original code').element.textContent).toBe(r.content);
+  expect(wrapper.text()).toContain(descriptor.sha256);
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildToolDisplay, inlinePartsText, isKnownTool } from '../utils/tool-friendly';
 import { call, result, processData } from './tool-presenters/fixtures';
+import { presentToolResult } from '../utils/tool-presenters';
 describe('single row tool display', () => {
   it('combines the observed outcome with its request, without stdout in the default', () => {
     const c = call('run_command', { command: 'npm test' });
@@ -29,6 +30,110 @@ describe('single row tool display', () => {
     const display = buildToolDisplay({ entry: call('custom_probe', { exact: 'received' }), mate: null });
     expect(display.toolName).toBe('custom_probe');
     expect(display.requestSections[0].content).toContain('received');
+  });
+  it('bounds the combined command target, not its detail, and leaves a short command exact', () => {
+    const command = `npm test -- ${'long_unbroken_argument_'.repeat(200)}FINAL-COMMAND`;
+    const c = call('run_command', { command });
+    const display = buildToolDisplay({ entry: c, mate: result('run_command', processData) });
+    const target = inlinePartsText(display.target);
+    expect(target.length).toBeLessThanOrEqual(48);
+    expect(target).toContain('npm test -- long_unbroken_argument_');
+    expect(target.endsWith('…')).toBe(true);
+    expect(display.requestSections.find(section => section.title === 'command')?.content).toBe(command);
+    expect(inlinePartsText(display.status)).toBe('Exited · exit 0 · Output head incomplete');
+    expect(inlinePartsText(buildToolDisplay({ entry: call('run_command', { command: 'npm test' }), mate: null }).target)).toBe('npm test');
+    expect(JSON.parse(c.content).tool_calls[0].function.arguments).toContain('FINAL-COMMAND');
+  });
+  it('keeps distinct long path filenames and exact single-target link authority', () => {
+    const targets = ['first-observation.png', 'second-observation.png'].map(filename => {
+      const path = `work:///tmp/${'shared-parent/'.repeat(50)}${filename}`;
+      const display = buildToolDisplay({ entry: call('read', { path }), mate: null });
+      const target = inlinePartsText(display.target);
+      expect(target.length).toBeLessThanOrEqual(48);
+      expect(target).toContain('work:///tmp/');
+      expect(target).toContain(filename);
+      expect(display.links[0]).toMatchObject({ kind: 'file', path: `.saivage/work/tmp/${'shared-parent/'.repeat(50)}${filename}` });
+      expect(JSON.stringify(display.requestSections)).toContain(path);
+      return target;
+    });
+    expect(targets[0]).not.toBe(targets[1]);
+  });
+  it.each(['glob', 'grep'])('shares one budget between the %s query and scope with a visible separator', tool => {
+    const pattern = `meaningful-query-${'x'.repeat(1000)}`;
+    const path = `work:///tmp/${'parent/'.repeat(100)}scope.ts`;
+    const display = buildToolDisplay({ entry: call(tool, { pattern, path, directory: path }), mate: null });
+    const target = inlinePartsText(display.target);
+    expect(target.length).toBeLessThanOrEqual(48);
+    expect(target).toContain('meaningful-query-');
+    expect(target).toContain(' · ');
+    expect(target).toContain('scope.ts');
+    expect(JSON.stringify(display.requestSections)).toContain(pattern);
+    expect(JSON.stringify(display.requestSections)).toContain(path);
+    expect(display.links).toHaveLength(1);
+  });
+  it('keeps URL host and identifying tail, and moves the complete query into direct detail', () => {
+    const url = `https://example.test/${'shared/'.repeat(100)}reference.html?query=${'q'.repeat(1000)}FINAL-QUERY`;
+    const display = buildToolDisplay({ entry: call('webfetch', { url }), mate: null });
+    const target = inlinePartsText(display.target);
+    expect(target.length).toBeLessThanOrEqual(48);
+    expect(target).toContain('example.test');
+    expect(target).toContain('reference.html');
+    expect(target).not.toContain('query=');
+    expect(target.endsWith('…')).toBe(true);
+    expect(JSON.stringify(display.requestSections)).toContain(url);
+  });
+  it.each(['delete_card', 'reorder_child'])('summarizes %s lists as count plus a representative, preserving every supplied ID', tool => {
+    const ids = ['card-a', ...Array.from({ length: 80 }, (_, i) => `card-${'a'.repeat(i + 2)}`)];
+    const display = buildToolDisplay({ entry: call(tool, { ids, orderedChildIds: ids }), mate: null });
+    expect(inlinePartsText(display.target)).toBe(`${ids.length} ${tool === 'delete_card' ? 'roots' : 'children'} · card-a`);
+    expect(display.links).toHaveLength(0);
+    for (const id of ids) expect(JSON.stringify(display.requestSections)).toContain(id);
+  });
+  it.each([
+    ['emit_result', { outcome: 'done', summary: 'full-summary-'.repeat(100) }, 'done'],
+    ['navigate_workspace', { target: { kind: 'transcript', id: 'agent:executor:card-a' } }, 'transcript · agent:executor:card-a'],
+    ['navigate_workspace', { target: { kind: 'card', id: 'card-a', refinement: 'records' } }, 'card · card-a · records'],
+    ['navigate_workspace', { target: { kind: 'process_list', refinement: 'running' } }, 'process_list · running'],
+    ['reconfigure', { action: 'set_server_setting', key: 'port', value: 8080 }, 'set_server_setting · port'],
+  ] as const)('uses structured %s selections, not summary prose or serialized JSON', (tool, args, target) => {
+    const display = buildToolDisplay({ entry: call(tool, args), mate: null });
+    expect(inlinePartsText(display.target)).toBe(target);
+    expect(display.requestSections).not.toHaveLength(0);
+  });
+  it('bounds custom action/opaque target without changing exact name or JSON detail', () => {
+    const name = `custom_${'n'.repeat(200)}`;
+    const args = { opaque: 'o'.repeat(2000) };
+    const display = buildToolDisplay({ entry: call(name, args), mate: null });
+    expect(display.action.length).toBeLessThanOrEqual(48);
+    expect(inlinePartsText(display.target).length).toBeLessThanOrEqual(48);
+    expect(display.toolName).toBe(name);
+    expect(display.requestSections[0]).toMatchObject({ content: JSON.stringify(args, null, 2), language: 'json' });
+  });
+  it.each([
+    ['write', { state: 'closed', surface: 'analyst', propagation: { partial: true, ok: false, error: 'p'.repeat(1000) } }, ['Failed', 'Record accepted', 'Partial propagation']],
+    ['edit', { code: 'record_open_conflict', reason: 'r'.repeat(1000), restart_required: true }, ['Failed', 'Refused', 'Restart required']],
+    ['write', { written: true, outcome_unknown: true }, ['Effects uncertain', 'Applied']],
+    ['restart_server', { restart: 'confirmation_required', confirmationMessage: 'c'.repeat(1000) }, ['Failed', 'Confirmation required']],
+    ['stop_project', { status: 'stopped', contained: false }, ['Failed', 'Stopped', 'Not contained']],
+    ['start_project', { started: true, stopped: true, status: 'stopped' }, ['Failed', 'Project started', 'Subsequently stopped']],
+    ['queue_notification', { queued: true, interruption: { status: 'pending_tool_settlement', reason: 'r'.repeat(1000) } }, ['Failed', 'Queued', 'Delivery not reported', 'pending_tool_settlement']],
+    ['grep', { content_truncated: true, matches: { items: [{ content_hex: '7b' }], next: { item_index: 1 } } }, ['Failed', 'Line content truncated', 'Partial coverage', 'Partial JSON items']],
+    ['webfetch', { head_complete: false, fetch_truncated: true }, ['Failed', 'Text head incomplete', 'Fetch truncated']],
+  ] as const)('keeps parsed %s qualifications outside one bounded error excerpt', (tool, data, qualifications) => {
+    const error = `Faithful envelope reason ${'very long prose '.repeat(200)}FINAL-ERROR`;
+    const raw = JSON.stringify({ success: false, error, data: { ...data, ...(tool === 'edit' ? { code: 'LONG-CODE-'.repeat(100) } : {}), reason: 'LONG-REASON-'.repeat(100) } });
+    const r = result(tool, {}, { content: raw });
+    const display = buildToolDisplay({ entry: call(tool, { path: 'selected.txt' }), mate: r });
+    const view = presentToolResult(raw, { tool });
+    const status = inlinePartsText(display.status);
+    for (const qualification of qualifications) expect(view.outcome).toContain(qualification);
+    expect(status.startsWith(view.outcome)).toBe(true);
+    expect(inlinePartsText(view.headline).length).toBeLessThanOrEqual(56);
+    expect(status.slice(view.outcome.length + 3).length).toBeLessThanOrEqual(56);
+    expect(status).toContain('Faithful envelope reason');
+    expect(display.resultSections.find(section => section.title === ('outcome_unknown' in data && data.outcome_unknown ? 'Uncertainty' : 'Error'))?.content).toBe(error);
+    expect(JSON.stringify(display.resultSections)).toContain('LONG-REASON-');
+    expect(r.content).toBe(raw);
   });
   it.each([
     ['read', { path: 'work:///tmp/review.txt' }, 'work:///tmp/review.txt', 'Open file'],

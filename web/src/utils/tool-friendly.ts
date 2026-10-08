@@ -3,12 +3,13 @@ import type { TimelineRow } from './agent-timeline';
 import { presentToolCall, presentToolResult } from './tool-presenters';
 import { getToolPresenter } from './tool-presenters/presenters';
 import type { SemanticSection, ToolResultPresentation } from './tool-presenters/types';
+import { oneLine } from './tool-presenters/helpers';
 
 export function isKnownTool(name: string): boolean {
   return getToolPresenter(name) !== undefined;
 }
 function friendlyAction(name: string): string {
-  return getToolPresenter(name)?.action ?? name;
+  return getToolPresenter(name)?.action ?? oneLine(name, 48);
 }
 export function inlinePartsText(parts: readonly InlinePart[]): string {
   return parts
@@ -44,14 +45,14 @@ export function buildToolDisplay(row: TimelineRow): ToolDisplayModel {
   const toolName = call?.name ?? row.entry.tool ?? 'tool';
   const resultEntry = isCall ? row.mate : row.entry;
   const result = resultEntry ? presentToolResult(resultEntry.content, { tool: toolName }) : null;
-  const summary = result ? inlinePartsText(result.headline) : '';
+  const summary = result ? oneLine(inlinePartsText(result.headline), 56) : '';
   const callParts = call
     ? call.headline
-    : [...(result?.target ?? []), { kind: 'text' as const, text: 'Requested context unavailable' }];
+    : result?.target ?? [];
   return {
     action: isCall ? friendlyAction(toolName) : `Result · ${friendlyAction(toolName)}`,
     toolName,
-    target: callParts.map((part) => ({ kind: 'text', text: inlinePartsText([part]) })),
+    target: [{ kind: 'text', text: oneLine(inlinePartsText(callParts) || (call ? 'No target supplied' : 'Requested context unavailable'), 48) }],
     links: callParts.flatMap((part): InlinePart[] =>
       part.kind === 'file'
         ? [{ ...part, label: 'Open file' }]
@@ -64,7 +65,7 @@ export function buildToolDisplay(row: TimelineRow): ToolDisplayModel {
               : [],
     ),
     status: result
-      ? [{ kind: 'text', text: `${result.outcome}${summary ? ` · ${summary}` : ''}` }]
+      ? [{ kind: 'text', text: `${result.outcome}${!call ? ' · Requested context unavailable' : ''}${summary ? ` · ${summary}` : ''}` }]
       : row.mate
         ? []
         : [{ kind: 'text', text: 'No result recorded' }],

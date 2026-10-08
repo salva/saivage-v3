@@ -36,7 +36,9 @@ const analyst = 'agent:analyst:global' as const;
 const planner = 'agent:planner:project' as const;
 const inputId = '00000000-0000-4000-8000-000000000088';
 const timestamp = '2026-10-07T12:00:00.000Z';
-const evidence = fileURLToPath(new URL('../../../docs/working/2026-10-07-conversation-reading-ux/evidence/real-server/', import.meta.url));
+// Follow-up outputs never replace the delivered reader's original evidence.
+const evidence = fileURLToPath(new URL('../../../docs/working/2026-10-07-conversation-reading-ux/evidence/compact-summary/real-server/', import.meta.url));
+const retainedCommand = `npm test -- ${'long_unbroken_argument_'.repeat(160)} final-command-Z`;
 const longText = Array.from({ length: 40 }, (_, n) => `Retained line ${n}: ${'ordinary readable evidence '.repeat(8)}`).join('\n');
 let root: string;
 let app: App;
@@ -73,7 +75,7 @@ async function seed(session: ConversationSessionId) {
   const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 40, g: 80, b: 120, alpha: 1 } } }).png().toBuffer();
   const image = publishConversationImage(root, session, png, { width: 1, height: 1 });
   if (session === executor) imageDescriptor = image;
-  const command = pair('command', 'run_command', { command: 'printf synthetic-retained-command', cwd: '.', wait: true }, {
+  const command = pair('command', 'run_command', { command: retainedCommand, cwd: '.', wait: true }, {
     success: true, data: { process_id: 'proc-012345abcdef', status: 'exited', exit_code: 0,
       stdout: `${longText}\nfinal-stdout-Z`, stderr: 'final-stderr-Q', stdout_complete: true, stderr_complete: true,
       stdout_bytes: Buffer.byteLength(`${longText}\nfinal-stdout-Z`), stderr_bytes: 14 },
@@ -212,6 +214,61 @@ async function capture(page: Page, reader: Locator, name: string, expectOverflow
   expect(geometry.pageExtent).toBeLessThanOrEqual(geometry.pageWidth + 1);
 }
 
+async function compactCommand(reader: Locator, evidenceName: string, context: 'row-and-following' | 'mobile-child-row-only' = 'row-and-following') {
+  const row = reader.locator(`[data-tool-entry-id="${inputId}:tool-call:command"]`);
+  await expect(row.locator('.tool-chip-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(row.locator('.tool-chip-target')).toContainText('npm test -- long_unbroken_argument_');
+  await row.scrollIntoViewIfNeeded();
+  // The mobile child reader's existing chrome leaves a 126px owner: the
+  // measured 118px row fits, but its 181px union with prose cannot. That one
+  // scene captures row and prose separately; the global inspector proves the
+  // simultaneous mobile scene without altering card chrome or summary metrics.
+  await row.evaluate((el, context) => {
+    const owner = el.closest<HTMLElement>('.conversation-reading-surface, .chat-scroll-area')!;
+    const following = owner.querySelector('[data-entry-id="between"]')!;
+    const bounds = owner.getBoundingClientRect(), top = bounds.top + owner.clientTop;
+    const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
+    const bottom = Math.min(top + owner.clientHeight, innerHeight, footer.height > 0 ? footer.top : innerHeight);
+    const first = el.getBoundingClientRect(), last = following.getBoundingClientRect();
+    const groupHeight = context === 'mobile-child-row-only' ? first.height : last.bottom - first.top;
+    owner.scrollTop += first.top - top - Math.max(0, (bottom - top - groupHeight) / 2);
+  }, context);
+  await row.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  const metrics = await row.evaluate(el => {
+    const button = el.querySelector<HTMLElement>('.tool-chip-toggle')!, target = el.querySelector<HTMLElement>('.tool-chip-target')!;
+    const owner = el.closest<HTMLElement>('.conversation-reading-surface, .chat-scroll-area')!;
+    const r = target.getBoundingClientRect(), line = parseFloat(getComputedStyle(target).lineHeight);
+    const parts = ['action', 'target', 'status'].map(name => el.querySelector(`.tool-chip-${name}`)!.getBoundingClientRect());
+    const bounds = owner.getBoundingClientRect(), whole = el.getBoundingClientRect();
+    const following = owner.querySelector(`[data-entry-id="between"]`)!.getBoundingClientRect();
+    const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
+    const ownerTop = bounds.top + owner.clientTop;
+    const ownerBottom = Math.min(ownerTop + owner.clientHeight, innerHeight, footer.height > 0 ? footer.top : innerHeight);
+    return { width: r.width, height: r.height, line, buttonHeight: button.getBoundingClientRect().height, paneWidth: owner.clientWidth,
+      ownerTop, ownerBottom, ownerHeight: ownerBottom - ownerTop, groupHeight: following.bottom - whole.top,
+      rowTop: whole.top, rowBottom: whole.bottom, followingTop: following.top, followingBottom: following.bottom,
+      font: getComputedStyle(target).fontSize, overflow: button.scrollWidth > button.clientWidth + 1,
+      rowVisible: whole.top >= ownerTop && whole.bottom <= ownerBottom,
+      visible: whole.top >= ownerTop && whole.bottom <= ownerBottom && following.top >= ownerTop && following.bottom <= ownerBottom,
+      overlap: parts.some((a, i) => parts.slice(i + 1).some(b => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1)) };
+  });
+  mkdirSync(evidence, { recursive: true });
+  writeFileSync(join(evidence, `${evidenceName}.geometry.json`), JSON.stringify({ ...metrics, context,
+    contextLimitation: context === 'mobile-child-row-only' ? 'Existing child header and participant rail: row + following prose cannot fit simultaneously; captured separately. Global mobile inspector supplies simultaneous evidence.' : null }, null, 2));
+  if (context === 'row-and-following') {
+    expect(metrics.groupHeight, 'actual owner must fit the whole closed row and following prose without footer clipping').toBeLessThanOrEqual(metrics.ownerHeight);
+    expect(metrics.visible).toBe(true);
+  } else {
+    expect(metrics.groupHeight, 'record the evidenced mobile child chrome limitation explicitly').toBeGreaterThan(metrics.ownerHeight);
+  }
+  expect(metrics.width).toBeGreaterThanOrEqual(64);
+  expect(metrics.height).toBeLessThanOrEqual(metrics.line + 1);
+  const lines = metrics.paneWidth >= 450 ? 2 : 3;
+  expect(metrics.buttonHeight).toBeLessThanOrEqual(lines * metrics.line + 12 + (lines - 1) * 8 + 1);
+  expect(metrics.font).toBe('15px'); expect(metrics.overlap).toBe(false); expect(metrics.overflow).toBe(false); expect(metrics.rowVisible).toBe(true);
+  return metrics;
+}
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899 }, { width: 900, height: 700 }, { width: 390, height: 844 }]) {
   test(`real authenticated retained reading ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -234,6 +291,28 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
     expect(JSON.stringify(publicConversation)).not.toMatch(/provider_projection|producer_account_id|data:image|base64/);
     await expect(reader).toContainText('Image snapshot recorded');
     await expect(reader).toContainText('Synthetic command failed');
+    await compactCommand(reader, `${viewport.width}-child-compact-command`, viewport.width === 390 ? 'mobile-child-row-only' : 'row-and-following');
+    await capture(page, reader, `${viewport.width}-child-compact-command-default`);
+    if (viewport.width === 390) {
+      const following = reader.locator('[data-entry-id="between"]');
+      await following.scrollIntoViewIfNeeded();
+      await following.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+      expect(await following.evaluate(el => {
+        const owner = el.closest<HTMLElement>('.conversation-reading-surface')!;
+        const bounds = owner.getBoundingClientRect(), text = el.getBoundingClientRect();
+        const top = bounds.top + owner.clientTop;
+        const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
+        return text.top >= top && text.bottom <= Math.min(top + owner.clientHeight, footer.top);
+      }), 'following prose fits separately after ordinary owner scroll').toBe(true);
+      await capture(page, reader, '390-child-compact-command-following-separate');
+      await page.goto(`${origin}/agents/${analyst}`);
+      await expect(page.locator('.global-session-reader')).toBeVisible();
+      await expect(reader).toContainText('final-transcript-Z');
+      await compactCommand(reader, '390-global-analyst-inspector-compact-command');
+      await capture(page, reader, '390-global-analyst-inspector-compact-command-default');
+      await page.goto(`${origin}/agents/${executor}`);
+      await expect(reader).toContainText('final-transcript-Z');
+    }
     await reader.locator('.conversation-reading-surface').evaluate(e => { e.scrollTop = 0; });
     await capture(page, reader, `${viewport.width}-child-current-context-instructions-default`);
     const dto = await instructions(page, reader, executor, false);
@@ -272,7 +351,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
       }
       await anchor.locator('details.safe-original').evaluate(e => { (e as HTMLDetailsElement).open = true; });
       const raw = anchor.locator('details.safe-original');
-      await expect(raw.locator('pre')).toContainText(half === 'call' ? 'printf synthetic-retained-command' : 'final-stdout-Z');
+      await expect(raw.locator('pre')).toContainText(half === 'call' ? retainedCommand : 'final-stdout-Z');
       const safeReceived = await raw.locator('pre').textContent();
       await raw.getByRole('button', { name: 'copy', exact: true }).click();
       await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(safeReceived);
@@ -328,6 +407,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
     const chat = page.locator('.analyst-chat-panel');
     await expect(chat).toContainText('final-transcript-Z');
     await expect(chat).toContainText('Image snapshot recorded');
+    await compactCommand(chat, `${viewport.width}-shared-analyst-compact-command`);
+    await capture(page, chat, `${viewport.width}-shared-analyst-compact-command-default`);
     expect(reads(analyst)).toBe(0);
     await chat.locator('.chat-scroll-area').evaluate(e => { e.scrollTop = 0; });
     await capture(page, chat, `${viewport.width}-shared-analyst-current-instructions-default`);

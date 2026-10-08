@@ -38,8 +38,9 @@ from configuration loaded by the server, not historical instructions or unactiva
 edits. Open to read, Refresh explicitly, close to discard; this is not an exact-request viewer.
 Matched tool exchanges appear once at the request position, including nonadjacent results;
 **Result recorded later** discloses interleaving, and both source anchors, coordinates and
-times remain inspectable. Friendly action/target/outcome summaries expand to Request/Result
-detail and independent output heads; safe-original disclosures copy complete public values.
+times remain inspectable. Compact friendly action/abbreviated-target/honest-outcome summaries
+expand to complete Request/Result detail and independent output heads; safe-original
+disclosures copy complete public values.
 Image inspection stays metadata-only. Settlement need not mean process completion,
 acceptance, delivery or perception. Repair directives do not prove repair; interruption
 notices keep effects uncertainty visible. Scroll-away pauses following; Analyst's explicit

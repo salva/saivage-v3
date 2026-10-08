@@ -63,11 +63,52 @@ describe('semantic ToolChip', () => {
     const r = result('write', {}, { content: JSON.stringify({ success: false, error, data: { outcome_unknown: true, target: 'out', written: true, bytes: 4 } }) });
     const wrapper = await mounted({ entry: r, mate: call('write', { path: 'out', content: 'safe' }) }, false);
     expect(wrapper.find('.tool-chip-status').text()).toContain('Effects uncertain');
-    expect(wrapper.find('.tool-chip-status').text()).toContain('Recorded domain outcome: Applied');
+    expect(wrapper.find('.tool-chip-status').text()).toContain('Effects uncertain · Applied');
     expect(wrapper.find('.tool-chip-status').text()).toContain('Prior effects may or may not have happened');
     await wrapper.setProps({ expanded: true });
     expect(wrapper.text()).toContain('LAST');
     expect(wrapper.text()).toContain('written');
+  });
+  it('keeps a bounded closed command and full command/error through final characters in detail and both copies', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const command = `npm test -- ${'long_unbroken_argument_'.repeat(300)}FINAL-COMMAND`;
+    const error = `Process observation unavailable ${'reason '.repeat(300)}FINAL-ERROR`;
+    const c = call('run_command', { command, cwd: 'src', timeout_ms: 1000 });
+    const r = result('run_command', {}, { content: JSON.stringify({ success: false, error, data: { ...processData, outcome_unknown: true } }) });
+    const wrapper = await mounted({ entry: c, mate: r }, false);
+    expect(wrapper.get('.tool-chip-action').text()).toContain('Run command');
+    expect(wrapper.get('.tool-chip-target').text().length).toBeLessThanOrEqual(48);
+    expect(wrapper.get('.tool-chip-target').text()).toContain('npm test -- long_unbroken');
+    expect(wrapper.get('.tool-chip-status').text()).toContain('Effects uncertain · Exited · exit 0 · Output head incomplete');
+    expect(wrapper.text()).not.toContain('FINAL-COMMAND');
+    await wrapper.setProps({ expanded: true });
+    expect(wrapper.get('.tool-request').text()).toContain(command);
+    expect(wrapper.get('.tool-result').text()).toContain(error);
+    expect(wrapper.findAll('[data-entry-id]').map(node => node.attributes('data-entry-id'))).toEqual([c.id, r.id]);
+    for (const [half, entry] of [['request', c], ['result', r]] as const) {
+      const raw = wrapper.get(`.tool-${half} .safe-original`);
+      expect(raw.get('code').element.textContent).toBe(entry.content);
+      expect(raw.find('.json-token-key').exists()).toBe(true);
+      await raw.get('button.code-block__copy').trigger('click');
+      expect(writeText).toHaveBeenLastCalledWith(entry.content);
+    }
+  });
+  it.each(['read', 'webfetch', 'grep'])('keeps full long %s selections in semantic fields and safe request copy', async tool => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const path = `work:///tmp/${'scope/'.repeat(300)}FINAL-PATH.md`;
+    const query = `needle ${'query '.repeat(300)}FINAL-QUERY`;
+    const url = `https://example.test/${'scope/'.repeat(300)}FINAL-URL.html?q=${query}`;
+    const c = call(tool, { path, pattern: query, url });
+    const wrapper = await mounted({ entry: c, mate: null }, false);
+    expect(wrapper.get('.tool-chip-target').text().length).toBeLessThanOrEqual(48);
+    await wrapper.setProps({ expanded: true });
+    for (const selection of tool === 'read' ? [path] : tool === 'grep' ? [path, query] : [url]) {
+      expect(wrapper.get('.tool-request .semantic-section').text()).toContain(selection);
+    }
+    await wrapper.get('.tool-request .safe-original button.code-block__copy').trigger('click');
+    expect(writeText).toHaveBeenLastCalledWith(c.content);
   });
   it('uses received safe values in content, attributes, links and copies without current enrichment', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);

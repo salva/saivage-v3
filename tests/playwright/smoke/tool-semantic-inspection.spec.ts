@@ -1,4 +1,7 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { RecordMutationSuccessSchema } from '../../../src/contracts/record-mutation.js';
 import { validateProcessToolResult } from '../../../src/tools/process-tool-result.js';
@@ -12,7 +15,8 @@ const analyst = 'agent:analyst:global';
 const segment = '11111111-1111-4111-8111-111111111111';
 const timestamp = '2026-10-07T12:00:00.000Z';
 const processId = 'proc-012345abcdef';
-const command = `printf '%s\\n' ${'long_unbroken_argument_'.repeat(12)} --final-character-Z`;
+const command = `npm test -- ${'long_unbroken_argument_'.repeat(160)} --final-character-Z`;
+const evidence = fileURLToPath(new URL('../../../docs/working/2026-10-07-conversation-reading-ux/evidence/compact-summary/', import.meta.url));
 const stdout = `${Array.from({ length: 4 }, () => 'Recorded stdout head '.repeat(20)).join('\n')}\nlast stdout character Z`;
 const stderr = 'Recorded failure: assertion mismatch\nlast stderr character Q';
 const recordUrl = `record:///status.md?card=${smokeCardId}`;
@@ -55,6 +59,208 @@ function rows(session: string) {
 }
 function chip(reader: Locator, id: string) { return reader.locator(`[data-tool-entry-id="${rowId(id)}"]`); }
 async function expand(row: Locator) { await row.locator('.tool-chip-toggle').click(); await expect(row.locator('.tool-chip-toggle')).toHaveAttribute('aria-expanded', 'true'); }
+
+// Exercise the real shared row in both owners; character budgets alone cannot
+// establish compactness. Keep auxiliary links/later-result outside toggle height.
+async function summaryGeometry(row: Locator) {
+  return row.evaluate(el => {
+    const button = el.querySelector<HTMLElement>('.tool-chip-toggle')!;
+    const target = el.querySelector<HTMLElement>('.tool-chip-target')!;
+    const rect = (e: Element) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }; };
+    const parts = ['action', 'target', 'status'].map(name => rect(el.querySelector(`.tool-chip-${name}`)!));
+    const lineHeight = parseFloat(getComputedStyle(target).lineHeight);
+    const rgba = (value: string) => value.match(/[\d.]+/g)!.map(Number);
+    const luminance = (rgb: number[]) => rgb.slice(0, 3).map(value => value / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0);
+    const contrast = [...el.querySelectorAll<HTMLElement>('.tool-chip-action, .tool-chip-target, .tool-chip-status')].map(part => {
+      const layers: number[][] = [];
+      for (let ancestor: HTMLElement | null = part; ancestor; ancestor = ancestor.parentElement) layers.unshift(rgba(getComputedStyle(ancestor).backgroundColor));
+      let bg = [255, 255, 255];
+      for (const layer of layers) bg = bg.map((value, index) => layer[index]! * (layer[3] ?? 1) + value * (1 - (layer[3] ?? 1)));
+      const fg = luminance(rgba(getComputedStyle(part).color)), back = luminance(bg);
+      return (Math.max(fg, back) + 0.05) / (Math.min(fg, back) + 0.05);
+    });
+    return { paneWidth: el.closest('.conversation-reading-surface, .chat-scroll-area')!.clientWidth,
+      row: rect(el), button: rect(button), target: rect(target), parts, lineHeight,
+      font: getComputedStyle(target).fontSize, contrast,
+      auxiliary: [...el.querySelectorAll('.tool-chip-links, .later-result')].map(rect),
+      overflow: button.scrollWidth > button.clientWidth + 1,
+      overlap: parts.some((a, i) => parts.slice(i + 1).some(b => Math.min(a.right, b.right) - Math.max(a.x, b.x) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y) > 1)) };
+  });
+}
+async function captureCompact(page: Page, owner: Locator, row: Locator, following: Locator, directory: string, name: string) {
+  await row.evaluate(el => {
+    const owner = el.closest<HTMLElement>('.conversation-reading-surface, .chat-scroll-area')!;
+    owner.scrollTop += el.getBoundingClientRect().top - owner.getBoundingClientRect().top - 12;
+  });
+  const visible = await owner.evaluate((el, ids) => {
+    const bounds = el.getBoundingClientRect();
+    return ids.map(id => { const r = el.querySelector(`[data-${id[0]}="${id[1]}"]`)!.getBoundingClientRect(); return r.top >= bounds.top - 1 && r.bottom <= bounds.bottom + 1; });
+  }, [['tool-entry-id', (await row.getAttribute('data-tool-entry-id'))!], ['entry-id', (await following.getAttribute('data-entry-id'))!]]);
+  expect(visible, 'whole closed row and following message visible').toEqual([true, true]);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, `${name}.geometry.json`), JSON.stringify(await summaryGeometry(row), null, 2));
+  await page.screenshot({ path: join(directory, `${name}.png`), animations: 'disabled' });
+}
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899 }, { width: 900, height: 700 }, { width: 390, height: 844 }]) {
+  for (const surface of ['inspector', 'analyst'] as const) {
+    test(`compact summaries ${surface} ${viewport.width}x${viewport.height}`, async ({ page, context }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize(viewport);
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await seedTokenBeforeNavigation(page, 'synthetic-semantic-token');
+      const requests: string[] = [];
+      page.on('request', request => requests.push(new URL(request.url()).pathname));
+      await installOperatorWebSocketShim(page);
+      const rest = await installOperatorRestRoutes(page);
+      // The mobile card header + participant rail leave too little height for
+      // a whole row and following prose simultaneously. Use the existing global
+      // inspector at this width, not a hidden/modified rail or a synthetic pane.
+      const session = surface === 'inspector' && viewport.width !== 390 ? executor : analyst;
+      const exitedProcess = validateProcessToolResult({ process_id: processId, status: 'exited', exit_code: 0, stdout: '', stderr: '', stdout_bytes: 0, stderr_bytes: 0, stdout_complete: true, stderr_complete: true,
+        stdout_url: `work:///processes/${processId}/stdout.log`, stderr_url: `work:///processes/${processId}/stderr.log` });
+      const cases = [12, 160].flatMap(size => {
+        const command = `npm test -- ${'long_unbroken_argument_'.repeat(size)} FINAL-COMMAND-Z`;
+        const path = `src/${'shared_scope/'.repeat(size)}meaningful-filename.ts`;
+        const query = `specific query ${'retained_query_'.repeat(size)} FINAL-QUERY-Q`;
+        const error = `File not found: ${'retained_error_'.repeat(size)} FINAL-ERROR-E`;
+        const accepted = JSON.parse(rows(session).find(e => e.id === rowId('accept', true))!.content);
+        accepted.data.propagation.error = `Ancestor notification refused: ${'retained_reason_'.repeat(size)} FINAL-PROPAGATION-P`;
+        accepted.data = RecordMutationSuccessSchema.parse({ kind: 'applied', data: accepted.data }).data;
+        return [
+          { id: `command-${size}`, tool: 'run_command', args: { command }, result: { success: true, data: exitedProcess }, full: command, simple: true },
+          { id: `path-${size}`, tool: 'read', args: { path }, result: { success: false, error }, full: path, simple: false },
+          { id: `query-${size}`, tool: 'websearch', args: { query }, result: { success: true, data: { query, results: [] } }, full: query, simple: false },
+          { id: `uncertain-${size}`, tool: 'edit', args: { path, old_string: 'before', new_string: 'after' }, result: { success: false, data: { outcome_unknown: true }, error }, full: error, simple: false },
+          { id: `accept-${size}`, tool: 'write', args: { path: recordUrl, content: 'Accepted content.' }, result: accepted, full: accepted.data.propagation.error as string, simple: false },
+        ];
+      });
+      const control = pair(session, 'control', 'run_command', { command: 'npm test' }, { success: true, data: exitedProcess });
+      const entries = [...control, text(session, 'following-control', 'Following short command.'),
+        ...cases.flatMap(c => [...pair(session, c.id, c.tool, c.args, c.result), text(session, `following-${c.id}`, `Following ${c.id}.`)]),
+        ...rows(session).filter(e => e.id === rowId('accept') || e.id === rowId('accept', true) || e.id === rowId('image') || e.id === rowId('image', true)),
+        text(session, 'following-image', 'Following image metadata.'),
+        ...Array.from({ length: 8 }, (_, i) => text(session, `compact-tail-${i}`, `Following retained context ${i}.`))];
+      await page.route('**/api/agents/*/conversation**', async route => {
+        const url = new URL(route.request().url());
+        if (decodeURIComponent(url.pathname.split('/')[3]!) !== session || url.pathname.endsWith('/versions')) return route.fallback();
+        const history = url.pathname.endsWith('/versions/1');
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify(history
+          ? parseOperatorResponse('agents.conversationVersions.get', 200, { session_id: session, version: 1, entry_id: segment, published_at: timestamp, segment_context: null, entries })
+          : parseOperatorResponse('agents.conversation', 200, { session_id: session, segment_id: segment, segment_version: 1, segment_context: null, entries, cursor: { segment_id: segment, segment_version: 1, message_id: entries.at(-1)!.id } })) });
+      });
+      await page.goto(surface === 'inspector' ? `/agents/${session}?segment=1` : '/dashboard');
+      if (surface === 'analyst' && viewport.width === 390) await page.getByRole('navigation', { name: 'Switch pane' }).getByRole('button', { name: 'Analyst', exact: true }).click();
+      const owner = page.locator(surface === 'inspector' ? '.conversation-reading-surface' : '.analyst-chat-panel .chat-scroll-area');
+      await expect(chip(owner, 'command-160')).toBeAttached();
+      const directory = join(evidence, `${viewport.width}x${viewport.height}`);
+      mkdirSync(directory, { recursive: true });
+      if (surface === 'inspector' && viewport.width === 390) await expect(page.locator('.global-session-reader')).toBeVisible();
+      writeFileSync(join(directory, `${surface}-context.json`), JSON.stringify({ surface, session, route: page.url(), inspectorContext: surface === 'inspector' ? viewport.width === 390 ? 'existing global Analyst session inspector' : 'child card inspector' : null }, null, 2));
+      const metrics = new Map<string, Awaited<ReturnType<typeof summaryGeometry>>>();
+      for (const id of ['control', ...cases.map(c => c.id)]) {
+        const row = chip(owner, id), metric = await summaryGeometry(row);
+        metrics.set(id, metric);
+        expect(metric.font).toBe('15px');
+        expect(metric.contrast.every(ratio => ratio >= 4.5)).toBe(true);
+        expect(metric.target.height).toBeLessThanOrEqual(metric.lineHeight + 1);
+        expect(metric.target.width).toBeGreaterThanOrEqual(64);
+        expect(metric.overlap).toBe(false); expect(metric.overflow).toBe(false);
+        if (id === 'control' || id.startsWith('command-')) {
+          const lines = metric.paneWidth >= 450 ? 2 : 3;
+          expect(metric.button.height).toBeLessThanOrEqual(lines * metric.lineHeight + 12 + (lines - 1) * 8 + 1);
+        }
+      }
+      for (const family of ['command', 'path', 'query', 'uncertain', 'accept']) {
+        expect(Math.abs(metrics.get(`${family}-12`)!.button.height - metrics.get(`${family}-160`)!.button.height), `${family}: payload-length independent toggle`).toBeLessThan(1);
+        expect(Math.abs(metrics.get(`${family}-12`)!.row.height - metrics.get(`${family}-160`)!.row.height), `${family}: payload-length independent whole row`).toBeLessThan(1);
+      }
+      writeFileSync(join(directory, `${surface}-all-summaries.geometry.json`), JSON.stringify(Object.fromEntries(metrics), null, 2));
+      await expect(chip(owner, 'control').locator('.tool-chip-target')).toHaveText('npm test');
+      await expect(chip(owner, 'command-160').locator('.tool-chip-target')).toContainText('npm test -- long_unbroken_argument_');
+      await expect(chip(owner, 'accept')).toContainText('Record accepted');
+      await expect(chip(owner, 'accept')).toContainText('Partial propagation');
+      await expect(chip(owner, 'accept-160')).toContainText('Record accepted');
+      await expect(chip(owner, 'accept-160')).toContainText('Partial propagation');
+      await expect(chip(owner, 'uncertain-160')).toContainText('Effects uncertain');
+      for (const [id, name] of [['control', 'short-control'], ['command-12', 'default-hundreds'], ['command-160', 'default'], ['path-160', 'failure'], ['uncertain-160', 'uncertainty'], ['image', 'image']] as const) {
+        await captureCompact(page, owner, chip(owner, id), owner.locator(`[data-entry-id="following-${id}"]`), directory, `${surface}-${name}`);
+      }
+      for (const c of cases.filter(c => c.id.endsWith('-160'))) {
+        const row = chip(owner, c.id), toggle = row.locator('.tool-chip-toggle');
+        await toggle.focus(); await toggle.press('Enter');
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        const focus = await toggle.evaluate(el => ({ width: getComputedStyle(el).outlineWidth, style: getComputedStyle(el).outlineStyle }));
+        expect(focus).toEqual({ width: '2px', style: 'solid' });
+        writeFileSync(join(directory, `${surface}-${c.id}-focus.json`), JSON.stringify(focus, null, 2));
+        await row.locator('.semantic-section details').evaluateAll(es => es.forEach(e => { (e as HTMLDetailsElement).open = true; }));
+        await expect(row.locator('.semantic-section').filter({ hasText: c.full }).first()).toBeAttached();
+        expect(await row.locator('.semantic-section').allTextContents()).toEqual(expect.arrayContaining([expect.stringContaining(c.full)]));
+        await expect(row.locator('[data-entry-id]')).toHaveCount(2);
+        for (const half of ['request', 'result'] as const) {
+          const raw = row.locator(`.tool-${half} .safe-original`);
+          await raw.locator('summary').click();
+          await expect(raw.locator('pre')).toHaveClass(/language-json/);
+          await raw.getByRole('button', { name: 'copy', exact: true }).click();
+          const exact = entries.find(e => e.id === rowId(c.id, half === 'result'))!.content;
+          await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(exact);
+        }
+        if (c.id === 'command-160') {
+          await toggle.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: join(directory, `${surface}-expanded-detail.png`), animations: 'disabled' });
+          const commandBlock = row.locator('.tool-request .semantic-section').filter({ has: page.getByRole('heading', { name: 'command', exact: true }) }).locator('.code-block pre code');
+          await expect(commandBlock).toHaveText(c.full);
+          for (const edge of ['start', 'end'] as const) {
+            // Scroll only the actual reading owner to a range in the semantic
+            // command, never a RAW block, body or an unconstrained ancestor.
+            const geometry = await commandBlock.evaluate(async (code, { full, edge }) => {
+              const text = code.firstChild!;
+              if (text.textContent !== full) throw new Error('Semantic command is not the complete exact supplied string');
+              const owner = code.closest<HTMLElement>('.conversation-reading-surface, .chat-scroll-area')!;
+              const range = document.createRange();
+              const start = edge === 'start' ? 0 : full.length - 'FINAL-COMMAND-Z'.length;
+              const end = edge === 'start' ? Math.min(24, full.length) : full.length;
+              range.setStart(text, start); range.setEnd(text, end);
+              const before = range.getBoundingClientRect(), bounds = owner.getBoundingClientRect();
+              owner.scrollTop += before.top - bounds.top - owner.clientTop - (owner.clientHeight - before.height) / 2;
+              await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+              const ownerBounds = owner.getBoundingClientRect();
+              const top = ownerBounds.top + owner.clientTop;
+              const footer = document.querySelector('.mobile-pane-switch')!.getBoundingClientRect();
+              const bottom = Math.min(top + owner.clientHeight, innerHeight, footer.height > 0 ? footer.top : innerHeight);
+              const fragments = [...range.getClientRects()].map(r => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }));
+              return { edge, excerpt: range.toString(), fullCharacterCount: full.length,
+                owner: { classes: owner.className, top, bottom, width: owner.clientWidth, scrollTop: owner.scrollTop, scrollHeight: owner.scrollHeight },
+                font: getComputedStyle(code).fontSize, fragments,
+                visible: fragments.length > 0 && fragments.every(r => r.width > 0 && r.height > 0 && r.top >= top && r.bottom <= bottom && r.left >= ownerBounds.left && r.right <= ownerBounds.right),
+                nestedScrollOwners: [...owner.querySelectorAll('*')].filter(el => /auto|scroll/.test(getComputedStyle(el).overflowY)).map(el => el.className) };
+            }, { full: c.full, edge });
+            expect(geometry.excerpt).toBe(edge === 'start' ? c.full.slice(0, 24) : 'FINAL-COMMAND-Z');
+            expect(geometry.visible, `${surface}: semantic command ${edge} characters visible in the reading owner`).toBe(true);
+            expect(geometry.nestedScrollOwners).toEqual([]);
+            expect(geometry.font).toBe('15px');
+            writeFileSync(join(directory, `${surface}-expanded-detail-${edge}.geometry.json`), JSON.stringify(geometry, null, 2));
+            await page.screenshot({ path: join(directory, `${surface}-expanded-detail-${edge}.png`), animations: 'disabled' });
+          }
+        }
+        await toggle.focus(); await toggle.press('Space');
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      }
+      await expect(chip(owner, 'image').locator('a, img, canvas, video')).toHaveCount(0);
+      expect(await owner.evaluate(el => [...el.querySelectorAll('*')].filter(e => /auto|scroll/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1).map(e => e.className))).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+      // Exact reveal remains the inspector route's owner, including global sessions.
+      for (const result of [false, true]) {
+        await page.goto(`/agents/${session}?segment=1&entry=${encodeURIComponent(rowId('command-160', result))}`);
+        const revealed = page.locator('.conversation-reading-surface .targeted-conversation-entry');
+        await expect(revealed).toHaveAttribute('data-entry-id', rowId('command-160', result));
+        await expect(revealed).toBeFocused();
+      }
+      expect(rest.unknown).toEqual([]);
+      expect(requests.some(path => /\/images\/|screen\.png/.test(path))).toBe(false);
+    });
+  }
+}
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899 }, { width: 900, height: 700 }, { width: 390, height: 844 }]) {
   test(`combined safe semantic inspection and exact-half navigation ${viewport.width}`, async ({ page, context }, testInfo) => {

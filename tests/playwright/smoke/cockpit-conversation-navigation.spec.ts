@@ -215,11 +215,11 @@ async function setupLayoutRows(page: Page) {
   return rest;
 }
 
-// Inspect painted text fragments as well as boxes: a zero-width/hidden target or
-// a nowrap child can otherwise pass a parent-only containment assertion.
+// Only the target may ellipsize. Its initial painted characters must remain
+// readable; actions, critical outcomes, buttons and links may never be clipped.
 async function expectReadableToolRow(chip: Locator) {
   await chip.scrollIntoViewIfNeeded();
-  const violations = await chip.evaluate((row) => {
+  const geometry = await chip.evaluate((row) => {
     const failures: string[] = [];
     const tolerance = 1;
     const contains = (owner: DOMRect, child: DOMRect) => child.left >= owner.left - tolerance
@@ -229,8 +229,26 @@ async function expectReadableToolRow(chip: Locator) {
     const main = row.querySelector<HTMLElement>('.tool-chip-main')!;
     const toggle = row.querySelector<HTMLElement>('.tool-chip-toggle')!;
     const target = row.querySelector<HTMLElement>('.tool-chip-target')!;
-    if (target.getBoundingClientRect().width <= 1 || target.getBoundingClientRect().height <= 1) failures.push('target has no visible area');
-    for (const owner of [main, toggle, ...row.querySelectorAll<HTMLElement>('.tool-chip-target, .tool-chip-status, .inline-parts')]) {
+    const targetRect = target.getBoundingClientRect(), targetStyle = getComputedStyle(target);
+    const targetFont = parseFloat(targetStyle.fontSize), targetLine = parseFloat(targetStyle.lineHeight);
+    if (targetRect.width < 64 || targetRect.height <= 1) failures.push('target has no readable nonzero slot');
+    if (targetStyle.whiteSpace !== 'nowrap' || targetStyle.textOverflow !== 'ellipsis' || targetStyle.overflowX !== 'hidden') failures.push('target does not use the explicit single-line ellipsis policy');
+    if (targetRect.height > targetLine + tolerance) failures.push('target occupies more than one line');
+    if (targetFont < 14 || targetFont > 16) failures.push('target changed readable font size');
+    if (!target.textContent?.trim()) failures.push('target has no meaningful text');
+    let paintedPrefix = '';
+    const targetWalker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    while (targetWalker.nextNode()) {
+      const text = targetWalker.currentNode;
+      for (let offset = 0; offset < (text.textContent?.length ?? 0); offset++) {
+        const range = document.createRange(); range.setStart(text, offset); range.setEnd(text, offset + 1);
+        const rects = [...range.getClientRects()];
+        if (rects.length && rects.every(rect => contains(targetRect, rect))) paintedPrefix += text.textContent![offset];
+      }
+    }
+    if (paintedPrefix.trim().length < Math.min(4, target.textContent!.trim().length)) failures.push('target initial characters are not visibly readable');
+    if (!paintedPrefix.trim().startsWith(target.textContent!.trim().slice(0, 4))) failures.push('target lost its meaningful initial text');
+    for (const owner of [main, toggle, ...row.querySelectorAll<HTMLElement>('.tool-chip-action, .tool-chip-status, .tool-chip-links, .inline-parts')].filter(el => !target.contains(el))) {
       const children = [...owner.children] as HTMLElement[];
       children.forEach((child, index) => {
         const rect = child.getBoundingClientRect();
@@ -241,23 +259,32 @@ async function expectReadableToolRow(chip: Locator) {
         }
       });
     }
-    for (const owner of row.querySelectorAll<HTMLElement>('.tool-chip-target, .tool-chip-status')) {
-      const style = getComputedStyle(owner);
-      if (['hidden', 'clip'].includes(style.overflowX) || ['hidden', 'clip'].includes(style.overflowY)) failures.push(`${owner.className} clips summary`);
-      for (const run of owner.querySelectorAll<HTMLElement>('.inline-part')) {
-        const walker = document.createTreeWalker(run, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const text = walker.currentNode;
-          for (let offset = 0; offset < (text.textContent?.length ?? 0); offset++) {
-            if (/\s/u.test(text.textContent![offset]!)) continue;
-            const range = document.createRange();
-            range.setStart(text, offset);
-            range.setEnd(text, offset + 1);
-            for (const rect of range.getClientRects()) {
-              if (![run, run.parentElement!, owner, toggle, row].every((boundary) => contains(boundary.getBoundingClientRect(), rect))) {
-                failures.push(`${owner.className} text fragment escapes its wrapping owners`);
-                break;
-              }
+    for (const owner of row.querySelectorAll<HTMLElement>('.tool-chip-toggle, .tool-chip-action, .tool-chip-status, .tool-chip-links')) {
+      const font = parseFloat(getComputedStyle(owner).fontSize);
+      if (font < 14 || font > 16) failures.push(`${owner.className} changed readable font size`);
+      for (const boundary of [owner, ...owner.querySelectorAll<HTMLElement>('*')].filter(el => el !== target && !target.contains(el))) {
+        const style = getComputedStyle(boundary);
+        const clamp = style.getPropertyValue('-webkit-line-clamp');
+        if (['hidden', 'clip'].includes(style.overflowX) || ['hidden', 'clip'].includes(style.overflowY) || (clamp !== 'none' && clamp !== '')) failures.push(`${boundary.className} clips non-target summary`);
+      }
+      const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const text = walker.currentNode;
+        if (target.contains(text)) continue;
+        for (let offset = 0; offset < (text.textContent?.length ?? 0); offset++) {
+          if (/\s/u.test(text.textContent![offset]!)) continue;
+          const range = document.createRange();
+          range.setStart(text, offset);
+          range.setEnd(text, offset + 1);
+          for (const rect of range.getClientRects()) {
+            const boundaries: HTMLElement[] = [];
+            for (let boundary = text.parentElement; boundary; boundary = boundary.parentElement) {
+              boundaries.push(boundary);
+              if (boundary === row) break;
+            }
+            if (!boundaries.every(boundary => contains(boundary.getBoundingClientRect(), rect))) {
+              failures.push(`${owner.className} text fragment escapes its wrapping owners`);
+              break;
             }
           }
         }
@@ -266,13 +293,14 @@ async function expectReadableToolRow(chip: Locator) {
     const next = row.parentElement?.querySelectorAll('.tool-chip');
     const following = next && [...next][[...next].indexOf(row) + 1];
     if (following && following.getBoundingClientRect().top < row.getBoundingClientRect().bottom - tolerance) failures.push('following row overlaps preceding content');
-    return [...new Set(failures)];
+    return { violations: [...new Set(failures)], targetText: target.textContent, paintedPrefix, targetFont, targetWidth: targetRect.width, targetHeight: targetRect.height, targetLine };
   });
-  expect(violations).toEqual([]);
+  expect(geometry.violations).toEqual([]);
+  return geometry;
 }
 
 for (const viewport of [{ width: 1296, height: 899 }, { width: 1440, height: 900 }, { width: 900, height: 700 }, { width: 1920, height: 1080 }]) {
-  test(`tool summaries wrap without overlap or clipping at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+  test(`compact tool targets ellipsize without overflow, overlap or clipped outcomes at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const rest = await setupLayoutRows(page);
     await page.goto(`/agents/${executor}`);
@@ -283,11 +311,14 @@ for (const viewport of [{ width: 1296, height: 899 }, { width: 1440, height: 900
     await expect(chips.nth(2)).toContainText('Synthetic command failed');
     await expect(chips.nth(3).locator('.tool-chip-status')).toHaveText('No result recorded');
     await screenshot(page, testInfo, `tool-rows-${viewport.width}x${viewport.height}.png`);
-    for (const chip of await chips.all()) await expectReadableToolRow(chip);
+    const inspectorGeometry = [];
+    for (const chip of await chips.all()) inspectorGeometry.push(await expectReadableToolRow(chip));
     const analystChips = page.locator('.analyst-chat-panel .tool-chip');
     await expect(analystChips).toHaveCount(4);
     await screenshot(page, testInfo, `analyst-tool-rows-${viewport.width}x${viewport.height}.png`);
-    await expectReadableToolRow(analystChips.first());
+    const analystGeometry = [];
+    for (const chip of await analystChips.all()) analystGeometry.push(await expectReadableToolRow(chip));
+    await testInfo.attach('compact-summary-painted-text', { contentType: 'application/json', body: JSON.stringify({ inspectorGeometry, analystGeometry }, null, 2) });
     expect(rest.unknown).toEqual([]);
   });
 }

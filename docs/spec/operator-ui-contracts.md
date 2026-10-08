@@ -392,7 +392,8 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   `combined → prose → correction`; **Result recorded later** marks intervening entries.
   Details preserve both original source positions/times and intervening-entry count,
   never backdated knowledge, invented duration or author attribution. Interleaved calls
-  each own their row. Default summaries use friendly action, target and plain outcome,
+  each own their row. Compact default summaries use friendly action, meaningful abbreviated
+  target and honest outcome,
   not repeated exact tool codes, routine timestamps or stdout badges.
   An unmatched call says **No result recorded**; independently evidenced live Analyst
   pending state may say **Awaiting result**. An unmatched result stays at its source
@@ -406,13 +407,17 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   **Exited · exit 0** is not proof that tests passed. **Effects uncertain** proves
   neither execution nor non-execution and implies no replay. Errors, refusal,
   partial propagation, confirmation and uncertainty stay visible outside disclosure.
+  Essential qualifiers (including delivery not reported, restart required/not contained,
+  and omitted/truncated/partial coverage) are never clipped or hidden to shorten a row.
+  At most one short faithful reason/observation supplements the outcome; full error,
+  refusal and propagation prose belongs in expanded semantic detail, not the default.
   A draft update is not acceptance; its accepted URL may select a retained older
   version. Accepted principal effects and partial propagation are separate facts.
   Restart `confirmation_required` is not restarted; navigation publication is not
   browser receipt. Unexpected projection shapes show presentation unavailable,
   not a green completion or a normalized alternate payload.
 - First expansion shows **Request** then **Result**, each with named tool-specific
-  sections for supplied operation/content
+  sections for the full supplied operation, target, arguments and content
   and recorded observations/effects. Supplied edit old/new strings are not complete
   before/after snapshots. Stdout and stderr disclose independently with actual output
   links and recorded head completeness/byte coverage. Slices, selected pages/tails,
@@ -422,12 +427,19 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   received public strings through the final character, not reserialized summaries,
   private durable bytes or provider wire. All content and supported links use the
   same source-owned public projection for current and selected history.
-- Tool summaries in the exact-session reader and Analyst panel wrap naturally
-  at the available pane width: action, displayed target, status, and
-  resource links remain readable without overlap. Details remain keyboard-operated
-  through the native disclosure button; resource links stay separate and focusable.
-  Summaries retain presenter abbreviations rather than promising the entire raw
-  command; complete safe projected values remain available in secondary disclosures.
+- Tool summaries in the exact-session reader and Analyst panel keep the target on one
+  visual line with meaningful abbreviation and width-dependent ellipsis, not wrapping
+  long commands, paths or queries into a payload-sized block. Ordinary action/target/outcome
+  rows fit one line when the pane has room; narrow panes deliberately stack a small number
+  of lines while retaining a readable nonzero target slot. Action and essential outcomes
+  remain legible without overlap; critical qualifications may take extra lines and are
+  never line-clamped. The combined target is bounded to 48 displayed characters and the
+  optional reason/observation to 56, including ellipses; these are local display bounds,
+  not API or source-data limits. Details remain keyboard-operated through the native
+  disclosure button; useful resource links stay exact, separate and focusable.
+  Full commands, paths, queries, results and errors are directly available in expanded
+  Request/Result semantic sections, not only tooltips or RAW. Secondary safe-original
+  disclosures preserve complete request/result strings and exact copy through the final character.
 - Diagnostics remain at their original source anchors. **Model issue** keeps a faithful
   error excerpt visible; **Repair instruction recorded** is neutral, not achieved repair;
   **Interrupted activation · effects uncertain** is not recovery success. Initially closed

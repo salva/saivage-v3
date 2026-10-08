@@ -10,6 +10,33 @@ const compact = { id: 'card-a', type: 'code', parent: 'project', status: 'stoppe
 const draft = { card_id: 'card-a', name: 'brief.md', state: 'open', surface: 'card_agent', revision: 7, head_id: '11111111-1111-4111-8111-111111111111', current_url: 'record:///brief.md?card=card-a', accepted_version_url: 'record:///brief.md?card=card-a&v=4', bytes: 10, written: true };
 
 describe('current family semantic authority', () => {
+  it.each([
+    ['read', undefined, 'Failed'],
+    ['read', { code: 'file_not_found', path: 'missing.txt' }, 'Failed'],
+    ['edit', { outcome_unknown: true }, 'Effects uncertain'],
+  ] as const)('omits a routine %s fallback when failure supplies no known observation/effect', (tool, data, outcome) => {
+    const error = `Recorded error ${'full detail '.repeat(100)}FINAL-ERROR`;
+    const envelope = { success: false, error, data };
+    const own = TOOL_PRESENTERS[tool].result({ name: tool, envelope, data, dataRecord: data ?? null });
+    expect(own.outcome).toBeUndefined();
+    const view = presentToolResult(JSON.stringify(envelope), { tool });
+    expect(view.outcome).toBe(outcome);
+    expect(view.sections.find(section => section.title === (outcome === 'Effects uncertain' ? 'Uncertainty' : 'Error'))?.content).toBe(error);
+    if (data && 'path' in data) expect(details(view)).toContain(data.path);
+  });
+  it.each([
+    ['read', { metadata_only: true, too_large: true }, 'Failed · Metadata only · Content omitted — too large'],
+    ['read', { path: { content: 'selected-path', utf8_bytes: 13, offset_bytes: 2, next_offset_bytes: 15, total_bytes: 20 } }, 'Failed · Partial content coverage'],
+    ['edit', { edited: true, outcome_unknown: true }, 'Effects uncertain · Applied'],
+    ['edit', { edited: false }, 'Failed · Not applied'],
+    ['write', { state: 'closed', surface: 'analyst', propagation: { ok: false, partial: true, error: 'full propagation error' } }, 'Failed · Record accepted · Partial propagation'],
+  ] as const)('retains distinct parsed %s facts despite failed settlement', (tool, data, outcome) => {
+    const view = present(tool, data, false);
+    expect(view.outcome).toBe(outcome);
+    expect(view.status).toBe('error');
+    if ('propagation' in data) expect(details(view)).toContain('full propagation error');
+    if ('path' in data) expect(details(view)).toContain('selected-path');
+  });
   it('exposes current Analyst CardView lifecycle, operator errors and partial propagation without adding Planner facts', () => {
     const analyst = present('reopen_card', {
       card: { id: 'card-a', type: 'code', title: 'Recorded Analyst title', depends_on: ['card-b'], priority: 0, urgency: 'normal', version_seq: 7, lifecycle: { status: 'changed', result: null, error: 'Recorded card failure', completed_at: null } },
@@ -17,9 +44,9 @@ describe('current family semantic authority', () => {
       operator_summary: { blocked: false, hasError: true, error: 'Recorded card failure', completedAt: null, stale: true },
       propagation: { ok: false, partial: true, error: 'Known propagation failure' },
     });
-    expect(analyst.outcome).toBe('changed');
+    expect(analyst.outcome).toBe('changed · Card error recorded · Partial propagation');
     expect(JSON.stringify(analyst.headline)).toContain('Recorded card failure');
-    expect(JSON.stringify(analyst.headline)).toContain('Known propagation failure');
+    expect(details(analyst)).toContain('Known propagation failure');
     const summary = analyst.sections.find((s) => s.title === 'Recorded Analyst operator summary')!;
     expect(summary.fields?.map((f) => f.label)).toEqual(['blocked', 'hasError', 'error', 'completedAt', 'stale']);
     expect(analyst.sections.find((s) => s.title === 'Recorded card lifecycle')?.fields?.map((f) => f.label)).toEqual(['status', 'result', 'error', 'completed at']);
@@ -30,11 +57,11 @@ describe('current family semantic authority', () => {
   });
   it('keeps structured refusal qualifiers visible and selected error context accessible for every family', () => {
     const denied = present('create_card', { action: 'card.create', reason: 'wrong_state' }, false);
-    expect(JSON.stringify(denied.headline)).toContain('reason: wrong_state');
+    expect(details(denied)).toContain('wrong_state');
     const context = denied.sections.find((s) => s.title === 'Recorded refusal / error context')!;
     expect(context.fields?.map((f) => f.label)).toEqual(['reason', 'action']);
     const missing = present('get_card_version', { code: 'card_version_not_found', card_id: 'card-a', version: 9 }, false);
-    expect(JSON.stringify(missing.headline)).toContain('code: card_version_not_found');
+    expect(details(missing)).toContain('card_version_not_found');
     expect(details(missing)).toContain('card-a');
     expect(missing.sections.find((s) => s.title === 'Recorded refusal / error context')?.fields?.map((f) => f.label)).toEqual(['code', 'card id', 'version']);
     const unavailable = present('edit', { code: 'current_state_unavailable', resource: 'authored_record', owner_id: 'card-a:brief.md', operation: 'edit', restart_required: true }, false);
@@ -94,8 +121,7 @@ describe('current family semantic authority', () => {
     expect(details(view)).toContain('&v=4');
     expect(details(view)).toContain('Mutable revision');
     const accepted = present('edit', { ...draft, state: 'closed', surface: 'analyst', accepted_version_url: 'record:///brief.md?card=card-a&v=7', propagation: { ok: false, partial: true, error: 'Ancestor publication failed' } });
-    expect(accepted.outcome).toBe('Record accepted');
-    expect(accepted.headline[0]).toMatchObject({ text: expect.stringContaining('Partial propagation') });
+    expect(accepted.outcome).toBe('Record accepted · Partial propagation');
     expect(accepted.headline[0]).toMatchObject({ text: expect.stringContaining('Ancestor publication failed') });
     const refused = present('edit', { code: 'record_open_conflict', card_id: 'card-a', name: 'brief.md', current_head: 7 }, false);
     expect(refused.status).toBe('error');
@@ -103,7 +129,7 @@ describe('current family semantic authority', () => {
   });
   it.each(['pending_tool_settlement', 'suppressed', 'interrupted', 'not_requested', 'not_applicable'])('preserves notification %s without delivery claims', (status) => {
     const view = present('queue_notification', { queued: true, card_id: 'card-a', notification_id: 'notice', body: 'full body', interruption: { status, reason: 'owner unavailable', stopped_card_ids: ['card-a-b'] } });
-    expect(view.outcome).toBe('Queued · Delivery not reported');
+    expect(view.outcome).toBe(`Queued · Delivery not reported · Interruption ${status}`);
     expect(details(view)).toContain(status);
     expect(details(view)).toContain('card-a-b');
     expect(view.headline[0]).toMatchObject({ text: expect.stringContaining('owner unavailable') });
@@ -115,12 +141,13 @@ describe('current family semantic authority', () => {
     expect(details(start)).toContain('started');
     const restart = present('restart_server', { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
     expect(restart.outcome).toBe('Confirmation required');
-    expect(restart.headline[0]).toMatchObject({ text: 'RESTART SERVER' });
+    expect(details(restart)).toContain('RESTART SERVER');
+    expect(restart.headline).toEqual([]);
     expect(present('stop_project', { status: 'stopped', contained: false }).outcome).toBe('Stopped · Not contained');
     const proposed = presentToolCall(callEnvelope('emit_result', { outcome: 'done', summary: 'Proposed finish' }));
     expect(proposed.sections[0].title).toBe('Requested node result');
     expect(presentToolResult('{"success":true}', { tool: 'emit_result' }).outcome).toBe('Node result accepted');
-    expect(present('emit_result', { code: 'stale_review' }, false).outcome).toBe('Failed');
+    expect(present('emit_result', { code: 'stale_review' }, false).outcome).toBe('Failed · Node result rejected');
   });
   it('exposes inspection, immutable diff/content, selected observation coverage and safe config sections', () => {
     expect(details(present('get_card', { card_id: 'card-a', section: 'summary', head_id: 'head', version_seq: 7, card: compact }))).toContain('Recorded title');
@@ -149,12 +176,12 @@ describe('current family semantic authority', () => {
     expect(details(search)).toContain('Returned excerpt');
     const navigation = present('navigate_workspace', { intent: 'navigate_workspace', target: { kind: 'card', id: 'card-a' } });
     expect(details(navigation)).toContain('navigate_workspace');
-    expect(navigation.headline[0]).toMatchObject({ text: 'Browser receipt not reported' });
+    expect(navigation.outcome).toContain('Browser receipt not reported');
     expect(details(present('cancel_card', { card_id: 'card-a', status: 'cancelled', cancelled_card_ids: ['card-a-b', 'card-a'] }))).toContain('card-a-b');
   });
   it('retains full-envelope uncertainty and rejects malformed public projections without green completion', () => {
     const unknown = present('write', { outcome_unknown: true, ...draft }, false);
-    expect(unknown.outcome).toBe('Effects uncertain');
+    expect(unknown.outcome).toBe('Effects uncertain · Draft updated');
     expect(details(unknown)).toContain('Mutable revision');
     for (const raw of ['not json', 'null', '42', '{"success":true,"error":"bad"}', '{"success":false}', '{"success":true,"data":42}']) {
       const view = presentToolResult(raw, { tool: 'read' });

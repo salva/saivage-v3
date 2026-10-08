@@ -189,7 +189,10 @@ Analyst or Oversight shows global scope, not a fabricated card context.
 
 **F12 — Must — Inspect the recorded conversation.** Read a selected session's indexed
 segment on one conversation-owned scroll surface, with legible prose and secondary author,
-entry identity, source coordinates and time. Matched tool exchanges appear once at the
+entry identity, source coordinates and time. Compact tool summaries keep abbreviated targets
+on one visual line, with small intentional stacking in narrow panes rather than long
+payload-proportional wrapping; full semantic detail expands directly in the same surface.
+Matched tool exchanges appear once at the
 call position by owner-authorized visual grouping, even across intervening rows; both
 exact Request/Result anchors and original provenance remain inspectable. A later-result
 cue prevents backdated knowledge; other messages keep their relative source order.
@@ -204,11 +207,17 @@ Retained content is request-assembly basis, not an exact request or private reas
 failed result, and final call with no recorded result; inspect the safe projected request
 and recorded response. Check all four, including an unknown tool. “No result recorded”
 must not imply pending execution, failure, success, or permission to replay.
-Always-visible summaries identify friendly action, meaningful target, outcome and salient
-error, including uncertainty and partial effects, without repeated internal codes/output pills.
-Expansion shows Request then Result with tool-specific arguments, observations and content;
+Always-visible compact summaries identify friendly action, meaningful abbreviated target
+and honest outcome, with at most one short faithful reason/observation and without repeated
+internal codes/output pills. Failure/refusal, uncertainty, partial effects, confirmation,
+delivery not reported, draft versus acceptance, restart/not-contained and meaningful
+omitted/truncated/partial coverage remain unhidden, even when critical qualifiers need
+an extra line. Expansion shows Request then Result with full tool-specific operation,
+target, arguments, observations, content and errors directly inspectable;
 exact tool codes, identities and times and complete received safe projected values are
-secondary, separately copyable inspection. An unmatched result stays at its original
+secondary inspection; safe-original request/result disclosures copy the exact received
+public strings through the final character, unaffected by summary abbreviation.
+An unmatched result stays at its original
 position with requested context unavailable. Inspect image exchanges as metadata only,
 including safe descriptors in raw/copy; snapshot recorded proves neither delivery nor
 model perception, and source paths do not preview potentially changed pixels. Check process exit

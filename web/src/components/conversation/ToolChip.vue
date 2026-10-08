@@ -2,8 +2,7 @@
   <div class="tool-chip" :data-tool-entry-id="entryId" role="group" :aria-label="`tool ${display.toolName}`">
     <div class="tool-chip-main">
       <button type="button" class="tool-chip-toggle" :aria-expanded="expanded" :aria-controls="detailsId" :aria-label="`${expanded ? 'Collapse' : 'Expand'} tool ${display.toolName} details`" @click="$emit('toggle')">
-        <span aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
-        <strong class="tool-chip-action">{{ display.action }}</strong>
+        <strong class="tool-chip-action"><span aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span> {{ display.action }}</strong>
         <span class="tool-chip-target"><InlineParts :parts="display.target" /></span>
         <span class="tool-chip-status" :data-tone="display.statusTone"><InlineParts :parts="display.status" /></span>
       </button>
@@ -47,9 +46,9 @@ defineEmits<{ (event: 'toggle'): void }>();
 .tool-chip-toggle { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; flex:1 1 18rem; min-width:0; max-width:100%; border:0; padding:6px; background:transparent; color:var(--text); cursor:pointer; font:inherit; text-align:left; border-radius:4px; }
 .tool-chip-toggle:hover { background:var(--surface-2); }
 .tool-chip-toggle:focus-visible, summary:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
-.tool-chip-action { color:var(--text); }
-.tool-chip-target { flex:1 1 12rem; min-width:min(12rem,100%); overflow-wrap:anywhere; }
-.tool-chip-status { overflow-wrap:anywhere; }
+.tool-chip-action { color:var(--text); flex:0 0 auto; max-width:100%; overflow-wrap:anywhere; }
+.tool-chip-target { flex:1 1 8rem; min-width:min(8rem,100%); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tool-chip-status { flex:0 1 auto; max-width:100%; overflow-wrap:anywhere; }
 .tool-chip-status[data-tone="error"] { color:var(--danger); }
 .tool-chip-links { padding:6px; overflow-wrap:anywhere; }
 .later-result { display:block; padding-left:24px; }
@@ -59,4 +58,6 @@ defineEmits<{ (event: 'toggle'): void }>();
 .provenance { overflow-wrap:anywhere; }
 summary { cursor:pointer; }
 .tool-chip :deep(.inline-parts) { flex-wrap:wrap; min-width:0; max-width:100%; }
+.tool-chip-target :deep(.inline-parts) { display:inline; white-space:nowrap; }
+.tool-chip-target :deep(.inline-part) { white-space:nowrap; overflow-wrap:normal; }
 </style>

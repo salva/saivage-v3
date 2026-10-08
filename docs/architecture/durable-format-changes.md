@@ -57,6 +57,17 @@ index/genesis/envelope **5**, with selected PNGs governed by that same descripto
 Unrelated families are unaffected. This note proves no installed-state compatibility and
 grants no adoption/deployment/migration/reset action; prior format-5 warnings remain in force.
 
+The compact-summary refinement against source baseline
+`95bf404720d6d2b76a81b8710cc8576eff38ac4e` is likewise durable-preserving. Source evidence:
+`web/src/utils/tool-presenters/{helpers,present,presenters}.ts` selects meaningful abbreviated
+targets and separates essential outcomes from short optional reasons;
+`web/src/utils/tool-friendly.ts` bounds combined display excerpts, and
+`web/src/components/conversation/ToolChip.vue` keeps targets on one line with narrow-pane
+stacking. Full semantic sections, safe-original strings/copy and exact link destinations
+remain separate from those display labels. This changes no canonical JSON, nested payload,
+selection/provenance, persistence layout or discriminator, including the unchanged format-5
+image contract above; it establishes no deployment or retained-state compatibility claim.
+
 ## Known incompatible changes
 
 These source boundaries are directly evidenced, not an exhaustive timeline.

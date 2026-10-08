@@ -26,6 +26,33 @@ export function oneLine(value: unknown, max = 72): string {
   return truncate(text.replace(/\s+/g, ' '), max);
 }
 
+// Display labels only: never use an abbreviated label as a resource destination.
+export function pathLabel(value: unknown, max = 48): string {
+  const text = str(value).replace(/\s+/g, ' ');
+  if (text.length <= max) return text;
+  const queryAt = text.indexOf('?');
+  if (queryAt >= 0 && max > 24) return `${pathLabel(text.slice(0, queryAt), max - 13)}?${oneLine(text.slice(queryAt + 1), 12)}`;
+  if (!text.includes('/')) return `${text.slice(0, max - 9)}…${text.slice(-8)}`;
+  const tail = text.slice(text.lastIndexOf('/') + 1);
+  const tailBudget = Math.min(max - Math.min(12, Math.floor(max / 3)) - 1, tail.length);
+  const labelTail = tail.length <= tailBudget ? tail
+    : `${tail.slice(0, tailBudget - 9)}…${tail.slice(-8)}`;
+  return `${text.slice(0, max - labelTail.length - 1)}…${labelTail}`;
+}
+
+export function summaryPathParts(value: unknown): InlinePart[] {
+  return pathParts(value).map((part) => part.kind === 'file'
+    ? { ...part, label: pathLabel(value) } : { kind: 'text', text: pathLabel(value) });
+}
+
+export function urlLabel(value: unknown): string {
+  const text = str(value);
+  if (text.length <= 48) return text;
+  const withoutQuery = text.split(/[?#]/, 1)[0];
+  const label = withoutQuery.replace(/^https?:\/\//, '');
+  return pathLabel(`${label}${withoutQuery.length < text.length ? '…' : ''}`);
+}
+
 export function textPart(text: unknown, max?: number): InlinePart[] {
   const value = max ? oneLine(text, max) : str(text);
   return value ? [{ kind: 'text', text: value }] : [];

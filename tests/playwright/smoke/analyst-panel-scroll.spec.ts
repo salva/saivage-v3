@@ -83,7 +83,7 @@ for (const paused of [false, true]) {
     const policy = toolRowPolicies({ content });
     const base = { session_id: sessionId, tool: 'run_command', tool_call_id: 'arrival-call', round_id: roundId, message_index: 0, block_index: 0, timestamp: now };
     const call = { ...base, id: `${segment}:tool-call:arrival-call`, role: 'assistant', kind: 'tool_call', context_policy: policy.call,
-      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'arrival-call', type: 'function', function: { name: 'run_command', arguments: JSON.stringify({ command: `${'long full command\n'.repeat(80)}FINAL-COMMAND-Z` }) } }] }) };
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'arrival-call', type: 'function', function: { name: 'run_command', arguments: JSON.stringify({ command: `npm test -- ${'long_unbroken_argument_'.repeat(160)}FINAL-COMMAND-Z` }) } }] }) };
     const result = { ...base, id: `${segment}:tool-result:arrival-call`, role: 'tool', kind: 'tool_result', context_policy: policy.result, content };
     let mode = 0, reads = 0;
     await page.route('**/api/agents/*/conversation**', async route => {

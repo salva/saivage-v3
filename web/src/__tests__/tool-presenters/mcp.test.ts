@@ -10,7 +10,7 @@ describe('opaque MCP result', () => {
   });
   it('preserves failed-envelope coverage without inventing effects', () => {
     const view = presentToolResult('{"success":false,"error":"MCP failed","data":{"result_complete":false,"result_utf8_bytes":8192}}', { tool: 'mcp_tool_call' });
-    expect(view.outcome).toBe('Failed');
+    expect(view.outcome).toBe('Failed · Observation recorded · Returned body truncated');
     expect(JSON.stringify(view.sections)).toContain('8192');
     expect(JSON.stringify(view.sections)).not.toContain('applied');
   });

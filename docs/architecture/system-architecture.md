@@ -640,7 +640,8 @@ A shared live-invocation projector outbound-projects arguments but passes this c
 Historical/read-model rows remain strict wire values and use the application Agent conversation read-side projector rather than becoming current producer outcomes.
 
 The shared browser conversation renderer owns direct tool-family semantic presentation
-over source-owned safe DTOs, not runtime display metadata or persisted summaries.
+over source-owned safe DTOs, including bounded compact target/reason excerpts with unhidden
+essential outcomes and full expanded detail, not runtime display metadata or persisted summaries.
 Current and selected-history folding use the same canonical outbound tool projector
 after private-row exclusion. Physical rows retain identity, time and order; projection-local
 exact pairing renders matched exchanges once at the call position, suppressing only the
