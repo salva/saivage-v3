@@ -5,6 +5,8 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-
 class AgentCurrentStateUnavailableError extends Error {}
 class AgentSessionNotFoundError extends Error {}
 class CardAgentScopeNotFoundError extends Error {}
+class ConversationImageNotFoundError extends Error {}
+class ConversationImageSegmentChangedError extends Error {}
 
 const readLatestProviderExchangePayload = jest.fn();
 const admitConversationCatalog = jest.fn(() => ({ currentVersion: 1 }));
@@ -21,6 +23,8 @@ jest.unstable_mockModule('../../src/application/read-models/agent-operator-read-
   AgentCurrentStateUnavailableError,
   AgentSessionNotFoundError,
   CardAgentScopeNotFoundError,
+  ConversationImageNotFoundError,
+  ConversationImageSegmentChangedError,
 }));
 
 const { buildAgentOperatorContractHandlers } = await import('../../src/server/routes/operator-agent-handlers.js');

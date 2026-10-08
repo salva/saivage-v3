@@ -20,7 +20,7 @@ afterEach(() => { for (const path of roots.splice(0)) rmSync(path, { recursive: 
 const png = (width: number, height: number) => sharp({ create: { width, height, channels: 4, background: { r: 12, g: 23, b: 34, alpha: 0.5 } } }).png().toBuffer();
 
 describe('explicit immutable workspace image observations', () => {
-  it.each([[2048, 1024, 1600, 800], [1024, 2048, 800, 1600], [2000, 20000, 160, 1600], [20, 10, 20, 10]])('normalizes %ix%i without upscaling or metadata', async (width, height, sentWidth, sentHeight) => {
+  async function assertNormalization(width: number, height: number, sentWidth: number, sentHeight: number) {
     const source = await png(width, height);
     const selected = await normalizeWorkspaceImage(source, 'project:///screen.png');
     expect(selected.data.sent_dimensions).toEqual({ width: sentWidth, height: sentHeight });
@@ -31,7 +31,14 @@ describe('explicit immutable workspace image observations', () => {
     expect(metadata.icc).toBeUndefined();
     expect((await sharp(selected.bytes).raw().toBuffer())[3]).toBeGreaterThan(0);
     expect((await sharp(selected.bytes).raw().toBuffer())[3]).toBeLessThan(255);
-  });
+  }
+
+  it.each([[2048, 1024, 1600, 800], [1024, 2048, 800, 1600], [20, 10, 20, 10]])('normalizes %ix%i without upscaling or metadata', assertNormalization);
+
+  // Exact 40M pixels and a >16K side need a measured harness budget, not a latency SLA.
+  it('accepts the exact 40M-pixel boundary with a >16K side: normalizes 2000x20000 without upscaling or metadata', async () => {
+    await assertNormalization(2000, 20000, 160, 1600);
+  }, 30_000);
 
   it.each([6, 7])('orients rotated/reflected JPEG %i before resize', async (orientation) => {
     const source = await sharp({ create: { width: 120, height: 60, channels: 3, background: '#123456' } }).jpeg().withMetadata({ orientation }).toBuffer();
