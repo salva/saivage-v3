@@ -42,9 +42,14 @@ strict exceptional allowlist and remains an empty array.
 not fixed repository-wide classification counts. It independently checks
 candidate/consumer parity, unique identities, record/histogram arithmetic,
 effective totals, declaration reachability and promotion evidence, zero-use
-cleanup, and empty failure/stale/unsupported/allowlist results. Controlled
-fixtures retain exact classification expectations. Legitimate public-surface
-changes must preserve these invariants rather than repin aggregate counts.
+cleanup, and empty failure/stale/unsupported/allowlist results. It also checks
+selected current-owner SFC consumption examples, not historical API preservation
+or a complete export inventory. Update those examples after evidenced intentional
+owner replacements while retaining all independent parity/cleanup checks and
+per-example existence, production-consumed classification, and SFC consumption
+assertions. Controlled fixtures retain exact semantic classification expectations.
+Legitimate public-surface changes must preserve these invariants rather than
+automatically repin examples or aggregate counts.
 Run the focused test with `npm run test:direct -- --runInBand --runTestsByPath
 tests/scripts/export-consumers.test.js`; this script enables Node's experimental
 VM modules for Jest. Direct Jest invocation likewise requires

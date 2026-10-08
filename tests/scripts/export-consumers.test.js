@@ -747,6 +747,8 @@ describe('repository complete export boundary', () => {
     }
     expect(result.records.filter((item) => item.directClassification === 'test-only' && item.classification === 'production-consumed')).toEqual([]);
 
+    // Selected current SFC consumption owners: follow evidenced owner replacements,
+    // not historical API preservation or a complete export inventory.
     const sfcReclassified = [
       'web/src/composables/useAgentTimeline.ts::useAgentTimeline',
       'web/src/composables/useCardBrowserReadModel.ts::useCardBrowserReadModel',
@@ -760,7 +762,7 @@ describe('repository complete export boundary', () => {
       'web/src/stores/runtime-read-model.ts::selectSocketLabel',
       'web/src/utils/agent-timeline/index.ts::AgentTimeline',
       'web/src/utils/format-json.ts::formatJson',
-      'web/src/utils/highlight.ts::highlight',
+      'web/src/utils/json-tokens.ts::jsonTokens',
       'web/src/utils/sanitize-card-history.ts::sanitizeCardHistoryValue',
       'web/src/utils/status.ts::labelForCardType',
       'web/src/utils/status.ts::statusForCard',
@@ -778,6 +780,7 @@ describe('repository complete export boundary', () => {
       expect(item.classification).toBe('production-consumed');
       expect(item.productionLocations.some((location) => location.startsWith('web/src/') && location.includes('.vue:'))).toBe(true);
     }
+    expect(record(result, 'web/src/utils/json-tokens.ts', 'jsonTokens').productionLocations.some((location) => location.startsWith('web/src/components/content/JsonText.vue:'))).toBe(true);
     for (const view of ['CockpitView.vue', 'FilesView.vue', 'SystemView.vue', 'NotFound.vue']) {
       expect(record(result, `web/src/views/${view}`, 'default').classification).toBe('production-consumed');
     }
