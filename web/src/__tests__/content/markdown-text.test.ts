@@ -61,4 +61,58 @@ describe('MarkdownText', () => {
     expect(link.text()).toBe('the next card');
     expect(link.attributes('href')).toBe('/cards/goal%2Fnext');
   });
+
+  it('renders ordinary GFM structure and balanced and reference HTTPS links', () => {
+    const wrapper = mountMarkdownText('# Objective\n\n**Strong** and *emphasized*.\n\n- First\n- Second\n\n[Balanced](https://example.test/path_(part)) and [Reference][safe].\n\n[safe]: https://example.test/reference');
+    expect(wrapper.get('h1').text()).toBe('Objective');
+    expect(wrapper.get('strong').text()).toBe('Strong');
+    expect(wrapper.get('em').text()).toBe('emphasized');
+    expect(wrapper.findAll('ul li').map(item => item.text())).toEqual(['First', 'Second']);
+    expect(wrapper.findAll('a').map(link => [link.text(), link.attributes('href')])).toEqual([
+      ['Balanced', 'https://example.test/path_(part)'],
+      ['Reference', 'https://example.test/reference'],
+    ]);
+  });
+
+  it('transforms card references only outside inline and fenced code', () => {
+    const reference = '[[card:card-a|Next card]]';
+    const wrapper = mountMarkdownText(`${reference}\n\n\`${reference}\`\n\n\`\`\`text\n${reference}\n\`\`\``);
+    expect(wrapper.findAll('a')).toHaveLength(1);
+    expect(wrapper.get('a').attributes('href')).toBe('/cards/card-a');
+    expect(wrapper.get('a').text()).toBe('Next card');
+    expect(wrapper.findAll('code').map(code => code.element.textContent)).toEqual([reference, `${reference}\n`]);
+    expect(wrapper.findAll('code a')).toHaveLength(0);
+  });
+
+  it.each([
+    '[unfinished](/path',
+    '[unbalanced](/path((part)',
+    `[](${'\u00a0'.repeat(100)}`,
+  ])('preserves malformed destination source literally: %s', source => {
+    const wrapper = mountMarkdownText(source);
+    expect(wrapper.findAll('a')).toHaveLength(0);
+    // Vue Test Utils .text() trims whitespace, including the NBSP regression input.
+    expect(wrapper.get('p').element.textContent).toBe(source);
+  });
+
+  it('sanitizes executable elements, attributes and URL spellings on the real string path', () => {
+    const wrapper = mountMarkdownText([
+      'Benign text <script>window.markdownInjected=true</script> remains.',
+      '<img alt="safe image" src="data:image/png;base64,iVBORw0KGgo=" onerror="window.markdownInjected=true">',
+      '<span onclick="window.markdownInjected=true">Safe span</span>',
+      '[Unsafe](javascript:window.markdownInjected=true)',
+      '<a href="java&#x73;cript:window.markdownInjected=true">Encoded unsafe</a>',
+      '[Safe HTTPS](https://example.test/safe)',
+      '[[card:card-a|Next card]]',
+    ].join('\n\n'));
+    expect(wrapper.findAll('script, [onerror], [onclick]')).toHaveLength(0);
+    const anchors = wrapper.findAll('a');
+    expect(anchors.map(link => [link.text(), link.attributes('href')])).toEqual([
+      ['Unsafe', undefined], ['Encoded unsafe', undefined],
+      ['Safe HTTPS', 'https://example.test/safe'], ['Next card', '/cards/card-a'],
+    ]);
+    expect(wrapper.get('img').attributes('alt')).toBe('safe image');
+    expect(wrapper.get('span').text()).toBe('Safe span');
+    expect(wrapper.element.textContent).toContain('Benign text  remains.');
+  });
 });

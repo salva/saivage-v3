@@ -236,6 +236,28 @@ Node-externalization warnings are not browser-safety success.
   validate:release`. Omitting the variable retains the managed-browser
   default; this affects local validation only.
 
+### Markdown consumer checks
+
+Run `npm --prefix web run test -- src/__tests__/content/markdown-text.test.ts
+src/__tests__/card-records-section.test.ts` for mounted parser/sanitizer semantics
+and record presentation. The component coverage includes GFM, literal code and
+malformed links, Unicode NBSP preservation, card-reference hrefs, and removal of
+scripts, executable attributes and unsafe URLs through the actual string path.
+
+`tests/playwright/smoke/markdown-rendering.spec.ts` exercises conversation Markdown
+and full record content in the built application, including sanitized DOM
+and card-reference navigation to selected card detail. Run it with
+`node node_modules/@playwright/test/cli.js test -c
+tests/playwright/smoke/playwright.config.ts
+tests/playwright/smoke/markdown-rendering.spec.ts`. It uses synthetic API fixtures
+and mocked transport, not a live deployed project or provider.
+
+For parser dependency refreshes, observe the upstream `'[](' + '\u00a0'.repeat(n)`
+workload in isolated child processes with external timeouts, increasing bounded
+sizes before the full upstream size of 50,000. Compare exact versions and literal
+paragraph semantics. These task-local observations are not timing CI thresholds,
+an arbitrary-input complexity guarantee, or audit/security certification.
+
 ## Build and release gates
 
 The build and release gates package every registered prompt tree. Packaging

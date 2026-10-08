@@ -13,6 +13,15 @@ The renderer adds no API or durable state and falls back to exact plain renderin
 above its highlighting cost bound. See the
 [shared JSON display contract](../spec/operator-ui-contracts.md#shared-json-data-display).
 
+## Browser Markdown presentation
+
+`web/src/components/content/MarkdownText.vue` owns the shared Markdown display
+for conversation context, card records/previews and Files. It transforms card
+references outside code, synchronously parses GFM with Marked (`breaks: false`,
+`async: false`), then sanitizes the resulting HTML **string** with DOMPurify before
+Vue HTML insertion. Sanitization follows parsing; it does not bound parser cost.
+This is ephemeral presentation, not a rewrite of stored source or references.
+
 ## Conversation-owned image pipeline
 
 `contracts/image.ts` owns browser-safe strict descriptors and pure descriptor-based

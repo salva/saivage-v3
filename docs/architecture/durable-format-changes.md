@@ -21,6 +21,25 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Durable-preserving Markdown dependency refresh (2026-10-08)
+
+Source applicability: implementation parent
+`7a9a6415752eb71bdbbe3c8169892cbb82992f02`, not an installed-release claim.
+`web/package.json` and its lock select Marked **18.1.0** (from 18.0.4) and
+DOMPurify **3.4.16** (from 3.4.15). The unchanged
+`web/src/components/content/MarkdownText.vue` transforms card references, parses
+synchronously and sanitizes an HTML string for shared conversation/record/Files
+presentation. Upstream rendering changes affect ephemeral HTML, not retained
+source, reference/provenance interpretation, selections or layout; no data is rewritten.
+
+Card/head/history/mailbox/record discriminators remain **1**, conversation
+index/genesis/envelopes **6**, app-log/provider-evidence shared envelope **1**,
+and lifecycle lock **1**. No affected family, bump or unreleased-cutover exception.
+This change alone requires no migration/reset; adoption uses a matching built UI
+over already-valid current data, with deployment authorization separate. Existing
+old/mixed-state blockers and external-migration consent boundaries remain unchanged;
+equal discriminators do not certify whole-installation compatibility.
+
 ### Durable-preserving operator image inspection (2026-10-08)
 
 Source applicability: format-6 baseline `7a899887ec7b7d5972b2483fb72c219351e29139`,
