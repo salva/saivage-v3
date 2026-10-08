@@ -150,7 +150,7 @@ function seedUnmatched(test: ReturnType<typeof harness>, inputId = '00000000-000
 }
 function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[]): void {
   const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
-  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 5, type: 'conversation-segment', rows })}\n`);
+  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 6, type: 'conversation-segment', rows })}\n`);
 }
 
 describe('AgentNodeExecution static preparation', () => {

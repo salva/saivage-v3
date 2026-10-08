@@ -9,9 +9,14 @@ this tool; custom agents must opt in. Image input requires a compatible Response
 or Codex primary **and summary** route (including `gpt-6.1-sol` and `gpt-6-astra`);
 Chat remains text-only. The default longest side is 1600, with integer 1..16384 or
 `"original"` as `max_dimension`. Local original does not force provider-original
-processing. The UI reports recorded snapshot metadata, not pixels or delivery.
+processing. Successful tool results use optional ordered text/image `content`;
+the UI shows each typed descriptor at its content position, not pixels or delivery.
+`view_image` remains the only implemented image producer and selects one snapshot.
+MCP native image/browser integration is blocked and unsupported: existing
+`mcp_tool_call` still returns bounded, potentially lossy JSON/text, not image input.
 
-Conversation index/genesis/envelope now use strict **format 5**. Format 4/mixed
+Conversation index/genesis/envelope now use strict **format 6** for ordered content.
+Format 5 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;

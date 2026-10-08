@@ -23,7 +23,7 @@ import type {
 } from '../../../contracts/index.js';
 import { parseToolCallMessageForModel } from '../../../contracts/index.js';
 import { ToolResultSchema } from '../../../contracts/index.js';
-import type { ImageDescriptor } from '../../../contracts/index.js';
+import type { ToolResultContentBlock } from '../../../contracts/index.js';
 import type { ProcessToolResult } from '../../../contracts/index.js';
 import { validateProcessToolResult } from '../../../tools/tool-api.js';
 import { selectLatestContextBlocks, type ContextEvidence } from './context-blocks.js';
@@ -80,7 +80,7 @@ export type SummarizerContextItem =
       toolName: string;
       callArguments: string;
       resultContent: string;
-      image?: ImageDescriptor;
+      contentBlocks?: readonly ToolResultContentBlock[];
       policy: SettledToolBundlePolicy;
       responsesPrivateMessageId: string | null;
     }>
@@ -236,7 +236,7 @@ export function composeContextProjection(args: {
             toolName: bundle.call.tool!,
             callArguments: bundle.callArguments,
             resultContent: row.content,
-            ...selectedResultImage(row),
+            ...selectedResultContent(row),
             policy: bundle.policy,
             responsesPrivateMessageId: bundle.responsesPrivateMessageId,
           });
@@ -355,9 +355,11 @@ export function providerConversationFromComposedContext(
   return { sourceSessionId: composed.sourceSessionId, messages };
 }
 
-function selectedResultImage(row: AgentMessage): { image?: ImageDescriptor } {
+function selectedResultContent(row: AgentMessage): {
+  contentBlocks?: readonly ToolResultContentBlock[];
+} {
   const result = ToolResultSchema.parse(JSON.parse(row.content));
-  return result.success && result.image ? { image: result.image } : {};
+  return result.success && result.content ? { contentBlocks: result.content } : {};
 }
 
 type PrimaryProcessToolResult = Omit<ProcessToolResult, 'stdout_url' | 'stderr_url'> &

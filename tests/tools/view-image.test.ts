@@ -121,20 +121,21 @@ describe('explicit immutable workspace image observations', () => {
     const execution = await tool.executor({ path: 'screen.png' }, new AbortController().signal, { sessionId } as unknown as LlmToolInvocationContext);
     const result = settleToolActionOutcome(execution.providerOutcome).providerResult;
     expect(result.success).toBe(true);
-    if (!result.success || !result.image) throw new Error('expected snapshot');
+    if (!result.success || result.content?.[0]?.type !== 'image') throw new Error('expected snapshot');
+    const image = result.content[0].image;
     expect(readFileSync(join(projectRoot, 'screen.png'))).toEqual(source);
     unlinkSync(join(projectRoot, 'screen.png'));
-    const path = conversationImageFile(projectRoot, sessionId, result.image.id);
+    const path = conversationImageFile(projectRoot, sessionId, image.id);
     const imageRoot = join(path, '..');
-    expect(readdirSync(imageRoot)).toEqual([`${result.image.id}.png`]);
-    const materialized = await materializeConversationImage(projectRoot, sessionId, result.image);
+    expect(readdirSync(imageRoot)).toEqual([`${image.id}.png`]);
+    const materialized = await materializeConversationImage(projectRoot, sessionId, image);
     expect(Buffer.from(materialized.dataUrl.split(',')[1]!, 'base64')).toEqual(readFileSync(path));
     writeFileSync(join(imageRoot, 'unselected.png'), 'untouched');
     writeFileSync(path, 'corrupt');
-    await expect(materializeConversationImage(projectRoot, sessionId, result.image)).rejects.toThrow(/length\/hash/);
+    await expect(materializeConversationImage(projectRoot, sessionId, image)).rejects.toThrow(/length\/hash/);
     expect(readFileSync(join(imageRoot, 'unselected.png'), 'utf8')).toBe('untouched');
     unlinkSync(path);
-    await expect(materializeConversationImage(projectRoot, sessionId, result.image)).rejects.toThrow(/ENOENT/);
+    await expect(materializeConversationImage(projectRoot, sessionId, image)).rejects.toThrow(/ENOENT/);
     expect(isReadBlocked('.saivage/agents/conversations/analyst/images')).toBe(true);
     expect(isReadBlocked('.saivage/cards/project/children/a/conversations/executor/images/x.png')).toBe(true);
   });
@@ -145,14 +146,14 @@ describe('explicit immutable workspace image observations', () => {
     await expect(tool.executor({ path: 'bad.png' }, new AbortController().signal)).rejects.toThrow(/complete owning/);
     const execution = await tool.executor({ path: 'bad.png' }, new AbortController().signal, { sessionId: 'agent:executor:project' } as unknown as LlmToolInvocationContext);
     expect(settleToolActionOutcome(execution.providerOutcome).providerResult).toMatchObject({ success: false });
-    expect(settleToolActionOutcome(execution.providerOutcome).providerResult).not.toHaveProperty('image');
+    expect(settleToolActionOutcome(execution.providerOutcome).providerResult).not.toHaveProperty('content');
   });
 
   it('strictly validates result metadata and uses the fixed raster accounting heuristic', async () => {
     const projectRoot = root();
     const selected = await normalizeWorkspaceImage(await png(10, 10), 'screen.png');
     const image = publishConversationImage(projectRoot, 'agent:analyst:global', selected.bytes, selected.data.sent_dimensions);
-    expect(ToolResultSchema.safeParse({ success: false, error: 'failed', image }).success).toBe(false);
+    expect(ToolResultSchema.safeParse({ success: false, error: 'failed', content: [{ type: 'image', image }] }).success).toBe(false);
     expect(() => assertViewImageResult({ ...selected.data, sent_dimensions: { width: 20, height: 10 } }, image)).toThrow();
     expect(rasterReservation({ width: 1024, height: 1024 })).toBe(2048);
     expect(rasterReservation({ width: 1600, height: 1600 })).toBe(5000);

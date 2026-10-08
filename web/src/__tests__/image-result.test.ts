@@ -7,7 +7,7 @@ import { call, result } from './tool-presenters/fixtures';
 import { buildToolDisplay, inlinePartsText } from '../utils/tool-friendly';
 
 it('renders/copies only recorded image metadata without asserting delivery or linking source pixels', () => {
-  const raw = JSON.stringify({ success: true, image: { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 1600, height: 800, byte_length: 1000, sha256: 'a'.repeat(64) }, data: { source_path: 'screen.png', source_dimensions: { width: 2048, height: 1024 }, oriented_dimensions: { width: 2048, height: 1024 }, sent_dimensions: { width: 1600, height: 800 }, orientation_applied: false, resized: true, scale: { x: 0.78125, y: 0.78125 }, max_dimension: 1600 } });
+  const raw = JSON.stringify({ success: true, content: [{ type: 'image', image: { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 1600, height: 800, byte_length: 1000, sha256: 'a'.repeat(64) } }], data: { source_path: 'screen.png', source_dimensions: { width: 2048, height: 1024 }, oriented_dimensions: { width: 2048, height: 1024 }, sent_dimensions: { width: 1600, height: 800 }, orientation_applied: false, resized: true, scale: { x: 0.78125, y: 0.78125 }, max_dimension: 1600 } });
   const result = presentToolResult(raw, { tool: 'view_image' });
   expect(result.outcome).toBe('Image snapshot recorded');
   expect(result.headline).toEqual([{ kind: 'text', text: 'sent 1600 × 800' }]);
@@ -24,7 +24,7 @@ it('renders/copies only recorded image metadata without asserting delivery or li
 it('keeps image paths plain text in both halves, including complete metadata-only RAW', () => {
   const c = call('view_image', { path: 'screen.png', max_dimension: 800 });
   const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 800, height: 400, byte_length: 1000, sha256: 'a'.repeat(64) };
-  const r = result('view_image', {}, { content: JSON.stringify({ success: true, image: descriptor, data: { source_path: 'screen.png', source_dimensions: { width: 1600, height: 800 }, oriented_dimensions: { width: 1600, height: 800 }, sent_dimensions: { width: 800, height: 400 }, orientation_applied: false, resized: true, scale: { x: 0.5, y: 0.5 }, max_dimension: 800 } }) });
+  const r = result('view_image', {}, { content: JSON.stringify({ success: true, content: [{ type: 'image', image: descriptor }], data: { source_path: 'screen.png', source_dimensions: { width: 1600, height: 800 }, oriented_dimensions: { width: 1600, height: 800 }, sent_dimensions: { width: 800, height: 400 }, orientation_applied: false, resized: true, scale: { x: 0.5, y: 0.5 }, max_dimension: 800 } }) });
   for (const entries of [[c, r], [r]]) {
     const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(entries), expandedIds: new Set(['call', 'result']) } });
     expect(wrapper.findAll('a, img, canvas, video')).toHaveLength(0);
@@ -39,7 +39,7 @@ it('keeps image paths plain text in both halves, including complete metadata-onl
 
 it('preserves producer-neutral typed descriptors without requiring workspace data or promoting nested image-like values', () => {
   const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 2, height: 1, byte_length: 20, sha256: 'a'.repeat(64) };
-  const generic = presentToolResult(JSON.stringify({ success: true, image: descriptor, data: { opaque: true } }), { tool: 'custom_probe' });
+  const generic = presentToolResult(JSON.stringify({ success: true, content: [{ type: 'image', image: descriptor }], data: { opaque: true } }), { tool: 'custom_probe' });
   expect(generic.sections.find(section => section.title.startsWith('Typed image descriptor'))?.content).toBe(JSON.stringify(descriptor, null, 2));
   expect(JSON.stringify(generic)).not.toContain('Image snapshot recorded');
   const opaque = presentToolResult(JSON.stringify({ success: true, data: { image: descriptor, image_url: 'opaque-value' } }), { tool: 'mcp_tool_call' });
@@ -50,7 +50,7 @@ it('abbreviates long image paths as text while preserving exact path, descriptor
   const path = `work:///tmp/${'image-observations/'.repeat(200)}FINAL-SNAPSHOT.png`;
   const c = call('view_image', { path, max_dimension: 800 });
   const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 800, height: 400, byte_length: 1000, sha256: 'a'.repeat(64) };
-  const r = result('view_image', {}, { content: JSON.stringify({ success: true, image: descriptor, data: { source_path: path, sent_dimensions: { width: 800, height: 400 } } }) });
+  const r = result('view_image', {}, { content: JSON.stringify({ success: true, content: [{ type: 'image', image: descriptor }], data: { source_path: path, sent_dimensions: { width: 800, height: 400 } } }) });
   const display = buildToolDisplay({ entry: c, mate: r });
   expect(inlinePartsText(display.target).length).toBeLessThanOrEqual(48);
   expect(inlinePartsText(display.target)).toContain('FINAL-SNAPSHOT.png');
@@ -63,4 +63,30 @@ it('abbreviates long image paths as text while preserving exact path, descriptor
   expect(wrapper.get('.tool-request .safe-original code').element.textContent).toBe(c.content);
   expect(wrapper.get('.tool-result .safe-original code').element.textContent).toBe(r.content);
   expect(wrapper.text()).toContain(descriptor.sha256);
+});
+
+it('presents synthetic ordered MCP content and two metadata-only descriptors once within the paired Result', () => {
+  const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 2, height: 1, byte_length: 20, sha256: 'a'.repeat(64) };
+  const blocks = [{ type: 'text', text: 'native before' }, { type: 'image', image: descriptor }, { type: 'text', text: '{"native":"plain text"}' }, { type: 'image', image: { ...descriptor, id: '00000000-0000-4000-8000-000000000002' } }, { type: 'text', text: 'native after' }];
+  // This seeds generic typed content, not a supported native MCP invocation.
+  const raw = JSON.stringify({ success: true, data: { result: { count: 2 }, result_complete: true, result_utf8_bytes: 11 }, content: blocks });
+  const c = call('mcp_tool_call', { serverName: 'browser', toolName: 'browser_take_screenshot', args: {} });
+  const r = result('mcp_tool_call', {}, { content: raw });
+  const view = presentToolResult(raw, { tool: 'mcp_tool_call' });
+  expect(view.sections.slice(0, 2).map(section => section.title)).toEqual(['MCP returned coverage', 'MCP result (effects opaque)']);
+  expect(view.sections.slice(2).map(section => [section.language, section.title])).toEqual([
+    ['text', 'Returned text · content 1'], ['json', 'Typed image descriptor (metadata only) · content 2'],
+    ['text', 'Returned text · content 3'], ['json', 'Typed image descriptor (metadata only) · content 4'],
+    ['text', 'Returned text · content 5'],
+  ]);
+  const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set(['call']) } });
+  expect(wrapper.findAll('[data-tool-entry-id]')).toHaveLength(1);
+  expect(wrapper.findAll('[data-entry-id="call"]')).toHaveLength(1);
+  expect(wrapper.findAll('[data-entry-id="result"]')).toHaveLength(1);
+  const sections = wrapper.findAll('.tool-result .semantic-section');
+  expect(sections.map(section => section.text()).join('|')).toMatch(/native before.*content 2.*plain text.*content 4.*native after/s);
+  expect(wrapper.get('.tool-result .safe-original code').element.textContent).toBe(raw);
+  expect(wrapper.findAll('a, img, canvas, video')).toHaveLength(0);
+  expect(wrapper.html()).not.toMatch(/data:image|base64|Image snapshot recorded/);
+  expect(inlinePartsText(buildToolDisplay({ entry: c, mate: r }).status)).toBe('Observation recorded · Effects opaque');
 });

@@ -7,7 +7,7 @@ import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helper
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
-import { toolImageSucceeded } from '../../src/contracts/index.js';
+import { toolContentSucceeded } from '../../src/contracts/index.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 
 const SESSION = 'agent:planner:project' as const;
@@ -16,7 +16,7 @@ describe('canonical conversation validation', () => {
     const image = { id: '11111111-1111-4111-8111-111111111111', mime_type: 'image/png' as const, width: 10, height: 5, byte_length: 100, sha256: 'a'.repeat(64) };
     const dimensions = { width: 10, height: 5 };
     const data = { source_path: 'screen.png', source_dimensions: dimensions, oriented_dimensions: dimensions, sent_dimensions: dimensions, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 };
-    const content = settleToolActionOutcome(toolImageSucceeded(data, image)).settledResultBytes;
+    const content = settleToolActionOutcome(toolContentSucceeded(data, [{ type: 'image', image }])).settledResultBytes;
     const rowsFor = (tool: string, resultContent = content, settlementOrigin: ToolSettlementOrigin = 'executed'): AgentMessage[] => {
       const policies = toolRowPolicies({ content: resultContent, settlementOrigin });
       return [activation(), {
@@ -28,7 +28,7 @@ describe('canonical conversation validation', () => {
       }];
     };
     expect(() => validateConversation(SESSION, rowsFor('view_image'))).not.toThrow();
-    const alternateContent = settleToolActionOutcome(toolImageSucceeded({ caption: 'fixture' }, image)).settledResultBytes;
+    const alternateContent = settleToolActionOutcome(toolContentSucceeded({ caption: 'fixture' }, [{ type: 'image', image }])).settledResultBytes;
     const alternate = rowsFor('fixture_image_producer', alternateContent);
     expect(() => validateConversation(SESSION, alternate)).not.toThrow();
     for (const origin of ['rejected_before_execution', 'unsupported_tool', 'execution_failed'] as const)
@@ -45,14 +45,14 @@ describe('canonical conversation validation', () => {
     wrongEvidence[2]!.context_policy.evidence = { kind: 'observational_query', observedSha256: 'f'.repeat(64) };
     expect(() => validateConversation(SESSION, wrongEvidence)).toThrow();
     expect(() => validateConversation(SESSION, rowsFor('view_image', content, 'rejected_before_execution'))).toThrow();
-    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: false, error: 'failed', image })))).toThrow(/malformed/);
-    expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":true}'))).toThrow(/requires an image/);
-    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, sent_dimensions: { width: 9, height: 5 } }, image })))).toThrow(/malformed/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: false, error: 'failed', content: [{ type: 'image', image }] })))).toThrow(/malformed/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":true}'))).toThrow(/requires exactly one image block/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, sent_dimensions: { width: 9, height: 5 } }, content: [{ type: 'image', image }] })))).toThrow(/malformed/);
     const differentDimensions = { width: 9, height: 5 };
-    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, source_dimensions: differentDimensions, oriented_dimensions: differentDimensions, sent_dimensions: differentDimensions }, image })))).toThrow(/consistent strict view_image/);
+    expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, source_dimensions: differentDimensions, oriented_dimensions: differentDimensions, sent_dimensions: differentDimensions }, content: [{ type: 'image', image }] })))).toThrow(/consistent strict view_image/);
     expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":false,"error":"interrupted"}'))).not.toThrow();
     for (const invalid of [undefined, { ...data, extra: true }, { ...data, scale: { x: 0.5, y: 1 } }, { ...data, resized: true }, { ...data, oriented_dimensions: { width: 5, height: 10 } }]) {
-      expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: invalid, image })))).toThrow(/malformed/);
+      expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: invalid, content: [{ type: 'image', image }] })))).toThrow(/malformed/);
     }
   });
   it('materializes physical and inherited activation checkpoints without fabricating a marker', () => {

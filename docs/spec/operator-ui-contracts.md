@@ -43,6 +43,21 @@ Provider evidence retains bounded approved request parameters, not full material
 requests. Image-bearing HTTP error previews are suppressed while structured failure
 classification, status and safe diagnostics remain. No binary endpoint is added.
 
+Successful optional `content` is an ordered nonempty array of strict text/image
+blocks, not a singular `image` field. Inside the paired Result half, each text
+block has **Returned text · content N** and explicit text classification; each
+image block has **Typed image descriptor (metadata only) · content N**, explicit
+JSON classification and its own metadata disclosure. N is the one-based recorded
+content position. Preserve every occurrence/order without extra timeline rows,
+duplicate anchors, thumbnails or nested vertical scrollports. Both Request/Result
+anchors and complete safe-original copy remain unchanged. Generic descriptor
+inspection does not require `source_path` or view_image metadata and does not
+promote nested `data.image`, `image_url` or JSON-looking text. It does not prove a
+tool is an image producer. `view_image` is the only implemented producer and
+selects one descriptor; native MCP image/browser integration remains unsupported.
+Existing lossy MCP metadata stays inspectable as JSON, not a complete-result or
+delivery claim.
+
 ## Repair visibility and selection identity
 
 No degraded UI, repair button or attic browser is provided. Strict startup failure keeps readiness unavailable; repair is the separately consented offline CLI procedure in the [runbook](../runbook/index.md#exact-target-offline-repair). Files omits `.saivage/repair-attic` and resolved aliases from parent listings and rejects direct directory/content/preview access before attic bytes or directory contents are inspected. Similarly named ordinary siblings remain accessible. Missing owning-card current/historical `record:///` URLs show **Card not found**, distinct from existing-card record/version misses and consumed corruption.

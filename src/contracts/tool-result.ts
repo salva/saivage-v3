@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { ImageDescriptorSchema, type ImageDescriptor } from './image.js';
+import { ImageDescriptorSchema } from './image.js';
+
+const ToolResultContentBlockSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string() }).strict(),
+  z.object({ type: z.literal('image'), image: ImageDescriptorSchema }).strict(),
+]);
+export type ToolResultContentBlock = z.infer<typeof ToolResultContentBlockSchema>;
 
 const actionOutcomeToken: unique symbol = Symbol('ToolActionOutcome');
 
@@ -8,7 +14,7 @@ export const ToolResultSchema = z.discriminatedUnion('success', [
     .object({
       success: z.literal(true),
       data: z.unknown().optional(),
-      image: ImageDescriptorSchema.optional(),
+      content: z.array(ToolResultContentBlockSchema).min(1).optional(),
     })
     .strict(),
   z
@@ -21,7 +27,12 @@ export type ToolResult = z.infer<typeof ToolResultSchema>;
 type OutcomeToken = { readonly [actionOutcomeToken]: true };
 
 export type ToolActionOutcome<Data = unknown> = (
-  | Readonly<{ kind: 'succeeded'; data?: Data; error?: never; image?: ImageDescriptor }>
+  | Readonly<{
+      kind: 'succeeded';
+      data?: Data;
+      error?: never;
+      content?: readonly ToolResultContentBlock[];
+    }>
   | Readonly<{ kind: 'failed'; error: string; data?: unknown }>
 ) &
   OutcomeToken;
@@ -55,10 +66,11 @@ export function assertToolActionOutcome(value: ToolActionOutcome): void {
     throw new Error('Tool action outcome was not created by the authority constructors.');
 }
 
-export function toolImageSucceeded<Data>(
+export function toolContentSucceeded<Data>(
   data: SuccessData<Data>,
-  image: ImageDescriptor,
+  content: readonly ToolResultContentBlock[],
 ): ToolActionOutcome<Data> {
-  ToolResultSchema.parse({ success: true, data, image });
-  return brand({ kind: 'succeeded' as const, data, image });
+  const result = ToolResultSchema.parse({ success: true, data, content });
+  if (!result.success) throw new Error('Expected successful content result.');
+  return brand({ kind: 'succeeded' as const, data, content: result.content! });
 }

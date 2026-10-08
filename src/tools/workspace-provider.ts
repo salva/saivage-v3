@@ -18,7 +18,7 @@ import {
   writeWorkspaceInputSchema,
   toolFailed,
   toolSucceeded,
-  toolImageSucceeded,
+  toolContentSucceeded,
   assertViewImageResult,
   viewImageInputSchema,
   MAX_IMAGE_SOURCE_BYTES,
@@ -161,7 +161,7 @@ async function viewImage(
     selected.data.sent_dimensions,
   );
   assertViewImageResult(selected.data, image);
-  return toolImageSucceeded(selected.data, image);
+  return toolContentSucceeded(selected.data, [{ type: 'image', image }]);
 }
 
 function auditedWorkspaceMutation<P extends { path: string }>(

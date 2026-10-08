@@ -9,7 +9,7 @@ import {
   type ConversationSessionId,
   type ProtectedPrompt,
 } from '../../../schemas/index.js';
-import type { ValidatedConversation } from '../../../contracts/index.js';
+import { materializedToolContent, type ValidatedConversation } from '../../../contracts/index.js';
 import {
   composeContextProjection,
   type SummarizerContextItem,
@@ -50,13 +50,13 @@ type RefineSourceComponent = Readonly<{
   kind: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
-  image?: import('../../../contracts/index.js').ImageDescriptor;
+  contentBlocks?: readonly import('../../../contracts/index.js').ToolResultContentBlock[];
 }>;
 
 type PreparedRefineSourceComponent = Readonly<
-  RefineSourceComponent & {
+  Omit<RefineSourceComponent, 'contentBlocks'> & {
     totalBytes: number;
-    images?: readonly import('../../../contracts/index.js').MaterializedImage[];
+    contentBlocks?: readonly import('../../../contracts/index.js').MaterializedContentBlock[];
   }
 >;
 
@@ -197,14 +197,17 @@ export function createSequentialRefineAccumulator(args: {
       const preparedComponents: PreparedRefineSourceComponent[] = [];
       for (const component of components) {
         args.signal.throwIfAborted();
-        const images = component.image
-          ? [
-              await args.summarizerProvider.materializeImage(
-                args.conversation.sourceSessionId,
-                component.image,
-              ),
-            ]
-          : undefined;
+        const images = [];
+        for (const block of component.contentBlocks ?? []) {
+          if (block.type !== 'image') continue;
+          args.signal.throwIfAborted();
+          images.push(
+            await args.summarizerProvider.materializeImage(
+              args.conversation.sourceSessionId,
+              block.image,
+            ),
+          );
+        }
         args.signal.throwIfAborted();
         preparedComponents.push(prepareComponent(component, images));
       }
@@ -333,7 +336,7 @@ function packNextActualRanges(args: {
     const prepared = args.components[componentIndex]!;
     let startUtf16 = componentIndex === args.cursor.componentIndex ? args.cursor.startUtf16 : 0;
     let startByte = componentIndex === args.cursor.componentIndex ? args.cursor.startByte : 0;
-    if (prepared.images?.length) {
+    if (prepared.contentBlocks) {
       const atomic: Range = {
         component: prepared,
         startByte: 0,
@@ -572,7 +575,7 @@ function rangeItem(part: Range): SummaryRequestItem {
     label: `[kind=new_source source=${part.component.identity} source_kind=${part.component.kind} range=${part.startByte}:${part.endByte} total_bytes=${part.component.totalBytes} omitted_source_bytes=0]`,
     role: part.component.role,
     content: part.component.content.slice(part.startUtf16, part.endUtf16),
-    ...(part.component.images ? { images: part.component.images } : {}),
+    ...(part.component.contentBlocks ? { contentBlocks: part.component.contentBlocks } : {}),
   };
 }
 
@@ -580,9 +583,12 @@ function prepareComponent(
   component: RefineSourceComponent,
   images?: readonly import('../../../contracts/index.js').MaterializedImage[],
 ): PreparedRefineSourceComponent {
+  const { contentBlocks, ...source } = component;
   return {
-    ...component,
-    ...(images ? { images } : {}),
+    ...source,
+    ...(contentBlocks
+      ? { contentBlocks: materializedToolContent(contentBlocks, images ?? []) }
+      : {}),
     totalBytes: Buffer.byteLength(component.content, 'utf8'),
   };
 }
@@ -633,7 +639,8 @@ function convertSummarizerItem(item: SummarizerContextItem): readonly RefineSour
       ];
     case 'settled_tool_bundle': {
       const identity = `${item.identity.source_input_id}:${item.identity.tool_call_id}`;
-      if (item.image)
+      if (item.contentBlocks) {
+        const { content, ...resultMetadata } = JSON.parse(item.resultContent);
         return [
           {
             identity,
@@ -642,11 +649,12 @@ function convertSummarizerItem(item: SummarizerContextItem): readonly RefineSour
             content: canonicalJson({
               tool: item.toolName,
               arguments: item.callArguments,
-              result: item.resultContent,
+              result: resultMetadata,
             }),
-            image: item.image,
+            contentBlocks: item.contentBlocks,
           },
         ];
+      }
       return [
         {
           identity: `${identity}:arguments`,

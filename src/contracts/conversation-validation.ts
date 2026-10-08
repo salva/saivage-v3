@@ -648,12 +648,13 @@ function parseToolResultContent(row: AgentMessage): { success: boolean } {
   try {
     const result = ToolResultSchema.parse(JSON.parse(row.content));
     if (result.success && row.tool === 'view_image') {
-      if (!result.image) throw new Error('Successful view_image requires an image descriptor.');
-      assertViewImageResult(result.data, result.image);
+      if (result.content?.length !== 1 || result.content[0]?.type !== 'image')
+        throw new Error('Successful view_image requires exactly one image block.');
+      assertViewImageResult(result.data, result.content[0].image);
     }
     if (
       result.success &&
-      result.image &&
+      result.content?.some((block) => block.type === 'image') &&
       row.context_policy.kind === 'tool_result' &&
       row.context_policy.settlement_origin !== 'executed'
     )

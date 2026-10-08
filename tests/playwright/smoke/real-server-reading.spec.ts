@@ -53,6 +53,33 @@ const sink = createServer((request, response) => {
   response.writeHead(400); response.end('inert provider: calls forbidden');
 });
 
+async function orderedContent(reader: Locator) {
+  const exchange = reader.locator(`[data-tool-entry-id="${inputId}:tool-call:ordered-content"]`);
+  await expect(exchange).toHaveCount(1);
+  await expect(exchange).toContainText('Tool returned success');
+  const toggle = exchange.locator('.tool-chip-toggle');
+  await toggle.click();
+  const result = exchange.locator('.tool-result');
+  const sections = result.locator('.semantic-section');
+  await expect(sections).toHaveCount(6);
+  await expect(sections.nth(0)).toContainText('Safe result (opaque tool)');
+  await expect(sections.nth(0)).toContainText('synthetic ordered result');
+  await expect(sections.nth(1)).toContainText('Returned text · content 1');
+  await expect(sections.nth(1)).toContainText('ordered-before-Z');
+  await expect(sections.nth(2)).toContainText('Typed image descriptor (metadata only) · content 2');
+  await expect(sections.nth(3)).toContainText('Returned text · content 3');
+  await expect(sections.nth(3)).toContainText('plain-text-Z');
+  await expect(sections.nth(4)).toContainText('Typed image descriptor (metadata only) · content 4');
+  await expect(sections.nth(5)).toContainText('Returned text · content 5');
+  await expect(sections.nth(5)).toContainText('ordered-after-Z');
+  expect((await sections.allTextContents()).join('|')).toMatch(/ordered-before-Z.*content 2.*plain-text-Z.*content 4.*ordered-after-Z/s);
+  await expect(exchange.locator(`[data-entry-id="${inputId}:tool-call:ordered-content"]`)).toHaveCount(1);
+  await expect(exchange.locator(`[data-entry-id="${inputId}:tool-result:ordered-content"]`)).toHaveCount(1);
+  await expect(result.locator('a, img, canvas')).toHaveCount(0);
+  await expect(result.locator('.safe-original code')).toContainText('ordered-after-Z');
+  await toggle.click();
+}
+
 async function seed(session: ConversationSessionId) {
   let index = 0;
   const row = (id: string, content: string, role: 'assistant' | 'user' | 'system' | 'tool' = 'assistant') => ({
@@ -74,6 +101,7 @@ async function seed(session: ConversationSessionId) {
   // Valid selected raster; the browser must never request it or the original path.
   const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 40, g: 80, b: 120, alpha: 1 } } }).png().toBuffer();
   const image = publishConversationImage(root, session, png, { width: 1, height: 1 });
+  const secondImage = publishConversationImage(root, session, png, { width: 1, height: 1 });
   if (session === executor) imageDescriptor = image;
   const command = pair('command', 'run_command', { command: retainedCommand, cwd: '.', wait: true }, {
     success: true, data: { process_id: 'proc-012345abcdef', status: 'exited', exit_code: 0,
@@ -86,8 +114,17 @@ async function seed(session: ConversationSessionId) {
     row('recorded-system', `${longText}\nfinal-system-Z`, 'system'),
     command[0], row('between', 'No result was known at this intervening prose.'), command[1], row('correction', 'Correction after result.'),
     ...pair('failed-command', 'run_command', { command: 'synthetic-failure' }, { success: false, error: 'Synthetic command failed: final-failure-Z' }),
-    ...pair('image', 'view_image', { path: 'synthetic-screen.png', max_dimension: 1600 }, { success: true, image,
+    ...pair('image', 'view_image', { path: 'synthetic-screen.png', max_dimension: 1600 }, { success: true, content: [{ type: 'image', image }],
       data: ViewImageDataSchema.parse({ source_path: 'synthetic-screen.png', source_dimensions: { width: 1, height: 1 }, oriented_dimensions: { width: 1, height: 1 }, sent_dimensions: { width: 1, height: 1 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 }) }),
+    // Unknown synthetic producer tests the shared recorded-content contract, not
+    // an implemented MCP/browser invocation or native image producer.
+    ...pair('ordered-content', 'synthetic_ordered_image_observation', { fixture: 'producer-neutral' }, {
+      success: true, data: { fixture: 'synthetic ordered result', images: 2 }, content: [
+        { type: 'text', text: 'ordered-before-Z' }, { type: 'image', image },
+        { type: 'text', text: '{"synthetic":"plain-text-Z"}' }, { type: 'image', image: secondImage },
+        { type: 'text', text: 'ordered-after-Z' },
+      ],
+    }),
     row('tail', `${longText}\nfinal-transcript-Z`),
   ];
   appendConversationBatch({ projectRoot: root }, rows.map(r => agentMessageSchema.parse(r)));
@@ -290,6 +327,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
     expect(publicConversation.entries.map(e => e.id)).toContain(`${inputId}:tool-result:image`);
     expect(JSON.stringify(publicConversation)).not.toMatch(/provider_projection|producer_account_id|data:image|base64/);
     await expect(reader).toContainText('Image snapshot recorded');
+    await orderedContent(reader);
     await expect(reader).toContainText('Synthetic command failed');
     await compactCommand(reader, `${viewport.width}-child-compact-command`, viewport.width === 390 ? 'mobile-child-row-only' : 'row-and-following');
     await capture(page, reader, `${viewport.width}-child-compact-command-default`);
@@ -407,6 +445,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
     const chat = page.locator('.analyst-chat-panel');
     await expect(chat).toContainText('final-transcript-Z');
     await expect(chat).toContainText('Image snapshot recorded');
+    await orderedContent(chat);
     await compactCommand(chat, `${viewport.width}-shared-analyst-compact-command`);
     await capture(page, chat, `${viewport.width}-shared-analyst-compact-command-default`);
     expect(reads(analyst)).toBe(0);

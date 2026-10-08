@@ -8,6 +8,15 @@ Continuation may fail admission after recording. Expanded rows and copy stay
 metadata-only; no pixel viewer, binary fetch, thumbnail, source-path preview or
 claim that visible secrets were removed is introduced.
 
+Both card and Analyst readers need every typed image descriptor and text block
+shown in recorded content order inside the paired Result half, with content
+positions retained. Generic descriptor inspection must not require workspace
+source metadata, infer attachments from ordinary JSON, or label an unknown tool
+an image producer. `view_image` supplies one snapshot with its workspace metadata;
+native MCP image production remains unsupported. Keep both exact exchange anchors,
+safe-original copy, compact uncertainty/outcome summaries and the single reading
+scroll surface unchanged.
+
 ## Explicit loss visibility
 
 Operators need truthful coarse loss, not a guarantee of preservation or repaired availability. Strict startup errors direct a stopped, no-owner, fresh-complete-backup, exact-report/consent repair and separate restart flow; no degraded control room or automatic repair. See the [runbook](../runbook/index.md#exact-target-offline-repair). Files hides/refuses attic and resolved aliases before content inspection and offers no attic browser/repair control. Missing owning cards display **Card not found** separately from record/version misses.

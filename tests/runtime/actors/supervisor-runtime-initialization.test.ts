@@ -121,7 +121,7 @@ describe('Supervisor initialization lifecycle', () => {
     seedInterruptedSession(roots.at(-1)!, sessionId, state);
     const segment = readCurrentConversationSegment(roots.at(-1)!, sessionId)!;
     const path = cardConversationVersionFile(roots.at(-1)!, child.id, 'executor', segment.entry.filename);
-    appendFileSync(path, '{"version":5,"type":"conversation-segment","rows":[{}]}\n');
+    appendFileSync(path, '{"version":6,"type":"conversation-segment","rows":[{}]}\n');
     const before = readFileSync(path);
     const stop = jest.spyOn(cards, 'stopRunning');
     await expect(runtime.start()).rejects.toThrow(`Startup interrupted-card settlement: configured session '${sessionId}' failed.`);

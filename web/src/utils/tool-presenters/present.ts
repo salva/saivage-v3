@@ -1,6 +1,7 @@
 import { asRecord, readToolCallMessage, safeJsonParse, textPart, oneLine } from './helpers';
 import { getToolPresenter, valueParts } from './presenters';
 import type { ToolCallPresentation, ToolResultPresentation } from './types';
+import { ToolResultSchema } from '../../../../src/contracts/tool-result';
 
 export function presentToolCall(rawContent: string): ToolCallPresentation {
   const message = readToolCallMessage(rawContent);
@@ -13,7 +14,8 @@ export function presentToolCall(rawContent: string): ToolCallPresentation {
 export function presentToolResult(rawContent: string, opts: { tool?: string } = {}): ToolResultPresentation {
   const name = opts.tool ?? 'tool';
   const envelope = asRecord(safeJsonParse(rawContent));
-  if (!envelope || typeof envelope.success !== 'boolean' || (envelope.success === false && typeof envelope.error !== 'string') || (envelope.success === true && Object.hasOwn(envelope, 'error'))) {
+  const parsed = ToolResultSchema.safeParse(envelope);
+  if (!envelope || !parsed.success) {
     return { name, status: 'error', outcome: 'Presentation unavailable', headline: textPart('Unexpected public result shape'), sections: [] };
   }
   const descriptor = getToolPresenter(name);
@@ -33,6 +35,10 @@ export function presentToolResult(rawContent: string, opts: { tool?: string } = 
   const sections = rendered?.sections ?? (Object.hasOwn(envelope, 'data') ? [{ title: 'Safe result (opaque tool)', content: JSON.stringify(envelope.data, null, 2), language: 'json' as const }] : []);
   if (failed) sections.unshift({ title: uncertain ? 'Uncertainty' : 'Error', content: String(envelope.error) });
   if (refusalFields.length) sections.push({ title: 'Recorded refusal / error context', fields: refusalFields });
-  if (envelope.image !== undefined) sections.push({ title: 'Typed image descriptor (metadata only)', content: JSON.stringify(envelope.image, null, 2), language: 'json', disclosure: true });
+  if (parsed.data.success) parsed.data.content?.forEach((block, index) => {
+    sections.push(block.type === 'text'
+      ? { title: `Returned text · content ${index + 1}`, content: block.text, language: 'text' }
+      : { title: `Typed image descriptor (metadata only) · content ${index + 1}`, content: JSON.stringify(block.image, null, 2), language: 'json', disclosure: true });
+  });
   return { name, status, outcome, headline: reason ? textPart(oneLine(reason, 56)) : rendered?.headline ?? [], sections, target: rendered?.target };
 }

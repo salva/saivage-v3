@@ -114,7 +114,13 @@ usable space. The workspace has four facets:
   Successful settlement may still report process exit 1, and a draft can retain an older
   accepted version. Stdout/stderr heads open independently; **Safe original request/result**
   provide complete public values and copy, not private wire data. **Inspect image** shows
-  safe metadata/descriptors only, not pixels, delivery or model perception. A repair
+   safe metadata/descriptors only, not pixels, delivery or model perception. Ordered
+   result content displays every returned text block and typed descriptor with its
+   recorded content position inside Result, without extra exchange rows or another
+   scroll surface. JSON-looking returned text stays text; descriptors are JSON.
+   An image-looking value in ordinary data is not an attachment. `view_image` is
+   currently the sole image producer; MCP native screenshots/browser integration
+   remain unsupported and its ordinary result can be a lossy prefix. A repair
   instruction does not prove repair; interrupted activation notices keep effects uncertainty
   visible, with full detail opened by exact targeting. Coverage, partial propagation and
   restart confirmation are not completion promises. Details do not fetch missing content.

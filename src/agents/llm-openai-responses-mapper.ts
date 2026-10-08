@@ -1,6 +1,8 @@
 import {
   parsePrivateContent,
   assertProviderItemImageMaterialized,
+  providerContentParts,
+  providerToolResultOutput,
   type ImageDescriptor,
   parseToolCallMessageForModel,
   type ProviderConversationProjection,
@@ -26,13 +28,8 @@ export function responsesInputFromProviderConversation(
     assertProviderItemImageMaterialized(message);
     if (message.kind === 'synthetic_context') {
       const item = textInput(message.role, message.content);
-      if (message.images?.length)
-        (item.content as unknown[]).push(
-          ...message.images.map((image) => {
-            onImageEmitted?.(image.descriptor);
-            return { type: 'input_image', image_url: image.dataUrl };
-          }),
-        );
+      if (message.contentBlocks)
+        (item.content as unknown[]).push(...providerContentParts(message.contentBlocks, onImageEmitted));
       input.push(item);
       continue;
     }
@@ -57,16 +54,10 @@ export function responsesInputFromProviderConversation(
       continue;
     }
     if (message.kind === 'tool_result') {
-      if (message.image) onImageEmitted?.(message.image.descriptor);
       input.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: message.image
-          ? [
-              { type: 'input_text', text: message.content },
-              { type: 'input_image', image_url: message.image.dataUrl },
-            ]
-          : message.content,
+        output: providerToolResultOutput(message, onImageEmitted),
       });
       continue;
     }

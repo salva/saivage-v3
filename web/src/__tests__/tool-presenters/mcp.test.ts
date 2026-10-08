@@ -14,4 +14,17 @@ describe('opaque MCP result', () => {
     expect(JSON.stringify(view.sections)).toContain('8192');
     expect(JSON.stringify(view.sections)).not.toContain('applied');
   });
+  it('keeps baseline MCP coverage/body distinct from ordered text in a synthetic content fixture', () => {
+    // Generic ordered-content inspection, not evidence of a native MCP producer.
+    const result = { count: 42 };
+    const data = { result, result_complete: true, result_utf8_bytes: 12 };
+    const view = presentToolResult(JSON.stringify({ success: true, data, content: [{ type: 'text', text: '{"plain":"native text"}' }] }), { tool: 'mcp_tool_call' });
+    expect(view.status).toBe('neutral');
+    expect(view.outcome).toBe('Observation recorded · Effects opaque');
+    expect(view.sections[0].title).toBe('MCP returned coverage');
+    expect(JSON.stringify(view.sections[0])).toContain('result complete');
+    expect(JSON.stringify(view.sections[0])).toContain('Total JSON source bytes');
+    expect(view.sections[1]).toMatchObject({ title: 'MCP result (effects opaque)', content: JSON.stringify(result, null, 2), language: 'json' });
+    expect(view.sections[2]).toMatchObject({ title: 'Returned text · content 1', content: '{"plain":"native text"}', language: 'text' });
+  });
 });

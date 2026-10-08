@@ -22,16 +22,20 @@ export async function materializeProviderConversation(
       messages.push(item);
       continue;
     }
-    const descriptor = providerItemImageDescriptors(item)[0];
-    if (!descriptor) {
+    const descriptors = providerItemImageDescriptors(item);
+    if (!descriptors.length) {
       messages.push(item);
       continue;
     }
-    const image = await materializeConversationImage(projectRoot, sourceSessionId, descriptor);
+    const images = [];
+    for (const descriptor of descriptors) {
+      signal?.throwIfAborted();
+      images.push(await materializeConversationImage(projectRoot, sourceSessionId, descriptor));
+    }
     signal?.throwIfAborted();
     messages.push({
       ...item,
-      image,
+      images,
     });
   }
   signal?.throwIfAborted();

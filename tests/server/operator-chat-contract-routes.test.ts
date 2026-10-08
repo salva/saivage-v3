@@ -299,7 +299,7 @@ describe('operator chat route request contracts', () => {
     };
     const invocation = toolName === 'run_command' ? processInvocation : {
       tool: 'view_image', params: { path: 'screen.png' }, sourceInputId, toolCallId,
-      result: { success: true as const, image: { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png' as const, width: 20, height: 10, byte_length: 120, sha256: 'a'.repeat(64) }, data: { source_path: 'screen.png', source_dimensions: { width: 20, height: 10 }, oriented_dimensions: { width: 20, height: 10 }, sent_dimensions: { width: 20, height: 10 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 } },
+      result: { success: true as const, content: [{ type: 'image' as const, image: { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png' as const, width: 20, height: 10, byte_length: 120, sha256: 'a'.repeat(64) } }], data: { source_path: 'screen.png', source_dimensions: { width: 20, height: 10 }, oriented_dimensions: { width: 20, height: 10 }, sent_dimensions: { width: 20, height: 10 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 } },
     };
     const live = new LiveSyncSocket();
     const frames: string[] = [];
@@ -399,7 +399,7 @@ describe('operator chat route request contracts', () => {
     );
     expect(frames.length).toBeGreaterThan(0);
     expect(JSON.stringify({ chatInvocation, agentRows, bounded, frames })).not.toMatch(/data:image|base64|\/images\//);
-    if ('image' in invocation.result) expect(result.image).toEqual(invocation.result.image);
+    if ('content' in invocation.result) expect(result.content).toEqual(invocation.result.content);
   });
 
   it.each([
@@ -464,7 +464,7 @@ describe('operator chat route request contracts', () => {
         if (!change.visible_message_id?.endsWith(':tool-result:inspect')) return;
         // Simulate loss after known result selection, before the continuation consumes pixels.
         const result = readConversation(projectRoot, sessionId).sourceRows.find(row => row.id === change.visible_message_id)!;
-        physicalPath = conversationImageFile(projectRoot, sessionId, JSON.parse(result.content).image.id);
+        physicalPath = conversationImageFile(projectRoot, sessionId, JSON.parse(result.content).content[0].image.id);
         unlinkSync(physicalPath);
       },
     };
@@ -487,7 +487,7 @@ describe('operator chat route request contracts', () => {
       const rows = readConversation(projectRoot, sessionId).sourceRows;
       const result = rows.at(-1)!;
       expect(result.kind).toBe('tool_result'); // No fabricated delivery or continuation response.
-      const diagnostic = await materializeConversationImage(projectRoot, sessionId, JSON.parse(result.content).image).catch(error => error);
+      const diagnostic = await materializeConversationImage(projectRoot, sessionId, JSON.parse(result.content).content[0].image).catch(error => error);
       expect(diagnostic).toBeInstanceOf(Error);
       expect(diagnostic.message).toBe('Selected conversation image read failed (ENOENT).');
       expect(diagnostic).not.toHaveProperty('cause');

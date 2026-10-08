@@ -5,7 +5,7 @@ import { afterEach, expect, it, jest } from '@jest/globals';
 import { canonicalJson, type AgentMessage } from '../../src/schemas/index.js';
 import {
   imageAccountingBytes,
-  toolImageSucceeded,
+  toolContentSucceeded,
   imageEstimatedTokens,
   rasterReservation,
   classifyCandidateLocalAdmission,
@@ -14,6 +14,7 @@ import {
   MAX_IMAGE_REQUEST_BYTES,
   type ProviderConversationProjection,
   type ImageDescriptor,
+  type ToolResultContentBlock,
   type LlmCompleteOptions,
 } from '../../src/contracts/index.js';
 import {
@@ -120,7 +121,7 @@ function plan(
     options: options(),
   });
 }
-function rows(image: ImageDescriptor, alternateProducer = false): AgentMessage[] {
+function rows(image: ImageDescriptor, alternateProducer = false, contentBlocks: readonly ToolResultContentBlock[] = [{ type: 'image', image }]): AgentMessage[] {
   const tool = alternateProducer ? 'fixture_image_producer' : 'view_image';
   const data = {
     source_path: 'screen.png',
@@ -132,7 +133,7 @@ function rows(image: ImageDescriptor, alternateProducer = false): AgentMessage[]
     scale: { x: 1, y: 1 },
     max_dimension: 'original',
   };
-  const content = settleToolActionOutcome(toolImageSucceeded(alternateProducer ? { caption: 'fixture' } : data, image)).settledResultBytes;
+  const content = settleToolActionOutcome(toolContentSucceeded(alternateProducer ? { caption: 'fixture' } : data, contentBlocks)).settledResultBytes;
   const policies = toolRowPolicies({
     content,
     template: {
@@ -215,6 +216,65 @@ async function fixture(width = 1600, height = 1600) {
     projection: providerConversationProjection(conversation, []),
   };
 }
+
+it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
+  'preserves ordered text/image/text/two-image results from exact %s selection to both call-linked transports and atomic summary material',
+  async (sessionId) => {
+    const projectRoot = root();
+    const bytes = await sharp({ create: { width: 13, height: 7, channels: 3, background: '#abcdef' } }).png().toBuffer();
+    const first = publishConversationImage(projectRoot, sessionId, bytes, { width: 13, height: 7 });
+    const second = publishConversationImage(projectRoot, sessionId, bytes, { width: 13, height: 7 });
+    const blocks: ToolResultContentBlock[] = [
+      { type: 'text', text: 'before native image' }, { type: 'image', image: first },
+      { type: 'text', text: '{"type":"image","image_url":"ordinary JSON-looking text"}' },
+      { type: 'image', image: second }, { type: 'text', text: 'after native image' },
+    ];
+    const sourceRows = rows(first, true, blocks).map((row) => ({ ...row, session_id: sessionId }));
+    if (sessionId === 'agent:analyst:global') sourceRows[0] = {
+      ...sourceRows[0]!, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: INPUT, timestamp }),
+    };
+    appendConversationBatch({ projectRoot }, sourceRows);
+    const conversation = readConversation(projectRoot, sessionId);
+    expect(JSON.parse(conversation.physicalRows[2]!.content).content).toEqual(blocks);
+    const selected = providerConversationProjection(conversation, []);
+    expect(selected.messages.flatMap(providerItemImageDescriptors)).toEqual([first, second]);
+    const materialized = await materializeProviderConversation(projectRoot, selected);
+    for (const protocol of ['openai-responses', 'openai-codex-backend'] as const) {
+      const built = plan(materialized, protocol);
+      const input = (built.request.body as { input: Array<Record<string, unknown>> }).input;
+      const outputs = input.filter((item) => item.type === 'function_call_output');
+      expect(outputs).toHaveLength(1);
+      expect(outputs[0]!.call_id).toBe('call-image');
+      expect(input.filter((item) => item.role === 'user')).toHaveLength(0);
+      const parts = outputs[0]!.output as Array<Record<string, unknown>>;
+      expect(parts.map((part) => part.type)).toEqual(['input_text', 'input_text', 'input_image', 'input_text', 'input_image', 'input_text']);
+      expect(parts[1]!.text).toBe(blocks[0]!.type === 'text' ? blocks[0]!.text : '');
+      expect(parts[3]!.text).toContain('ordinary JSON-looking text');
+      expect(parts[5]!.text).toBe('after native image');
+      for (const index of [2, 4]) expect(Buffer.from(String(parts[index]!.image_url).split(',')[1]!, 'base64')).toEqual(bytes);
+      expect(parts.filter((part) => part.type === 'input_text').some((part) => String(part.text).includes('base64'))).toBe(false);
+      expect(built.request.imageCount).toBe(2);
+      expect(built.request.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(built.request.serializedBody) / 4) + rasterReservation(first) + rasterReservation(second));
+      await expect(materializeProviderConversation(projectRoot, { ...selected, sourceSessionId: sessionId === SESSION ? 'agent:analyst:global' : SESSION })).rejects.toThrow(/belongs to session/);
+    }
+    const base = summaryProvider(projectRoot, 'ordered visual summary', []);
+    const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async (input, admitted) => {
+      const built = plan(input.providerConversation);
+      expect(built.request.serializedBody).toBe(admitted.serializedRequest);
+      const source = input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.contentBlocks);
+      expect(source).toHaveLength(1);
+      expect(source[0]!.role).toBe('user');
+      const wire = (built.request.body as { input: Array<Record<string, unknown>> }).input;
+      expect(wire.some((item) => item.type === 'function_call_output')).toBe(false);
+      const multimodal = wire.find((item) => item.role === 'user' && Array.isArray(item.content) && (item.content as Array<Record<string, unknown>>).some((part) => part.type === 'input_image'))!;
+      expect((multimodal.content as Array<Record<string, unknown>>).map((part) => part.type)).toEqual(['input_text', 'input_text', 'input_image', 'input_text', 'input_image', 'input_text']);
+      return { result: { kind: 'message', content: 'ordered visual summary' }, provider_exchanges: [] };
+    });
+    const accumulator = createSequentialRefineAccumulator({ conversation, inheritedHistory: null, preparedBlocks: [], summarizerProvider: { ...base, completeTurn }, budget: { contextUtilizationFraction: 0.8 }, signal: new AbortController().signal, progress: noCompactionProgress });
+    await expect(accumulator.materializeThrough(conversation.sourceRows.length)).resolves.toBe('ordered visual summary');
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+  },
+);
 function invocation(
   projection: ProviderConversationProjection,
   tail = 0,
@@ -255,6 +315,30 @@ function invocation(
     episodeContext: {},
   };
 }
+
+it('serializes text-only typed content in order without image authority or a synthetic primary user utterance', async () => {
+  const projectRoot = root();
+  const descriptor: ImageDescriptor = { id: '11111111-1111-4111-8111-111111111111', mime_type: 'image/png', width: 1, height: 1, byte_length: 1, sha256: 'a'.repeat(64) };
+  appendConversationBatch({ projectRoot }, rows(descriptor, true, [
+    { type: 'text', text: '{"type":"image","data":"ordinary text"}' },
+    { type: 'text', text: 'final native text' },
+  ]));
+  const projection = await materializeProviderConversation(projectRoot, providerConversationProjection(readConversation(projectRoot, SESSION), []));
+  expect(projection.messages.flatMap(providerItemImageDescriptors)).toEqual([]);
+  for (const protocol of ['openai-responses', 'openai-codex-backend'] as const) {
+    const built = plan(projection, protocol);
+    const input = (built.request.body as { input: Array<Record<string, unknown>> }).input;
+    const outputs = input.filter(item => item.type === 'function_call_output');
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]!.call_id).toBe('call-image');
+    expect((outputs[0]!.output as Array<Record<string, unknown>>).map(part => part.text)).toEqual([
+      '{"data":{"caption":"fixture"},"success":true}',
+      '{"type":"image","data":"ordinary text"}', 'final native text',
+    ]);
+    expect(built.request.imageCount).toBe(0);
+    expect(input.some(item => item.role === 'user')).toBe(false);
+  }
+});
 it.each(['openai-responses', 'openai-codex-backend'] as const)('materializes an alternate canonical producer through %s from its descriptor alone', async (protocol) => {
   const projectRoot = root();
   const bytes = await sharp({ create: { width: 33, height: 65, channels: 4, background: '#123456' } }).png().toBuffer();
@@ -299,7 +383,7 @@ function summaryProvider(
       expect(built.request.serializedBody).toBe(admitted.serializedRequest);
       for (const item of input.providerConversation.messages)
         if (item.kind === 'synthetic_context')
-          for (const image of item.images ?? []) seen.push(image.dataUrl);
+          for (const block of item.contentBlocks ?? []) if (block.type === 'image') seen.push(block.image.dataUrl);
       return { result: { kind: 'message', content: output }, provider_exchanges: [] };
     },
     projectProviderExchanges: jest.fn(),
@@ -373,7 +457,8 @@ it.each(['openai-responses', 'openai-codex-backend'] as const)(
       )!;
       expect(output.call_id).toBe('call-image');
       const parts = output.output as Array<Record<string, unknown>>;
-      expect(parts[0]).toEqual({ type: 'input_text', text: rows(f.descriptor)[2]!.content });
+      const { content, ...metadata } = JSON.parse(rows(f.descriptor)[2]!.content);
+      expect(parts[0]).toEqual({ type: 'input_text', text: canonicalJson(metadata) });
       expect(parts[1]!.type).toBe('input_image');
       expect(parts[1]).not.toHaveProperty('detail');
       expect(Buffer.from(String(parts[1]!.image_url).split(',')[1]!, 'base64')).toEqual(f.bytes);
@@ -396,8 +481,8 @@ it.each(['openai-responses', 'openai-codex-backend'] as const)('suppresses %s ec
   const registry = invocationProviderRegistry([selected], { [provider]: { transportProtocol: protocol } }, { [provider]: protocol === 'openai-codex-backend' ? makeCodexJwt('synthetic-account') : 'synthetic-test-key' });
   const built = { ...plan(projection, protocol), candidate: selected };
   const imageRow = projection.messages.find(item => item.kind === 'tool_result')!;
-  if (imageRow.kind === 'synthetic_context' || !imageRow.image) throw new Error('Expected materialized result');
-  const dataUrl = imageRow.image.dataUrl;
+  if (imageRow.kind === 'synthetic_context' || !imageRow.images?.length) throw new Error('Expected materialized result');
+  const dataUrl = imageRow.images[0]!.dataUrl;
   for (const [status, code, kind] of [[400, 'context_length_exceeded', 'input_context_exhausted'], [429, 'rate_limit_exceeded', 'rate_limit'], [401, 'invalid_api_key', 'auth_permanent'], [503, 'server_is_overloaded', 'server_transient'], [400, 'unrecognized_error', 'provider_protocol_error']] as const) {
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { code, type: status === 400 ? 'invalid_request_error' : code, param: 'input', message: `${dataUrl} /images/private.png` } }), { status, ...(status === 429 ? { headers: { 'retry-after': '2' } } : {}) }));
     let failure: ProviderTurnFailure | undefined;
@@ -439,7 +524,7 @@ it('charges each emitted occurrence, raster edges and ordinary base64 text witho
     candidate,
     sourceSessionId: SESSION,
     instruction: 'summarize',
-    items: [{ label: 'images', role: 'user', content: image.dataUrl, images: [image, image] }],
+    items: [{ label: 'images', role: 'user', content: image.dataUrl, contentBlocks: [{ type: 'image', image }, { type: 'image', image }] }],
   });
   const built = plan(input.providerConversation);
   expect(built.request.imageCount).toBe(2);
@@ -480,7 +565,7 @@ it('wire cap is a local capacity verdict and summary refusal even with ample tok
     candidate,
     sourceSessionId: SESSION,
     instruction: 'summary',
-    items: [{ label: 'atomic', role: 'user', content: 'observation', images: [image] }],
+    items: [{ label: 'atomic', role: 'user', content: 'observation', contentBlocks: [{ type: 'image', image }] }],
   });
   const built = plan(input.providerConversation);
   const capabilities = { ...built.capabilities, contextWindowTokens: 100_000_000 };
@@ -799,7 +884,7 @@ it('retains a recent atomic image tail, rejects changed source descriptor freshn
   if (changed.sourceSessionId === null) throw new Error('Expected retained source.');
   const result = changed.messages.find((item) => item.kind === 'tool_result')!;
   const parsed = JSON.parse(result.content);
-  parsed.image.sha256 = 'f'.repeat(64);
+  parsed.content[0].image.sha256 = 'f'.repeat(64);
   changed.messages[changed.messages.indexOf(result)] = {
     ...result,
     content: canonicalJson(parsed),

@@ -1,7 +1,11 @@
 import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
 import { canonicalJson } from '../schemas/index.js';
 import type { MaterializedImage, ImageDescriptor } from './image.js';
-import { ToolResultSchema } from './tool-result.js';
+import { ToolResultSchema, type ToolResultContentBlock } from './tool-result.js';
+
+export type MaterializedContentBlock =
+  | Readonly<{ type: 'text'; text: string }>
+  | Readonly<{ type: 'image'; image: MaterializedImage }>;
 
 export type SyntheticProviderContextItem = Readonly<{
   kind: 'synthetic_context';
@@ -17,11 +21,11 @@ export type SyntheticProviderContextItem = Readonly<{
     | 'retry_notice'
     | 'summary_material';
   block_identity: string;
-  images?: readonly MaterializedImage[];
+  contentBlocks?: readonly MaterializedContentBlock[];
 }>;
 
 export type ProviderConversationItem =
-  | (AgentMessage & { readonly image?: MaterializedImage })
+  | (AgentMessage & { readonly images?: readonly MaterializedImage[] })
   | SyntheticProviderContextItem;
 
 export type ProviderConversationProjection =
@@ -31,10 +35,17 @@ export type ProviderConversationProjection =
 export function providerItemImageDescriptors(
   item: ProviderConversationItem,
 ): readonly ImageDescriptor[] {
-  if (item.kind === 'synthetic_context') return item.images?.map((image) => image.descriptor) ?? [];
+  if (item.kind === 'synthetic_context')
+    return (
+      item.contentBlocks?.flatMap((block) =>
+        block.type === 'image' ? [block.image.descriptor] : [],
+      ) ?? []
+    );
   if (item.kind !== 'tool_result') return [];
   const result = ToolResultSchema.parse(JSON.parse(item.content));
-  return result.success && result.image ? [result.image] : [];
+  return result.success
+    ? (result.content?.flatMap((block) => (block.type === 'image' ? [block.image] : [])) ?? [])
+    : [];
 }
 
 export function providerConversationRequiresImages(
@@ -45,15 +56,61 @@ export function providerConversationRequiresImages(
 
 export function assertProviderItemImageMaterialized(item: ProviderConversationItem): void {
   if (item.kind === 'synthetic_context') {
-    if (item.images?.length && item.role !== 'user')
+    if (providerItemImageDescriptors(item).length && item.role !== 'user')
       throw new Error('Summary images require user material.');
     return;
   }
-  const selected = providerItemImageDescriptors(item)[0];
-  if (selected && !item.image)
+  const selected = providerItemImageDescriptors(item);
+  if (selected.length !== (item.images?.length ?? 0))
     throw new Error('Selected tool image must be materialized before serialization.');
-  if (item.image && (!selected || canonicalJson(selected) !== canonicalJson(item.image.descriptor)))
+  if (
+    selected.some(
+      (descriptor, index) =>
+        canonicalJson(descriptor) !== canonicalJson(item.images![index]!.descriptor),
+    )
+  )
     throw new Error('Materialized tool image does not match the selected result descriptor.');
+}
+
+/** Exact positional correspondence is checked before emitting any native provider parts. */
+export function materializedToolContent(
+  content: readonly ToolResultContentBlock[],
+  images: readonly MaterializedImage[],
+): readonly MaterializedContentBlock[] {
+  let index = 0;
+  const blocks = content.map((block): MaterializedContentBlock => {
+    if (block.type === 'text') return block;
+    const image = images[index++];
+    if (!image || canonicalJson(block.image) !== canonicalJson(image.descriptor))
+      throw new Error('Materialized tool image does not match the selected result descriptor.');
+    return { type: 'image', image };
+  });
+  if (index !== images.length) throw new Error('Unexpected materialized tool images.');
+  return blocks;
+}
+
+export function providerContentParts(
+  blocks: readonly MaterializedContentBlock[],
+  onImageEmitted?: (descriptor: ImageDescriptor) => void,
+): Record<string, unknown>[] {
+  return blocks.map((block) => {
+    if (block.type === 'text') return { type: 'input_text', text: block.text };
+    onImageEmitted?.(block.image.descriptor);
+    return { type: 'input_image', image_url: block.image.dataUrl };
+  });
+}
+
+export function providerToolResultOutput(
+  item: AgentMessage & { readonly images?: readonly MaterializedImage[] },
+  onImageEmitted?: (descriptor: ImageDescriptor) => void,
+): string | Record<string, unknown>[] {
+  const result = ToolResultSchema.parse(JSON.parse(item.content));
+  if (!result.success || !result.content) return item.content;
+  const { content, ...metadata } = result;
+  return [
+    { type: 'input_text', text: canonicalJson(metadata) },
+    ...providerContentParts(materializedToolContent(content, item.images ?? []), onImageEmitted),
+  ];
 }
 
 export function assertProviderConversationSourceRows(

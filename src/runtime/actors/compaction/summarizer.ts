@@ -116,7 +116,7 @@ export type SummaryRequestItem = Readonly<{
   label: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
-  images?: readonly MaterializedImage[];
+  contentBlocks?: readonly import('../../../contracts/index.js').MaterializedContentBlock[];
 }>;
 
 export function buildSummaryRequestInput(args: {
@@ -132,7 +132,7 @@ export function buildSummaryRequestInput(args: {
       content: `[order ${index + 1}/${args.items.length}] ${item.label}\n${item.content}`,
       origin: 'summary_material' as const,
       block_identity: `${index + 1}:${item.label}`,
-      ...(item.images?.length ? { images: item.images } : {}),
+      ...(item.contentBlocks ? { contentBlocks: item.contentBlocks } : {}),
     }),
   );
   return {
@@ -148,7 +148,9 @@ export function buildSummaryRequestInput(args: {
     modelParams: { temperature: 0, maxTokens: SUMMARY_COMPLETION_TOKENS },
     capabilityRequest: {
       requiresTools: false,
-      requiresImages: args.items.some((item) => !!item.images?.length),
+      requiresImages: args.items.some(
+        (item) => item.contentBlocks?.some((block) => block.type === 'image') === true,
+      ),
     },
     routePass: { kind: 'ordinary', candidateChain: [args.candidate] },
     episodeContext: { compaction: true },

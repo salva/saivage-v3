@@ -670,7 +670,15 @@ function providerConversationFingerprint(projection: ProviderConversationProject
             item.block_identity,
             item.role,
             item.content,
-            ...(item.images?.length ? [item.images.map((image) => image.descriptor)] : []),
+            ...(item.contentBlocks
+              ? [
+                  item.contentBlocks.map((block) =>
+                    block.type === 'image'
+                      ? { type: 'image', image: block.image.descriptor }
+                      : block,
+                  ),
+                ]
+              : []),
           ]
         : [
             item.id,

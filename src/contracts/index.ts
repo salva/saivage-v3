@@ -60,9 +60,13 @@ export {
   providerItemImageDescriptors,
   providerConversationRequiresImages,
   assertProviderItemImageMaterialized,
+  materializedToolContent,
+  providerContentParts,
+  providerToolResultOutput,
 } from './provider-conversation.js';
 export type {
   SyntheticProviderContextItem,
+  MaterializedContentBlock,
   ProviderConversationItem,
   ProviderConversationProjection,
 } from './provider-conversation.js';
@@ -168,7 +172,7 @@ export { candidatesEqual } from './provider-candidate.js';
 export {
   toolFailed,
   toolSucceeded,
-  toolImageSucceeded,
+  toolContentSucceeded,
   assertToolActionOutcome,
 } from './tool-result.js';
 export {
@@ -184,7 +188,7 @@ export {
 export type { ImageDescriptor, MaterializedImage } from './image.js';
 export { ViewImageDataSchema, viewImageInputSchema, assertViewImageResult } from './view-image.js';
 export type { ViewImageData } from './view-image.js';
-export type { ToolResult, ToolActionOutcome } from './tool-result.js';
+export type { ToolResult, ToolActionOutcome, ToolResultContentBlock } from './tool-result.js';
 export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-api-chats.js';
 export type { RestartChatAcknowledgement } from './operator-api-chats.js';
 export {

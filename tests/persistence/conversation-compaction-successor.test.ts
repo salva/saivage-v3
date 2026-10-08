@@ -128,7 +128,7 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
-  it('uses strict format 5 and rejects prospectively mutated protected rows and extraction coordinates without checksums', async () => {
+  it('uses strict format 6 and rejects prospectively mutated protected rows and extraction coordinates without checksums', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -138,13 +138,16 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(5);
-      expect(segment.genesis.format_version).toBe(5);
+      expect(segment.index.format_version).toBe(6);
+      expect(segment.genesis.format_version).toBe(6);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(5);
+      expect(envelope.version).toBe(6);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 3 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 3 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 3 }, ...segment.rows] }).success).toBe(false);
+      expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 5 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 5 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 5 }, ...segment.rows] }).success).toBe(false);
       for (const field of ['source_sha256', 'compaction_payload_sha256', 'continuation_sha256', 'retained_rows_sha256']) {
         expect(conversationVersionIndexSchema.safeParse({ ...segment.index, versions: segment.index.versions.map(entry => entry.version === segment.entry.version ? { ...entry, genesis: { ...entry.genesis, [field]: '0'.repeat(64) } } : entry) }).success).toBe(false);
       }

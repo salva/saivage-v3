@@ -5,6 +5,7 @@ import {
   toolSucceeded,
   type ToolActionOutcome,
   type ToolResult,
+  type ToolResultContentBlock,
 } from '../contracts/index.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
 
@@ -19,7 +20,7 @@ function projectOutcome(outcome: ToolActionOutcome): ToolResult {
     outcome.kind === 'succeeded'
       ? {
           success: true,
-          ...(outcome.image === undefined ? {} : { image: outcome.image }),
+          ...(outcome.content === undefined ? {} : { content: projectContent(outcome.content) }),
           ...(outcome.data === undefined ? {} : { data: projectDynamicForOutbound(outcome.data) }),
         }
       : {
@@ -45,7 +46,7 @@ export function projectHistoricalToolResultForOutbound(value: unknown): ToolResu
     result.success
       ? {
           success: true,
-          ...(result.image === undefined ? {} : { image: result.image }),
+          ...(result.content === undefined ? {} : { content: projectContent(result.content) }),
           ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
         }
       : {
@@ -53,5 +54,13 @@ export function projectHistoricalToolResultForOutbound(value: unknown): ToolResu
           error: projectDynamicForOutbound(result.error),
           ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
         },
+  );
+}
+
+function projectContent(content: readonly ToolResultContentBlock[]) {
+  return content.map((block) =>
+    block.type === 'text'
+      ? { type: 'text' as const, text: projectDynamicForOutbound(block.text) }
+      : block,
   );
 }

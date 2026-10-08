@@ -2,6 +2,8 @@ import {
   parseToolCallMessageForModel,
   assertProviderItemImageMaterialized,
   type ImageDescriptor,
+  providerContentParts,
+  providerToolResultOutput,
   LlmRequestError,
   type Candidate,
   type LlmCompleteOptions,
@@ -139,10 +141,7 @@ function codexMessages(
           role: 'user',
           content: [
             { type: 'input_text', text: message.content },
-            ...(message.images ?? []).map((image) => {
-              onImageEmitted?.(image.descriptor);
-              return { type: 'input_image', image_url: image.dataUrl };
-            }),
+            ...providerContentParts(message.contentBlocks ?? [], onImageEmitted),
           ],
         });
     } else if (message.role === 'system') out.push({ role: 'system', content: message.content });
@@ -159,16 +158,10 @@ function codexMessages(
     } else if (message.role === 'assistant')
       out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
     else if (message.role === 'tool') {
-      if (message.image) onImageEmitted?.(message.image.descriptor);
       out.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: message.image
-          ? [
-              { type: 'input_text', text: message.content },
-              { type: 'input_image', image_url: message.image.dataUrl },
-            ]
-          : message.content,
+        output: providerToolResultOutput(message, onImageEmitted),
       });
     }
   }

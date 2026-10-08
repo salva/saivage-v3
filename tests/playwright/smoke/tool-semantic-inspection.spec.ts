@@ -53,7 +53,7 @@ function rows(session: string) {
     ...pair(session, 'missing', 'read', { path: 'missing.txt' }, { success: false, error: 'File not found: missing.txt' }),
     pair(session, 'unmatched', 'wait_process', { process_id: processId }, { success: true })[0]!,
     pair(session, 'retained-result', 'wait_process', {}, { success: true, data: output })[1]!,
-    ...pair(session, 'image', 'view_image', { path: 'screen.png', max_dimension: 1600 }, { success: true, image: { id: segment, mime_type: 'image/png', width: 1600, height: 800, byte_length: 1000, sha256: 'a'.repeat(64) }, data: { source_path: 'screen.png', source_dimensions: { width: 2048, height: 1024 }, oriented_dimensions: { width: 2048, height: 1024 }, sent_dimensions: { width: 1600, height: 800 }, orientation_applied: false, resized: true, scale: { x: 0.78125, y: 0.78125 }, max_dimension: 1600 } }),
+    ...pair(session, 'image', 'view_image', { path: 'screen.png', max_dimension: 1600 }, { success: true, content: [{ type: 'image', image: { id: segment, mime_type: 'image/png', width: 1600, height: 800, byte_length: 1000, sha256: 'a'.repeat(64) } }], data: { source_path: 'screen.png', source_dimensions: { width: 2048, height: 1024 }, oriented_dimensions: { width: 2048, height: 1024 }, sent_dimensions: { width: 1600, height: 800 }, orientation_applied: false, resized: true, scale: { x: 0.78125, y: 0.78125 }, max_dimension: 1600 } }),
     ...Array.from({ length: 24 }, (_, i) => text(session, `tail-${i}`, `Retained tail row ${i}: ${'observational context '.repeat(12)}`)),
   ];
 }
@@ -303,7 +303,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
     await expand(chip(reader, 'image'));
     const image = chip(reader, 'image');
     await expect(image.locator('a, img, canvas, video')).toHaveCount(0);
-    await image.getByText('Show Typed image descriptor (metadata only)', { exact: true }).click();
+    await image.getByText('Show Typed image descriptor (metadata only) · content 1', { exact: true }).click();
     await expect(image).toContainText('sha256');
     await page.screenshot({ path: testInfo.outputPath(`combined-expanded-${viewport.width}.png`) });
     const geometry = await reader.evaluate(owner => ({

@@ -70,8 +70,11 @@ it.each([
         const selected = JSON.parse(item.output[0].text);
         const bytes = Buffer.from(item.output[1].image_url.split(',')[1], 'base64');
         expect(selected.data.source_path).toBe('screen.png');
-        expect(selected.image.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
-        expect(readFileSync(conversationImageFile(projectRoot, SESSION, selected.image.id))).toEqual(bytes);
+        expect(selected).not.toHaveProperty('content');
+        const durableResult = readConversation(projectRoot, SESSION).physicalRows.find(row => row.kind === 'tool_result' && row.tool_call_id === item.call_id)!;
+        const descriptor = JSON.parse(durableResult.content).content[0].image;
+        expect(descriptor.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        expect(readFileSync(conversationImageFile(projectRoot, SESSION, descriptor.id))).toEqual(bytes);
       }
       let output: unknown[];
       switch (phase++) {
@@ -171,9 +174,9 @@ await sharp(pixels,{raw:{width:2048,height:1024,channels:3}}).png().toFile('scre
     const reopened = createSession();
     await reopened.submit({ userContent: 'Inspect the overwritten source at local original resolution' });
     expect(phase).toBe(5);
-    const images = readConversation(projectRoot, SESSION).physicalRows.filter(row => row.tool === 'view_image' && row.kind === 'tool_result').map(row => JSON.parse(row.content).image);
+    const images = readConversation(projectRoot, SESSION).physicalRows.filter(row => row.tool === 'view_image' && row.kind === 'tool_result').map(row => JSON.parse(row.content).content[0].image);
     expect(images).toHaveLength(2);
-    expect(images[0].id).toBe(JSON.parse(old.content).image.id);
+    expect(images[0].id).toBe(JSON.parse(old.content).content[0].image.id);
     expect(images[1].id).not.toBe(images[0].id);
     const projection = providerConversationProjection(readConversation(projectRoot, SESSION), []);
     const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0, snap: 'compact_straddler' }, 'system', [], 800_000, 2000);
