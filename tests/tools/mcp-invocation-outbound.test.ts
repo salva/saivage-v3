@@ -9,6 +9,7 @@ describe('MCP invocation outbound leaves', () => {
     expect(projectMcpToolCallArgumentsForOutbound({
       serverName: 'ghu_server',
       toolName: 'tok_primary',
+      max_dimension: 'original',
       args: {
         apiKey: 'synthetic-argument-secret',
         nested: { note: 'token=synthetic-nested-secret', identity: 'sk-model' },
@@ -16,6 +17,7 @@ describe('MCP invocation outbound leaves', () => {
     })).toEqual({
       serverName: 'ghu_server',
       toolName: 'tok_primary',
+      max_dimension: 'original',
       args: {
         apiKey: '[REDACTED]',
         nested: { note: 'token=[REDACTED]', identity: 'sk-[REDACTED]' },

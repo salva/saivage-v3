@@ -13,9 +13,17 @@ shown in recorded content order inside the paired Result half, with content
 positions retained. Generic descriptor inspection must not require workspace
 source metadata, infer attachments from ordinary JSON, or label an unknown tool
 an image producer. `view_image` supplies one snapshot with its workspace metadata;
-native MCP image production remains unsupported. Keep both exact exchange anchors,
+native MCP supplies ordered images with indexed capture metadata and no invented
+workspace path. Native text/descriptors appear once through the generic owner;
+capture metadata is separate JSON, not pixels or delivery evidence. Keep both exact exchange anchors,
 safe-original copy, compact uncertainty/outcome summaries and the single reading
 scroll surface unchanged.
+
+Recorded configured-MCP lifecycle and discovery exchanges need concise ready/stopped
+outcomes with context-loss caution and complete inspectable input schemas. These
+tools and authenticated start/stop APIs add no browser controls to the UI. Loaded
+current instructions expose the actual composed browser guidance, not dynamic tool
+discovery, pixels or historical provider wire.
 
 ## Explicit loss visibility
 

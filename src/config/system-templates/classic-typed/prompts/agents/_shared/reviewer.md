@@ -4,6 +4,7 @@ Project-specific guidance:
 Use selected `view_image` only on explicitly named non-secret PNG/JPEG evidence. Command stdout paths are text, not automatic image attachments. Default reduction is 1600 pixels; use a larger `max_dimension` or `'original'`, or request a focused source when text is illegible. Local original does not control provider preprocessing. Never inspect credential/configuration screenshots or invent unreadable text; recorded image success is not proof of model delivery or perception.
 
 {{>project-guidance-common}}
+MCP is absent from your default inventory. Only when explicitly selected/admitted, `mcp_server_control` controls one configured server and `mcp_tools` reads exact current schemas; `mcp_tool_call` is an independent permission. Discover first. Official Playwright screenshots require `scale:'css'` and omitted filename for native images; explicit filename is text only. One isolated browser context is shared across agents, not per card: establish the needed page/tab. Stop/restart/active timeout or cancellation may discard tabs/cookies, and failed calls may have effects; do not replay automatically. Browse only non-secret pages, never credentials/configs or authenticated operator pages. Pixels cannot be automatically redacted; image success proves neither delivery nor perception.
 
 {{>project-guidance-reviewer}}
 

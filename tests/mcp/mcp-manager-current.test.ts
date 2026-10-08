@@ -8,6 +8,7 @@ import { PassThrough } from 'node:stream';
 import * as YAML from 'yaml';
 
 import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { ServerNotRunningError } from '../../src/mcp/errors.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -21,13 +22,92 @@ afterEach(()=>{jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{re
 
 function root():string{const value=mkdtempSync(join(tmpdir(),'mcp-current-'));roots.push(value);mkdirSync(join(value,'.saivage'),{recursive:true});return value;}
 function writeConfig(projectRoot:string,mcpServers:Record<string,unknown>):void{writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers}));}
-function response(id:number,result:unknown):Response{return new Response(JSON.stringify({jsonrpc:'2.0',id,result}),{status:200,headers:{'content-type':'application/json'}});}
+function response(id:number,result:unknown):Response{const bytes=JSON.stringify({jsonrpc:'2.0',id,result});const value=new Response(bytes,{status:200,headers:{'content-type':'application/json'}});value.json=async()=>JSON.parse(bytes);return value;}
 function successfulFetch(){return jest.fn(async(_url:string|URL,init?:RequestInit)=>{if(init?.method==='HEAD')return new Response(null,{status:200});const request=JSON.parse(String(init?.body)) as {id:number;method:string};if(request.method==='notifications/initialized')return new Response(null,{status:202});if(request.method==='initialize')return response(request.id,{protocolVersion:'2025-06-18'});if(request.method==='tools/list')return response(request.id,{tools:[{name:'ping',inputSchema:{type:'object',properties:{}}}]});return response(request.id,{content:['pong']});});}
 function manager(projectRoot:string){const registry=new ManagedProcessGroupRegistry();const scope=registry.createContainerScope(registry.rootScope,'mcp-servers');const runner=new ProcessRunner(projectRoot,registry,testApplicationFatalPort);return{value:new McpManager({configAuthority:testConfigAuthority(projectRoot),processRunner:runner,mcpProcessRootScope:scope,eventLogger:{appendEvent(){}} as never}),runner,scope};}
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: unknown) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 const emptyReport: ProcessStopReport = { selected: [], stopped: [], failed: [] };
 
 describe('current named-agent MCP manager contract',()=>{
+  it('does not follow startup publication uncertainty with a second stop or reconciliation work', async () => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const failure = new PublicationOutcomeUnknownError();
+    jest.spyOn(McpServerRuntime.prototype, 'start').mockRejectedValue(failure);
+    const stop = jest.spyOn(McpServerRuntime.prototype, 'stop');
+    const { value } = manager(projectRoot);
+    await expect(value.reconcilePersistedConfig()).rejects.toBe(failure);
+    expect(stop).not.toHaveBeenCalled();
+  });
+  it('starts only the exact current entry, rejects changed/disabled/busy and restarts only after explicit stop', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false }, disabled: { transport: 'stdio', command: 'unused', disabled: true } });
+    globalThis.fetch = successfulFetch() as typeof fetch;
+    const { value } = manager(projectRoot);
+    await expect(value.startServer('absent')).rejects.toMatchObject({ statusCode: 404 });
+    await expect(value.startServer('disabled')).rejects.toMatchObject({ statusCode: 409 });
+    expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
+    expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
+    // Unrelated workflows and other server entries are not consumed at on-demand start.
+    writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ agents: 'invalid-unrelated', mcpServers: { one: { transport: 'streamable-http', url: 'http://localhost/changed', autostart: false }, unrelated: 'invalid' } }));
+    await expect(value.startServer('one')).rejects.toThrow('Stop before');
+    await expect(value.stopServer('absent')).rejects.toMatchObject({ statusCode: 404 });
+    expect(await value.stopServer('one')).toEqual({ serverName: 'one', status: 'stopped', toolCount: 0 });
+    expect(value.getServerTools('one')).toBeUndefined();
+    expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
+    expect(value.getStatus()).toHaveLength(1);
+    await value.cleanupForApplicationStop();
+  });
+
+  it('stops startup without a global queue, joins inner work before clearing and retains failed containment', async () => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const entered = deferred<void>(); const release = deferred<void>();
+    globalThis.fetch = jest.fn(async (_url, options: RequestInit | undefined) => {
+      entered.resolve(); await release.promise; options!.signal!.throwIfAborted(); return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const { value, runner } = manager(projectRoot);
+    const start = value.startServer('one').catch(error => error); await entered.promise;
+    await expect(value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
+    let stopped = false; const stop = value.stopServer('one').then(() => { stopped = true; });
+    let cleaned = false; const cleanup = value.cleanupForApplicationStop().then(() => { cleaned = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(stopped).toBe(false); expect(cleaned).toBe(false); expect(value.getStatus()).toHaveLength(1);
+    await expect(value.startServer('one')).rejects.toThrow('closed');
+    release.resolve(); await Promise.all([start, stop, cleanup]); expect(value.getStatus()).toEqual([]);
+
+    const other = manager(projectRoot); globalThis.fetch = successfulFetch() as typeof fetch;
+    await other.value.startServer('one');
+    const failure = new Error('exact containment failure');
+    jest.spyOn(other.runner, 'closeAndTerminateDirectScope').mockRejectedValue(failure);
+    await expect(other.value.stopServer('one')).rejects.toBe(failure);
+    expect(other.value.getServerTools('one')).toBeUndefined();
+    await expect(other.value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
+    expect(other.value.getStatus()).toHaveLength(1);
+  });
+
+  it('uses one install-inclusive 180-second budget, not ten seconds or a timer per phase', async () => {
+    jest.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    try {
+      const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+      const delayed = (ms: number, signal: AbortSignal, result: Response) => new Promise<Response>((resolve, reject) => {
+        const abort = () => { clearTimeout(timer); reject(signal.reason); };
+        const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(result); }, ms);
+        signal.addEventListener('abort', abort, { once: true });
+      });
+      const successful = successfulFetch();
+      globalThis.fetch = jest.fn(async (url: string | URL, options?: RequestInit) => options?.method === 'HEAD'
+        ? delayed(11_000, options.signal as AbortSignal, new Response(null, { status: 200 })) : successful(url, options)) as typeof fetch;
+      const first = manager(projectRoot); const start = first.value.startServer('one');
+      await jest.advanceTimersByTimeAsync(11_000); await expect(start).resolves.toMatchObject({ status: 'running' });
+      await first.value.cleanupForApplicationStop();
+      globalThis.fetch = jest.fn(async (_url, options?: RequestInit) => delayed(options?.method === 'HEAD' ? 100_000 : 90_000, options!.signal as AbortSignal, new Response(null, { status: 200 }))) as typeof fetch;
+      const second = manager(projectRoot); const exhausted = second.value.startServer('one').catch(error => error);
+      await jest.advanceTimersByTimeAsync(180_000);
+      expect(await exhausted).toMatchObject({ code: 'TIMEOUT' });
+      expect(second.value.getServerStatus('one')).toMatchObject({ status: 'stopped' });
+      await second.value.cleanupForApplicationStop();
+    } finally { globalThis.fetch = originalFetch; jest.useRealTimers(); }
+  });
   it('preserves an equivalent HTTP installation and replaces a changed effective config', async () => {
     const projectRoot = root();
     writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
@@ -189,6 +269,31 @@ describe('current named-agent MCP manager contract',()=>{
       revision: 'revision', processRunner: {}, processScope: {}, ids: { next: () => 1 }, invocationStats: {},
     } as never);
     expect(() => runtime.directContainment()).toThrow("MCP server 'one' admission has not been closed.");
+  });
+
+  it('application cleanup joins admitted inner request work before clearing retained owners', async () => {
+    const projectRoot = root();
+    writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: true, disabled: false } });
+    globalThis.fetch = successfulFetch() as typeof fetch;
+    const { value } = manager(projectRoot);
+    await value.reconcilePersistedConfig();
+    const body = deferred<void>();
+    const entered = deferred<void>();
+    globalThis.fetch = jest.fn(async () => {
+      entered.resolve();
+      return new Response(new ReadableStream<Uint8Array>({ cancel: () => body.promise }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const call = value.invokeTool('one', 'ping', {}).catch(error => error);
+    await entered.promise;
+    let cleaned = false;
+    const cleanup = value.cleanupForApplicationStop().then(() => { cleaned = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(cleaned).toBe(false);
+    expect(value.getServerTools('one')).toBeUndefined();
+    expect(value.getStatus()).toHaveLength(1);
+    body.resolve();
+    await Promise.all([call, cleanup]);
+    expect(value.getStatus()).toEqual([]);
   });
 
   it('preserves root termination failure precedence and retains runtimes after failure',async()=>{

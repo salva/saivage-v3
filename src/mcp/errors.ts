@@ -12,6 +12,13 @@ export class McpInvokeError extends Error {
   }
 }
 
+export class McpLifecycleError extends McpInvokeError {
+  constructor(message: string, statusCode: 404 | 409) {
+    super(message, statusCode === 404 ? 'MCP_NOT_FOUND' : 'MCP_CONFLICT', statusCode);
+    this.name = 'McpLifecycleError';
+  }
+}
+
 export class ServerNotRunningError extends McpInvokeError {
   constructor(serverName: string) {
     super(`MCP server '${serverName}' is not running`, 'SERVER_NOT_RUNNING', 404);

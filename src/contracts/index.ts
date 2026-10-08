@@ -299,7 +299,11 @@ export type {
   ToolInvocationProjector,
 } from './tool-invocation-projection.js';
 export type { WorkspaceNavigationIntent } from './workspace-navigation.js';
-export { McpToolCallArgumentsSchema } from './mcp-invocation.js';
+export {
+  McpToolCallArgumentsSchema,
+  McpServerControlArgumentsSchema,
+  McpToolsArgumentsSchema,
+} from './mcp-invocation.js';
 export type { McpToolCallArguments } from './mcp-invocation.js';
 export { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 export type { ParsedScopedPathUrl } from './scoped-path-url.js';

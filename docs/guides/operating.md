@@ -119,8 +119,14 @@ usable space. The workspace has four facets:
    recorded content position inside Result, without extra exchange rows or another
    scroll surface. JSON-looking returned text stays text; descriptors are JSON.
    An image-looking value in ordinary data is not an attachment. `view_image` is
-   currently the sole image producer; MCP native screenshots/browser integration
-   remain unsupported and its ordinary result can be a lossy prefix. A repair
+   a workspace snapshot producer; configured MCP native results also select images.
+   MCP capture metadata retains content positions and source/sent dimensions without
+   inventing a workspace source path. Retained older ordinary MCP data stays opaque;
+   new native results fail oversize rather than truncating. Selected control/discovery
+   tools start/stop configured servers and inspect exact schemas independently from
+   invocation; recorded ready/stopped outcomes do not prove browser effects undone.
+   See the [shared disposable browser workflow](../runbook/index.md#configured-browser-lifecycle).
+   No browser-control UI or dynamic current-instructions catalog is added. A repair
   instruction does not prove repair; interrupted activation notices keep effects uncertainty
   visible, with full detail opened by exact targeting. Coverage, partial propagation and
   restart confirmation are not completion promises. Details do not fetch missing content.

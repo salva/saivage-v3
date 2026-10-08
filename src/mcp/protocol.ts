@@ -44,10 +44,9 @@ export interface McpServerStatus {
   tools_count?: number;
 }
 
-export const MCP_DISCOVERY_TIMEOUT_MS = 10_000;
+export const MCP_START_TIMEOUT_MS = 180_000;
 export const MCP_INVOKE_TIMEOUT_MS = 30_000;
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
-export const STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES = 64 * 1024;
-export const STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES = 256 * 1024;
+export const MCP_WIRE_RESPONSE_LIMIT_BYTES = 48 * 1024 * 1024;
 export const CLIENT_NAME = 'saivage-mcp-manager';
 export const CLIENT_VERSION = SAIVAGE_VERSION;

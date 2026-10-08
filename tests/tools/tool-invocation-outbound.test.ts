@@ -65,6 +65,8 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   },
   skill: { name: 'tok_primary' },
   mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
+  mcp_tools: { serverName: 'ghu_server', toolName: 'rt_tool' },
+  mcp_server_control: { serverName: 'ghu_server', action: 'start' },
   edit_card: { card_id: 'card-a', title: marker },
   activate_card: { card_id: 'card-a' },
   emit_result: { outcome: 'tok_primary', summary: marker },
@@ -157,8 +159,8 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     expect(JSON.stringify(webfetch)).not.toContain('synthetic-secret-value');
     expect(webfetch).not.toHaveProperty('arguments');
 
-    const mcp = projectToolInvocation({ shape: 'result-row', identity: identity('mcp_tool_call'), result: { success: true, data: { result: { apiKey: 'synthetic-secret-value', id: 'stable_value' }, result_complete: true, result_utf8_bytes: 43 } } });
-    expect(mcp).toMatchObject({ result: { success: true, data: { result: { apiKey: '[REDACTED]', id: 'stable_value' }, result_complete: true, result_utf8_bytes: 43 } } });
+    const mcp = projectToolInvocation({ shape: 'result-row', identity: identity('mcp_tool_call'), result: { success: true, data: { result: { structuredContent: { apiKey: 'synthetic-secret-value', id: 'stable_value' } } } } });
+    expect(mcp).toMatchObject({ result: { success: true, data: { result: { structuredContent: { apiKey: '[REDACTED]', id: 'stable_value' } } } } });
 
     const terminalFailure = projectToolInvocation({ shape: 'result-row', identity: identity('emit_result'), result: { success: false, error: marker, data: { apiKey: 'synthetic-secret-value', reason: 'stable_value' } } });
     expect(terminalFailure).toMatchObject({ result: { success: false, data: { apiKey: '[REDACTED]', reason: 'stable_value' } } });

@@ -9,6 +9,8 @@ import {
 
 function port(label: string): McpToolInvocationPort {
   return {
+    startServer: jest.fn(async (name: string) => ({ serverName: name, status: 'running' as const, toolCount: 1 })),
+    stopServer: jest.fn(async (name: string) => ({ serverName: name, status: 'stopped' as const, toolCount: 0 })),
     getServerTools: jest.fn(() => [{ name: label, description: label, inputSchema: { type: 'object' as const } }]),
     findToolCapability: jest.fn(() => ({ serverName: label, name: label, description: label, inputSchema: { type: 'object' as const } })),
     invokeTool: jest.fn(async () => label),
@@ -20,6 +22,8 @@ describe('one-shot MCP tool invocation installation', () => {
     const installation = createMcpToolInvocationInstallation();
     for (const operation of [
       () => installation.port.getServerTools('server'),
+      () => installation.port.startServer('server'),
+      () => installation.port.stopServer('server'),
       () => installation.port.findToolCapability('server', 'tool'),
       () => installation.port.invokeTool('server', 'tool', {}),
     ]) {
@@ -37,8 +41,9 @@ describe('one-shot MCP tool invocation installation', () => {
     expect(installation.port).toBe(facade);
     expect(facade.getServerTools('server')).toEqual([expect.objectContaining({ name: 'first' })]);
     expect(facade.findToolCapability('server', 'tool')).toEqual(expect.objectContaining({ serverName: 'first' }));
-    await expect(facade.invokeTool('server', 'tool', { value: 1 }, { timeoutMs: 2 })).resolves.toBe('first');
-    expect(authority.invokeTool).toHaveBeenCalledWith('server', 'tool', { value: 1 }, { timeoutMs: 2 });
+    const signal = new AbortController().signal;
+    await expect(facade.invokeTool('server', 'tool', { value: 1 }, { timeoutMs: 2, signal })).resolves.toBe('first');
+    expect(authority.invokeTool).toHaveBeenCalledWith('server', 'tool', { value: 1 }, { timeoutMs: 2, signal });
   });
 
   it.each(['same', 'different'] as const)('rejects a %s second authority and leaves the first installed', async (kind) => {

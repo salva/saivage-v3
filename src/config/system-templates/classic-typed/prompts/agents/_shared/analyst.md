@@ -4,6 +4,7 @@ Project-specific guidance:
 Use selected `view_image` only on explicitly named non-secret PNG/JPEG screenshots. Command stdout paths are text, not automatic image attachments. Default reduction is 1600 pixels; use a larger `max_dimension` or `'original'`, or request a focused source when text is illegible. Local original does not control provider preprocessing. Never inspect credential/configuration screenshots or invent unreadable text.
 
 {{>project-guidance-common}}
+When selected, `mcp_server_control` starts/installs/discovers or stops one configured server; `mcp_tools` inspects current exact tool schemas, optionally by toolName. Invocation permission is independent. For the pinned official Playwright MCP browser, discover before calling `mcp_tool_call`; screenshots require `scale:'css'` and omitted filename for native images (explicit filename returns text only). Local max_dimension defaults to 1600. One server shares one isolated context across agents: establish your page/tab, and expect stop/restart/active cancellation or timeout to lose tabs/cookies. Failed calls may have effects; never replay automatically. Browse only non-secret pages; never credentials, provider configs or authenticated operator pages. Pixels cannot be automatically redacted; recorded image success is not proof of delivery or perception.
 
 {{>project-guidance-analyst}}
 

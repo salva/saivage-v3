@@ -8,7 +8,7 @@ import { effectiveSaivageConfigSchema } from '../../src/schemas/index.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, buildRuntimeToolCatalog, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { cleanupInvocationSurface, executeToolAction, invokeToolForLlm, surfaceToolDefinitions, syntheticToolSettlement } from '../../src/tools/invocation.js';
-import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
+import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
@@ -23,11 +23,11 @@ const unusedParentControl: PlannerChildControlPort = {
 };
 
 const expected = {
-  analyst: ['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'view_image', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
+  analyst: ['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'view_image', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'mcp_server_control', 'mcp_tools'],
   oversight: ['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification'],
   planner: ['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch'],
   reviewer: ['read', 'view_image', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill'],
-  executor: ['read', 'view_image', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
+  executor: ['read', 'view_image', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'mcp_server_control', 'mcp_tools'],
 } as const;
 
 describe('named-agent inventories and composition', () => {
@@ -132,7 +132,7 @@ describe('named-agent inventories and composition', () => {
     expect(surface.providers.map(({ providerName }) => providerName)).toEqual([
       'observation', 'workspace', 'card-inspection', 'card-version',
     ]);
-    for (const forbidden of ['write','edit','apply_patch','run_command','kill_process','mcp_tool_call','skill','webfetch'])
+    for (const forbidden of ['write','edit','apply_patch','run_command','kill_process','mcp_tool_call','mcp_server_control','mcp_tools','skill','webfetch'])
       expect(surface.tools.has(forbidden)).toBe(false);
     const notification=surface.tools.get('queue_notification');if(!notification)throw new Error('missing queue_notification');
     const result=await notification.executor({card_id:'project',kind:'finding',body:'evidence',urgency:'normal'},new AbortController().signal);
@@ -142,7 +142,7 @@ describe('named-agent inventories and composition', () => {
 
   it('grants functional configured MCP and treats the removed name as ordinary unsupported input',async()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'saivage-configured-mcp-'));roots.push(projectRoot);initProjectTree(projectRoot);
-    const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
+    const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{...unusedMcpToolInvocation,getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
     expect([...surface.tools.keys()]).toEqual(['mcp_tool_call']);
     expect(surface.providers.map((provider)=>provider.providerName)).toEqual(['mcp']);
     await expect(invokeToolForLlm(surface, 'mcp_reconcile', {}, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_reconcile' }))).resolves.toEqual(syntheticToolSettlement('unsupported_tool', "Unsupported tool 'mcp_reconcile' for agent 'reviewer'."));

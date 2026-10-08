@@ -194,6 +194,19 @@ describe('operator API runtime contract without runtime ledgers', () => {
     }
   });
 
+  it('declares strict authenticated configured MCP lifecycle contracts', () => {
+    for (const operationId of ['mcp.start', 'mcp.stop'] as const) {
+      const contract = operatorApiContracts[operationId];
+      expect(contract.auth).toBe('operator-session');
+      expect(contract.method).toBe('POST');
+      expect(contract.body.safeParse({}).success).toBe(true);
+      expect(contract.body.safeParse({ command: 'untrusted' }).success).toBe(false);
+      expect(contract.params.safeParse({ name: '' }).success).toBe(false);
+      expect(contract.success.safeParse({ serverName: 'browser', status: 'running', toolCount: 1 }).success).toBe(true);
+      expect(contract.success.safeParse({ serverName: 'browser', status: 'installed', toolCount: 0 }).success).toBe(false);
+    }
+  });
+
   it('exposes only exact chat operations and no aggregate chat contract', () => {
     expect(operatorApiContracts).not.toHaveProperty('chats.list');
     expect(Object.values(operatorApiContracts)).toEqual(expect.arrayContaining([

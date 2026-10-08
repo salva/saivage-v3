@@ -11,9 +11,15 @@ Chat remains text-only. The default longest side is 1600, with integer 1..16384 
 `"original"` as `max_dimension`. Local original does not force provider-original
 processing. Successful tool results use optional ordered text/image `content`;
 the UI shows each typed descriptor at its content position, not pixels or delivery.
-`view_image` remains the only implemented image producer and selects one snapshot.
-MCP native image/browser integration is blocked and unsupported: existing
-`mcp_tool_call` still returns bounded, potentially lossy JSON/text, not image input.
+`view_image` selects one workspace snapshot. Configured `mcp_tool_call` also
+preserves ordered native text and static PNG/JPEG/WebP images, without a file round
+trip. Its local `max_dimension` uses the same default and bounds. Complete results
+are bounded, never truncated: wire 48 MiB, aggregate source images 32 MiB,
+projected non-image text/JSON 1 MiB. Selected Analyst/Executor tools can start a
+configured official Playwright MCP server, discover exact schemas and invoke native
+screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/runbook/index.md#configured-browser-lifecycle).
+Reviewer requires explicit admission; Oversight has no MCP. One server shares a
+disposable context, lost on stop/active cancellation. Pixels cannot be certified secret-free.
 
 Conversation index/genesis/envelope now use strict **format 6** for ordered content.
 Format 5 or earlier/mixed

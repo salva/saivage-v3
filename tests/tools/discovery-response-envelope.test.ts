@@ -318,7 +318,7 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     const readShape = readWorkspaceInputSchema.safeParse({ path: 'a', offset: 0, limit: 1 });
     expect(readShape.success).toBe(false);
     for (const binder of mcpToolBinders) {
-      const wire = JSON.stringify(llmToolDefinition(binder.bind({ mcpToolInvocation: {} as never })));
+      const wire = JSON.stringify(llmToolDefinition(binder.bind({ projectRoot: '/unused', mcpToolInvocation: {} as never })));
       expect(wire).not.toContain('response_bytes');
       expect(wire).not.toContain('item_byte_offset');
     }

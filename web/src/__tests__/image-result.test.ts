@@ -65,16 +65,15 @@ it('abbreviates long image paths as text while preserving exact path, descriptor
   expect(wrapper.text()).toContain(descriptor.sha256);
 });
 
-it('presents synthetic ordered MCP content and two metadata-only descriptors once within the paired Result', () => {
+it('presents ordered native MCP content and two metadata-only descriptors once within the paired Result', () => {
   const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 2, height: 1, byte_length: 20, sha256: 'a'.repeat(64) };
   const blocks = [{ type: 'text', text: 'native before' }, { type: 'image', image: descriptor }, { type: 'text', text: '{"native":"plain text"}' }, { type: 'image', image: { ...descriptor, id: '00000000-0000-4000-8000-000000000002' } }, { type: 'text', text: 'native after' }];
-  // This seeds generic typed content, not a supported native MCP invocation.
-  const raw = JSON.stringify({ success: true, data: { result: { count: 2 }, result_complete: true, result_utf8_bytes: 11 }, content: blocks });
+  const raw = JSON.stringify({ success: true, data: { result: { structuredContent: { count: 2 } } }, content: blocks });
   const c = call('mcp_tool_call', { serverName: 'browser', toolName: 'browser_take_screenshot', args: {} });
   const r = result('mcp_tool_call', {}, { content: raw });
   const view = presentToolResult(raw, { tool: 'mcp_tool_call' });
-  expect(view.sections.slice(0, 2).map(section => section.title)).toEqual(['MCP returned coverage', 'MCP result (effects opaque)']);
-  expect(view.sections.slice(2).map(section => [section.language, section.title])).toEqual([
+  expect(view.sections[0].title).toBe('MCP envelope metadata (effects opaque)');
+  expect(view.sections.slice(1).map(section => [section.language, section.title])).toEqual([
     ['text', 'Returned text · content 1'], ['json', 'Typed image descriptor (metadata only) · content 2'],
     ['text', 'Returned text · content 3'], ['json', 'Typed image descriptor (metadata only) · content 4'],
     ['text', 'Returned text · content 5'],

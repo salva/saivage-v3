@@ -65,7 +65,7 @@ describe('MCP schema validation at runtime use', () => {
         }
         expect(calls()).toHaveLength(0);
         const args = { scale: 'css', type: 'png' };
-        await expect(manager.invokeTool('one', official.name, args)).resolves.toEqual([{ type: 'text', text: 'accepted' }]);
+        await expect(manager.invokeTool('one', official.name, args)).resolves.toEqual({ content: [{ type: 'text', text: 'accepted' }] });
         expect(calls()).toEqual([{ name: official.name, arguments: args }]);
         expect(args).toEqual({ scale: 'css', type: 'png' });
         expect(manager.getServerTools('one')).toEqual([official]);

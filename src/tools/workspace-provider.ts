@@ -41,6 +41,7 @@ import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
 import { runAuditedAnalystTool } from '../agents/tool-api.js';
 import { normalizeWorkspaceImage } from './image-decode.js';
+import { ImageInputError } from './image-input-error.js';
 import { publishConversationImage } from '../persistence/session-api.js';
 import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
 
@@ -149,7 +150,7 @@ async function viewImage(
   try {
     selected = await normalizeWorkspaceImage(source.bytes, source.sourcePath, args.max_dimension);
   } catch (error) {
-    if (!(error instanceof WorkspaceToolInputError)) throw error;
+    if (!(error instanceof ImageInputError)) throw error;
     signal.throwIfAborted();
     return failureFromError(error);
   }

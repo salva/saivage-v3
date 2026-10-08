@@ -22,14 +22,15 @@ describe('MCP tools/call response mapping', () => {
     expect(() => mapToolsCallResponse({}, 'server', 'tool')).toThrow(expect.objectContaining({ code: 'MCP_NO_RESULT', statusCode: 502 }));
   });
 
-  it('rejects a tool-declared error', () => {
-    expect(() => mapToolsCallResponse({ result: { isError: true, content: ['failed'] } }, 'server', 'tool')).toThrow(expect.objectContaining({ code: 'TOOL_EXECUTION_ERROR', statusCode: 422 }));
+  it('retains a valid tool-declared error and rejects malformed native blocks', () => {
+    const result = { isError: true, content: [{ type: 'text', text: 'failed' }] };
+    expect(mapToolsCallResponse({ result }, 'server', 'tool')).toEqual(result);
+    expect(() => mapToolsCallResponse({ result: { content: ['failed'] } }, 'server', 'tool')).toThrow(expect.objectContaining({ code: 'MCP_INVALID_RESULT' }));
   });
 
-  it('unwraps content and otherwise returns the complete result', () => {
+  it('returns the complete validated envelope', () => {
     const content = [{ type: 'text', text: 'ok' }];
-    expect(mapToolsCallResponse({ result: { content, structuredContent: { ok: true } } }, 'server', 'tool')).toBe(content);
-    const result = { structuredContent: { ok: true } };
-    expect(mapToolsCallResponse({ result }, 'server', 'tool')).toBe(result);
+    const result = { content, structuredContent: { ok: true } };
+    expect(mapToolsCallResponse({ result }, 'server', 'tool')).toEqual(result);
   });
 });

@@ -8,9 +8,9 @@ import { conversationImageFile } from '../../src/persistence/layout.js';
 
 // Exercise the retained asynchronous conversion seam, not a production test port.
 const normalize = jest.fn<typeof Normalize>();
-jest.unstable_mockModule('../../src/tools/image-decode.js', () => ({ normalizeWorkspaceImage: normalize }));
+jest.unstable_mockModule('../../src/tools/image-decode.js', () => ({ normalizeWorkspaceImage: normalize, normalizeImage: jest.fn() }));
 const { workspaceToolBinders, globalWorkspaceObservationToolBinders } = await import('../../src/tools/workspace-provider.js');
-const { WorkspaceToolInputError } = await import('../../src/tools/project-file-tools.js');
+const { ImageInputError } = await import('../../src/tools/image-input-error.js');
 const roots: string[] = [];
 afterEach(() => {
   normalize.mockReset();
@@ -38,7 +38,7 @@ it.each(['agent:executor:project', 'agent:analyst:global'] as const)(
       const operation = tool.executor({ path: 'screen.png' }, controller.signal, { sessionId } as unknown as LlmToolInvocationContext);
       await started;
       controller.abort(reason);
-      if (failure) reject(new WorkspaceToolInputError('recognized decoder failure'));
+      if (failure) reject(new ImageInputError('recognized decoder failure'));
       else resolve({ bytes: Buffer.from('must not be published'), data: {
         source_path: 'screen.png', source_dimensions: { width: 1, height: 1 },
         oriented_dimensions: { width: 1, height: 1 }, sent_dimensions: { width: 1, height: 1 },

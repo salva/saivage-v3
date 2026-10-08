@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { discoverStreamableHttpTools, invokeStreamableHttpTool, readStreamableHttpJsonRpcResponse } from '../../src/mcp/streamable-http-transport.js';
-import { STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES, STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES } from '../../src/mcp/protocol.js';
+import { MCP_WIRE_RESPONSE_LIMIT_BYTES } from '../../src/mcp/protocol.js';
 
 const originalFetch = globalThis.fetch;
 const encoder = new TextEncoder();
@@ -54,8 +54,8 @@ describe('Streamable HTTP MCP transport', () => {
 
   it.each([
     ['malformed data', 'data: {nope}\n\n', 'Malformed Streamable HTTP SSE data for op'],
-    ['an oversized frame', `data: ${'x'.repeat(STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES)}\n\n`, 'Streamable HTTP op SSE frame exceeded limit'],
-    ['an oversized buffer', 'x'.repeat(STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES + 1), 'Streamable HTTP op SSE buffer exceeded limit'],
+    ['an oversized frame', `data: ${'x'.repeat(MCP_WIRE_RESPONSE_LIMIT_BYTES)}\n\n`, 'MCP SSE response exceeded 48 MiB'],
+    ['an oversized buffer', 'x'.repeat(MCP_WIRE_RESPONSE_LIMIT_BYTES + 1), 'MCP SSE response exceeded 48 MiB'],
   ])('cancels and unlocks after rejecting %s', async (_name, chunk, message) => {
     const { response, cancel } = streamingSseResponse({ chunks: [chunk] });
     await expect(readStreamableHttpJsonRpcResponse(response, { serverName: 'srv', operation: 'op', expectedId: 1 })).rejects.toThrow(message);
@@ -161,7 +161,7 @@ describe('Streamable HTTP MCP transport', () => {
     expect(tools.map((tool) => tool.name)).toEqual(['one', 'two']);
     expect(handle.streamableHttpSessionId).toBe('sess-1');
     const result = await invokeStreamableHttpTool({ serverName: 'srv', toolName: 'one', args: {}, config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' }, handle, timeoutMs: 1000, ids: { next: () => id++ }, signal: new AbortController().signal });
-    expect(result).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }] });
     expect(calls.filter((call) => call.body && JSON.parse(call.body).method !== 'initialize').every((call) => call.headers['Mcp-Session-Id'] === 'sess-1')).toBe(true);
   });
 });

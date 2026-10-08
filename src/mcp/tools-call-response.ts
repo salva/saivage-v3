@@ -1,4 +1,5 @@
 import { InvalidArgumentsError, McpInvokeError } from './errors.js';
+import { NativeMcpResultSchema } from './native-result.js';
 
 export function mapToolsCallResponse(
   response: Record<string, unknown>,
@@ -23,11 +24,8 @@ export function mapToolsCallResponse(
       'MCP_NO_RESULT',
       502,
     );
-  if (result.isError === true)
-    throw new McpInvokeError(
-      `Tool '${toolName}' on server '${serverName}' reported an error`,
-      'TOOL_EXECUTION_ERROR',
-      422,
-    );
-  return result.content !== undefined ? result.content : result;
+  const parsed = NativeMcpResultSchema.safeParse(result);
+  if (!parsed.success)
+    throw new McpInvokeError('Malformed native MCP tool result.', 'MCP_INVALID_RESULT', 502);
+  return parsed.data;
 }

@@ -68,9 +68,9 @@ describe('current family semantic authority', () => {
     expect(details(unavailable)).toContain('card-a:brief.md');
     expect(details(unavailable)).toContain('authored_record');
   });
-  it('owns all 46 actual tools through one full-envelope presenter', () => {
+  it('owns all 48 actual tools through one full-envelope presenter', () => {
     const names = ['activate_card','apply_patch','cancel_card','create_card','delete_card','diff_card_versions','edit','edit_card','emit_result','get_card','get_card_version','get_status','get_tree','glob','grep','kill_process','list_agent_sessions','list_card_versions','list_cards','list_processes_tool','mcp_tool_call','navigate_back','navigate_workspace','pause_runtime','queue_notification','read','read_agent_session','read_control_actions','read_record_version','read_runtime_errors','read_runtime_events','reconfigure','reorder_child','reopen_card','restart_server','resume_runtime','run_command','show_config','skill','start_project','stop_project','wait_process','webfetch','websearch','write'];
-    names.push('view_image');
+    names.push('view_image', 'mcp_server_control', 'mcp_tools');
     expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(names.sort());
     for (const tool of names) {
       expect(TOOL_PRESENTERS[tool].result).toBeTypeOf('function');

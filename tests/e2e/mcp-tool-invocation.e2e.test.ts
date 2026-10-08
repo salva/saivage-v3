@@ -95,13 +95,6 @@ describe('MCP tool invocation production composition', () => {
     const providerPort = await listen(provider);
     let app: App | null = null;
     const nativeFetch = globalThis.fetch;
-    // Real undici JSON values cross Jest's VM realm; reparse response text in this realm so
-    // the production MCP validator sees the same ordinary objects it receives outside Jest.
-    globalThis.fetch = async (...args) => {
-      const response = await nativeFetch(...args);
-      Object.defineProperty(response, 'json', { value: async () => JSON.parse(await response.text()) });
-      return response;
-    };
     try {
       const config = productionTestConfig(providerPort, (value) => {
         value.agents.executor = { ...value.agents.executor!, tools: ['write', 'mcp_tool_call'], skills: false };
@@ -137,14 +130,14 @@ describe('MCP tool invocation production composition', () => {
       expect(mcpMethods).toEqual(['HEAD', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
       expect(toolCalls).toEqual([{ name: 'echo_marker', arguments: { marker: MARKER } }]);
       const mappedMcpResult = [{ type: 'text', text: `echo:${MARKER}` }];
-      const wrappedMcpResult = { result: mappedMcpResult, result_complete: true, result_utf8_bytes: Buffer.byteLength(JSON.stringify(mappedMcpResult), 'utf8') };
-      expect(markerResultSeenByProvider).toEqual({ success: true, data: wrappedMcpResult });
+      const wrappedMcpResult = { result: {}, native_content: [{ content_index: 0, type: 'text' }] };
+      expect(markerResultSeenByProvider).toEqual({ success: true, data: wrappedMcpResult, content: mappedMcpResult });
 
       const conversation = readConversation(projectRoot, 'agent:executor:project').physicalRows;
       const mcpRows = conversation.filter((row) => row.tool === 'mcp_tool_call');
       expect(mcpRows.map((row) => row.kind)).toEqual(['tool_call', 'tool_result']);
       expect(mcpRows[1]).toMatchObject({ tool_call_id: 'mcp-call', context_policy: { kind: 'tool_result', settlement_origin: 'executed', evidence: { kind: 'none' } } });
-      expect(JSON.parse(mcpRows[1]!.content)).toEqual({ success: true, data: wrappedMcpResult });
+      expect(JSON.parse(mcpRows[1]!.content)).toEqual({ success: true, data: wrappedMcpResult, content: mappedMcpResult });
       expect(new EventQueryService(projectRoot).queryEvents({ kind: 'mcp_tool_invocation' }).events).toEqual([
         expect.objectContaining({ kind: 'mcp_tool_invocation', server: SERVER_NAME, tool: 'echo_marker', success: true }),
       ]);

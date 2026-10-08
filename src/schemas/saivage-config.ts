@@ -182,7 +182,7 @@ const streamableHttpMcpServerSchema = z
   })
   .strict();
 
-const mcpServerEntrySchema = z.discriminatedUnion('transport', [
+export const mcpServerEntrySchema = z.discriminatedUnion('transport', [
   stdioMcpServerSchema,
   streamableHttpMcpServerSchema,
 ]);

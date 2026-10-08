@@ -35,8 +35,8 @@ describe('producer-owned JSON presentation identity', () => {
   it('preserves MCP JSON identity only for non-string bodies, including recursive sections', () => {
     const call = presentToolCall(callEnvelope('mcp_tool_call', { serverName: 'public', toolName: 'lookup', args: { input: [1, 2] } }));
     expect(call.sections[1].language).toBe('json');
-    const structured = presentToolResult('{"success":true,"data":{"result":{"ok":true}}}', { tool: 'mcp_tool_call' }).sections[1];
-    const string = presentToolResult('{"success":true,"data":{"result":"{\\"ok\\":true}"}}', { tool: 'mcp_tool_call' }).sections[1];
+    const structured = presentToolResult('{"success":true,"data":{"result":{"structuredContent":{"ok":true}}}}', { tool: 'mcp_tool_call' }).sections[0];
+    const string = presentToolResult('{"success":true,"data":{"result":"{\\"ok\\":true}"}}', { tool: 'mcp_tool_call' }).sections[0];
     expect(structured.language).toBe('json');
     expect(string.language).toBe('text');
     const wrapper = mount(ToolSemanticSection, { props: { section: { title: 'Recursive', items: [{ ...structured, disclosure: true }, string] } } });

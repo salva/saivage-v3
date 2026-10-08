@@ -27,10 +27,11 @@ occurrence count preserved. Primary Responses/Codex results remain one originati
 parts. Summary/refine uses its distinct multimodal user-message path and packs
 the source call/result/all blocks atomically; covered images are not materialized.
 The UI displays each descriptor's content position as metadata only. `view_image`
-remains the sole implemented image producer and emits one descriptor.
+emits one workspace descriptor. Configured MCP native results also select ordered images.
 
-Native MCP screenshot/browser integration remains unsupported; schema compilation
-alone does not establish native image ingress or browser containment. MCP schemas
+Native MCP ingress validates the complete result envelope and preserves text and
+static PNG/JPEG/WebP images without calling `view_image`. Use only non-secret pages:
+pixels are not regex-redacted. MCP schemas
 without `$schema` use 2020-12. Explicit 2020-12 and draft-07 declarations use their
 respective engines, with unsupported dialects rejected before invocation; see the
 [schema-language contract](../spec/system-specification.md).
@@ -39,10 +40,88 @@ External producers using dialect-less draft-07 tuple schemas must declare
 guessing. No schema rewriting, coercion/default insertion, remote reference loading
 or validation fallback is shipped.
 Existing configured startup MCP invocation/status remain unchanged. `mcp_tool_call`
-still packs ordinary JSON into a 32,768-byte complete settled envelope, potentially
-as a lossy canonical prefix with `result_complete:false`; it does not deliver
-native pixels. Runtime MCP lifecycle/discovery control and a supported browser
-recipe are not provided by this ordered-content change.
+retains native text/images in order and structured/envelope metadata as ordinary
+JSON. Native images use default longest side 1600, overridden by local
+`max_dimension` (1..16384 or `original`), never forwarded to the server. Wire
+responses are at most 48 MiB, source images at most 32 MiB individually and in
+aggregate, source pixels at most 40 million, selected PNG at most 16 MiB per image,
+and complete projected non-image text/JSON at most 1 MiB. Oversize fails without
+truncation; effects may have occurred. All conversion completes and exact caller
+cancellation is checked immediately before synchronous exact-session publication.
+Configured lifecycle/discovery is available as described below. Official-server
+integration evidence is separate from metadata UI tests and claims no model perception.
+
+An active stdio call timeout or caller cancellation now closes invocation and
+discovery immediately and awaits the retained server owner's containment and inner
+operation joins. A shared browser context may be discarded; do not assume effects
+were undone or replay the call automatically. A cancelled queued call does not
+dispatch or stop another active call. Caller reasons retain exact identity; deadline
+failures report TIMEOUT only after successful containment. Failed containment leaves
+a closed, non-ready owner and is not an ordinary tool failure. HTTP cancellation
+aborts only that request, not the remote service. Application shutdown joins all
+retained runtime work; ordinary Project Stop still leaves MCP services alive.
+
+### Configured browser lifecycle
+
+MCP definitions remain operator-owned YAML. `mcp_server_control` starts (including
+fetch/install/discovery) or stops one named configured server; `mcp_tools` returns
+current exact schemas, optionally selecting toolName. Defaults admit these and
+`mcp_tool_call` to Analyst/Executor; Reviewer requires explicit selection, Oversight
+has none and Planner is unchanged. Each permission is independent. Operators may
+use authenticated `POST /api/mcp/servers/:name/start` or `POST /api/mcp/servers/:name/stop` with `{}`; success
+is `{serverName,status,toolCount}`. Unknown names return 404, disabled/busy/changed
+live entries 409, failed start/containment an error. There is no new browser UI.
+An identical ready start is idempotent. Edit alone does not change a running server:
+explicit stop/start loads only that entry. Other config changes still need restart.
+Stop during startup closes immediately and joins; failed containment retains its
+closed owner and forbids replacement. Startup autostart is preserved.
+
+Example pinned launch (create the dedicated project `tmp/browser-output` directory
+and supply deployment OS browser libraries beforehand):
+
+```yaml
+mcpServers:
+  browser:
+    transport: stdio
+    command: npx
+    args:
+      - --yes
+      - --package=@playwright/mcp@0.0.83
+      - -c
+      - 'playwright-mcp install-browser chromium >&2 && exec playwright-mcp --browser chromium --headless --isolated --image-responses allow --no-webmcp --output-dir tmp/browser-output'
+    autostart: false
+    disabled: false
+```
+
+Package 0.0.83 matches `playwright`/`playwright-core` **1.64.0-alpha-1790635538000**
+and **Chromium 1247 / 155.0.8059.12**. The alpha engine is intentional, not a stable
+engine claim. Fetching belongs to the configured command; no mandatory official
+dependency, install receipt, retry, fallback browser or automatic privileged
+`install-deps`. Stdout must contain only JSON-RPC: installer diagnostics go to stderr.
+One **180-second total** start timer covers fetch/install/initialize/all discovery;
+timeout/cancel contains and joins the retained owner without a ten-second phase timer.
+For disposable tests, isolated HOME/npm cache/PLAYWRIGHT_BROWSERS_PATH and a short
+owned TMPDIR must all live under workspace tmp (long Unix socket paths can fail).
+
+The child cwd and roots/list handshake identify the admitted project, not Saivage's
+source tree. Automatic output goes to the dedicated project temp directory. Upstream
+explicit paths retain its workspace-root restrictions: no unrestricted-file-access,
+persistent login/storage-state, CDP, extension attachment or experimental WebMCP.
+Discover schemas first, navigate/snapshot/select the needed page/tab, then call
+`browser_take_screenshot` with discovered `scale:'css'` and **omit filename** for
+native text+image output. Explicit filename produces text only, not automatic file
+access/image authority. Browser interaction arguments come from current discovery:
+the pinned server's `browser_click` uses `target` for a snapshot's element reference,
+not an assumed `ref` argument. Use an admitted image-capable Responses/Codex route
+with sufficient context capacity for the serialized pixels; Chat cannot consume
+image-bearing continuations. Local max_dimension controls normalization, not provider
+preprocessing. One configured server means one shared isolated context across agents,
+not per card/role. Stop/restart/active stdio timeout/cancel may discard tabs/cookies;
+effects may already have happened and must not be automatically replayed. HTTP cancel
+is request-local. Ordinary Project Stop leaves MCP alive; application shutdown contains
+and joins starts and calls. Use only non-secret pages/screenshots, never credentials,
+provider configs or authenticated operator pages. Pixels cannot be regex-certified
+secret-free; browsing isolation/confidentiality practice belongs to deployment.
 
 Sharp is a backend runtime dependency: retain native optional packages beside
 compiled ESM. Use supported Node 24/npm >=10 <12 with optional dependencies enabled,
@@ -336,7 +415,7 @@ Neither backup authorizes restoration or merging. In the reset branch, rollback 
 
 ## Configuration file cutovers
 
-The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Dynamic MCP changes remain unsupported. Startup MCP installation, `mcp_tool_call`, and MCP status remain available. This note authorizes no deployment or live configuration mutation.
+The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Configured-server runtime start/stop/discovery is now supported; agent-authored topology and enable-state persistence remain unsupported. Explicitly select the new tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
 
 Project Oversight configuration is required even when checks are disabled:
 

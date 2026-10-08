@@ -42,6 +42,8 @@ import {
   ToolResultSchema,
   viewImageInputSchema,
   McpToolCallArgumentsSchema,
+  McpServerControlArgumentsSchema,
+  McpToolsArgumentsSchema,
   type ToolInvocationProjectionInput,
   type ToolResult,
 } from '../contracts/index.js';
@@ -96,6 +98,8 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'webfetch',
   'skill',
   'mcp_tool_call',
+  'mcp_server_control',
+  'mcp_tools',
   'edit_card',
   'activate_card',
   TERMINAL_RESULT_TOOL_NAME,
@@ -232,6 +236,9 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     }
     case 'mcp_tool_call':
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
+    case 'mcp_server_control':
+    case 'mcp_tools':
+      return projectDynamicForOutbound(input);
     case 'emit_result':
       return {
         outcome: input['outcome'],
@@ -395,6 +402,10 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return skillInputSchema;
     case 'mcp_tool_call':
       return McpToolCallArgumentsSchema;
+    case 'mcp_server_control':
+      return McpServerControlArgumentsSchema;
+    case 'mcp_tools':
+      return McpToolsArgumentsSchema;
     case 'edit_card':
       return plannerEditCardInputSchema;
     case 'activate_card':

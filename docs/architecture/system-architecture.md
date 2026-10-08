@@ -22,10 +22,9 @@ nonempty `content` holds strict text/image blocks; the singular `image` field is
 removed. Text and every explicit image occurrence retain content order and source
 session attribution. `contracts/view-image.ts` owns strict
 workspace input/resize metadata and descriptor consistency, checked by the producer
-and canonical successful `view_image` consumer. Only `view_image` is an implemented
-authorized image producer; future explicit producers can reuse the lower transport
-without invoking it. Arbitrary nested image-like data is never promoted, and no MCP
-image ingress is implemented. `tools/project-file-tools.ts` shares exact scoped read
+and canonical successful `view_image` consumer. Native MCP production reuses the
+same lower ordered transport without invoking `view_image` or inventing workspace
+paths. Arbitrary nested image-like data is never promoted. `tools/project-file-tools.ts` shares exact scoped read
 admission; `tools/image-decode.ts` uses backend-only Sharp; workspace binders expose
 explicit `view_image` with complete invocation-session ownership. Sources stay read-only.
 `view_image` produces one image block with its unchanged workspace metadata.
@@ -603,7 +602,9 @@ The `emit_result` outcome selects a compiled edge and is distinct from the compi
 On each explicit call it validates the complete strict current index, filters by the supplied configured agent name, preserves operator order, and projects names or reads one exact authorized file.
 Only exact index `ENOENT` means an empty catalog; malformed present data and selected-file failures propagate.
 Compiled tool selection installs skill access only when that named agent declares both `skills: true` and the `skill` tool; the runtime catalog's `skillToolBinders` entry and live context binding own the resulting invocation definition.
-`mcp_tool_call` remains separately and singularly owned by `mcp-provider.ts`. Transports return their raw mapped result; this provider alone projects and canonicalizes that result, preserves a complete structured result when its entire settled envelope fits 32,768 UTF-8 bytes, or returns a lossy projection-stable exact canonical-source prefix with the complete source byte count. It also bounds ordinary final projected MCP error fields to 512 UTF-8 bytes. Generic settlement and transports do not interpret, page, or impose this MCP-specific contract.
+`mcp_tool_call` remains separately and singularly owned by `mcp-provider.ts`. Transports retain and validate the native CallToolResult envelope. `mcp-native-result.ts` projects metadata/text and serializes non-image blocks at their original positions without fetching resources or promoting JSON lookalikes. Structured/envelope metadata is ordinary `data.result`; indexed block metadata and captures are `data.native_content` and `data.images`. Native errors preserve diagnostics without selecting pixels. Complete projected non-image text/JSON is bounded at 1 MiB, never truncated. Ordinary final projected transport/input error fields remain bounded to 512 UTF-8 bytes.
+
+The producer-neutral `normalizeImage` owner accepts matching native PNG/JPEG/WebP MIME and strict canonical base64; the independent workspace wrapper still admits PNG/JPEG only. Sources are at most 32 MiB individually/aggregate and 40 million pixels; static, oriented, sRGB PNG selections are at most 16 MiB each. MCP uses the shared local `max_dimension` schema/default 1600, not forwarded server arguments. Captures retain source/oriented/sent dimensions, orientation, resize/scale/bound without invented source paths. All asynchronous normalization/validation precedes the exact invoking signal's immediate fence before the first synchronous `publishConversationImage`. Recognized conversion failures check that same reason before tool failure; unrelated errors and publication uncertainty propagate without later effects. Stdio raw frames and HTTP JSON/SSE use 48 MiB UTF-8 wire bounds before assembly. Format-6 descriptors, selection/materialization, primary call-linked Responses/Codex output and atomic summary/refine ownership remain unchanged.
 
 `mcp-argument-validator.ts` owns deterministic external-schema dialect dispatch:
 Ajv2020 for absent `$schema` or declared `https://json-schema.org/draft/2020-12/schema`,
@@ -620,11 +621,24 @@ protocol language support, not multiple durable-state readers. The negotiated Ju
 2025 protocol stays unchanged; the adopted default-language rule is the November
 2025 clarification.
 
-Native MCP image/browser integration remains unsupported pending actual-owner
-containment evidence and native ingress. No native result mapper, image-sized
-wire-bound changes, runtime MCP lifecycle/discovery-control port or browser recipe
-is implemented by this schema fix. Generic typed descriptor presentation is not
-proof of an implemented native MCP producer; existing lossy result metadata remains ordinary JSON.
+Native MCP ingress is implemented over the existing ordered-content family.
+Runtime MCP lifecycle/discovery-control ports reuse McpManager and McpServerRuntime.
+Start reads only the exact effective entry via ResolvedConfigAuthority, rejects
+unknown/disabled, overlapping start or changed-live entries, and replaces only a
+contained owner. Ready equivalent start is idempotent. Stop fences the retained
+owner without waiting behind reconciliation. A single runtime-owned 180-second
+timer includes fetch/install, initialize and all discovery pages; cancellation
+closes admission and awaits direct containment inside inner start work, then only
+untracked outer completion joins stop. Manager shutdown joins retained inner starts,
+calls, containment and reconciliation before clearing owners; failed containment
+retains closed owners, with root failure precedence. Stdio children use project cwd
+and answer negotiated roots/list with that workspace; protocol stdout stays clean.
+Strict authenticated lifecycle routes share operator contract registration; new
+control/discovery agent selections remain independent from invocation. No topology,
+install registry, enable persistence, reconciliation scheduler or second containment
+owner is introduced. One browser context is shared and disposable. Generic descriptor
+inspection alone is not proof of production/delivery; historical ordinary MCP
+metadata stays opaque and is never normalized into selected images.
 
 The tool-result persistence boundary retains the provider's complete invocation envelope unchanged.
 For skill success this is exactly `{success:true,data:{skills:[{name}]}}` or `{success:true,data:{skill_name,skill_content}}`; failure remains the generic `{success:false,error}` envelope.
@@ -996,6 +1010,22 @@ For streamable HTTP, JSON responses remain fully consumed through `Response.json
 Runtime and Analyst mechanics receive one required immutable `McpToolInvocationPort` facade.
 Server composition retains the only installer, reconciles the concrete manager, installs it once, and starts runtime only afterward.
 Pre-install invocation and every duplicate installation are fatal typed composition invariants; ordinary MCP capability, policy, transport, timeout, server, and tool failures remain tool results.
+The once-installed invocation port forwards the actual caller signal unchanged.
+For active stdio exchanges, the runtime operation owns the deadline; its first
+abort reason wins. Abort or an ambiguous stream failure synchronously fences
+admission, readiness and discovered schemas before the serialized callback can
+advance. That callback awaits only direct containment, never public stop (which
+joins admitted inner operations). An untracked outer completion joins stop after
+successful direct containment; containment failure retains the closed owner and
+propagates unchanged without a second stop. Queued cancellation dispatches nothing
+and does not invalidate another active exchange. Complete correlated response
+consumption detaches invalidation and clears the deadline. HTTP timers/readers
+preserve exact reasons while cancelling only the request. The MCP provider converts
+only classified MCP failures; publication uncertainty, caller reasons, missing
+installation and unclassified failures escape unchanged. Event-publication
+uncertainty permits no subsequent stop or telemetry. Application cleanup joins
+runtime stops/inner work, direct/root containment and current reconciliation;
+it never joins outer completions that themselves wait for stop.
 No consumer receives an optional manager, provider callback, replacement setter, unavailable fallback, or MCP-driven cache invalidation path.
 The full manager remains at the server boundary for reconciliation, status, tools projection, event logging, admission, and cleanup.
 
@@ -1228,7 +1258,7 @@ Canonical tools, not orientation, remain card authority: current readers are obs
 
 For immutable `get_card_version`, only summary is scalar: omit position; every supplied position, including all-zero, is rejected. After that error remove position rather than retrying it. Dependencies and children are collections: omit position initially and copy a non-null `next` unchanged for the same section over stable input. Historical children page the selected row's complete carrier, including retained tombstoned links, without child-liveness reads or a current-liveness claim.
 
-Diagnostic, session, process, control-action, and MCP surfaces stay outside that response-paging API. MCP success is nevertheless provider-owned and bounded as `{result,result_complete,result_utf8_bytes}` within a 32,768-byte complete settled envelope, with incomplete `result` a potentially shorter or empty projection-stable exact prefix of the complete outbound-projected canonical result and no continuation or artifact; its ordinary final projected error field is at most 512 UTF-8 bytes. Process success separately uses independently bounded certified heads and one 32,768-byte complete canonical successful provider envelope, while retaining file-backed fallback URLs outside eligible primary copies. Diagnostic, session, and control-action result bodies remain arbitrary and enter the shared coverage-preserving compaction and exact admission path, where an uncovered oversized bundle keeps driving `local_compaction_required` until bounded chunking/materialization plus the one post-compaction admission produces retained admitted bytes. MCP and process settlement participate in ordinary compaction and admission without joining the paging API.
+Diagnostic, session, process, control-action, and MCP surfaces stay outside that response-paging API. MCP preserves complete native ordered content and ordinary metadata within its 48 MiB wire/32 MiB aggregate source/1 MiB projected non-image bounds, with no lossy prefix or continuation; ordinary projected transport/input error fields remain at most 512 UTF-8 bytes. Process success separately uses independently bounded certified heads and one 32,768-byte complete canonical successful provider envelope, while retaining file-backed fallback URLs outside eligible primary copies. Diagnostic, session, and control-action result bodies remain arbitrary and enter the shared coverage-preserving compaction and exact admission path, where an uncovered oversized bundle keeps driving `local_compaction_required` until bounded chunking/materialization plus the one post-compaction admission produces retained admitted bytes. MCP and process settlement participate in ordinary compaction and admission without joining the paging API.
 
 All transports consume that one ordered projection and perform transport-only wire mapping; they neither select context nor append card/Analyst text.
 The rendered static instruction occurs exactly once at each protocol's instruction position. Chat maps synthetic items as ordinary ordered messages. Responses and Codex map synthetic and canonical system/user/assistant items to equivalent ordered input messages rather than concatenating them into static instructions. Chat and Codex omit provider-private canonical rows; Responses projects valid paired native output by candidate-local producer identity while enforcing pairing only across canonical rows.
@@ -1711,6 +1741,8 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/files` | Contained, blocked-path-filtered workspace listing. | `src/contracts/operator-api-files-debug.ts:152` |
 | `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:163` |
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:40` |
+| `POST /api/mcp/servers/:name/start` | Start/install/discover one configured server. | `src/contracts/operator-api-mcp.ts:50` |
+| `POST /api/mcp/servers/:name/stop` | Stop and join one retained server owner. | `src/contracts/operator-api-mcp.ts:51` |
 | `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:74` |
 | `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:186` |
 | `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:197` |
@@ -1775,9 +1807,9 @@ Chat, Codex, and Responses adapters project the admitted canonical conversation 
 | Agent | Tools | Source |
 |---|---|---|
 | `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,queue_notification,read,read_record_version,reopen_card,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:77` |
-| `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,mcp_tool_call,read,read_record_version,run_command,skill,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:132` |
+| `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,mcp_server_control,mcp_tool_call,mcp_tools,read,read_record_version,run_command,skill,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:134` |
 | `reviewer` | `diff_card_versions,edit,get_card_version,glob,grep,list_card_versions,read,read_record_version,skill,view_image,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:109` |
-| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,mcp_tool_call,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:16` |
+| `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,mcp_server_control,mcp_tool_call,mcp_tools,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,view_image,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic-shared.ts:16` |
 | `oversight` | `diff_card_versions,get_card,get_card_version,get_status,get_tree,glob,grep,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,queue_notification,read,read_agent_session,read_record_version,read_runtime_errors,read_runtime_events` | `src/contracts/oversight-tool-policy.ts:2` |
 <!-- saivage:agent-tools:end -->
 
@@ -1787,8 +1819,8 @@ Evidence for the shipped-role inventory is the exact registry, both template fac
 
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
-tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","mcp_tool_call"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","mcp_tool_call"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","queue_notification","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill"]}],"templates":["classic","classic-typed"]}
-tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_processes_tool","mcp_tool_call","navigate_back","navigate_workspace","pause_runtime","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal"]}
+tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"executor","tools":["read","view_image","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","mcp_tool_call","mcp_server_control","mcp_tools"]},{"name":"oversight","tools":["get_status","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","glob","grep","read_runtime_events","read_runtime_errors","list_processes_tool","list_agent_sessions","read_agent_session","queue_notification"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","queue_notification","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch"]},{"name":"reviewer","tools":["read","view_image","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill"]}],"templates":["classic","classic-typed"]}
+tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_processes_tool","mcp_server_control","mcp_tool_call","mcp_tools","navigate_back","navigate_workspace","pause_runtime","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","view_image","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal"]}
 tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_back","navigate_workspace","pause_runtime","read_control_actions","reconfigure","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
 ```
 <!-- saivage:value-contract:tool-identities:end -->

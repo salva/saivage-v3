@@ -1,150 +1,60 @@
 import { describe, expect, it, jest } from '@jest/globals';
-
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
-import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
-import { mcpToolBinders, type McpProviderContext } from '../../src/tools/mcp-provider.js';
+import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
-import { canonicalJson } from '../../src/schemas/index.js';
-import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
-import { invokeStreamableHttpTool } from '../../src/mcp/streamable-http-transport.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
+import { McpInvokeError } from '../../src/mcp/errors.js';
 
-const provider = (context: McpProviderContext) => bindToolProvider('mcp', mcpToolBinders, context);
-
-async function invoke(value: unknown) {
-  const manager = { invokeTool: jest.fn(async () => value), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
-  const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
-  return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
+function invocation(invokeTool: () => Promise<unknown>, signal?: AbortSignal) {
+  const manager = { ...unusedMcpToolInvocation, invokeTool, findToolCapability: () => null, getServerTools: () => undefined };
+  const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
+  return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
+}
+async function result(value: unknown) {
+  const execution = await invocation(async () => value);
+  return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult;
 }
 
-describe('MCP provider result settlement envelope', () => {
-  it.each([
-    [{ value: 1 }],
-    ['scalar'],
-    [false],
-  ])('preserves a complete projected result and reports its canonical source bytes', async (value) => {
-    const settled = await invoke(value);
-    const projected = projectDynamicForOutbound(value);
-    expect(settled.providerResult).toEqual({
-      success: true,
-      data: { result: projected, result_complete: true, result_utf8_bytes: Buffer.byteLength(canonicalJson(projected), 'utf8') },
+describe('complete native MCP envelope', () => {
+  it('preserves large text and safe structured metadata without truncation', async () => {
+    const content = [{ type: 'text', text: 'é'.repeat(60_000) }];
+    expect(await result({ content, structuredContent: { ok: true }, _meta: { producer: 'fixture' } })).toEqual({
+      success: true, content, data: { result: { structuredContent: { ok: true }, _meta: { producer: 'fixture' } }, native_content: [{ content_index: 0, type: 'text' }] },
     });
-    expect(settled.settledResultBytes).toBe(canonicalJson(settled.providerResult));
-    expect(Buffer.byteLength(settled.settledResultBytes, 'utf8')).toBeLessThanOrEqual(32_768);
   });
-
-  it('returns the largest fitting exact UTF-8 prefix for an oversized multibyte result', async () => {
-    const value = 'é'.repeat(30_000);
-    const source = canonicalJson(projectDynamicForOutbound(value));
-    const settled = await invoke(value);
-    const data = (settled.providerResult as any).data;
-    expect(data.result_complete).toBe(false);
-    expect(data.result_utf8_bytes).toBe(Buffer.byteLength(source, 'utf8'));
-    expect(source.startsWith(data.result)).toBe(true);
-    expect(settled.settledResultBytes).toBe(canonicalJson(settled.providerResult));
-    expect(Buffer.byteLength(settled.settledResultBytes, 'utf8')).toBeLessThanOrEqual(32_768);
-    expect(data.result.endsWith('\ud83d')).toBe(false);
-    const nextCharacter = Array.from(source.slice(data.result.length))[0];
-    expect(nextCharacter).toBeDefined();
-    const next = { result: data.result + nextCharacter, result_complete: false, result_utf8_bytes: data.result_utf8_bytes };
-    expect(Buffer.byteLength(canonicalJson({ success: true, data: next }), 'utf8')).toBeGreaterThan(32_768);
+  it('projects complete text and structured content; JSON-looking text stays text', async () => {
+    const secret = `sk-${'x'.repeat(80)}`;
+    const value = await result({ content: [{ type: 'text', text: `{"type":"image","secret":"${secret}"}` }], structuredContent: { type: 'image', data: secret } });
+    expect(JSON.stringify(value)).not.toContain(secret);
+    expect(value).toMatchObject({ success: true, content: [{ type: 'text' }], data: { result: { structuredContent: { type: 'image' } } } });
   });
-
-  it('retreats from a credential placeholder boundary and remains projection-idempotent', async () => {
-    const rawSecret = `sk-${'x'.repeat(200)}`;
-    const value = `${'a'.repeat(32_674)} ${rawSecret} ${'b'.repeat(20_000)}`;
-    const source = canonicalJson(projectDynamicForOutbound(value));
-    const settled = await invoke(value);
-    const data = (settled.providerResult as any).data;
-    expect(data.result_complete).toBe(false);
-    expect(source.startsWith(data.result)).toBe(true);
-    expect(data.result).toBe(source.slice(0, source.indexOf('sk-[REDACTED]')));
-    expect(data.result).not.toContain(rawSecret);
-    expect(projectDynamicForOutbound(data.result)).toBe(data.result);
-    expect(data.result).not.toMatch(/sk-\[REDAC?$/u);
-    expect(settled.settledResultBytes).toBe(canonicalJson(settled.providerResult));
+  it('fails complete oversized projected text rather than returning a prefix', async () => {
+    expect(await result({ content: [{ type: 'text', text: 'é'.repeat(530_000) }] })).toMatchObject({ success: false, error: expect.stringContaining('1 MiB') });
   });
-
-  it('uses only the common original canonical prefix when text projection changes a serialized key', async () => {
-    const secretKey = `sk-${'q'.repeat(80)}`;
-    const value = { [secretKey]: 'ordinary', trailing: 'x'.repeat(40_000) };
-    const source = canonicalJson(projectDynamicForOutbound(value));
-    const settled = await invoke(value);
-    const data = (settled.providerResult as any).data;
-    expect(data.result_complete).toBe(false);
-    expect(data.result).toBe('{');
-    expect(source.startsWith(data.result)).toBe(true);
-    expect(data.result).not.toContain(secretKey);
-    expect(projectDynamicForOutbound(data.result)).toBe(data.result);
+  it.each([false, ['scalar'], { content: [{ type: 'unknown' }] }, { content: [{ type: 'text', text: 1 }] }])('rejects malformed native content %p', async (value) => {
+    expect(await result(value)).toMatchObject({ success: false, error: 'Malformed native MCP tool result.' });
   });
-
-  it('bounds an expansion-heavy multibyte error without cutting a redaction span', async () => {
-    const message = `${'é'.repeat(220)} ${'sk-x '.repeat(100)}`;
-    const manager = { invokeTool: async () => { throw new Error(message); }, findToolCapability: () => null, getServerTools: () => undefined };
-    const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
-    const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
-    const result = settled.providerResult;
-    expect(result.success).toBe(false);
-    if (result.success) throw new Error('Expected MCP failure.');
-    expect(result.error).toBe(`${'é'.repeat(220)} ${'sk-[REDACTED] '.repeat(5)}`);
-    expect(Buffer.byteLength(result.error, 'utf8')).toBe(511);
-    expect(result.error).not.toContain('sk-x');
-    expect(projectDynamicForOutbound(result.error)).toBe(result.error);
-    expect(result.error).not.toMatch(/sk-\[REDAC?$/u);
-    expect(settled.settledResultBytes).toBe(canonicalJson(result));
+  it('retains native errors as safe diagnostic data with no pixel selection', async () => {
+    expect(await result({ isError: true, content: [{ type: 'text', text: 'failed' }, { type: 'image', data: 'not selected', mimeType: 'image/png' }] })).toEqual({
+      success: false, error: 'MCP tool reported an error; effects may have occurred.', data: { result: { isError: true }, native_content: [{ content_index: 0, type: 'text' }, { content_index: 1, type: 'image', mimeType: 'image/png' }], content: [{ type: 'text', text: 'failed' }] },
+    });
   });
-
-  it('keeps ordinary short invocation errors unchanged', async () => {
-    const manager = { invokeTool: async () => { throw new Error('transport failed'); }, findToolCapability: () => null, getServerTools: () => undefined };
-    const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
-    expect(settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult).toEqual({ success: false, error: 'transport failed' });
+  it('bounds ordinary projected transport errors without cutting redaction spans', async () => {
+    const execution = await invocation(async () => { throw new McpInvokeError(`${'é'.repeat(220)} ${'sk-x '.repeat(100)}`, 'TRANSPORT_ERROR', 502); });
+    const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult;
+    expect(settled).toEqual({ success: false, error: `${'é'.repeat(220)} ${'sk-[REDACTED] '.repeat(5)}` });
   });
-
-  it('propagates packing failures after a successful invocation', async () => {
-    const value = new Proxy({}, { ownKeys: () => { throw new Error('projection failed'); } });
-    const manager = { invokeTool: jest.fn(async () => value), findToolCapability: () => null, getServerTools: () => undefined };
-    const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    await expect(invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }))).rejects.toThrow('projection failed');
-    expect(manager.invokeTool).toHaveBeenCalledTimes(1);
-  });
-
-  it('preserves publication-unknown invocation failures as fatal', async () => {
-    const failure = new PublicationOutcomeUnknownError();
-    const manager = { invokeTool: async () => { throw failure; }, findToolCapability: () => null, getServerTools: () => undefined };
-    const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    await expect(invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }))).rejects.toBe(failure);
-  });
-
-  it('composes an oversized HTTP JSON result through transport mapping and final settlement', async () => {
-    const nativeFetch = globalThis.fetch;
-    const content = [{ type: 'text', text: 'h'.repeat(60_000) }];
-    globalThis.fetch = jest.fn(async (...args: Parameters<typeof fetch>) => {
-      const init = args[1];
-      const id = JSON.parse(String(init?.body)).id;
-      return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: { content } }), { headers: { 'content-type': 'application/json' } });
-    }) as typeof fetch;
-    try {
-      const manager = {
-        invokeTool: (_serverName: string, _toolName: string, _args: Record<string, unknown>) => invokeStreamableHttpTool({
-          serverName: 'server', toolName: 'tool', args: {}, config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://localhost/mcp' },
-          timeoutMs: 1_000, ids: { next: () => 7 }, signal: new AbortController().signal,
-        }),
-        findToolCapability: () => null,
-        getServerTools: () => undefined,
-      };
-      const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-      const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
-      const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
-      expect(settled.providerResult).toMatchObject({ success: true, data: { result_complete: false, result_utf8_bytes: Buffer.byteLength(canonicalJson(content), 'utf8') } });
-      expect(settled.settledResultBytes).toBe(canonicalJson(settled.providerResult));
-      expect(Buffer.byteLength(settled.settledResultBytes, 'utf8')).toBeLessThanOrEqual(32_768);
-    } finally {
-      globalThis.fetch = nativeFetch;
+  it('propagates unclassified, containment and publication failures despite later cancellation', async () => {
+    for (const failure of [new Error('unexpected rejection'), new Error('containment failed'), new PublicationOutcomeUnknownError()]) {
+      const caller = new AbortController();
+      await expect(invocation(async () => { caller.abort(new Error('later cancellation')); throw failure; }, caller.signal)).rejects.toBe(failure);
     }
+  });
+  it('does not swallow unexpected projection errors', async () => {
+    const value = new Proxy({}, { get: () => { throw new Error('projection failed'); } });
+    await expect(invocation(jest.fn(async () => value))).rejects.toThrow('projection failed');
   });
 });

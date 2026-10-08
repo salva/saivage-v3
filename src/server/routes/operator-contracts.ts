@@ -66,6 +66,7 @@ export function registerOperatorContractRoutes(
     }),
     ...buildMcpOperatorContractHandlers({
       mcpToolsProvider: options.mcpManager,
+      mcpLifecycle: options.mcpManager,
     }),
     ...buildAgentOperatorContractHandlers({
       projectRoot,

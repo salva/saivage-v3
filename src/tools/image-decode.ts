@@ -6,7 +6,7 @@ import {
   ViewImageDataSchema,
   type ViewImageData,
 } from '../contracts/index.js';
-import { WorkspaceToolInputError } from './project-file-tools.js';
+import { ImageInputError } from './image-input-error.js';
 
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -15,10 +15,9 @@ function rejectAnimation(bytes: Buffer): void {
   let offset = 8;
   while (offset + 12 <= bytes.length) {
     const length = bytes.readUInt32BE(offset);
-    if (offset + length + 12 > bytes.length)
-      throw new WorkspaceToolInputError('Invalid PNG chunk.');
+    if (offset + length + 12 > bytes.length) throw new ImageInputError('Invalid PNG chunk.');
     const type = bytes.toString('ascii', offset + 4, offset + 8);
-    if (type === 'acTL') throw new WorkspaceToolInputError('Animated images are not supported.');
+    if (type === 'acTL') throw new ImageInputError('Animated images are not supported.');
     offset += length + 12;
     if (type === 'IEND') break;
   }
@@ -32,31 +31,31 @@ async function decodeInput<T>(operation: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (
       error instanceof Error &&
-      /^(Input buffer contains unsupported image format|Input buffer has corrupt header|Input image exceeds pixel limit|VipsJpeg: (?:Premature end|Invalid|Corrupt|Bogus|Not a JPEG|JPEG datastream)|pngload_buffer: (?:end of stream|libspng read error|invalid|bad)|vipspng: (?:Invalid|invalid|Read Error|read error|libpng read error))/u.test(
+      /^(Input buffer contains unsupported image format|Input buffer has corrupt header|Input image exceeds pixel limit|VipsJpeg: (?:Premature end|Invalid|Corrupt|Bogus|Not a JPEG|JPEG datastream)|pngload_buffer: (?:end of stream|libspng read error|invalid|bad)|vipspng: (?:Invalid|invalid|Read Error|read error|libpng read error)|webpload_buffer: (?:unable to parse|invalid|bad|WebP decoder))/u.test(
         error.message,
       )
     )
-      throw new WorkspaceToolInputError(
-        'Invalid or oversized PNG/JPEG image; generate a smaller valid source.',
-      );
+      throw new ImageInputError('Invalid or oversized image; generate a smaller valid source.');
     throw error;
   }
 }
 
-export async function normalizeWorkspaceImage(
+export async function normalizeImage(
   bytes: Buffer,
-  sourcePath: string,
   maxDimension: number | 'original' = 1600,
-): Promise<{ bytes: Buffer; data: ViewImageData }> {
+  declaredMime?: string,
+): Promise<{ bytes: Buffer; data: Omit<ViewImageData, 'source_path'> }> {
   if (bytes.length > MAX_IMAGE_SOURCE_BYTES)
-    throw new WorkspaceToolInputError('Image source exceeds 32 MiB; generate a smaller source.');
+    throw new ImageInputError('Image source exceeds 32 MiB; generate a smaller source.');
   rejectAnimation(bytes);
   const options = { limitInputPixels: MAX_IMAGE_PIXELS, failOn: 'warning' as const };
   const metadata = await decodeInput(() => sharp(bytes, options).metadata());
-  if (metadata.format !== 'png' && metadata.format !== 'jpeg')
-    throw new WorkspaceToolInputError('Only decoded PNG/JPEG images are supported.');
-  if ((metadata.pages ?? 1) !== 1)
-    throw new WorkspaceToolInputError('Animated images are not supported.');
+  const formats = declaredMime === undefined ? ['png', 'jpeg'] : ['png', 'jpeg', 'webp'];
+  if (!formats.includes(metadata.format ?? ''))
+    throw new ImageInputError('Unsupported decoded image format.');
+  if (declaredMime !== undefined && declaredMime !== `image/${metadata.format}`)
+    throw new ImageInputError('Image MIME does not match decoded format.');
+  if ((metadata.pages ?? 1) !== 1) throw new ImageInputError('Animated images are not supported.');
   const { width, height } = metadata;
   if (
     !width ||
@@ -65,7 +64,7 @@ export async function normalizeWorkspaceImage(
     !Number.isInteger(height) ||
     width * height > MAX_IMAGE_PIXELS
   )
-    throw new WorkspaceToolInputError('Invalid image dimensions or source pixel limit exceeded.');
+    throw new ImageInputError('Invalid image dimensions or source pixel limit exceeded.');
   const orientation = metadata.orientation ?? 1;
   const swap = orientation >= 5 && orientation <= 8;
   const upright = { width: swap ? height : width, height: swap ? width : height };
@@ -83,12 +82,11 @@ export async function normalizeWorkspaceImage(
     pipeline.toColourspace('srgb').png().toBuffer({ resolveWithObject: true }),
   );
   if (output.data.length > MAX_IMAGE_BYTES)
-    throw new WorkspaceToolInputError(
+    throw new ImageInputError(
       'Selected PNG exceeds 16 MiB; use a smaller max_dimension or generate a smaller source.',
     );
   const sent = { width: output.info.width, height: output.info.height };
-  const data = ViewImageDataSchema.parse({
-    source_path: sourcePath,
+  const data = {
     source_dimensions: { width, height },
     oriented_dimensions: upright,
     sent_dimensions: sent,
@@ -96,6 +94,18 @@ export async function normalizeWorkspaceImage(
     resized: sent.width < upright.width || sent.height < upright.height,
     scale: { x: sent.width / upright.width, y: sent.height / upright.height },
     max_dimension: maxDimension,
-  });
+  };
   return { bytes: output.data, data };
+}
+
+export async function normalizeWorkspaceImage(
+  bytes: Buffer,
+  sourcePath: string,
+  maxDimension: number | 'original' = 1600,
+): Promise<{ bytes: Buffer; data: ViewImageData }> {
+  const selected = await normalizeImage(bytes, maxDimension);
+  return {
+    bytes: selected.bytes,
+    data: ViewImageDataSchema.parse({ source_path: sourcePath, ...selected.data }),
+  };
 }

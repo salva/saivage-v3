@@ -8,6 +8,9 @@ export function projectMcpToolCallArgumentsForOutbound(
   return McpToolCallArgumentsSchema.parse({
     serverName: argumentsValue.serverName,
     toolName: argumentsValue.toolName,
+    ...(argumentsValue.max_dimension === undefined
+      ? {}
+      : { max_dimension: argumentsValue.max_dimension }),
     ...(argumentsValue.args === undefined
       ? {}
       : { args: projectDynamicForOutbound(argumentsValue.args) }),

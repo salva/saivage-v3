@@ -53,6 +53,36 @@ output identities. Native request `input`/pixels are not stored in those
 parameters. App-log owners likewise retain their existing rows; the changed
 provider wire serialization alone does not bump their shared envelope `1`.
 
+## Durable-preserving MCP cancellation, native results and lifecycle (source baseline `422b315f`)
+
+The combined implementation changes live invocation cancellation and transport
+deadlines/admission, native CallToolResult validation and ordered text/image
+production, and configured server lifecycle/control/discovery. Source evidence:
+`mcp/{server-runtime,stdio-transport,streamable-http-transport,mcp-manager,native-result}.ts`
+and `tools/{mcp-provider,mcp-native-result}.ts`, the producer-neutral decoder and
+authenticated operator routes. Exact caller-reason propagation, provider error
+classification, application joins and the single start deadline change live
+ownership only; exact-entry configuration reads leave the configuration shape unchanged.
+
+No additional durable impact or discriminator change is introduced. Conversation
+index/genesis/envelope remain **6**, owned by `canonical-conversation-artifacts.ts`
+and `conversation-file.ts`; descriptor fields, raw PNG selection/provenance, exact
+session layout and generic tool rows retain their existing contracts. Native
+envelope/structured metadata and indexed capture/discovery facts are ordinary
+unconstrained tool data, not strict producer-specific retained contracts. Historical
+MCP data is not reinterpreted or normalized. The 48 MiB wire, 32 MiB aggregate decoded
+source and 1 MiB projected non-image bounds concern current input/production only.
+Lifecycle tools and the pinned browser recipe use the same generic rows; no install
+registry, durable topology or enable-state is introduced. App-log/provider-evidence
+row shapes, interpretation and shared envelope **1** are unchanged, as are unrelated
+durable families. Official integration E2E is separate validation evidence.
+
+Source-release deployment applicability remains unknown; this is not a shared
+unreleased cutover or a format-reuse claim. The existing 5→6 adoption decision
+remains separate: adopting earlier-format retained state requires separately
+consented reset or explicitly requested external offline migration to a matching
+release. No deployment, reset or migration is authorized by this source work.
+
 ## Durable-preserving conversation API/UI change
 
 Source evidence: `agents.currentInstructions` in `src/contracts/operator-api-agents.ts`,

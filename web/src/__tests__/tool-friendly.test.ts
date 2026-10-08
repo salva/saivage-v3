@@ -168,7 +168,7 @@ describe('single row tool display', () => {
     ['queue_notification', { card_id: 'card-a', body: 'FULL-NOTICE-Z', urgency: 'urgent' }, { queued: true, card_id: 'card-a', body: 'FULL-NOTICE-Z', interruption: { status: 'suppressed', reason: 'owner unavailable' } }, ['FULL-NOTICE-Z', 'owner unavailable', 'suppressed']],
     ['get_card_version', { card_id: 'card-a', version: 4, section: 'brief' }, { card_id: 'card-a', version: 4, content: { content: 'FULL-HISTORY-Z', utf8_bytes: 14, offset_bytes: 0, next_offset_bytes: 14 } }, ['Immutable history version', 'FULL-HISTORY-Z']],
     ['skill', { name: 'review' }, { skill_name: 'review', skill_content: 'FULL-INSTRUCTIONS-Z' }, ['FULL-INSTRUCTIONS-Z']],
-    ['mcp_tool_call', { serverName: 'server', toolName: 'probe', args: { safe: 'FULL-ARGS-Z' } }, { result: { opaque: 'FULL-OPAQUE-Z' }, result_complete: false, result_utf8_bytes: 500 }, ['FULL-ARGS-Z', 'FULL-OPAQUE-Z', 'Returned body truncated']],
+    ['mcp_tool_call', { serverName: 'server', toolName: 'probe', args: { safe: 'FULL-ARGS-Z' } }, { result: { structuredContent: { opaque: 'FULL-OPAQUE-Z' } } }, ['FULL-ARGS-Z', 'FULL-OPAQUE-Z', 'Effects opaque']],
   ] as const)('provides useful %s selection/content/effect detail without requiring RAW', (tool, args, data, facts) => {
     const display = buildToolDisplay({ entry: call(tool, args), mate: result(tool, data) });
     const detail = JSON.stringify([...display.requestSections, ...display.resultSections]) + inlinePartsText(display.status);

@@ -59,7 +59,7 @@ function processFactoryDependencyTypeFixtures(): void {
 function runtimeAndMcpFactoryDependencyTypeFixtures(): void {
   const serverAvailabilityProvider = () => serverAvailability;
   buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication, serverAvailabilityProvider, restartCapability: { available: false } });
-  buildMcpOperatorContractHandlers({ mcpToolsProvider });
+  buildMcpOperatorContractHandlers({ mcpToolsProvider, mcpLifecycle: {} as never });
   // @ts-expect-error Runtime/card composition requires the card service.
   buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', runtimeApplication, serverAvailabilityProvider, restartCapability: { available: false } });
   // @ts-expect-error Runtime/card composition requires the runtime application.

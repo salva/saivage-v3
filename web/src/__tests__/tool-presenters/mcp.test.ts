@@ -1,30 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { presentToolResult } from '../../utils/tool-presenters';
-describe('opaque MCP result', () => {
-  it.each([[42, true, 2], ['prefix', false, 4096], [{ content: 'safe returned content' }, true, 35]])('exposes opaque body separately from reported completeness', (result, result_complete, result_utf8_bytes) => {
-    const view = presentToolResult(JSON.stringify({ success: true, data: { result, result_complete, result_utf8_bytes } }), { tool: 'mcp_tool_call' });
-    expect(view.status).toBe('neutral');
-    expect(view.sections.find((s) => s.title === 'MCP result (effects opaque)')?.content).toBe(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
-    expect(JSON.stringify(view.sections[0])).toContain(String(result_utf8_bytes));
-    expect(JSON.stringify(view.sections[0])).toContain(String(result_complete));
+describe('native MCP result metadata', () => {
+  it('shows concise lifecycle known outcomes and complete discovery schemas as JSON', () => {
+    const stopped = presentToolResult('{"success":true,"data":{"serverName":"browser","status":"stopped","toolCount":0}}', { tool: 'mcp_server_control' });
+    expect(stopped.outcome).toBe('Server stopped · Context may be lost');
+    const schema = { type: 'object', properties: { scale: { enum: ['css', 'device'] } }, required: ['scale'] };
+    const discovered = presentToolResult(JSON.stringify({ success: true, data: { serverName: 'browser', tools: [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] } }), { tool: 'mcp_tools' });
+    expect(discovered.outcome).toBe('1 tools recorded');
+    expect(JSON.stringify(discovered.sections)).toContain('required');
+    expect(discovered.sections[1].items![0].fields!.at(-1)!.parts[0]).toMatchObject({ language: 'json', text: JSON.stringify(schema, null, 2) });
   });
-  it('preserves failed-envelope coverage without inventing effects', () => {
-    const view = presentToolResult('{"success":false,"error":"MCP failed","data":{"result_complete":false,"result_utf8_bytes":8192}}', { tool: 'mcp_tool_call' });
-    expect(view.outcome).toBe('Failed · Observation recorded · Returned body truncated');
-    expect(JSON.stringify(view.sections)).toContain('8192');
-    expect(JSON.stringify(view.sections)).not.toContain('applied');
-  });
-  it('keeps baseline MCP coverage/body distinct from ordered text in a synthetic content fixture', () => {
-    // Generic ordered-content inspection, not evidence of a native MCP producer.
-    const result = { count: 42 };
-    const data = { result, result_complete: true, result_utf8_bytes: 12 };
-    const view = presentToolResult(JSON.stringify({ success: true, data, content: [{ type: 'text', text: '{"plain":"native text"}' }] }), { tool: 'mcp_tool_call' });
+  it('shows envelope and capture metadata once, leaving ordered text/descriptors to the generic owner', () => {
+    const raw = JSON.stringify({ success: true, data: { result: { structuredContent: { count: 42 } }, native_content: [{ content_index: 0, type: 'text' }], images: [{ content_index: 1, source_dimensions: { width: 10, height: 10 }, max_dimension: 1600 }] }, content: [{ type: 'text', text: '{"plain":"native text"}' }] });
+    const view = presentToolResult(raw, { tool: 'mcp_tool_call' });
     expect(view.status).toBe('neutral');
     expect(view.outcome).toBe('Observation recorded · Effects opaque');
-    expect(view.sections[0].title).toBe('MCP returned coverage');
-    expect(JSON.stringify(view.sections[0])).toContain('result complete');
-    expect(JSON.stringify(view.sections[0])).toContain('Total JSON source bytes');
-    expect(view.sections[1]).toMatchObject({ title: 'MCP result (effects opaque)', content: JSON.stringify(result, null, 2), language: 'json' });
-    expect(view.sections[2]).toMatchObject({ title: 'Returned text · content 1', content: '{"plain":"native text"}', language: 'text' });
+    expect(view.sections[0].title).toBe('MCP envelope metadata (effects opaque)');
+    expect(JSON.stringify(view.sections)).toContain('count');
+    expect(view.sections.filter((s) => s.content === '{"plain":"native text"}')).toEqual([expect.objectContaining({ language: 'text' })]);
+    expect(JSON.stringify(view.sections)).toContain('source dimensions');
+  });
+  it('keeps retained ordinary JSON opaque without a legacy completeness interpretation', () => {
+    const view = presentToolResult('{"success":true,"data":{"result":{"old":"prefix"},"result_complete":false}}', { tool: 'mcp_tool_call' });
+    expect(view.outcome).toBe('Observation recorded · Effects opaque');
+    expect(JSON.stringify(view.sections)).toContain('prefix');
+    expect(JSON.stringify(view.sections)).not.toContain('Returned body truncated');
   });
 });

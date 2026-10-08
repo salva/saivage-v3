@@ -242,6 +242,8 @@ try {
   createEventLog(projectRoot);
   const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
   const mcpToolInvocation = {
+    async startServer() { throw new Error('Unexpected MCP start in prompt smoke.'); },
+    async stopServer() { throw new Error('Unexpected MCP stop in prompt smoke.'); },
     getServerTools() { throw new Error('Unexpected MCP server tools read in compiled prompt smoke.'); },
     findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },
     invokeTool() { return Promise.reject(new Error('Unexpected MCP invocation in compiled prompt smoke.')); },

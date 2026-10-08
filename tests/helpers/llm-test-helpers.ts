@@ -101,6 +101,8 @@ export const unusedSummarizerProvider: SummarizerProviderPort = {
   projectProviderExchanges: () => { throw new Error('Unexpected summarizer exchange projection in test.'); },
 };
 export const unusedMcpToolInvocation: McpToolInvocationPort = {
+  startServer: async () => { throw new Error('Unexpected MCP start'); },
+  stopServer: async () => { throw new Error('Unexpected MCP stop'); },
   getServerTools: () => { throw new Error('Unexpected MCP server tools read in test.'); },
   findToolCapability: () => { throw new Error('Unexpected MCP capability read in test.'); },
   invokeTool: () => Promise.reject(new Error('Unexpected MCP invocation in test.')),

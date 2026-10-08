@@ -1,12 +1,11 @@
 import { TimeoutError, TransportError } from './errors.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import type { StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import {
   CLIENT_NAME,
   CLIENT_VERSION,
-  MCP_DISCOVERY_TIMEOUT_MS,
   MCP_PROTOCOL_VERSION,
-  STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES,
-  STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES,
+  MCP_WIRE_RESPONSE_LIMIT_BYTES,
   type McpJsonRpcRequest,
   type McpToolDefinition,
 } from './protocol.js';
@@ -44,21 +43,22 @@ function sanitizeJsonRpcError(error: unknown): string {
   return `${message} (code ${code})`;
 }
 
-function abortPromise(signal?: AbortSignal): Promise<never> {
-  if (!signal) return new Promise<never>(() => undefined);
-  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
-  return new Promise<never>((_resolve, reject) =>
-    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
-      once: true,
-    }),
-  );
-}
-
-function readChunkWithAbort(
+async function readChunkWithAbort(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   signal?: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
-  return Promise.race([reader.read(), abortPromise(signal)]);
+  signal?.throwIfAborted();
+  if (!signal) return reader.read();
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([reader.read(), aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function extractSseData(frame: string): string | undefined {
@@ -75,6 +75,30 @@ function extractSseData(frame: string): string | undefined {
   return dataLines.length === 0 ? undefined : dataLines.join('\n');
 }
 
+async function readBoundedJson(
+  resp: Response,
+  context: Omit<StreamableHttpReadContext, 'expectedId'>,
+): Promise<Record<string, unknown>> {
+  if (!resp.body) throw new TransportError(context.serverName, 'MCP JSON response had no body');
+  const reader = resp.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { value, done } = await readChunkWithAbort(reader, context.signal);
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MCP_WIRE_RESPONSE_LIMIT_BYTES)
+        throw new TransportError(context.serverName, 'MCP JSON response exceeded 48 MiB');
+      chunks.push(value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 export async function readStreamableHttpJsonRpcResponse(
   resp: Response,
   context: StreamableHttpReadContext,
@@ -82,8 +106,16 @@ export async function readStreamableHttpJsonRpcResponse(
   const contentType = getContentType(resp);
   if (!contentType.includes('text/event-stream')) {
     try {
-      return (await resp.json()) as Record<string, unknown>;
+      const parsed = await readBoundedJson(resp, context);
+      if (!isJsonRpcResponseForId(parsed, context.expectedId))
+        throw new TransportError(
+          context.serverName,
+          'MCP JSON response has wrong request identity',
+        );
+      return parsed;
     } catch (err) {
+      throwIfPublicationOutcomeUnknown(err);
+      if (context.signal?.aborted) throw context.signal.reason;
       throw new TransportError(
         context.serverName,
         `Failed to parse JSON response for ${context.operation}: ${err instanceof Error ? err.message : String(err)}`,
@@ -98,18 +130,15 @@ export async function readStreamableHttpJsonRpcResponse(
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let bufferedBytes = 0;
+  let receivedBytes = 0;
   try {
     for (;;) {
       const { value, done } = await readChunkWithAbort(reader, context.signal);
       if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > MCP_WIRE_RESPONSE_LIMIT_BYTES)
+        throw new TransportError(context.serverName, 'MCP SSE response exceeded 48 MiB');
       const chunk = decoder.decode(value, { stream: true });
-      bufferedBytes += value.byteLength;
-      if (bufferedBytes > STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES)
-        throw new TransportError(
-          context.serverName,
-          `Streamable HTTP ${context.operation} SSE buffer exceeded limit`,
-        );
       buffer += chunk;
       let boundary = buffer.search(/\r?\n\r?\n/);
       while (boundary !== -1) {
@@ -117,12 +146,6 @@ export async function readStreamableHttpJsonRpcResponse(
         if (!match || match.index === undefined) break;
         const frame = buffer.slice(0, match.index);
         buffer = buffer.slice(match.index + match[0].length);
-        bufferedBytes = new TextEncoder().encode(buffer).byteLength;
-        if (new TextEncoder().encode(frame).byteLength > STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES)
-          throw new TransportError(
-            context.serverName,
-            `Streamable HTTP ${context.operation} SSE frame exceeded limit`,
-          );
         const data = extractSseData(frame);
         if (!data) {
           boundary = buffer.search(/\r?\n\r?\n/);
@@ -158,14 +181,20 @@ export async function readStreamableHttpJsonRpcResponse(
 async function readStreamableHttpNotificationError(
   resp: Response,
   serverName: string,
+  signal: AbortSignal,
 ): Promise<string | undefined> {
   if (resp.status === 202 || resp.status === 204) return undefined;
   const contentType = getContentType(resp);
   if (contentType.includes('application/json')) {
     try {
-      const body = (await resp.json()) as Record<string, unknown>;
+      const body = await readBoundedJson(resp, {
+        serverName,
+        operation: 'notifications/initialized',
+        signal,
+      });
       if (body.error) return sanitizeJsonRpcError(body.error);
     } catch {
+      signal.throwIfAborted();
       return 'malformed JSON error body';
     }
   }
@@ -188,12 +217,14 @@ export async function discoverStreamableHttpTools(input: {
   signal: AbortSignal;
 }): Promise<McpToolDefinition[]> {
   const { serverName: name, config: cfg, handle, ids, signal } = input;
+  signal.throwIfAborted();
   const discoveryAbort = new AbortController();
-  const timeoutId = setTimeout(() => discoveryAbort.abort(), MCP_DISCOVERY_TIMEOUT_MS);
   const serverSignal = handle?.abortController?.signal;
-  if (serverSignal)
-    serverSignal.addEventListener('abort', () => discoveryAbort.abort(), { once: true });
-  signal.addEventListener('abort', () => discoveryAbort.abort(), { once: true });
+  serverSignal?.throwIfAborted();
+  const onServerAbort = () => discoveryAbort.abort(serverSignal!.reason);
+  const onOperationAbort = () => discoveryAbort.abort(signal.reason);
+  serverSignal?.addEventListener('abort', onServerAbort, { once: true });
+  signal.addEventListener('abort', onOperationAbort, { once: true });
   const tools: McpToolDefinition[] = [];
   try {
     const initId = ids.next();
@@ -245,7 +276,11 @@ export async function discoverStreamableHttpTools(input: {
       throw new Error(
         `notifications/initialized HTTP POST returned status ${notificationResp.status}`,
       );
-    const notificationError = await readStreamableHttpNotificationError(notificationResp, name);
+    const notificationError = await readStreamableHttpNotificationError(
+      notificationResp,
+      name,
+      discoveryAbort.signal,
+    );
     if (notificationError)
       throw new Error(`notifications/initialized failed: ${notificationError}`);
 
@@ -287,11 +322,11 @@ export async function discoverStreamableHttpTools(input: {
     } while (cursor);
     return tools;
   } catch (err) {
-    if (discoveryAbort.signal.aborted && !serverSignal?.aborted)
-      throw new Error(`Streamable HTTP discovery timed out after ${MCP_DISCOVERY_TIMEOUT_MS}ms`);
+    if (discoveryAbort.signal.aborted) throw discoveryAbort.signal.reason;
     throw err;
   } finally {
-    clearTimeout(timeoutId);
+    serverSignal?.removeEventListener('abort', onServerAbort);
+    signal.removeEventListener('abort', onOperationAbort);
   }
 }
 
@@ -317,9 +352,16 @@ export async function invokeStreamableHttpTool(input: {
   } = input;
   const signal = handle?.abortController?.signal;
   const invokeAbort = new AbortController();
-  const timeoutId = setTimeout(() => invokeAbort.abort(), timeoutMs);
-  if (signal) signal.addEventListener('abort', () => invokeAbort.abort(), { once: true });
-  operationSignal.addEventListener('abort', () => invokeAbort.abort(), { once: true });
+  operationSignal.throwIfAborted();
+  signal?.throwIfAborted();
+  const timeoutId = setTimeout(
+    () => invokeAbort.abort(new TimeoutError(serverName, toolName, timeoutMs)),
+    timeoutMs,
+  );
+  const onServerAbort = () => invokeAbort.abort(signal!.reason);
+  const onOperationAbort = () => invokeAbort.abort(operationSignal.reason);
+  signal?.addEventListener('abort', onServerAbort, { once: true });
+  operationSignal.addEventListener('abort', onOperationAbort, { once: true });
   try {
     const requestId = ids.next();
     const request: McpJsonRpcRequest = {
@@ -341,8 +383,8 @@ export async function invokeStreamableHttpTool(input: {
         signal: invokeAbort.signal,
       });
     } catch (err) {
-      if (operationSignal.aborted) throw new DOMException('MCP invocation aborted', 'AbortError');
-      if (invokeAbort.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs);
+      throwIfPublicationOutcomeUnknown(err);
+      if (invokeAbort.signal.aborted) throw invokeAbort.signal.reason;
       throw new TransportError(
         serverName,
         `HTTP POST failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -359,13 +401,15 @@ export async function invokeStreamableHttpTool(input: {
         signal: invokeAbort.signal,
       });
     } catch (err) {
-      if (operationSignal.aborted) throw new DOMException('MCP invocation aborted', 'AbortError');
-      if (invokeAbort.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs);
+      throwIfPublicationOutcomeUnknown(err);
+      if (invokeAbort.signal.aborted) throw invokeAbort.signal.reason;
       throw err;
     }
     return mapToolsCallResponse(body, serverName, toolName);
   } finally {
     clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onServerAbort);
+    operationSignal.removeEventListener('abort', onOperationAbort);
   }
 }
 

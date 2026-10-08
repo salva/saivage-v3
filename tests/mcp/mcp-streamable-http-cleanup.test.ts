@@ -27,6 +27,31 @@ async function within<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 describe('Streamable HTTP native fetch cleanup', () => {
+  it.each(['application/json', 'text/event-stream'])('preserves the exact caller reason and closes only its %s request', async contentType => {
+    const entered = deferred<void>();
+    const responseClosed = deferred<void>();
+    const server = createServer((_request, response) => {
+      response.once('close', () => responseClosed.resolve());
+      response.writeHead(200, { 'content-type': contentType });
+      response.write(contentType === 'application/json' ? '{' : ': waiting\n\n');
+      entered.resolve();
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected IP listener');
+      const caller = new AbortController();
+      const serverController = new AbortController();
+      const reason = { exact: 'HTTP caller reason' };
+      const observed = invokeStreamableHttpTool({ serverName: 'loopback', toolName: 'pending', args: {}, config: { transport: 'streamable-http', disabled: false, autostart: true, url: `http://127.0.0.1:${address.port}/mcp` }, handle: { abortController: serverController, streamableHttpSessionId: 'retained-session' }, timeoutMs: 5_000, ids: { next: () => 1 }, signal: caller.signal }).catch(error => error);
+      await entered.promise;
+      caller.abort(reason);
+      expect(await within(observed, 5_000)).toBe(reason);
+      await within(responseClosed.promise, 5_000);
+      expect(serverController.signal.aborted).toBe(false);
+    } finally { await closeServer(server); }
+  });
+
   it('closes a keep-open SSE response after receiving the matching tool result', async () => {
     const responseClosed = deferred<{ writableEnded: boolean }>();
     const server = createServer((request, response) => {
@@ -56,7 +81,7 @@ describe('Streamable HTTP native fetch cleanup', () => {
         ids: { next: () => 17 },
         signal: new AbortController().signal,
       });
-      expect(result).toEqual([{ type: 'text', text: 'ok' }]);
+      expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }] });
       await expect(within(responseClosed.promise, 5_000)).resolves.toEqual({ writableEnded: false });
     } finally {
       await closeServer(server);

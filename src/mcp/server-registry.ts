@@ -8,6 +8,7 @@ export interface McpServerHandle {
   processId?: string;
   abortController?: AbortController;
   streamableHttpSessionId?: string;
+  rootUri?: string;
 }
 
 export function loadMcpServersFromConfig(config: SaivageConfig): Record<string, McpServerConfig> {

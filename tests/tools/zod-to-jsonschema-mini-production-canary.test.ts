@@ -75,6 +75,8 @@ describe('zodToJsonSchemaMini production surface canary', () => {
     const cardTypeVocabulary = effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config)).card_types;
     const vocabulary = Object.keys(cardTypeVocabulary) as Array<keyof typeof cardTypeVocabulary>;
     const mcpToolInvocation = {
+      async startServer() { throw new Error('Unexpected MCP start'); },
+      async stopServer() { throw new Error('Unexpected MCP stop'); },
       getServerTools: () => [],
       findToolCapability: () => null,
       invokeTool: async () => ({}),

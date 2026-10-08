@@ -8,7 +8,7 @@ const imageDimensionsSchema = z
   })
   .strict()
   .refine(({ width, height }) => width * height <= MAX_IMAGE_PIXELS, 'Image pixel limit exceeded.');
-const imageMaxDimensionSchema = z.union([
+export const imageMaxDimensionSchema = z.union([
   z.number().int().min(1).max(16384),
   z.literal('original'),
 ]);

@@ -295,6 +295,7 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
         scope,
         binders: mcpToolBinders,
         context: (runtime): McpProviderContext => ({
+          projectRoot: runtime.projectRoot,
           mcpToolInvocation: runtime.mcpToolInvocation,
         }),
       },

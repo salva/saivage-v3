@@ -842,8 +842,8 @@ results can carry explicit images, with all canonical exchange/policy/evidence/h
 commitments intact. Every image occurrence retains its content order and exact
 source session; ordinary `data` has no attachment authority. Failed and
 non-executed results cannot select images. `view_image` emits one image block and
-is the only implemented authorized producer; no MCP image ingress or arbitrary
-`data.image`/`image_url` promotion exists. Its strict per-tool safe data records
+native MCP supplies ordered native images through the same descriptor contract.
+No arbitrary `data.image`/`image_url` promotion exists. `view_image` strict safe data records
 `source_path`, raw `source_dimensions`, upright `oriented_dimensions`, selected
 `sent_dimensions`, `orientation_applied`, spatial-only `resized`, actual sent/upright
 `scale:{x,y}` and selected `max_dimension`. Descriptor dimensions equal sent dimensions.
@@ -1042,7 +1042,7 @@ A timed-out component may continue only in its root while later disjoint-root le
 
 MCP manager admission closure is the manager-level invocation fence.
 Its synchronous prefix rejects every later manager invocation before runtime or transport delegation, closes every retained MCP runtime, and starts or retrieves each runtime's one exact direct-containment promise during the App admission phase before cleanup leaves.
-MCP cleanup reuses those same runtime-owned settlements, starts exact MCP-root containment only after obtaining them, and joins all retained runtime containments, root containment, and current reconciliation.
+MCP cleanup reuses those same runtime-owned settlements, starts exact MCP-root containment only after obtaining them, and joins all retained runtime stops (including admitted inner operations), root containment, and current reconciliation.
 A rejected root containment is rethrown unchanged; otherwise a failed root report or any rejected direct/reconciliation settlement fails MCP cleanup.
 The runtime collection clears only after complete success.
 
@@ -1470,7 +1470,63 @@ Unsupported and synthetic settlement construct their policy template directly an
 
 The explicitly cut-over discovery/read/version surfaces pack every provider-visible `ToolResult` inside the default byte envelope in the [exact context and compaction limits](#exact-context-and-compaction-limits). Collection-bearing surfaces and sections use shared deterministic stateless collection positions and UTF-8-safe `TextSlice`/`JsonSlice` continuation; bounded scalar `get_card` sections do not accept collection positions. Immutable `get_card_version` summary is likewise scalar: omit position, since every supplied position, including all-zero, is rejected; after that error remove position rather than retrying it. Its dependencies and children are collections: omit position initially and copy a non-null `next` unchanged for the same section over stable input. There are no unbounded arrays, no line-based paging, no duplicate collections, no inline unbounded record previews, and no count-only limits; a page observes fresh state and is never a stable snapshot cursor. Plaintext `TextSlice` is `{content,utf8_bytes,offset_bytes,next_offset_bytes}`. Collection-only `JsonSlice` is `{content_hex,utf8_bytes,offset_bytes,next_offset_bytes,total_bytes}`: `content_hex` is lowercase hexadecimal for a decoded-byte interval of the complete outbound-projected canonical JSON item. Consumers hex-decode, concatenate decoded bytes in item/offset order, UTF-8 decode, and JSON-parse the complete item; offsets and lengths count decoded bytes, while the hex payload itself costs two wire characters per decoded byte. Final sizing measures the complete settled success envelope after ordinary outbound projection, and failure to fit one positive UTF-8 progress unit is a bounded tool failure rather than an empty nonterminal success.
 
-Every successful `mcp_tool_call` instead has data exactly `{result,result_complete,result_utf8_bytes}`. Its source is the outbound-projected MCP transport result serialized as canonical JSON, and `result_utf8_bytes` is the UTF-8 byte count of that complete source including JSON quoting and escaping. When the complete settled success envelope fits 32,768 UTF-8 bytes, `result` preserves the projected source structure and `result_complete` is true. Otherwise `result` is a lossy, projection-stable, exact UTF-8-safe prefix string of that canonical source and `result_complete` is false; secret-safe endpoint selection may make the prefix shorter than the available budget or empty. The complete settled success envelope remains at most 32,768 UTF-8 bytes. There is no continuation, artifact, stash, suffix, or replay. An ordinary MCP invocation failure has a final outbound-projected `error` field of at most 512 UTF-8 bytes; that limit does not include JSON escaping or the rest of the failure envelope. MCP remains outside the response-paging API and participates normally in compaction and request admission.
+`mcp_tool_call` validates the complete native CallToolResult envelope. Successful native text and images retain their original positions in ordered `content`; non-text/non-image protocol blocks are projected JSON serialized as text at their positions, never fetched or promoted into pixels. Envelope extensions, `structuredContent` and `_meta` remain ordinary `data.result`; indexed native metadata and captures are `data.native_content` and `data.images`. Native errors retain safe diagnostics but select no images. Malformed/unknown native blocks fail explicitly. JSON-looking text and image-like structured data stay ordinary data.
+
+Native static PNG/JPEG/WebP require canonical base64 and declared MIME matching decoded format. Each source is at most 32 MiB/40 million pixels; aggregate source images are at most 32 MiB. Orientation and aspect-preserving reduction precede sRGB PNG selection, at most 16 MiB per image. Local optional `max_dimension` uses the same 1..16384 or `original` schema as `view_image`, default 1600, and is not forwarded to the server. Captures preserve actual source/oriented/sent dimensions, applied orientation, resize/scale and requested bound at their content index; no source path is invented. Workspace `view_image` independently remains PNG/JPEG-only with its actual path.
+
+Stdio JSON frames and HTTP JSON/SSE assembly are bounded at 48 MiB UTF-8 wire bytes. Complete projected non-image text/JSON is bounded at 1 MiB, never truncated or paged. Effects may have occurred before oversize failure. All asynchronous conversion and validation finish before the exact invoking signal's immediate fence ahead of synchronous exact-session image publication. Cancellation during normalization publishes no image and propagates the identical reason, including recognized conversion failures; unrelated errors/publication uncertainty propagate unchanged without later effects. Ordinary projected transport/input error fields remain at most 512 UTF-8 bytes. MCP remains outside response paging and participates normally in compaction/admission, through the shared single originating-call Responses/Codex output and distinct atomic multimodal summary/refine user path.
+
+An active stdio invocation's runtime-owned deadline or exact caller cancellation
+synchronously closes that server's admission and discovery, aborts queued work,
+and contains the existing owner before returning. The shared browser context may
+be lost. Queued-only cancellation writes nothing and does not stop another active
+call; a completely consumed response ends the external-request deadline. Successful
+containment preserves the first abort reason: deadline failures are executed MCP
+TIMEOUT failures, while the exact caller reason reaches shared synthetic
+`execution_failed` settlement. Failed containment and unclassified errors propagate
+unchanged; no replay or denial of possible remote effects is implied. HTTP call
+cancellation remains request-local and does not stop the remote service.
+
+Configured MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'})`
+and read-only `mcp_tools({serverName,toolName?})`, strict nonempty names and no extra
+fields. Discovery returns current names/descriptions and exact input schemas through
+outbound redaction; optional exact tool selection avoids catalog overflow. More than
+1 MiB fails explicitly, including a single oversize schema; no schema truncation.
+Discovery grants neither invocation nor control. Unknown owners/config entries fail
+explicitly; stopped/not-ready discovery exposes no phantom capabilities.
+
+Start freshly reads only the exact selected effective MCP config entry; unknown or
+disabled entries reject. Equivalent ready owners return running, overlapping starts
+reject busy and changed non-contained owners require explicit stop first. Successfully
+contained owners can be replaced; failed containment owners are never replaced.
+Startup autostart remains unchanged. Runtime config edits alone change no live MCP:
+explicit stop/start reloads only that selected entry; unrelated routing/workflows
+still require application restart. Stop immediately fences the exact retained owner
+and joins startup/calls/containment, never waiting behind global reconciliation.
+One 180-second start budget includes package fetch, matched browser installation,
+launch, initialize and every discovery page. No per-phase ten-second timeout remains.
+Cancellation/deadline closes admission, awaits direct containment within inner startup
+and joins stop only from untracked outer completion, avoiding self-join. Failed start
+and containment are errors, not installed/ready stubs; no retry or implicit restart.
+Application closure synchronously fences new starts/calls, aborts starts and closes
+all retained owners before joins and clearing. Project Stop leaves MCP alive.
+
+Authenticated `POST /api/mcp/servers/:name/start` and `/stop` have strict empty object
+bodies, no commands/args/env, and successful `{serverName,status:'running'|'stopped',toolCount}`.
+Unknown is 404, disabled/changed/busy conflict 409, invalid body 400; failed start or
+containment is an internal error. They use existing operator authentication and
+shared route registration; no browser-control UI is added.
+
+The runbook pins official Playwright MCP 0.0.83, its matched alpha engine and Chromium
+1247, not a core dependency or unrelated system browser. Child cwd and negotiated
+MCP root are the project workspace; automatic outputs use a dedicated project temp
+directory. Installer output goes to stderr. Headless isolated context is shared across
+admitted agents, not per role/card or durable session continuation. Establish the page/tab
+needed and expect context loss after stop/restart/active stdio cancellation. Native
+screenshots omit filename and supply discovered `scale:'css'`; explicit filename is
+text-only. No persistent profile, CDP/extension attachment, unrestricted file access
+or experimental WebMCP. Browse only non-secret pages, never credentials/provider
+configs/authenticated operator pages; pixels have no automatic secret-removal promise.
 
 MCP argument validation uses the complete unchanged discovered JSON Schema object
 at actual invocation, with root `type:'object'`. Absent `$schema` means 2020-12;
@@ -1486,11 +1542,11 @@ received schema, including declarations and extensions; discovery does not prune
 The negotiated protocol remains `2025-06-18`; this boundary adopts the explicit
 schema-language rule clarified in MCP `2025-11-25`, not a claim that June specified it.
 
-The ordered-content contract and schema-language fix do not change the MCP result
-producer. Native MCP image/browser integration remains unsupported pending native
-mapping and actual-owner containment evidence. There is no native pixel delivery,
-runtime lifecycle/discovery-control addition or supported browser recipe in this
-unit. Image-looking MCP JSON remains ordinary, potentially lossy data.
+Native MCP production now reuses the strict format-6 ordered-content contract
+without changing descriptor/layout or retained-data interpretation. Historical
+ordinary MCP data stays opaque, never normalized into native content. Configured
+runtime lifecycle/discovery uses the same retained owners; the pinned browser recipe
+is in the runbook. Neither native production nor recorded descriptors prove model perception.
 
 At the direct canonical branch of primary provider conversion, successful current process rows are strictly parsed and pass through `validateProcessToolResult()` before copying. For a done process (`status !== 'running'`), each URL is omitted independently only when its corresponding stream is complete; running and partial streams retain their references. Every successful process copy is canonically serialized even when neither URL is omitted, and only that copy's `result_content_sha256` is recomputed before `agentMessageSchema` acceptance. Failed results and other tools pass unchanged. Durable history, live/operator activity, and summarizer source retain both URLs and the original exact row bytes; prepared blocks, retained instructions, and protected-prompt order are untouched. Chat, Responses, and Codex build and measure their actual candidate requests only after this copy. Structurally current hash-consistent retained data can therefore fail at actual primary use for invalid identity, URL, head stability, or canonical-envelope size, but formatting differences alone do not fail and no startup audit or durable normalization occurs.
 
@@ -2019,8 +2075,8 @@ Compilation preserves declaration order in one immutable map and one ordered all
 There is no planning/terminal family or autonomous role classifier.
 Nodes reference card-scoped named agents; the configured global Analyst uses one global named session plus explicit parent/card targets.
 Creation authority is the named agent's global `can_create_children` and `create_card` ceiling intersected with the selected parent's compiled `permitted_child_types`; activation separately requires `activate_card`.
-Default Planner has the exact 21-tool inventory, Reviewer the 12-tool inventory without MCP, Executor the 17-tool inventory with unrestricted configured MCP invocation, and Analyst the 43-tool inventory.
-`mcp_tool_call` is the only agent MCP admission; annotations are descriptive only.
+Default Planner retains 21 tools, Reviewer 13 without MCP, Executor 20 and Analyst 45.
+Analyst/Executor select `mcp_server_control`, `mcp_tools` and `mcp_tool_call` as independent permissions; explicitly configured Reviewer may select them, but Oversight admits none. Annotations are descriptive only.
 
 In `classic-typed`, `project` and `goal` permit all eight non-root types in declaration order; every other type is a leaf.
 `project`, `goal`, and `architecture` declare `brief.md`, `status.md`, and `review.md`; all other types declare `brief.md` and `status.md`.

@@ -51,7 +51,7 @@ import {
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { Provider } from '../../src/agents/provider.js';
-import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, MCP_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { createInvocationServiceProvider } from '../../src/application/invocation-service-provider.js';
@@ -62,6 +62,9 @@ import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 import { ProviderTurnFailure, LlmRequestError } from '../../src/contracts/index.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
+import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 
 const SESSION = 'agent:planner:project' as const;
 const encodedPartBytes = (image: ImageDescriptor) => JSON.stringify({ type: 'input_image', image_url: '' }).length + 'data:image/png;base64,'.length + 4 * Math.ceil(image.byte_length / 3);
@@ -121,8 +124,8 @@ function plan(
     options: options(),
   });
 }
-function rows(image: ImageDescriptor, alternateProducer = false, contentBlocks: readonly ToolResultContentBlock[] = [{ type: 'image', image }]): AgentMessage[] {
-  const tool = alternateProducer ? 'fixture_image_producer' : 'view_image';
+function rows(image: ImageDescriptor, alternateProducer = false, contentBlocks: readonly ToolResultContentBlock[] = [{ type: 'image', image }], nativeResult?: string): AgentMessage[] {
+  const tool = nativeResult ? 'mcp_tool_call' : alternateProducer ? 'fixture_image_producer' : 'view_image';
   const data = {
     source_path: 'screen.png',
     source_dimensions: { width: image.width, height: image.height },
@@ -133,14 +136,14 @@ function rows(image: ImageDescriptor, alternateProducer = false, contentBlocks: 
     scale: { x: 1, y: 1 },
     max_dimension: 'original',
   };
-  const content = settleToolActionOutcome(toolContentSucceeded(alternateProducer ? { caption: 'fixture' } : data, contentBlocks)).settledResultBytes;
+  const content = nativeResult ?? settleToolActionOutcome(toolContentSucceeded(alternateProducer ? { caption: 'fixture' } : data, contentBlocks)).settledResultBytes;
   const policies = toolRowPolicies({
     content,
-    template: {
+    template: nativeResult ? MCP_RESULT_POLICY_TEMPLATE : {
       ...OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       settledAudience: 'primary_and_summarizer',
     },
-    evidence: {
+    evidence: nativeResult ? { kind: 'none' } : {
       kind: 'observational_query',
       observedSha256: createHash('sha256').update(content).digest('hex'),
     },
@@ -222,14 +225,30 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
   async (sessionId) => {
     const projectRoot = root();
     const bytes = await sharp({ create: { width: 13, height: 7, channels: 3, background: '#abcdef' } }).png().toBuffer();
-    const first = publishConversationImage(projectRoot, sessionId, bytes, { width: 13, height: 7 });
-    const second = publishConversationImage(projectRoot, sessionId, bytes, { width: 13, height: 7 });
-    const blocks: ToolResultContentBlock[] = [
-      { type: 'text', text: 'before native image' }, { type: 'image', image: first },
+    const nativeEnvelope = { content: [
+      { type: 'text', text: 'before native image' }, { type: 'image', mimeType: 'image/png', data: bytes.toString('base64') },
       { type: 'text', text: '{"type":"image","image_url":"ordinary JSON-looking text"}' },
-      { type: 'image', image: second }, { type: 'text', text: 'after native image' },
-    ];
-    const sourceRows = rows(first, true, blocks).map((row) => ({ ...row, session_id: sessionId }));
+      { type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }, { type: 'text', text: 'after native image' },
+    ], structuredContent: { type: 'image', data: 'opaque structured lookalike' } };
+    const scope = sessionId === 'agent:analyst:global' ? 'global' : 'card';
+    const surface = new BoundAgentToolSet([resolveRuntimeTool(scope, 'mcp_tool_call')]).bind({
+      scope, agentName: scope === 'global' ? 'analyst' : 'planner', projectRoot,
+      mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => nativeEnvelope, findToolCapability: () => null },
+    } as never);
+    const invocation = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'native-fixture', toolName: 'capture' },
+      testLlmToolInvocationContext({ sessionId, sourceInputId: INPUT, toolCallId: 'call-image', toolName: 'mcp_tool_call' }));
+    expect(invocation.kind).toBe('executed');
+    const settled = settleToolActionOutcome(invocation.kind === 'executed' ? invocation.execution.providerOutcome : invocation.providerOutcome);
+    if (!settled.providerResult.success || !settled.providerResult.content) throw new Error('Expected native content');
+    const blocks = settled.providerResult.content;
+    if (blocks[1]?.type !== 'image' || blocks[3]?.type !== 'image') throw new Error('Expected two native images');
+    const first = blocks[1].image;
+    const second = blocks[3].image;
+    const selectedBytes = Buffer.from((await materializeConversationImage(projectRoot, sessionId, first)).dataUrl.split(',')[1]!, 'base64');
+    const sourceRows = rows(first, true, blocks, settled.settledResultBytes).map((row) => ({ ...row, session_id: sessionId }));
+    sourceRows[1] = { ...sourceRows[1]!, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-image', type: 'function', function: {
+      name: 'mcp_tool_call', arguments: JSON.stringify({ serverName: 'native-fixture', toolName: 'capture' }),
+    } }] }) };
     if (sessionId === 'agent:analyst:global') sourceRows[0] = {
       ...sourceRows[0]!, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: INPUT, timestamp }),
     };
@@ -251,7 +270,7 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
       expect(parts[1]!.text).toBe(blocks[0]!.type === 'text' ? blocks[0]!.text : '');
       expect(parts[3]!.text).toContain('ordinary JSON-looking text');
       expect(parts[5]!.text).toBe('after native image');
-      for (const index of [2, 4]) expect(Buffer.from(String(parts[index]!.image_url).split(',')[1]!, 'base64')).toEqual(bytes);
+      for (const index of [2, 4]) expect(Buffer.from(String(parts[index]!.image_url).split(',')[1]!, 'base64')).toEqual(selectedBytes);
       expect(parts.filter((part) => part.type === 'input_text').some((part) => String(part.text).includes('base64'))).toBe(false);
       expect(built.request.imageCount).toBe(2);
       expect(built.request.estimatedWireInputTokens).toBe(Math.ceil(Buffer.byteLength(built.request.serializedBody) / 4) + rasterReservation(first) + rasterReservation(second));

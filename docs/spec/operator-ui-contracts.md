@@ -53,10 +53,18 @@ duplicate anchors, thumbnails or nested vertical scrollports. Both Request/Resul
 anchors and complete safe-original copy remain unchanged. Generic descriptor
 inspection does not require `source_path` or view_image metadata and does not
 promote nested `data.image`, `image_url` or JSON-looking text. It does not prove a
-tool is an image producer. `view_image` is the only implemented producer and
-selects one descriptor; native MCP image/browser integration remains unsupported.
-Existing lossy MCP metadata stays inspectable as JSON, not a complete-result or
-delivery claim.
+tool is an image producer. `view_image` selects one workspace descriptor; configured
+native MCP production selects every native image in content order. MCP envelope
+metadata and indexed capture dimensions/orientation/resize/scale/bound are separate
+explicit JSON sections, with no required or fabricated `source_path` and no duplicate
+native text/descriptors. Concise MCP lifecycle/discovery presenters show recorded
+ready/stopped outcomes (including context-loss caution) and complete JSON input schemas,
+not browser controls or delivery claims. Authenticated POST lifecycle routes use the
+shared operator contract/auth machinery and strict empty bodies; the coarse MCP status
+view is unchanged. Loaded current instructions show browser guidance only when actually
+composed, never dynamic discovery or full historical wire. Retained ordinary MCP data stays opaque inspectable JSON,
+not retrospectively complete or an attachment/delivery claim. Safe originals/copy,
+paired exact anchors and one reading surface remain unchanged.
 
 ## Repair visibility and selection identity
 

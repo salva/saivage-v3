@@ -5,6 +5,8 @@ import {
   effectiveSaivageConfigSchema,
   saivageConfigSchema,
   type SaivageConfig,
+  type McpServerConfig,
+  mcpServerEntrySchema,
 } from '../schemas/index.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { replaceConfigYaml } from './config-file.js';
@@ -38,6 +40,7 @@ type RawConfig = Record<string, unknown>;
 
 export interface ResolvedConfigAuthority {
   readonly path: string;
+  loadMcpServer(name: string): McpServerConfig | undefined;
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): {
     config: SaivageConfig;
@@ -149,6 +152,16 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     warnings: readonly string[];
   } {
     return this.validateDocument(this.readDocument());
+  }
+
+  loadMcpServer(name: string): McpServerConfig | undefined {
+    const servers = this.readDocument().get('mcpServers', true);
+    if (servers === undefined) return undefined;
+    if (!YAML.isMap(servers)) throw new Error('mcpServers must be a mapping.');
+    const selected = servers.get(name, true) as YAML.Node | undefined;
+    if (selected === undefined) return undefined;
+    const { value } = interpolateValue(selected.toJSON(), this.#interpolationEnvironment);
+    return mcpServerEntrySchema.parse(value);
   }
 
   applyChange(mutation: ConfigMutation): ConfigMutationResult {

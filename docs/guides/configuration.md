@@ -276,7 +276,12 @@ mcpServers:
 ```
 
 MCP tools become available to agents as `mcp_tool_call` according to each
-agent's configured tool inventory. Reconciliation happens at startup.
+agent's configured tool inventory. Reconciliation happens at startup. Independent
+`mcp_server_control` and `mcp_tools` selections allow configured runtime start/stop
+and exact-schema discovery. Defaults select all three for Analyst/Executor; Reviewer
+requires opt-in and Oversight admits none. Edit alone changes no running server:
+explicit stop/start reloads only its current entry, not other workflows/routing.
+See the [pinned browser recipe](../runbook/index.md#configured-browser-lifecycle).
 
 ## Server
 
