@@ -4,6 +4,7 @@ import {
   agentMessageSchema,
   agentNameSchema,
   cardIdSchema,
+  cardTypeNameSchema,
   ConversationSessionIdSchema,
   conversationSessionIdentity,
   positiveSafeIntegerSchema,
@@ -208,6 +209,55 @@ const AgentSessionNotFoundErrorSchema = z
     error: z.literal('Agent session not found'),
   })
   .strict();
+export const AgentCurrentInstructionsResponseSchema = z
+  .object({
+    session_id: ConversationSessionIdSchema,
+    basis: z.literal('server_loaded_configuration'),
+    scope: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('global') }).strict(),
+      z
+        .object({
+          kind: z.literal('card'),
+          card_id: cardIdSchema,
+          card_type: cardTypeNameSchema,
+          ownership: z.enum(['active', 'retained_tombstone']),
+        })
+        .strict(),
+    ]),
+    bindings: z
+      .array(
+        z.discriminatedUnion('kind', [
+          z.object({ kind: z.literal('global'), instructions: z.string() }).strict(),
+          z
+            .object({
+              kind: z.literal('workflow_node'),
+              node_id: z.string().min(1),
+              instructions: z.string(),
+            })
+            .strict(),
+        ]),
+      )
+      .nonempty(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const identity = conversationSessionIdentity(value.session_id);
+    const validScope =
+      value.scope.kind === 'global'
+        ? identity.cardId === null &&
+          value.bindings.length === 1 &&
+          value.bindings[0]!.kind === 'global'
+        : identity.cardId === value.scope.card_id &&
+          value.bindings.every((binding) => binding.kind === 'workflow_node');
+    const nodeIds = value.bindings.flatMap((binding) =>
+      binding.kind === 'workflow_node' ? [binding.node_id] : [],
+    );
+    if (!validScope || new Set(nodeIds).size !== nodeIds.length)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Instructions scope and unique bindings must match the session identity.',
+      });
+  });
 const AgentLlmExchangeNotFoundErrorSchema = z
   .object({
     error: z.literal('llm_exchange_not_found'),
@@ -336,6 +386,24 @@ export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type AgentConversationEntry = z.infer<typeof AgentConversationEntrySchema>;
 export type ConversationSegmentContext = z.infer<typeof ConversationSegmentContextSchema>;
 export const agentOperatorApiContracts = {
+  'agents.currentInstructions': {
+    operationId: 'agents.currentInstructions',
+    method: 'GET',
+    path: '/api/agents/:id/current-instructions',
+    params: AgentSessionParamsSchema,
+    query: z.object({}).strict(),
+    success: AgentCurrentInstructionsResponseSchema,
+    response: {
+      200: AgentCurrentInstructionsResponseSchema,
+      400: ValidationErrorSchema,
+      401: UnauthorizedErrorSchema,
+      404: AgentSessionNotFoundErrorSchema,
+      503: CurrentStateUnavailableSchema,
+      500: UnexpectedInternalServerErrorSchema,
+    },
+    failureIdentity: { kind: 'session', parameter: 'id' },
+    ...operatorSessionContract,
+  },
   'agents.list': {
     operationId: 'agents.list',
     method: 'GET',

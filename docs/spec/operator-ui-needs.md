@@ -187,33 +187,48 @@ into a session-owned singular position. Check a retained exact session with unav
 card flow against the same identity and unavailability rules. A global session such as
 Analyst or Oversight shows global scope, not a fabricated card context.
 
-**F12 — Must — Inspect the recorded conversation.** Read a selected session's current
-indexed segment in source order, with author, entry identity, and available time/context
-distinctions. Check user/agent prose, transitions, corrections, and tool rows; presentation
-must not fabricate hidden reasoning, prepared instructions, or missing transcript rows.
-Calls and results retain separate exact anchors and their physical positions, even with
-intervening prose or different rounds; no grouping conceals individual actions.
-Ordinary recorded system-role text is individually closed at its source position;
-diagnostic, refusal and activation statuses remain visible. The retained conversation
-is a basis for request assembly, not an exact model request or private reasoning viewer.
+**F12 — Must — Inspect the recorded conversation.** Read a selected session's indexed
+segment on one conversation-owned scroll surface, with legible prose and secondary author,
+entry identity, source coordinates and time. Matched tool exchanges appear once at the
+call position by owner-authorized visual grouping, even across intervening rows; both
+exact Request/Result anchors and original provenance remain inspectable. A later-result
+cue prevents backdated knowledge; other messages keep their relative source order.
+Recorded system text closes at its source position; diagnostic, refusal and activation
+statuses remain visible. A repair instruction is not achieved repair; an interrupted
+activation notice visibly says effects are uncertain, with full targeted inline detail.
+One arrival-following owner respects scroll-away and Analyst Pause; Analyst Jump is
+one-shot and does not clear explicit Pause. Reading/disclosure changes do not force jumps.
+Retained content is request-assembly basis, not an exact request or private reasoning viewer.
 
 **F13 — Must — Understand tool effects.** Distinguish a tool call, successful result,
 failed result, and final call with no recorded result; inspect the safe projected request
 and recorded response. Check all four, including an unknown tool. “No result recorded”
 must not imply pending execution, failure, success, or permission to replay.
-Always-visible summaries identify requested action or recorded result, exact tool,
-meaningful target, outcome and salient error, including uncertainty and partial effects.
-Expansion first shows tool-specific operations, observations and content; complete received
-safe projected values are secondary, separately copyable inspection. Check process exit
+Always-visible summaries identify friendly action, meaningful target, outcome and salient
+error, including uncertainty and partial effects, without repeated internal codes/output pills.
+Expansion shows Request then Result with tool-specific arguments, observations and content;
+exact tool codes, identities and times and complete received safe projected values are
+secondary, separately copyable inspection. An unmatched result stays at its original
+position with requested context unavailable. Inspect image exchanges as metadata only,
+including safe descriptors in raw/copy; snapshot recorded proves neither delivery nor
+model perception, and source paths do not preview potentially changed pixels. Check process exit
 versus tool settlement, draft versus acceptance, output-head coverage and confirmation
 without inventing completion, delivery or unavailable content.
 
 **F14 — Must — Compaction and historical context.** Distinguish current transcript,
-selected compacted context, and an explicitly selected older segment. Independently
-inspect the full safe accumulated summary, ordered protected instructions, required
-facts and source/continuation in initially closed sections. Summary is historical context,
-not execution or acceptance evidence. Check a segment transition and unavailable
-historical content: no stitched continuous transcript or loss of current selection is implied.
+selected compacted context, and an explicitly selected older segment. A concise initially
+closed outer context disclosure contains independent full safe summary, ordered protected
+instructions, required facts and source/continuation sections. Activation index and provider
+technical metadata are also optional closed disclosures, not competing scrollports.
+Separately inspect composed **Currently configured instructions**, covering the configured
+global participant or every matching current workflow node in declaration order, including
+retained-card orientation. Label these as server-loaded configuration, never historical
+snapshots, dynamic context, tool definitions or exact requests. Open/reopen reads afresh,
+Refresh explicitly, close/departure discards; unactivated disk edits are not loaded authority.
+Unauthorized, absent/unconfigured and required-current-state-unavailable views must leave
+retained history usable. Summary is historical context, not execution/acceptance evidence.
+Check a segment transition and unavailable history: no stitched transcript or loss of
+current selection is implied.
 
 **F15 — Should — Provider evidence.** From an exact session, inspect its latest available
 settled provider exchange's safe provider/model/account and settlement/request-parameter

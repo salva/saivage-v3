@@ -254,6 +254,19 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, historyDiff);
     if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, parseOperatorResponse('agents.list', 200, { sessions }));
+    if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/current-instructions')) {
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3]!);
+      const session = sessions.find(value => value.id === sessionId);
+      if (!session) return json(route, parseOperatorResponse('agents.currentInstructions', 404, { error: 'Agent session not found' }), 404);
+      return json(route, parseOperatorResponse('agents.currentInstructions', 200, {
+        session_id: sessionId, basis: 'server_loaded_configuration',
+        scope: session.card_id === null ? { kind: 'global' }
+          : { kind: 'card', card_id: session.card_id, card_type: session.card_id === 'project' ? 'project' : 'code', ownership: 'active' },
+        bindings: session.card_id === null
+          ? [{ kind: 'global', instructions: 'Synthetic loaded global instructions. Complete safe text FINAL.' }]
+          : [{ kind: 'workflow_node', node_id: 'work', instructions: 'Synthetic loaded node instructions. Complete safe text FINAL.' }],
+      }));
+    }
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/agent-sessions`) {
       return json(route, parseOperatorResponse('agents.cardSessions', 200, {
         card_id: smokeCardId,

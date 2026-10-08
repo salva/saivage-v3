@@ -65,6 +65,9 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
     lease,
   }), { id: sessionId, lease: subscribe.lease });
   await expect.poll(() => rest.counts.get(conversationKey) ?? 0).toBe(readsBeforeAcknowledgement + 1);
+  const compactedContext = page.getByTestId('conversation-segment-context');
+  await expect(compactedContext).not.toHaveAttribute('open', '');
+  await compactedContext.locator(':scope > summary').click();
   const retained = page.getByTestId('retained-instruction-context');
   await expect(retained.locator(':scope > summary')).toHaveText('Retained instructions (1)');
   await expect(retained).not.toHaveAttribute('open', '');

@@ -65,10 +65,11 @@ offline migration only. No core conversion or implicit deployment is authorized.
 Conversation inspection keeps source-adjacent egress ownership in
 `agent-conversation-read-model.ts`: current and exact-history rows share the canonical
 public projector and selected genesis summaries use the existing outbound text redactor.
-The UI owns independent default-closed selected-genesis and ordinary recorded system-text
-disclosures, keyed by exact accepted segment identity. It preserves physical source anchors
-and same-selection refresh state, without reconstructing requests or changing provider,
-actor, composition, storage or durable contracts. See
+The UI places default-closed genesis, recorded system text, activation index, Technical
+details and current-instructions disclosures in one conversation scroll surface. It keeps
+both physical tool anchors/provenance while combining matched exchanges at the call position,
+and preserves same-selection refresh state without reconstructing requests or changing
+provider, actor invocation, storage or durable contracts. See
 [conversation presentation](../spec/operator-ui-contracts.md#6-conversation-readers).
 
 ## Exact-target repair ownership
@@ -641,11 +642,27 @@ Historical/read-model rows remain strict wire values and use the application Age
 The shared browser conversation renderer owns direct tool-family semantic presentation
 over source-owned safe DTOs, not runtime display metadata or persisted summaries.
 Current and selected-history folding use the same canonical outbound tool projector
-after private-row exclusion. Physical rows retain identity, time and order; exact
-call/result association supplies context and mate anchors only. Family presenters
+after private-row exclusion. Physical rows retain identity, time and order; projection-local
+exact pairing renders matched exchanges once at the call position, suppressing only the
+matched result's visual row. Nonadjacent pairs show a later-result cue and both source
+coordinates/times plus intervening-entry count; other messages keep relative source order.
+Two unique Request/Result anchors reveal the correct half via owner-local scrolling.
+Family presenters
 interpret full success/failure envelopes, preserving domain outcomes, uncertainty and
 known partial effects. Named semantic sections precede separate complete received-safe
 payload disclosures; expansion does not fetch or enrich evidence with current state.
+
+`AgentConversationView` and the existing Analyst reader each bind their own single reading
+surface to `useAgentTimeline`, the sole accepted-arrival following owner. No Analyst frame
+callback bottom jump bypasses its pinned/Pause policy. Analyst Jump is one-shot, clears
+unseen source-entry count and does not uncheck explicit Pause; pinned unpaused arrivals
+follow normally. Context/markdown/code/raw/instructions expand in normal flow, with wrapping
+and the existing large-highlight guard; all rounds mount directly, not an invented virtualizer.
+Tree/Analyst panes remain independently owned. Same-identity details survive refresh;
+replacement/departure resets local state, with no persisted reading-position store.
+`DiagnosticRow` keeps issue, repair-directive and interruption-uncertainty events at source
+position with visible truthful summaries and initially closed full safe bodies opened by
+exact targeting. It neither claims repair achieved nor changes runtime recovery behavior.
 
 Bounded response admission measures the exact canonical bytes of the final post-outbound ToolResult.
 Current and immutable card summaries share one summary projector, ensuring identical final-byte truncation rules across those surfaces. There is no notification section.
@@ -1645,13 +1662,14 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:operator-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `GET /api/agents` | Active compiled-workflow Agent session summaries. | `src/contracts/operator-api-agents.ts:144` |
-| `GET /api/agents/:id` | Exact historical Agent session summary. | `src/contracts/operator-api-agents.ts:158` |
-| `GET /api/cards/:id/agent-sessions` | One active card's Agent session summaries. | `src/contracts/operator-api-agents.ts:176` |
-| `GET /api/agents/:id/conversation` | Current indexed Agent conversation segment with segment-scoped cursor. | `src/contracts/operator-api-agents.ts:210` |
-| `GET /api/agents/:id/conversation/versions` | Immutable conversation segment catalog metadata. | `src/contracts/operator-api-agents.ts:190` |
-| `GET /api/agents/:id/conversation/versions/:version` | One explicitly selected immutable conversation segment. | `src/contracts/operator-api-agents.ts:191` |
-| `GET /api/agents/:id/llm-exchange` | Exact latest Agent provider exchange. | `src/contracts/operator-api-agents.ts:213` |
+| `GET /api/agents` | Active compiled-workflow Agent session summaries. | `src/contracts/operator-api-agents.ts:382` |
+| `GET /api/agents/:id` | Exact historical Agent session summary. | `src/contracts/operator-api-agents.ts:394` |
+| `GET /api/cards/:id/agent-sessions` | One active card's Agent session summaries. | `src/contracts/operator-api-agents.ts:449` |
+| `GET /api/agents/:id/conversation` | Current indexed Agent conversation segment with segment-scoped cursor. | `src/contracts/operator-api-agents.ts:465` |
+| `GET /api/agents/:id/current-instructions` | Composed static instructions for every current loaded session binding. | `src/contracts/operator-api-agents.ts:364` |
+| `GET /api/agents/:id/conversation/versions` | Immutable conversation segment catalog metadata. | `src/contracts/operator-api-agents.ts:410` |
+| `GET /api/agents/:id/conversation/versions/:version` | One explicitly selected immutable conversation segment. | `src/contracts/operator-api-agents.ts:427` |
+| `GET /api/agents/:id/llm-exchange` | Exact latest Agent provider exchange. | `src/contracts/operator-api-agents.ts:484` |
 | `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:20` |
 | `GET /api/chat` | Configured global Analyst identity. | `src/contracts/operator-api-chats.ts:60` |
 | `POST /api/chat` | Configured global Analyst turn submission. | `src/contracts/operator-api-chats.ts:74` |
@@ -1748,16 +1766,23 @@ tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_ba
 Built-in conversation tool-chip presentation is owned by one immutable static descriptor record in the web application.
 Each descriptor supplies the action, read-only grouping classification when applicable, call formatting, and optional successful-result formatting; knownness is the presence of that same descriptor.
 `ToolPair` contains only the durable call and its nullable durable result.
-A null result maps to the neutral factual label `no result recorded`, never to liveness, and receives no success, error, pending, active, or italic outcome treatment.
-`presentToolResult()` is the singular current-envelope boundary and, together with success-only result descriptors, the singular semantic result owner.
-It recognizes success only as `success:true` with optional `data` and no `error` property, and failure only as `success:false` with a string `error` and optional `data`.
-A valid success can project primitive data only through an intentional descriptor.
-A valid failure contributes only its bounded error and error tone; failure `data` and the full envelope are raw-toggle-only.
-Every malformed discriminator and other non-envelope response takes one generic semantic path.
-`buildToolDisplay()` composes this output without parsing raw responses, while a present exact response remains a separate `ToolChip` input revealed only by **Show raw response**.
-Descriptor-owned semantic call formatting remains unchanged, and the exact call always remains separately available through **Show raw request**.
-Names absent from the descriptor record use one explicit generic presentation: raw-request access always remains, while raw-response access and the italic generic-tool hint exist only when a durable result row is present.
-An unmatched unknown call has neither the raw-response control nor the hint.
+A null result maps to neutral **No result recorded**, not inferred liveness or success.
+`presentToolResult()` owns semantic public-envelope presentation with direct family descriptors:
+success requires `success:true` without `error`; failure requires `success:false` and a
+string error. Optional typed image metadata remains producer-neutral. Unexpected shapes
+are explicitly presentation unavailable, not normalized alternate contracts. Domain outcome,
+refusal and partial/uncertain effects remain visible independently of settlement success.
+`buildToolDisplay()` separates action, meaningful target and outcome; `ToolChip` combines
+the paired halves into Request then Result semantic sections with independent complete
+**Safe original request/result** disclosures. Exact code, identities, coordinates and time
+are secondary provenance. Unknown tools retain opaque safe argument/result inspection,
+not inferred effects; missing halves stay explicitly unavailable.
+
+The combined **Inspect image** row reports snapshot recorded and sent dimensions, never
+model delivery/perception. `view_image` request/result paths remain plain text, not Files
+preview links; safe descriptor/metadata detail and copy perform no binary fetch/materialization.
+Typed lower-envelope descriptors are not forced through workspace-specific metadata;
+arbitrary nested image-like/MCP data remains opaque, not an attachment.
 
 This record is presentation policy only.
 It does not replace the compiled named-agent contract, provider implementations, or workflow-generated terminal contract as executable authority.
@@ -1768,6 +1793,35 @@ It does not replace the compiled named-agent contract, provider implementations,
 Inventory derives candidates only from active cards.
 Exact card-scoped admission reads one committed-target artifact catalog and derives active or retained-tombstone ownership from its head without enumerating tombstones; conversation operations then read canonical index metadata and validate the current segment.
 No summary cache, sidecar, app-log decoration, or runtime read model is retained.
+
+`agents.currentInstructions` (`GET /api/agents/:id/current-instructions`) is a strict
+operator-session read defined in `contracts/operator-api-agents.ts` and handled by
+`server/routes/operator-agent-handlers.ts`. The application read model resolves exact
+loaded global/card session scope once, using current card selection or tombstone final card
+for its compiled type, without reading a conversation catalog/body or provider evidence.
+It returns `{session_id,basis:'server_loaded_configuration',scope,bindings}`; global scope
+has one global binding, card scope includes all matching configured nodes in declaration
+order, each with node ID and full composed instructions. Strict schema refinement enforces
+scope/session and unique-binding shape; backend owns membership. Empty strict query excludes
+historical/node selectors. Standard 400/401/404/503/500 errors and session failure identity
+apply; renderer failures expose no prompt body, and publication uncertainty never falls back.
+
+Pure composition reuses `utils/prompt-api.ts` registry rendering over loaded workflows,
+`tools/prompt-api.ts::formatVocabularySnippet` for Analyst/Oversight and runtime facade's
+`describeNodeResultContract` for workflow outcome/record-gate substitution. It does not
+prepare an invocation or read edited disk templates. Each fully rendered string passes
+`redactTextForOutbound` before explicit DTO assembly. Dynamic card/tree/focus blocks, tool
+definitions, private replay/wire bodies, provider/auth/environment configuration, source
+paths and admission/hash artifacts are excluded; no unredacted variant or prompt logging.
+Loaded image guidance is preserved without calling image materialization or provider actors.
+
+`CurrentInstructions` is initially closed beside retained context in both existing readers.
+Open/reopen reads afresh; explicit Refresh replaces content, failure shows no-current-content;
+close/departure/session change aborts/discards via existing owner-local request fencing.
+Same-session transcript/segment updates neither refetch nor reset it. Held-open text is
+last fetched current configuration, not live tracking, an in-flight request or historical
+snapshot; historical selection and retained tombstones label this distinction explicitly.
+No polling/cache/socket topic, durable family, current/history DTO or actor behavior changes.
 
 The durable pairing reducer permits only a sole final unmatched call.
 Cursor and bounded selection happen after complete validation, so a selected result may have its call before the selected boundary.

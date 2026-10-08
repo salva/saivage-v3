@@ -4,6 +4,7 @@
       <RouterLink
         v-if="part.kind === 'file'"
         class="inline-part inline-part-file"
+        :title="part.path"
         :to="{ name: 'files', query: { root: part.root, path: part.path } }"
       >{{ part.label || part.path }}</RouterLink>
       <RouterLink
@@ -12,8 +13,8 @@
         :to="{ name: 'card-detail', params: { id: part.id } }"
         :title="cardTitle(part.id)"
       >{{ cardLabel(part.id, part.fallbackLabel) }}</RouterLink>
-      <RouterLink v-else-if="part.kind === 'session'" class="inline-part inline-part-card" :to="{ name: 'agent-detail', params: { id: part.id } }">{{ part.label }}</RouterLink>
-      <button v-else-if="part.kind === 'entry'" type="button" class="inline-part inline-part-entry" @click="revealEntry($event, part.id)">{{ part.label }}</button>
+      <RouterLink v-else-if="part.kind === 'session'" class="inline-part inline-part-card" :title="part.id" :to="{ name: 'agent-detail', params: { id: part.id } }">{{ part.label }}</RouterLink>
+      <button v-else-if="part.kind === 'entry'" type="button" class="inline-part inline-part-entry" @click="revealEntry(part.id)">{{ part.label }}</button>
       <span v-else class="inline-part inline-part-text"><JsonText v-if="part.language === 'json'" :text="part.text" /><template v-else>{{ part.text }}</template></span>
     </template>
   </span>
@@ -22,16 +23,14 @@
 <script setup lang="ts">
 import type { InlinePart } from '../../utils/tool-presenters';
 import JsonText from './JsonText.vue';
+import { inject } from 'vue';
+import { revealConversationEntry } from '../../composables/useAgentTimeline';
 
 defineProps<{ parts: InlinePart[] }>();
+const reveal = inject(revealConversationEntry, undefined);
 
-function revealEntry(event: MouseEvent, id: string): void {
-  const timeline = (event.currentTarget as HTMLElement).closest('.conversation-timeline');
-  const row = [...(timeline?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((element) => element.dataset.entryId === id);
-  if (!row) return;
-  row.tabIndex = -1;
-  row.scrollIntoView({ block: 'center' });
-  row.focus({ preventScroll: true });
+function revealEntry(id: string): void {
+  void reveal?.(id);
 }
 
 function cardLabel(id: string, fallbackLabel?: string): string {

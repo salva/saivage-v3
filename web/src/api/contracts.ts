@@ -8,7 +8,11 @@ export {
   CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';
 
-export { DURABLE_PRIMARY_CONTENT_POLICY, parseConversationSessionId } from '@saivage/schemas';
+export {
+  DURABLE_PRIMARY_CONTENT_POLICY,
+  parseConversationSessionId,
+  ConversationSessionIdSchema,
+} from '@saivage/schemas';
 export type { ConversationSessionId } from '@saivage/schemas';
 
 export type {
@@ -50,17 +54,11 @@ export type {
 
 export type { ProviderExchangePayload } from '@saivage/contracts/provider-exchange';
 
-export {
-  workspaceNavigationIntentSchema,
-} from '@saivage/contracts/workspace-navigation';
+export { workspaceNavigationIntentSchema } from '@saivage/contracts/workspace-navigation';
 export type {
   WorkspaceNavigationIntent,
   WorkspaceNavigationTarget,
 } from '@saivage/contracts/workspace-navigation';
 
-export type {
-  CardStatus,
-  RuntimeState,
-  RuntimeStatus,
-} from '@saivage/schemas';
+export type { CardStatus, RuntimeState, RuntimeStatus } from '@saivage/schemas';
 export type { CardTypeName as CardType } from '@saivage/schemas';

@@ -23,10 +23,10 @@ function metadata(message: AgentConversationEntry): string {
 }
 </script>
 <style scoped>
-.retained-instructions { font-size: 12px; }
+.retained-instructions { font-size: 15px; line-height:1.5; color:var(--text); }
 summary { cursor: pointer; overflow-wrap: anywhere; }
-.retained-instructions p { margin: 0; color: var(--text-muted); }
+.retained-instructions p { margin: 0; color: var(--text); }
 .retained-instructions ol { display: grid; gap: 8px; margin: 0; padding-left: 22px; }
 .retained-instructions pre { margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.declaration { color: var(--text-muted); }
+.declaration { color: var(--text); }
 </style>

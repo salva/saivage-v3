@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +25,11 @@ import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
 import { RESPONSES_A } from '../helpers/responses-producer-fixture.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
+import { compilePromptTemplate, createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
+import { describeNodeResultContract } from '../../src/runtime/runtime-api.js';
+import { formatVocabularySnippet } from '../../src/tools/prompt-api.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
+import { globalAgentConversationsRoot, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-24T00:00:00.000Z';
@@ -34,6 +39,115 @@ afterEach(() => {
 });
 
 describe('AgentOperatorReadModelService granular resources', () => {
+  it('renders both configured globals from loaded composition without consuming or creating conversations', () => {
+    const root = createRoot();
+    const before = readFileSync(cardHeadFile(root, 'project'));
+    const capture = jest.fn(() => new Map());
+    const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, capture);
+    const templates = createPromptTemplateRegistry(TEST_WORKFLOWS);
+    const oversightRoot = join(globalAgentConversationsRoot(root), TEST_WORKFLOWS.oversight.name);
+    expect(existsSync(oversightRoot)).toBe(false);
+    for (const { agent } of TEST_WORKFLOWS.selectedGlobalParticipants.values()) {
+      const result = service.getCurrentInstructions(globalAgentSessionId(agent.name));
+      expect(result).toEqual({ session_id: globalAgentSessionId(agent.name), basis: 'server_loaded_configuration',
+        scope: { kind: 'global' }, bindings: [{ kind: 'global', instructions: redactTextForOutbound(templates.render(
+          { kind: 'global-agent' }, agent.name, { vocabularySnippet: formatVocabularySnippet(TEST_WORKFLOWS.cardTypeVocabulary) },
+        )) }] });
+    }
+    expect(capture).not.toHaveBeenCalled();
+    expect(existsSync(oversightRoot)).toBe(false);
+    expect(readFileSync(cardHeadFile(root, 'project'))).toEqual(before);
+    expect(() => service.getCurrentInstructions(globalAgentSessionId('unconfigured'))).toThrow(AgentSessionNotFoundError);
+  });
+
+  it('renders every matching node in declaration order using actual outcome/gate builders and full-composition redaction', () => {
+    const root = createRoot();
+    const workflow = TEST_WORKFLOWS.cardTypes.get('project')!;
+    const selected = [...workflow.states].find(([, state]) => state.kind === 'node' && state.agent.name === 'planner')!;
+    const [stateId, state] = selected;
+    if (state.kind !== 'node') throw new Error('Expected planner node');
+    // Workflow templates require exactly one contract placeholder. Put the secret seam
+    // across adjacent fragment/literal tokens instead of duplicating that placeholder.
+    const seamCompiled = compilePromptTemplate({ host: { kind: 'workflow-agent', cardType: 'project' },
+      name: 'planner', path: '/fixture-only/prompt.md', text: '{{> safety}}seam-canary\n{{contractDescription}}\nFINAL',
+      resolveFragment: () => ({ path: '/fixture-only/fragment.md', text: 'api_key=fragment-canary\nsk-' }) });
+    const node = { ...state, selectedAgentPrompt: { ...state.selectedAgentPrompt, compiled: seamCompiled },
+      requirements: [{ definition: { ...workflow.bootstrapRecord, name: 'sk-substituted-canary.md' }, mode: 'clean' as const, gate: 'updated' as const }] };
+    const outcomeRoute = [...node.on.values()].find(route => route.semantic.kind === 'configured-outcome')!;
+    if (outcomeRoute.semantic.kind !== 'configured-outcome') throw new Error('Expected configured outcome');
+    const second = { ...node, nodeId: 'second', on: new Map(node.on).set('result:second-outcome', {
+      ...outcomeRoute, semantic: { ...outcomeRoute.semantic, outcome: 'second-outcome' },
+    }) };
+    const expanded = { ...workflow, states: new Map(workflow.states).set(stateId, node).set('node:second', second) };
+    const workflows = { ...TEST_WORKFLOWS, cardTypes: new Map(TEST_WORKFLOWS.cardTypes).set('project', expanded) };
+    const service = new AgentOperatorReadModelService(root, workflows, () => { throw new Error('No runtime snapshot work'); });
+    const before = readFileSync(cardHeadFile(root, 'project'));
+    const result = service.getCurrentInstructions(cardAgentSessionId('planner', 'project'));
+    const templates = createPromptTemplateRegistry(workflows);
+    const expected = [...expanded.states].flatMap(([key, value]) => value.kind === 'node' && value.agent.name === 'planner'
+      ? [{ kind: 'workflow_node', node_id: value.nodeId, instructions: redactTextForOutbound(templates.render(
+        { kind: 'workflow-agent', cardType: 'project' }, 'planner', { contractDescription: describeNodeResultContract(expanded, key) },
+      )) }] : []);
+    expect(result.bindings).toEqual(expected);
+    expect(result.bindings.at(-1)!.instructions).toContain('second-outcome');
+    expect(result.bindings[0]!.instructions).not.toContain('second-outcome');
+    expect(result.bindings[0]!.instructions).toContain('Required record gates:');
+    expect(result.scope).toEqual({ kind: 'card', card_id: 'project', card_type: 'project', ownership: 'active' });
+    expect(JSON.stringify(result)).not.toContain('canary');
+    expect(JSON.stringify(result)).not.toContain('/fixture-only');
+    expect(result.bindings.every(binding => binding.instructions.endsWith('FINAL'))).toBe(true);
+    expect(readFileSync(cardHeadFile(root, 'project'))).toEqual(before);
+    expect(Object.keys(result).sort()).toEqual(['basis', 'bindings', 'scope', 'session_id']);
+  });
+
+  it('projects fragment seams and substituted vocabulary for both configured global compositions', () => {
+    const root = createRoot();
+    const participants = new Map(TEST_WORKFLOWS.selectedGlobalParticipants);
+    for (const [name, participant] of participants) {
+      const compiled = compilePromptTemplate({ host: { kind: 'global-agent' }, name,
+        path: '/fixture-only/global.md', text: '{{> safety}}seam-canary\n{{vocabularySnippet}}\nGLOBAL-FINAL',
+        resolveFragment: () => ({ path: '/fixture-only/fragment.md', text: 'api_key=fragment-canary\nsk-' }) });
+      participants.set(name, { ...participant, prompt: { ...participant.prompt, compiled } });
+    }
+    const workflows = { ...TEST_WORKFLOWS, selectedGlobalParticipants: participants,
+      cardTypeVocabulary: [...TEST_WORKFLOWS.cardTypeVocabulary, 'sk-vocabulary-canary'] };
+    const service = new AgentOperatorReadModelService(root, workflows, () => { throw new Error('No invocation observation'); });
+    const registry = createPromptTemplateRegistry(workflows);
+    const before = readFileSync(cardHeadFile(root, 'project'));
+    const analystPath = globalAgentConversationVersionIndexFile(root, workflows.analyst.name);
+    const analystBefore = readFileSync(analystPath);
+    for (const { agent } of workflows.selectedGlobalParticipants.values()) {
+      const raw = registry.render({ kind: 'global-agent' }, agent.name,
+        { vocabularySnippet: formatVocabularySnippet(workflows.cardTypeVocabulary) });
+      expect(raw).toContain('sk-seam-canary');
+      expect(raw).toContain('sk-vocabulary-canary');
+      const result = service.getCurrentInstructions(globalAgentSessionId(agent.name));
+      expect(result.bindings).toEqual([{ kind: 'global', instructions: redactTextForOutbound(raw) }]);
+      expect(JSON.stringify(result)).not.toContain('canary');
+      expect(result.bindings[0]!.instructions.endsWith('GLOBAL-FINAL')).toBe(true);
+      expect(Object.keys(result.bindings[0]!).sort()).toEqual(['instructions', 'kind']);
+    }
+    expect(readFileSync(cardHeadFile(root, 'project'))).toEqual(before);
+    expect(readFileSync(analystPath)).toEqual(analystBefore);
+    expect(existsSync(join(globalAgentConversationsRoot(root), workflows.oversight.name))).toBe(false);
+  });
+
+  it('uses current card type and retained final-card orientation, and rejects damaged exact selections', () => {
+    const root = createRoot(); const cards = new CardService(root);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Private dynamic title', bootstrap_content: 'Private dynamic brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
+    const session = cardAgentSessionId('executor', child.id);
+    const active = service.getCurrentInstructions(session);
+    expect(active.bindings).toHaveLength(1);
+    expect(JSON.stringify(active)).not.toContain('Private dynamic');
+    cards.deleteSubtrees([child.id], () => true);
+    expect(service.getCurrentInstructions(session)).toEqual({ ...active,
+      scope: { kind: 'card', card_id: child.id, card_type: 'code', ownership: 'retained_tombstone' } });
+    expect(() => service.getCurrentInstructions(cardAgentSessionId('planner', child.id))).toThrow(AgentSessionNotFoundError);
+    expect(() => service.getCurrentInstructions(cardAgentSessionId('executor', 'card-z'))).toThrow(AgentSessionNotFoundError);
+    writeFileSync(cardHeadFile(root, child.id), '{broken');
+    expect(() => service.getCurrentInstructions(session)).toThrow(AgentCurrentStateUnavailableError);
+  });
   it('hides private producer provenance in actual current, historical, compacted and tool-tail projections', async () => {
     const root = createRoot();
     const session = await publishThreeGenerationCompactedConversation(root, 'visible summary', undefined, RESPONSES_A);

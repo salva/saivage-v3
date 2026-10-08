@@ -33,12 +33,24 @@ const preservedReadAndBoundedWriteExports = [
   'getCardRecord',
   'getRuntimeState',
   'getRuntimeStatus',
+  'getAgentCurrentInstructions',
   'restartServer',
   'issueWebSocketTicket',
   'sendChatMessage',
 ] as const;
 
 describe('operator API client contracts after S06 mutation removal', () => {
+  it('uses the singular encoded current-instructions operation, abort signal and strict shared response', async () => {
+    const body = { session_id: 'agent:analyst:global', basis: 'server_loaded_configuration', scope: { kind: 'global' }, bindings: [{ kind: 'global', instructions: 'Complete safe FINAL' }] };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    expect(await client.getAgentCurrentInstructions('agent:analyst:global', controller.signal)).toEqual(body);
+    expect(new URL(fetch.mock.calls[0]![0]).pathname).toBe('/api/agents/agent%3Aanalyst%3Aglobal/current-instructions');
+    expect(fetch.mock.calls[0]![1]).toEqual(expect.objectContaining({ signal: controller.signal }));
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ ...body, provider: 'private' }), { status: 200 }));
+    await expect(client.getAgentCurrentInstructions('agent:analyst:global')).rejects.toThrow();
+  });
   afterEach(() => vi.unstubAllGlobals());
   it('does not export removed operator-side mutation helpers', () => {
     for (const name of removedMutationExports) {

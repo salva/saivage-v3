@@ -206,7 +206,7 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
-  it('renders ordered separate Analyst call/result anchors and semantic content with no expansion fetch', async () => {
+  it('renders one Analyst exchange with both source anchors and semantic content with no expansion fetch', async () => {
     api.getAgentConversation.mockResolvedValue({
       session_id: analystSessionId,
       segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null,
@@ -216,20 +216,47 @@ describe('AnalystChatPanel', () => {
     const wrapper = mountPanel();
     await flushPromises();
     expect(wrapper.text()).toContain('hello');
-    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['1', '2', 'correction', '3']);
-    expect(wrapper.findAll('.tool-chip')).toHaveLength(2);
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['1', 'correction']);
+    expect(wrapper.findAll('.tool-chip')).toHaveLength(1);
     const chip = wrapper.find('.tool-chip');
     expect(chip.text()).toContain('Read');
     expect(chip.text()).toContain('README.md');
     await chip.find('button.tool-chip-toggle').trigger('click');
     expect(chip.find('button.tool-chip-toggle').attributes('aria-expanded')).toBe('true');
-    expect(wrapper.find('.tool-chip-body').exists()).toBe(true);
-    const recorded = wrapper.findAll('.tool-chip')[1];
-    await recorded.find('button.tool-chip-toggle').trigger('click');
+    expect(wrapper.find('.tool-chip-detail').exists()).toBe(true);
+    const recorded = wrapper.find('.tool-result');
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['1', '2', '3', 'correction']);
     expect(recorded.text()).toContain('Recorded content');
     expect(recorded.text()).toContain('docs');
     expect(api.getAgentConversation).toHaveBeenCalledTimes(1);
-    expect(recorded.find('.tool-chip-raw').exists()).toBe(false);
+    expect((recorded.find('.safe-original').element as HTMLDetailsElement).open).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each([false, true])('does not bypass arrival following after an accepted frame (Pause=%s)', async (paused) => {
+    let callback!: (frame: ConversationInvalidation) => Promise<void>;
+    live.openConversation.mockImplementation((_id, value) => { callback = value; void callback(null); return live.closeConversation; });
+    api.getAgentConversation.mockResolvedValueOnce({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: entries.slice(0, 2), cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '2' } });
+    const wrapper = mountPanel();
+    await flushPromises();
+    const owner = wrapper.get('.chat-scroll-area');
+    Object.defineProperties(owner.element, { scrollHeight: { configurable: true, value: 2000 }, clientHeight: { configurable: true, value: 300 } });
+    (owner.element as HTMLElement).scrollTop = 200;
+    await owner.trigger('scroll');
+    if (paused) await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.get('.tool-chip-toggle').trigger('click');
+    api.getAgentConversation.mockResolvedValueOnce({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [entries[2]], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' } });
+    await callback({ t: 'invalidate', resource: 'conversation', id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: '3' });
+    await flushPromises();
+    expect((owner.element as HTMLElement).scrollTop).toBe(200);
+    expect(wrapper.findAll('.tool-chip')).toHaveLength(1);
+    expect(wrapper.get('.tool-chip-toggle').attributes('aria-expanded')).toBe('true');
+    expect(wrapper.get('.jump-to-latest').text()).toContain('1 new');
+    expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(paused);
+    await wrapper.get('.jump-to-latest').trigger('click');
+    await nextTick();
+    expect((owner.element as HTMLElement).scrollTop).toBe(2000);
+    expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(paused);
     wrapper.unmount();
   });
 

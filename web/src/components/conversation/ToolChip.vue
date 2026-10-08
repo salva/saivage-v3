@@ -1,121 +1,62 @@
 <template>
-  <div class="tool-chip tool-call" :data-entry-id="entryId" :class="[statusClass, { 'tool-result': resultContent !== null }]" role="group" :aria-label="groupLabel">
+  <div class="tool-chip" :data-tool-entry-id="entryId" role="group" :aria-label="`tool ${display.toolName}`">
     <div class="tool-chip-main">
-      <button type="button" class="tool-chip-toggle" :aria-expanded="expanded" :aria-controls="detailsId" :aria-label="toggleLabel" @click="$emit('toggle')">
-        <span class="tool-chip-caret" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
+      <button type="button" class="tool-chip-toggle" :aria-expanded="expanded" :aria-controls="detailsId" :aria-label="`${expanded ? 'Collapse' : 'Expand'} tool ${display.toolName} details`" @click="$emit('toggle')">
+        <span aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
         <strong class="tool-chip-action">{{ display.action }}</strong>
-        <code class="tool-chip-name">{{ display.toolName }}</code>
-        <span v-if="display.target.length" class="tool-chip-target"><InlineParts :parts="display.target" /></span>
-        <span v-if="display.status.length" class="tool-chip-status" :data-tone="display.statusTone"><InlineParts :parts="display.status" /></span>
-        <span v-if="timestamp" class="tool-chip-time" :title="timeTitle">{{ formattedTimestamp }}</span>
+        <span class="tool-chip-target"><InlineParts :parts="display.target" /></span>
+        <span class="tool-chip-status" :data-tone="display.statusTone"><InlineParts :parts="display.status" /></span>
       </button>
       <InlineParts v-if="display.links.length" class="tool-chip-links" :parts="display.links" />
     </div>
+    <span v-if="interveningEntries" class="later-result">Result recorded later</span>
     <div v-if="expanded" :id="detailsId" class="tool-chip-detail">
-      <div class="tool-chip-body">
-        <dl class="tool-chip-fields">
-          <div class="tool-chip-field">
-            <dt>Tool</dt>
-            <dd><code>{{ display.toolName }}</code></dd>
-          </div>
-          <div class="tool-chip-field">
-            <dt>Status</dt>
-            <dd :data-tone="display.statusTone">{{ statusText }}</dd>
-          </div>
-          <div v-if="display.target.length || display.links.length" class="tool-chip-field">
-            <dt>Target</dt>
-            <dd><InlineParts :parts="detailTarget" /></dd>
-          </div>
-        </dl>
-        <ToolSemanticSection v-for="(section, index) in display.sections" :key="index" :section="section" />
-      </div>
-      <div class="tool-chip-raw-bar">
-        <button v-if="callContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawCall" @click="showRawCall = !showRawCall">{{ showRawCall ? 'Hide safe original request' : 'Safe original request' }}</button>
-        <button v-if="resultContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawResult" @click="showRawResult = !showRawResult">{{ showRawResult ? 'Hide safe original result' : 'Safe original result' }}</button>
-      </div>
-      <CodeBlock v-if="showRawCall && callContent !== null" class="tool-chip-raw" :code="callContent" language="json" copyable wrap aria-label="Safe original tool request" />
-      <CodeBlock v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :code="resultContent" language="json" copyable wrap aria-label="Safe original tool result" />
+      <p>Tool <code>{{ display.toolName }}</code></p>
+      <p v-if="interveningEntries">{{ interveningEntries }} retained entries between request and result. The result was not necessarily known at the intervening entries.</p>
+      <section v-if="callContent !== null" :data-entry-id="entryId" class="tool-request" tabindex="-1">
+        <h4>Request</h4><p class="provenance">{{ requestProvenance }}</p>
+        <ToolSemanticSection v-for="(section, index) in display.requestSections" :key="index" :section="section" />
+        <details class="safe-original"><summary>Safe original request</summary><CodeBlock :code="callContent" language="json" max-height="none" copyable wrap aria-label="Safe original tool request" /></details>
+      </section>
+      <p v-else>Requested context unavailable</p>
+      <section v-if="resultContent !== null" :data-entry-id="resultEntryId ?? entryId" class="tool-result" tabindex="-1">
+        <h4>Result</h4><p class="provenance">{{ resultProvenance }}</p>
+        <ToolSemanticSection v-for="(section, index) in display.resultSections" :key="index" :section="section" />
+        <details class="safe-original"><summary>Safe original result</summary><CodeBlock :code="resultContent" language="json" max-height="none" copyable wrap aria-label="Safe original tool result" /></details>
+      </section>
+      <p v-else>No result recorded</p>
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
 import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import ToolSemanticSection from './ToolSemanticSection.vue';
-import type { ToolDisplayModel, ToolTone } from '../../utils/tool-friendly';
-import { inlinePartsText } from '../../utils/tool-friendly';
-import { formatRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
-
-const props = defineProps<{
-  entryId: string;
-  display: ToolDisplayModel;
-  callContent: string | null;
-  resultContent: string | null;
-  expanded: boolean;
-  detailsId: string;
-  timestamp?: string;
+import type { ToolDisplayModel } from '../../utils/tool-friendly';
+defineProps<{
+  entryId: string; resultEntryId?: string; display: ToolDisplayModel;
+  callContent: string | null; resultContent: string | null;
+  expanded: boolean; detailsId: string;
+  requestProvenance?: string; resultProvenance?: string; interveningEntries?: number;
 }>();
-
 defineEmits<{ (event: 'toggle'): void }>();
-
-const outcomeClass = {
-  neutral: '',
-  ok: 'tool-chip-ok',
-  error: 'tool-chip-error',
-} satisfies Record<ToolTone, string>;
-const statusClass = computed(() => outcomeClass[props.display.statusTone]);
-const detailTarget = computed(() => [...props.display.target, ...props.display.links]);
-const groupLabel = computed(() => `tool ${props.display.toolName} ${props.display.statusTone}`);
-const toggleLabel = computed(() => `${props.expanded ? 'Collapse' : 'Expand'} tool ${props.display.toolName} details`);
-const formattedTimestamp = computed(() => props.timestamp ? formatRecentTimestamp(props.timestamp) : '');
-const timeTitle = computed(() => props.timestamp ? absoluteTimestampTitle(props.timestamp) : '');
-const statusText = computed(() => inlinePartsText(props.display.status));
-
-const showRawCall = ref(false);
-const showRawResult = ref(false);
-
-watch(() => props.expanded, (open) => { if (!open) { showRawCall.value = false; showRawResult.value = false; } });
-watch(() => props.callContent, () => { showRawCall.value = false; });
-watch(() => props.resultContent, () => { showRawResult.value = false; });
 </script>
-
 <style scoped>
-.tool-chip { display:flex; flex-direction:column; gap:2px; width:100%; min-width:0; max-width:100%; }
-.tool-chip-main { display:flex; flex-wrap:wrap; align-items:baseline; width:100%; min-width:0; max-width:100%; }
-.tool-chip-toggle { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; flex:1 1 12rem; min-width:0; max-width:100%; border:0; padding:4px 6px; background:transparent; color:var(--text-muted); cursor:pointer; font:inherit; font-size:12px; text-align:left; border-radius:var(--radius-sm); }
+.tool-chip { width:100%; min-width:0; color:var(--text); font-size:15px; line-height:1.5; }
+.tool-chip-main { display:flex; flex-wrap:wrap; align-items:baseline; min-width:0; }
+.tool-chip-toggle { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; flex:1 1 18rem; min-width:0; max-width:100%; border:0; padding:6px; background:transparent; color:var(--text); cursor:pointer; font:inherit; text-align:left; border-radius:4px; }
 .tool-chip-toggle:hover { background:var(--surface-2); }
-.tool-chip-caret { color:var(--text-muted); }
-.tool-chip-action { color:var(--accent-2); font-weight:600; min-width:0; max-width:100%; overflow-wrap:anywhere; }
-.tool-chip-name { min-width:0; max-width:100%; overflow-wrap:anywhere; }
-.tool-chip-target { flex:1 1 12rem; color:var(--text-muted); min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
-.tool-chip-status { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:1px 8px; line-height:1.35; }
-.tool-chip-status[data-tone="ok"] { color:var(--accent-2); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); }
-.tool-chip-status[data-tone="error"] { color:var(--danger); border-color:var(--entry-danger-border); background:var(--entry-danger-bg); }
-.tool-chip-time { color:var(--text-muted); font-size:11px; white-space:nowrap; }
-.tool-chip-error .tool-chip-action { color:var(--danger); }
-.tool-chip-error .tool-chip-toggle { background:var(--entry-danger-bg); }
-.tool-chip-links { flex-wrap:wrap; align-items:baseline; padding:3px 0 3px 8px; font-size:12px; min-width:0; max-width:100%; }
-.tool-chip-target :deep(.inline-parts), .tool-chip-status :deep(.inline-parts) { flex-wrap:wrap; min-width:0; max-width:100%; }
-.tool-chip-target :deep(.inline-part), .tool-chip-status :deep(.inline-part), .tool-chip-links :deep(.inline-part) { min-width:0; max-width:100%; white-space:normal; }
-
-.tool-chip-detail { display:flex; flex-direction:column; gap:8px; background:var(--surface-1); border-left:2px solid var(--surface-3); border-radius:0 var(--radius-sm) var(--radius-sm) 0; padding:8px 12px; margin:4px 0 4px 22px; }
-.tool-chip-error .tool-chip-detail { border-left-color:var(--danger); background:var(--entry-danger-bg); }
-.tool-chip-body { display:flex; flex-direction:column; gap:8px; font-size:13px; }
-.tool-chip-fields { display:flex; flex-direction:column; gap:4px; margin:0; }
-.tool-chip-field { display:flex; align-items:baseline; gap:8px; min-width:0; }
-.tool-chip-field dt { color:var(--text-muted); font-size:var(--font-size-sm); flex-shrink:0; }
-.tool-chip-field dd { min-width:0; color:var(--text); overflow-wrap:anywhere; margin:0; }
-.tool-chip-field dd[data-tone="ok"] { color:var(--accent-2); }
-.tool-chip-field dd[data-tone="error"] { color:var(--danger); }
-.tool-chip-field code { font-family:'SF Mono',monospace; font-size:12px; color:var(--text-muted); }
-.detail-hint { font-size:11px; color:var(--text-muted); font-style:italic; }
-
-.tool-chip-raw-bar { display:flex; gap:8px; flex-wrap:wrap; }
-.raw-toggle { border:1px solid var(--border); background:transparent; color:var(--text-muted); border-radius:4px; padding:2px 8px; font:inherit; font-size:11px; cursor:pointer; }
-.raw-toggle:hover { color:var(--text); border-color:var(--border-strong); }
-.raw-toggle[aria-expanded="true"] { color:var(--accent-2); border-color:var(--accent-2); }
-.tool-chip-raw { border-left:2px solid var(--surface-3); padding-left:10px; }
-
+.tool-chip-toggle:focus-visible, summary:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
+.tool-chip-action { color:var(--text); }
+.tool-chip-target { flex:1 1 12rem; min-width:min(12rem,100%); overflow-wrap:anywhere; }
+.tool-chip-status { overflow-wrap:anywhere; }
+.tool-chip-status[data-tone="error"] { color:var(--danger); }
+.tool-chip-links { padding:6px; overflow-wrap:anywhere; }
+.later-result { display:block; padding-left:24px; }
+.tool-chip-detail { margin:6px 0 6px 16px; padding:12px; border-left:2px solid var(--border-strong); background:var(--surface-1); overflow-wrap:anywhere; }
+.tool-chip-detail p { margin:4px 0; }
+.tool-chip-detail h4 { margin:12px 0 4px; font-size:15px; }
+.provenance { overflow-wrap:anywhere; }
+summary { cursor:pointer; }
+.tool-chip :deep(.inline-parts) { flex-wrap:wrap; min-width:0; max-width:100%; }
 </style>

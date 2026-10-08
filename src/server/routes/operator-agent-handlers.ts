@@ -40,6 +40,25 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
   };
 
   return defineOperatorContractHandlers({
+    'agents.currentInstructions': ({ params }) => {
+      try {
+        return { body: agentReadModel().getCurrentInstructions(params.id) };
+      } catch (error) {
+        if (error instanceof AgentSessionNotFoundError)
+          return { statusCode: 404, body: { error: 'Agent session not found' } };
+        if (error instanceof AgentCurrentStateUnavailableError)
+          return {
+            statusCode: 503,
+            body: {
+              error: 'current_state_unavailable',
+              resource: error.resource,
+              owner_id: error.ownerId,
+              restart_required: true,
+            },
+          };
+        throw error;
+      }
+    },
     'agents.list': () => ({ body: agentReadModel().listSessions() }),
     'agents.detail': ({ params }) => {
       try {

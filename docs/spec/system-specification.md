@@ -4,8 +4,12 @@ The selected retained conversation and actual compacted genesis are inspectable 
 the existing operator contracts. Shared source-owned outbound projection redacts summary
 prose and current/exact-history text and tool rows; protected instructions retain their
 public coordinates and protection. Selection, cursors and strict consumption scopes are
-unchanged. This conversation is a basis for request assembly, not the exact model request:
-prepared/static instructions, tool definitions, protocol encoding and private replay differ.
+unchanged. The reader has one scroll surface and combines exact tool exchanges at the
+request position, with a later-result cue and both original anchors/coordinates/times;
+canonical source order is unchanged. This conversation is a basis for request assembly,
+not the exact model request: prepared/static additions, tool definitions, protocol encoding
+and private replay differ. A separate optional current-instructions read composes loaded
+static configuration, not historical or exact-request snapshots.
 See [conversation presentation](operator-ui-contracts.md#6-conversation-readers).
 
 ## Explicit repair and coarse loss
@@ -588,7 +592,7 @@ REST `chats.send` (`POST /api/chat`) is the sole Analyst submission transport. T
 An overlap is rejected immediately, never queued: REST maps the typed busy error to HTTP 409; the exact shared variant is documented in [Section 11](#exact-shared-operator-error-contracts).
 Failed, disposed, closed-admission, canonical-state, provider, persistence, invariant, and publication-uncertain failures are not busy.
 WebSocket is observation-only: inbound frames are strict live-sync subscribe/unsubscribe objects. Unsupported frames (including Analyst messages) and malformed JSON close with code 1008 and fixed reason `Invalid live-sync frame`, before any subscription effect or acknowledgement. Connected status contains exactly `{event:'connected',timestamp,clientCount}`; chat identity comes only from REST `chats.get`. No Analyst activity, busy/error, or turn-acknowledgement envelope is sent over WS.
-Generic Agent detail, conversation, and LLM-exchange parameters use the full shared session grammar.
+Generic Agent detail, conversation, current-instructions, and LLM-exchange parameters use the full shared session grammar.
 Invalid raw frames are rejected before subscription mutation or acknowledgement, and malformed Vue Agent route input mounts no detail, REST, or live-sync work.
 The single WebSocket transport caps the entire reassembled inbound message at 1 MiB (`1_048_576` bytes); an oversized message closes with code 1009 before JSON parsing or subscription admission. This transport bound is separate from the REST content schema limit and explicit global REST body limit.
 
@@ -605,6 +609,51 @@ Existing card/global Agent-membership freshness targets prompt authoritative rer
 The conversation LLM actor separately owns nullable process-local compaction progress `{strategy,startedAt,foldsDone,foldInFlight}`. It begins at zero/false for each preventive, local-exact-admission, or authoritative-recovery compaction, including zero-call structural work. `foldInFlight` becomes true only after a fold is admitted immediately before logical invocation; validated success increments `foldsDone` and clears it, while a known failed logical fold clears it without increment before an eligible correction. Transient provider attempts do not increment the count. Ordinary completion, failure, cancellation, or disposal clears only current ownership. Publication-outcome uncertainty is delivered to the fatal owner first and permits no progress clear or later notification.
 Successful Supervisor halt first validates and clears the frozen authoritative owner graph and retains runtime invalidation, then emits one existing card-membership target for every removed owner while their absence is observable.
 A failed halt retains its owner graph and emits no successful-removal freshness.
+
+### Currently configured static instructions
+
+Operator-session `GET /api/agents/:id/current-instructions` (`agents.currentInstructions`)
+uses the strict shared session parameter and an empty strict query: no segment, node,
+version or input selection. Existing operator authentication applies (401 unauthorized).
+The strict success DTO is:
+
+```text
+{session_id, basis:'server_loaded_configuration',
+ scope:{kind:'global'} | {kind:'card',card_id,card_type,ownership:'active'|'retained_tombstone'},
+ bindings:([{kind:'global',instructions}] | [{kind:'workflow_node',node_id,instructions}, ...])}
+```
+
+Scope matches the session identity. A global scope has exactly one global binding;
+a card scope has a nonempty unique-node binding list in workflow declaration order.
+Backend membership includes every configured matching card-session node, never a guessed
+historical/current node or a deduplicated first match. Exact current card selection
+(or retained tombstone `final_card`) supplies card type; retained-card scope is current
+template orientation, not historical instructions. Configured globals need no conversation
+index/segment: a lazy absent conversation remains absent. No catalog, provider evidence,
+app log, invocation preparation, provider/tool call or state publication is performed.
+
+Composition reuses the loaded compiled prompt registry: global Analyst/Oversight substitute
+the actual `formatVocabularySnippet`; workflow agents substitute the actual
+`describeNodeResultContract`, including configured outcomes and record gates. Fragments
+and placeholders resolve before each complete string passes `redactTextForOutbound`.
+Loaded image guidance is ordinary instruction prose, not pixel materialization. No disk
+recompile, default-template fallback, dynamic card/tree/focus context, tool definitions,
+private replay, wire bodies, provider/auth/environment data, source paths, admission hashes,
+prompt snapshot/revision or unredacted alternative is exposed. Safe configured instruction
+prose is not a promise that redaction can classify arbitrary prose as confidential.
+
+Invalid params/query return 400; absent/unconfigured scope returns 404
+`{error:'Agent session not found'}`; an exact required card-read failure returns 503
+`{error:'current_state_unavailable',resource,owner_id,restart_required:true}`. Unexpected
+render/invariant failures return ordinary safe 500, without prompt content; publication
+uncertainty propagates unchanged. Failure identity is `{kind:'session',parameter:'id'}`.
+Conversation/current-history DTOs, provider execution and durable contracts are unchanged.
+The inline disclosure reads lazily on open/reopen, refreshes explicitly, and aborts/discards
+on close/departure/session change. Errors do not replace the retained transcript. Held-open
+text is last fetched loaded configuration, not live tracking or unactivated disk edits;
+historical selection labels it current configuration, not that segment's instructions.
+
+### Retained conversation contracts
 
 One canonical durable conversation state machine owns exact session and message identity, source classification, tool call/result settlement and ordering, source rounds/segments, provider bundles, atomic compaction-prefix validation, protected prompts, required model facts, and the zero-or-one final-source unmatched-call rule.
 Its in-memory adapter returns immutable `ValidatedConversation` physical/source rows and derived durable facts.
@@ -1264,6 +1313,16 @@ There is no Debug Timeline, `/api/debug/timeline`, dedicated error lane, ErrorLo
 The ordinary exact-session conversation reader has a separate browser-local **Activation entries — this segment** index over already returned public system/activity `activation_open` rows. A marker records entry publication, not a successful provider call, current liveness, completion, duration, or a named workflow node. The index preserves physical source order and recorded session, marker, input, configured agent, optional card, and time identities. Activity-only marker rounds remain rendered transcript anchors. Coverage is only the accepted current segment or one explicitly selected indexed segment; an empty index means **No activation markers retained in this segment**, not never activated. Compacted inherited-open-round context is not another entry and supplies no fabricated timestamp or location. No predecessor search, all-history enumeration, cross-session merge, durable index, or extra activation API exists. The identity-resolved Analyst inspector exception is unchanged and is outside this ordinary-reader coverage.
 
 `/agents/:id` accepts optional `segment=<positive safe integer>` and `entry=<opaque row ID>`. Segment query syntax is a scalar decimal string matching `[1-9][0-9]*` whose numeric value is safe; absence selects current, while malformed selection is explicitly invalid and makes no version-content request. An explicit version selects that ordinal in the present catalog even when equal to current; Card Evidence segment links retain that number. Catalog and content responses preserve immutable `entry_id`; ordinal navigation alone does not promise an old incarnation after rollback/recompaction. An entry target is any nonempty scalar router-decoded string, preserved verbatim without trimming, normalization, prefix parsing, or extra decoding; missing, empty, or nonscalar values supply no target. Router-built links preserve composite marker IDs and ordinary UUID rows under this one rule. Unknown entries are missing only in the successfully accepted selected/current segment. Missing segment, failed read, and missing entry are distinct; reload, same-session changes and Back preserve ordinal selection. Historical content stays separate from current updates in one exclusive reader.
+
+The activation index is initially closed with **Activation entries · N** summary and
+coverage inside; malformed-marker
+warnings remain visible outside. Marker existence remains visible in the transcript as
+**Activation entry recorded**; raw identities, JSON and time are secondary details.
+Provider **Technical details** is also initially closed/lazy and remains latest recorded
+session exchange, not selected historical evidence. `model_repair` presents an instruction,
+not achieved repair; `model_recovered` presents interrupted activation/effects uncertainty,
+not success. These separate source-position diagnostics reveal full safe bodies on exact
+targeting and change no recovery effects or persistence.
 
 ### Direct runtime-control evidence
 

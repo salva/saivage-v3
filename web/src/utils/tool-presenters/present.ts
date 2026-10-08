@@ -34,5 +34,6 @@ export function presentToolResult(rawContent: string, opts: { tool?: string } = 
   const sections = rendered?.sections ?? (Object.hasOwn(envelope, 'data') ? [{ title: 'Safe result (opaque tool)', content: JSON.stringify(envelope.data, null, 2), language: 'json' as const }] : []);
   if (failed) sections.unshift({ title: uncertain ? 'Uncertainty' : 'Error', content: String(envelope.error) });
   if (refusalFields.length) sections.push({ title: 'Recorded refusal / error context', fields: refusalFields });
+  if (envelope.image !== undefined) sections.push({ title: 'Typed image descriptor (metadata only)', content: JSON.stringify(envelope.image, null, 2), language: 'json', disclosure: true });
   return { name, status, outcome, headline: [...domainOutcome, ...error, ...(refusalSummary ? textPart(` · ${refusalSummary}`) : []), ...(failed && rendered?.headline.length ? textPart(' · ') : []), ...(rendered?.headline ?? [])], sections, target: rendered?.target };
 }

@@ -3,6 +3,7 @@ import { DURABLE_PRIMARY_CONTENT_POLICY } from '../../api/contracts';
 import { nextTick, ref, type Ref } from 'vue';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import type { AgentConversationEntry } from '../../api/types';
+import { call, result } from '../tool-presenters/fixtures';
 
 const assistantRound = 'r-assistant-00000000000000000000000000000001';
 const assistantRoundTwo = 'r-assistant-00000000000000000000000000000002';
@@ -46,6 +47,26 @@ function markScrolledAway(controls: ReturnType<typeof useAgentTimeline>, el: HTM
 }
 
 describe('useAgentTimeline auto-scroll trigger', () => {
+  it.each([false, true])('counts source mate arrivals without extra visual rows or losing expansion (Pause=%s)', async (paused) => {
+    const c = call('run_command', { command: 'npm test' });
+    const { entries, controls, el } = setup([c]);
+    controls.toggleExpanded(c.id);
+    markScrolledAway(controls, el);
+    if (paused) controls.toggleAutoScrollPause();
+    entries.value = [c, result('run_command', { status: 'exited', exit_code: 0 })];
+    await nextTick();
+    expect(controls.timeline.value.rounds.flatMap(round => round.rows)).toHaveLength(1);
+    expect(controls.expandedIds.value.has(c.id)).toBe(true);
+    expect(el.scrollTop).toBe(0);
+    expect(controls.unseenCount.value).toBe(1);
+    await controls.jumpToLatest();
+    expect(controls.autoScrollPaused.value).toBe(paused);
+    expect(controls.unseenCount.value).toBe(0);
+    el.scrollTop = 700;
+    entries.value = [...entries.value, textEntry('m3')];
+    await nextTick();
+    expect(el.scrollTop).toBe(paused ? 700 : 1000);
+  });
   it('tail-follows within-round appends without increasing unseen count', async () => {
     const { entries, controls, el } = setup();
 

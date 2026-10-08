@@ -6,6 +6,7 @@
       data-testid="chat-scroll-container"
       @scroll="timelineControls.handleTimelineScroll"
     >
+      <CurrentInstructions v-if="activeSessionId" :session-id="activeSessionId" />
       <section
         v-if="childrenOnScreen.length"
         class="chat-context-card"
@@ -48,6 +49,7 @@
         </div>
         <div v-if="timelineControls.timeline.value.rounds.length > 0" class="chat-rounds">
           <ConversationTimeline
+            :key="acceptedSegmentId ?? activeSessionId ?? 'pending'"
             :timeline="timelineControls.timeline.value"
             :expanded-ids="timelineControls.expandedIds.value"
             @toggle="timelineControls.toggleExpanded"
@@ -111,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { AgentConversationEntry } from '../../api/types';
@@ -119,8 +121,9 @@ import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useSyncStore } from '../../stores/sync';
-import { useAgentTimeline } from '../../composables/useAgentTimeline';
+import { revealConversationEntry, useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
+import CurrentInstructions from '../agents/CurrentInstructions.vue';
 
 const chat = useAnalystChat();
 const cards = useCardStore();
@@ -128,6 +131,7 @@ const workspaceRoute = useWorkspaceRouteStore();
 const liveSync = useSyncStore();
 const {
   activeSessionId,
+  acceptedSegmentId,
   messages,
   draft,
   messagesLoading,
@@ -140,6 +144,8 @@ const {
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const timelineControls = useAgentTimeline(timelineEntries);
+provide(revealConversationEntry, timelineControls.revealEntry);
+watch(acceptedSegmentId, () => timelineControls.collapseAll());
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cockpit' && workspaceRoute.entityId
     ? (cards.loadedChildrenFor(workspaceRoute.entityId) ?? [])
@@ -199,8 +205,6 @@ watch(
     const handle = chat.claimTranscriptLease(sessionId);
     const close = liveSync.openConversation(sessionId, async (frame) => {
       await handle.onFrame(frame);
-      await nextTick();
-      timelineControls.scrollToLatest();
     });
     onCleanup(() => {
       close();
@@ -238,6 +242,9 @@ onBeforeUnmount(() => {
 }
 
 .chat-scroll-area {
+  font-size:15px;
+  line-height:1.5;
+  color:var(--text);
   flex: 1;
   min-height: 0;
   overflow: auto;

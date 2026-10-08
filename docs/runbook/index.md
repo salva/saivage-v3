@@ -422,8 +422,9 @@ The current app log and event filters use the [exact app-log vocabularies](../sp
 ### Open exact activation evidence
 
 Open a card participant in Conversations or a global participant in System. The ordinary
-exact-session reader shows **Activation entries — this segment** for the accepted current
-segment; Card Evidence's segment catalog opens the selected numeric segment directly.
+exact-session reader has an initially closed **Activation entries · N**
+disclosure: open it for coverage and exact links in the accepted current segment;
+Card Evidence's segment catalog opens the selected numeric segment directly.
 Use **Open entry** to focus the actual recorded marker, including a marker-only round.
 Share the router-built `/agents/:id?segment=N&entry=ID` link for that exact source;
 reload and Back retain it. `segment` must be a scalar decimal `[1-9][0-9]*` representing
@@ -441,6 +442,23 @@ current execution, completion, duration or an old workflow node. Coverage is mar
 retained in one segment, not every activation: compaction may omit earlier entries.
 **No activation markers retained in this segment** is not never activated. Inherited
 open-round genesis is continuation context, not a second activation or a new timestamp/location.
+
+Open a marker's inline details for raw identity/JSON/time. Open **Technical details** only
+when needed for session-scoped latest recorded exchange metadata; this lazily reads the
+existing metadata, not the selected historical segment's request. Open **Currently configured
+instructions** for composed static instructions from configuration loaded by this server,
+covering every matching current node binding (or the configured global participant).
+Refresh explicitly while open; closing discards the observation and reopening reads anew.
+Unactivated edits on disk are not this loaded configuration. Historical inspection labels
+these instructions current, not a snapshot of that segment. Read failures/unauthorized scope
+remain inside the disclosure without replacing retained history. None of these reader
+actions activates work, deploys configuration or changes lifecycle/adoption procedures.
+
+Matched tool exchanges appear at their request position; a later-result cue and expanded
+Request/Result provenance retain both source coordinates/times and exact links. This is
+visual grouping, not rewritten evidence. Image rows inspect safe metadata/descriptors only,
+not pixels or model perception. Repair instructions do not prove successful repair, and
+interruption notices keep effects uncertainty visible; exact targets open their full details.
 
 Direct Pause/Resume/Stop/Restart API requests (including delegated CLI calls reaching
 those handlers) have bounded informational `operator_runtime_control.result` evidence

@@ -1,6 +1,7 @@
-import { computed, nextTick, ref, watch, type Ref } from 'vue';
+import { computed, nextTick, ref, watch, type Ref, type InjectionKey } from 'vue';
 import type { AgentConversationEntry } from '../api/types';
 import { entriesToTimeline } from '../utils/agent-timeline';
+export const revealConversationEntry: InjectionKey<(id: string, scroll?: boolean) => Promise<boolean>> = Symbol('revealConversationEntry');
 
 export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>) {
   const expandedIds = ref(new Set<string>());
@@ -67,6 +68,32 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     expandedIds.value = new Set();
   }
 
+  async function revealEntry(id: string, scroll = true): Promise<boolean> {
+    if (!entries.value.some(entry => entry.id === id)) return false;
+    for (const round of timeline.value.rounds) {
+      const row = round.rows.find(row => row.entry.id === id || row.mate?.id === id);
+      if (row && (row.entry.kind === 'tool_call' || row.entry.kind === 'tool_result')) {
+        expandedIds.value = new Set([...expandedIds.value, row.entry.id]);
+        break;
+      }
+    }
+    await nextTick();
+    const owner = scrollAreaRef.value;
+    const element = [...(owner?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find(element => element.dataset.entryId === id);
+    if (!owner || !element) return false;
+    if (element instanceof HTMLDetailsElement) element.open = true;
+    element.querySelectorAll<HTMLDetailsElement>(':scope > .diagnostic-row, .recorded-system-context').forEach(details => { details.open = true; });
+    await nextTick();
+    owner.querySelectorAll('.targeted-conversation-entry').forEach(row => row.classList.remove('targeted-conversation-entry'));
+    element.classList.add('targeted-conversation-entry');
+    if (scroll) {
+      owner.scrollTop += element.getBoundingClientRect().top - owner.getBoundingClientRect().top - owner.clientHeight / 3;
+      element.tabIndex = -1;
+      element.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
   watch(
     () => entries.value.length,
     (volume, previousVolume) => {
@@ -93,5 +120,6 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     resetScrollState,
     scrollToLatest,
     toggleAutoScrollPause,
+    revealEntry,
   };
 }

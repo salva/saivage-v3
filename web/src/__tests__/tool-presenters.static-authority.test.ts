@@ -114,7 +114,7 @@ describe('current family semantic authority', () => {
     expect(start.status).toBe('error');
     expect(details(start)).toContain('started');
     const restart = present('restart_server', { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
-    expect(restart.outcome).toBe('confirmation_required');
+    expect(restart.outcome).toBe('Confirmation required');
     expect(restart.headline[0]).toMatchObject({ text: 'RESTART SERVER' });
     expect(present('stop_project', { status: 'stopped', contained: false }).outcome).toBe('Stopped · Not contained');
     const proposed = presentToolCall(callEnvelope('emit_result', { outcome: 'done', summary: 'Proposed finish' }));
@@ -132,7 +132,7 @@ describe('current family semantic authority', () => {
     expect(details(present('read_control_actions', { total_lines: 100, returned: 1, actions: [{ id: 'audit', actor: 'analyst', surface: 'analyst_tool', action: 'pause', target_kind: 'runtime', target_id: null, params_summary: '', outcome: 'ok', outcome_summary: 'paused', created_at: '2026-10-07T00:00:00Z' }] }))).toContain('paused');
     expect(details(present('get_status', { runtimeSummary: { status: 'stopped' }, counts: { total: 3 } }))).toContain('stopped');
     expect(details(present('show_config', { config: { server: { port: 8080 }, models: { routes: { default: 'model' } }, agents: { analyst: {} }, providers: { safe: { apiKey: '[REDACTED]' } } } }))).toContain('Model routing');
-    expect(present('reconfigure', { applied: true, action: 'set_server_setting', key: 'port', value: 8080, requires_restart: true }).outcome).toBe('Action applied');
+    expect(present('reconfigure', { applied: true, action: 'set_server_setting', key: 'port', value: 8080, requires_restart: true }).outcome).toBe('Action applied · Requires restart');
   });
   it('exposes actual tree, process, session, selected-context and search item fields', () => {
     const tree = present('get_tree', { root_id: 'project', depth: 2, nodes: collection([{ ...compact, depth: 2, descendants: 1, depth_omitted: true }]) });

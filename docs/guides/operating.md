@@ -81,27 +81,45 @@ usable space. The workspace has four facets:
   four tabs, card header, and rail stay in view. Direct links to an admitted
   card session open that same contextual cockpit.
 
-  Open the independent **Accumulated summary**, **Retained instructions**, **Required
-  model facts** and **Source and continuation** sections to inspect actual selected
-  compacted context. They start closed, as does ordinary **Recorded system context**
-  at its source position; important statuses remain visible. Summary is context, not
-  proof of execution/acceptance. **Segment history** selects exact retained segments,
-  never stitches them. Scroll away to read without following arrivals; **Jump to latest**
-  resumes current following. The inspector has no global expand/collapse/pause controls;
-  Analyst controls remain. This conversation is not an exact model request.
+  Each conversation has one reading scroll surface; context and expanded details grow
+  within it, while the tree and Analyst retain their independent panes. Open **Compacted
+  context · from segment N**, then its independent **Accumulated summary**, **Retained
+  instructions**, **Required model facts** and **Source and continuation** sections.
+  They start closed, as does **Recorded system context** at its source position;
+  important statuses remain visible. Summary is context, not execution/acceptance proof.
+  **Segment history** selects exact retained segments, never stitches them. Open
+  **Activation entries · N** for segment-local marker links and coverage; **Technical
+  details** lazily reads the session's latest recorded provider exchange, not historical
+  request metadata.
 
-  Read each requested action and separately recorded result in source order. Expand
-  a tool row for its semantic sections: for example, a successful process observation
-  may still report exit 1, while a record draft can retain an older accepted version.
-  Stdout/stderr heads open independently; **Safe original request/result** provide
-  complete received public values and copy, not private wire data. Coverage, partial
-  propagation, uncertainty and restart confirmation are not completion promises.
-  Details do not fetch missing content. See the
+  Open **Currently configured instructions** for composed static text from configuration
+  loaded by the server: the global participant or every matching current workflow node.
+  Refresh explicitly while open; closing discards it and reopening reads afresh.
+  Unactivated disk edits are not loaded configuration, and historical selection does
+  not make this text a historical snapshot. Errors remain inside the disclosure without
+  replacing retained history. This is not dynamic context or an exact model request.
+
+  Scroll away to read without following arrivals; inspector **Jump to latest** resumes
+  current following. The inspector has no global expand/collapse/pause controls. Analyst
+  retains those controls: its Jump moves once and clears unseen count without unchecking
+  explicit Pause; later arrivals follow only when pinned and Pause is off.
+
+  Matched exchanges appear once at their request position. **Result recorded later**
+  marks intervening entries; expansion shows **Request** then **Result**, both exact
+  anchors, original source coordinates/times and intervening-entry count. Other messages
+  keep their relative source order; grouping does not backdate knowledge or rewrite evidence.
+  An unmatched call says **No result recorded**, not inferred execution; an unmatched
+  result stays at its original position with requested context unavailable. Friendly
+  action/target/outcome summaries expose salient errors and uncertainty without debug badges.
+  Successful settlement may still report process exit 1, and a draft can retain an older
+  accepted version. Stdout/stderr heads open independently; **Safe original request/result**
+  provide complete public values and copy, not private wire data. **Inspect image** shows
+  safe metadata/descriptors only, not pixels, delivery or model perception. A repair
+  instruction does not prove repair; interrupted activation notices keep effects uncertainty
+  visible, with full detail opened by exact targeting. Coverage, partial propagation and
+  restart confirmation are not completion promises. Details do not fetch missing content.
+  See the
   [conversation contracts](../spec/operator-ui-contracts.md#6-conversation-readers).
-
-  ![Conversations facet with a synthetic Executor selected: separate requested actions, intervening correction and recorded process results beside the card tree and shared Analyst transcript.](/screenshots/cockpit-conversations.png)
-
-  *Conversations — synthetic recorded evidence, not executed commands: a running observation and a separate failed process exit retain their source positions. Session liveness is independent of these historical results.*
 - **Records & History** — every declared record in declaration order plus
   card versions, snapshots, and diffs.
 

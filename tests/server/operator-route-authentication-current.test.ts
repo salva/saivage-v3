@@ -7,6 +7,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { createEventLog } from '../../src/observability/index.js';
 
 const cases=[
+  {operationId:'agents.currentInstructions',url:'/api/agents/agent%3Aanalyst%3Aglobal/current-instructions',body:{session_id:'agent:analyst:global',basis:'server_loaded_configuration',scope:{kind:'global'},bindings:[{kind:'global',instructions:'Safe current instructions'}]}},
   {operationId:'events.list',url:'/api/events',body:{events:[],total:0}},
   {operationId:'processes.list',url:'/api/processes',body:{processes:[]}},
   {operationId:'controlActions.list',url:'/api/control-actions',body:{control_actions:[],total:0}},

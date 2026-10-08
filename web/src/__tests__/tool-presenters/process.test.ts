@@ -9,6 +9,7 @@ describe('recorded process evidence', () => {
   it.each(['run_command', 'wait_process', 'kill_process'])('shows separate stream heads, coverage and real output links for %s', (tool) => {
     const view = presentToolResult(JSON.stringify({ success: true, data: processData }), { tool });
     expect(view.outcome).toBe('Exited · exit 0');
+    expect(view.headline).toEqual([]);
     expect(view.sections.filter((s) => s.disclosure).map((s) => s.title)).toEqual(['stdout', 'stderr']);
     expect(view.sections.find((s) => s.title === 'stdout')?.content).toBe('first\nsecond');
     expect(view.sections.find((s) => s.title === 'stderr')?.content).toBe('warning');

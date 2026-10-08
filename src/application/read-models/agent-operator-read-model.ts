@@ -1,5 +1,6 @@
 import {
   AgentConversationResponseSchema,
+  AgentCurrentInstructionsResponseSchema,
   AgentDetailResponseSchema,
   AgentListResponseSchema,
   AgentSessionSummarySchema,
@@ -35,6 +36,10 @@ import {
 import type { CardId } from '../../schemas/index.js';
 import type { CompiledProjectWorkflows } from '../../runtime/runtime-api.js';
 import type { ExecutingLlmSnapshot } from '../../runtime/runtime-api.js';
+import { describeNodeResultContract } from '../../runtime/runtime-api.js';
+import { createPromptTemplateRegistry } from '../../utils/prompt-api.js';
+import { formatVocabularySnippet } from '../../tools/prompt-api.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 
 export class AgentSessionNotFoundError extends Error {}
 export class CardAgentScopeNotFoundError extends Error {}
@@ -143,6 +148,53 @@ export class AgentOperatorReadModelService {
       throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
     }
   }
+  getCurrentInstructions(sessionId: ConversationSessionId) {
+    const resolved = this.resolveSessionScope(sessionId);
+    const { agentName } = conversationSessionIdentity(sessionId);
+    const templates = createPromptTemplateRegistry(this.workflows);
+    const bindings =
+      resolved.kind === 'global'
+        ? [
+            {
+              kind: 'global' as const,
+              instructions: redactTextForOutbound(
+                templates.render({ kind: 'global-agent' }, agentName, {
+                  vocabularySnippet: formatVocabularySnippet(this.workflows.cardTypeVocabulary),
+                }),
+              ),
+            },
+          ]
+        : [...resolved.workflow.states].flatMap(([nodeId, state]) =>
+            state.kind === 'node' &&
+            state.agent.session === 'card' &&
+            state.agent.name === agentName
+              ? [
+                  {
+                    kind: 'workflow_node' as const,
+                    node_id: state.nodeId,
+                    instructions: redactTextForOutbound(
+                      templates.render(
+                        { kind: 'workflow-agent', cardType: resolved.workflow.cardType },
+                        agentName,
+                        {
+                          contractDescription: describeNodeResultContract(
+                            resolved.workflow,
+                            nodeId,
+                          ),
+                        },
+                      ),
+                    ),
+                  },
+                ]
+              : [],
+          );
+    return AgentCurrentInstructionsResponseSchema.parse({
+      session_id: sessionId,
+      basis: 'server_loaded_configuration',
+      scope: resolved.scope,
+      bindings,
+    });
+  }
   admitConversationCatalog(sessionId: ConversationSessionId) {
     const ownership = this.admitSession(sessionId);
     try {
@@ -240,6 +292,11 @@ export class AgentOperatorReadModelService {
   }
 
   private admitSession(sessionId: ConversationSessionId): 'active' | 'retained_tombstone' {
+    const { scope } = this.resolveSessionScope(sessionId);
+    return scope.kind === 'global' ? 'active' : scope.ownership;
+  }
+
+  private resolveSessionScope(sessionId: ConversationSessionId) {
     const identity = conversationSessionIdentity(sessionId);
     if (identity.cardId === null) {
       const participant = this.workflows.selectedGlobalParticipants.get(identity.agentName);
@@ -249,7 +306,7 @@ export class AgentOperatorReadModelService {
         sessionId !== globalAgentSessionId(participant.agent.name)
       )
         throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-      return 'active';
+      return { kind: 'global' as const, scope: { kind: 'global' as const } };
     }
     let cardResult;
     try {
@@ -271,7 +328,17 @@ export class AgentOperatorReadModelService {
         state.agent.name === identity.agentName,
     );
     if (!configured) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-    return head.kind === 'card-tombstone' ? 'retained_tombstone' : 'active';
+    return {
+      kind: 'card' as const,
+      scope: {
+        kind: 'card' as const,
+        card_id: identity.cardId,
+        card_type: card.type,
+        ownership:
+          head.kind === 'card-tombstone' ? ('retained_tombstone' as const) : ('active' as const),
+      },
+      workflow,
+    };
   }
 
   private summaries(

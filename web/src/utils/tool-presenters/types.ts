@@ -5,8 +5,11 @@ export type InlinePart =
   | { kind: 'session'; id: string; label: string }
   | { kind: 'entry'; id: string; label: string };
 
-export type ToolTone = 'neutral' | 'ok' | 'error';
-interface SemanticField { label: string; parts: InlinePart[] }
+type ToolTone = 'neutral' | 'ok' | 'error';
+interface SemanticField {
+  label: string;
+  parts: InlinePart[];
+}
 export interface SemanticSection {
   title: string;
   fields?: SemanticField[];
@@ -25,7 +28,10 @@ export interface ToolResultPresentation extends ToolCallPresentation {
   outcome: string;
   target?: InlinePart[];
 }
-export interface ToolCallMessage { name: string; args: Record<string, unknown> }
+export interface ToolCallMessage {
+  name: string;
+  args: Record<string, unknown>;
+}
 export interface ResultPresenterContext {
   name: string;
   envelope: Record<string, unknown>;

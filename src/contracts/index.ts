@@ -311,6 +311,7 @@ export {
 export type { WebfetchInvocation, WebfetchMetadata } from './webfetch.js';
 export {
   AgentConversationResponseSchema,
+  AgentCurrentInstructionsResponseSchema,
   AgentDetailResponseSchema,
   AgentListResponseSchema,
   AgentSessionSummarySchema,

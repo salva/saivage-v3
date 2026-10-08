@@ -43,6 +43,20 @@ not certified compatible or assigned invented versions by this table. Files
 families. `.prev.json` slots retain their selector contract's bytes, not a separate
 family. Existing unversioned inputs are documented, not retrofitted here.
 
+## Durable-preserving conversation API/UI change
+
+Source evidence: `agents.currentInstructions` in `src/contracts/operator-api-agents.ts`,
+`src/application/read-models/agent-operator-read-model.ts` and its operator handler;
+`web/src/utils/agent-timeline/timeline.ts` and the shared conversation/disclosure renderers.
+The new read composes loaded static configuration without publishing snapshots. Combined
+call-position tool exchanges and diagnostic disclosures change visual presentation only;
+canonical rows, nested payloads, identities, selection/provenance and layout are untouched.
+No durable family or discriminator changes. The `c527da662ef3d2c6db616983643bfbe7aeab1055` /
+`9d4f16e5c51feed64de8efccdd35bd1a8388ac95` image baseline remains strict conversation
+index/genesis/envelope **5**, with selected PNGs governed by that same descriptor contract.
+Unrelated families are unaffected. This note proves no installed-state compatibility and
+grants no adoption/deployment/migration/reset action; prior format-5 warnings remain in force.
+
 ## Known incompatible changes
 
 These source boundaries are directly evidenced, not an exhaustive timeline.

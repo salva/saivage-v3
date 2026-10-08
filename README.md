@@ -29,15 +29,21 @@ conversation.
 Conversation tails track exact immutable segment identity, not just the displayed
 ordinal; refreshed baselines replace rather than mix after a changed selection.
 See the [conversation contracts](docs/spec/operator-ui-contracts.md#6-conversation-readers).
-Selected compacted context exposes the full safe summary, retained instructions, required
-facts and source/continuation in independent initially closed sections. Recorded system
-text closes individually at its source position. Segment history selects exact retained
-history, not a stitched transcript; scroll away to read, or Jump to latest to follow.
-This is conversation used in request assembly, not an exact model-request viewer.
-Tool rows keep requests and recorded results in source order. Expand for semantic
-operation/effect sections and independent output heads; secondary safe-original
-disclosures copy complete received public values. Successful settlement need not
-mean process completion, record acceptance or notification delivery.
+Each conversation has one reading scroll surface, with compacted context, activation
+index and Technical details initially closed. Full safe summary, retained instructions,
+facts and source/continuation remain inspectable; recorded system text closes at its
+source position. Segment history selects exact retained history, not a stitched transcript.
+Optional **Currently configured instructions** composes all current session bindings
+from configuration loaded by the server, not historical instructions or unactivated disk
+edits. Open to read, Refresh explicitly, close to discard; this is not an exact-request viewer.
+Matched tool exchanges appear once at the request position, including nonadjacent results;
+**Result recorded later** discloses interleaving, and both source anchors, coordinates and
+times remain inspectable. Friendly action/target/outcome summaries expand to Request/Result
+detail and independent output heads; safe-original disclosures copy complete public values.
+Image inspection stays metadata-only. Settlement need not mean process completion,
+acceptance, delivery or perception. Repair directives do not prove repair; interruption
+notices keep effects uncertainty visible. Scroll-away pauses following; Analyst's explicit
+Pause survives its one-shot Jump to latest, unlike ordinary unpaused following.
 
 Dedicated JSON data inspection uses consistent safe, readable lexical highlighting
 without changing supplied text or existing copy payloads. Files JSON preserves the

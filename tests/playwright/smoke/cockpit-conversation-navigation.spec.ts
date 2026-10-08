@@ -5,6 +5,7 @@ import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
 import { redactTextForOutbound } from '../../../src/redaction/index.js';
+import { MODEL_RECOVERY_NOTICE_TEXT } from '../../../src/schemas/context-policy.js';
 
 const token = 'synthetic-cockpit-conversation-token';
 const executor = `agent:executor:${smokeCardId}`;
@@ -12,7 +13,7 @@ const reviewer = `agent:reviewer:${smokeCardId}`;
 const marker = '99999999-9999-4999-8999-999999999999';
 const now = '2026-09-28T12:00:00.000Z';
 
-for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 }]) {
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899 }, { width: 900, height: 700 }, { width: 390, height: 844 }]) {
   test(`selected genesis and recorded context remain independent and stable ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const rest = await setup(page);
@@ -60,12 +61,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 
     await page.goto(`/agents/${executor}`);
     const inspector = page.locator('.conversation-container');
     await expect(inspector.getByTestId('conversation-segment-context')).toContainText('inherited open round');
+    if (viewport.width >= 1296) {
+      const surface = inspector.locator('.conversation-reading-surface');
+      await surface.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+      await expect.poll(() => surface.evaluate(el => {
+        const owner = el.getBoundingClientRect();
+        const action = el.querySelector('.tool-chip-main')!.getBoundingClientRect();
+        return action.top >= owner.top && action.bottom <= owner.bottom;
+      })).toBe(true);
+    }
     await expect(inspector.getByRole('button', { name: 'Expand all', exact: true })).toHaveCount(0);
     await expect(inspector.getByRole('button', { name: 'Collapse all', exact: true })).toHaveCount(0);
     await expect(inspector.getByText('Pause auto-scroll', { exact: true })).toHaveCount(0);
+    if (viewport.width === 390) await page.getByRole('navigation', { name: 'Switch pane' }).getByRole('button', { name: 'Analyst', exact: true }).click();
     await expect(page.getByLabel('Analyst chat composer')).toBeEnabled();
     await expect(page.getByRole('region', { name: 'Analyst chat', exact: true }).getByLabel('Pause auto-scroll')).toBeVisible();
+    if (viewport.width === 390) await page.getByRole('navigation', { name: 'Switch pane' }).getByRole('button', { name: 'Workspace', exact: true }).click();
     const genesis = inspector.getByTestId('conversation-segment-context');
+    await expect(genesis).not.toHaveAttribute('open', '');
+    await genesis.locator(':scope > summary').click();
     expect(await genesis.locator('details').evaluateAll(details => details.every(detail => !(detail as HTMLDetailsElement).open))).toBe(true);
     const summary = genesis.getByTestId('compacted-summary');
     await summary.locator('summary').focus(); await summary.locator('summary').press('Enter');
@@ -82,7 +96,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 
     const scroller = inspector.locator('.conv-rounds');
     await scroller.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
     const anchors = await scroller.locator('[data-entry-id]').evaluateAll(elements => elements.slice(0, 5).map(el => (el as HTMLElement).dataset.entryId));
-    expect(anchors).toEqual([pair[0]!.id, 'recorded-system-row', 'interleaved-prose', pair[1]!.id, 'visible-diagnostic']);
+    expect(anchors).toEqual(['recorded-system-row', 'interleaved-prose', 'visible-diagnostic', 'ongoing-0', 'ongoing-1']);
     const recorded = scroller.locator('[data-entry-id="recorded-system-row"]');
     await expect(recorded.locator('details')).not.toHaveAttribute('open', '');
     await recorded.locator('summary').click();
@@ -263,15 +277,15 @@ for (const viewport of [{ width: 1296, height: 899 }, { width: 1440, height: 900
     const rest = await setupLayoutRows(page);
     await page.goto(`/agents/${executor}`);
     const chips = page.getByTestId('route-cockpit').locator('.tool-chip');
-    await expect(chips).toHaveCount(7);
-    await expect(chips.nth(1).locator('.tool-chip-status')).toContainText('Exited · exit 0');
-    await expect(chips.nth(3)).toHaveClass(/tool-chip-error/);
-    await expect(chips.nth(5)).toContainText('Synthetic command failed');
-    await expect(chips.nth(6).locator('.tool-chip-status')).toHaveText('No result recorded');
+    await expect(chips).toHaveCount(4);
+    await expect(chips.nth(0).locator('.tool-chip-status')).toContainText('Exited · exit 0');
+    await expect(chips.nth(1).locator('.tool-chip-status')).toHaveAttribute('data-tone', 'error');
+    await expect(chips.nth(2)).toContainText('Synthetic command failed');
+    await expect(chips.nth(3).locator('.tool-chip-status')).toHaveText('No result recorded');
     await screenshot(page, testInfo, `tool-rows-${viewport.width}x${viewport.height}.png`);
     for (const chip of await chips.all()) await expectReadableToolRow(chip);
     const analystChips = page.locator('.analyst-chat-panel .tool-chip');
-    await expect(analystChips).toHaveCount(7);
+    await expect(analystChips).toHaveCount(4);
     await screenshot(page, testInfo, `analyst-tool-rows-${viewport.width}x${viewport.height}.png`);
     await expectReadableToolRow(analystChips.first());
     expect(rest.unknown).toEqual([]);
@@ -295,12 +309,12 @@ test('tool disclosure and raw request retain native keyboard focus and separate 
   })).toBe(true);
   const detailsId = await toggle.getAttribute('aria-controls');
   await expect(chip.locator('.tool-chip-detail')).toHaveAttribute('id', detailsId!);
-  const raw = chip.getByRole('button', { name: 'Safe original request', exact: true });
+    const raw = chip.locator('.tool-request .safe-original > summary');
   for (let tabs = 0; tabs < 10 && !(await raw.evaluate((button) => button === document.activeElement)); tabs++) await page.keyboard.press('Tab');
   await expect(raw).toBeFocused();
   await raw.press('Enter');
-  await expect(chip.locator('.tool-chip-raw')).toContainText('synthetic_unbroken_argument_'.repeat(7));
-  await expect(chip.locator('.tool-chip-raw')).toContainText('--full-raw-command-only');
+  await expect(chip.locator('.tool-request .safe-original')).toContainText('synthetic_unbroken_argument_'.repeat(7));
+  await expect(chip.locator('.tool-request .safe-original')).toContainText('--full-raw-command-only');
   await expect(toggle).toHaveAccessibleName('Collapse tool run_command details');
   await toggle.focus();
   await toggle.press('Space');
@@ -403,7 +417,8 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   await expect(page.locator(`[data-entry-id="${marker}"]`)).toHaveClass(/targeted-conversation-entry/);
 
   const toolbarButtons = page.locator('.conv-toolbar button');
-  await expect(toolbarButtons).toHaveCount(1);
+  await expect(toolbarButtons).toHaveCount(0);
+  await expect(page.locator('.technical-details > summary')).toBeVisible();
   for (const button of await toolbarButtons.all()) await expect(button).toBeVisible();
   const toolbarFitsReader = await page.locator('.focused-reader').evaluate((reader) => {
     const boundary = reader.getBoundingClientRect();
@@ -486,6 +501,7 @@ for (const sessionId of [executor, 'agent:oversight:global']) {
       await tab.press('Enter');
       await expect(page).toHaveURL(`/agents/${sessionId}`);
       await expect(page.getByTestId('activation-index')).toContainText('Activation entry recorded');
+      await page.getByTestId('activation-index').locator(':scope > summary').click();
       await expect(page.locator('.conv-rounds [data-entry-id]')).toHaveAttribute('data-entry-id', first.id);
       const open = page.getByRole('link', { name: 'Open entry', exact: true });
       await open.focus();
@@ -503,6 +519,7 @@ for (const sessionId of [executor, 'agent:oversight:global']) {
     await segment2.focus();
     await segment2.press('Enter');
     const open = page.getByRole('link', { name: 'Open entry', exact: true });
+    await page.getByTestId('activation-index').locator(':scope > summary').click();
     await open.focus();
     await open.press('Enter');
     await expect(target()).toHaveAttribute('data-entry-id', second.id);
@@ -555,18 +572,17 @@ test('exact call and result rows retain focus through direct/reload/change/Back 
     })) });
   });
   const link = (entry: string, segment = '1') => `/agents/${encodeURIComponent(executor)}?segment=${segment}&entry=${encodeURIComponent(entry)}`;
-  const chip = () => page.locator('.tool-chip.targeted-conversation-entry');
+  const chip = () => page.locator('.tool-chip .targeted-conversation-entry');
   const assertTarget = async (entry: string) => {
     await expect(chip()).toHaveAttribute('data-entry-id', entry);
     await expect(chip()).toBeVisible();
     await expect(chip()).toBeFocused();
     await expect(page.getByText(/requested conversation entry was not found/)).toHaveCount(0);
-    await expect(page.locator('.tool-chip-detail, .tool-chip-raw')).toHaveCount(0);
-    await expect(page.getByText('synthetic-raw-response-only', { exact: false })).toHaveCount(0);
+    await expect(chip().locator('h4').first()).toHaveText(entry.includes(':tool-result:') ? 'Result' : 'Request');
   };
   await page.goto(link(opaque));
   await assertTarget(opaque);
-  await expect(page.locator('.tool-chip')).toHaveCount(10);
+  await expect(page.locator('.tool-chip')).toHaveCount(5);
   await expect(page.locator('.tool-group-toggle')).toHaveCount(0);
   await page.reload();
   await assertTarget(opaque);
@@ -575,7 +591,7 @@ test('exact call and result rows retain focus through direct/reload/change/Back 
   await expect(page.locator('.tool-group-body')).toHaveCount(0);
   await page.goBack();
   await assertTarget(opaque);
-  await expect(page.locator('.tool-chip')).toHaveCount(10);
+  await expect(page.locator('.tool-chip')).toHaveCount(5);
   const reads = currentReads;
   await page.evaluate((id) => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: '22222222-2222-4222-8222-222222222222', segment_version: 2, visible_message_id: 'background-update' }), executor);
   await expect.poll(() => currentReads).toBeGreaterThan(reads);
@@ -608,5 +624,61 @@ test('System Events shows scheduled restart evidence without replacement readine
   await expect(page.locator('.events-summary')).toHaveText('Restart scheduled — shutdown and replacement readiness not established');
   await expect(page.locator('.events-panel')).toContainText('pre-handler denials, thrown failures and transport loss have no promised row');
   await screenshot(page, testInfo, 'runtime-control-event.png');
+  expect(rest.unknown).toEqual([]);
+});
+
+test('diagnostic exact targets open at source position and retain truth through refresh and Back', async ({ page }, testInfo) => {
+  const rest = await setup(page);
+  const pair = callRows('diagnostic-pair', 'r-assistant-33333333333343338333333333333333', 0);
+  const base = { session_id: executor, role: 'system', round_id: pair[0]!.round_id, message_index: 1, block_index: 0, timestamp: now };
+  const diagnostics = [
+    { ...base, id: 'issue-row', kind: 'model_issue', content: `Provider request rejected. ${'Technical error '.repeat(100)}FINAL-ISSUE-Z`, context_policy: { kind: 'structural', behavior: 'provider_failure' } },
+    { ...base, id: 'repair-row', role: 'user', kind: 'model_repair', content: 'Return a valid required result. FINAL-DIRECTIVE-Z', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } },
+    { ...base, id: 'recovery-row', kind: 'model_recovered', content: MODEL_RECOVERY_NOTICE_TEXT, context_policy: { kind: 'structural', behavior: 'model_recovery_notice' } },
+  ];
+  let reads = 0;
+  await page.route('**/api/agents/*/conversation**', async route => {
+    const url = new URL(route.request().url());
+    if (decodeURIComponent(url.pathname.split('/')[3]!) !== executor || url.pathname.endsWith('/versions')) return route.fallback();
+    reads++;
+    const entries = url.searchParams.has('since') ? [] : [pair[0]!, ...diagnostics, pair[1]!];
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, { session_id: executor, segment_id: '33333333-3333-4333-8333-333333333333', segment_version: 1, segment_context: null, entries, cursor: { segment_id: '33333333-3333-4333-8333-333333333333', segment_version: 1, message_id: pair[1]!.id } })) });
+  });
+  await page.goto(`/agents/${executor}`);
+  const owner = page.locator('.conversation-reading-surface');
+  await expect(owner.locator('.diagnostic-row')).toHaveCount(3);
+  await expect(owner.locator('.diagnostic-row[open]')).toHaveCount(0);
+  await expect(owner.locator('[data-entry-id="repair-row"] > details > summary')).toHaveText('Repair instruction recorded');
+  await expect(owner.locator('[data-entry-id="recovery-row"] > details > summary')).toHaveText('Interrupted activation · effects uncertain');
+  await owner.locator('.tool-chip-toggle').focus();
+  for (const id of ['issue-row', 'repair-row', 'recovery-row']) {
+    await page.keyboard.press('Tab');
+    const diagnostic = owner.locator(`[data-entry-id="${id}"]`);
+    const disclosure = diagnostic.locator(':scope > details');
+    const summary = disclosure.locator(':scope > summary');
+    await expect(summary).toBeFocused();
+    expect(await summary.evaluate(el => el.matches(':focus-visible') && getComputedStyle(el).outlineStyle === 'solid' && parseFloat(getComputedStyle(el).outlineWidth) >= 2)).toBe(true);
+    await expect(diagnostic).toHaveAttribute('tabindex', '-1');
+    await expect(disclosure).not.toHaveAttribute('open', '');
+    await summary.press('Enter');
+    await expect(disclosure).toHaveAttribute('open', '');
+    await summary.press('Enter');
+    await expect(disclosure).not.toHaveAttribute('open', '');
+  }
+  await page.screenshot({ path: testInfo.outputPath('diagnostics-closed.png') });
+  await page.goto(`/agents/${executor}?entry=issue-row`);
+  const issue = owner.locator('[data-entry-id="issue-row"]');
+  await expect(issue).toBeFocused(); await expect(issue.locator(':scope > details')).toHaveAttribute('open', '');
+  await expect(issue.locator('pre')).toHaveText(diagnostics[0]!.content);
+  const prior = reads;
+  await page.evaluate(id => window.__saivageWsFixture!.emit({ t: 'invalidate', resource: 'conversation', id, segment_id: '33333333-3333-4333-8333-333333333333', segment_version: 1, visible_message_id: 'refresh-observation' }), executor);
+  await expect.poll(() => reads).toBeGreaterThan(prior);
+  await expect(issue.locator(':scope > details')).toHaveAttribute('open', '');
+  await page.goto(`/agents/${executor}?entry=recovery-row`);
+  await expect(owner.locator('[data-entry-id="recovery-row"]')).toBeFocused();
+  await page.goBack(); await expect(issue).toBeFocused();
+  await page.reload(); await expect(issue).toBeFocused();
+  expect(await owner.evaluate(el => [...el.querySelectorAll<HTMLElement>('*')].filter(child => ['auto', 'scroll'].includes(getComputedStyle(child).overflowY) && child.scrollHeight > child.clientHeight + 1).length)).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('diagnostics-expanded.png') });
   expect(rest.unknown).toEqual([]);
 });

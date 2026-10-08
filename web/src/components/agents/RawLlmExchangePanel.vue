@@ -76,7 +76,8 @@
             :code="formatJson(exchange.request_params)"
             language="json"
             copyable
-            max-height="60vh"
+            max-height="none"
+            wrap
             aria-label="Last LLM request, JSON"
           />
         </div>
@@ -107,7 +108,8 @@
             "
             language="json"
             copyable
-            max-height="60vh"
+            max-height="none"
+            wrap
             aria-label="Last LLM provider exchange metadata"
           />
         </div>
@@ -165,6 +167,9 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
 
 <style scoped>
 .raw-llm-panel {
+  font-size:15px;
+  line-height:1.5;
+  overflow-wrap:anywhere;
   margin: 12px 16px 0;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -186,7 +191,7 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
   gap: 8px;
 }
 .rlp-title-text {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
 }
@@ -196,7 +201,7 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
-  font-size: 11px;
+  font-size: 15px;
   cursor: pointer;
   font-family: inherit;
 }
@@ -211,8 +216,8 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 15px;
+  color: var(--text);
 }
 .rlp-meta-value {
   color: var(--text);
@@ -227,15 +232,15 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 15px;
+  color: var(--text);
   line-height: 1.5;
 }
 .rlp-status {
   padding: 16px;
   text-align: center;
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 15px;
+  color: var(--text);
 }
 .rlp-status--error {
   color: var(--danger);
@@ -248,8 +253,8 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 15px;
+  color: var(--text);
 }
 .rlp-terminal-tool-badge {
   padding: 2px 8px;
@@ -274,9 +279,9 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
 }
 .rlp-pane-title {
   margin: 0;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -290,13 +295,13 @@ function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : '
   gap: 6px;
 }
 .rlp-error-name {
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--danger);
   font-family: 'SF Mono', monospace;
 }
 .rlp-error-message {
-  font-size: 12px;
+  font-size: 15px;
   color: var(--text);
 }
 @media (max-width: 900px) {

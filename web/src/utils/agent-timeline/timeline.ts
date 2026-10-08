@@ -15,9 +15,10 @@ function visible(entry: AgentConversationEntry): boolean {
     || activationEntry(entry) !== null;
 }
 export function entriesToTimeline(entries: readonly AgentConversationEntry[]): AgentTimeline {
-  // Exact selected-segment association supplies context only, never position or ownership.
+  // Visual exchanges belong to the request; source entries and coordinates stay untouched.
   const calls = new Map<string, AgentConversationEntry>();
   const results = new Map<string, AgentConversationEntry>();
+  const positions = new Map(entries.map((entry, index) => [entry.id, index]));
   for (const entry of entries) {
     if (entry.kind !== 'tool_call' && entry.kind !== 'tool_result') continue;
     const id = callIdOf(entry);
@@ -30,14 +31,16 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
     const newRun = previousRoundId !== entry.round_id;
     previousRoundId = entry.round_id;
     if (kind !== 'compacted' && !visible(entry)) continue;
+    const id = callIdOf(entry);
+    if (entry.kind === 'tool_result' && id && calls.has(id)) continue;
     let round = rounds.at(-1);
     if (!round || newRun || round.entries[0].round_id !== entry.round_id) {
       round = { id: `${entry.round_id}:${entry.id}`, kind, position: rounds.length + 1, entries: [], rows: [] };
       rounds.push(round);
     }
     round.entries.push(entry);
-    const id = callIdOf(entry);
-    round.rows.push({ entry, mate: id ? (entry.kind === 'tool_call' ? results : calls).get(id) ?? null : null });
+    const mate = id ? (entry.kind === 'tool_call' ? results : calls).get(id) ?? null : null;
+    round.rows.push({ entry, mate, interveningEntries: mate ? Math.max(0, positions.get(mate.id)! - positions.get(entry.id)! - 1) : 0 });
   }
   return { rounds };
 }

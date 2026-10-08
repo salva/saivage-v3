@@ -356,6 +356,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
       { operationId: 'cards.history.list', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.history.get', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.diff', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'agents.currentInstructions', identity: { kind: 'session', parameter: 'id' } },
       { operationId: 'agents.detail', identity: { kind: 'session', parameter: 'id' } },
       { operationId: 'agents.conversationVersions.list', identity: { kind: 'session', parameter: 'id' } },
       { operationId: 'agents.conversationVersions.get', identity: { kind: 'session', parameter: 'id' } },

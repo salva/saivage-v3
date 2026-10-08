@@ -22,11 +22,13 @@ const lifecycle = vi.hoisted(() => ({
 const api = vi.hoisted(() => ({
   getAgentConversation: vi.fn(),
   getAgentSession: vi.fn(),
+  getAgentLlmExchange: vi.fn(),
   getAgentConversationVersion: vi.fn(),
   listAgentConversationVersions: vi.fn(),
 }));
 const live = vi.hoisted(() => ({
   connectionState: null as Ref<'connected' | 'connecting' | 'offline' | 'unauthorized'> | null,
+  openLlmExchange: vi.fn(),
 }));
 
 vi.mock('../stores/sync', async () => {
@@ -38,6 +40,7 @@ vi.mock('../stores/sync', async () => {
         return live.connectionState!.value;
       },
       openAgents: () => () => {},
+      openLlmExchange: live.openLlmExchange,
       openCardAgentSessions: () => () => {},
       openConversation: (sessionId: string, callback: (frame: ConversationInvalidation) => Promise<void>) => {
         lifecycle.events.push(`subscribe:${sessionId}`);
@@ -55,7 +58,7 @@ vi.mock('../api/client', async (importOriginal) => ({
   getAgentSession: api.getAgentSession,
   getAgentConversationVersion: api.getAgentConversationVersion,
   listAgentConversationVersions: api.listAgentConversationVersions,
-  getAgentLlmExchange: vi.fn(),
+  getAgentLlmExchange: api.getAgentLlmExchange,
   getCard: vi.fn(async () => ({ card: { id: 'project', type: 'project', title: 'Project', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [] } })),
   getCardAgentSessions: vi.fn(async () => ({ sessions: [] })),
   getWorkflowPresentation: vi.fn(async () => ({ ...cyclicCodePresentation(), card_type: 'project' })),
@@ -120,7 +123,7 @@ function deferred<T>() {
 let evidenceLookups = 0;
 let centerScrolls = 0;
 let originalQuerySelectorAll: typeof Element.prototype.querySelectorAll;
-let originalScrollIntoView: typeof HTMLElement.prototype.scrollIntoView | undefined;
+let originalBoundingRect: typeof HTMLElement.prototype.getBoundingClientRect;
 
 function installViewportModel(): void {
   originalQuerySelectorAll = Element.prototype.querySelectorAll;
@@ -128,12 +131,14 @@ function installViewportModel(): void {
     if (selectors === '[data-entry-id]') evidenceLookups += 1;
     return originalQuerySelectorAll.call(this, selectors) as NodeListOf<E>;
   };
-  originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-  HTMLElement.prototype.scrollIntoView = function (options?: ScrollIntoViewOptions | boolean): void {
-    expect(options).toEqual({ block: 'center' });
-    centerScrolls += 1;
-    const viewport = this.closest('.conv-rounds') as HTMLElement | null;
-    if (viewport) viewport.scrollTop = 400;
+  originalBoundingRect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function (): DOMRect {
+    if (this.hasAttribute('data-entry-id')) {
+      centerScrolls += 1;
+      const viewport = this.closest('.conv-rounds') as HTMLElement;
+      return { top: 400 + 200 / 3 - viewport.scrollTop } as DOMRect;
+    }
+    return { top: 0 } as DOMRect;
   };
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
     configurable: true,
@@ -201,8 +206,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
 
   afterEach(() => {
     Element.prototype.querySelectorAll = originalQuerySelectorAll;
-    if (originalScrollIntoView) HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-    else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    HTMLElement.prototype.getBoundingClientRect = originalBoundingRect;
     delete (HTMLElement.prototype as { scrollHeight?: unknown }).scrollHeight;
     delete (HTMLElement.prototype as { clientHeight?: unknown }).clientHeight;
   });
@@ -213,6 +217,35 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(rawPanelSource).not.toContain('watch(');
     expect(rawPanelSource).not.toContain('maybeFetch');
     expect(conversationsFacetSource).toContain(':entry-id="entryId"');
+  });
+  it('opens passive technical metadata only on disclosure and releases its selection on close/departure', async () => {
+    const closeExchange = vi.fn();
+    api.getAgentLlmExchange.mockRejectedValue(new OperatorApiError('agents.llmExchange', 404, { error: 'llm_exchange_not_found' }));
+    live.openLlmExchange.mockImplementation((_id, onFrame) => { void onFrame(null); return closeExchange; });
+    const { wrapper, store, callback } = await mountConversation('');
+    const clearSelection = vi.spyOn(store, 'clearLlmExchange');
+    await callback(null); await flushPromises();
+    expect(live.openLlmExchange).not.toHaveBeenCalled();
+    expect(api.getAgentLlmExchange).not.toHaveBeenCalled();
+    const disclosure = wrapper.get('.technical-details');
+    expect((disclosure.element as HTMLDetailsElement).open).toBe(false);
+    (disclosure.element as HTMLDetailsElement).open = true;
+    await disclosure.trigger('toggle'); await flushPromises();
+    expect(live.openLlmExchange).toHaveBeenCalledWith('agent:planner:project', expect.any(Function));
+    expect(api.getAgentLlmExchange).toHaveBeenCalledTimes(1);
+    await wrapper.get('.rlp-refresh').trigger('click'); await flushPromises();
+    expect(api.getAgentLlmExchange).toHaveBeenCalledTimes(2);
+    (disclosure.element as HTMLDetailsElement).open = false;
+    await disclosure.trigger('toggle'); await flushPromises();
+    expect(wrapper.find('.raw-llm-panel').exists()).toBe(false);
+    expect(closeExchange).toHaveBeenCalledTimes(1);
+    expect(clearSelection).toHaveBeenCalledTimes(1);
+    (disclosure.element as HTMLDetailsElement).open = true;
+    await disclosure.trigger('toggle'); await flushPromises();
+    expect(api.getAgentLlmExchange).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+    expect(closeExchange).toHaveBeenCalledTimes(2);
+    expect(clearSelection).toHaveBeenCalledTimes(2);
   });
   it('preserves selected disclosures on same-identity refresh and resets on same-ordinal identity replacement', async () => {
     const context: NonNullable<AgentConversationResponse['segment_context']> = {
@@ -244,7 +277,8 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
 
     expect(wrapper.text()).toContain('Waiting for conversation');
     expect(wrapper.text()).toContain('Live sync is not connected');
-    expect(wrapper.find('.conv-rounds').exists()).toBe(false);
+    expect(wrapper.find('.conv-rounds').exists()).toBe(true);
+    expect(wrapper.find('.conversation-timeline').exists()).toBe(false);
     expect(api.getAgentConversation).not.toHaveBeenCalled();
 
     live.connectionState!.value = 'connected';
@@ -294,12 +328,12 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await callback(null);
     await flushPromises();
 
-    expect(evidenceLookups).toBe(1);
+    expect(evidenceLookups).toBe(0);
     expect(centerScrolls).toBe(0);
     expect(wrapper.text()).toContain('requested conversation entry was not found');
   });
 
-  it('focuses separate call and result anchors without disclosures or result aliases', async () => {
+  it('reveals the combined owner and focuses separate exact call and result anchors', async () => {
     const opaque = ' opaque "[] # % call ';
     api.getAgentConversation.mockResolvedValueOnce(response([
       ...toolRows('standalone', 1, 'custom_probe'),
@@ -315,12 +349,12 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await flushPromises();
     const chip = wrapper.get('.targeted-conversation-entry');
     expect(chip.attributes('data-entry-id')).toBe(opaque);
-    expect(chip.classes()).toContain('tool-chip');
+    expect(chip.classes()).toContain('tool-request');
     expect(chip.attributes('tabindex')).toBe('-1');
     expect(wrapper.findAll('.tool-group-body')).toHaveLength(0);
-    expect(wrapper.findAll('.tool-chip')).toHaveLength(10);
-    expect(wrapper.findAll('.tool-chip-detail, .tool-chip-raw')).toHaveLength(0);
-    expect(wrapper.text()).not.toContain('raw-only-response');
+    expect(wrapper.findAll('.tool-chip')).toHaveLength(5);
+    expect(wrapper.findAll('.tool-chip-detail')).toHaveLength(2);
+    expect(wrapper.get(`[data-tool-entry-id='standalone'] .tool-chip-toggle`).attributes('aria-expanded')).toBe('true');
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
     await wrapper.setProps({ entryId: `${opaque}:result` });
     await flushPromises();
@@ -453,7 +487,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await expect(initial.callback(null)).rejects.toBe(unauthorized);
     await flushPromises();
     expect(initial.wrapper.text()).toContain('Conversation unavailable');
-    expect(initial.wrapper.find('.conv-rounds').exists()).toBe(false);
+    expect(initial.wrapper.find('.conversation-timeline').exists()).toBe(false);
     initial.wrapper.unmount();
 
     api.getAgentConversation

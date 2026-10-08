@@ -114,6 +114,7 @@ export { isRuntimeStoppedInterruption } from './actors/runtime-stopped-interrupt
 export {
   bindRuntimeWorkflows,
   compileProjectWorkflows,
+  describeNodeResultContract,
   genericRecordDefinition,
   runtimeAgentBinding,
 } from './card-process/card-process-config.js';

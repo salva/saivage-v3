@@ -31,12 +31,12 @@ function navigate(link: EntityLink): void {
 </script>
 <style scoped>
 .context-block { padding:6px 10px; border-radius:6px; }
-summary { cursor:pointer; font-size:12px; }
-.recorded-system-context p { font-size:11px; color:var(--text-muted); overflow-wrap:anywhere; }
+summary { cursor:pointer; font-size:15px; }
+.recorded-system-context p { font-size:15px; color:var(--text); overflow-wrap:anywhere; }
 .recorded-system-context pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0; }
 .context-block.role-user { border-left:2px solid var(--accent-2); padding-left:10px; background:var(--entry-user-bg); }
 .context-block.role-assistant { border-left:2px solid var(--accent); padding-left:10px; background:var(--entry-accent-bg); }
-.context-block .msg-body { font-size:13px; line-height:1.55; color:var(--text); }
+.context-block .msg-body { font-size:15px; line-height:1.5; color:var(--text); }
 .msg-links { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
 .msg-link { border:1px solid var(--border); background:var(--surface-2); color:var(--accent); border-radius:999px; padding:2px 8px; font:inherit; font-size:12px; cursor:pointer; }
 </style>

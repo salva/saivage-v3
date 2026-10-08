@@ -88,6 +88,7 @@ export type ConfigGetResponse = OperatorApiSuccess<'config.get'>;
 export type ProvidersListResponse = OperatorApiSuccess<'providers.list'>;
 export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
 export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
+export type AgentCurrentInstructionsResponse = OperatorApiSuccess<'agents.currentInstructions'>;
 export type AgentConversationVersionListResponse = OperatorApiSuccess<'agents.conversationVersions.list'>;
 export type AgentConversationVersionResponse = OperatorApiSuccess<'agents.conversationVersions.get'>;
 export type AgentDetailResponse = OperatorApiSuccess<'agents.detail'>;

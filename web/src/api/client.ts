@@ -304,6 +304,9 @@ export function getAgentConversation(
   });
 }
 export function listAgentConversationVersions(sessionId: ConversationSessionId, signal?: AbortSignal) { return operatorRequest('agents.conversationVersions.list', { params: { id: sessionId }, signal }); }
+export function getAgentCurrentInstructions(sessionId: ConversationSessionId, signal?: AbortSignal) {
+  return operatorRequest('agents.currentInstructions', { params: { id: sessionId }, signal });
+}
 export function getAgentConversationVersion(sessionId: ConversationSessionId, version: number, signal?: AbortSignal) { return operatorRequest('agents.conversationVersions.get', { params: { id: sessionId, version }, signal }); }
 
 export function getAgentLlmExchange(

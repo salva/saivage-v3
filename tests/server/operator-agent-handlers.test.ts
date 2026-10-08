@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 
 import {
   AgentConversationResponseSchema,
+  AgentCurrentInstructionsResponseSchema,
   AgentDetailResponseSchema,
   AgentListResponseSchema,
   AgentLlmExchangeResponseSchema,
@@ -36,6 +37,64 @@ afterEach(() => {
 });
 
 describe('operator Agent exact identity contracts and handlers', () => {
+  it('enforces a singular current-instructions DTO with correlated scope and complete unique binding shape', () => {
+    const global = { session_id: 'agent:analyst:global', basis: 'server_loaded_configuration', scope: { kind: 'global' }, bindings: [{ kind: 'global', instructions: 'Complete safe prose FINAL' }] };
+    const card = { session_id: 'agent:planner:project', basis: 'server_loaded_configuration', scope: { kind: 'card', card_id: 'project', card_type: 'project', ownership: 'retained_tombstone' }, bindings: [{ kind: 'workflow_node', node_id: 'plan', instructions: 'One' }, { kind: 'workflow_node', node_id: 'retry', instructions: 'Two' }] };
+    expect(AgentCurrentInstructionsResponseSchema.parse(global)).toEqual(global);
+    expect(AgentCurrentInstructionsResponseSchema.parse(card)).toEqual(card);
+    for (const invalid of [
+      { ...global, segment_version: 1 }, { ...global, basis: 'disk' }, { ...global, bindings: [] },
+      { ...global, bindings: [...global.bindings, ...global.bindings] },
+      { ...global, scope: card.scope }, { ...card, scope: { ...card.scope, card_id: 'card-a' } },
+      { ...card, bindings: global.bindings }, { ...card, bindings: [card.bindings[0], card.bindings[0]] },
+      { ...card, scope: { ...card.scope, private: 'hidden' } },
+      { ...global, bindings: [{ ...global.bindings[0], raw: 'hidden' }] },
+    ]) expect(AgentCurrentInstructionsResponseSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it('routes authenticated pure loaded instructions with strict query rejection, 404, 503 and safe renderer failure', async () => {
+    const root = projectRoot(); initProjectTree(root);
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS,
+      captureExecutingLlmSnapshots: () => { throw new Error('Instructions must not observe execution'); } });
+    const fastify = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'fixture-token' }), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(
+      fastify, { 'agents.currentInstructions': agentOperatorApiContracts['agents.currentInstructions'] },
+      { 'agents.currentInstructions': handlers['agents.currentInstructions']! },
+    );
+    const url = '/api/agents/agent%3Aplanner%3Aproject/current-instructions';
+    const headers = { authorization: 'Bearer fixture-token' };
+    try {
+      expect((await fastify.inject({ method: 'GET', url })).statusCode).toBe(401);
+      for (const suffix of ['?segment=1', '?node=plan', '?input_id=x', '?version=1'])
+        expect((await fastify.inject({ method: 'GET', url: url + suffix, headers })).statusCode).toBe(400);
+      expect((await fastify.inject({ method: 'GET', url: '/api/agents/not-a-session/current-instructions', headers })).statusCode).toBe(400);
+      const success = await fastify.inject({ method: 'GET', url, headers });
+      expect(success.statusCode).toBe(200);
+      expect(AgentCurrentInstructionsResponseSchema.parse(success.json()).scope).toEqual({ kind: 'card', card_id: 'project', card_type: 'project', ownership: 'active' });
+      expect((await fastify.inject({ method: 'GET', url: '/api/agents/agent%3Aunconfigured%3Aglobal/current-instructions', headers })).json()).toEqual({ error: 'Agent session not found' });
+      writeFileSync(join(root, '.saivage', 'cards', 'project', 'card-head.json'), '{broken');
+      const damaged = await fastify.inject({ method: 'GET', url, headers });
+      expect(damaged.statusCode).toBe(503);
+      expect(damaged.json()).toEqual({ error: 'current_state_unavailable', resource: 'card', owner_id: 'project', restart_required: true });
+    } finally { await fastify.close(); }
+
+    const participant = TEST_RUNTIME_WORKFLOWS.selectedGlobalParticipants.get('analyst')!;
+    const workflows = { ...TEST_RUNTIME_WORKFLOWS, selectedGlobalParticipants: new Map(TEST_RUNTIME_WORKFLOWS.selectedGlobalParticipants).set('analyst', {
+      ...participant, prompt: { ...participant.prompt, compiled: { tokens: [{ kind: 'placeholder' as const, key: 'sk-renderer-private-canary' }] } },
+    }) };
+    const brokenHandlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows, captureExecutingLlmSnapshots: () => new Map() });
+    const brokenServer = Fastify({ logger: false });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(
+      brokenServer, { 'agents.currentInstructions': agentOperatorApiContracts['agents.currentInstructions'] },
+      { 'agents.currentInstructions': brokenHandlers['agents.currentInstructions']! },
+    );
+    try {
+      const failure = await brokenServer.inject({ method: 'GET', url: '/api/agents/agent%3Aanalyst%3Aglobal/current-instructions' });
+      expect(failure.statusCode).toBe(500);
+      expect(failure.body).not.toContain('canary');
+      expect(agentOperatorApiContracts['agents.currentInstructions'].response[500].parse(failure.json())).toEqual(failure.json());
+    } finally { await brokenServer.close(); }
+  });
   const variants: Array<[string, string, string | null]> = [
     ['agent:analyst:global', 'analyst', null],
     ['agent:planner:project', 'planner', 'project'],

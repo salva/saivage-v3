@@ -1,6 +1,7 @@
 <template>
-  <section class="selected-context" data-testid="conversation-segment-context">
-    <strong>Compacted context — selected segment {{ version }} · source segment {{ context.source_version }} · {{ context.continuation.kind === 'between_rounds' ? 'between rounds' : 'inherited open round' }}</strong>
+  <details class="selected-context" data-testid="conversation-segment-context">
+    <summary>Compacted context · from segment {{ context.source_version }}</summary>
+    <p>Selected segment {{ version }} · {{ context.continuation.kind === 'between_rounds' ? 'between rounds' : 'inherited open round' }}</p>
     <span>{{ context.protected_prompts.length }} retained instructions · recovery fact {{ context.required_model_facts.latestRecovery ? 'present' : 'absent' }} · refusal fact {{ context.required_model_facts.latestContentPolicyRefusal ? 'present' : 'absent' }}</span>
     <p>Current readers can include notices derived from compacted facts; these do not prove a newly recorded event.</p>
     <details data-testid="compacted-summary"><summary>Accumulated summary</summary>
@@ -20,7 +21,7 @@
       <p>Continuation context, not another activation entry.</p>
       <pre><JsonText :text="JSON.stringify(context.continuation, null, 2)" /></pre>
     </details>
-  </section>
+  </details>
 </template>
 <script setup lang="ts">
 import type { AgentConversationResponse } from '../../api/types';
@@ -29,8 +30,8 @@ import JsonText from '../content/JsonText.vue';
 defineProps<{ context: NonNullable<AgentConversationResponse['segment_context']>; version: number | null }>();
 </script>
 <style scoped>
-.selected-context { display:grid; gap:6px; margin:10px 16px 0; padding:10px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2); font-size:12px; overflow-wrap:anywhere; }
-p { margin:4px 0; color:var(--text-muted); }
+.selected-context { margin:0; padding:6px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2); font-size:15px; line-height:1.5; color:var(--text); overflow-wrap:anywhere; }
+p { margin:4px 0; color:var(--text); }
 pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0; }
 summary { cursor:pointer; }
 </style>

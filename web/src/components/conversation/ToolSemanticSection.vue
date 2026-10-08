@@ -4,8 +4,8 @@
     <dl v-if="section.fields?.length">
       <div v-for="(field, index) in section.fields" :key="index"><dt>{{ field.label }}</dt><dd><InlineParts :parts="field.parts" /></dd></div>
     </dl>
-    <details v-if="section.content !== undefined && section.disclosure"><summary>Show {{ section.title }}</summary><CodeBlock :code="section.content" :language="section.language" copyable wrap /></details>
-    <CodeBlock v-else-if="section.content !== undefined" :code="section.content" :language="section.language" copyable wrap />
+    <details v-if="section.content !== undefined && section.disclosure"><summary>Show {{ section.title }}</summary><CodeBlock :code="section.content" :language="section.language" max-height="none" copyable wrap /></details>
+    <CodeBlock v-else-if="section.content !== undefined" :code="section.content" :language="section.language" max-height="none" copyable wrap />
     <ToolSemanticSection v-for="(item, index) in section.items" :key="index" :section="item" />
   </section>
 </template>
@@ -17,11 +17,11 @@ defineProps<{ section: SemanticSection }>();
 </script>
 <style scoped>
 .semantic-section { min-width:0; max-width:100%; overflow-wrap:anywhere; }
-h4 { margin:8px 0; font-size:12px; }
+h4 { margin:8px 0; font-size:15px; }
 dl { margin:0; }
 dl > div { display:flex; flex-wrap:wrap; gap:8px; padding:2px 0; }
-dt { color:var(--text-muted); }
+dt { color:var(--text); }
 dd { margin:0; min-width:0; max-width:100%; }
 dd :deep(.inline-parts) { flex-wrap:wrap; }
-summary { cursor:pointer; font-size:12px; }
+summary { cursor:pointer; font-size:15px; }
 </style>

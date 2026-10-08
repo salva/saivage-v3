@@ -22,7 +22,8 @@ describe('selected actual compacted context', () => {
     const context = compactedContext();
     const wrapper = mount(SelectedCompactedContext, { props: { context, version: 2 } });
     expect(wrapper.findAll('details').every(detail => !(detail.element as HTMLDetailsElement).open)).toBe(true);
-    expect(wrapper.text()).toContain('selected segment 2 · source segment 1 · inherited open round');
+    expect(wrapper.get('summary').text()).toBe('Compacted context · from segment 1');
+    expect(wrapper.text()).toContain('Selected segment 2 · inherited open round');
     const summary = wrapper.get('[data-testid="compacted-summary"]');
     (summary.element as HTMLDetailsElement).open = true;
     expect(summary.get('pre').text()).toBe(context.summary_text);

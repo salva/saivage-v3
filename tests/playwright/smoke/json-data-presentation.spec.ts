@@ -141,12 +141,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 
     await mkdir(directory, { recursive: true });
     const evidence: Record<string, unknown> = { viewport, source: 'synthetic public API fixtures' };
     const capture = async (name: string, owner: Locator) => {
+      const conversationOwned = await owner.evaluate(element => element.closest('.conversation-reading-surface, .chat-scroll-area') !== null);
       const samples = await measure(owner);
       expect(samples.length).toBeGreaterThan(0);
       for (const sample of samples) {
         expect(parseFloat(sample.fontSize)).toBeGreaterThanOrEqual(14);
         expect(parseFloat(sample.fontSize)).toBeLessThanOrEqual(16);
-        expect(parseFloat(sample.lineHeight)).toBe(21);
+        if (conversationOwned) {
+          expect(parseFloat(sample.lineHeight)).toBeGreaterThanOrEqual(21);
+          expect(parseFloat(sample.lineHeight)).toBeLessThanOrEqual(24);
+        } else expect(parseFloat(sample.lineHeight)).toBe(21);
         expect(sample.contrast, `${name}: ${sample.kind} on ${sample.background}`).toBeGreaterThanOrEqual(4.5);
       }
       evidence[name] = samples;
@@ -219,24 +223,32 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 
     await page.goto(`/agents/${session}`);
     const cockpit = page.getByTestId('route-cockpit');
     const reader = cockpit.locator('.conv-rounds');
+    const chip = (id: string) => reader.locator(`.tool-chip[data-tool-entry-id="${segment}:tool-call:${id}"]`);
     const row = (id: string, result = false) => reader.locator(`[data-entry-id="${segment}:tool-${result ? 'result' : 'call'}:${id}"]`);
-    await expect(row('config')).toBeVisible();
-    await expand(row('config'));
-    await row('config').getByRole('button', { name: 'Safe original request', exact: true }).click();
-    const rawCall = row('config').locator('.tool-chip-raw');
+    await expect(chip('config')).toBeVisible();
+    await expand(chip('config'));
+    await expect(chip('config').locator('[data-entry-id]')).toHaveCount(2);
+    await expect(row('config')).toHaveCount(1);
+    await expect(row('config', true)).toHaveCount(1);
+    const requestOriginal = row('config').locator('.safe-original');
+    await expect(requestOriginal).not.toHaveAttribute('open', '');
+    await requestOriginal.locator(':scope > summary').click();
+    const rawCall = requestOriginal.locator('.code-block');
     expect(await rawCall.locator('code').textContent()).toBe(initialRows[0]!.content);
     await copy(page, rawCall, initialRows[0]!.content);
     await capture('safe-original-request', rawCall);
-    await expand(row('config', true));
     const inlineConfig = row('config', true).locator('.semantic-section').filter({ has: page.getByRole('heading', { name: 'Agent / workflow configuration', exact: true }) });
     await expect(inlineConfig.locator('.json-token-key').first()).toBeVisible();
     await capture('inline-show-config', inlineConfig);
-    await row('config', true).getByRole('button', { name: 'Safe original result', exact: true }).click();
-    const rawResult = row('config', true).locator('.tool-chip-raw');
+    const resultOriginal = row('config', true).locator('.safe-original');
+    await expect(resultOriginal).not.toHaveAttribute('open', '');
+    await resultOriginal.locator(':scope > summary').click();
+    await expect(requestOriginal).toHaveAttribute('open', '');
+    const rawResult = resultOriginal.locator('.code-block');
     expect(await rawResult.locator('code').textContent()).toBe(initialRows[1]!.content);
     await copy(page, rawResult, initialRows[1]!.content);
     await capture('safe-original-result', rawResult);
-    await expand(row('failed', true));
+    await expand(chip('failed'));
     const refusal = row('failed', true).locator('.semantic-section').filter({ has: page.getByRole('heading', { name: 'Recorded refusal / error context', exact: true }) });
     await capture('error-inline', refusal);
     const selected = refusal.locator('dl > div').filter({ has: page.getByText('current head', { exact: true }) }).locator('.json-text');
@@ -258,6 +270,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 
     evidence.mouseSelection = JSON.stringify(inline);
     await page.evaluate(() => getSelection()?.removeAllRanges());
 
+    const compactedContext = cockpit.getByTestId('conversation-segment-context');
+    await expect(compactedContext).not.toHaveAttribute('open', '');
+    await compactedContext.locator(':scope > summary').click();
     const source = cockpit.getByTestId('compacted-source');
     await expect(source).not.toHaveAttribute('open', '');
     const summary = source.locator('summary');
@@ -287,16 +302,21 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 700 
       segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 2,
       visible_message_id: '11111111-1111-4111-8111-111111111111:tool-result:arrival' }), session);
     await response;
-    await expect(row('arrival', true)).toHaveCount(1);
+    await expect(chip('arrival')).toHaveCount(1);
     expect(await mounted!.evaluate(element => element === document.querySelector('[data-testid="route-cockpit"] [data-testid="compacted-source"]'))).toBe(true);
     expect(await mountedRaw!.evaluate(element => element.isConnected)).toBe(true);
     await expect(source).toHaveAttribute('open', '');
     expect(await reader.evaluate(element => element.scrollTop)).toBe(offset);
     evidence.progressiveArrival = { mountedOwnerUnchanged: true, disclosureOpen: true, readingOffset: offset };
-    await expand(row('arrival', true));
-    await capture('arrived-json', row('arrival', true));
+    await expand(chip('arrival'));
+    await expect(row('arrival', true)).toHaveCount(1);
+    const arrivalOriginal = row('arrival', true).locator('.safe-original');
+    await expect(arrivalOriginal).not.toHaveAttribute('open', '');
+    const arrivalSemantic = row('arrival', true).locator('.semantic-section').filter({ has: page.getByRole('heading', { name: 'Safe result (opaque tool)', exact: true }) });
+    await capture('arrived-json', arrivalSemantic);
+    await expect(arrivalOriginal).not.toHaveAttribute('open', '');
 
-    await cockpit.getByRole('button', { name: 'Provider exchange metadata', exact: true }).click();
+    await cockpit.locator('.technical-details > summary').click();
     const provider = cockpit.getByRole('region', { name: 'Provider exchange metadata' });
     await expect(provider.locator('.json-text').first()).toBeVisible();
     await capture('provider-metadata', provider);

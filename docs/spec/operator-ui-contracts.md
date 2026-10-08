@@ -32,7 +32,7 @@ This is neither an editor nor a model-wire inspector.
 
 ## Image result presentation
 
-Successful `view_image` rows label **Image snapshot recorded** with sent dimensions
+The combined **Inspect image** row for successful `view_image` labels **Image snapshot recorded** with sent dimensions
 and safe source/upright/sent, orientation, spatial resize, scale and maximum metadata.
 Source paths in call/result presentation are text, not automatic Files preview links.
 Safe-original disclosure and copy include only strict descriptors and safe metadata,
@@ -303,9 +303,14 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   segment N**. Retained conversation and compacted context are used in request
   assembly, not an exact model request: static/prepared additions, tool definitions,
   protocol encoding and private replay can differ and are not reconstructed here.
-- Actual selected compacted genesis is separate from source rows. Its visible header
-  names selected/source segments, between-rounds or inherited-open-round continuation,
-  protected-instruction count and required-fact presence. **Accumulated summary**,
+- One conversation-owned scroll surface contains orientation, context, disclosures and
+  timeline; expanded prose, code, instructions, stdout/stderr and raw payloads grow in
+  normal flow, not nested vertical scrollports. Tree and Analyst remain independent panes.
+  **About this conversation** is initially closed and explains retained basis and grouping.
+- Actual selected compacted genesis is separate from source rows, under initially closed
+  **Compacted context · from segment N**. Counts, source/selected segments, required-fact
+  presence and between-rounds or inherited-open-round continuation appear inside.
+  **Accumulated summary**,
   **Retained instructions (N)**, **Required model facts**, and **Source and continuation**
   are independent, keyboard-operable and initially closed. Full safe summary and all
   ordered instructions remain inspectable without preview truncation; individual
@@ -313,15 +318,19 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   Original adjacency to summarized prose is not preserved. Facts are retained context,
   not fresh occurrences or liveness; continuation is not another activation entry.
   Current readers may include notices derived from compacted facts, not fresh physical
-  events. Ordinary null context creates no genesis or static-prompt panel.
+  events. Ordinary null context means no selected compacted genesis, not no system prompt.
 - Only ordinary typed system-role text uses **Recorded system context**, initially
   closed at its exact source position with full safe content, role, identity and time.
   Node-looking prose is not interpreted as current compiled authority. Diagnostics,
   refusals, activation entries and tool statuses remain visible. Exact entry targeting
   reveals the needed disclosure and focuses/highlights its original anchor.
 - The inspector has no Expand all, Collapse all or Pause auto-scroll controls; Analyst
-  controls remain unchanged. Scroll-away pauses implicit bottom following; **Jump to
-  latest** resumes current following. History/entry targeting never auto-follows.
+  controls remain. `useAgentTimeline` is the sole accepted-arrival following owner, not
+  the Analyst frame callback. Scroll-away pauses implicit bottom following; inspector
+  **Jump to latest** resumes current following. Analyst Jump clears unseen count and
+  moves once without unchecking explicit Pause; later arrivals follow only when pinned
+  and Pause is off. Counts track source-entry arrivals, not combined visual row count.
+  History/entry targeting never auto-follows.
   Disclosure changes do not force a bottom jump. Same accepted identity refresh
   preserves disclosures; session/segment identity replacement (even at the same ordinal)
   or leaving resets them. No cross-visit viewing state is retained.
@@ -343,7 +352,8 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   case folding, extra decoding, UUID restriction, prefix parsing, or reconstructed ID.
   Missing, empty, or nonscalar values give no target; unknown opaque IDs reach ordinary
   missing-entry presentation. Vue Router builds encoded query values.
-- **Activation entries — this segment** projects already returned public markers in
+- The segment-local activation index is initially closed with summary **Activation entries
+  · N**, and coverage inside; explicit malformed-marker warnings remain outside. It projects public markers in
   physical source order and labels each **Activation entry recorded**, configured
   participant and recorded time, with copyable recorded identities and **Open entry**.
   Every link carries the observed numeric segment and full marker row ID; marker-only
@@ -368,20 +378,29 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   reach the canonical address and mount the same exclusive reader inside the
   shared cockpit owner, never two instances. Reading offsets and arrival counters are
   discarded on leaving the inspector.
-- The transcript preserves physical source order including corrections,
-  recovery rows, and tool rows. Tool call, successful result, failed result,
+- Canonical entries preserve physical source order; visual tool grouping brings an exact
+  matched result to its call position. Corrections, recovery and other messages remain
+  separate in their original relative order. Tool call, successful result, failed result,
   and **No result recorded** are distinct; the last proves neither pending
   execution nor permission to replay. Compaction is presented as separate
   system activity (completed summary calls, in-flight state, elapsed,
   last-known on failed refresh), never as agent liveness, heartbeat,
   percentage, or ETA. `model_recovered` uncertainty, failed uncertainty-only
   mates, later activation, and lifecycle corrections remain separate facts.
-- Each call reads **Requested action**, exact tool name and meaningful target;
-  an exact retained mate supplies a **Result recorded below** anchor, otherwise
-  **No result recorded**. Results read **Recorded result**, exact tool/target,
-  outcome and salient observation/error at their own source position. Association
-  supplies requested context only, never relocation, merging or backdated outcome.
-  An unmatched retained result identifies requested context as unavailable.
+- A matched exchange renders once at the call position, suppressing only its standalone
+  result and visually empty rounds. `call → prose → result → correction` displays
+  `combined → prose → correction`; **Result recorded later** marks intervening entries.
+  Details preserve both original source positions/times and intervening-entry count,
+  never backdated knowledge, invented duration or author attribution. Interleaved calls
+  each own their row. Default summaries use friendly action, target and plain outcome,
+  not repeated exact tool codes, routine timestamps or stdout badges.
+  An unmatched call says **No result recorded**; independently evidenced live Analyst
+  pending state may say **Awaiting result**. An unmatched result stays at its source
+  position with **Requested context unavailable**. A mate arrival updates the call-keyed
+  row inline, preserving expansion and reading location without a duplicate visual row.
+- Request and Result retain distinct unique exact DOM anchors. Cold/Back/refresh route
+  targets and inline links reveal the owning row and correct half before owner-local
+  scroll/focus. No hidden duplicate result or unconstrained ancestor scrolling exists.
 - Tool settlement is distinct from domain outcome: **Running at observation** is
   not completion; **Process failed · exit N** can accompany successful settlement;
   **Exited · exit 0** is not proof that tests passed. **Effects uncertain** proves
@@ -392,7 +411,8 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   Restart `confirmation_required` is not restarted; navigation publication is not
   browser receipt. Unexpected projection shapes show presentation unavailable,
   not a green completion or a normalized alternate payload.
-- First expansion shows named tool-specific sections for supplied operation/content
+- First expansion shows **Request** then **Result**, each with named tool-specific
+  sections for supplied operation/content
   and recorded observations/effects. Supplied edit old/new strings are not complete
   before/after snapshots. Stdout and stderr disclose independently with actual output
   links and recorded head completeness/byte coverage. Slices, selected pages/tails,
@@ -403,11 +423,39 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   private durable bytes or provider wire. All content and supported links use the
   same source-owned public projection for current and selected history.
 - Tool summaries in the exact-session reader and Analyst panel wrap naturally
-  at the available pane width: action, displayed target, status, time, and
+  at the available pane width: action, displayed target, status, and
   resource links remain readable without overlap. Details remain keyboard-operated
   through the native disclosure button; resource links stay separate and focusable.
   Summaries retain presenter abbreviations rather than promising the entire raw
   command; complete safe projected values remain available in secondary disclosures.
+- Diagnostics remain at their original source anchors. **Model issue** keeps a faithful
+  error excerpt visible; **Repair instruction recorded** is neutral, not achieved repair;
+  **Interrupted activation · effects uncertain** is not recovery success. Initially closed
+  full safe technical bodies retain role/time/identity, are selectable/copyable and open
+  on exact targeting. Refusal and uncertainty remain visible without expansion. This
+  changes no runtime repair/recovery behavior.
+- **Technical details** is initially closed and lazily fetches existing session-scoped
+  latest recorded exchange metadata, with Refresh; it is not historical-segment metadata
+  or an exact request. Activation raw identities/JSON/time are secondary inline details;
+  marker existence remains visible as **Activation entry recorded**.
+- **Currently configured instructions** is a separate initially closed inline disclosure
+  in both readers. `agents.currentInstructions` reads composed static text from loaded
+  server configuration, not latest disk bytes, historical snapshots or in-flight inputs.
+  Show the selected global binding once or all matching workflow nodes in declaration
+  order, never infer a node from a marker or deduplicate distinct bindings. Retained
+  tombstones say retained-card orientation using current templates. Historical views
+  explicitly say **Current server configuration — not the instructions recorded for
+  this historical segment.** Recorded system text and compacted context stay separate.
+  Opening reads once; while open Refresh explicitly reads again. Close/departure/session
+  change aborts and discards content/error, reopening reads afresh, and stale completions
+  are fenced locally. Same-session transcript/history refresh does not refetch, reset or
+  jump this view. A held-open value is a last fetched observation, not live tracking.
+  Refresh failure leaves an error/no-current-content, not a silently fresh retained value.
+  Invalid identity makes no request; loading/401/404/503 remain inside the disclosure
+  without replacing retained history. Copy is the complete safe received instruction
+  string. There is no dynamic context, tool definition, private replay, wire body,
+  provider/auth configuration, raw original escape hatch, polling or cross-visit cache.
+  Existing operator authentication and post-composition outbound redaction apply.
 - Current content, compacted summary context, retained instructions, and an
   explicitly selected historical segment remain separate; no stitched
   cross-segment transcript. Summary prose is inspectable historical context, not

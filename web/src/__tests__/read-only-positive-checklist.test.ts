@@ -19,6 +19,7 @@ import cardOverviewFacetSource from '../components/cockpit/CardOverviewFacet.vue
 import participantRailSource from '../components/cockpit/ParticipantRail.vue?raw';
 import restartDialogSource from '../components/cockpit/RestartServerDialog.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
+import rawLlmPanelSource from '../components/agents/RawLlmExchangePanel.vue?raw';
 import selectedCompactedContextSource from '../components/agents/SelectedCompactedContext.vue?raw';
 import retainedInstructionContextSource from '../components/agents/RetainedInstructionContext.vue?raw';
 import contextBlockSource from '../components/conversation/ContextBlock.vue?raw';
@@ -120,8 +121,14 @@ describe('read-only positive checklist', () => {
     expect(contextBlockSource).toContain('<summary>Recorded system context</summary>');
     expect(agentConversationSource).not.toContain('Expand all');
     expect(agentConversationSource).not.toContain('Collapse all');
-    expect(agentConversationSource).toContain('rawPanelOpen = !rawPanelOpen');
-    expect(agentConversationSource).toContain('Provider exchange metadata');
+    expect(agentConversationSource).toContain('class="technical-details" @toggle="rawPanelOpen = ($event.currentTarget as HTMLDetailsElement).open"');
+    expect(agentConversationSource).toContain('<RawLlmExchangePanel v-if="rawPanelOpen"');
+    expect(rawLlmPanelSource).toContain('onMounted(() => {');
+    expect(rawLlmPanelSource).toContain('agentStore.beginLlmExchangeSelection(props.sessionId)');
+    expect(rawLlmPanelSource).toContain('liveSync.openLlmExchange(props.sessionId,');
+    expect(rawLlmPanelSource).toContain('onUnmounted(() => {');
+    expect(rawLlmPanelSource).toContain('closeExchange?.()');
+    expect(rawLlmPanelSource).toContain('agentStore.clearLlmExchange(exchangeToken)');
     expect(agentConversationSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('useAgentTimeline');
