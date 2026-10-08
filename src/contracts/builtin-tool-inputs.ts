@@ -192,14 +192,14 @@ export const createListCardsInputSchema = (
       type: z
         .union([cardTypeEnum(cardTypeVocabulary), z.array(cardTypeEnum(cardTypeVocabulary))])
         .optional(),
-      parent: z.string().optional(),
+      parent: cardIdSchema.optional(),
       position: discoveryCollectionPositionSchema.optional(),
       response_bytes: responseBytesSchema.optional(),
     })
     .strict();
 export const getCardInputSchema = z
   .object({
-    id: z.string().describe('The exact card id.'),
+    id: cardIdSchema.describe('The exact card id.'),
     section: cardSectionSchema,
     position: discoveryCollectionPositionSchema.optional(),
     response_bytes: responseBytesSchema.optional(),
@@ -207,7 +207,7 @@ export const getCardInputSchema = z
   .strict();
 export const getTreeInputSchema = z
   .object({
-    rootId: z.string().describe('The exact card id whose subtree is observed.'),
+    rootId: cardIdSchema.describe('The exact card id whose subtree is observed.'),
     depth: z
       .number()
       .int()

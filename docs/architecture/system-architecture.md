@@ -194,6 +194,7 @@ Dedicated notification, lifecycle, child-link, reorder, and deletion methods fre
 
 Identity derives structural parent/depth but never membership.
 CardService card-ID inputs fail fast on malformed syntax; well-formed inactive targets retain each operation's explicit not-found result.
+`contracts/builtin-tool-inputs.ts` uses the owning `cardIdSchema` for `get_card.id`, `get_tree.rootId` and optional `list_cards.parent`. The real card-inspection binders and `llmToolDefinition` derive runtime admission and provider JSON schemas from those same inputs; omitted parent remains unrestricted discovery. `invokeToolForLlm` rejects malformed arguments before executor entry, while valid absent IDs enter execution and settle ordinary not-found failures. Domain canonical consumption stays strict; no general Zod-error conversion masks malformed heads, records or conversation indexes, unrelated I/O or publication uncertainty.
 Exact target reads prove only the reached committed root-to-target path, current artifacts, and parent-child linkage.
 Subtree reads recursively apply that same strict reached-state proof in committed child order.
 `getParent()` and `getAncestors()` use exact target scope, while `getDescendantIds()` uses exact subtree scope.

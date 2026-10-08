@@ -123,6 +123,28 @@ This unit adds no native MCP producer or lifecycle surface and certifies no brow
 containment or installed-state compatibility. Existing format-6 adoption warnings
 remain; no deployment, reset or migration is authorized.
 
+## Durable-preserving card-inspection ID admission
+
+Against source baseline `cadf0f2144e9ae8fe56a2b3027e16e59d449e44e`,
+`src/contracts/builtin-tool-inputs.ts` adopts the existing `cardIdSchema` for
+`get_card.id`, `get_tree.rootId` and optional `list_cards.parent`. Real inspection
+binders and `llmToolDefinition` derive future runtime/provider argument admission
+from these inputs. Generic persisted call arguments and failed results keep their
+original identities and pairing semantics; historical arguments are not revalidated
+against current tool-input schemas. `conversation-file.ts` and the canonical
+conversation/result consumers remain unchanged: index/genesis **format 6** and
+segment envelope **version 6**. Card/record heads/history/mailbox **format 1**,
+app-log/provider evidence shared envelope **version 1** and lifecycle lock
+**format 1** are unchanged. No nested retained payload, provenance, selection,
+layout or discriminator changes.
+
+This note applies to this source change; installation applicability beyond the
+reported incident pin `4df03ba88114bff605d3fab46c3c5074fe92f1c5` is unknown.
+There is no shared unreleased cutover or version-reuse claim. This change itself
+needs no migration/reset, but unrelated release differences still require full
+source-contract comparison; it neither certifies adoption of current HEAD by
+that older installation nor authorizes deployment or any instance action.
+
 ## Known incompatible changes
 
 These source boundaries are directly evidenced, not an exhaustive timeline.
