@@ -1618,6 +1618,8 @@ At the Fastify/Pino boundary, the request serializer preserves Fastify's standar
 This narrow serializer keeps WebSocket tickets and other query contents outside logs without introducing a generic redaction layer.
 Analyst control-action auditing remains in the separate audited mutation runner.
 
+Development-only `pino-pretty` uses default formatters with `colorize:true`: it strips U+0000–0008, U+000B–001F and U+007F–009F from the default top-level message, displayed outer property names and decoded error stacks, preserving TAB/LF there and formatter-generated colors. Nested error/object metadata is not recursively sanitized; stringified `err.message` can retain literal DEL/C1. Trusted custom formatters and unknown-line pass-through remain outside any universal sanitization claim. Other environments retain JSON output; credential protection remains source-owned, excessive-copy-depth failures are not recovered, and console formatting is separate from durable app-log ownership.
+
 Server composition creates one SyncHub and injects only narrow freshness-effect picks into owners.
 Event publication has no freshness callback.
 Contract-violation app-log publication executes before final send and is part of operation success.
