@@ -4,6 +4,13 @@ type ContractAuthClass = 'public' | 'operator-session';
 
 type HttpMethod = 'GET' | 'POST';
 
+export const ImageBytesResponseSchema = z
+  .custom<Uint8Array<ArrayBufferLike>>((value) => value instanceof Uint8Array)
+  .refine(
+    (bytes) => bytes.byteLength > 0 && bytes.byteLength <= 32 * 1024 * 1024,
+    'Image response exceeds byte limits.',
+  );
+
 export const UnexpectedInternalServerErrorSchema = z
   .object({
     error: z.literal('InternalServerError'),
@@ -54,6 +61,7 @@ export type OperatorRouteContract<
   query?: TQuery;
   body?: TBody;
   success: TSuccess;
+  responseEncoding?: 'binary';
   response: Record<number, z.ZodTypeAny>;
   auth: ContractAuthClass;
   failureIdentity?: ContractFailureIdentity;

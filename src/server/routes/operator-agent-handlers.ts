@@ -3,6 +3,8 @@ import {
   AgentOperatorReadModelService,
   AgentCurrentStateUnavailableError,
   AgentSessionNotFoundError,
+  ConversationImageNotFoundError,
+  ConversationImageSegmentChangedError,
   CardAgentScopeNotFoundError,
   ConversationCursorNotFoundError,
   ConversationSegmentChangedError,
@@ -40,6 +42,53 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
   };
 
   return defineOperatorContractHandlers({
+    'agents.conversationImage': async ({ params, query, reply }) => {
+      try {
+        const body = await agentReadModel().getConversationImage(params.id, query);
+        reply.header('Content-Type', 'image/png');
+        return { body };
+      } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
+        if (error instanceof ConversationImageNotFoundError)
+          return { statusCode: 404, body: { error: 'conversation_image_not_found' } };
+        if (error instanceof ConversationImageSegmentChangedError)
+          return { statusCode: 409, body: { error: 'conversation_image_segment_changed' } };
+        if (error instanceof AgentSessionNotFoundError)
+          return { statusCode: 404, body: { error: 'Agent session not found' } };
+        if (error instanceof ConversationHistoricalVersionNotFoundError)
+          return {
+            statusCode: 404,
+            body: {
+              error: 'historical_version_not_found',
+              resource: 'conversation',
+              owner_id: params.id,
+              version: query.segment_version,
+            },
+          };
+        if (error instanceof ConversationHistoricalVersionUnavailableError)
+          return {
+            statusCode: historicalUnavailableStatus(error.reason),
+            body: {
+              error: 'historical_version_content_unavailable',
+              resource: 'conversation',
+              owner_id: params.id,
+              version: query.segment_version,
+              reason: error.reason,
+            },
+          };
+        if (error instanceof AgentCurrentStateUnavailableError)
+          return {
+            statusCode: 503,
+            body: {
+              error: 'current_state_unavailable',
+              resource: error.resource,
+              owner_id: error.ownerId,
+              restart_required: true,
+            },
+          };
+        throw error;
+      }
+    },
     'agents.currentInstructions': ({ params }) => {
       try {
         return { body: agentReadModel().getCurrentInstructions(params.id) };

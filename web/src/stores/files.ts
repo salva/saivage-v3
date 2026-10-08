@@ -94,7 +94,7 @@ export const useFileStore = defineStore('files', () => {
 
   /** Detects if viewed file should be rendered as JSON. */
   const isJsonContent = computed<boolean>(() => {
-    if (!viewedFile.value) return false;
+    if (!viewedFile.value || !('content' in viewedFile.value)) return false;
     const ct = viewedFile.value.contentType;
     return ct === 'application/json'
       || ct.includes('+json')
@@ -103,6 +103,7 @@ export const useFileStore = defineStore('files', () => {
 
   /** Detects if viewed file should be rendered as Markdown. */
   const isMarkdownContent = computed<boolean>(() => {
+    if (!viewedFile.value || !('content' in viewedFile.value)) return false;
     return viewedFilePath.value.endsWith('.md')
       || viewedFile.value?.contentType === 'text/markdown';
   });

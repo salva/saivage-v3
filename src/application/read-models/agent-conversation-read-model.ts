@@ -133,7 +133,7 @@ export function foldHistoricalConversationRows(
     });
 }
 
-function coveredRequiredFactRows(segment: ConversationSegment): readonly AgentMessage[] {
+export function coveredRequiredFactRows(segment: ConversationSegment): readonly AgentMessage[] {
   if (segment.genesis.kind !== 'compacted_segment_genesis') return [];
   return currentCoveredRequiredFactRows({
     sourceSessionId: segment.conversation.sourceSessionId,

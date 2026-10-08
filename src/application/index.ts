@@ -28,6 +28,8 @@ export {
   AgentOperatorReadModelService,
   AgentCurrentStateUnavailableError,
   AgentSessionNotFoundError,
+  ConversationImageNotFoundError,
+  ConversationImageSegmentChangedError,
   CardAgentScopeNotFoundError,
 } from './read-models/agent-operator-read-model.js';
 export {

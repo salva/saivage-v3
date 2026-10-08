@@ -110,7 +110,15 @@ persistent login/storage-state, CDP, extension attachment or experimental WebMCP
 Discover schemas first, navigate/snapshot/select the needed page/tab, then call
 `browser_take_screenshot` with discovered `scale:'css'` and **omit filename** for
 native text+image output. Explicit filename produces text only, not automatic file
-access/image authority. Browser interaction arguments come from current discovery:
+access/image authority. In Analyst/card current or historical conversations, use
+**Inspect image** for the recorded typed occurrence, then **Fit** or **1:1**.
+Previous/Next stays within that result; Escape returns to the reading position.
+The viewer shows exact recorded model-input pixels, not proof of receipt/perception.
+Missing selected bytes never fall back to the original. Eligible ordinary Files
+PNG/JPEG/WebP uses the same viewer as **Current source**, with freshly decoded
+dimensions; it may differ from the snapshot. No internal conversation browsing,
+pixel redaction, migration or operational action is implied.
+Browser interaction arguments come from current discovery:
 the pinned server's `browser_click` uses `target` for a snapshot's element reference,
 not an assumed `ref` argument. Use an admitted image-capable Responses/Codex route
 with sufficient context capacity for the serialized pixels; Chat cannot consume

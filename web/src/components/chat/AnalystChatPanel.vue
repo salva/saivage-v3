@@ -3,6 +3,8 @@
     <div
       :ref="setTimelineScrollArea"
       class="chat-scroll-area"
+      tabindex="0"
+      aria-label="Analyst conversation"
       data-testid="chat-scroll-container"
       @scroll="timelineControls.handleTimelineScroll"
     >
@@ -52,6 +54,8 @@
             :key="acceptedSegmentId ?? activeSessionId ?? 'pending'"
             :timeline="timelineControls.timeline.value"
             :expanded-ids="timelineControls.expandedIds.value"
+            :image-context="imageContext"
+            @inspecting="timelineControls.inspectingImage.value = $event"
             @toggle="timelineControls.toggleExpanded"
           />
         </div>
@@ -132,6 +136,7 @@ const liveSync = useSyncStore();
 const {
   activeSessionId,
   acceptedSegmentId,
+  acceptedSegmentVersion,
   messages,
   draft,
   messagesLoading,
@@ -144,6 +149,7 @@ const {
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const timelineControls = useAgentTimeline(timelineEntries);
+const imageContext = computed(() => activeSessionId.value && acceptedSegmentId.value && acceptedSegmentVersion.value ? { session_id: activeSessionId.value, segment_id: acceptedSegmentId.value, segment_version: acceptedSegmentVersion.value } : undefined);
 provide(revealConversationEntry, timelineControls.revealEntry);
 watch(acceptedSegmentId, () => timelineControls.collapseAll());
 const childrenOnScreen = computed(() =>

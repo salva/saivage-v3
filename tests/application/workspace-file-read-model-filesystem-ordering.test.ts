@@ -94,7 +94,23 @@ afterEach(() => {
 });
 
 describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
-  it('omits/refuses exact repair attic and resolved aliases before listing or reading contents, allowing similarly named siblings', () => {
+  it('refuses confidential image-shaped direct/alias requests before byte reads, including config and physical conversation/card dispatch', async () => {
+    const root = temporaryRoot('saivage-image-private-ordering-');
+    const model = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    const paths = ['.env', '.saivage/auth-profiles.json', '.saivage/saivage.yaml', '.saivage/repair-attic/pixels', '.saivage/agents/conversations/analyst/images/pixels.png', '.saivage/cards/project/conversations/planner/images/pixels.png'];
+    for (const [index, path] of paths.entries()) {
+      const target = join(root, path);
+      realFs.mkdirSync(realFs.realpathSync(root) + '/' + path.split('/').slice(0, -1).join('/'), {recursive: true});
+      realFs.writeFileSync(target, Buffer.from([137,80,78,71,13,10,26,10,0]));
+      const alias = `pixel-alias-${index}`; realFs.symlinkSync(path, join(root, alias));
+      for (const request of [path, alias]) {
+        traces.length = 0;
+        expect((await model.readFileImage(request)).statusCode).toBe(403);
+        expect(traces.filter(({operation}) => operation === 'readFileSync')).toEqual([]);
+      }
+    }
+  });
+  it('omits/refuses exact repair attic and resolved aliases before listing or reading contents, allowing similarly named siblings', async () => {
     const root = temporaryRoot('saivage-attic-files-');
     const attic = join(root,'.saivage','repair-attic'); realFs.mkdirSync(attic,{recursive:true});
     const privatePath = join(attic,'corrupt.bin'); realFs.writeFileSync(privatePath,Buffer.from([0xff,0x00]));
@@ -106,12 +122,12 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(listedNames(model.listFiles('.').body)).not.toContain('attic-alias');
     expect(listedNames(model.listFiles('.').body)).not.toContain('attic-file-alias');
     for(const path of ['.saivage/repair-attic','.saivage/repair-attic/corrupt.bin','attic-alias','attic-alias/corrupt.bin','attic-file-alias']) {
-      traces.length=0; expect(model.listFiles(path)).toMatchObject({statusCode:403}); expect(model.readFileContent(path)).toMatchObject({statusCode:403});
+      traces.length=0; expect(model.listFiles(path)).toMatchObject({statusCode:403}); expect(await model.readFileContent(path)).toMatchObject({statusCode:403});
       expect(traces.filter(({operation,path})=>['readdirSync','readFileSync'].includes(operation)&&(path===attic||path.startsWith(`${attic}/`)||path===alias||path.startsWith(`${alias}/`)||path===join(root,'attic-file-alias')))).toEqual([]);
     }
-    expect(model.readFileContent('.saivage/repair-attic-notes').statusCode).toBeUndefined();
+    expect((await model.readFileContent('.saivage/repair-attic-notes')).statusCode).toBeUndefined();
   });
-  it('omits/refuses global previous-index slots and resolved aliases before reading bytes', () => {
+  it('omits/refuses global previous-index slots and resolved aliases before reading bytes', async () => {
     const root = temporaryRoot('saivage-previous-index-files-');
     const relative = '.saivage/agents/conversations/analyst'; const directory = join(root, relative);
     realFs.mkdirSync(directory, {recursive:true});
@@ -122,11 +138,11 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(listedNames(model.listFiles(relative).body)).not.toContain('index.prev.json');
     expect(listedNames(model.listFiles(relative).body)).toContain('index.previous.json');
     for (const path of [`${relative}/index.prev.json`, 'previous-alias']) {
-      traces.length = 0; expect(model.readFileContent(path)).toMatchObject({statusCode:403});
+      traces.length = 0; expect(await model.readFileContent(path)).toMatchObject({statusCode:403});
       expect(projectionTracesFor(previous, alias).filter(({operation})=>operation==='readFileSync')).toEqual([]);
     }
   });
-  it.each([null, 7])('classifies record card absence with one owning read for version %s', (version) => {
+  it.each([null, 7])('classifies record card absence with one owning read for version %s', async (version) => {
     const root = temporaryRoot('saivage-workspace-record-absence-');
     const reader = {
       ...records(),
@@ -136,7 +152,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     };
     const service = new WorkspaceFileReadModelService(root, () => reader, createTestConfigAuthority(root));
     const path = `record:///status.md?card=card-b${version === null ? '' : `&v=${version}`}`;
-    expect(service.readFileContent(path)).toEqual({
+    expect(await service.readFileContent(path)).toEqual({
       statusCode: 404,
       body: { error: 'workspace_card_not_found', path, card_id: 'card-b' },
     });
@@ -146,7 +162,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(traces).toEqual([]);
   });
 
-  it('does not project or read direct blocked project and work targets', () => {
+  it('does not project or read direct blocked project and work targets', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const projectBlocked = join(root, '.env');
     const workRoot = join(root, '.saivage/work/processes/proc-1');
@@ -158,11 +174,11 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.writeFileSync(workBlocked, 'synthetic blocked work value');
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
-    expect(service.readFileContent('.env').statusCode).toBe(403);
-    expect(service.readFileContent('work:///processes/proc-1/.env').statusCode).toBe(403);
+    expect((await service.readFileContent('.env')).statusCode).toBe(403);
+    expect((await service.readFileContent('work:///processes/proc-1/.env')).statusCode).toBe(403);
     expect(service.listFiles('work:///processes/proc-1/.env').statusCode).toBe(403);
     expect(service.listFiles('.saivage/locks').statusCode).toBe(403);
-    expect(service.readFileContent('.saivage/locks/not-created.lock').statusCode).toBe(403);
+    expect((await service.readFileContent('.saivage/locks/not-created.lock')).statusCode).toBe(403);
     expect(projectionTracesFor(projectBlocked, workBlocked, lockRoot, join(lockRoot, 'not-created.lock'))).toEqual([]);
   });
 
@@ -192,7 +208,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(projectionTracesFor(workRoot)).toEqual(expect.arrayContaining([{ operation: 'statSync', path: resolve(workRoot) }, { operation: 'readdirSync', path: resolve(workRoot) }]));
   });
 
-  it('blocks safe aliases to blocked files and directories before target operations', () => {
+  it('blocks safe aliases to blocked files and directories before target operations', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const blockedFile = join(root, '.env');
     const blockedDirectory = join(root, '.saivage/locks');
@@ -204,13 +220,13 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.symlinkSync('.saivage/locks', directoryAlias);
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
-    expect(service.readFileContent('safe-file-alias').statusCode).toBe(403);
+    expect((await service.readFileContent('safe-file-alias')).statusCode).toBe(403);
     expect(service.listFiles('safe-directory-alias').statusCode).toBe(403);
     expect(listedNames(service.listFiles('.').body)).not.toEqual(expect.arrayContaining(['safe-file-alias', 'safe-directory-alias']));
     expect(targetProjectionTracesFor(blockedFile, blockedDirectory, fileAlias, directoryAlias)).toEqual([]);
   });
 
-  it('gives a blocked real target precedence over a lexical redaction identity without reading', () => {
+  it('gives a blocked real target precedence over a lexical redaction identity without reading', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const blockedFile = join(root, '.env');
     const redactedAlias = join(root, '.saivage/saivage.yaml');
@@ -219,11 +235,11 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.symlinkSync('../.env', redactedAlias);
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
-    expect(service.readFileContent('.saivage/saivage.yaml').statusCode).toBe(403);
+    expect((await service.readFileContent('.saivage/saivage.yaml')).statusCode).toBe(403);
     expect(targetProjectionTracesFor(blockedFile, redactedAlias)).toEqual([]);
   });
 
-  it('fails containment for outside-root aliases before target projection or reads', () => {
+  it('fails containment for outside-root aliases before target projection or reads', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const outside = temporaryRoot('saivage-workspace-ordering-outside-');
     const outsideFile = join(outside, 'outside.txt');
@@ -236,13 +252,13 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.symlinkSync(outsideDirectory, directoryAlias);
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
-    expect(service.readFileContent('outside-file-alias').statusCode).toBe(403);
+    expect((await service.readFileContent('outside-file-alias')).statusCode).toBe(403);
     expect(service.listFiles('outside-directory-alias').statusCode).toBe(403);
     expect(listedNames(service.listFiles('.').body)).not.toEqual(expect.arrayContaining(['outside-file-alias', 'outside-directory-alias']));
     expect(targetProjectionTracesFor(outsideFile, outsideDirectory, fileAlias, directoryAlias)).toEqual([]);
   });
 
-  it('blocks lexical project and work sources before classifier I/O even when they link into cards', () => {
+  it('blocks lexical project and work sources before classifier I/O even when they link into cards', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const cardTarget = join(root, '.saivage/cards/unlinked-malformed');
     const projectBlocked = join(root, '.env');
@@ -256,15 +272,15 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('.env').statusCode).toBe(403);
-    expect(service.readFileContent('.env').statusCode).toBe(403);
+    expect((await service.readFileContent('.env')).statusCode).toBe(403);
     expect(service.listFiles('work:///processes/proc-1/.env').statusCode).toBe(403);
-    expect(service.readFileContent('work:///processes/proc-1/.env').statusCode).toBe(403);
+    expect((await service.readFileContent('work:///processes/proc-1/.env')).statusCode).toBe(403);
     expect(listedNames(service.listFiles('.').body)).not.toContain('.env');
     expect(listedNames(service.listFiles('work:///processes/proc-1').body)).not.toContain('.env');
     expect(projectionTracesFor(projectBlocked, workBlocked, cardTarget, join(cardTarget, 'arbitrary'))).toEqual([]);
   });
 
-  it('reserves allowed project and work aliases before any card-target operation', () => {
+  it('reserves allowed project and work aliases before any card-target operation', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const cardRoot = join(root, '.saivage/cards');
     const cardTarget = join(cardRoot, 'unlinked-malformed');
@@ -279,9 +295,9 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('card-alias').statusCode).toBe(404);
-    expect(service.readFileContent('card-alias').statusCode).toBe(404);
+    expect((await service.readFileContent('card-alias')).statusCode).toBe(404);
     expect(service.listFiles('work:///processes/proc-1/card-alias').statusCode).toBe(404);
-    expect(service.readFileContent('work:///processes/proc-1/card-alias').statusCode).toBe(404);
+    expect((await service.readFileContent('work:///processes/proc-1/card-alias')).statusCode).toBe(404);
     expect(listedNames(service.listFiles('.').body)).not.toContain('card-alias');
     expect(listedNames(service.listFiles('work:///processes/proc-1').body)).not.toContain('card-alias');
     expect(projectionTracesFor(projectAlias)).toEqual(expect.arrayContaining([{ operation: 'lstatSync', path: resolve(projectAlias) }, { operation: 'readlinkSync', path: resolve(projectAlias) }]));
@@ -300,7 +316,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(traces.filter((trace) => ['lstatSync', 'readlinkSync', 'realpathSync', 'existsSync', 'statSync', 'readdirSync', 'readFileSync'].includes(trace.operation))).toEqual([]);
   });
 
-  it('follows at most forty symlink expansions before failing closed', () => {
+  it('follows at most forty symlink expansions before failing closed', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     for (let index = 0; index <= 40; index += 1) {
       realFs.symlinkSync(index === 40 ? 'ordinary.txt' : `link-${index + 1}`, join(root, `link-${index}`));
@@ -308,12 +324,12 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.writeFileSync(join(root, 'ordinary.txt'), 'ordinary');
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
-    expect(service.readFileContent('link-0').statusCode).toBe(403);
+    expect((await service.readFileContent('link-0')).statusCode).toBe(403);
     expect(traces.filter((trace) => trace.operation === 'readlinkSync')).toHaveLength(40);
     expect(projectionTracesFor(join(root, 'ordinary.txt'))).toEqual([]);
   });
 
-  it('never sends the direct canonical card root to generic filesystem resolution', () => {
+  it('never sends the direct canonical card root to generic filesystem resolution', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const cards = join(root, '.saivage/cards');
     realFs.mkdirSync(join(cards, 'project'), { recursive: true });
@@ -321,11 +337,11 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
 
     expect(service.listFiles('.saivage/cards').statusCode).toBe(404);
     expect(service.listFiles('./.saivage/cards/').statusCode).toBe(404);
-    expect(service.readFileContent('.saivage/cards/project/card.jsonl').statusCode).toBe(404);
+    expect((await service.readFileContent('.saivage/cards/project/card.jsonl')).statusCode).toBe(404);
     expect(projectionTracesFor(cards, join(cards, 'project'), join(cards, 'project/card.jsonl'))).toEqual([]);
   });
 
-  it('reads direct and aliased selected config through the shared safe projection', () => {
+  it('reads direct and aliased selected config through the shared safe projection', async () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const yamlPath = join(root, '.saivage/saivage.yaml');
     const aliasPath = join(root, 'safe-redacted-alias');
@@ -349,8 +365,8 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.symlinkSync('.saivage/saivage.yaml', aliasPath);
     const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml', config }));
 
-    const direct = service.readFileContent('.saivage/saivage.yaml');
-    const alias = service.readFileContent('safe-redacted-alias');
+    const direct = await service.readFileContent('.saivage/saivage.yaml');
+    const alias = await service.readFileContent('safe-redacted-alias');
     for (const result of [direct, alias]) {
       expect(result.body).toEqual(expect.objectContaining({ redacted: true, sensitivity: 'sensitive-redacted' }));
       if ('content' in result.body) {
@@ -367,7 +383,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
 });
 
 describe('WorkspaceFileReadModelService generic metadata failures', () => {
-  it('stats each requested target once and maps only exact ENOENT to the existing 404', () => {
+  it('stats each requested target once and maps only exact ENOENT to the existing 404', async () => {
     const root = temporaryRoot('saivage-workspace-metadata-');
     const directory = join(root, 'directory');
     const file = join(root, 'file.txt');
@@ -378,7 +394,7 @@ describe('WorkspaceFileReadModelService generic metadata failures', () => {
     statFailures.set(resolve(file), errno('ENOENT'));
 
     expect(service.listFiles('directory')).toEqual({ statusCode: 404, body: { error: 'Path not found', path: 'directory' } });
-    expect(service.readFileContent('file.txt')).toEqual({ statusCode: 404, body: { error: 'File not found', path: 'file.txt' } });
+    expect(await service.readFileContent('file.txt')).toEqual({ statusCode: 404, body: { error: 'File not found', path: 'file.txt' } });
     expect(targetProjectionTracesFor(directory)).toEqual([{ operation: 'statSync', path: resolve(directory) }]);
     expect(targetProjectionTracesFor(file)).toEqual([{ operation: 'statSync', path: resolve(file) }]);
   });
@@ -399,7 +415,7 @@ describe('WorkspaceFileReadModelService generic metadata failures', () => {
     expect(targetProjectionTracesFor(retained)).toEqual([{ operation: 'statSync', path: resolve(retained) }]);
   });
 
-  it('rethrows requested-target EACCES and non-errno values unchanged', () => {
+  it('rethrows requested-target EACCES and non-errno values unchanged', async () => {
     const root = temporaryRoot('saivage-workspace-metadata-');
     const directory = join(root, 'directory');
     const file = join(root, 'file.txt');
@@ -412,7 +428,7 @@ describe('WorkspaceFileReadModelService generic metadata failures', () => {
     statFailures.set(resolve(file), sentinel);
 
     expect(caughtValue(() => service.listFiles('directory'))).toBe(denied);
-    expect(caughtValue(() => service.readFileContent('file.txt'))).toBe(sentinel);
+    await expect(service.readFileContent('file.txt')).rejects.toBe(sentinel);
   });
 
   it('rethrows reached-child EACCES and non-errno values unchanged', () => {

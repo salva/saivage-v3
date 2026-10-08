@@ -74,8 +74,8 @@ it('presents ordered native MCP content and two metadata-only descriptors once w
   const view = presentToolResult(raw, { tool: 'mcp_tool_call' });
   expect(view.sections[0].title).toBe('MCP envelope metadata (effects opaque)');
   expect(view.sections.slice(1).map(section => [section.language, section.title])).toEqual([
-    ['text', 'Returned text · content 1'], ['json', 'Typed image descriptor (metadata only) · content 2'],
-    ['text', 'Returned text · content 3'], ['json', 'Typed image descriptor (metadata only) · content 4'],
+    ['text', 'Returned text · content 1'], ['json', 'Typed image descriptor · content 2'],
+    ['text', 'Returned text · content 3'], ['json', 'Typed image descriptor · content 4'],
     ['text', 'Returned text · content 5'],
   ]);
   const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set(['call']) } });

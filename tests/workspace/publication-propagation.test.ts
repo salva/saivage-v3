@@ -23,12 +23,10 @@ describe('publication uncertainty across scoped record projections', () => {
     await expect(listScopedPath({ projectRoot: '/', records, agent: { cardId: 'project', agentName: 'planner' }, fail: (message) => new Error(message) }, 'record:///project')).rejects.toBe(publication);
   });
 
-  it('preserves the same instance before operator Files record response conversion', () => {
+  it('preserves the same instance before operator Files record response conversion', async () => {
     const publication = new PublicationOutcomeUnknownError();
     const records = { readRecordCurrent: () => { throw publication; } };
     const service = new WorkspaceFileReadModelService('/', () => records as never, { path: '/config' } as never);
-    let thrown: unknown;
-    try { service.readFileContent('record:///status.md?card=project'); } catch (error) { thrown = error; }
-    expect(thrown).toBe(publication);
+    await expect(service.readFileContent('record:///status.md?card=project')).rejects.toBe(publication);
   });
 });

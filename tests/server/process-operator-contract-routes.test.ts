@@ -175,7 +175,7 @@ describe('contract-backed process routes', () => {
 
       processRunner.retireSettled(record.id, processScope);
       expect((await fastify.inject({ method: 'GET', url: '/api/processes' })).json()).toEqual({ processes: [] });
-      const retainedLog = new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
+      const retainedLog = await new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
         .readFileContent(`work:///processes/${record.id}/stdout.log`);
       expect(retainedLog).toEqual(expect.objectContaining({ body: expect.objectContaining({ content: 'hello\n' }) }));
       const contained = processRunner.spawn({
@@ -187,7 +187,7 @@ describe('contract-backed process routes', () => {
       ]);
       await processRunner.terminateScopeTree({ rootScope: processes.runtimeProcessRootScope, categories: ['runtime_card'], reason: 'route containment', graceMs: 100 });
       expect((await fastify.inject({ method: 'GET', url: '/api/processes' })).json()).toEqual({ processes: [] });
-      expect(new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
+      expect(await new WorkspaceFileReadModelService(projectRoot, () => cardStore, testConfigAuthority(projectRoot))
         .readFileContent(`work:///processes/${contained.id}/stdout.log`)).toMatchObject({ body: { content: '' } });
     } finally {
       await fastify.close();

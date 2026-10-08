@@ -8,6 +8,7 @@ import {
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
+  ImageBytesResponseSchema,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
   UnexpectedInternalServerErrorSchema,
@@ -34,7 +35,7 @@ export const WorkspaceFilesListResponseSchema = z
     ),
   })
   .strict();
-const WorkspaceFileContentResponseSchema = z
+const WorkspaceTextContentResponseSchema = z
   .object({
     path: z.string(),
     size: z.number().int().nonnegative(),
@@ -46,6 +47,22 @@ const WorkspaceFileContentResponseSchema = z
     modifiedAt: z.string().nullable().optional(),
   })
   .strict();
+
+const WorkspaceFileContentResponseSchema = z.union([
+  WorkspaceTextContentResponseSchema,
+  z
+    .object({
+      path: z.string(),
+      size: z.number().int().nonnegative(),
+      contentType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+      image: z
+        .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+        .strict(),
+      redacted: z.literal(false),
+      sensitivity: z.literal('ordinary-image'),
+    })
+    .strict(),
+]);
 
 const WorkspaceFileErrorSchema = z.object({ error: z.string() }).strict();
 const WorkspaceFilePathErrorSchema = z.object({ error: z.string(), path: z.string() }).strict();
@@ -268,6 +285,25 @@ export const DoctorResponseSchema = z.discriminatedUnion('status', [
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
 export type DebugGraphsResponse = z.infer<typeof DebugGraphsResponseSchema>;
 export const filesDebugOperatorApiContracts = {
+  'files.image': {
+    operationId: 'files.image',
+    method: 'GET',
+    path: '/api/files/image',
+    query: z.object({ path: z.string().min(1) }).strict(),
+    responseEncoding: 'binary',
+    success: ImageBytesResponseSchema,
+    response: {
+      200: ImageBytesResponseSchema,
+      400: WorkspaceFileContentBadRequestSchema,
+      401: UnauthorizedErrorSchema,
+      403: WorkspaceFileContentForbiddenSchema,
+      404: WorkspaceFilePathErrorSchema,
+      413: WorkspaceFileTooLargeErrorSchema,
+      415: WorkspaceFilePathErrorSchema,
+      500: UnexpectedInternalServerErrorSchema,
+    },
+    ...operatorSessionContract,
+  },
   'files.list': {
     operationId: 'files.list',
     method: 'GET',

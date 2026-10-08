@@ -69,10 +69,10 @@ async function orderedContent(reader: Locator) {
   await expect(sections.nth(2)).toContainText('MCP image capture metadata');
   await expect(sections.nth(3)).toContainText('Returned text · content 1');
   await expect(sections.nth(3)).toContainText('ordered-before-Z');
-  await expect(sections.nth(4)).toContainText('Typed image descriptor (metadata only) · content 2');
+  await expect(sections.nth(4)).toContainText('Typed image descriptor · content 2');
   await expect(sections.nth(5)).toContainText('Returned text · content 3');
   await expect(sections.nth(5)).toContainText('plain-text-Z');
-  await expect(sections.nth(6)).toContainText('Typed image descriptor (metadata only) · content 4');
+  await expect(sections.nth(6)).toContainText('Typed image descriptor · content 4');
   await expect(sections.nth(7)).toContainText('Returned text · content 5');
   await expect(sections.nth(7)).toContainText('ordered-after-Z');
   expect((await sections.allTextContents()).join('|')).toMatch(/ordered-before-Z.*content 2.*plain-text-Z.*content 4.*ordered-after-Z/s);

@@ -21,6 +21,21 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Durable-preserving operator image inspection (2026-10-08)
+
+Source applicability: format-6 baseline `7a899887ec7b7d5972b2483fb72c219351e29139`,
+including the recorded ordered-content cutover; this asserts no installed format.
+Authenticated exact conversation-image and ordinary Files raster reads add binary
+API success and a shared caller-local Fit/1:1 viewer, not durable shapes or changed
+selection meaning. Evidence: `contracts/operator-api-{agents,core,files-debug}.ts`,
+`application/read-models/{agent-operator,workspace-file}-read-model.ts` and the common
+descriptor byte reader in `persistence/conversation-image.ts`. Conversation
+index/genesis/envelope remain **6**, raw PNGs remain governed by that descriptor
+contract, and card/record/provider-evidence families are untouched. No bump,
+new image family or accumulated incompatible cutover is claimed. Adoption is
+matching API/UI source over already-valid current state, not migration/reset
+permission; old/mixed state remains unsupported.
+
 Owner paths below are relative to repository `src/` at the observed revision;
 [that exact source tree](https://github.com/salva/saivage-v3/tree/fb0152e99e423f5e5e2db5e28d7e38bb3166b759/src)
 contains the schemas and direct publication/consumption owners.

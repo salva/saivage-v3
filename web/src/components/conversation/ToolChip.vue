@@ -9,6 +9,9 @@
       <InlineParts v-if="display.links.length" class="tool-chip-links" :parts="display.links" />
     </div>
     <span v-if="interveningEntries" class="later-result">Result recorded later</span>
+    <div v-if="images?.length" class="image-actions">
+      <button v-for="(image, index) in images" :key="image.locator.content_index" type="button" @click="$emit('inspect', index)">Inspect image · content {{ image.locator.content_index + 1 }} · {{ image.width }} × {{ image.height }}</button>
+    </div>
     <div v-if="expanded" :id="detailsId" class="tool-chip-detail">
       <p>Tool <code>{{ display.toolName }}</code></p>
       <p v-if="interveningEntries">{{ interveningEntries }} retained entries between request and result. The result was not necessarily known at the intervening entries.</p>
@@ -32,13 +35,15 @@ import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import ToolSemanticSection from './ToolSemanticSection.vue';
 import type { ToolDisplayModel } from '../../utils/tool-friendly';
+import type { ImageSelection } from '../../utils/conversation-images';
 defineProps<{
   entryId: string; resultEntryId?: string; display: ToolDisplayModel;
   callContent: string | null; resultContent: string | null;
   expanded: boolean; detailsId: string;
   requestProvenance?: string; resultProvenance?: string; interveningEntries?: number;
+  images?: ImageSelection[];
 }>();
-defineEmits<{ (event: 'toggle'): void }>();
+defineEmits<{ (event: 'toggle'): void; (event: 'inspect', index: number): void }>();
 </script>
 <style scoped>
 .tool-chip { width:100%; min-width:0; color:var(--text); font-size:15px; line-height:1.5; }

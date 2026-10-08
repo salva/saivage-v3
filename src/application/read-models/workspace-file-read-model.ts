@@ -13,7 +13,14 @@ import {
   parseScopedPathUrl,
   type OperatorApiHandlerResult,
   type WorkspaceFilesListResponse,
+  MAX_IMAGE_SOURCE_BYTES,
+  throwIfPublicationOutcomeUnknown,
 } from '../../contracts/index.js';
+import {
+  inspectStaticRaster,
+  RasterInputError,
+  isRasterDecodeInputError,
+} from '../../utils/index.js';
 import {
   hasParentPathSegment,
   isReadBlocked,
@@ -35,7 +42,16 @@ const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
 
 export type WorkspaceFilesListResult = OperatorApiHandlerResult<'files.list'>;
-export type WorkspaceFileContentResult = OperatorApiHandlerResult<'files.content'>;
+type WorkspaceFileContentResult = OperatorApiHandlerResult<'files.content'>;
+export type WorkspaceTextFileContentResult =
+  | Exclude<WorkspaceFileContentResult, { statusCode?: 200 }>
+  | {
+      statusCode?: 200;
+      body: Extract<
+        Extract<OperatorApiHandlerResult<'files.content'>, { statusCode?: 200 }>['body'],
+        { content: string }
+      >;
+    };
 
 interface ResolvedRequestPathBase {
   absolutePath: string;
@@ -475,10 +491,32 @@ export class WorkspaceFileReadModelService {
     return { body: { path: responsePath, files } };
   }
 
-  readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
+  async readFileContent(requestedPath: string | undefined): Promise<WorkspaceFileContentResult> {
+    return this.readContent(requestedPath, false) as Promise<WorkspaceFileContentResult>;
+  }
+
+  async readFileImage(
+    requestedPath: string,
+  ): Promise<OperatorApiHandlerResult<'files.image'> & { mime?: string }> {
+    return this.readContent(requestedPath, true) as Promise<
+      OperatorApiHandlerResult<'files.image'> & { mime?: string }
+    >;
+  }
+
+  private async readContent(
+    requestedPath: string | undefined,
+    imageOnly: boolean,
+  ): Promise<
+    WorkspaceFileContentResult | (OperatorApiHandlerResult<'files.image'> & { mime?: string })
+  > {
     if (!requestedPath)
       return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
     if (requestedPath.startsWith('record:///')) {
+      if (imageOnly)
+        return {
+          statusCode: 415,
+          body: { error: 'Static raster preview unavailable.', path: requestedPath },
+        };
       const request = parseRecordContentRequest(requestedPath);
       if (request.kind === 'invalid')
         return { statusCode: 400, body: { error: request.error, path: requestedPath } };
@@ -543,7 +581,10 @@ export class WorkspaceFileReadModelService {
         ? { statusCode: 403, body: { error: admission.reason, path: admission.responsePath } }
         : { statusCode: 403, body: { error: admission.reason } };
     }
-    if (admission.kind === 'reserved-card') return this.reservedContentResult(requestedPath);
+    if (admission.kind === 'reserved-card')
+      return imageOnly
+        ? { statusCode: 403, body: { error: 'Physical card image access is unavailable.' } }
+        : this.reservedContentResult(requestedPath);
     const resolvedPath = this.resolveRequestedPath(requestedPath);
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
     if (this.isBlockedPath(resolvedPath))
@@ -560,17 +601,59 @@ export class WorkspaceFileReadModelService {
       return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
     if (fileStat.isDirectory())
       return { statusCode: 400, body: { error: 'Path is a directory', path: responsePath } };
-    if (fileStat.size > MAX_FILE_SIZE_BYTES)
+    const textOnly = this.isRedactedPath(resolvedPath) || this.isSelectedConfig(absolutePath);
+    if (imageOnly && textOnly)
+      return { statusCode: 403, body: { error: 'Redacted files are text-only.' } };
+    const maxSize = textOnly ? MAX_FILE_SIZE_BYTES : MAX_IMAGE_SOURCE_BYTES;
+    if (fileStat.size > maxSize)
       return {
         statusCode: 413,
         body: {
-          error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`,
+          error: `File exceeds maximum size of ${maxSize} bytes.`,
           path: responsePath,
           size: fileStat.size,
-          maxSize: MAX_FILE_SIZE_BYTES,
+          maxSize,
         },
       };
     const rawBuffer = readFileSync(absolutePath);
+    if (!textOnly) {
+      let image;
+      try {
+        image = await inspectStaticRaster(rawBuffer);
+      } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
+        if (!(error instanceof RasterInputError) && !isRasterDecodeInputError(error)) throw error;
+        // No decoder input or physical path is included in preview failures.
+        if (imageOnly)
+          return {
+            statusCode: 415,
+            body: { error: 'Static raster preview unavailable.', path: responsePath },
+          };
+      }
+      if (image)
+        return imageOnly
+          ? { body: rawBuffer, mime: image.mime }
+          : {
+              body: {
+                path: responsePath,
+                size: rawBuffer.length,
+                contentType: image.mime,
+                image: { width: image.width, height: image.height },
+                redacted: false,
+                sensitivity: 'ordinary-image',
+              },
+            };
+    }
+    if (rawBuffer.length > MAX_FILE_SIZE_BYTES)
+      return {
+        statusCode: 413,
+        body: {
+          error: 'Text file exceeds maximum preview size.',
+          path: responsePath,
+          size: rawBuffer.length,
+          maxSize: MAX_FILE_SIZE_BYTES,
+        },
+      };
     if (isBinaryBuffer(rawBuffer))
       return {
         statusCode: 415,

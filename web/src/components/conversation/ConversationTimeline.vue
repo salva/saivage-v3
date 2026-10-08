@@ -31,12 +31,15 @@
             :intervening-entries="row.interveningEntries"
             :expanded="expandedIds.has(row.entry.id)"
             :details-id="`tool-${row.entry.id}`"
+            :images="imagesFor(row)"
+            @inspect="inspect(row, $event)"
             @toggle="emit('toggle', row.entry.id)"
           />
         </template>
       </template>
     </section>
   </div>
+  <ImagePreviewDialog v-if="inspection && previewSelection" :selection="previewSelection" :position="inspection.index" :count="inspection.images.length" @navigate="inspection.index += $event" @close="closeInspection" />
 </template>
 
 <script setup lang="ts">
@@ -49,12 +52,27 @@ import DiagnosticRow from './DiagnosticRow.vue';
 import ToolChip from './ToolChip.vue';
 import JsonText from '../content/JsonText.vue';
 import type { AgentConversationEntry } from '../../api/types';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import type { TimelineRow } from '../../utils/agent-timeline';
+import { conversationImages, type ImageContext, type ImageSelection } from '../../utils/conversation-images';
+import ImagePreviewDialog from '../../files/ImagePreviewDialog.vue';
 function provenance(entry: AgentConversationEntry): string {
   return `${entry.role} · ${entry.timestamp} · ${entry.id} · source ${entry.round_id}, message ${entry.message_index}, block ${entry.block_index}`;
 }
 
-const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string> }>();
-const emit = defineEmits<{ toggle: [id: string] }>();
+const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string>; imageContext?: ImageContext }>();
+const emit = defineEmits<{ toggle: [id: string]; inspecting: [open: boolean] }>();
+const inspection = ref<{ images: ImageSelection[]; index: number } | null>(null);
+const previewSelection = computed(() => inspection.value ? { kind: 'conversation' as const, image: inspection.value.images[inspection.value.index] } : null);
+function imagesFor(row: TimelineRow): ImageSelection[] {
+  return conversationImages(row.entry.kind === 'tool_result' ? row.entry : row.mate, props.imageContext, buildToolDisplay(row).toolName);
+}
+function inspect(row: TimelineRow, index: number): void {
+  inspection.value = { images: imagesFor(row), index };
+  emit('inspecting', true);
+}
+function closeInspection(): void { inspection.value = null; emit('inspecting', false); }
+onBeforeUnmount(() => { if (inspection.value) emit('inspecting', false); });
 
 function isAuthorBoundary(index: number): boolean {
   if (index <= 0) return true;

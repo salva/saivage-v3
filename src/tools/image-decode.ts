@@ -7,21 +7,7 @@ import {
   type ViewImageData,
 } from '../contracts/index.js';
 import { ImageInputError } from './image-input-error.js';
-
-const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-
-function rejectAnimation(bytes: Buffer): void {
-  if (!bytes.subarray(0, 8).equals(pngSignature)) return;
-  let offset = 8;
-  while (offset + 12 <= bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    if (offset + length + 12 > bytes.length) throw new ImageInputError('Invalid PNG chunk.');
-    const type = bytes.toString('ascii', offset + 4, offset + 8);
-    if (type === 'acTL') throw new ImageInputError('Animated images are not supported.');
-    offset += length + 12;
-    if (type === 'IEND') break;
-  }
-}
+import { rejectAnimatedPng, RasterInputError, isRasterDecodeInputError } from '../utils/index.js';
 
 // Only established decoder input failures are ordinary tool failures. Programming,
 // native loading and unrelated failures propagate unchanged.
@@ -29,12 +15,7 @@ async function decodeInput<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    if (
-      error instanceof Error &&
-      /^(Input buffer contains unsupported image format|Input buffer has corrupt header|Input image exceeds pixel limit|VipsJpeg: (?:Premature end|Invalid|Corrupt|Bogus|Not a JPEG|JPEG datastream)|pngload_buffer: (?:end of stream|libspng read error|invalid|bad)|vipspng: (?:Invalid|invalid|Read Error|read error|libpng read error)|webpload_buffer: (?:unable to parse|invalid|bad|WebP decoder))/u.test(
-        error.message,
-      )
-    )
+    if (isRasterDecodeInputError(error))
       throw new ImageInputError('Invalid or oversized image; generate a smaller valid source.');
     throw error;
   }
@@ -47,7 +28,12 @@ export async function normalizeImage(
 ): Promise<{ bytes: Buffer; data: Omit<ViewImageData, 'source_path'> }> {
   if (bytes.length > MAX_IMAGE_SOURCE_BYTES)
     throw new ImageInputError('Image source exceeds 32 MiB; generate a smaller source.');
-  rejectAnimation(bytes);
+  try {
+    rejectAnimatedPng(bytes);
+  } catch (error) {
+    if (!(error instanceof RasterInputError)) throw error;
+    throw new ImageInputError(error.message);
+  }
   const options = { limitInputPixels: MAX_IMAGE_PIXELS, failOn: 'warning' as const };
   const metadata = await decodeInput(() => sharp(bytes, options).metadata());
   const formats = declaredMime === undefined ? ['png', 'jpeg'] : ['png', 'jpeg', 'webp'];

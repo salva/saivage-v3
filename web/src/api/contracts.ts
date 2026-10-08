@@ -22,6 +22,7 @@ export type {
   OperatorApiSuccess,
   OperatorApiBody,
   OperatorApiParams,
+  ConversationImageLocator,
   ServerAvailability,
   AgentConversationEntry,
   AgentSessionSummary,

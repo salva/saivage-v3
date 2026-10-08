@@ -336,6 +336,7 @@ describe('operator files and debug contract handlers', () => {
       const response = await request(`/api/files/content?path=${encodeURIComponent(path)}`);
       expect(response.statusCode).toBe(200);
       const body = filesDebugOperatorApiContracts['files.content'].response[200].parse(response.json());
+      if (!('content' in body)) throw new Error('Expected record text.');
       expect(body).toEqual({ path, content: redactTextForOutbound(raw), size: Buffer.byteLength(raw), contentType: 'text/markdown', redacted: true, sensitivity: 'sensitive-redacted', version, modifiedAt });
       expect(body.content).toBe(recordsText);
       if (raw.includes('token=')) {

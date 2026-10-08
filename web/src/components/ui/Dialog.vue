@@ -29,6 +29,7 @@ const overlayRef = ref<HTMLElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
 let bodyModalOpenCount = 0;
 let previousFocus: Element | null = null;
+let previousFocusAnchor: HTMLElement | null = null;
 let inertedSiblings: HTMLElement[] = [];
 
 function focusableElements(): HTMLElement[] {
@@ -58,6 +59,7 @@ function clearBackgroundInert(): void {
 
 async function openDialog(): Promise<void> {
   previousFocus = document.activeElement;
+  previousFocusAnchor = previousFocus?.parentElement?.closest<HTMLElement>('[tabindex]') ?? null;
   syncModalOpenFlag(true);
   await nextTick();
   setBackgroundInert();
@@ -68,8 +70,10 @@ async function openDialog(): Promise<void> {
 function closeDialogSideEffects(): void {
   syncModalOpenFlag(false);
   clearBackgroundInert();
-  if (previousFocus instanceof HTMLElement && document.contains(previousFocus)) previousFocus.focus();
+  if (previousFocus instanceof HTMLElement && document.contains(previousFocus)) previousFocus.focus({ preventScroll: true });
+  else if (previousFocusAnchor && document.contains(previousFocusAnchor)) previousFocusAnchor.focus({ preventScroll: true });
   previousFocus = null;
+  previousFocusAnchor = null;
 }
 
 watch(() => props.visible, (visible, wasVisible) => {

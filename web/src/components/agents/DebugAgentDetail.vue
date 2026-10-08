@@ -44,8 +44,11 @@
         @scroll="timelineControls.handleTimelineScroll"
       >
         <ConversationTimeline
+          :key="`${sessionId}:${conversationSegmentId}`"
           :timeline="timelineControls.timeline.value"
           :expanded-ids="timelineControls.expandedIds.value"
+          :image-context="imageContext"
+          @inspecting="timelineControls.inspectingImage.value = $event"
           @toggle="timelineControls.toggleExpanded"
         />
         <button
@@ -138,6 +141,8 @@ const {
   conversationUnauthorized,
   conversationWarning,
   conversationSegmentContext,
+  conversationSegmentId,
+  conversationSegmentVersion,
   currentLlmExchange,
   llmExchangeLoaded,
   llmExchangeLoading,
@@ -146,6 +151,7 @@ const {
   llmExchangeRefreshError,
 } = storeToRefs(agentStore);
 const timelineControls = useAgentTimeline(entries);
+const imageContext = computed(() => conversationSegmentId.value && conversationSegmentVersion.value ? { session_id: props.sessionId, segment_id: conversationSegmentId.value, segment_version: conversationSegmentVersion.value } : undefined);
 const endpointPath = computed(
   () =>
     `/api/agents/${encodeURIComponent(props.sessionId)}/${props.kind === 'conversation' ? 'conversation' : 'llm-exchange'}`,

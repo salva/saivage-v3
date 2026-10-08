@@ -1,5 +1,5 @@
 <template>
-  <div class="files-layout" data-testid="route-files">
+  <div class="files-layout" data-testid="route-files" tabindex="-1">
     <StatusBanner
       v-if="isStale || unauthorized"
       class="files-status-banner"
@@ -56,19 +56,24 @@
       <ViewState v-if="contentLoading" class="viewer-loading" state="loading" title="Loading preview" />
       <ViewState v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass" :state="viewerStateTone === 'danger' ? 'error' : 'stale'" :tone="viewerStateTone" :title="viewerStateTitle" :message="viewerStateMessage" />
       <div v-else-if="viewedFile" class="viewer-content">
+        <button v-if="'image' in viewedFile" @click="imagePath = viewedFilePath">Inspect image · Current source</button>
+        <template v-else>
         <StatusBanner v-if="viewedFile.redacted" class="viewer-redaction-notice" tone="neutral" message="Sensitive values were redacted by the server." />
         <CodeBlock v-if="isJsonContent" :code="viewedFile.content" language="json" copyable />
         <DocumentFrame v-else-if="isMarkdownContent" :title="viewedFilePath" :name="viewedFilePath">
           <MarkdownText :source="viewedFile.content" />
         </DocumentFrame>
         <CodeBlock v-else :code="viewedFile.content" language="text" copyable wrap />
+        </template>
       </div>
     </div>
   </div>
+  <ImagePreviewDialog v-if="imagePath" :selection="fileImageSelection" @close="imagePath = ''" />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import ImagePreviewDialog from '../files/ImagePreviewDialog.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
@@ -88,6 +93,8 @@ import type { Tone } from '../utils/status';
 type FileRoot = 'meta' | 'output';
 
 const route = useRoute();
+const imagePath = ref('');
+const fileImageSelection = computed(() => ({ kind: 'file' as const, path: imagePath.value }));
 const router = useRouter();
 const fileStore = useFileStore();
 const liveSyncStore = useSyncStore();
@@ -101,6 +108,7 @@ const {
 } = storeToRefs(fileStore);
 
 const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
+watch([viewedFilePath, () => route.fullPath], () => { imagePath.value = ''; });
 const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage/work');
 const activeRootLabel = computed(() => activeRoot.value === 'meta' ? 'Metadata' : 'Output');
 const activeFiles = computed(() => activeRoot.value === 'meta' ? metaFiles.value : outputFiles.value);

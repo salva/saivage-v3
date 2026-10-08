@@ -8,6 +8,7 @@ import {
   ConversationVersionContentResponseSchema,
   ConversationVersionListResponseSchema,
   throwIfPublicationOutcomeUnknown,
+  ToolResultSchema,
   type AgentSessionSummary,
   type OperatorApiQuery,
 } from '../../contracts/index.js';
@@ -26,6 +27,7 @@ import {
   foldConversation,
   foldHistoricalConversationRows,
   segmentContext,
+  coveredRequiredFactRows,
 } from './agent-conversation-read-model.js';
 import {
   cardAgentSessionId,
@@ -40,6 +42,10 @@ import { describeNodeResultContract } from '../../runtime/runtime-api.js';
 import { createPromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { formatVocabularySnippet } from '../../tools/prompt-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
+import { readConversationImageBytes } from '../../persistence/session-api.js';
+
+export class ConversationImageNotFoundError extends Error {}
+export class ConversationImageSegmentChangedError extends Error {}
 
 export class AgentSessionNotFoundError extends Error {}
 export class CardAgentScopeNotFoundError extends Error {}
@@ -243,6 +249,57 @@ export class AgentOperatorReadModelService {
       segment_context: segmentContext(segment.genesis),
       entries: foldHistoricalConversationRows(segment.rows),
     });
+  }
+
+  async getConversationImage(
+    sessionId: ConversationSessionId,
+    locator: OperatorApiQuery<'agents.conversationImage'>,
+  ) {
+    this.admitSession(sessionId);
+    let segment;
+    try {
+      segment = readHistoricalConversationSegment(
+        this.projectRoot,
+        sessionId,
+        locator.segment_version,
+      );
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (
+        error instanceof ConversationHistoricalVersionNotFoundError ||
+        error instanceof ConversationHistoricalVersionUnavailableError
+      )
+        throw error;
+      throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
+    }
+    if (segment.entry.entry_id !== locator.segment_id)
+      throw new ConversationImageSegmentChangedError();
+    const row = [...coveredRequiredFactRows(segment), ...segment.rows].find(
+      (row) => row.id === locator.message_id,
+    );
+    if (
+      !row ||
+      row.kind !== 'tool_result' ||
+      row.context_policy.kind !== 'tool_result' ||
+      row.context_policy.settlement_origin !== 'executed'
+    )
+      throw new ConversationImageNotFoundError();
+    const result = ToolResultSchema.parse(JSON.parse(row.content));
+    const part = result.success ? result.content?.[locator.content_index] : undefined;
+    if (!part || part.type !== 'image' || part.image.id !== locator.image_id)
+      throw new ConversationImageNotFoundError();
+    const sourceSession = segment.conversation.sourceSessionId;
+    if (sourceSession === null) throw new Error('Selected image has no canonical source session.');
+    try {
+      return await readConversationImageBytes(this.projectRoot, sourceSession, part.image);
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      const code = (error as NodeJS.ErrnoException).code;
+      throw new ConversationHistoricalVersionUnavailableError(
+        locator.segment_version,
+        code === 'ENOENT' ? 'missing' : code ? 'io_error' : 'corrupt',
+      );
+    }
   }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {

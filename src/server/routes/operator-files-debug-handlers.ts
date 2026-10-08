@@ -25,6 +25,11 @@ export function buildFilesDebugOperatorContractHandlers(
   return defineOperatorContractHandlers({
     'files.list': ({ query }) => fileReadModel.listFiles(query.path || '.'),
     'files.content': ({ query }) => fileReadModel.readFileContent(query.path),
+    'files.image': async ({ query, reply }) => {
+      const result = await fileReadModel.readFileImage(query.path);
+      if (result.mime) reply.header('Content-Type', result.mime);
+      return result;
+    },
     'debug.graphs': () => ({ body: projectCompiledGraphs(options.workflows) }),
     'debug.doctor': ({ request }) => {
       try {

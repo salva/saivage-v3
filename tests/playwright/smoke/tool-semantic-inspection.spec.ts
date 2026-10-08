@@ -303,7 +303,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
     await expand(chip(reader, 'image'));
     const image = chip(reader, 'image');
     await expect(image.locator('a, img, canvas, video')).toHaveCount(0);
-    await image.getByText('Show Typed image descriptor (metadata only) · content 1', { exact: true }).click();
+    await image.getByText('Show Typed image descriptor · content 1', { exact: true }).click();
     await expect(image).toContainText('sha256');
     await page.screenshot({ path: testInfo.outputPath(`combined-expanded-${viewport.width}.png`) });
     const geometry = await reader.evaluate(owner => ({

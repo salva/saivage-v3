@@ -32,6 +32,38 @@ This is neither an editor nor a model-wire inspector.
 
 ## Image result presentation
 
+Each actual typed image occurrence exposes **Inspect image**, including generic
+presenters and every admitted producer; missing/malformed optional producer metadata
+never hides the action. Arbitrary image-looking JSON/text/URLs expose no action.
+Both Analyst and card current/historical callers explicitly supply the displayed
+session and segment identities. Inspection stays pinned on refresh and never
+retargets to a latest segment or current source. Owner/session/version departure
+closes the caller-local dialog.
+
+The shared dialog labels conversation pixels **Image shown to model** and
+**Recorded model-input snapshot; not proof of delivery or perception**, plus
+one-based content position and descriptor sent dimensions. Strict `view_image`
+and indexed native MCP metadata separately enrich source/orientation-adjusted/sent
+dimensions and resizing; absence says **Original dimensions not recorded**.
+No original-view toggle or automatic source loading exists.
+
+**Fit** defaults to min(1, viewport width/image width, viewport height/image height),
+recomputed on resize, never upscaled. **1:1** means one image pixel per CSS pixel
+at 100% browser zoom, not physical-device pixels; its focusable viewport scrolls
+both axes from a reachable origin. Previous/Next traverse only image occurrences
+in the same selected result, preserving intervening content positions and disabling
+boundaries. Tab/Shift-Tab stay in Dialog; native arrow/Page scrolling is not image
+navigation. Escape or Close returns focus to the inspect action without jumping.
+The underlying single conversation owner retains history, expanded details and
+scroll/follow policy, with arrival-driven scrolling suppressed while open and no
+close-time catch-up jump. Narrow/wide layouts keep controls onscreen.
+
+Binary fetches use the existing bearer-header authority, never token URLs or direct
+API image elements. Loading, unauthorized/forbidden, unavailable and decode failure
+are explicit; replacement/error/close/departure/unmount clear pixels, abort departed
+requests and revoke object URLs. Late responses cannot replace the current selection.
+Refresh retries the same exact locator. No global viewer registry or visit state exists.
+
 The combined **Inspect image** row for successful `view_image` labels **Image snapshot recorded** with sent dimensions
 and safe source/upright/sent, orientation, spatial resize, scale and maximum metadata.
 Source paths in call/result presentation are text, not automatic Files preview links.
@@ -41,12 +73,18 @@ entries share that boundary. Failures retain ordinary failure presentation. Reco
 is not a model-delivery/perception receipt; this UI is not an exact-request viewer.
 Provider evidence retains bounded approved request parameters, not full materialized
 requests. Image-bearing HTTP error previews are suppressed while structured failure
-classification, status and safe diagnostics remain. No binary endpoint is added.
+classification, status and safe diagnostics remain. Authenticated binary reads use
+`GET /api/agents/:id/conversation/images` with exact `segment_version`, `segment_id`,
+`message_id`, zero-based `content_index` and `image_id`. The selected public successful
+executed result is authority, not a UUID, URL, source path or producer metadata.
+Invalid locators fail 400, absent selections 404, mismatched segment UUID 409;
+broken referenced state remains bounded unavailable, never source fallback.
+Responses are byte-identical selected PNGs, `no-store` and `nosniff`.
 
 Successful optional `content` is an ordered nonempty array of strict text/image
 blocks, not a singular `image` field. Inside the paired Result half, each text
 block has **Returned text · content N** and explicit text classification; each
-image block has **Typed image descriptor (metadata only) · content N**, explicit
+image block has **Typed image descriptor · content N**, explicit
 JSON classification and its own metadata disclosure. N is the one-based recorded
 content position. Preserve every occurrence/order without extra timeline rows,
 duplicate anchors, thumbnails or nested vertical scrollports. Both Request/Result
@@ -552,6 +590,19 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   handling or re-entry. Failed queue refusal preserves the recorded reason/status.
 
 ## 8. Files, processes, and evidence
+
+- Eligible ordinary static PNG/JPEG/WebP are recognized by content and successful
+  decode, not extension. `files.content` returns strict image metadata without
+  binary/base64; authenticated `GET /api/files/image?path=...` freshly admits and
+  decodes current bytes and returns their unmodified detected MIME. The shared
+  dialog says **Current source**, path and fetched decoded natural dimensions,
+  never stale metadata dimensions. Source is bounded to 32 MiB/40M pixels;
+  unsupported/animated/corrupt input has no substitute preview. Existing text,
+  Markdown, JSON and copy/redaction behavior remains unchanged.
+- Both Files reads preserve lexical/resolved-path and canonical-card dispatch
+  admission before inspection. Physical conversations, config/auth/private paths,
+  attic and aliases remain refused; redacted credential/config surfaces cannot
+  become raw binary. There is no internal storage browser or pixel-redaction promise.
 
 - Files JSON display and copy use the exact received safe `content` string under
   the [shared JSON data-display contract](#shared-json-data-display), not a parsed

@@ -9,6 +9,7 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
   const pinnedToLatest = ref(true);
   const unseenCount = ref(0);
   const autoScrollPaused = ref(false);
+  const inspectingImage = ref(false);
   const timeline = computed(() => entriesToTimeline(entries.value));
   const STICK_TO_LATEST_THRESHOLD_PX = 64;
 
@@ -17,12 +18,14 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
   }
 
   function scrollToLatest(): void {
+    if (inspectingImage.value) return;
     const el = scrollAreaRef.value;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }
 
   function handleTimelineScroll(): void {
+    if (inspectingImage.value) return;
     const el = scrollAreaRef.value;
     if (!el) return;
     pinnedToLatest.value = isNearLatest(el);
@@ -99,7 +102,7 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     (volume, previousVolume) => {
       if (volume <= previousVolume) return;
       const delta = volume - previousVolume;
-      if (pinnedToLatest.value && !autoScrollPaused.value) scrollToLatest();
+      if (pinnedToLatest.value && !autoScrollPaused.value && !inspectingImage.value) scrollToLatest();
       else unseenCount.value += delta;
     },
     { flush: 'post' },
@@ -112,6 +115,7 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     pinnedToLatest,
     unseenCount,
     autoScrollPaused,
+    inspectingImage,
     toggleExpanded,
     expandAll,
     collapseAll,

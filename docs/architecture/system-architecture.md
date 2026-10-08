@@ -35,6 +35,28 @@ selection. The durable result selects the file; no image index, startup inventor
 registry, derivative set, cleanup or garbage collector exists. Files refuses this
 internal subtree; complete backup/reset/discard already own it wholesale.
 
+`AgentOperatorReadModelService` owns authenticated exact selected-image inspection:
+admit session, consume the requested indexed public segment, compare entry UUID,
+select the successful executed result/content occurrence and matching descriptor.
+Canonical source-session attribution feeds the common exact byte reader in
+`persistence/conversation-image.ts`; provider data URLs and operator byte responses
+share its length/hash/full-decode/dimension validation. No discovery or fallback occurs.
+The singular operator contract/runtime transport declares binary success explicitly,
+retaining typed JSON failures and existing auth. Browser imports remain Node-free.
+
+`WorkspaceFileReadModelService` freshly admits supported ordinary static raster
+bytes through existing lexical/resolved-path/card dispatch boundaries, using the
+shared static raster decoder. Metadata is observational, not later admission.
+Files still refuses physical conversation/private/attic storage and never serves
+redacted config/credential paths as binary. Images return unmodified detected MIME.
+The shared Files feature component `web/src/files/ImagePreviewDialog.vue` owns one
+abortable read/object URL at a time; caller-local
+selection overlays the mounted Analyst/card/history/Files owner. Producer-neutral
+typed actions carry exact displayed session/segment/result locators, with optional
+producer labels. Fit/1:1 geometry, same-result navigation and Dialog focus conventions
+are shared; conversation arrivals cannot scroll the background during inspection.
+No image registry, persisted preview or durable change results.
+
 `application/conversation-image-materialization.ts` resolves selected snapshots
 sequentially and validates bytes/hash/decoded dimensions for invocation-local use.
 Application composition binds primary/recomposed/pinned preparation and the fixed
@@ -1741,6 +1763,8 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/events` | Authenticated operator event query. | `src/contracts/operator-api-events.ts:32` |
 | `GET /api/files` | Contained, blocked-path-filtered workspace listing. | `src/contracts/operator-api-files-debug.ts:152` |
 | `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:163` |
+| `GET /api/files/image` | Freshly admitted/decoded ordinary static raster bytes; existing Files exclusions apply. | `src/contracts/operator-api-files-debug.ts:288` |
+| `GET /api/agents/:id/conversation/images` | Authenticated exact public result image occurrence, pinned to indexed segment UUID and descriptor. | `src/contracts/operator-api-agents.ts:408` |
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:40` |
 | `POST /api/mcp/servers/:name/start` | Start/install/discover one configured server. | `src/contracts/operator-api-mcp.ts:50` |
 | `POST /api/mcp/servers/:name/stop` | Stop and join one retained server owner. | `src/contracts/operator-api-mcp.ts:51` |
@@ -1844,6 +1868,8 @@ not inferred effects; missing halves stay explicitly unavailable.
 The combined **Inspect image** row reports snapshot recorded and sent dimensions, never
 model delivery/perception. `view_image` request/result paths remain plain text, not Files
 preview links; safe descriptor/metadata detail and copy perform no binary fetch/materialization.
+An independent producer-neutral typed-occurrence **Inspect image** button opens the
+shared exact-locator preview, without requiring those metadata disclosures to be open.
 Typed lower-envelope descriptors are not forced through workspace-specific metadata;
 arbitrary nested image-like/MCP data remains opaque, not an attachment.
 

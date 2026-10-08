@@ -42,6 +42,7 @@ import {
   type OperatorApiResponseStatus,
   type OperatorApiResponse,
   type OperatorApiSuccess,
+  type ConversationImageLocator,
 } from './contracts';
 
 function authHeaders(): Record<string, string> {
@@ -108,7 +109,7 @@ export function isOperatorApiError<
 async function operatorRequest<K extends OperatorApiOperationId>(
   operationId: K,
   options: OperatorRequestOptions<K> = {},
-): Promise<OperatorApiSuccess<K>> {
+): Promise<K extends 'agents.conversationImage' | 'files.image' ? Blob : OperatorApiSuccess<K>> {
   const contract = operatorApiContracts[operationId];
   const method = contract.method;
   const path = buildOperatorPath(operationId, options.params);
@@ -142,6 +143,13 @@ async function operatorRequest<K extends OperatorApiOperationId>(
   }
 
   let responseBody: unknown;
+  if (response.status === 200 && 'responseEncoding' in contract && contract.responseEncoding === 'binary') {
+    const blob = await response.blob();
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(blob.type) || blob.size === 0 || blob.size > 32 * 1024 * 1024) {
+      throw new Error('Invalid image response');
+    }
+    return blob as K extends 'agents.conversationImage' | 'files.image' ? Blob : OperatorApiSuccess<K>;
+  }
   try {
     responseBody = await response.json();
   } catch {
@@ -153,7 +161,7 @@ async function operatorRequest<K extends OperatorApiOperationId>(
   const parsed = parseOperatorResponse(operationId, response.status, responseBody);
 
   if (response.status === 200) {
-    return parsed as OperatorApiSuccess<K>;
+    return parsed as K extends 'agents.conversationImage' | 'files.image' ? Blob : OperatorApiSuccess<K>;
   }
 
   throw new OperatorApiError(
@@ -337,6 +345,19 @@ export function listFiles(path?: string, signal?: AbortSignal): Promise<FilesLis
 
 export function getFileContent(path: string, signal?: AbortSignal): Promise<FileContent> {
   return operatorRequest('files.content', { query: { path }, signal });
+}
+
+export function getFileImage(path: string, signal?: AbortSignal): Promise<Blob> {
+  return operatorRequest('files.image', { query: { path }, signal });
+}
+
+export function getConversationImage(locator: ConversationImageLocator, signal?: AbortSignal): Promise<Blob> {
+  const { session_id, ...query } = locator;
+  return operatorRequest('agents.conversationImage', {
+    params: { id: session_id },
+    query: Object.fromEntries(Object.entries(query).map(([key, value]) => [key, String(value)])),
+    signal,
+  });
 }
 
 export function listProcesses(signal?: AbortSignal): Promise<ProcessListResponse> {

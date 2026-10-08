@@ -896,10 +896,36 @@ strict estimated-token reduction/hard ceiling and ranks smallest estimated token
 authoritative takes the first strict token reduction. Descriptor-only fingerprints
 exclude transient data URLs/buffers, so materialization does not alter freshness.
 
-Public REST/websocket/copy/evidence expose bounded metadata only, not payloads or
+Public conversation JSON/websocket/copy/evidence expose bounded metadata only, not payloads or
 internal physical image paths. Provider HTTP errors are classified from structured
 markers but image-bearing response-body previews are suppressed to prevent echoed
 pixels. Tool success means **image snapshot recorded**, not that a model saw it.
+
+Authenticated `GET /api/agents/:id/conversation/images` admits the owning configured
+session and exact indexed segment using `segment_version`, `segment_id`, `message_id`,
+zero-based `content_index` and `image_id`. Only a successful executed public result's
+typed image occurrence selects pixels. Source attribution comes from canonical
+conversation state. Exact selected PNG length/hash/full decode/dimensions are checked;
+the byte-identical PNG is returned with `no-store`/`nosniff`. Invalid locators are
+400, absent selections 404, segment UUID conflicts 409 and broken consumed referenced
+state bounded unavailable. No other images, originals, predecessors or private replay
+are fallback authority. This capability is producer-neutral, including `view_image`
+and ordered native MCP images; producer metadata only enriches labels.
+
+The common caller-local Dialog defaults to no-upscale Fit and offers 1:1 CSS-pixel
+inspection, same-result Previous/Next, keyboard/focus return, exact-locator Refresh
+and explicit loading/error states. It preserves conversation history/scroll/follow
+without visit storage and labels pixels **Image shown to model**, with the recorded
+model-input/not-delivery qualifier. Files uses the same viewer, **Current source**:
+`files.content` discriminates decoded static PNG/JPEG/WebP metadata, while authenticated
+`GET /api/files/image?path=...` freshly admits/decodes current ordinary bytes by content
+and returns them unmodified. Displayed source dimensions describe fetched bytes.
+Limits are 32 MiB/40M source pixels, with unsupported/animated/corrupt input refused.
+Both Files operations preserve pre-read lexical/resolved-path/card boundaries;
+config/auth/private/conversation/attic aliases never become raw binary access.
+Text/JSON/Markdown redaction/copy remain unchanged. Bearer headers, bounded JSON
+failures, abort/late-response handling and viewer-local revoked object URLs apply;
+no token URL, cache, persisted derivative or durable-format change is introduced.
 
 Planner `activate_card` admission reads the target's current declared `depends_on` list and requires every dependency's current durable card status to be exactly `done`; every other status rejects in declared dependency order.
 It then admits status before child actor lookup: `running` may join its retained activation, and a non-running status is activatable only when `cardProcessEntryForStatus` selects its lifecycle entry.

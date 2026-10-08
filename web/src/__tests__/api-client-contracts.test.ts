@@ -40,6 +40,25 @@ const preservedReadAndBoundedWriteExports = [
 ] as const;
 
 describe('operator API client contracts after S06 mutation removal', () => {
+  it('fetches bounded image blobs with bearer headers and exact locators, retaining typed failures and abort', async () => {
+    window.localStorage.setItem('saivage_api_token', 'synthetic-image-token');
+    const fetch = vi.fn().mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/png' } }));
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    const locator = { session_id: 'agent:analyst:global' as const, segment_version: 2, segment_id: '00000000-0000-4000-8000-000000000001', message_id: 'exact-result', content_index: 3, image_id: '00000000-0000-4000-8000-000000000002' };
+    const blob = await client.getConversationImage(locator, controller.signal);
+    expect(blob.type).toBe('image/png'); expect(blob.size).toBe(3);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(new URL(url).searchParams.get('content_index')).toBe('3');
+    expect(new URL(url).pathname).toBe('/api/agents/agent%3Aanalyst%3Aglobal/conversation/images');
+    expect(url).not.toContain('synthetic-image-token'); expect(new URL(url).searchParams.has('session_id')).toBe(false);
+    expect(init).toMatchObject({ signal: controller.signal, headers: { Authorization: 'Bearer synthetic-image-token' } });
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Unauthorized', statusCode: 401 }), { status: 401 }));
+    await expect(client.getFileImage('fresh.png')).rejects.toMatchObject({ operationId: 'files.image', status: 401, isUnauthorized: true });
+    fetch.mockResolvedValueOnce(new Response('text', { status: 200, headers: { 'content-type': 'text/plain' } }));
+    await expect(client.getFileImage('fake.png')).rejects.toThrow('Invalid image response');
+    window.localStorage.removeItem('saivage_api_token');
+  });
   it('uses the singular encoded current-instructions operation, abort signal and strict shared response', async () => {
     const body = { session_id: 'agent:analyst:global', basis: 'server_loaded_configuration', scope: { kind: 'global' }, bindings: [{ kind: 'global', instructions: 'Complete safe FINAL' }] };
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));

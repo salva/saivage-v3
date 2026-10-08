@@ -116,6 +116,10 @@ export type OperatorApiQuery<K extends OperatorApiOperationId> =
     ? z.output<TQuery>
     : undefined;
 
+export type ConversationImageLocator = OperatorApiQuery<'agents.conversationImage'> & {
+  session_id: OperatorApiParams<'agents.conversationImage'>['id'];
+};
+
 type OperatorApiResponseMap<K extends OperatorApiOperationId> =
   OperatorApiContract<K> extends {
     response: infer TResponse extends Record<number, z.ZodTypeAny>;

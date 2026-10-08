@@ -71,6 +71,8 @@
          <ConversationTimeline v-if="!projection.error" :key="readerIdentity"
           :timeline="timelineControls.timeline.value"
           :expanded-ids="timelineControls.expandedIds.value"
+          :image-context="imageContext"
+          @inspecting="timelineControls.inspectingImage.value = $event"
           @toggle="timelineControls.toggleExpanded"
          />
        </template>
@@ -144,6 +146,10 @@ const readerEntries = computed(() => exactVersion.value ? selectedConversationVe
 const readerVersion = computed(() => exactVersion.value ? selectedConversationVersion.value?.version ?? null : conversationSegmentVersion.value);
 const readerContext = computed(() => exactVersion.value ? selectedConversationVersion.value?.segment_context ?? null : conversationSegmentContext.value);
 const readerIdentity = computed(() => `${props.sessionId}:${exactVersion.value === null ? 'current' : 'exact'}:${exactVersion.value ? selectedConversationVersion.value?.entry_id : conversationSegmentId.value}`);
+const imageContext = computed(() => {
+  const segmentId = exactVersion.value ? selectedConversationVersion.value?.entry_id : conversationSegmentId.value;
+  return segmentId && readerVersion.value ? { session_id: props.sessionId, segment_id: segmentId, segment_version: readerVersion.value } : undefined;
+});
 const readerLoading = computed(() => exactVersion.value ? selectedConversationVersionLoading.value : loading.value);
 const readerError = computed(() => exactVersion.value ? selectedConversationVersionError.value : errorMsg.value);
 const readerAccepted = computed(() => exactVersion.value ? selectedConversationVersion.value !== null : conversationBaselineAccepted.value);

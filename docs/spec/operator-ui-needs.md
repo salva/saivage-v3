@@ -4,9 +4,13 @@
 
 Operators need to distinguish **image snapshot recorded** (safe source, sent
 dimensions and resize metadata) from successful model delivery or interpretation.
-Continuation may fail admission after recording. Expanded rows and copy stay
-metadata-only; no pixel viewer, binary fetch, thumbnail, source-path preview or
-claim that visible secrets were removed is introduced.
+Continuation may fail admission after recording. Safe-original rows and copy stay
+descriptor-only; authenticated inspection shows exact selected pixels, with no
+claim that visible secrets were removed. Every admitted image-bearing tool uses
+the same accessible Fit/1:1 dialog; producer metadata is optional label enrichment.
+Closing returns focus and preserves the caller's selected history, expansion,
+scroll and follow policy without cross-visit tracking. Files shares the viewer
+but labels freshly decoded eligible raster bytes **Current source**.
 
 Both card and Analyst readers need every typed image descriptor and text block
 shown in recorded content order inside the paired Result half, with content
@@ -235,9 +239,10 @@ exact tool codes, identities and times and complete received safe projected valu
 secondary inspection; safe-original request/result disclosures copy the exact received
 public strings through the final character, unaffected by summary abbreviation.
 An unmatched result stays at its original
-position with requested context unavailable. Inspect image exchanges as metadata only,
+position with requested context unavailable. Inspect exact selected image snapshots,
 including safe descriptors in raw/copy; snapshot recorded proves neither delivery nor
-model perception, and source paths do not preview potentially changed pixels. Check process exit
+model perception. Source paths stay text; Files separately previews potentially changed
+current sources. Check process exit
 versus tool settlement, draft versus acceptance, output-head coverage and confirmation
 without inventing completion, delivery or unavailable content.
 

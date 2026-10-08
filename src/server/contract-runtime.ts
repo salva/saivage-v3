@@ -192,7 +192,17 @@ export class ContractRuntime {
             throw RESPONSE_CONTRACT_VIOLATION;
           }
 
-          final = { statusCode: candidate.statusCode, body: parsedResponse.data };
+          final = {
+            statusCode: candidate.statusCode,
+            body:
+              contract.responseEncoding === 'binary' && candidate.statusCode === 200
+                ? Buffer.from(
+                    parsedResponse.data.buffer,
+                    parsedResponse.data.byteOffset,
+                    parsedResponse.data.byteLength,
+                  )
+                : parsedResponse.data,
+          };
         } catch (error) {
           if (error instanceof PublicationOutcomeUnknownError)
             this.fatalPort.publicationOutcomeUnknown(error);
@@ -204,6 +214,12 @@ export class ContractRuntime {
           final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
         }
 
+        if (contract.responseEncoding === 'binary' && final.statusCode === 200) {
+          reply.header('Cache-Control', 'no-store');
+          reply.header('X-Content-Type-Options', 'nosniff');
+        } else if (contract.responseEncoding === 'binary') {
+          reply.header('Content-Type', 'application/json');
+        }
         return reply.status(final.statusCode).send(final.body);
       },
     };

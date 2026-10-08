@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ImageIdSchema } from './image.js';
 import { providerExchangePayloadSchema } from './provider-exchange.js';
 import {
   agentMessageSchema,
@@ -12,6 +13,7 @@ import {
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
+  ImageBytesResponseSchema,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
   UnexpectedInternalServerErrorSchema,
@@ -21,6 +23,23 @@ import { CardNotFoundErrorSchema } from './operator-api-runtime-cards.js';
 import { ConversationHistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
 
 const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema }).strict();
+const ConversationImageLocatorQuerySchema = z
+  .object({
+    segment_version: z
+      .string()
+      .regex(/^[1-9][0-9]*$/u)
+      .transform(Number)
+      .pipe(positiveSafeIntegerSchema),
+    segment_id: z.string().uuid(),
+    message_id: z.string().min(1),
+    content_index: z
+      .string()
+      .regex(/^(0|[1-9][0-9]*)$/u)
+      .transform(Number)
+      .pipe(z.number().int().nonnegative().safe()),
+    image_id: ImageIdSchema,
+  })
+  .strict();
 const AgentConversationParamsSchema = AgentSessionParamsSchema;
 const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
 const CardAgentSessionsParamsSchema = z.object({ id: cardIdSchema }).strict();
@@ -386,6 +405,34 @@ export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type AgentConversationEntry = z.infer<typeof AgentConversationEntrySchema>;
 export type ConversationSegmentContext = z.infer<typeof ConversationSegmentContextSchema>;
 export const agentOperatorApiContracts = {
+  'agents.conversationImage': {
+    operationId: 'agents.conversationImage',
+    method: 'GET',
+    path: '/api/agents/:id/conversation/images',
+    params: AgentSessionParamsSchema,
+    query: ConversationImageLocatorQuerySchema,
+    responseEncoding: 'binary',
+    success: ImageBytesResponseSchema,
+    response: {
+      200: ImageBytesResponseSchema,
+      400: ValidationErrorSchema,
+      401: UnauthorizedErrorSchema,
+      404: z.union([
+        AgentSessionNotFoundErrorSchema,
+        ConversationHistoricalVersionNotFoundSchema,
+        ConversationHistoricalUnavailableSchema,
+        z.object({ error: z.literal('conversation_image_not_found') }).strict(),
+      ]),
+      409: z.union([
+        ConversationHistoricalUnavailableSchema,
+        z.object({ error: z.literal('conversation_image_segment_changed') }).strict(),
+      ]),
+      503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]),
+      500: UnexpectedInternalServerErrorSchema,
+    },
+    failureIdentity: { kind: 'session', parameter: 'id' },
+    ...operatorSessionContract,
+  },
   'agents.currentInstructions': {
     operationId: 'agents.currentInstructions',
     method: 'GET',

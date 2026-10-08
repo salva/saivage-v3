@@ -38,7 +38,7 @@ export function presentToolResult(rawContent: string, opts: { tool?: string } = 
   if (parsed.data.success) parsed.data.content?.forEach((block, index) => {
     sections.push(block.type === 'text'
       ? { title: `Returned text · content ${index + 1}`, content: block.text, language: 'text' }
-      : { title: `Typed image descriptor (metadata only) · content ${index + 1}`, content: JSON.stringify(block.image, null, 2), language: 'json', disclosure: true });
+      : { title: `Typed image descriptor · content ${index + 1}`, content: JSON.stringify(block.image, null, 2), language: 'json', disclosure: true });
   });
   return { name, status, outcome, headline: reason ? textPart(oneLine(reason, 56)) : rendered?.headline ?? [], sections, target: rendered?.target };
 }

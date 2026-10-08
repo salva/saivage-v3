@@ -94,6 +94,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   );
   const pendingMessages = ref<PendingMessage[]>([]);
   const acceptedSegmentId = ref<string | null>(null);
+  const acceptedSegmentVersion = ref<number | null>(null);
   type Handoff = {
     identityEpoch: number;
     sessionId: ConversationSessionId;
@@ -120,6 +121,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     onFailure() {},
     onAccepted({ responseEntries, response }) {
       acceptedSegmentId.value = response.segment_id;
+      acceptedSegmentVersion.value = response.segment_version;
       pendingMessages.value = pendingMessages.value.filter(
         (pending) => !authoritativeContainsPending(responseEntries, pending.entry),
       );
@@ -168,6 +170,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     identityController?.abort();
     transcript.reset();
     acceptedSegmentId.value = null;
+    acceptedSegmentVersion.value = null;
     pendingMessages.value = [];
     handoff.value = null;
     mutableIdentityState.value = { kind: 'pending' };
@@ -339,6 +342,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   return {
     acceptedSegmentId: readonly(acceptedSegmentId),
+    acceptedSegmentVersion: readonly(acceptedSegmentVersion),
     identityState,
     activeSessionId,
     messages,

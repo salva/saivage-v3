@@ -10,7 +10,11 @@ or Codex primary **and summary** route (including `gpt-6.1-sol` and `gpt-6-astra
 Chat remains text-only. The default longest side is 1600, with integer 1..16384 or
 `"original"` as `max_dimension`. Local original does not force provider-original
 processing. Successful tool results use optional ordered text/image `content`;
-the UI shows each typed descriptor at its content position, not pixels or delivery.
+the UI offers **Inspect image** for each typed selection at its content position.
+The shared viewer provides **Fit** (never upscaled) and **1:1**; Escape returns
+to the same conversation position. Pixels are recorded model-input snapshots,
+not proof of delivery or perception. Files uses the same viewer for eligible
+static PNG/JPEG/WebP, labeled **Current source**, not the recorded snapshot.
 `view_image` selects one workspace snapshot. Configured `mcp_tool_call` also
 preserves ordered native text and static PNG/JPEG/WebP images, without a file round
 trip. Its local `max_dimension` uses the same default and bounds. Complete results
@@ -52,7 +56,7 @@ Matched tool exchanges appear once at the request position, including nonadjacen
 times remain inspectable. Compact friendly action/abbreviated-target/honest-outcome summaries
 expand to complete Request/Result detail and independent output heads; safe-original
 disclosures copy complete public values.
-Image inspection stays metadata-only. Settlement need not mean process completion,
+Safe-original image copy stays descriptor-only. Settlement need not mean process completion,
 acceptance, delivery or perception. Repair directives do not prove repair; interruption
 notices keep effects uncertainty visible. Scroll-away pauses following; Analyst's explicit
 Pause survives its one-shot Jump to latest, unlike ordinary unpaused following.
