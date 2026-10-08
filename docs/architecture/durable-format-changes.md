@@ -11,7 +11,7 @@ operational consent. Current contracts remain owned by the
 [architecture](./system-architecture.md); procedures remain owned by the
 [runbook](../runbook/index.md#external-migrations).
 
-Observed source baseline: `d3cb2f4a2112ce08fe4f61f09d9904726d005cae`, plus the
+Observed source baseline: `fb0152e99e423f5e5e2db5e28d7e38bb3166b759`, including the
 ordered-tool-content source change described below (conversation format 6).
 Introduction commits below establish source boundaries, not deployment dates or
 installed-state facts. Compare the selected releases' actual owning schemas and
@@ -22,7 +22,7 @@ baseline/change entries with implementation, recording evidence and honest unkno
 ## Current source baseline
 
 Owner paths below are relative to repository `src/` at the observed revision;
-[that exact source tree](https://github.com/salva/saivage-v3/tree/d3cb2f4a2112ce08fe4f61f09d9904726d005cae/src)
+[that exact source tree](https://github.com/salva/saivage-v3/tree/fb0152e99e423f5e5e2db5e28d7e38bb3166b759/src)
 contains the schemas and direct publication/consumption owners.
 
 | Durable family | Exact path/owner | Actual discriminator and essential semantics |
@@ -78,6 +78,21 @@ remain separate from those display labels. This changes no canonical JSON, neste
 selection/provenance, persistence layout or discriminator, including the unchanged format-5
 image contract above; it establishes no deployment or retained-state compatibility claim.
 
+## Durable-preserving MCP schema-language fix
+
+Against `fb0152e99e423f5e5e2db5e28d7e38bb3166b759`,
+`src/mcp/mcp-argument-validator.ts` dispatches current external discovery schemas
+by declared/default language, and `src/mcp/protocol.ts` retains complete schema
+typing. These change current external argument interpretation, not retained state.
+Conversation index/genesis/envelope remain **6**, owned by
+`canonical-conversation-artifacts.ts` and `conversation-file.ts`; typed result,
+descriptor, PNG selection/provenance and unconstrained producer data are unchanged.
+No other family/discriminator changes. The baseline link and current enclosing
+version wording are accuracy corrections, not retrospective bumps.
+This unit adds no native MCP producer or lifecycle surface and certifies no browser
+containment or installed-state compatibility. Existing format-6 adoption warnings
+remain; no deployment, reset or migration is authorized.
+
 ## Known incompatible changes
 
 These source boundaries are directly evidenced, not an exhaustive timeline.
@@ -95,7 +110,7 @@ offline migration under the runbook gates, never automatic conversion/deployment
 | Conversation index/genesis/envelope `3→4` | [`2f70b3db51529905ea96e2828957f27b1c1efabc`](https://github.com/salva/saivage-v3/commit/2f70b3db51529905ea96e2828957f27b1c1efabc); `canonical-conversation-artifacts.ts`, `conversation-validation.ts` and compaction owners | Removed compaction checksums, retained-row metadata and accumulated accounting while keeping source/cutoff/continuation semantics strict. Older schemas are rejected; unrelated families did not advance. Later 4→5 applies below. |
 | App log / provider evidence shared envelope `version:1→1` — historical unchanged discriminator | [`251c93badf43f747dd93c2f99e6f2382fa0716e7`](https://github.com/salva/saivage-v3/commit/251c93badf43f747dd93c2f99e6f2382fa0716e7), parent `93ed39fff82a196ff1252d46547128e125202503`; `contracts/app-log.ts`, `provider-exchange-log.ts`, persistence owner/layout and unchanged `growing-file.ts` | Provider rows moved from app log to session-owned evidence, including owner-specific internal-summary identities. New app log rejects old provider rows; split ownership is not a same-format upgrade. Complete adoption covers all four generated roots, not selective logs. |
 | Provider-usage payload, shared envelope `version:1→1` — historical unchanged discriminator | [`a45a1a6323b17bbc98ae1adb90395b66ea931351`](https://github.com/salva/saivage-v3/commit/a45a1a6323b17bbc98ae1adb90395b66ea931351); `contracts/llm-usage.ts`, `provider-exchange.ts` | Added optional cached-input/reasoning-output counters to strict usage. Old readers reject populated new keys; absence does not prove every old file incompatible, certify compatibility or authorize backfill. Preserve omission as unknown; no invented usage. See [payload adoption](../runbook/index.md#provider-usage-payload-adoption). |
-| Responses private producer identity and inline process-result payload — earlier source/discriminator boundaries unestablished here | [Runbook storage/adoption warnings](../runbook/index.md#storage-and-interruption); current `contracts/responses-conversation.ts`, `conversation-validation.ts`, `operator-api-processes.ts` and `tools/process-tool-result.ts` | Independent cumulative incompatibilities: required private `producer_account_id` and strict bounded inline stdout/stderr heads/completeness/counts/fallback URLs. Current enclosing conversation version is 5, **not evidence of the earlier enclosing versions or a historical 4→4/5→5 change**. External migration must evidence producer/stream facts, not fabricate them. |
+| Responses private producer identity and inline process-result payload — earlier source/discriminator boundaries unestablished here | [Runbook storage/adoption warnings](../runbook/index.md#storage-and-interruption); current `contracts/responses-conversation.ts`, `conversation-validation.ts`, `operator-api-processes.ts` and `tools/process-tool-result.ts` | Independent cumulative incompatibilities: required private `producer_account_id` and strict bounded inline stdout/stderr heads/completeness/counts/fallback URLs. Current enclosing conversation version is 6, **not evidence of the earlier enclosing versions or a historical 4→4/5→5 change**. External migration must evidence producer/stream facts, not fabricate them. |
 
 Earlier workflow/configuration/card-order milestones remain bounded runbook
 provenance, not a fabricated release timeline. The text-only transient recovery

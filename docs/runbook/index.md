@@ -29,9 +29,15 @@ the source call/result/all blocks atomically; covered images are not materialize
 The UI displays each descriptor's content position as metadata only. `view_image`
 remains the sole implemented image producer and emits one descriptor.
 
-Native MCP screenshot/browser integration is blocked and unsupported. The pinned
-official server advertises JSON Schema 2020-12, which the current MCP argument
-validator cannot compile; no dialect rewriting or validation fallback is shipped.
+Native MCP screenshot/browser integration remains unsupported; schema compilation
+alone does not establish native image ingress or browser containment. MCP schemas
+without `$schema` use 2020-12. Explicit 2020-12 and draft-07 declarations use their
+respective engines, with unsupported dialects rejected before invocation; see the
+[schema-language contract](../spec/system-specification.md).
+External producers using dialect-less draft-07 tuple schemas must declare
+`http://json-schema.org/draft-07/schema` (optional trailing `#`), not rely on dialect
+guessing. No schema rewriting, coercion/default insertion, remote reference loading
+or validation fallback is shipped.
 Existing configured startup MCP invocation/status remain unchanged. `mcp_tool_call`
 still packs ordinary JSON into a 32,768-byte complete settled envelope, potentially
 as a lossy canonical prefix with `result_complete:false`; it does not deliver

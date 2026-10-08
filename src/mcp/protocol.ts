@@ -1,6 +1,10 @@
 /** MCP protocol types and constants shared by manager and transports. */
 
 import { SAIVAGE_VERSION } from '../version.js';
+import type { SchemaObject } from 'ajv';
+
+/** Complete received external schema; boolean subschemas and extension keywords are retained. */
+type McpObjectSchema = SchemaObject & { type: 'object' };
 
 interface McpToolAnnotations {
   title?: string;
@@ -14,8 +18,8 @@ export interface McpToolDefinition {
   name: string;
   title?: string;
   description?: string;
-  inputSchema: { type: 'object'; properties?: Record<string, object>; required?: string[] };
-  outputSchema?: { type: 'object'; properties?: Record<string, object>; required?: string[] };
+  inputSchema: McpObjectSchema;
+  outputSchema?: McpObjectSchema;
   annotations?: McpToolAnnotations;
   _meta?: Record<string, unknown>;
 }

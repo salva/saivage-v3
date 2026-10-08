@@ -1472,10 +1472,23 @@ The explicitly cut-over discovery/read/version surfaces pack every provider-visi
 
 Every successful `mcp_tool_call` instead has data exactly `{result,result_complete,result_utf8_bytes}`. Its source is the outbound-projected MCP transport result serialized as canonical JSON, and `result_utf8_bytes` is the UTF-8 byte count of that complete source including JSON quoting and escaping. When the complete settled success envelope fits 32,768 UTF-8 bytes, `result` preserves the projected source structure and `result_complete` is true. Otherwise `result` is a lossy, projection-stable, exact UTF-8-safe prefix string of that canonical source and `result_complete` is false; secret-safe endpoint selection may make the prefix shorter than the available budget or empty. The complete settled success envelope remains at most 32,768 UTF-8 bytes. There is no continuation, artifact, stash, suffix, or replay. An ordinary MCP invocation failure has a final outbound-projected `error` field of at most 512 UTF-8 bytes; that limit does not include JSON escaping or the rest of the failure envelope. MCP remains outside the response-paging API and participates normally in compaction and request admission.
 
-The ordered-content contract does not change that MCP producer. Native MCP
-image/browser integration remains blocked and unsupported: the pinned official
-server's JSON Schema 2020-12 discovery schemas cannot compile in the current MCP
-argument validator. There is no schema rewrite/fallback, native pixel delivery,
+MCP argument validation uses the complete unchanged discovered JSON Schema object
+at actual invocation, with root `type:'object'`. Absent `$schema` means 2020-12;
+`https://json-schema.org/draft/2020-12/schema` explicitly selects that dialect.
+Explicit `http://json-schema.org/draft-07/schema` selects draft-07. Both declared
+URIs also accept an empty fragment (`#`). Other declarations, including non-string
+values, fail with bounded `schema_unsupported` diagnostics before `tools/call`.
+Malformed schemas and unresolved references fail compilation; validation never
+coerces types, inserts defaults, removes properties, fetches remote schemas,
+guesses a dialect or tries another compiler. Dialect-less draft-07-only schemas
+must declare draft-07 at their external producer. Fingerprints cover the whole
+received schema, including declarations and extensions; discovery does not prune it.
+The negotiated protocol remains `2025-06-18`; this boundary adopts the explicit
+schema-language rule clarified in MCP `2025-11-25`, not a claim that June specified it.
+
+The ordered-content contract and schema-language fix do not change the MCP result
+producer. Native MCP image/browser integration remains unsupported pending native
+mapping and actual-owner containment evidence. There is no native pixel delivery,
 runtime lifecycle/discovery-control addition or supported browser recipe in this
 unit. Image-looking MCP JSON remains ordinary, potentially lossy data.
 

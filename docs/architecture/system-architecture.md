@@ -605,13 +605,26 @@ Only exact index `ENOENT` means an empty catalog; malformed present data and sel
 Compiled tool selection installs skill access only when that named agent declares both `skills: true` and the `skill` tool; the runtime catalog's `skillToolBinders` entry and live context binding own the resulting invocation definition.
 `mcp_tool_call` remains separately and singularly owned by `mcp-provider.ts`. Transports return their raw mapped result; this provider alone projects and canonicalizes that result, preserves a complete structured result when its entire settled envelope fits 32,768 UTF-8 bytes, or returns a lossy projection-stable exact canonical-source prefix with the complete source byte count. It also bounds ordinary final projected MCP error fields to 512 UTF-8 bytes. Generic settlement and transports do not interpret, page, or impose this MCP-specific contract.
 
-Native MCP image/browser integration remains blocked and unsupported. The pinned
-official server advertises JSON Schema 2020-12, but the current MCP argument owner
-uses default Ajv and rejects compilation of that discovered dialect. No schema
-rewriting, dialect fallback, native result mapper, image-sized wire-bound changes,
-runtime MCP lifecycle/discovery-control port or browser recipe is implemented by
-the ordered-content unit. Generic typed descriptor presentation is not proof of
-an implemented native MCP producer; existing lossy result metadata remains ordinary JSON.
+`mcp-argument-validator.ts` owns deterministic external-schema dialect dispatch:
+Ajv2020 for absent `$schema` or declared `https://json-schema.org/draft/2020-12/schema`,
+and the draft-07 Ajv class only for explicit `http://json-schema.org/draft-07/schema`.
+Each URI also accepts its empty-fragment spelling; other/non-string declarations
+fail before transport invocation. Both engines validate schemas and all argument
+errors without coercion, defaults, property removal or dialect fallback. Local
+references and declared keyword semantics remain intact; unresolved references
+fail with no network loading. `strict:false` allows annotations/extensions, not
+a custom-vocabulary or format-assertion guarantee. The complete schema remains
+unchanged through discovery and whole-schema fingerprinting; each runtime retains
+its existing `(toolName,fingerprint)` use cache and clearing rules. This is external
+protocol language support, not multiple durable-state readers. The negotiated June
+2025 protocol stays unchanged; the adopted default-language rule is the November
+2025 clarification.
+
+Native MCP image/browser integration remains unsupported pending actual-owner
+containment evidence and native ingress. No native result mapper, image-sized
+wire-bound changes, runtime MCP lifecycle/discovery-control port or browser recipe
+is implemented by this schema fix. Generic typed descriptor presentation is not
+proof of an implemented native MCP producer; existing lossy result metadata remains ordinary JSON.
 
 The tool-result persistence boundary retains the provider's complete invocation envelope unchanged.
 For skill success this is exactly `{success:true,data:{skills:[{name}]}}` or `{success:true,data:{skill_name,skill_content}}`; failure remains the generic `{success:false,error}` envelope.

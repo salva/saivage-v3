@@ -1,5 +1,6 @@
 import { sha256Hex } from '../schemas/index.js';
 import { Ajv } from 'ajv';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import type { AnySchema, ErrorObject, ValidateFunction } from 'ajv';
 
 interface McpArgumentValidationFailure {
@@ -13,14 +14,16 @@ export type CachedMcpArgumentValidator =
   | { ok: true; fingerprint: string; validate: ValidateFunction }
   | ({ ok: false; fingerprint: string } & McpArgumentValidationFailure);
 
-const ajv = new Ajv({
+const compilerOptions = {
   allErrors: true,
   coerceTypes: false,
   useDefaults: false,
   removeAdditional: false,
   strict: false,
   validateSchema: true,
-});
+};
+const draft2020Compiler = new Ajv2020(compilerOptions);
+const draft07Compiler = new Ajv(compilerOptions);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -149,8 +152,32 @@ export function compileMcpArgumentValidator(schema: unknown): CachedMcpArgumentV
     return { ok: false, fingerprint, ...rootProblem };
   }
 
+  const dialect = (schema as Record<string, unknown>).$schema;
+  let compiler: Ajv | Ajv2020;
+  if (
+    dialect === undefined ||
+    dialect === 'https://json-schema.org/draft/2020-12/schema' ||
+    dialect === 'https://json-schema.org/draft/2020-12/schema#'
+  ) {
+    compiler = draft2020Compiler;
+  } else if (
+    dialect === 'http://json-schema.org/draft-07/schema' ||
+    dialect === 'http://json-schema.org/draft-07/schema#'
+  ) {
+    compiler = draft07Compiler;
+  } else {
+    return {
+      ok: false,
+      fingerprint,
+      ...safeSchemaDiagnostic(
+        'schema_unsupported',
+        'inputSchema declares an unsupported JSON Schema dialect',
+      ),
+    };
+  }
+
   try {
-    const validate = ajv.compile(schema as AnySchema);
+    const validate = compiler.compile(schema as AnySchema);
     return { ok: true, fingerprint, validate };
   } catch (err) {
     return {
