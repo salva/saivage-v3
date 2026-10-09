@@ -283,6 +283,13 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
       const source = input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.contentBlocks);
       expect(source).toHaveLength(1);
       expect(source[0]!.role).toBe('user');
+      const wrapper = JSON.parse(source[0]!.content.slice(source[0]!.content.indexOf('\n') + 1));
+      expect(wrapper).toEqual({
+        tool: 'mcp_tool_call',
+        arguments: JSON.stringify({ serverName: 'native-fixture', toolName: 'capture' }),
+        result: { success: true, data: settled.providerResult.data },
+      });
+      expect(wrapper.result).not.toHaveProperty('content');
       const wire = (built.request.body as { input: Array<Record<string, unknown>> }).input;
       expect(wire.some((item) => item.type === 'function_call_output')).toBe(false);
       const multimodal = wire.find((item) => item.role === 'user' && Array.isArray(item.content) && (item.content as Array<Record<string, unknown>>).some((part) => part.type === 'input_image'))!;

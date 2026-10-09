@@ -640,7 +640,8 @@ function convertSummarizerItem(item: SummarizerContextItem): readonly RefineSour
     case 'settled_tool_bundle': {
       const identity = `${item.identity.source_input_id}:${item.identity.tool_call_id}`;
       if (item.contentBlocks) {
-        const { content, ...resultMetadata } = JSON.parse(item.resultContent);
+        const resultMetadata = JSON.parse(item.resultContent);
+        delete resultMetadata.content;
         return [
           {
             identity,
