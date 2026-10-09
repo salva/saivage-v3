@@ -241,7 +241,7 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   persistent flagging blocks the owning card safely instead of continuing or
   exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-  Conversation index/genesis/segment format **4** retains summary, protected
+  Conversation index/genesis/segment format **6** retains summary, protected
   instructions, required model facts, and continuation without compaction
   checksums or accumulated accounting. Adoption from earlier formats is a
   **incompatible cutover** across all four generated roots: separately consented
