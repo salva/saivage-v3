@@ -29,7 +29,9 @@ export function responsesInputFromProviderConversation(
     if (message.kind === 'synthetic_context') {
       const item = textInput(message.role, message.content);
       if (message.contentBlocks)
-        (item.content as unknown[]).push(...providerContentParts(message.contentBlocks, onImageEmitted));
+        (item.content as unknown[]).push(
+          ...providerContentParts(message.contentBlocks, onImageEmitted),
+        );
       input.push(item);
       continue;
     }
