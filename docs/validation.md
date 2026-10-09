@@ -224,6 +224,13 @@ Node-externalization warnings are not browser-safety success.
   failed or cancelled CI browser run, a best-effort artifact upload preserves
   `tmp/playwright-report` and `tmp/playwright-results`; missing output only
   warns.
+- The real-server fixture helper explicitly binds both the disposable project
+  root and its `.saivage/saivage.yaml`; ordinary fixture setup must not leave
+  process-global startup selectors behind. `restarted-card-cockpit.spec.ts`
+  supplies conflicting synthetic stale `SAIVAGE_CONFIG` and
+  `SAIVAGE_PROJECT_ROOT` selectors through both starts and restores their exact
+  prior presence and values afterward. This regression exercises current strict
+  production loading of the intended fixture, not missing-config recovery.
 - The control-room route smoke checks visible collapsed partial-message qualifiers,
   selected versus full message counts and incomplete-item byte coverage in semantic
   detail, then the secondary safe-original result disclosure. Its mocked REST and

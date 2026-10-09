@@ -133,10 +133,6 @@ async function seed(session: ConversationSessionId) {
 test.beforeAll(async () => {
   const port = await listen(sink);
   root = mkdtempSync('/home/salva/g/ml/tmp/reading-real-server-');
-  // Pin the existing helpers' environment-based bootstrap/config inputs to this
-  // worker's owned fixture even when the invoking shell has deployment settings.
-  process.env.SAIVAGE_PROJECT_ROOT = root;
-  process.env.SAIVAGE_CONFIG = join(root, '.saivage/saivage.yaml');
   const config = productionTestConfig(port, config => {
     for (const [name, agent] of Object.entries(config.agents)) agent.tools = [...DEFAULT_SAIVAGE_CONFIG.agents[name]!.tools];
     config.providers.fixture!.capabilities = { ...config.providers.fixture!.capabilities, transportProtocol: 'openai-responses', imageInput: true };

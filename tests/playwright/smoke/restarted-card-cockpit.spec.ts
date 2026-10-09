@@ -11,7 +11,13 @@ const token = 'isolated-browser-restart-token';
 
 test('restarted descendant cockpit renders canonical stopped lifecycle and no executing participant before Run', async ({ page }) => {
   const root = mkdtempSync(join(tmpdir(), 'saivage-browser-restarted-'));
+  const originalConfig = process.env.SAIVAGE_CONFIG;
+  const originalProjectRoot = process.env.SAIVAGE_PROJECT_ROOT;
+  const staleProjectRoot = join(root, 'synthetic-nonexistent-stale-project');
+  const staleConfig = join(staleProjectRoot, '.saivage', 'saivage.yaml');
   try {
+    process.env.SAIVAGE_CONFIG = staleConfig;
+    process.env.SAIVAGE_PROJECT_ROOT = staleProjectRoot;
     const config = productionTestConfig(1, (value) => {
       value.card_types.project.permitted_child_types = ['goal'];
       value.card_types.goal.permitted_child_types = ['code'];
@@ -22,11 +28,16 @@ test('restarted descendant cockpit renders canonical stopped lifecycle and no ex
     const goal = cards.create({ type: 'goal', parent: 'project', title: 'Restarted goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     const leaf = cards.create({ type: 'code', parent: goal.id, title: 'Restarted descendant', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
     const initial = await startProductionApp(root, token);
-    await initial.stop();
+    try {
+      expect(process.env.SAIVAGE_CONFIG).toBe(staleConfig);
+      expect(process.env.SAIVAGE_PROJECT_ROOT).toBe(staleProjectRoot);
+    } finally { await initial.stop(); }
     // Model durable interrupted state while no lifecycle owner is active.
     for (const id of ['project', goal.id, leaf.id]) cards.setStatus(id, 'running');
     const app = await startProductionApp(root, token);
     try {
+      expect(process.env.SAIVAGE_CONFIG).toBe(staleConfig);
+      expect(process.env.SAIVAGE_PROJECT_ROOT).toBe(staleProjectRoot);
       const origin = appOrigin(app);
       const headers = { authorization: `Bearer ${token}` };
       const get = async (path: string) => {
@@ -60,5 +71,11 @@ test('restarted descendant cockpit renders canonical stopped lifecycle and no ex
       if (canonical.kind !== 'found') throw new Error('Expected canonical leaf history.');
       expect(canonical.value.at(-1)?.change?.change_reason).toBe(history.versions.at(-1).change.summary);
     } finally { await app.stop(); }
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    if (originalConfig === undefined) delete process.env.SAIVAGE_CONFIG;
+    else process.env.SAIVAGE_CONFIG = originalConfig;
+    if (originalProjectRoot === undefined) delete process.env.SAIVAGE_PROJECT_ROOT;
+    else process.env.SAIVAGE_PROJECT_ROOT = originalProjectRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -111,6 +111,7 @@ export async function closeServer(server: Server): Promise<void> {
 export async function startProductionApp(projectRoot: string, token: string): Promise<App> {
   return startApp({
     projectRoot, createRuntime: false,
+    config: join(projectRoot, '.saivage', 'saivage.yaml'),
     env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'error', SAIVAGE_HOST: '127.0.0.1', SAIVAGE_PORT: '0', SAIVAGE_API_TOKEN: token },
   });
 }
