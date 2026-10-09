@@ -258,6 +258,40 @@ sizes before the full upstream size of 50,000. Compare exact versions and litera
 paragraph semantics. These task-local observations are not timing CI thresholds,
 an arbitrary-input complexity guarantee, or audit/security certification.
 
+### Development-tool semantic checks
+
+After installing both dependency graphs, run these focused checks from the
+repository root:
+
+```bash
+node --test tests/scripts/devtool-security.test.cjs
+npm --prefix web run test -- src/__tests__/devtool-lifecycle.test.ts --maxConcurrency=2
+npm run web:test:e2e:browser-client-smoke
+```
+
+The Node checks use disposable harmless fixtures under workspace `tmp/`: Vite's
+actual web configuration must deny direct filesystem and resolved-alias requests
+to a denied file, before and after intentional shared-root imports. Babel must
+reject a source map outside the fixture package while retaining same-package and
+inline maps; the real babel-jest transformer also produces usable code and maps.
+The browser-client check executes the actual cards store, shared schemas and API
+client in Chromium with intercepted API calls, not a live deployment.
+
+The nested concurrent Vitest regression bounds each test's beforeEach/body/afterEach
+lifetime by the effective `maxConcurrency`; the full `npm run web:test` also runs
+it with the ordinary limit. This does not promise suite-level hook serialization,
+cross-worker limits, or application ownership correctness. Retain the existing
+conversation-store cancellation and UI unmount coverage separately.
+
+These checks accompany current-line security patches for Vite's resolved-file
+admission, Vitest's mocker filesystem boundary and lifecycle limiter, and Babel's
+input-source-map boundary. The dependency refresh retains unrelated resolutions,
+with only Babel's required generator and the seven installed Vitest companions
+following their owners. It adds no production security wrapper or durable-format
+change. The checks are bounded consumer evidence, not comprehensive security
+certification, proof of old-release local exploitability, or root-agent containment;
+the jsdom suite does not exercise standalone Vitest mocker/browser mode.
+
 ## Build and release gates
 
 The build and release gates package every registered prompt tree. Packaging

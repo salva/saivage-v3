@@ -312,6 +312,13 @@ web:test:operator-smoke`, `npm run lint`, `npm run test:import-boundaries`,
 dependencies must be installed before `npm run check:export-consumers`,
 `npm run lint`, or `npm run validate:routine`.
 
+For development-tool refreshes, run `node --test
+tests/scripts/devtool-security.test.cjs`, the focused Vitest lifecycle regression,
+and the existing browser-client smoke. See the [development-tool semantic
+checks](docs/validation.md#development-tool-semantic-checks) for commands and
+evidence limits; these supplement, not replace, the build/UI/browser and audit
+profiles.
+
 `npm run lint` currently runs the export-consumer guard, stamp-producer guard, ESLint,
 backend import-boundary checks, web-component boundary check, reachable-browser
 import guard (`node scripts/check-web-browser-imports.cjs`), then the

@@ -11,6 +11,20 @@ test('production chat API client emits only canonical Analyst requests', async (
 
   const canonicalUrl = `${baseURL}/api/chat`;
   const observedRequests: ObservedChatRequest[] = [];
+  const pageErrors: string[] = [];
+  const moduleFailures: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') moduleFailures.push(message.text());
+  });
+  page.on('requestfailed', (request) => moduleFailures.push(request.url()));
+  page.on('response', (response) => {
+    if (response.status() >= 400) moduleFailures.push(`${response.status()} ${response.url()}`);
+  });
+
+  await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
+    throw new Error(`Unexpected API request: ${route.request().method()} ${new URL(route.request().url()).pathname}`);
+  });
 
   await page.route('**/api/chat', async (route) => {
     throw new Error(`Unexpected chat request: ${route.request().method()} ${route.request().url()}`);
@@ -47,9 +61,11 @@ test('production chat API client emits only canonical Analyst requests', async (
   });
 
   await page.goto('/src/api/types.ts');
-  await page.evaluate(async () => {
+  const routeChain = await page.evaluate(async () => {
     // @ts-expect-error The callback runs in Vite's browser root; NodeNext cannot resolve this URL.
     const client = await import('/src/api/client.ts');
+    // @ts-expect-error The callback runs in Vite's browser root; NodeNext cannot resolve this URL.
+    const cards = await import('/src/stores/cards.ts');
     const workspaceContext = {
       view: 'cards',
       entityId: 'project',
@@ -58,7 +74,12 @@ test('production chat API client emits only canonical Analyst requests', async (
 
     await client.getChatEntries();
     await client.sendChatMessage('inspect this', workspaceContext);
+    return cards.cardRouteChain('card-a-b');
   });
+
+  expect(routeChain).toEqual(['project', 'card-a', 'card-a-b']);
+  expect(pageErrors).toEqual([]);
+  expect(moduleFailures).toEqual([]);
 
   expect(observedRequests).toEqual([
     {
