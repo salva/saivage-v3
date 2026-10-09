@@ -48,6 +48,7 @@ const turn = () => new Promise<void>(resolve => setImmediate(resolve));
 
 describe('active stdio cancellation ownership', () => {
   it.each(['unknown', 'caller', 'publication'] as const)('preserves actual HTTP discovery %s identity with the existing containment boundary', async mode => {
+    if (mode === 'publication') jest.useFakeTimers();
     const originalFetch = globalThis.fetch;
     const failure = mode === 'publication' ? new PublicationOutcomeUnknownError() : new TypeError('exact discovery reader/caller failure');
     const terminate = jest.fn(async () => success);
@@ -69,7 +70,7 @@ describe('active stdio cancellation ownership', () => {
       if (mode === 'publication') { expect(cancel).not.toHaveBeenCalled(); expect(release).not.toHaveBeenCalled(); }
       else { expect(runtime.isContained()).toBe(true); expect(runtime.getTools()).toBeUndefined(); }
       // Publication uncertainty: no owner follow-up or artifact inspection.
-    } finally { globalThis.fetch = originalFetch; jest.restoreAllMocks(); }
+    } finally { globalThis.fetch = originalFetch; jest.restoreAllMocks(); if (mode === 'publication') { jest.clearAllTimers(); jest.useRealTimers(); } }
   });
   it.each(['caller', 'deadline'] as const)('preserves %s classification through installed port, reader and real shared tool invocation', async mode => {
     const f = await fixture();

@@ -24,6 +24,8 @@ configured official Playwright MCP server, discover exact schemas and invoke nat
 screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/runbook/index.md#configured-browser-lifecycle).
 Reviewer requires explicit admission; Oversight has no MCP. One server shares a
 disposable context, lost on stop/active cancellation. Pixels cannot be certified secret-free.
+Configured stdio servers receive the admitted project workspace through negotiated
+`roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
 Conversation index/genesis/envelope now use strict **format 6** for ordered content.
 Format 5 or earlier/mixed

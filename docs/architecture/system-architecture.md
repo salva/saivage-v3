@@ -668,6 +668,22 @@ untracked outer completion joins stop. Manager shutdown joins retained inner sta
 calls, containment and reconciliation before clearing owners; failed containment
 retains closed owners, with root failure precedence. Stdio children use project cwd
 and answer negotiated roots/list with that workspace; protocol stdout stays clean.
+One connection-owned bounded stdio receiver remains installed from initialize
+through discovery, idle intervals and successive calls until disposal. Its single
+pending response slot is registered before request writing; method requests are
+dispatched before response correlation, so colliding server IDs cannot consume a
+client response. Roots answers use the immutable admitted workspace URI. Runtime
+serialization remains the only call queue; HTTP advertises no roots capability.
+Ordinary receiver failures settle the pending error before runtime-owned admission
+closure and direct containment. Disposal detaches only connection-owned listeners
+and pipes, never process-runner-owned streams. A consumed correlated response ends
+its deadline and retains its mapped known outcome even when a later line or EOF
+closes the connection; the original caller can still cancel, including at the
+mandatory native image-publication fence. Transport EOF fences admission immediately
+but the existing exact-launch terminal observer, not EOF, supplies delayed exit or
+capture-error status. Stop joins that observer and retains its classification;
+failed containment takes precedence and releases its wait race without retirement.
+Publication uncertainty escapes before ordinary cleanup, containment or later effects.
 Strict authenticated lifecycle routes share operator contract registration; new
 control/discovery agent selections remain independent from invocation. No topology,
 install registry, enable persistence, reconciliation scheduler or second containment

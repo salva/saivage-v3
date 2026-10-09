@@ -113,8 +113,11 @@ timeout/cancel contains and joins the retained owner without a ten-second phase 
 For disposable tests, isolated HOME/npm cache/PLAYWRIGHT_BROWSERS_PATH and a short
 owned TMPDIR must all live under workspace tmp (long Unix socket paths can fail).
 
-The child cwd and roots/list handshake identify the admitted project, not Saivage's
-source tree. Automatic output goes to the dedicated project temp directory. Upstream
+The child cwd and negotiated stdio roots/list identify the admitted project, not
+Saivage's source tree. Roots answers remain available throughout the configured
+connection lifetime, including between discovery pages and calls and while idle;
+this is not a replay or durable-context guarantee. Automatic output goes to the
+dedicated project temp directory. Upstream
 explicit paths retain its workspace-root restrictions: no unrestricted-file-access,
 persistent login/storage-state, CDP, extension attachment or experimental WebMCP.
 Discover schemas first, navigate/snapshot/select the needed page/tab, then call

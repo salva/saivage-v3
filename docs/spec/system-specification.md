@@ -1625,7 +1625,10 @@ shared route registration; no browser-control UI is added.
 The runbook pins official Playwright MCP 0.0.83, its matched alpha engine and Chromium
 1247, not a core dependency or unrelated system browser. Child cwd and negotiated
 MCP root are the project workspace; automatic outputs use a dedicated project temp
-directory. Installer output goes to stderr. Headless isolated context is shared across
+directory. Negotiated stdio `roots/list` is available throughout that connection,
+independent of frame grouping, discovery pages, idle intervals and successive calls.
+This changes neither deadlines/cancellation nor the no-replay contract. Installer
+output goes to stderr. Headless isolated context is shared across
 admitted agents, not per role/card or durable session continuation. Establish the page/tab
 needed and expect context loss after stop/restart/active stdio cancellation. Native
 screenshots omit filename and supply discovered `scale:'css'`; explicit filename is

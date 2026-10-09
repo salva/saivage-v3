@@ -386,6 +386,7 @@ describe('current named-agent MCP manager contract',()=>{
       spawnInteractive: jest.fn(() => ({ process, record })),
       waitForSettlement: jest.fn(() => terminal.promise),
       retireSettled: jest.fn(),
+      closeAndTerminateDirectScope: jest.fn(async () => emptyReport),
     };
     const runtime = new McpServerRuntime({
       name: 'one', config: { transport: 'stdio', command: 'server', autostart: true, disabled: false }, revision: 'revision',
@@ -402,25 +403,31 @@ describe('current named-agent MCP manager contract',()=>{
     expect(processRunner.retireSettled).toHaveBeenCalledWith(record.id, processScope);
   });
 
-  it('retires each naturally exited stdio launch while reusing one open revision scope', async () => {
+  it('retires each short-lived stdio launch and projects its actual terminal result in its own revision scope', async () => {
     const projectRoot = root();
     const registry = new ManagedProcessGroupRegistry();
     const mcpRoot = registry.createContainerScope(registry.rootScope, 'mcp');
-    const processScope = registry.createDirectScope(mcpRoot, 'one:revision', 'service_infrastructure');
     const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
+    const wait = processRunner.waitForSettlement.bind(processRunner);
+    let observed: Promise<ProcessWaitResult>;
+    jest.spyOn(processRunner, 'waitForSettlement').mockImplementation(id => { observed = wait(id); return observed; });
     const config = { transport: 'stdio' as const, command: '/bin/sh', args: ['-c', 'exit 0'], autostart: true, disabled: false };
-    const runtime = new McpServerRuntime({ name: 'one', config, revision: 'revision', processRunner, processScope, ids: { next: () => 1 }, invocationStats: {} as never });
-    const startStdio = Reflect.get(runtime, 'startStdio') as (selected: typeof config, generation: number, signal: AbortSignal) => void;
 
     for (let cycle = 0; cycle < 2; cycle += 1) {
+      const processScope = registry.createDirectScope(mcpRoot, `one:revision:${cycle}`, 'service_infrastructure');
+      const runtime = new McpServerRuntime({ name: 'one', config, revision: 'revision', processRunner, processScope, ids: { next: () => 1 }, invocationStats: {} as never });
+      const startStdio = Reflect.get(runtime, 'startStdio') as (selected: typeof config, generation: number, signal: AbortSignal) => void;
       startStdio.call(runtime, config, 0, new AbortController().signal);
       for (let attempt = 0; attempt < 100 && processRunner.list().length > 0; attempt += 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 10));
       }
-      expect(runtime.getStatus()).toEqual(expect.objectContaining({ status: 'stopped' }));
+      // EOF can cause containment before the shell's exit reaches Node. Project the
+      // actual retained terminal result, never infer a natural zero exit from EOF.
+      const terminal = await observed!;
+      expect(runtime.getStatus()).toEqual(expect.objectContaining({ status: terminal.record.status === 'exited' ? 'stopped' : 'error' }));
       expect(processRunner.list()).toEqual([]);
+      await runtime.stop();
     }
 
-    await processRunner.closeAndTerminateDirectScope({ directScope: processScope, category: 'service_infrastructure', reason: 'test complete' });
   });
 });

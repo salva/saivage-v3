@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from '@jest/globals';
 
-import { discoverStdioTools, invokeStdioTool } from '../../src/mcp/stdio-transport.js';
+import { StdioMcpConnection } from '../../src/mcp/stdio-transport.js';
 import { TransportError } from '../../src/mcp/errors.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
@@ -18,19 +18,69 @@ async function composedStdioCall(content: unknown) {
     const request = JSON.parse(chunk.toString()) as { id: number | string };
     setImmediate(() => stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { content } })}\n`));
   });
-  const handle = { process: { stdin, stdout } } as any;
+  const connection = new StdioMcpConnection({ serverName: 'server', stdin, stdout, ids: { next: () => 3 }, onFailure() {} });
   const manager = {
     ...unusedMcpToolInvocation,
-    invokeTool: () => invokeStdioTool({ serverName: 'server', toolName: 'tool', args: {}, handle, onResponse() {}, ids: { next: () => 3 }, signal: new AbortController().signal }),
+    invokeTool: () => connection.invoke({ toolName: 'tool', args: {}, onResponse() {}, signal: new AbortController().signal }),
     findToolCapability: () => null,
     getServerTools: () => undefined,
   };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
   const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+  connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
   return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
 }
 
 describe('stdio MCP transport composition', () => {
+  it.each(['same chunk', 'idle'] as const)(
+    'answers roots after discovery response (%s)',
+    async (timing) => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const answers: unknown[] = [];
+      let id = 0;
+      const roots =
+        JSON.stringify({ jsonrpc: '2.0', id: 'workspace', method: 'roots/list' }) + '\n';
+      const connection = new StdioMcpConnection({
+        serverName: 'one',
+        stdin,
+        stdout,
+        ids: { next: () => ++id },
+        rootUri: 'file:///project',
+        onFailure() {},
+      });
+      stdin.on('data', (bytes) => {
+        const message = JSON.parse(bytes.toString());
+        if (message.result?.roots) answers.push(message);
+        if (message.method === 'initialize' || message.method === 'tools/list') {
+          setImmediate(() =>
+            stdout.write(
+              JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }) +
+                '\n' +
+                (message.method === 'tools/list' && timing === 'same chunk' ? roots : ''),
+            ),
+          );
+        }
+      });
+      try {
+        await connection.discover(new AbortController().signal);
+        if (timing === 'idle')
+          await new Promise<void>((resolve) =>
+            setImmediate(() => {
+              stdout.write(roots);
+              resolve();
+            }),
+          );
+        expect(answers).toEqual([
+          { jsonrpc: '2.0', id: 'workspace', result: { roots: [{ uri: 'file:///project' }] } },
+        ]);
+      } finally {
+        connection.dispose(new Error('test complete'));
+        stdin.destroy();
+        stdout.destroy();
+      }
+    },
+  );
   it.each(['initialize', 'tools/list'] as const)('classifies %s rejection/closure without exporting remote text', async stage => {
     for (const close of [false, true]) {
       const stdin = new PassThrough(); const stdout = new PassThrough();
@@ -44,25 +94,24 @@ describe('stdio MCP transport composition', () => {
         });
       });
       let id = 0;
+      const connection = new StdioMcpConnection({ serverName: 'one', stdin, stdout, ids: { next: () => ++id }, onFailure() {} });
       try {
-        const error = await discoverStdioTools({ serverName: 'one', handle: { process: { stdin, stdout } as never }, ids: { next: () => ++id }, signal: new AbortController().signal }).catch(error => error);
+        const error = await connection.discover(new AbortController().signal).catch(error => error);
         expect(error).toBeInstanceOf(TransportError);
         expect(error.message).toContain(stage);
         expect(error.message).toContain(close ? 'stream closed before response' : 'code -32001');
         expect(error.message).not.toContain('secret-remote-message');
         expect(methods).toEqual(stage === 'initialize' ? ['initialize'] : ['initialize', 'notifications/initialized', 'tools/list']);
-      } finally { stdin.destroy(); stdout.destroy(); }
+      } finally { connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy(); }
     }
   });
-  it('leaves missing-process and ID-source invariants unclassified', async () => {
-    const input = { serverName: 'one', ids: { next: () => 1 }, signal: new AbortController().signal };
-    const absent = await discoverStdioTools(input).catch(error => error);
-    expect(absent).not.toBeInstanceOf(TransportError);
+  it('leaves ID-source invariants unclassified', async () => {
     const stdin = new PassThrough(); const stdout = new PassThrough();
     const failure = new Error('ID invariant');
+    const connection = new StdioMcpConnection({ serverName: 'one', stdin, stdout, ids: { next: () => { throw failure; } }, onFailure() {} });
     try {
-      await expect(discoverStdioTools({ ...input, handle: { process: { stdin, stdout } as never }, ids: { next: () => { throw failure; } } })).rejects.toBe(failure);
-    } finally { stdin.destroy(); stdout.destroy(); }
+      await expect(connection.discover(new AbortController().signal)).rejects.toBe(failure);
+    } finally { connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy(); }
   });
   it('answers negotiated workspace roots even when server request IDs collide with client IDs', async () => {
     const stdin = new PassThrough(); const stdout = new PassThrough();
@@ -81,9 +130,10 @@ describe('stdio MCP transport composition', () => {
       }
     });
     let id = 0;
-    expect(await discoverStdioTools({ serverName: 'browser', handle: { process: { stdin, stdout } as never }, ids: { next: () => ++id }, signal: new AbortController().signal, rootUri: 'file:///project' })).toMatchObject([{ name: 'capture' }]);
+    const connection = new StdioMcpConnection({ serverName: 'browser', stdin, stdout, ids: { next: () => ++id }, rootUri: 'file:///project', onFailure() {} });
+    expect(await connection.discover(new AbortController().signal)).toMatchObject([{ name: 'capture' }]);
     expect(requests.some(message => message.result?.roots)).toBe(true);
-    stdin.destroy(); stdout.destroy();
+    connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
   });
   it('retains a small mapped result in the complete provider envelope', async () => {
     const content = [{ type: 'text', text: 'ok' }];

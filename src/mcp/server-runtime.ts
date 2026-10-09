@@ -1,6 +1,9 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
 import { pathToFileURL } from 'node:url';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import {
+  PublicationOutcomeUnknownError,
+  throwIfPublicationOutcomeUnknown,
+} from '../contracts/index.js';
 import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import { sanitizedCommandEnv } from '../runtime/runtime-api.js';
 import {
@@ -33,7 +36,7 @@ import {
   invokeStreamableHttpTool,
   probeStreamableHttpStartup,
 } from './streamable-http-transport.js';
-import { discoverStdioTools, invokeStdioTool } from './stdio-transport.js';
+import { StdioMcpConnection } from './stdio-transport.js';
 
 interface McpJsonRpcIdProvider {
   next(): number | string;
@@ -61,6 +64,11 @@ export class McpServerRuntime {
   readonly #projectRoot?: string;
   #directContainment?: Promise<void>;
   private handle?: McpServerHandle;
+  private stdioConnection?: StdioMcpConnection;
+  private observerController?: AbortController;
+  private closureCause?: 'intentional' | 'transport';
+  private observedCaptureError?: unknown;
+  private containmentFailed = false;
   private statusOverride?: { status: McpStatus; error?: string };
   private startedAt?: string;
   private tools?: McpToolDefinition[];
@@ -118,12 +126,16 @@ export class McpServerRuntime {
       return Promise.reject(new McpLifecycleError(`MCP server '${this.name}' is busy.`, 409));
     let joinStop = false;
     const inner = this.admit(async (generation, signal, controller) => {
-      const invalidate = () => this.closeAdmission();
+      const invalidate = () => {
+        throwIfPublicationOutcomeUnknown(signal.reason);
+        this.closeAdmission();
+      };
       signal.addEventListener('abort', invalidate, { once: true });
       const deadline = setTimeout(
         () => controller.abort(new TimeoutError(this.name, 'start', MCP_START_TIMEOUT_MS)),
         MCP_START_TIMEOUT_MS,
       );
+      let publicationUnknown = false;
       try {
         const cfg = this.config;
         if (cfg.disabled) return;
@@ -137,14 +149,22 @@ export class McpServerRuntime {
         this.argumentValidatorCache.clear();
         this.ready = true;
       } catch (error) {
+        publicationUnknown = error instanceof PublicationOutcomeUnknownError;
         throwIfPublicationOutcomeUnknown(error);
-        this.closeAdmission();
-        await this.directContainment();
+        try {
+          this.closeAdmission();
+          await this.directContainment();
+        } catch (containmentError) {
+          publicationUnknown = containmentError instanceof PublicationOutcomeUnknownError;
+          throw containmentError;
+        }
         joinStop = true;
         throw error;
       } finally {
-        clearTimeout(deadline);
-        signal.removeEventListener('abort', invalidate);
+        if (!publicationUnknown) {
+          clearTimeout(deadline);
+          signal.removeEventListener('abort', invalidate);
+        }
       }
     }, callerSignal);
     // Only this untracked completion joins stop; inner startup never joins itself.
@@ -159,8 +179,10 @@ export class McpServerRuntime {
     );
   }
 
-  closeAdmission(): void {
+  closeAdmission(cause: 'intentional' | 'transport' = 'intentional'): void {
     if (this.#directContainment) return;
+    this.closureCause = cause;
+    this.disposeStdio(new ServerNotRunningError(this.name));
     this.admissionOpen = false;
     this.generation += 1;
     this.ready = false;
@@ -181,18 +203,24 @@ export class McpServerRuntime {
     const directContainment = containment.then(
       (report) => {
         if (report.failed.length > 0) {
+          this.containmentFailed = true;
+          this.observerController?.abort();
           this.statusOverride = { status: 'error', error: 'Process containment failed' };
           throw new Error(`MCP server '${this.name}' process containment failed.`);
         }
       },
       (error) => {
         throwIfPublicationOutcomeUnknown(error);
-        this.statusOverride = { status: 'error', error: 'Process containment failed' };
+        this.containmentFailed = true;
+        this.observerController?.abort();
+        if (error !== this.observedCaptureError)
+          this.statusOverride = { status: 'error', error: 'Process containment failed' };
         throw error;
       },
     );
     this.#directContainment = directContainment;
     void directContainment.catch(() => undefined);
+    if (cause === 'intentional') this.observerController?.abort();
     for (const controller of this.controllers)
       controller.abort(new ServerNotRunningError(this.name));
   }
@@ -209,11 +237,14 @@ export class McpServerRuntime {
     const directContainment = this.directContainment();
     const operations = [...this.operations];
     const settlements = await Promise.allSettled([...operations, directContainment]);
+    for (const settlement of settlements)
+      if (settlement.status === 'rejected') throwIfPublicationOutcomeUnknown(settlement.reason);
     const directSettlement = settlements[settlements.length - 1]!;
     if (directSettlement.status === 'rejected') throw directSettlement.reason;
     this.handle?.abortController?.abort();
+    this.disposeStdio(new ServerNotRunningError(this.name));
     this.handle = undefined;
-    this.statusOverride = { status: 'stopped' };
+    if (this.closureCause !== 'transport') this.statusOverride = { status: 'stopped' };
     this.ready = false;
     this.clearCaches();
     this.contained = true;
@@ -249,43 +280,53 @@ export class McpServerRuntime {
       const startTime = Date.now();
       const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
       let result: unknown;
+      let responseCompleted = false;
       try {
         result =
           cfg.transport === 'stdio'
             ? await this.enqueueStdioInvocation(async () => {
                 this.assertCurrent(generation, signal);
-                let exchangeActive = true;
-                const invalidate = () => this.closeAdmission();
+                const invalidate = () => {
+                  throwIfPublicationOutcomeUnknown(signal.reason);
+                  this.closeAdmission();
+                };
                 signal.addEventListener('abort', invalidate, { once: true });
                 const deadline = setTimeout(
                   () => controller.abort(new TimeoutError(this.name, toolName, timeoutMs)),
                   timeoutMs,
                 );
+                let publicationUnknown = false;
                 try {
-                  return await invokeStdioTool({
-                    serverName: this.name,
+                  return await this.stdioConnection!.invoke({
                     toolName,
                     args,
-                    handle,
-                    ids: this.#ids,
                     signal,
                     onResponse: () => {
-                      exchangeActive = false;
+                      responseCompleted = true;
                       clearTimeout(deadline);
                       signal.removeEventListener('abort', invalidate);
                     },
                   });
                 } catch (error) {
+                  publicationUnknown = error instanceof PublicationOutcomeUnknownError;
                   throwIfPublicationOutcomeUnknown(error);
-                  if (exchangeActive) {
-                    this.closeAdmission();
-                    await this.directContainment();
+                  if (!responseCompleted) {
+                    try {
+                      this.closeAdmission();
+                      await this.directContainment();
+                    } catch (containmentError) {
+                      publicationUnknown =
+                        containmentError instanceof PublicationOutcomeUnknownError;
+                      throw containmentError;
+                    }
                     joinStop = true;
                   }
                   throw error;
                 } finally {
-                  clearTimeout(deadline);
-                  signal.removeEventListener('abort', invalidate);
+                  if (!publicationUnknown) {
+                    clearTimeout(deadline);
+                    signal.removeEventListener('abort', invalidate);
+                  }
                 }
               })
             : await invokeStreamableHttpTool({
@@ -298,11 +339,16 @@ export class McpServerRuntime {
                 ids: this.#ids,
                 signal,
               });
-        this.assertCurrent(generation, signal);
+        if (responseCompleted) options?.signal?.throwIfAborted();
+        else this.assertCurrent(generation, signal);
       } catch (err) {
         throwIfPublicationOutcomeUnknown(err);
-        if (generation !== this.generation) throw err;
-        if ((signal.aborted && err === signal.reason) || !(err instanceof McpInvokeError))
+        if (responseCompleted) options?.signal?.throwIfAborted();
+        if (!responseCompleted && generation !== this.generation) throw err;
+        if (
+          (!responseCompleted && signal.aborted && err === signal.reason) ||
+          !(err instanceof McpInvokeError)
+        )
           throw err;
         const durationMs = Date.now() - startTime;
         this.#invocationStats.record(this.name, toolName, false);
@@ -370,16 +416,23 @@ export class McpServerRuntime {
     if (!this.admissionOpen) return Promise.reject(new ServerNotRunningError(this.name));
     const generation = this.generation;
     const controller = new AbortController();
-    const onCallerAbort = () => controller.abort(callerSignal!.reason);
+    const onCallerAbort = () => {
+      throwIfPublicationOutcomeUnknown(callerSignal!.reason);
+      controller.abort(callerSignal!.reason);
+    };
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
     this.controllers.add(controller);
     const result = operation(generation, controller.signal, controller);
+    let publicationUnknown = false;
     const tracked = result
       .then(
         () => undefined,
-        () => undefined,
+        (error) => {
+          publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+        },
       )
       .finally(() => {
+        if (publicationUnknown) return;
         this.controllers.delete(controller);
         callerSignal?.removeEventListener('abort', onCallerAbort);
         this.operations.delete(tracked);
@@ -412,21 +465,45 @@ export class McpServerRuntime {
     this.handle = {
       process: launch.process,
       processId: launch.record.id,
-      rootUri: this.#projectRoot ? pathToFileURL(this.#projectRoot).href : undefined,
     };
     this.startedAt = new Date().toISOString();
     launch.process.stdin?.on('error', () => undefined);
-    launch.process.stdout?.on('error', () => undefined);
+    if (!launch.process.stdin || !launch.process.stdout)
+      throw new Error('Server process has no stdin/stdout');
+    this.stdioConnection = new StdioMcpConnection({
+      serverName: this.name,
+      stdin: launch.process.stdin,
+      stdout: launch.process.stdout,
+      ids: this.#ids,
+      rootUri: this.#projectRoot ? pathToFileURL(this.#projectRoot).href : undefined,
+      onFailure: (error) => {
+        throwIfPublicationOutcomeUnknown(error);
+        this.closeAdmission('transport');
+      },
+    });
+    const observedHandle = this.handle;
     const observerController = new AbortController();
-    this.controllers.add(observerController);
+    this.observerController = observerController;
+    let publicationUnknown = false;
+    let onObserverAbort!: () => void;
     const settlement = Promise.race([
       this.#processRunner.waitForSettlement(launch.record.id),
-      new Promise<null>((resolve) =>
-        observerController.signal.addEventListener('abort', () => resolve(null), { once: true }),
-      ),
+      new Promise<null>((resolve) => {
+        onObserverAbort = () => resolve(null);
+        observerController.signal.addEventListener('abort', onObserverAbort, { once: true });
+      }),
     ]).then(
       (result) => {
-        if (!result || generation !== this.generation || !this.admissionOpen) return;
+        if (
+          !result ||
+          this.handle !== observedHandle ||
+          this.containmentFailed ||
+          (this.closureCause !== 'transport' &&
+            (generation !== this.generation || !this.admissionOpen))
+        )
+          return;
+        const admissionWasOpen = this.admissionOpen;
+        if (admissionWasOpen) this.closeAdmission('transport');
         if (result.record.status === 'exited') this.statusOverride = { status: 'stopped' };
         else
           this.statusOverride = {
@@ -435,25 +512,46 @@ export class McpServerRuntime {
               ? 'Process exited with a signal'
               : 'Process exited unsuccessfully',
           };
-        this.handle = undefined;
+        this.disposeStdio(new ServerNotRunningError(this.name));
+        if (admissionWasOpen) this.handle = undefined;
         this.ready = false;
         this.clearCaches();
         this.#processRunner.retireSettled(launch.record.id, this.#processScope);
       },
-      (_error) => {
-        if (generation !== this.generation || !this.admissionOpen) return;
+      (error) => {
+        publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+        throwIfPublicationOutcomeUnknown(error);
+        if (
+          this.handle !== observedHandle ||
+          this.containmentFailed ||
+          (this.closureCause !== 'transport' &&
+            (generation !== this.generation || !this.admissionOpen))
+        )
+          return;
+        this.observedCaptureError = error;
+        const admissionWasOpen = this.admissionOpen;
+        if (admissionWasOpen) this.closeAdmission('transport');
         this.statusOverride = { status: 'error', error: 'Process output capture failed' };
-        this.handle = undefined;
+        this.disposeStdio(new ServerNotRunningError(this.name));
+        if (admissionWasOpen) this.handle = undefined;
         this.ready = false;
         this.clearCaches();
         this.#processRunner.retireSettled(launch.record.id, this.#processScope);
       },
     );
-    const tracked = settlement.finally(() => {
-      this.controllers.delete(observerController);
-      this.operations.delete(tracked);
-    });
+    const tracked = settlement
+      .catch((error) => {
+        publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+        throw error;
+      })
+      .finally(() => {
+        if (publicationUnknown) return;
+        observerController.signal.removeEventListener('abort', onObserverAbort);
+        this.observerController = undefined;
+        this.operations.delete(tracked);
+      });
     this.operations.add(tracked);
+    void tracked.catch(() => undefined);
   }
 
   private async startStreamableHttp(
@@ -474,13 +572,7 @@ export class McpServerRuntime {
 
   private discoverTools(signal: AbortSignal): Promise<McpToolDefinition[]> {
     return this.config.transport === 'stdio'
-      ? discoverStdioTools({
-          serverName: this.name,
-          handle: this.handle,
-          ids: this.#ids,
-          signal,
-          rootUri: this.#projectRoot ? pathToFileURL(this.#projectRoot).href : undefined,
-        })
+      ? this.stdioConnection!.discover(signal)
       : discoverStreamableHttpTools({
           serverName: this.name,
           config: this.config,
@@ -494,6 +586,11 @@ export class McpServerRuntime {
     this.tools = undefined;
     this.argumentValidatorCache.clear();
     this.stdioInvocationQueue = undefined;
+  }
+
+  private disposeStdio(reason: unknown): void {
+    this.stdioConnection?.dispose(reason);
+    this.stdioConnection = undefined;
   }
 
   private validateToolArguments(

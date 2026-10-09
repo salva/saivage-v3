@@ -1,6 +1,6 @@
 import { expect, it } from '@jest/globals';
 import { PassThrough } from 'node:stream';
-import { invokeStdioTool } from '../../src/mcp/stdio-transport.js';
+import { StdioMcpConnection } from '../../src/mcp/stdio-transport.js';
 import { readStreamableHttpJsonRpcResponse } from '../../src/mcp/streamable-http-transport.js';
 import { MCP_WIRE_RESPONSE_LIMIT_BYTES } from '../../src/mcp/protocol.js';
 
@@ -24,6 +24,8 @@ it('rejects a complete HTTP response for the wrong call identity', async () => {
 it('bounds raw UTF-8 stdio frames before readline assembly and removes the pipe', async () => {
   const stdin = new PassThrough(); const stdout = new PassThrough();
   stdin.once('data', () => { setImmediate(() => { const chunk = Buffer.from('é'.repeat(512 * 1024)); for (let n = 0; n < 49; n++) stdout.write(chunk); }); });
-  await expect(invokeStdioTool({ serverName: 'one', toolName: 'tool', args: {}, handle: { process: { stdin, stdout } } as any, ids: { next: () => 1 }, signal: new AbortController().signal, onResponse() {} })).rejects.toThrow('48 MiB');
+  const connection = new StdioMcpConnection({ serverName: 'one', stdin, stdout, ids: { next: () => 1 }, onFailure() {} });
+  await expect(connection.invoke({ toolName: 'tool', args: {}, signal: new AbortController().signal, onResponse() {} })).rejects.toThrow('48 MiB');
   expect(stdout.listenerCount('data')).toBe(0);
+  connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
 });

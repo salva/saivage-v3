@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import * as YAML from 'yaml';
+import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { testConfigAuthority } from '../helpers/canonical-project.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 import type { App } from '../../src/boot/app.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
@@ -26,6 +34,93 @@ afterEach(async () => {
 });
 
 describe('MCP tool invocation production composition', () => {
+  it('serves lifetime workspace roots through a real synthetic stdio child and manager without replay', async () => {
+    const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-lifetime-á space-');
+    roots.push(projectRoot);
+    const script = join(projectRoot, 'peer.cjs');
+    writeFileSync(
+      script,
+      `
+const readline = require('node:readline');
+const seen = []; const expected = []; let mutations = 0; let calls = 0; let pending; let idleAnnounced = false;
+const send = m => JSON.stringify(m) + '\\n';
+const roots = id => { expected.push(id); return { jsonrpc: '2.0', id, method: 'roots/list' }; };
+function finish() {
+  if (!pending || !idleAnnounced || !expected.every(id => seen.includes(id))) return;
+  const request = pending; pending = undefined;
+  if (request.params.name === 'report') {
+    process.stdout.write(send({ jsonrpc: '2.0', id: request.id, result: { content: [], structuredContent: { mutations, calls, seen, cwd: process.cwd() } } })); return;
+  }
+  mutations++;
+  process.stdout.write(send(roots('before-' + mutations)) + send({ jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: 'mutation:' + mutations }] } }) + send(roots('after-' + mutations)));
+}
+readline.createInterface({ input: process.stdin }).on('line', line => {
+  const request = JSON.parse(line);
+  if (request.result && request.result.roots) {
+    if (request.result.roots[0].uri !== ${JSON.stringify(pathToFileURL(projectRoot).href)}) process.exit(9);
+    seen.push(request.id); finish(); return;
+  }
+  if (request.method === 'initialize') {
+    if (!request.params.capabilities.roots || request.params.capabilities.roots.listChanged !== false) process.exit(8);
+    process.stdout.write(send({ jsonrpc: '2.0', id: request.id, result: {} }) + send(roots(request.id)));
+  } else if (request.method === 'tools/list') {
+    const result = request.params ? { tools: [{ name: 'report', inputSchema: { type: 'object' } }] } : { tools: [{ name: 'mutate', inputSchema: { type: 'object' } }], nextCursor: 'two' };
+    process.stdout.write(send({ jsonrpc: '2.0', id: request.id, result }) + send(roots('page-' + request.id)));
+    if (request.params) setImmediate(() => { idleAnnounced = true; process.stdout.write(send(roots('idle'))); finish(); });
+  } else if (request.method === 'tools/call') { calls++; pending = request; finish(); }
+});
+`,
+    );
+    mkdirSync(join(projectRoot, '.saivage'));
+    writeFileSync(
+      join(projectRoot, '.saivage', 'saivage.yaml'),
+      YAML.stringify({
+        ...structuredClone(TEST_SAIVAGE_CONFIG),
+        mcpServers: {
+          local: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [script],
+            autostart: false,
+          },
+        },
+      }),
+    );
+    const registry = new ManagedProcessGroupRegistry();
+    const mcpScope = registry.createContainerScope(registry.rootScope, 'mcp');
+    const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
+    const manager = new McpManager({
+      configAuthority: testConfigAuthority(projectRoot),
+      processRunner: runner,
+      mcpProcessRootScope: mcpScope,
+      eventLogger: { appendEventPrepared() {} } as never,
+    });
+    try {
+      await expect(manager.startServer('local')).resolves.toMatchObject({
+        status: 'running',
+        toolCount: 2,
+      });
+      for (let n = 1; n <= 2; n++)
+        await expect(
+          manager.invokeTool('local', 'mutate', {}, { timeoutMs: 5000 }),
+        ).resolves.toMatchObject({ content: [{ type: 'text', text: `mutation:${n}` }] });
+      await expect(
+        manager.invokeTool('local', 'report', {}, { timeoutMs: 5000 }),
+      ).resolves.toMatchObject({
+        structuredContent: {
+          mutations: 2,
+          calls: 3,
+          cwd: projectRoot,
+          seen: [1, 'page-2', 'page-3', 'idle', 'before-1', 'after-1', 'before-2', 'after-2'],
+        },
+      });
+      await manager.stopServer('local');
+      expect(runner.list()).toEqual([]);
+    } finally {
+      await manager.cleanupForApplicationStop();
+      expect(runner.list()).toEqual([]);
+    }
+  }, 20_000);
   it('records rejected discovery and continues with a distinct explicitly requested corrective Analyst start', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mcp-discovery-e2e-')); roots.push(projectRoot);
     const failedId = 'discovery-rejected-unique'; const correctedId = 'discovery-corrected-unique';
