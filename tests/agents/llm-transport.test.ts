@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -45,7 +46,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
     const admission = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
     if (admission.kind !== 'admitted') throw new Error('fixture must admit');
-    const pending = service.executePinnedContentPolicyRequest(admission, owner.signal).catch(error => error);
+    const pending = service.executePinnedContentPolicyRequest(admission, { attemptIndex: 0 }, owner.signal).catch(error => error);
     try {
       await jest.advanceTimersByTimeAsync(120000);
       expect(await pending).toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [], originalFailure: { failure: { kind: 'server_transient', provider, status: 0 } } });
@@ -75,7 +76,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
     const admission = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
     if (admission.kind !== 'admitted') throw new Error('fixture must admit');
-    const pending = service.executePinnedContentPolicyRequest(admission, owner.signal).catch(error => error);
+    const pending = service.executePinnedContentPolicyRequest(admission, { attemptIndex: 0 }, owner.signal).catch(error => error);
     try {
       await jest.advanceTimersByTimeAsync(119000);
       refreshStream.send(await refreshSuccess(provider, replacement).text()); refreshStream.close();
@@ -103,7 +104,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
     const admission = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
     if (admission.kind !== 'admitted') throw new Error('fixture must admit');
-    await expect(service.executePinnedContentPolicyRequest(admission)).rejects.toMatchObject({
+    await expect(service.executePinnedContentPolicyRequest(admission, { attemptIndex: 0 })).rejects.toMatchObject({
       failure_phase: 'pre_provider',
       provider_exchanges: [],
       originalFailure: { failure: {
@@ -313,7 +314,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
     const preflight = service.preflightPinnedContentPolicyRequest(invocationRequest(fixture.candidate));
     if (preflight.kind !== 'admitted') throw new Error('fixture must admit');
-    await service.executePinnedContentPolicyRequest(preflight);
+    await service.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 });
     expect(headers).toHaveLength(2);
     const identity = { 'User-Agent': 'GitHubCopilotChat/0.35.0', 'Editor-Version': 'vscode/1.107.0', 'Editor-Plugin-Version': 'copilot-chat/0.35.0', 'Copilot-Integration-Id': 'vscode-chat' };
     for (const [key, value] of Object.entries(identity)) {
@@ -328,7 +329,9 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const fixture = setup(provider);
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(refreshResult);
     const request = invocationRequest(fixture.candidate);
+    const activation = randomUUID();
     const service = new InvocationService({
+      failedProviderDiagnostics: activation,
       projectRoot: fixture.projectRoot,
       registry: fixture.registry,
       candidateAvailability: new MemoryCandidateAvailability(),
@@ -337,7 +340,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const preflight = service.preflightPinnedContentPolicyRequest(request);
     if (preflight.kind !== 'admitted') throw new Error('Expected pinned transport test request to admit.');
 
-    await expect(service.executePinnedContentPolicyRequest(preflight)).rejects.toMatchObject({
+    await expect(service.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 })).rejects.toMatchObject({
       failure_phase: 'pre_provider',
       provider_exchanges: [],
       originalFailure: {
@@ -349,6 +352,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     expect(String(fetch.mock.calls[0]![0])).toBe(refreshUrl(provider));
     expect(fetch.mock.calls.some(([input]) => String(input).startsWith('https://provider.example.test'))).toBe(false);
     expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    expect(readdirSync(join(fixture.projectRoot, '.saivage/diagnostics/failed-provider-requests', activation))).toEqual(['.gitignore']);
   });
 
   it('passes owner cancellation through by identity', async () => {

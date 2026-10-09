@@ -105,7 +105,7 @@ describe('Invocation Service provider inactivity recovery', () => {
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => { stream = controlledResponse(init!.signal!); return stream.response; });
     const pinned = service.preflightPinnedContentPolicyRequest({ ...request([stalled]), routePass: { kind: 'pinned-content-policy-retry', candidate: stalled } });
     if (pinned.kind !== 'admitted') throw new Error('fixture must admit');
-    const pending = service.executePinnedContentPolicyRequest(pinned, owner.signal).catch(error => error);
+    const pending = service.executePinnedContentPolicyRequest(pinned, { attemptIndex: 0 }, owner.signal).catch(error => error);
     try {
       await jest.advanceTimersByTimeAsync(120000);
       expect(await pending).toMatchObject({ originalFailure: { failure: { kind: 'timeout' } }, provider_exchanges: [{ status: 'error', error: { name: 'ProviderInactivityTimeoutError' } }] });

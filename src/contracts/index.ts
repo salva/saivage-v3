@@ -95,6 +95,7 @@ export type {
   LlmModelParams,
   LlmCompleteOptions,
   LlmTransportConfig,
+  ProviderAttemptDiagnosticContext,
   LlmCredentialRequirement,
   LlmProtocolAdapter,
   LlmResponseConsumption,

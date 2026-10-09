@@ -285,6 +285,17 @@ See the [pinned browser recipe](../runbook/index.md#configured-browser-lifecycle
 
 ## Server
 
+Failed-provider request diagnostics are **CLI-only**, disabled by default:
+`saivage start --failed-provider-diagnostics <UUID>`. This ephemeral start input is
+not a YAML key, environment alias, retained configuration field or effective
+provider setting; duplicate/invalid UUIDs and options on other commands are rejected.
+One manually named activation permits 16 failure publication attempts within one
+hour, at most 8 MiB each (oversize bodies yield metadata only, at most 16 KiB).
+It stores sensitive private projected text, not guaranteed secret-free raw/replay
+input. Reusing the consumed UUID disables capture on restart. See the
+[runbook](../runbook/index.md#private-failed-provider-request-diagnostics) for
+eligibility, notices, fidelity, retention and rollback precautions.
+
 ```yaml
 server:
   host: 0.0.0.0

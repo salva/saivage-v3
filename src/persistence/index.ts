@@ -1,4 +1,5 @@
 export { appendAppLogEntry, readAppLogEntries } from './app-log.js';
+export { publishFreshFile } from './replace-file.js';
 export type { AppLogPublicationContext } from './app-log.js';
 export {
   AuthoredRecordNotFoundError,

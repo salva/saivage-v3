@@ -3,7 +3,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/regist
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 
-export function invocationProviderRegistry(candidates: readonly Candidate[], capabilityOverrides: Record<string, SaivageConfig['providers'][string]['capabilities']> = {}, credentialOverrides: Record<string, string> = {}): ProviderRegistry {
+export function invocationProviderRegistry(candidates: readonly Candidate[], capabilityOverrides: Record<string, SaivageConfig['providers'][string]['capabilities']> = {}, credentialOverrides: Record<string, string> = {}, baseUrlOverrides: Record<string, string> = {}): ProviderRegistry {
   if (candidates.length === 0) throw new Error('Invocation provider fixture requires a candidate.');
   const providers: SaivageConfig['providers'] = {};
   for (const candidate of candidates) {
@@ -12,7 +12,7 @@ export function invocationProviderRegistry(candidates: readonly Candidate[], cap
     providers[candidate.provider] = {
       ...existing,
       models: models.includes(candidate.model) ? models : [...models, candidate.model],
-      baseUrl: `https://${candidate.provider}.example.test`,
+      baseUrl: baseUrlOverrides[candidate.provider] ?? `https://${candidate.provider}.example.test`,
       apiKey: credentialOverrides[candidate.provider] ?? 'synthetic-test-key',
       capabilities: {
         transportProtocol: 'openai-chat-completions',

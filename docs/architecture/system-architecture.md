@@ -1404,6 +1404,49 @@ Provider/tool phases remain private. The conversation actor exposes only nullabl
 Waiting is reserved for the explicitly segmented unfinished process, public-fetch, or child promise.
 The separate public Agent-summary vocabulary is exactly `activity: busy | idle`, paired with `status: active | inactive`; an internally waiting but live Agent session is `active`/`busy`.
 
+### Private failure-only request observation
+
+The shared InvocationService owns optional `FailedProviderRequestDiagnostics`
+(`agents/failed-provider-request-diagnostics.ts`). The start-only UUID flows through
+StartInputs/server composition, not effective provider configuration or lifecycle
+persistence. Setup follows canonical admission and lifecycle exclusion. Exclusive
+activation mkdir and fresh publication of a session-local self-ignoring `.gitignore`
+precede dumps; reuse disables capture without inspecting retained files.
+
+`executeLlmProviderAttempt` binds the immutable serialized request actually passed
+to transport and its verified hash. Ordinary/resumed/summary owners supply canonical
+source and actual invocation identities, purpose/input UUID and settled-attempt
+offset. The actor passes `firstAttempts.length` through the application provider
+binder for pinned diagnostics; service pass-local evidence and actor combination
+are unchanged. Parser/classifier structured codes remain ephemeral error metadata;
+observed HTTP status is separate from embedded status. Noncancellation transport
+failures and explicit parsed `content_filter` use one shared capture boundary, with
+no successful archive, auth-refresh capture or change to downstream outcomes.
+
+Owner-local monotonic deadline and counter permit 16 failure publication attempts
+within one hour, without timers, scans, refunds or retries. Each slot allows at most
+8 MiB of UTF-8 JSON; oversized raw bodies/envelopes yield only bounded metadata
+(16 KiB), never a prefix. Projection parses only captured wire JSON: ordered
+nonprivate content remains while structured credentials/config, images/data URLs,
+opaque replay and native reference IDs are omitted. Protocol-known tool-argument
+strings are decoded, recursively projected and reencoded; invalid arguments are
+wholly omitted. Existing outbound redaction and call-local active-credential
+replacement cover remaining leaves/metadata, not a general secret inventory.
+The version-1 document reports literal exact/redacted/omitted fidelity, reencoding,
+counts/reasons, raw-body and decoded-stored-body hashes/byte counts. This is sensitive
+local text, not a secret-free export, provider receipt or replay fixture.
+
+Synchronous publication reuses the ordinary fresh-temp/fsync/rename/parent-fsync
+primitive with defaults/umask. Known errors yield fixed content-free local notices
+without replacing provider failures; outcome uncertainty reaches the fatal boundary
+before settlement, logging, retry or cleanup, even if cancellation races. No index,
+manifest, queue, registry or retained-document reader exists. Diagnostic files and
+hashes never enter canonical evidence/public projections; Files' shared lexical and
+resolved-target private-path admission excludes the whole namespace before listing,
+content or image inspection. Retention is manual and separate from reset roots;
+noncanonical temporaries remain ignored forever. Existing canonical discriminators
+are unchanged (conversation 6; app-log/provider-evidence shared envelope 1).
+
 ## 10. Availability And Credentials
 
 Credential ownership follows the selected provider contract.

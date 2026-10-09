@@ -47,7 +47,7 @@ describe('content-policy route passes', () => {
     const svc = service(availability);
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     if (preflight.kind !== 'admitted') throw new Error('Expected pinned admission.');
-    const pending = svc.executePinnedContentPolicyRequest(preflight, controller.signal);
+    const pending = svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 }, controller.signal);
     await entered;
     controller.abort(new Error('owner stopped'));
     release(chatSuccess('retained'));
@@ -105,7 +105,7 @@ describe('content-policy route passes', () => {
     const svc = service(availability);
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
-    await expect(svc.executePinnedContentPolicyRequest(preflight)).rejects.toMatchObject({ failure_phase: 'provider_attempt', originalFailure: { failure: { kind: 'content_policy' } }, candidate: first, provider_exchanges: [{ attempt_index: 0 }] });
+    await expect(svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 1 })).rejects.toMatchObject({ failure_phase: 'provider_attempt', originalFailure: { failure: { kind: 'content_policy' } }, candidate: first, provider_exchanges: [{ attempt_index: 0 }] });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(reads).not.toHaveBeenCalled();
     expect(writes).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('content-policy route passes', () => {
     const svc = service();
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
-    const completion = await svc.executePinnedContentPolicyRequest(preflight);
+    const completion = await svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 1 });
     expect(completion.result).toMatchObject({ kind: 'message', content: 'safe answer' });
     expect(completion.provider_exchanges).toHaveLength(1);
     expect(completion.provider_exchanges[0]).toMatchObject({ attempt_index: 0, status: 'ok' });
@@ -133,7 +133,7 @@ describe('content-policy route passes', () => {
     const svc = service();
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
-    await expect(svc.executePinnedContentPolicyRequest(preflight)).rejects.toMatchObject({ failure_phase: 'provider_attempt', provider_exchanges: [{ attempt_index: 0, status: 'error' }] });
+    await expect(svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 })).rejects.toMatchObject({ failure_phase: 'provider_attempt', provider_exchanges: [{ attempt_index: 0, status: 'error' }] });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -144,7 +144,7 @@ describe('content-policy route passes', () => {
     const svc = service();
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }, controller.signal));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
-    await expect(svc.executePinnedContentPolicyRequest(preflight, controller.signal)).rejects.toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [], candidate: first });
+    await expect(svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 }, controller.signal)).rejects.toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [], candidate: first });
     expect(fetch).not.toHaveBeenCalled();
   });
 

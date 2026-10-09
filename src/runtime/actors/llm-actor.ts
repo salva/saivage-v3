@@ -158,6 +158,7 @@ export interface LLMProviderPort {
   ): Promise<PinnedContentPolicyPreflight>;
   executePinnedContentPolicyRequest(
     preflight: PinnedAdmittedContentPolicyRequest,
+    diagnosticContext: { attemptIndex: number },
     signal: AbortSignal,
   ): Promise<ProviderTurnCompletion>;
   projectProviderExchanges?(
@@ -1482,7 +1483,11 @@ export class ConversationLLMActor {
       });
     }
     try {
-      const completion = await this.provider.executePinnedContentPolicyRequest(preflight, signal);
+      const completion = await this.provider.executePinnedContentPolicyRequest(
+        preflight,
+        { attemptIndex: firstAttempts.length },
+        signal,
+      );
       return {
         kind: 'completion',
         completion: {

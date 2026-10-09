@@ -10,12 +10,14 @@ import {
   type CandidateRequestPlan,
   type LlmCompleteOptions,
   type ProviderTurnCompletion,
+  type ProviderAttemptDiagnosticContext,
 } from '../contracts/index.js';
 import { CandidateRequestPlanIntegrityError } from './candidate-request.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { consumeProviderRequest, readBodyTextBestEffort } from './llm-request-inactivity.js';
+import type { FailedProviderRequestDiagnostics } from './failed-provider-request-diagnostics.js';
 
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;
@@ -23,10 +25,13 @@ export async function executeLlmProviderAttempt(args: {
   plan: CandidateRequestPlan;
   options: LlmCompleteOptions;
   capabilityRequest: CapabilityRequest;
+  attemptContext: ProviderAttemptDiagnosticContext;
+  diagnostics?: FailedProviderRequestDiagnostics;
 }): Promise<ProviderTurnCompletion> {
   const { plan, options } = args;
   options.signal?.throwIfAborted();
-  const actualHash = sha256Hex(plan.request.serializedBody);
+  const serializedBody = plan.request.serializedBody;
+  const actualHash = sha256Hex(serializedBody);
   if (actualHash !== plan.request.requestHash)
     throw new CandidateRequestPlanIntegrityError(
       plan.candidate,
@@ -63,12 +68,51 @@ export async function executeLlmProviderAttempt(args: {
     sourceInputId: options.inputId,
   });
   let exchangeRecorded = false;
+  let enteredTransport = false;
+  let httpStatus: number | null = null;
+  let submittedAt: string;
+  const capture = (
+    observation: 'transport_failure' | 'provider_refusal_finish_reason',
+    failure: LlmRequestError | null,
+  ) => {
+    if (
+      !args.diagnostics ||
+      options.signal?.aborted ||
+      !enteredTransport ||
+      failure?.failure.kind === 'cancelled'
+    )
+      return;
+    args.diagnostics.capture(
+      {
+        context: args.attemptContext,
+        serializedBody,
+        contractId: options.contract_id,
+        protocol: plan.capabilities.transportProtocol,
+        provider: plan.candidate.provider,
+        model: plan.candidate.model,
+        submittedAt,
+        completedAt: new Date().toISOString(),
+        observation,
+        failureKind: failure?.failure.kind ?? 'content_filter',
+        providerCode: failure?.diagnostics?.providerCode ?? null,
+        providerCodeTruncated: failure?.diagnostics?.providerCodeTruncated ?? false,
+        finishReason: observation === 'provider_refusal_finish_reason' ? 'content_filter' : null,
+        httpStatus,
+        embeddedStatus: failure?.diagnostics?.embeddedStatus ?? null,
+      },
+      transport.apiKey,
+    );
+  };
   try {
+    options.signal?.throwIfAborted();
+    submittedAt = new Date().toISOString();
+    enteredTransport = true;
     const { response, parsed } = await consumeProviderRequest(
       wire.endpoint,
-      { method: 'POST', headers: wire.headers, body: plan.request.serializedBody },
+      { method: 'POST', headers: wire.headers, body: serializedBody },
       options.signal,
       async (response, consumption) => {
+        httpStatus = response.status;
         if (!response.ok) {
           const bodyText = await readBodyTextBestEffort(consumption, response);
           throw plan.adapter.classifyHttpFailure(
@@ -91,6 +135,7 @@ export async function executeLlmProviderAttempt(args: {
       },
     );
     exchangeRecorded = true;
+    if (parsed.finishReason === 'content_filter') capture('provider_refusal_finish_reason', null);
     await handle.recordResponse(
       {
         status: response.status,
@@ -108,8 +153,6 @@ export async function executeLlmProviderAttempt(args: {
     throwIfPublicationOutcomeUnknown(caught);
     if (exchangeRecorded) throw caught;
     exchangeRecorded = true;
-    const evidence = rawErrorEvidence(caught);
-    await handle.recordError({ ...evidence, status: llmRequestStatus(caught) });
     let originalFailure: LlmRequestError;
     if (options.signal?.aborted && caught === options.signal.reason)
       originalFailure = new LlmRequestError({
@@ -126,6 +169,9 @@ export async function executeLlmProviderAttempt(args: {
           model: plan.candidate.model,
         }),
       );
+    capture('transport_failure', originalFailure);
+    const evidence = rawErrorEvidence(caught);
+    await handle.recordError({ ...evidence, status: llmRequestStatus(caught) });
     throw new ProviderTurnFailure({
       failure_phase: 'provider_attempt',
       provider_exchanges: recorder.settledAttempts(),

@@ -147,6 +147,7 @@ function nonCompletedFailure(
     });
   if (status === 'failed') {
     const error = objectField(response, 'error');
+    const diagnostics = typeof error?.code === 'string' ? { providerCode: error.code } : {};
     const classified = classifyDirectProviderFailure({
       provider: ctx.provider,
       source: {
@@ -161,15 +162,18 @@ function nonCompletedFailure(
         : providerErrorMessage(response),
       providerResponse,
     });
-    if (classified) return new LlmRequestError(classified);
-    return new LlmRequestError({
-      kind: 'server_transient',
-      provider: ctx.provider,
-      status: ctx.responseStatus,
-      message: ctx.suppressBodyPreview
-        ? 'OpenAI Responses provider failed response before completion.'
-        : providerErrorMessage(response),
-    });
+    if (classified) return new LlmRequestError(classified, diagnostics);
+    return new LlmRequestError(
+      {
+        kind: 'server_transient',
+        provider: ctx.provider,
+        status: ctx.responseStatus,
+        message: ctx.suppressBodyPreview
+          ? 'OpenAI Responses provider failed response before completion.'
+          : providerErrorMessage(response),
+      },
+      diagnostics,
+    );
   }
   return new LlmRequestError({
     kind: 'provider_protocol_error',

@@ -161,6 +161,13 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 
 ## Current documentation
 
+Failed-provider request diagnostics are disabled by default. Explicit
+`saivage start --failed-provider-diagnostics <UUID>` opts into finite, private local
+capture (16 failure slots/one hour, at most 8 MiB per file). Project/prompt text
+remains sensitive after projection: it is not a secret-free export, complete raw
+request, replay fixture or receipt. See the [diagnostics runbook](docs/runbook/index.md#private-failed-provider-request-diagnostics)
+before enabling, inspecting or rolling back over retained captures.
+
 New here? Follow the overview and guides first. Exact rules and procedures live
 in the authority pages below; the guides summarize them rather than replacing
 them.

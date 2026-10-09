@@ -68,10 +68,31 @@ type LocalSetupErrorReason =
 
 export class LlmRequestError extends Error {
   readonly failure: LlmTransportFailure;
-  constructor(failure: LlmTransportFailure) {
+  readonly diagnostics?: {
+    providerCode?: string;
+    providerCodeTruncated?: boolean;
+    embeddedStatus?: number;
+  };
+  constructor(
+    failure: LlmTransportFailure,
+    diagnostics?: { providerCode?: string; embeddedStatus?: number },
+  ) {
     super(failure.message);
     this.name = 'LlmRequestError';
     this.failure = failure;
+    if (diagnostics)
+      this.diagnostics = {
+        ...diagnostics,
+        ...(diagnostics.providerCode === undefined
+          ? {}
+          : {
+              providerCode:
+                diagnostics.providerCode.length > 512
+                  ? '[OMITTED_OVERSIZE_PROVIDER_CODE]'
+                  : diagnostics.providerCode,
+              providerCodeTruncated: diagnostics.providerCode.length > 512,
+            }),
+      };
   }
 }
 

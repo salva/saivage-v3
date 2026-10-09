@@ -31,6 +31,14 @@ export interface LlmCompleteOptions extends LlmModelParams {
   tool_choice: 'auto';
 }
 
+export interface ProviderAttemptDiagnosticContext {
+  sourceSessionId: string | null;
+  invocationSessionId: string;
+  inputId: string;
+  attemptIndex: number;
+  purpose: 'primary' | 'internal-summary';
+}
+
 export interface LlmTransportConfig {
   baseUrl: string;
   apiKey?: string;

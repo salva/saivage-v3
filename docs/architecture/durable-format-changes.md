@@ -21,6 +21,49 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### New private failed-provider diagnostic family (2026-10-09)
+
+New family initial **`format_version:1`**, strict
+`kind:failed-provider-request-diagnostic`, owned by
+`src/agents/failed-provider-request-diagnostics.ts` (schema, privacy projection and
+direct publisher). Exact path:
+`.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`.
+There is no selector/index or normal retained-document consumption. An exclusively
+claimed activation directory and self-ignoring `.gitignore` precede publication;
+reuse disables capture without retained reads. Later incompatible diagnostic shape
+or interpretation requires this family's bump, not silent normalization.
+
+Source applicability: reviewed baseline
+`b818acddaf8194ec6c7a2964f2eaa4251dd9ec48`, freshness-checked introduction parent
+`615ae32ce028ca32047cb4d31dad30e613a77144`. These are source boundaries only;
+deployment/release applicability is **unknown**, not evidence of an unreleased
+shared cutover. Evidence: the owner above, `agents/llm-provider-attempt.ts`,
+`agents/invocation-service.ts`, `contracts/provider-request.ts`, actor/application
+pinned-offset plumbing, CLI/start-input composition and
+`workspace/file-access-security.ts`; synthetic pipeline/privacy/publication and
+Files/startup tests cover these source contracts, not installed-state adoption.
+
+The document records actual submitted-string raw hash/UTF-8 size, separately hashed
+decoded stored body, exact/redacted/omitted fidelity, reencoding and counted privacy/
+size omissions, canonical source versus actual invocation, purpose/input/final
+attempt index and observed versus embedded statuses. Sensitive projected text is
+not a secret-free export, replay fixture or provider receipt. CLI-only explicit
+`start --failed-provider-diagnostics <UUID>` adoption is finite (16 failure slots,
+one hour, 8 MiB per publication; metadata-only at most 16 KiB), not persistent YAML
+or a canonical evidence field. Files excludes the new private subtree and aliases.
+
+Existing card/head/history/mailbox/record discriminators remain **1**; conversation
+index/genesis/envelopes remain **6**; app-log/provider-evidence retain their **shared
+envelope 1**; lifecycle lock remains **1**. Ephemeral error code/attempt context is
+not persisted there; unversioned configuration inputs are unchanged, not retrofitted.
+This feature alone needs no reset/migration of already-valid canonical state.
+Diagnostics accumulate separately from reset's four roots with no scan/cleanup.
+Older Files lacks the exclusion: rollback must remove the opt-in argument and
+separately avoid exposing retained diagnostics through old releases, or remain on
+patched source. Deployment, reset and explicit external migration consent remain
+separate; no converter or old-format reader is introduced. See the
+[runbook](../runbook/index.md#private-failed-provider-request-diagnostics).
+
 ### Durable-preserving Markdown dependency refresh (2026-10-08)
 
 Source applicability: implementation parent

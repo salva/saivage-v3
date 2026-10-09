@@ -320,14 +320,21 @@ function createCodexStreamError(
     providerResponse: suppressBodyPreview ? '' : providerResponse,
     retryAfterMs,
   });
-  if (classified) return new LlmRequestError(classified);
-  return new LlmRequestError({
-    kind: 'provider_protocol_error',
-    provider: 'openai-codex',
-    status: responseStatus,
-    message,
-    bodyPreview: suppressBodyPreview ? '' : JSON.stringify(payload).slice(0, 500),
-  });
+  const diagnostics = {
+    ...(code ? { providerCode: code } : {}),
+    ...(embeddedStatus === undefined ? {} : { embeddedStatus }),
+  };
+  if (classified) return new LlmRequestError(classified, diagnostics);
+  return new LlmRequestError(
+    {
+      kind: 'provider_protocol_error',
+      provider: 'openai-codex',
+      status: responseStatus,
+      message,
+      bodyPreview: suppressBodyPreview ? '' : JSON.stringify(payload).slice(0, 500),
+    },
+    diagnostics,
+  );
 }
 
 function codexDirectError(payload: Record<string, unknown>): Record<string, unknown> | undefined {

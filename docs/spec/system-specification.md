@@ -1269,6 +1269,60 @@ Its strict 200 union has exactly one cards check: `ok` contains the passing `car
 The bounded handler catch first rethrows `PublicationOutcomeUnknownError`; `ContractRuntime` delivers that identical value to the application fatal port before an ordinary diagnostic or response, so publication uncertainty produces no Doctor response.
 Content supervision, its scanner configuration, routes, storage lane, and UI are absent.
 
+### Private failed-provider request diagnostics
+
+`saivage start --failed-provider-diagnostics <UUID>` explicitly enables one finite,
+process-local observation; absence disables it. Invalid/duplicate options and use
+on another command fail admission. There is no YAML, environment, REST or UI toggle.
+After lifecycle exclusion and canonical startup admission, the shared
+InvocationService exclusively claims `.saivage/diagnostics/failed-provider-requests/<UUID>/`
+and publishes a self-ignoring `.gitignore` (`*` followed by newline) before dumps.
+An existing activation disables capture without reading it; a claimed UUID remains
+consumed even if setup fails. Automatic restart cannot rearm it.
+
+Capture is failure-only at the shared model transport boundary: non-2xx, terminal
+HTTP-200 SSE errors, malformed/truncated responses, network/inactivity failures and
+explicit parsed `content_filter` refusals. Auth refresh, pretransport setup/admission,
+ordinary success and cancellation produce no dump. Summary business-validation
+failures such as empty prose or `length` do not qualify. Existing refusal handling,
+summary recovery, retries, routing and canonical evidence outcomes are unchanged.
+An explicit finish-reason refusal can therefore have a diagnostic while canonical
+exchange evidence still says `ok`.
+
+All invocations share 16 qualifying publication-attempt slots within one monotonic
+hour of activation, checked at failure completion without a timer. Known failures
+and metadata-only records consume slots without refund/retry; success/cancellation
+does not. Each JSON publication is at most 8 MiB; raw-body or stored-envelope overflow
+produces metadata only (at most 16 KiB), with an explicit reason and no body prefix.
+
+Diagnostics derive only from the exact captured serialized string passed to model
+transport, never reconstructed history. They distinguish canonical source session,
+actual invocation session (including internal summary), input UUID, purpose and final
+zero-based canonical attempt index. Resumed attempts retain their offset; a pinned
+attempt uses the actor's actual preceding-attempt count, not pass-local zero. Actual
+HTTP status is null until a response is observed; any embedded status is separate.
+Structured provider codes are ephemeral, not inferred from error prose.
+
+The private format-1 family discloses raw/stored UTF-8 byte counts and SHA-256 hashes,
+`exact|redacted|omitted` body fidelity, reencoding and counted omissions. The stored
+hash covers the decoded `stored_body` string, not JSON escaping or the whole file.
+Projection omits images, opaque/private replay and reference IDs, structured
+auth/header/cookie/environment/config subtrees, and applies outbound text redaction
+including the active transport credential literal. Protocol-known serialized tool
+arguments receive decoded structured projection and reencoding; unprojectable
+arguments are entirely omitted, never retained as raw fallback. Nonprivate order,
+instructions and labeled material remain. Redaction is not exhaustive secret
+certification: sensitive project/prompt text and unusual encoded secrets may remain.
+Neither hashes nor transport submission prove provider receipt or a replayable request.
+
+Known diagnostic preparation/prepublication failures emit only fixed local notices
+and preserve the original provider outcome. Publication uncertainty remains fatal
+before warnings, settlement, retry or cleanup, even under racing cancellation.
+No diagnostic body, snippet, hash or dynamic error enters logs/API/UI/evidence.
+Files omits/refuses the diagnostic namespace and aliases before directory/content/
+image inspection. There is no inspector/export/replay, retention scan or cleanup;
+explicit activations accumulate and diagnostics remain outside reset's four roots.
+
 ## 9. Direct File Persistence
 
 Saivage durable state uses direct synchronous named file functions.

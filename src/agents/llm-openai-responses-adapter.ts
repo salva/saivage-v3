@@ -7,7 +7,7 @@ import {
   type LlmProtocolAdapter,
   type ImageDescriptor,
 } from '../contracts/index.js';
-import { classifyHttpFailure } from './llm-failure-classifiers.js';
+import { classifyHttpFailure, httpFailureDiagnosticMetadata } from './llm-failure-classifiers.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
 import { responsesProducerAccountId } from './llm-openai-responses-account.js';
 import { parseOpenAIResponsesJson } from './llm-openai-responses-parser.js';
@@ -84,6 +84,7 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
         provider: candidate.provider,
         model: candidate.model,
       }),
+      httpFailureDiagnosticMetadata(bodyText),
     );
   },
   async parseSuccess(candidate, response, options, consumption, imageBearing) {

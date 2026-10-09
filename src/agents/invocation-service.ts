@@ -58,6 +58,8 @@ import { buildCandidateRequest, CandidateRequestPlanIntegrityError } from './can
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
 import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
+import { FailedProviderRequestDiagnostics } from './failed-provider-request-diagnostics.js';
+import type { ProviderAttemptDiagnosticContext } from '../contracts/index.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -99,6 +101,7 @@ export type InvocationRequest = InvocationRequestBase &
   );
 
 interface InvocationServiceConfig {
+  failedProviderDiagnostics?: string;
   projectRoot: string;
   registry: ProviderRegistry;
   candidateAvailability: CandidateAvailability;
@@ -128,6 +131,7 @@ type AdmittedExecutionRun = {
 };
 
 export class InvocationService {
+  private readonly diagnostics: FailedProviderRequestDiagnostics | undefined;
   private readonly projectRoot: string;
   private readonly candidateAvailability: CandidateAvailability;
   private readonly recoveryDelayMs: number;
@@ -136,6 +140,13 @@ export class InvocationService {
   private readonly freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 
   constructor(config: InvocationServiceConfig) {
+    this.diagnostics =
+      config.failedProviderDiagnostics === undefined
+        ? undefined
+        : new FailedProviderRequestDiagnostics(
+            config.projectRoot,
+            config.failedProviderDiagnostics,
+          );
     this.projectRoot = config.projectRoot;
     this.registry = config.registry;
     this.candidateAvailability = config.candidateAvailability;
@@ -274,6 +285,8 @@ export class InvocationService {
         capabilityRequest,
         inputId: request.inputId,
         options,
+        sourceSessionId: request.providerConversation.sourceSessionId,
+        invocationSessionId: request.sessionId,
       });
     return Object.freeze({ kind: 'rejected', candidate, verdict });
   }
@@ -455,6 +468,7 @@ export class InvocationService {
 
   async executePinnedContentPolicyRequest(
     preflight: PinnedAdmittedContentPolicyRequest,
+    diagnosticContext: { attemptIndex: number },
     signal?: AbortSignal,
   ): Promise<ProviderTurnCompletion> {
     const candidate = preflight.candidate;
@@ -464,6 +478,13 @@ export class InvocationService {
         preflight.plan,
         { ...preflight.options, signal },
         preflight.capabilityRequest,
+        {
+          sourceSessionId: preflight.sourceSessionId,
+          invocationSessionId: preflight.invocationSessionId,
+          inputId: preflight.inputId,
+          purpose: 'primary',
+          attemptIndex: diagnosticContext.attemptIndex,
+        },
       );
       const attempts = indexProviderExchangeAttempts(
         preflight.inputId,
@@ -544,6 +565,7 @@ export class InvocationService {
     plan: CandidateRequestPlan,
     options: LlmCompleteOptions,
     capabilityRequest: Readonly<CapabilityRequest>,
+    attemptContext: ProviderAttemptDiagnosticContext,
   ): Promise<ProviderTurnCompletion> {
     return executeLlmProviderAttempt({
       projectRoot: this.projectRoot,
@@ -551,6 +573,8 @@ export class InvocationService {
       plan,
       options,
       capabilityRequest,
+      attemptContext,
+      diagnostics: this.diagnostics,
     });
   }
 
@@ -646,6 +670,13 @@ export class InvocationService {
           plan,
           { ...run.execution.options, signal },
           run.execution.capabilityRequest,
+          {
+            sourceSessionId: run.bindings.sourceSessionId,
+            invocationSessionId: run.bindings.sessionId,
+            inputId: run.bindings.inputId,
+            purpose: run.purpose,
+            attemptIndex: run.settled.length,
+          },
         );
         run.settled.push(
           ...indexProviderExchangeAttempts(

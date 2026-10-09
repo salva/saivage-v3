@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import { z } from 'zod';
 import { createInterface } from 'node:readline/promises';
 import {
   publishInitialProjectRuntime,
@@ -69,7 +70,7 @@ const USAGE = `Saivage v3 CLI
 
 Usage:
   saivage init [--profile <classic|classic-typed>]
-  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime]
+  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>]
   saivage status
   saivage pause
   saivage resume
@@ -173,7 +174,10 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
       config: { type: 'string' },
       'project-root': { type: 'string' },
       'create-runtime': { type: 'boolean' },
+      'failed-provider-diagnostics': { type: 'string' },
     });
+    if (values['failed-provider-diagnostics'] !== undefined)
+      z.string().uuid().parse(values['failed-provider-diagnostics']);
     return {
       command,
       inputs: {
@@ -182,6 +186,7 @@ function parseCommand(rawArgs: string[]): ParsedCommand {
         config: values['config'] as string | undefined,
         projectRoot: values['project-root'] as string | undefined,
         createRuntime: values['create-runtime'] === true,
+        failedProviderDiagnostics: values['failed-provider-diagnostics'] as string | undefined,
       },
     };
   }

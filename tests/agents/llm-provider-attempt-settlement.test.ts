@@ -42,7 +42,7 @@ it('keeps valid Codex completion immediately before expiry successful throughout
   const owner = new AbortController();
   options.signal = owner.signal;
   jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => { effective = init!.signal!; stream = controlledResponse(effective); return stream.response; });
-  const pending = executeLlmProviderAttempt({ projectRoot: '.', registry, plan, options, capabilityRequest: {} });
+  const pending = executeLlmProviderAttempt({ projectRoot: '.', registry, plan, options, capabilityRequest: {}, attemptContext: { sourceSessionId: null, invocationSessionId: 'internal:settlement-test', inputId: options.inputId, purpose: 'primary', attemptIndex: 0 } });
   try {
     await jest.advanceTimersByTimeAsync(119999);
     stream.send('data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"complete"}]}}\n\ndata: {"type":"response.completed","response":{"id":"r"}}\n\n');

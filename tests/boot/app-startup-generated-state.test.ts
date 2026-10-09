@@ -7,9 +7,11 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
 import { startApp, type App } from '../../src/boot/app.js';
@@ -110,11 +112,26 @@ describe('application startup generated-state admission', () => {
     paths.push(appLogFile(root));
     const before = paths.map((path) => readFileSync(path));
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    const app = await start(root, false);
+    const activation = randomUUID();
+    const app = await start(root, false, activation);
     apps.push(app);
     expect(paths.map((path) => readFileSync(path))).toEqual(before);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(readCurrentConversationSegment(root, 'agent:reviewer:project')).toBeNull();
+    expect(readFileSync(join(root, '.saivage/diagnostics/failed-provider-requests', activation, '.gitignore'), 'utf8')).toBe('*\n');
+    const directory = join(root, '.saivage/diagnostics/failed-provider-requests', activation);
+    writeFileSync(join(directory, 'private.png'), 'synthetic sensitive diagnostic body');
+    symlinkSync(directory, join(root, 'private-diagnostic-alias'));
+    for (const path of ['.saivage/diagnostics', `.saivage/diagnostics/failed-provider-requests/${activation}/private.png`, 'private-diagnostic-alias/private.png']) {
+      for (const endpoint of ['files', 'files/content', 'files/image']) {
+        const response = await app.server.fastify.inject({ url: `/api/${endpoint}?${new URLSearchParams({ path })}` });
+        expect(response.statusCode).toBe(403);
+        expect(response.body).not.toContain('synthetic sensitive diagnostic body');
+      }
+    }
+    const listing = await app.server.fastify.inject({ url: '/api/files?path=.saivage' });
+    expect(listing.statusCode).toBe(200);
+    expect(listing.json().files.map((file: { name: string }) => file.name)).not.toContain('diagnostics');
   });
 
   it('ignores stray Oversight evidence when its optional exact index is absent', async () => {
@@ -616,7 +633,8 @@ describe('application startup generated-state admission', () => {
     const globalIndexBytes = readFileSync(globalAgentConversationVersionIndexFile(root, 'analyst'));
     rmSync(saivageCardsRoot(root), { recursive: true });
 
-    await expect(start(root, false)).rejects.toThrow(/Required project card authority is missing/);
+    await expect(start(root, false, randomUUID())).rejects.toThrow(/Required project card authority is missing/);
+    expect(existsSync(join(root, '.saivage/diagnostics'))).toBe(false);
     expect(existsSync(appLogFile(root))).toBe(false);
     expect(
       existsSync(cardRecordHeadFile(root, 'project', testRecordDefinition('status.md', 'project'))),
@@ -876,10 +894,11 @@ function projectRoot(): string {
   replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), TEST_SAIVAGE_CONFIG);
   return root;
 }
-function start(root: string, createRuntime: boolean): Promise<App> {
+function start(root: string, createRuntime: boolean, failedProviderDiagnostics?: string): Promise<App> {
   return startApp({
     projectRoot: root,
     createRuntime,
+    failedProviderDiagnostics,
     env: { NODE_ENV: 'test', SAIVAGE_PORT: '0', SAIVAGE_HOST: '127.0.0.1' },
   });
 }

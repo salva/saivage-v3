@@ -179,7 +179,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     else {
       const preflight = svc.preflightPinnedContentPolicyRequest({ ...request([candidate]), routePass: { kind: 'pinned-content-policy-retry', candidate } });
       if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned request.');
-      pending = svc.executePinnedContentPolicyRequest(preflight, controller.signal);
+      pending = svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 }, controller.signal);
     }
     await jest.advanceTimersByTimeAsync(route === 'ordinary' ? 60_000 : 0);
     await started;

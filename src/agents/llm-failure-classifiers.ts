@@ -10,6 +10,12 @@ interface ClassifierContext {
 
 export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
+export function httpFailureDiagnosticMetadata(bodyText: string): { providerCode?: string } {
+  const body = parseJsonObject(bodyText);
+  const error = body === undefined ? undefined : directObject(body['error']);
+  return typeof error?.code === 'string' ? { providerCode: error.code } : {};
+}
+
 export function parseFiniteRetryAfterMs(
   value: unknown,
   millisecondsPerUnit: number,

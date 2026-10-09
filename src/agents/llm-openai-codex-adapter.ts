@@ -11,7 +11,7 @@ import {
   type ProviderConversationProjection,
   type LlmProtocolAdapter,
 } from '../contracts/index.js';
-import { classifyHttpFailure } from './llm-failure-classifiers.js';
+import { classifyHttpFailure, httpFailureDiagnosticMetadata } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
 
@@ -69,6 +69,7 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
         provider: candidate.provider,
         model: candidate.model,
       }),
+      httpFailureDiagnosticMetadata(bodyText),
     );
   },
   async parseSuccess(candidate, response, _options, consumption, imageBearing) {

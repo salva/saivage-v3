@@ -175,6 +175,8 @@ export type PinnedContentPolicyPreflight =
       capabilityRequest: Readonly<CapabilityRequest>;
       inputId: string;
       options: LlmCompleteOptions;
+      sourceSessionId: string | null;
+      invocationSessionId: string;
     }>
   | Readonly<{
       kind: 'rejected';

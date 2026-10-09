@@ -66,7 +66,7 @@ export function scriptedPinnedAdmittedPreflight(): PinnedAdmittedContentPolicyRe
 }
 
 function scriptedPinnedPreflight(): PinnedAdmittedContentPolicyRequest {
-  return Object.freeze({ kind: 'admitted', plan: scriptedPlan(), candidate: scriptedCandidate, capabilityRequest: Object.freeze({}), inputId: 'scripted', options: toolsOpts() });
+  return Object.freeze({ kind: 'admitted', plan: scriptedPlan(), candidate: scriptedCandidate, capabilityRequest: Object.freeze({}), inputId: 'scripted', options: toolsOpts(), sourceSessionId: 'agent:planner:project', invocationSessionId: 'agent:planner:project' });
 }
 
 export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: (input: S, signal: AbortSignal) => Promise<ProviderTurnCompletion>): LLMProviderPort {
@@ -83,7 +83,7 @@ export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: 
     prepareAdmittedRecovery: () => { throw new Error('Unexpected admitted recovery preparation in scripted provider.'); },
     resumeAdmittedExecution: () => Promise.reject(new Error('Unexpected admitted recovery resume in scripted provider.')),
     preflightPinnedContentPolicyRequest: async (input) => { pinnedInput = input; return pinned; },
-    executePinnedContentPolicyRequest: (_preflight, signal) => {
+    executePinnedContentPolicyRequest: (_preflight, _diagnosticContext, signal) => {
       if (!pinnedInput) return Promise.reject(new Error('Scripted provider executed a pinned turn before preflight.'));
       return script(pinnedInput as S, signal);
     },

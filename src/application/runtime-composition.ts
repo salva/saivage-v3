@@ -81,6 +81,7 @@ export interface RuntimeApplication {
 }
 
 interface RuntimeApplicationServices {
+  failedProviderDiagnostics?: string;
   projectRoot: string;
   processIdentity: RuntimeProcessIdentity;
   config: SaivageConfig;
@@ -119,6 +120,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   )
     throw new Error('Image-enabled agents require an image-compatible summary candidate.');
   const invocationService = new InvocationService({
+    failedProviderDiagnostics: services.failedProviderDiagnostics,
     projectRoot,
     registry,
     candidateAvailability,

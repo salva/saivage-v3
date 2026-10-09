@@ -1,5 +1,6 @@
-import { mkdtempSync, rmSync, unlinkSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { canonicalJson, type AgentMessage } from '../../src/schemas/index.js';
@@ -512,7 +513,7 @@ it.each(['openai-responses', 'openai-codex-backend'] as const)('suppresses %s ec
   for (const [status, code, kind] of [[400, 'context_length_exceeded', 'input_context_exhausted'], [429, 'rate_limit_exceeded', 'rate_limit'], [401, 'invalid_api_key', 'auth_permanent'], [503, 'server_is_overloaded', 'server_transient'], [400, 'unrecognized_error', 'provider_protocol_error']] as const) {
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { code, type: status === 400 ? 'invalid_request_error' : code, param: 'input', message: `${dataUrl} /images/private.png` } }), { status, ...(status === 429 ? { headers: { 'retry-after': '2' } } : {}) }));
     let failure: ProviderTurnFailure | undefined;
-    try { await executeLlmProviderAttempt({ projectRoot: f.projectRoot, registry, plan: built, options: options(), capabilityRequest: { requiresImages: true } }); }
+    try { await executeLlmProviderAttempt({ projectRoot: f.projectRoot, registry, plan: built, options: options(), capabilityRequest: { requiresImages: true }, attemptContext: { sourceSessionId: SESSION, invocationSessionId: SESSION, inputId: options().inputId, purpose: 'primary', attemptIndex: 0 } }); }
     catch (error) { if (!(error instanceof ProviderTurnFailure)) throw error; failure = error; }
     expect(failure).toBeDefined();
     const original = failure!.originalFailure;
@@ -529,7 +530,7 @@ it.each(['openai-responses', 'openai-codex-backend'] as const)('suppresses %s ec
   const terminal = { id: 'synthetic-failed', status: 'failed', error: { code: 'context_length_exceeded', type: 'invalid_request_error', param: 'input', message: `${dataUrl} /images/private.png` } };
   const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(protocol === 'openai-responses' ? JSON.stringify(terminal) : `data: ${JSON.stringify({ type: 'response.failed', response: terminal })}\n\n`, { status: 200, headers: { 'content-type': protocol === 'openai-responses' ? 'application/json' : 'text/event-stream' } }));
   try {
-    await executeLlmProviderAttempt({ projectRoot: f.projectRoot, registry, plan: built, options: options(), capabilityRequest: { requiresImages: true } });
+    await executeLlmProviderAttempt({ projectRoot: f.projectRoot, registry, plan: built, options: options(), capabilityRequest: { requiresImages: true }, attemptContext: { sourceSessionId: SESSION, invocationSessionId: SESSION, inputId: options().inputId, purpose: 'primary', attemptIndex: 0 } });
     throw new Error('Expected terminal failure');
   } catch (error) {
     if (!(error instanceof ProviderTurnFailure) || !(error.originalFailure instanceof LlmRequestError)) throw error;
@@ -799,6 +800,7 @@ it.each(['gpt-6.1-sol', 'gpt-6-astra'])(
       plan: retained.plan,
       options: admission.execution.options,
       capabilityRequest: admission.execution.capabilityRequest,
+      attemptContext: { sourceSessionId: admission.bindings.sourceSessionId, invocationSessionId: admission.bindings.sessionId, inputId: admission.bindings.inputId, purpose: 'primary', attemptIndex: 2 },
     });
     expect(fetch.mock.calls[2]![1]!.body).toBe(fetch.mock.calls[1]![1]!.body);
   },
@@ -851,6 +853,30 @@ it.each(['gpt-6.1-sol', 'gpt-6-astra'])(
   },
 );
 
+it('captures failed real image wire bytes by hash but omits pixels before private diagnostic publication', async () => {
+  const f = await fixture(33, 65);
+  const activation = randomUUID();
+  const selected = { provider: 'diagnostic-image', account: null, model: 'gpt-6-astra' };
+  const registry = invocationProviderRegistry([selected], { 'diagnostic-image': { transportProtocol: 'openai-responses' } });
+  const service = new InvocationService({ projectRoot: f.projectRoot, registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS, failedProviderDiagnostics: activation });
+  const provider = createInvocationServiceProvider(service, f.projectRoot);
+  const signal = new AbortController().signal;
+  const admitted = await provider.preflightPinnedContentPolicyRequest({ ...invocation(f.projection), routePass: { kind: 'pinned-content-policy-retry', candidate: selected } }, signal);
+  if (admitted.kind !== 'admitted') throw new Error('Expected image admission.');
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"error":{"code":"content_filter","message":"synthetic refusal"}}', { status: 400 }));
+  await expect(provider.executePinnedContentPolicyRequest(admitted, { attemptIndex: 1 }, signal)).rejects.toMatchObject({ originalFailure: { failure: { kind: 'content_policy' } } });
+  const raw = String(fetch.mock.calls[0]![1]!.body);
+  expect(raw).toBe(admitted.plan.request.serializedBody); expect(raw).toContain('data:image/png;base64,');
+  const directory = join(f.projectRoot, '.saivage/diagnostics/failed-provider-requests', activation);
+  const names = readdirSync(directory).filter(name => name.endsWith('.json')); expect(names).toHaveLength(1);
+  const file = readFileSync(join(directory, names[0]!), 'utf8'); const dump = JSON.parse(file);
+  expect(dump).toMatchObject({ raw_request_sha256: createHash('sha256').update(raw).digest('hex'), body_disposition: 'redacted', counts: { images: 1 }, attempt_index: 1 });
+  expect(file).not.toContain('data:image/png;base64,'); expect(file).not.toContain(f.bytes.toString('base64'));
+  expect(dump.stored_body_sha256).toBe(createHash('sha256').update(dump.stored_body).digest('hex'));
+  const output = JSON.parse(dump.stored_body).input.find((item: { type: string }) => item.type === 'function_call_output');
+  expect(output.output[1]).toBe('[OMITTED_IMAGE]');
+});
+
 it('prepares a pinned image retry once and dispatches its exact admitted bytes after the selected file is removed', async () => {
   const f = await fixture(33, 65);
   const selected = { provider: 'pinned-image', account: null, model: 'gpt-6-astra' };
@@ -865,7 +891,7 @@ it('prepares a pinned image retry once and dispatches its exact admitted bytes a
   expect(admitted.plan.request.imageCount).toBe(1);
   unlinkSync(conversationImageFile(f.projectRoot, SESSION, f.descriptor.id));
   const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'answer' }] }] }), { status: 200 }));
-  await provider.executePinnedContentPolicyRequest(admitted, signal);
+  await provider.executePinnedContentPolicyRequest(admitted, { attemptIndex: 0 }, signal);
   expect(fetch.mock.calls[0]![1]!.body).toBe(admitted.plan.request.serializedBody);
   const output = (JSON.parse(String(fetch.mock.calls[0]![1]!.body)).input as Array<Record<string, unknown>>).find(item => item.type === 'function_call_output')!;
   const image = (output.output as Array<Record<string, unknown>>)[1]!;

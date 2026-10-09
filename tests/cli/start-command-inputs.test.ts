@@ -25,7 +25,8 @@ describe('start command typed inputs', () => {
     await run([
       'node', 'saivage', 'start',
       '--host=127.0.0.1', '--port', '0', '--config=selected.yaml',
-      '--project-root', '/work/project', '--create-runtime',
+       '--project-root', '/work/project', '--create-runtime',
+       '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001',
     ]);
 
     expect(startApp).toHaveBeenCalledTimes(1);
@@ -35,6 +36,7 @@ describe('start command typed inputs', () => {
       config: 'selected.yaml',
       projectRoot: '/work/project',
       createRuntime: true,
+      failedProviderDiagnostics: '00000000-0000-4000-8000-000000000001',
     });
     expect(startApp.mock.calls[0]![0]).not.toHaveProperty('argv');
     expect(withDirectMutationComposition).not.toHaveBeenCalled();
@@ -49,7 +51,18 @@ describe('start command typed inputs', () => {
       config: undefined,
       projectRoot: undefined,
       createRuntime: false,
+      failedProviderDiagnostics: undefined,
     });
     expect(withDirectMutationComposition).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['start', '--failed-provider-diagnostics', 'invalid'],
+    ['start', '--failed-provider-diagnostics'],
+    ['start', '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001', '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000002'],
+    ['status', '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001'],
+    ['init', '--failed-provider-diagnostics', '00000000-0000-4000-8000-000000000001'],
+  ])('rejects diagnostic option misuse before starting (%j)', async (...args) => {
+    await expect(run(['node', 'saivage', ...args])).rejects.toBeDefined();
+    expect(startApp).not.toHaveBeenCalled(); expect(withDirectMutationComposition).not.toHaveBeenCalled();
   });
 });

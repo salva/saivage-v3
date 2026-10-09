@@ -313,7 +313,101 @@ the ordinary configuration procedure; warnings neither probe credentials nor
 authorize automatic repair, retries, or a configuration reload. See the
 [configuration guide](../guides/configuration.md).
 
-### Command environment
+## Private failed-provider request diagnostics
+
+Disabled by default. On a **separately authorized start**, explicitly supply a fresh
+UUID for one finite capture session, for example:
+
+```bash
+saivage start --failed-provider-diagnostics 9aeab901-42ca-444a-b4d2-1d11dbbd939a
+```
+
+Do not copy this example UUID for recurring starts. The CLI rejects invalid/duplicate
+values and the option on other commands. There is no YAML/environment/REST/UI toggle.
+Initialization follows lifecycle exclusion and normal canonical startup admission;
+it does not bypass old/mixed-state blockers. The destination is exactly
+`.saivage/diagnostics/failed-provider-requests/<activation-UUID>/<diagnostic-UUID>.json`.
+Exclusive activation-directory creation consumes the UUID, even if later setup
+fails. Reuse (including automatic service restart with the same argument) disables
+capture without opening old contents. Explicit rearming requires a new UUID.
+
+Before dumps, a session-local `.gitignore` containing `*` plus newline ignores
+itself, dumps and publication temporaries, including in a later-initialized Git
+repository. Known ignore publication failure disables capture; publication
+uncertainty is fatal. This prevents likely accidental staging, not forced adds,
+manual copying or trusted root-agent access. No project Git configuration is changed.
+
+The InvocationService shares **16 qualifying failure publication-attempt slots
+within one monotonic hour** of activation across primary and internal-summary calls.
+Completion time controls eligibility; there is no timer. Known failed captures and
+size-omission records consume a slot without refund/retry. Each file is at most
+**8 MiB total UTF-8 JSON**. Raw submitted bodies over that limit are not parsed for
+storage; oversized projected envelopes also become metadata-only records, at most
+**16 KiB**, with `raw_body_size_limit` or `stored_envelope_size_limit`. No body prefix
+or silently dropped message batch is represented as complete. Dump publications,
+including abandoned dump temporaries, total at most 128 MiB per activation plus
+tiny setup files; multiple explicit new activations can accumulate without bound.
+
+Eligible outcomes are non-2xx, HTTP-200 terminal SSE errors, malformed/truncated
+responses, network/inactivity failures after model transport entry and explicit
+parsed `content_filter` refusals. Ordinary success, auth refresh, pretransport
+setup/admission and cancellation do not dump. Empty/`length` summary validation
+failures do not archive successful requests. Existing routing, retries and summary/
+refusal recovery are untouched; a finish-reason refusal may still have canonical
+exchange status `ok`. Inspect fixed local service stderr notices only for activation
+health: `Failed provider diagnostics enabled (finite private local capture).`,
+`Failed provider diagnostics disabled (activation unavailable).`,
+`Failed provider diagnostics limit reached.` (once when encountered), or
+`Failed provider diagnostic capture failed.`. They carry no request content.
+Known preparation/prepublication errors preserve the original provider outcome;
+rename/directory-durability uncertainty is fatal before warnings, canonical settlement,
+retry or cleanup, even if cancellation races. Lost captures are possible.
+
+**Local authorized inspection only:** these files remain sensitive source/prompt/
+project text, not consent to paste or upload. Files lists omit the diagnostic
+namespace and direct list/content/image reads or aliases reject before inspection.
+There is no API/UI inspector, evidence link, export or replay command. Diagnostic
+content, hashes and dynamic diagnostic errors are not emitted into logs/public reports.
+
+Each format-1 document comes from the exact serialized string passed to transport,
+not reconstructed conversation state. `source_session_id` is canonical source;
+`invocation_session_id` identifies the actual call, including internal summary;
+`purpose`, `input_id` and `attempt_index` provide correlation. The index is final
+canonical zero-based indexing: resumed calls include retained attempts, and a pinned
+retry after two ordinary attempts uses 2, not its service pass-local zero. `http_status`
+is the actual opened response or null; `embedded_status` is separately labeled.
+Structured provider code is not inferred from prose (`cyber_policy` is not assumed
+to mean `cyber_attack`); a generic `content_filter` finish reason need not have a code.
+
+`raw_request_sha256`/`raw_request_utf8_bytes` cover the actual submitted UTF-8 body,
+including omitted private/image data. `stored_body_sha256`/`stored_body_utf8_bytes`
+cover precisely the decoded `stored_body` string, not enclosing JSON escaping or
+the whole file, and are null when omitted. `body_disposition` reports literal
+`exact`, changed `redacted` (including reencoding), or `omitted`; inspect `reencoded`,
+`privacy_policy`, `counts` and `size_reason` before drawing conclusions. Images/
+base64/data URLs, opaque private reasoning/replay/reference IDs and structured
+auth/header/cookie/environment/config subtrees receive placeholders; ordinary
+nonprivate text/order/instructions remain. Protocol-known tool-argument JSON strings
+are decoded, recursively projected and reencoded in the stored copy only; invalid
+arguments are wholly omitted with `unprojectable_tool_arguments`, not a raw fallback.
+Remaining leaves/metadata receive existing outbound redaction plus active transport
+credential-literal replacement. This is **not exhaustive secret certification**:
+unusual encodings and sensitive prose may remain. Submission/hashes prove neither
+network delivery/provider receipt nor replayability or the triggering refusal passage.
+
+No scans, rotation, deletion or automatic retention maintenance occur; crash-left
+temporaries remain ignored forever. Operator retention/disposal is separate local
+work. Diagnostics are outside reset's four generated roots (cards, agents, logs,
+work), so reset does not remove them. Disable on a separately authorized start by
+omitting the option; this neither reads nor deletes retained captures. This feature
+alone changes no canonical format and needs no reset/migration of valid current
+state. **Rollback caveat:** older Files implementations lack this private exclusion.
+Remove the opt-in argument and separately keep retained diagnostics outside the old
+release's exposure, or remain on the patched release; binary rollback alone is not
+safe privacy handling. Source completion authorizes no deployment, restart, Run,
+reset, external migration or real provider action.
+
+## Command environment
 
 Operators may provide `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` in the service environment for ordinary command children. Saivage supplies no identity defaults and does not require identity at startup; Git validates the provided values when used. Provider tokens, unknown inherited names, and Git or SSH override names such as `GIT_CONFIG`, `GIT_SSH`, and `GIT_SSH_COMMAND` are not inherited by ordinary commands. Explicit configured command or stdio MCP environment overlays are distinct from inherited values and retain precedence. The [system command-environment contract](../spec/system-specification.md#command-environment) owns the exact inherited list.
 

@@ -13,6 +13,7 @@ type NodeEnvironment = 'development' | 'production' | 'test';
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
 export interface Environment {
+  readonly failedProviderDiagnostics?: string;
   readonly nodeEnv: NodeEnvironment;
   readonly projectRoot: string;
   readonly configAuthority: ResolvedConfigAuthority;
@@ -55,6 +56,7 @@ class EnvironmentLoadError extends Error {
 }
 
 export interface StartInputs {
+  readonly failedProviderDiagnostics?: string;
   readonly host?: string;
   readonly port?: string;
   readonly config?: string;
@@ -191,6 +193,10 @@ export async function loadEnvironment(
   const apiToken = rawApiToken;
 
   const candidate: Environment = {
+    failedProviderDiagnostics:
+      inputs.failedProviderDiagnostics === undefined
+        ? undefined
+        : z.string().uuid().parse(inputs.failedProviderDiagnostics),
     nodeEnv,
     projectRoot,
     configAuthority,

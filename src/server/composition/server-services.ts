@@ -97,6 +97,7 @@ export async function createServerServices(input: {
   const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
   const runtimeApplication = createRuntimeApplication({
+    failedProviderDiagnostics: environment.failedProviderDiagnostics,
     projectRoot,
     processIdentity: input.processIdentity,
     config,

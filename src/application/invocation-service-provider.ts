@@ -54,8 +54,8 @@ export function createInvocationServiceProvider(
         invocationRequest({ ...input, providerConversation }, signal),
       );
     },
-    executePinnedContentPolicyRequest: (preflight, signal) =>
-      invocationService.executePinnedContentPolicyRequest(preflight, signal),
+    executePinnedContentPolicyRequest: (preflight, diagnosticContext, signal) =>
+      invocationService.executePinnedContentPolicyRequest(preflight, diagnosticContext, signal),
     projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,

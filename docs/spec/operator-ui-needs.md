@@ -539,6 +539,15 @@ All other F-numbers remain unchanged.
 
 ## 4. Constraints any UI must respect
 
+Private opt-in failed-provider diagnostics are outside the UI's evidence scope.
+Files must omit/refuse `.saivage/diagnostics`, including project/work aliases and
+resolved symlinks, before directory, content or image inspection. There is no
+diagnostic inspector/export or enablement control. Project/prompt text remains
+sensitive after projection; neither redaction nor hashes certify secret-free,
+complete, replayable or provider-received input. Canonical request metadata and
+content-policy dashboard counts do not establish completeness of internal-summary
+refusal observation; existing summary/refusal outcomes remain unchanged.
+
 Apply `AGENTS.md` and the current authorities, especially the contracts register,
 Publication-fatal operator behavior, and system-specification Sections 7–12.
 

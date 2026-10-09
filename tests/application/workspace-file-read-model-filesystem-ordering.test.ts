@@ -94,6 +94,32 @@ afterEach(() => {
 });
 
 describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
+  it('excludes diagnostic directories, content and images through project/work aliases before target inspection', async () => {
+    const root = temporaryRoot('saivage-diagnostic-files-ordering-');
+    const relative = '.saivage/diagnostics'; const directory = join(root, relative);
+    realFs.mkdirSync(directory, { recursive: true });
+    const pixels = join(directory, 'private.png'); realFs.writeFileSync(pixels, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]));
+    realFs.writeFileSync(join(root, '.saivage/diagnostics-notes'), 'ordinary');
+    realFs.mkdirSync(join(root, '.saivage/diagnostics-source')); realFs.writeFileSync(join(root, '.saivage/diagnostics-source/ordinary.ts'), 'export const ordinary = true;');
+    const work = join(root, '.saivage/work/processes/fixture'); realFs.mkdirSync(work, { recursive: true });
+    realFs.symlinkSync(directory, join(root, 'diagnostic-alias')); realFs.symlinkSync(pixels, join(root, 'diagnostic-image'));
+    realFs.symlinkSync(directory, join(work, 'diagnostic-alias')); realFs.symlinkSync(pixels, join(work, 'diagnostic-image'));
+    const model = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    expect(listedNames(model.listFiles('.saivage').body)).not.toContain('diagnostics');
+    expect(listedNames(model.listFiles('.saivage').body)).toContain('diagnostics-notes');
+    expect(listedNames(model.listFiles('.').body)).not.toContain('diagnostic-alias');
+    expect(listedNames(model.listFiles('work:///processes/fixture').body)).not.toContain('diagnostic-image');
+    for (const path of [relative, `${relative}/private.png`, 'diagnostic-alias', 'diagnostic-alias/private.png', 'diagnostic-image', 'work:///processes/fixture/diagnostic-alias', 'work:///processes/fixture/diagnostic-alias/private.png', 'work:///processes/fixture/diagnostic-image']) {
+      traces.length = 0;
+      expect(model.listFiles(path)).toMatchObject({ statusCode: 403 });
+      expect(await model.readFileContent(path)).toMatchObject({ statusCode: 403 });
+      expect(await model.readFileImage(path)).toMatchObject({ statusCode: 403 });
+      expect(traces.filter(trace => ['statSync', 'readdirSync', 'readFileSync'].includes(trace.operation) && (trace.path === directory || trace.path.startsWith(`${directory}/`) || trace.path.includes('diagnostic-alias') || trace.path.endsWith('diagnostic-image')))).toEqual([]);
+    }
+    expect((await model.readFileContent('.saivage/diagnostics-notes')).statusCode).toBeUndefined();
+    expect(listedNames(model.listFiles('.saivage/diagnostics-source').body)).toContain('ordinary.ts');
+    expect((await model.readFileContent('.saivage/diagnostics-source/ordinary.ts')).statusCode).toBeUndefined();
+  });
   it('refuses confidential image-shaped direct/alias requests before byte reads, including config and physical conversation/card dispatch', async () => {
     const root = temporaryRoot('saivage-image-private-ordering-');
     const model = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));

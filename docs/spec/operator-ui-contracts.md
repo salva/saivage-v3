@@ -591,6 +591,15 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
 
 ## 8. Files, processes, and evidence
 
+- `.saivage/diagnostics` and descendants are private: parent listings omit them;
+  direct list/content/image reads and project/work aliases or resolved symlinks
+  refuse them before subtree readdir, content inspection, sniffing or decoding.
+  Opt-in failed-provider diagnostics contain sensitive projected request text and
+  local hashes, not public evidence. No UI inspector/export/control or API link is
+  provided. Canonical exchange evidence remains metadata-only; a private explicit
+  `content_filter` observation may coexist with canonical `ok`. Content-policy
+  dashboard counts are not a complete census of internal-summary refusals.
+
 - Eligible ordinary static PNG/JPEG/WebP are recognized by content and successful
   decode, not extension. `files.content` returns strict image metadata without
   binary/base64; authenticated `GET /api/files/image?path=...` freshly admits and

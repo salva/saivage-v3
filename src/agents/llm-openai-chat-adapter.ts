@@ -12,7 +12,7 @@ import {
   type ToolCall,
   type LlmProtocolAdapter,
 } from '../contracts/index.js';
-import { classifyHttpFailure } from './llm-failure-classifiers.js';
+import { classifyHttpFailure, httpFailureDiagnosticMetadata } from './llm-failure-classifiers.js';
 import { extractChatUsage } from './llm-usage.js';
 import {
   serializeToolsForChat,
@@ -83,7 +83,7 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       provider: candidate.provider,
       model: candidate.model,
     });
-    return new LlmRequestError(failure);
+    return new LlmRequestError(failure, httpFailureDiagnosticMetadata(bodyText));
   },
   async parseSuccess(candidate, response, _options, consumption) {
     const rawText = await consumption.readText(response);

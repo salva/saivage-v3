@@ -26,6 +26,7 @@ function sanitizeFilePath(filePath: string): string {
 
 export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
+  if (clean === '.saivage/diagnostics' || clean.startsWith('.saivage/diagnostics/')) return true;
   if (clean === '.saivage/locks' || clean.startsWith('.saivage/locks/')) return true;
   if (clean === '.saivage/repair-attic' || clean.startsWith('.saivage/repair-attic/')) return true;
   if (
