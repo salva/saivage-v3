@@ -224,6 +224,10 @@ Node-externalization warnings are not browser-safety success.
   failed or cancelled CI browser run, a best-effort artifact upload preserves
   `tmp/playwright-report` and `tmp/playwright-results`; missing output only
   warns.
+- The control-room route smoke checks visible collapsed partial-message qualifiers,
+  selected versus full message counts and incomplete-item byte coverage in semantic
+  detail, then the secondary safe-original result disclosure. Its mocked REST and
+  WebSocket preview evidence does not validate a real backend.
 - Operator browser smoke includes a non-loopback plain-HTTP scenario; the
   validation host must expose a non-internal IPv4 interface reachable by
   local Chromium. Absence is a failing prerequisite, not a skipped test.

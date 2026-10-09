@@ -29,7 +29,38 @@ test('operator control room smoke walks cockpit routes with REST fixtures and We
 
   await waitForRuntimePair(page, () => page.goto(`/agents/agent:planner:project`));
   await expect(page.getByTestId('route-cockpit')).toBeVisible();
-  const pagedTool=page.locator('.tool-chip').filter({hasText:'partial message slice'}); await expect(pagedTool).toContainText('1 partial message slice of 5 selected messages'); await expect(pagedTool).toContainText('12 total visible messages'); await pagedTool.getByRole('button',{name:/Expand tool read_agent_session details/}).click(); await pagedTool.getByRole('button',{name:'Show raw response'}).click(); await expect(pagedTool.getByLabel('Raw tool response')).toContainText('"total_visible_entries":12');
+  const reader = page.getByRole('region', { name: 'Focused conversation reader', exact: true });
+  const pagedTool = reader.getByRole('group', { name: 'tool read_agent_session', exact: true });
+  await expect(pagedTool).toHaveCount(1);
+  await expect(pagedTool).toBeVisible();
+  const expandTool = pagedTool.getByRole('button', { name: 'Expand tool read_agent_session details', exact: true });
+  await expect(expandTool).toHaveAttribute('aria-expanded', 'false');
+  await expect(expandTool).toContainText('Read selected session');
+  await expect(expandTool.getByText('agent:planner:project', { exact: true })).toBeVisible();
+  for (const qualifier of ['Observation recorded', 'Partial coverage', 'Partial JSON items', '1 of 5 selected messages']) {
+    await expect(expandTool.getByText(qualifier)).toBeVisible();
+  }
+
+  await expandTool.click();
+  await expect(pagedTool.getByRole('button', { name: 'Collapse tool read_agent_session details', exact: true })).toHaveAttribute('aria-expanded', 'true');
+  const result = pagedTool.getByRole('heading', { name: 'Result', exact: true }).locator('..');
+  const observation = result.getByRole('heading', { name: 'Recorded observation (not a live monitor)', exact: true }).locator('..');
+  await expect(observation.locator('dl > div').filter({ has: page.getByText('Full visible message count', { exact: true }) }).locator('dd')).toHaveText('12');
+  const selectedCoverage = result.getByRole('heading', { name: 'Selected messages — recorded coverage', exact: true }).locator('..');
+  for (const [label, value] of [['total', '5'], ['returned', '1']]) {
+    await expect(selectedCoverage.locator('dl > div').filter({ has: page.getByText(label, { exact: true }) }).locator('dd')).toHaveText(value);
+  }
+  const partialItem = result.getByRole('heading', { name: 'Partial JSON item 1 (not a complete observation)', exact: true }).locator('..');
+  await expect(partialItem).toBeVisible();
+  await expect(partialItem.getByText('7b22', { exact: true })).toBeVisible();
+  for (const [label, value] of [['utf8 bytes', '2'], ['offset bytes', '0'], ['next offset bytes', '2'], ['total bytes', '40']]) {
+    await expect(partialItem.locator('dl > div').filter({ has: page.getByText(label, { exact: true }) }).locator('dd')).toHaveText(value);
+  }
+
+  await result.locator('summary').filter({ hasText: /^Safe original result$/ }).click();
+  const safeOriginal = result.getByLabel('Safe original tool result', { exact: true });
+  await expect(safeOriginal).toBeVisible();
+  await expect(safeOriginal).toContainText('"total_visible_entries":12');
 
   await waitForRuntimePair(page, () => page.goto('/files'));
   await expect(page.getByText('plan.json')).toBeVisible();
