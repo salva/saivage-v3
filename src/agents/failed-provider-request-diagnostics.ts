@@ -10,11 +10,11 @@ import {
   type LlmTransportFailure,
 } from '../contracts/index.js';
 import { publishFreshFile } from '../persistence/index.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import {
-  isSecretKey,
-  projectDynamicForOutbound,
-  redactTextForOutbound,
-} from '../redaction/index.js';
+  diagnosticProjectionCounts,
+  projectFailedProviderRequest,
+} from './failed-provider-request-projection.js';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const SCALAR_LIMIT = 512;
@@ -36,7 +36,7 @@ const countsSchema = z
 // This family is private advisory output, not canonical provider evidence.
 const diagnosticSchema = z
   .object({
-    format_version: z.literal(1),
+    format_version: z.literal(2),
     kind: z.literal('failed-provider-request-diagnostic'),
     diagnostic_id: z.string().uuid(),
     activation_id: z.string().uuid(),
@@ -83,7 +83,7 @@ const diagnosticSchema = z
     stored_body_utf8_bytes: z.number().int().nonnegative().nullable(),
     counts: countsSchema,
     reencoded: z.boolean(),
-    privacy_policy: z.literal('failed-provider-request-privacy-1'),
+    privacy_policy: z.literal('failed-provider-request-privacy-2'),
     size_reason: z.enum(['raw_body_size_limit', 'stored_envelope_size_limit']).nullable(),
   })
   .strict();
@@ -123,103 +123,20 @@ function projectObservation(
   observation: Observation,
   credential: string | undefined,
 ) {
-  const counts = {
-    structured_private: 0,
-    images: 0,
-    private_replay: 0,
-    data_urls: 0,
-    tool_arguments_reencoded: 0,
-    unprojectable_tool_arguments: 0,
-    text_redactions: 0,
-    structured_redactions: 0,
-  };
-  const text = (value: string): string => {
-    const withoutData = value.replace(/data:[^\s"'<>]*;base64,[A-Za-z0-9+/=]+/gi, () => {
-      counts.data_urls++;
-      return '[OMITTED_DATA_URL]';
-    });
-    const safe = redactTextForOutbound(
-      credential ? withoutData.split(credential).join('[REDACTED]') : withoutData,
-    );
-    if (safe !== withoutData) counts.text_redactions++;
-    return safe;
-  };
-  const project = (value: unknown): unknown => {
-    if (typeof value === 'string') return text(value);
-    if (Array.isArray(value)) return value.map(project);
-    if (value === null || typeof value !== 'object') return value;
-    const object = value as Record<string, unknown>;
-    if (object.type === 'reasoning' || object.type === 'item_reference') {
-      counts.private_replay++;
-      return '[OMITTED_PRIVATE_REPLAY]';
-    }
-    if (object.type === 'input_image' || object.type === 'image_url' || object.type === 'image') {
-      counts.images++;
-      return '[OMITTED_IMAGE]';
-    }
-    const output: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(object)) {
-      const storedKey = text(key);
-      if (
-        isSecretKey(key) ||
-        /(?:^|[_-])(?:auth(?:entication|orization)?(?:[_-]?profiles?)?|headers?|cookies?|env(?:ironment)?|config(?:uration)?)$/.test(
-          key.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase(),
-        )
-      ) {
-        counts.structured_private++;
-        output[storedKey] = '[OMITTED_PRIVATE_FIELD]';
-      } else if (
-        key === 'encrypted_content' ||
-        key === 'previous_response_id' ||
-        key === 'conversation' ||
-        (key === 'id' &&
-          typeof object.type === 'string' &&
-          ['message', 'function_call', 'function_call_output'].includes(object.type))
-      ) {
-        counts.private_replay++;
-        output[storedKey] = '[OMITTED_PRIVATE_REPLAY]';
-      } else if (/^(?:image_url|image_data|b64_json|base64)$/i.test(key)) {
-        counts.images++;
-        output[storedKey] = '[OMITTED_IMAGE]';
-      } else output[storedKey] = project(child);
-    }
-    const safe = projectDynamicForOutbound(output);
-    if (JSON.stringify(safe) !== JSON.stringify(output)) counts.structured_redactions++;
-    return safe;
-  };
+  const counts = diagnosticProjectionCounts();
   const rawBytes = Buffer.byteLength(observation.serializedBody, 'utf8');
   let stored: string | null = null;
   if (rawBytes <= MAX_BYTES) {
-    const body = JSON.parse(observation.serializedBody) as Record<string, unknown>;
-    const argumentsProjection = (object: Record<string, unknown>) => {
-      if (!('arguments' in object)) return;
-      if (typeof object.arguments !== 'string') {
-        counts.unprojectable_tool_arguments++;
-        object.arguments = '[OMITTED_TOOL_ARGUMENTS]';
-        return;
-      }
-      try {
-        object.arguments = JSON.stringify(project(JSON.parse(object.arguments)));
-        counts.tool_arguments_reencoded++;
-      } catch {
-        counts.unprojectable_tool_arguments++;
-        object.arguments = '[OMITTED_TOOL_ARGUMENTS]';
-      }
-    };
-    if (observation.protocol === 'openai-chat-completions' && Array.isArray(body.messages)) {
-      for (const message of body.messages) {
-        if (!message || !Array.isArray(message.tool_calls)) continue;
-        for (const call of message.tool_calls)
-          if (call?.function) argumentsProjection(call.function);
-      }
-    } else if (Array.isArray(body.input)) {
-      for (const item of body.input) if (item?.type === 'function_call') argumentsProjection(item);
-    }
-    stored = JSON.stringify(project(body));
+    stored = projectFailedProviderRequest(
+      observation.serializedBody,
+      observation.protocol,
+      credential,
+      counts,
+    );
   }
   const present = (value: string) => presentation(value, credential);
   const document = {
-    format_version: 1 as const,
+    format_version: 2 as const,
     kind: 'failed-provider-request-diagnostic' as const,
     diagnostic_id: diagnosticId,
     activation_id: activationId,
@@ -260,7 +177,7 @@ function projectObservation(
     stored_body_utf8_bytes: stored === null ? null : Buffer.byteLength(stored, 'utf8'),
     counts,
     reencoded: stored !== null && stored !== observation.serializedBody,
-    privacy_policy: 'failed-provider-request-privacy-1' as const,
+    privacy_policy: 'failed-provider-request-privacy-2' as const,
     size_reason:
       rawBytes > MAX_BYTES
         ? ('raw_body_size_limit' as const)

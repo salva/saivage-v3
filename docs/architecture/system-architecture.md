@@ -1431,15 +1431,28 @@ no successful archive, auth-refresh capture or change to downstream outcomes.
 Owner-local monotonic deadline and counter permit 16 failure publication attempts
 within one hour, without timers, scans, refunds or retries. Each slot allows at most
 8 MiB of UTF-8 JSON; oversized raw bodies/envelopes yield only bounded metadata
-(16 KiB), never a prefix. Projection parses only captured wire JSON: ordered
-nonprivate content remains while structured credentials/config, images/data URLs,
-opaque replay and native reference IDs are omitted. Protocol-known tool-argument
-strings are decoded, recursively projected and reencoded; invalid arguments are
-wholly omitted. Existing outbound redaction and call-local active-credential
-replacement cover remaining leaves/metadata, not a general secret inventory.
-The version-1 document reports literal exact/redacted/omitted fidelity, reencoding,
+(16 KiB), never a prefix. The adjacent agents-local pure owner
+`failed-provider-request-projection.ts` parses only captured wire JSON, explicitly
+dispatching Responses/Codex versus Chat. Its positive native-position grammar retains
+visible prose (including Codex system strings), ordered content, function names and
+call/result correlation, not native IDs, annotations, opaque/unknown items or extensions.
+Unknown extension names never survive the fixed `_diagnostic_omitted_extensions`
+marker; wholly omitted subtrees retain array positions without descendant traversal.
+Its separate ordinary JSON walker preserves application type/ID-shaped data and
+schemas while omitting structured credentials/config and image payloads. Only known
+serialized argument slots are decoded/projected/reencoded once; invalid slots have
+no raw fallback, and result/instruction prose is never decoded. Existing outbound
+redaction, data-URL removal and active-credential replacement cover retained leaves,
+not a general secret inventory. Projection changes neither submitted bytes nor native
+private-row publication/account replay. The version-2/policy-2 document reports
+literal exact/redacted/omitted fidelity, reencoding,
 counts/reasons, raw-body and decoded-stored-body hashes/byte counts. This is sensitive
 local text, not a secret-free export, provider receipt or replay fixture.
+
+Omission counts are owner-local: one per whole native item/content or omitted field
+subtree (annotations once), one per image object/payload field, with no hidden-child
+counting or repeated leaf redaction. Retained v1 diagnostics are not policy-2 captures
+and remain untouched; no retained reader, converter, scan or cleanup is introduced.
 
 Synchronous publication reuses the ordinary fresh-temp/fsync/rename/parent-fsync
 primitive with defaults/umask. Known errors yield fixed content-free local notices

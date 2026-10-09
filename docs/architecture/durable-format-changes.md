@@ -42,7 +42,36 @@ This change alone requires no migration/reset; earlier 5→6 adoption remains
 independent. Source approval grants no deployment, reset or migration consent,
 and equal versions do not certify installed-state compatibility.
 
-### New private failed-provider diagnostic family (2026-10-09)
+### Protocol-owned failed-provider diagnostic privacy (F-01, 2026-10-09)
+
+Existing diagnostic family **`format_version:1 → 2`**, unchanged
+`kind:failed-provider-request-diagnostic`; `privacy_policy` changes from
+`failed-provider-request-privacy-1` to `failed-provider-request-privacy-2`.
+The policy tag does not replace the owning family bump. The source contract was
+introduced by `f8d05e75a7918cd74f7c24ec6f4a020fe4a3ce49` (historical introduction
+below); this implementation's source parent is `d2092d63`. Installed/released
+applicability is **unknown**: this is a fresh bump, not a shared unreleased cutover
+or invented deployment date.
+
+Evidence: strict v2 producer in `agents/failed-provider-request-diagnostics.ts`
+and adjacent pure `failed-provider-request-projection.ts`; synthetic privacy and
+pipeline regressions exercise actual Responses parsing/private-row publication/
+same-account replay and actual prepared Codex system strings. Native positions now
+use positive visible-field projection, omitting annotations, unknown items/content
+and extensions without echoing unknown keys; a fixed aggregate extension marker
+and precise subtree counts change retained diagnostic interpretation. Ordinary
+application JSON retains type/ID-shaped data subject to structured/text privacy.
+Raw submitted serialization/hash, transport and canonical replay remain unchanged.
+
+New activations publish only v2; there is no retained reader/index. V1 files remain
+untouched and must not be claimed to satisfy v2 privacy. Reused activation UUIDs
+remain disabled. No scan, conversion, automatic disposal, application-state reset
+or migration is needed or authorized for this isolated observational family.
+Conversation **6**, card/record families, shared app-log/provider-evidence envelope
+**1**, lifecycle lock and configuration remain unchanged. External migration/disposal
+and deployment require separate operator scope.
+
+### Historical introduction: private failed-provider diagnostic family (2026-10-09)
 
 New family initial **`format_version:1`**, strict
 `kind:failed-provider-request-diagnostic`, owned by

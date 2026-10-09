@@ -67,6 +67,302 @@ afterEach(() => {
 });
 
 describe('private diagnostic wire-derived projection and finite activation', () => {
+  it.each(['openai-responses', 'openai-codex-backend', 'openai-chat-completions'])(
+    'separates native positions from lookalike application data for %s',
+    (protocol) => {
+      const f = fixture();
+      const application = {
+        type: 'reasoning',
+        id: 'row-7',
+        file_id: 'document-3',
+        conversation: 'ordinary',
+        previous_response_id: 'ordinary-prior',
+        encrypted_content: 'ordinary-label',
+        content: [{ type: 'image', label: 'diagram' }],
+        nested: '{"auth":{"value":"encoded prose"}}',
+      };
+      const prose = JSON.stringify(application);
+      const args = JSON.stringify({
+        application,
+        auth: { value: 'hidden-auth' },
+        config: { value: 'hidden-config' },
+        image_data: 'hidden-pixels',
+        label: 'active-fixture-literal',
+        nested: [{ auth: { value: 'hidden-nested' } }],
+        prose,
+      });
+      const isChat = protocol === 'openai-chat-completions';
+      const body = {
+        instructions: prose,
+        tools: [{ description: prose, parameters: application }],
+        ...(isChat
+          ? {
+              messages: [
+                {
+                  role: 'assistant',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'visible',
+                      annotations: [{ file_id: 'hidden-citation' }],
+                      'hidden-extension-name': { value: 'hidden-extension' },
+                    },
+                    { type: 'future-content', private: 'hidden-unknown' },
+                    { type: 'image_url', image_url: { url: 'hidden-image' } },
+                  ],
+                  tool_calls: [
+                    {
+                      id: 'call-7',
+                      type: 'function',
+                      function: {
+                        name: 'lookup',
+                        arguments: args,
+                        'hidden-function-key': 'hidden-function',
+                      },
+                    },
+                  ],
+                },
+                { role: 'tool', tool_call_id: 'call-7', content: prose },
+              ],
+            }
+          : {
+              previous_response_id: 'hidden-prior',
+              conversation: { id: 'hidden-conversation' },
+              input: [
+                {
+                  type: 'message',
+                  id: 'hidden-message-id',
+                  role: 'assistant',
+                  status: 'completed',
+                  content: [
+                    {
+                      type: 'output_text',
+                      text: 'visible',
+                      annotations: [{ file_id: 'hidden-citation' }],
+                      'hidden-extension-name': { value: 'hidden-extension' },
+                    },
+                    { type: 'future-content', private: 'hidden-unknown' },
+                    { type: 'input_image', image_url: 'hidden-image' },
+                  ],
+                },
+                { type: 'file_search_call', 'hidden-opaque-key': 'hidden-opaque' },
+                {
+                  type: 'function_call',
+                  id: 'hidden-call-id',
+                  call_id: 'call-7',
+                  name: 'lookup',
+                  arguments: args,
+                },
+                { type: 'function_call_output', call_id: 'call-7', output: prose },
+                { type: 'output_text', text: 'tail', logprobs: { secret: 'hidden-logprobs' } },
+                {
+                  type: 'refusal',
+                  refusal: 'visible refusal',
+                  'hidden-refusal-key': 'hidden-refusal',
+                },
+              ],
+            }),
+      };
+      const submitted = JSON.stringify(body);
+      f.capture(submitted, protocol);
+      const [{ document }] = f.documents();
+      const stored = JSON.parse(document.stored_body);
+      expect(document).toMatchObject({
+        format_version: 2,
+        privacy_policy: 'failed-provider-request-privacy-2',
+        body_disposition: 'redacted',
+        raw_request_sha256: hash(submitted),
+        raw_request_utf8_bytes: Buffer.byteLength(submitted),
+        stored_body_sha256: hash(document.stored_body),
+        stored_body_utf8_bytes: Buffer.byteLength(document.stored_body),
+        counts: {
+          private_replay: isChat ? 4 : 10,
+          images: 2,
+          structured_private: 3,
+          structured_redactions: 2,
+          text_redactions: 1,
+          tool_arguments_reencoded: 1,
+          unprojectable_tool_arguments: 0,
+          data_urls: 0,
+        },
+      });
+      expect(stored.instructions).toBe(prose);
+      expect(stored.tools).toEqual(body.tools);
+      const call = isChat ? stored.messages[0].tool_calls[0].function : stored.input[2];
+      expect(call.name).toBe('lookup');
+      expect(JSON.parse(call.arguments)).toEqual({
+        application,
+        auth: '[REDACTED]',
+        config: '[OMITTED_PRIVATE_FIELD]',
+        image_data: '[OMITTED_IMAGE]',
+        label: '[REDACTED]',
+        nested: [{ auth: '[REDACTED]' }],
+        prose,
+      });
+      const parts = isChat ? stored.messages[0].content : stored.input[0].content;
+      expect(parts).toEqual([
+        {
+          type: isChat ? 'text' : 'output_text',
+          text: 'visible',
+          _diagnostic_omitted_extensions: '[OMITTED_PRIVATE_REPLAY]',
+        },
+        '[OMITTED_PRIVATE_REPLAY]',
+        '[OMITTED_IMAGE]',
+      ]);
+      if (isChat) {
+        expect(stored.messages[0].tool_calls[0].id).toBe('call-7');
+        expect(stored.messages[1]).toEqual({
+          role: 'tool',
+          tool_call_id: 'call-7',
+          content: prose,
+        });
+      } else {
+        expect(stored.input).toHaveLength(6);
+        expect(stored.input[1]).toBe('[OMITTED_PRIVATE_REPLAY]');
+        expect(stored.input[2].call_id).toBe('call-7');
+        expect(stored.input[3]).toEqual({
+          type: 'function_call_output',
+          call_id: 'call-7',
+          output: prose,
+        });
+        expect(stored.input[4].text).toBe('tail');
+        expect(stored.input[5].refusal).toBe('visible refusal');
+      }
+      expect(document.stored_body).not.toContain('hidden-');
+      expect(document.stored_body).not.toContain('active-fixture-literal');
+    },
+  );
+
+  it('omits unexpected native scalar subtrees and invalid/non-string arguments without raw fallback', () => {
+    const f = fixture();
+    f.capture(
+      JSON.stringify({
+        input: [
+          {
+            type: 'function_call',
+            name: { 'private-name': 'hidden' },
+            arguments: { auth: 'hidden' },
+            call_id: ['hidden'],
+          },
+          { type: 'function_call', arguments: 'invalid hidden JSON' },
+          { role: 'user', content: { 'private-content': 'hidden' } },
+          { type: 'output_text', text: { 'private-text': 'hidden' } },
+        ],
+      }),
+    );
+    const [{ document }] = f.documents();
+    expect(document.counts).toMatchObject({
+      private_replay: 4,
+      unprojectable_tool_arguments: 2,
+      tool_arguments_reencoded: 0,
+    });
+    expect(document.stored_body).not.toContain('hidden');
+    expect(document.stored_body).not.toContain('private-');
+  });
+
+  it.each(['openai-responses', 'openai-codex-backend'])(
+    'retains ordered protocol tool-result content and correlates its call for %s',
+    (protocol) => {
+      const f = fixture();
+      const prose =
+        '{"type":"reasoning","file_id":"ordinary-result","auth":{"value":"encoded prose"}}';
+      f.capture(
+        JSON.stringify({
+          input: [
+            {
+              type: 'function_call_output',
+              id: 'hidden-native-id',
+              status: 'completed',
+              call_id: 'call-result',
+              output: [
+                { type: 'input_text', text: prose, annotations: { private: 'hidden-annotation' } },
+                { type: 'input_image', image_url: 'hidden-pixels', file_id: 'hidden-image' },
+                { type: 'future-result', 'hidden-extension': 'hidden-value' },
+              ],
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-structured',
+              output: { 'hidden-output-key': 'hidden-output' },
+            },
+          ],
+        }),
+        protocol,
+      );
+      const [{ document }] = f.documents();
+      expect(document.counts).toEqual({
+        structured_private: 0,
+        structured_redactions: 0,
+        images: 1,
+        private_replay: 4,
+        data_urls: 0,
+        tool_arguments_reencoded: 0,
+        unprojectable_tool_arguments: 0,
+        text_redactions: 0,
+      });
+      expect(JSON.parse(document.stored_body).input).toEqual([
+        {
+          type: 'function_call_output',
+          _diagnostic_omitted_extensions: '[OMITTED_PRIVATE_REPLAY]',
+          status: 'completed',
+          call_id: 'call-result',
+          output: [
+            {
+              type: 'input_text',
+              text: prose,
+              _diagnostic_omitted_extensions: '[OMITTED_PRIVATE_REPLAY]',
+            },
+            '[OMITTED_IMAGE]',
+            '[OMITTED_PRIVATE_REPLAY]',
+          ],
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'call-structured',
+          output: '[OMITTED_PRIVATE_REPLAY]',
+        },
+      ]);
+      expect(document.stored_body).not.toContain('hidden-');
+    },
+  );
+
+  it('omits unknown Chat call kinds without echoing their discriminators', () => {
+    const f = fixture();
+    f.capture(
+      JSON.stringify({
+        messages: [
+          {
+            role: 'assistant',
+            content: 'visible',
+            tool_calls: [
+              {
+                type: 'hidden-future-kind',
+                id: 'hidden-native-id',
+                function: { name: 'hidden-name', arguments: '{}' },
+              },
+            ],
+          },
+        ],
+      }),
+      'openai-chat-completions',
+    );
+    const [{ document }] = f.documents();
+    expect(JSON.parse(document.stored_body).messages).toEqual([
+      { role: 'assistant', content: 'visible', tool_calls: ['[OMITTED_PRIVATE_REPLAY]'] },
+    ]);
+    expect(document.counts.private_replay).toBe(1);
+    expect(document.counts.tool_arguments_reencoded).toBe(0);
+    expect(document.stored_body).not.toContain('hidden-');
+  });
+
+  it('fails unsupported protocols with the fixed capture-failed notice, never a Responses fallback', () => {
+    const f = fixture();
+    f.capture('{"input":[{"type":"output_text","text":"hidden"}]}', 'unknown-protocol');
+    expect(f.documents()).toEqual([]);
+    expect((console.error as ReturnType<typeof jest.spyOn>).mock.calls.at(-1)).toEqual([
+      'Failed provider diagnostic capture failed.',
+    ]);
+  });
   it('bounds/redacts descriptive metadata while keeping validated canonical identity exact', () => {
     const f = fixture();
     const exactSession = 'agent:api-key:card-a';

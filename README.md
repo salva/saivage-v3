@@ -166,7 +166,8 @@ Failed-provider request diagnostics are disabled by default. Explicit
 `saivage start --failed-provider-diagnostics <UUID>` opts into finite, private local
 capture (16 failure slots/one hour, at most 8 MiB per file). Project/prompt text
 remains sensitive after projection: it is not a secret-free export, complete raw
-request, replay fixture or receipt. See the [diagnostics runbook](docs/runbook/index.md#private-failed-provider-request-diagnostics)
+request, replay fixture or receipt. New captures use diagnostic v2/policy-2; retained
+v1 files do not gain its privacy guarantees. See the [diagnostics runbook](docs/runbook/index.md#private-failed-provider-request-diagnostics)
 before enabling, inspecting or rolling back over retained captures.
 
 New here? Follow the overview and guides first. Exact rules and procedures live

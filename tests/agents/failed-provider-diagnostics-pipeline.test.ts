@@ -28,7 +28,18 @@ import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
-import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import {
+  appendConversationBatch,
+  readConversation,
+  readCurrentConversationSegment,
+} from '../../src/persistence/conversation-file.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import {
+  appendLlmTurnToolCallBatch,
+  appendToolResult,
+  selectInvocationResultPolicy,
+} from '../../src/runtime/actors/llm-delivery-log.js';
+import { syntheticToolSettlement } from '../../src/tools/tool-api.js';
 import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import {
@@ -137,6 +148,333 @@ function refusal() {
 }
 
 describe('failed diagnostics through real invocation owners', () => {
+  it('projects actual parsed, published and replayed native Responses without altering durable or wire replay', async () => {
+    const f = fixture('openai-responses');
+    const args =
+      '{ "type": "reasoning", "id": "row-7", "file_id": "document-3", "auth": {"value":"hidden-argument"} }';
+    const output = [
+      {
+        type: 'message',
+        id: 'hidden-message-id',
+        role: 'assistant',
+        status: 'completed',
+        content: [
+          {
+            type: 'output_text',
+            text: 'Visible cited prose',
+            annotations: [{ type: 'file_citation', file_id: 'hidden-citation-id' }],
+            'hidden-extension-key': { value: 'hidden-extension' },
+          },
+          {
+            type: 'input_image',
+            image_url: 'data:image/png;base64,UElYRUxT',
+            file_id: 'hidden-image-id',
+          },
+        ],
+      },
+      {
+        type: 'file_search_call',
+        id: 'hidden-search-id',
+        'hidden-opaque-key': { private: 'hidden-opaque' },
+      },
+      { type: 'reasoning', id: 'hidden-reasoning-id', encrypted_content: 'hidden-ciphertext' },
+      { type: 'item_reference', id: 'hidden-reference-id' },
+      {
+        type: 'function_call',
+        id: 'hidden-call-id',
+        status: 'completed',
+        call_id: 'call-native',
+        name: 'lookup',
+        arguments: args,
+      },
+    ];
+    const request = {
+      inputId,
+      agentName: 'planner',
+      sessionId: session,
+      agentId: session,
+      systemPrompt: 'system',
+      providerConversation: { sourceSessionId: session, messages: [] },
+      tools: [],
+      compiledToolContracts: [],
+      terminalToolNames: [],
+      episodeContext: {},
+      modelParams: { temperature: 0, maxTokens: 100 },
+      capabilityRequest: {},
+      routePass: { kind: 'pinned-content-policy-retry' as const, candidate: f.candidate },
+    };
+    appendConversationBatch({ projectRoot: f.root }, [
+      agentMessageSchema.parse({
+        id: 'activation',
+        session_id: session,
+        role: 'system',
+        kind: 'activity',
+        content: JSON.stringify({
+          event: 'activation_open',
+          agent_name: 'planner',
+          card_id: 'project',
+          input_id: inputId,
+          timestamp: '2026-10-09T00:00:00.000Z',
+        }),
+        context_policy: { kind: 'structural', behavior: 'activation_boundary' },
+        round_id: 'r-pre-00000000000000000000000000000000',
+        message_index: 0,
+        block_index: 0,
+        timestamp: '2026-10-09T00:00:00.000Z',
+      }),
+    ]);
+    const fetch = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'completed', output }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(refusal());
+    const first = f.service.preflightPinnedContentPolicyRequest(request);
+    if (first.kind !== 'admitted') throw new Error('must admit');
+    const completion = await f.service.executePinnedContentPolicyRequest(first, {
+      attemptIndex: 0,
+    });
+    expect(completion.result.kind).toBe('tool_calls');
+    if (completion.result.kind !== 'tool_calls') throw new Error('must return call');
+    expect(completion.provider_private_context).toMatchObject({
+      producer_account_id: responsesProducerAccountId(f.candidate),
+      output,
+    });
+    const call = completion.result.tool_calls[0]!;
+    const policy = selectInvocationResultPolicy(request, call.function.name);
+    appendLlmTurnToolCallBatch(
+      { projectRoot: f.root },
+      request,
+      call,
+      policy,
+      completion.provider_private_context,
+    );
+    appendToolResult(
+      { projectRoot: f.root },
+      {
+        session_id: session,
+        source_input_id: inputId,
+        tool_call_id: call.id,
+        tool_name: call.function.name,
+        resultPolicy: policy,
+        settlement: syntheticToolSettlement('execution_failed', 'ordinary settled result'),
+      },
+    );
+    const durableBefore = readCurrentConversationSegment(f.root, session)!.rows;
+    expect(
+      JSON.parse(durableBefore.find((row) => row.kind === 'provider_private')!.content).output,
+    ).toEqual(output);
+    expect(durableBefore.filter((row) => row.kind === 'tool_call')).toHaveLength(1);
+    expect(durableBefore.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
+    const projection = providerConversationProjection(readConversation(f.root, session), []);
+    const nextId = randomUUID();
+    const next = f.service.preflightPinnedContentPolicyRequest({
+      ...request,
+      inputId: nextId,
+      providerConversation: projection,
+    });
+    if (next.kind !== 'admitted') throw new Error('must admit replay');
+    await expect(
+      f.service.executePinnedContentPolicyRequest(next, { attemptIndex: 2 }),
+    ).rejects.toMatchObject({ originalFailure: { failure: { kind: 'content_policy' } } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const submitted = String(fetch.mock.calls[1]![1]!.body);
+    const raw = JSON.parse(submitted);
+    expect(raw.input.slice(1, output.length + 1)).toEqual(output);
+    expect(
+      raw.input.filter((item: { type: string }) => item.type === 'function_call'),
+    ).toHaveLength(1);
+    expect(
+      raw.input.filter((item: { type: string }) => item.type === 'function_call_output'),
+    ).toHaveLength(1);
+    expect(readCurrentConversationSegment(f.root, session)!.rows).toEqual(durableBefore);
+    expect(f.dumps()).toHaveLength(1);
+    const [dump] = f.dumps();
+    expect(dump).toMatchObject({
+      format_version: 2,
+      privacy_policy: 'failed-provider-request-privacy-2',
+      source_session_id: session,
+      invocation_session_id: session,
+      input_id: nextId,
+      purpose: 'primary',
+      attempt_index: 2,
+      http_status: 400,
+      raw_request_sha256: hash(submitted),
+      raw_request_utf8_bytes: Buffer.byteLength(submitted),
+      stored_body_sha256: hash(dump.stored_body),
+      stored_body_utf8_bytes: Buffer.byteLength(dump.stored_body),
+      counts: {
+        private_replay: 7,
+        images: 1,
+        structured_private: 1,
+        structured_redactions: 1,
+        tool_arguments_reencoded: 1,
+        unprojectable_tool_arguments: 0,
+        text_redactions: 0,
+        data_urls: 0,
+      },
+    });
+    const stored = JSON.parse(dump.stored_body);
+    expect(stored.input).toHaveLength(7);
+    expect(stored.input[0]).toEqual(raw.input[0]);
+    expect(stored.input[1]).toEqual({
+      type: 'message',
+      _diagnostic_omitted_extensions: '[OMITTED_PRIVATE_REPLAY]',
+      role: 'assistant',
+      status: 'completed',
+      content: [
+        {
+          type: 'output_text',
+          text: 'Visible cited prose',
+          _diagnostic_omitted_extensions: '[OMITTED_PRIVATE_REPLAY]',
+        },
+        '[OMITTED_IMAGE]',
+      ],
+    });
+    expect(stored.input.slice(2, 5)).toEqual(Array(3).fill('[OMITTED_PRIVATE_REPLAY]'));
+    expect(stored.input[5]).toMatchObject({
+      type: 'function_call',
+      status: 'completed',
+      name: 'lookup',
+      call_id: 'call-native',
+    });
+    expect(JSON.parse(stored.input[5].arguments)).toEqual({
+      type: 'reasoning',
+      id: 'row-7',
+      file_id: 'document-3',
+      auth: '[REDACTED]',
+    });
+    expect(stored.input[6]).toMatchObject({
+      type: 'function_call_output',
+      call_id: 'call-native',
+      output: raw.input[6].output,
+    });
+    expect(dump.stored_body).not.toContain('hidden-');
+    expect(dump.stored_body).not.toContain('annotations');
+    expect(dump.stored_body).not.toContain('UElYRUxT');
+  });
+
+  it.each([false, true])(
+    'preserves actual prepared Codex synthetic and ordinary system strings (text redaction=%s)',
+    async (redact) => {
+      const f = fixture('openai-codex-backend');
+      const benign = '{"type":"reasoning","file_id":"ordinary-system-prose"}';
+      const secretText = redact
+        ? ` ${makeCodexJwt('synthetic-account')} data:image/png;base64,UElYRUxT`
+        : '';
+      const ordinarySystem = agentMessageSchema.parse({
+        id: 'system-row',
+        session_id: session,
+        role: 'system',
+        kind: 'text',
+        content: `ordinary ${benign}${secretText}`,
+        context_policy: {
+          kind: 'content',
+          storage: 'durable',
+          replacement: { kind: 'retain' },
+          audience: 'primary_and_summarizer',
+          evidence: { kind: 'none' },
+          compactable: true,
+        },
+        round_id: 'r-pre-00000000000000000000000000000000',
+        message_index: 0,
+        block_index: 0,
+        timestamp: '2026-10-09T00:00:00.000Z',
+      });
+      const messages = [
+        {
+          kind: 'synthetic_context' as const,
+          role: 'system' as const,
+          content: `synthetic ${benign}${secretText}`,
+          origin: 'dynamic' as const,
+          block_identity: 'synthetic-system',
+        },
+        {
+          kind: 'synthetic_context' as const,
+          role: 'user' as const,
+          content: 'neighbor user',
+          origin: 'dynamic' as const,
+          block_identity: 'user',
+        },
+        ordinarySystem,
+        {
+          kind: 'synthetic_context' as const,
+          role: 'assistant' as const,
+          content: 'neighbor assistant',
+          origin: 'dynamic' as const,
+          block_identity: 'assistant',
+        },
+      ];
+      const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(cyberFailure());
+      const preflight = f.service.preflightPinnedContentPolicyRequest({
+        inputId,
+        agentName: 'planner',
+        sessionId: session,
+        systemPrompt: 'separate top-level instructions',
+        providerConversation: { sourceSessionId: session, messages },
+        tools: [],
+        terminalToolNames: [],
+        modelParams: { temperature: 0, maxTokens: 100 },
+        capabilityRequest: {},
+        routePass: { kind: 'pinned-content-policy-retry', candidate: f.candidate },
+      });
+      if (preflight.kind !== 'admitted') throw new Error('must admit');
+      await expect(
+        f.service.executePinnedContentPolicyRequest(preflight, { attemptIndex: 3 }),
+      ).rejects.toMatchObject({ originalFailure: { failure: { kind: 'content_policy' } } });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const submitted = String(fetch.mock.calls[0]![1]!.body);
+      const raw = JSON.parse(submitted);
+      expect(raw.input).toEqual([
+        { role: 'system', content: messages[0]!.content },
+        { role: 'user', content: [{ type: 'input_text', text: 'neighbor user' }] },
+        { role: 'system', content: ordinarySystem.content },
+        { role: 'assistant', content: [{ type: 'output_text', text: 'neighbor assistant' }] },
+      ]);
+      const [dump] = f.dumps();
+      expect(f.dumps()).toHaveLength(1);
+      expect(dump).toMatchObject({
+        format_version: 2,
+        privacy_policy: 'failed-provider-request-privacy-2',
+        body_disposition: 'redacted',
+        reencoded: true,
+        input_id: inputId,
+        source_session_id: session,
+        invocation_session_id: session,
+        purpose: 'primary',
+        attempt_index: 3,
+        provider_code: { value: 'cyber_policy' },
+        http_status: 200,
+        embedded_status: 403,
+        raw_request_sha256: hash(submitted),
+        raw_request_utf8_bytes: Buffer.byteLength(submitted),
+        stored_body_sha256: hash(dump.stored_body),
+        stored_body_utf8_bytes: Buffer.byteLength(dump.stored_body),
+        counts: {
+          structured_private: 1,
+          structured_redactions: 1,
+          private_replay: 0,
+          images: 0,
+          data_urls: redact ? 2 : 0,
+          text_redactions: redact ? 2 : 0,
+        },
+      });
+      const stored = JSON.parse(dump.stored_body);
+      expect(stored.instructions).toBe(raw.instructions);
+      expect(stored.prompt_cache_key).toBe('[REDACTED]');
+      const suffix = redact ? ' [REDACTED] [OMITTED_DATA_URL]' : '';
+      expect(stored.input).toEqual([
+        { role: 'system', content: `synthetic ${benign}${suffix}` },
+        raw.input[1],
+        { role: 'system', content: `ordinary ${benign}${suffix}` },
+        raw.input[3],
+      ]);
+      if (redact) {
+        expect(dump.stored_body).not.toContain(makeCodexJwt('synthetic-account'));
+        expect(dump.stored_body).not.toContain('UElYRUxT');
+      }
+    },
+  );
   it('uses one service budget across distinct invocations and checks expiry at failure completion, not request start', async () => {
     let now = 0;
     jest.spyOn(performance, 'now').mockImplementation(() => now);
@@ -475,7 +813,7 @@ describe('failed diagnostics through real invocation owners', () => {
 
   it('captures explicit Chat finish refusal once while returning the unchanged successful completion', async () => {
     const f = fixture('openai-chat-completions');
-    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
           choices: [
@@ -514,6 +852,18 @@ describe('failed diagnostics through real invocation owners', () => {
       },
     ]);
     expect(f.dumps()).toHaveLength(1);
+    const submitted = String(fetch.mock.calls[0]![1]!.body);
+    expect(f.dumps()[0]).toMatchObject({
+      format_version: 2,
+      privacy_policy: 'failed-provider-request-privacy-2',
+      body_disposition: 'exact',
+      reencoded: false,
+      stored_body: submitted,
+      raw_request_sha256: hash(submitted),
+      stored_body_sha256: hash(submitted),
+      raw_request_utf8_bytes: Buffer.byteLength(submitted),
+      stored_body_utf8_bytes: Buffer.byteLength(submitted),
+    });
   });
 
   it('observes Chat summary refusal once without changing downstream rejection or canonical success evidence', async () => {

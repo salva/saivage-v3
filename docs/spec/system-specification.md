@@ -1307,15 +1307,34 @@ attempt uses the actor's actual preceding-attempt count, not pass-local zero. Ac
 HTTP status is null until a response is observed; any embedded status is separate.
 Structured provider codes are ephemeral, not inferred from error prose.
 
-The private format-1 family discloses raw/stored UTF-8 byte counts and SHA-256 hashes,
+The private format-2 family (`privacy_policy: failed-provider-request-privacy-2`)
+discloses raw/stored UTF-8 byte counts and SHA-256 hashes,
 `exact|redacted|omitted` body fidelity, reencoding and counted omissions. The stored
 hash covers the decoded `stored_body` string, not JSON escaping or the whole file.
-Projection omits images, opaque/private replay and reference IDs, structured
-auth/header/cookie/environment/config subtrees, and applies outbound text redaction
-including the active transport credential literal. Protocol-known serialized tool
-arguments receive decoded structured projection and reencoding; unprojectable
-arguments are entirely omitted, never retained as raw fallback. Nonprivate order,
-instructions and labeled material remain. Redaction is not exhaustive secret
+Projection explicitly selects Chat or Responses/Codex protocol positions. Native
+messages retain role/status and string content or ordered visible content blocks;
+text/refusal and function call/result fields retain prose, name and call correlation
+(`call_id`, or Chat call ID/`tool_call_id`). Native item IDs, annotations (including
+citations), unknown items/content and every other native extension are omitted.
+Unknown extension keys are not echoed: `_diagnostic_omitted_extensions` is a fixed
+aggregate marker. Omitted array subtrees keep their original positions. Native
+images become one fixed image placeholder without traversing pixels/references.
+Root Responses conversation/previous-response references are omitted explicitly.
+Ordinary instructions, tool schemas and application JSON retain their shape/order;
+`type`, `id`, `file_id` and replay-shaped keys there have no native authority.
+Structured auth/header/cookie/environment/config and image-payload fields remain
+private; text receives data-URL and outbound redaction, including the active credential.
+Only protocol-known serialized tool arguments are decoded once, projected as ordinary
+JSON and reencoded once; invalid/non-string arguments are wholly omitted without raw
+fallback. JSON-looking prose and result strings are never decoded.
+`private_replay` counts each wholly omitted native subtree or extension/reference field
+once (an annotations array is one field); `images` counts each omitted native image or
+ordinary image-payload field once. Hidden descendants are not traversed or counted.
+Successful argument projection counts reencoding separately from invalid omissions;
+text/structured redaction counts actual changes without reprocessing leaves.
+Retained format-1 files remain untouched and do not satisfy policy-2 privacy; there
+is no automatic conversion, scan or disposal. Nonprivate order, instructions and
+labeled material remain. Redaction is not exhaustive secret
 certification: sensitive project/prompt text and unusual encoded secrets may remain.
 Neither hashes nor transport submission prove provider receipt or a replayable request.
 

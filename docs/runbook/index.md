@@ -379,7 +379,8 @@ namespace and direct list/content/image reads or aliases reject before inspectio
 There is no API/UI inspector, evidence link, export or replay command. Diagnostic
 content, hashes and dynamic diagnostic errors are not emitted into logs/public reports.
 
-Each format-1 document comes from the exact serialized string passed to transport,
+Each current format-2 / `failed-provider-request-privacy-2` document comes from the
+exact serialized string passed to transport,
 not reconstructed conversation state. `source_session_id` is canonical source;
 `invocation_session_id` identifies the actual call, including internal summary;
 `purpose`, `input_id` and `attempt_index` provide correlation. The index is final
@@ -394,16 +395,32 @@ including omitted private/image data. `stored_body_sha256`/`stored_body_utf8_byt
 cover precisely the decoded `stored_body` string, not enclosing JSON escaping or
 the whole file, and are null when omitted. `body_disposition` reports literal
 `exact`, changed `redacted` (including reencoding), or `omitted`; inspect `reencoded`,
-`privacy_policy`, `counts` and `size_reason` before drawing conclusions. Images/
-base64/data URLs, opaque private reasoning/replay/reference IDs and structured
-auth/header/cookie/environment/config subtrees receive placeholders; ordinary
-nonprivate text/order/instructions remain. Protocol-known tool-argument JSON strings
-are decoded, recursively projected and reencoded in the stored copy only; invalid
+`privacy_policy`, `counts` and `size_reason` before drawing conclusions. The native
+Chat or Responses/Codex projection retains visible message text/string shape, ordered
+content, function names and call/result correlation. Native IDs, annotations/citations,
+unknown items/content and extension fields are omitted; unknown extension keys are
+represented only by fixed `_diagnostic_omitted_extensions`. Array omissions keep their
+positions. `[OMITTED_PRIVATE_REPLAY]` replaces private native subtrees;
+`[OMITTED_IMAGE]` replaces each native image or ordinary image-payload field, and
+data URLs/structured auth/header/cookie/environment/config remain omitted.
+`private_replay` counts each whole subtree or extension/root-reference field once;
+an annotation array counts once, not its descendants. `images` likewise does not
+count hidden children. Ordinary application JSON/schema `type`/ID-shaped values
+have no native authority. Only protocol-known tool-argument strings are decoded
+once as ordinary JSON and reencoded (`tool_arguments_reencoded`); invalid/non-string
 arguments are wholly omitted with `unprojectable_tool_arguments`, not a raw fallback.
+Instruction/description/result prose is not decoded. Redaction counts reflect actual
+changes without duplicate leaf processing. Ordinary nonprivate text/order remain.
 Remaining leaves/metadata receive existing outbound redaction plus active transport
 credential-literal replacement. This is **not exhaustive secret certification**:
 unusual encodings and sensitive prose may remain. Submission/hashes prove neither
 network delivery/provider receipt nor replayability or the triggering refusal passage.
+
+Retained format-1/policy-1 files are **not** v2 privacy captures. They remain untouched;
+new activations publish only v2. No automatic remediation/conversion/deletion is
+performed, and this isolated advisory family needs no application-state migration
+or reset. Even benign actual Codex captures are normally `redacted` because the
+prepared `prompt_cache_key` is private; unchanged visible text is not whole-body fidelity.
 
 No scans, rotation, deletion or automatic retention maintenance occur; crash-left
 temporaries remain ignored forever. Operator retention/disposal is separate local
