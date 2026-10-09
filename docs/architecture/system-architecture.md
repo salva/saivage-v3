@@ -106,7 +106,10 @@ public projector and selected genesis summaries use the existing outbound text r
 The UI places default-closed genesis, recorded system text, activation index, Technical
 details and current-instructions disclosures in one conversation scroll surface. It keeps
 both physical tool anchors/provenance while combining matched exchanges at the call position,
-and preserves same-selection refresh state without reconstructing requests or changing
+with one shared association owner, `web/src/utils/agent-timeline/timeline.ts`, reusing
+`src/schemas/message-identity.ts` session/source-input/call keys for current, exact
+history and Analyst readers. Provider call-ID reuse alone is not association authority.
+The UI preserves same-selection refresh state without reconstructing requests or changing
 provider, actor invocation, storage or durable contracts. See
 [conversation presentation](../spec/operator-ui-contracts.md#6-conversation-readers).
 

@@ -51,7 +51,8 @@ source position. Segment history selects exact retained history, not a stitched 
 Optional **Currently configured instructions** composes all current session bindings
 from configuration loaded by the server, not historical instructions or unactivated disk
 edits. Open to read, Refresh explicitly, close to discard; this is not an exact-request viewer.
-Matched tool exchanges appear once at the request position, including nonadjacent results;
+Matched tool exchanges use exact session/source-input/call identity, not provider call ID alone,
+and appear once at the request position, including nonadjacent results;
 **Result recorded later** discloses interleaving, and both source anchors, coordinates and
 times remain inspectable. Compact friendly action/abbreviated-target/honest-outcome summaries
 expand to complete Request/Result detail and independent output heads; safe-original

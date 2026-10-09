@@ -217,6 +217,8 @@ Matched tool exchanges appear once at the
 call position by owner-authorized visual grouping, even across intervening rows; both
 exact Request/Result anchors and original provenance remain inspectable. A later-result
 cue prevents backdated knowledge; other messages keep their relative source order.
+Reused provider call IDs across source inputs retain independent outcomes and unique
+half anchors; matching requires equal session/source-input/call identity.
 Recorded system text closes at its source position; diagnostic, refusal and activation
 statuses remain visible. A repair instruction is not achieved repair; an interrupted
 activation notice visibly says effects are uncertain, with full targeted inline detail.
@@ -242,7 +244,8 @@ An unmatched result stays at its original
 position with requested context unavailable. Inspect exact selected image snapshots,
 including safe descriptors in raw/copy; snapshot recorded proves neither delivery nor
 model perception. Source paths stay text; Files separately previews potentially changed
-current sources. Check process exit
+current sources. Repeated-ID exchanges inspect only their own exact result images, never
+another input's snapshot. Check process exit
 versus tool settlement, draft versus acceptance, output-head coverage and confirmation
 without inventing completion, delivery or unavailable content.
 

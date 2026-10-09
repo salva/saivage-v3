@@ -14,6 +14,7 @@ import type { AgentConversationEntry, AgentConversationResponse } from '../api/t
 import type { ConversationInvalidation } from '../sync/client';
 import { useAgentStore } from '../stores/agents';
 import { cyclicCodePresentation } from './cockpit/fixtures';
+import { call, result } from './tool-presenters/fixtures';
 
 const lifecycle = vi.hoisted(() => ({
   events: [] as string[],
@@ -106,11 +107,14 @@ function response(
   };
 }
 
+function toolId(source: string, half = 'call'): string {
+  return `${source}:tool-${half}:invocation-${source}`;
+}
 function toolRows(id: string, round: number, tool = 'read'): AgentConversationEntry[] {
   const base = { ...textEntry(id, round), tool, tool_call_id: `invocation-${id}` };
   return [
-    { ...base, kind: 'tool_call', content: JSON.stringify({ tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: 'README.md' }) } }] }) },
-    { ...base, id: `${id}:result`, role: 'tool', kind: 'tool_result', block_index: 1, content: JSON.stringify({ success: true, data: { content: 'raw-only-response' } }) },
+    { ...base, id: toolId(id), kind: 'tool_call', content: JSON.stringify({ tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: 'README.md' }) } }] }) },
+    { ...base, id: toolId(id, 'result'), role: 'tool', kind: 'tool_result', block_index: 1, content: JSON.stringify({ success: true, data: { content: 'raw-only-response' } }) },
   ];
 }
 
@@ -340,26 +344,48 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       ...toolRows('group-first', 2), ...toolRows(opaque, 2),
       ...toolRows('unrelated-first', 3), ...toolRows('unrelated-second', 3),
     ]));
-    const { wrapper, callback } = await mountConversation('standalone');
+    const { wrapper, callback } = await mountConversation(toolId('standalone'));
     await callback(null);
     await flushPromises();
-    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe('standalone');
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(toolId('standalone'));
     expect(wrapper.findAll('.tool-group-body')).toHaveLength(0);
-    await wrapper.setProps({ entryId: opaque });
+    await wrapper.setProps({ entryId: toolId(opaque) });
     await flushPromises();
     const chip = wrapper.get('.targeted-conversation-entry');
-    expect(chip.attributes('data-entry-id')).toBe(opaque);
+    expect(chip.attributes('data-entry-id')).toBe(toolId(opaque));
     expect(chip.classes()).toContain('tool-request');
     expect(chip.attributes('tabindex')).toBe('-1');
     expect(wrapper.findAll('.tool-group-body')).toHaveLength(0);
     expect(wrapper.findAll('.tool-chip')).toHaveLength(5);
     expect(wrapper.findAll('.tool-chip-detail')).toHaveLength(2);
-    expect(wrapper.get(`[data-tool-entry-id='standalone'] .tool-chip-toggle`).attributes('aria-expanded')).toBe('true');
+    expect(wrapper.get(`[data-tool-entry-id='${toolId('standalone')}'] .tool-chip-toggle`).attributes('aria-expanded')).toBe('true');
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
-    await wrapper.setProps({ entryId: `${opaque}:result` });
+    await wrapper.setProps({ entryId: toolId(opaque, 'result') });
     await flushPromises();
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
-    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(`${opaque}:result`);
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(toolId(opaque, 'result'));
+    wrapper.unmount();
+  });
+
+  it('reveals each repeated-ID half without duplicating anchors or borrowing outcomes', async () => {
+    const a = call('read', { path: 'A.md' }, 'a', 'call_0');
+    const b = call('read', { path: 'B.md' }, 'b', 'call_0');
+    const ar = result('read', { content: 'A-only' }, { tool_call_id: 'call_0' }, 'a');
+    const br = result('read', {}, { tool_call_id: 'call_0', content: '{"success":false,"error":"B-only failure"}', timestamp: '2026-10-07T00:00:09Z' }, 'b');
+    const rows = [a, ar, b, br].map(row => ({ ...row, session_id: 'agent:planner:project' as const }));
+    api.getAgentConversation.mockResolvedValueOnce(response(rows));
+    const { wrapper, callback } = await mountConversation(a.id);
+    await callback(null); await flushPromises();
+    for (const row of rows) {
+      await wrapper.setProps({ entryId: row.id }); await flushPromises();
+      expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(row.id);
+    }
+    expect(wrapper.findAll('[data-entry-id]').map(node => node.attributes('data-entry-id'))).toEqual([a.id, ar.id, b.id, br.id]);
+    const chips = wrapper.findAll('.tool-chip');
+    expect(chips[0].text()).toContain('A-only'); expect(chips[0].text()).not.toContain('B-only');
+    expect(chips[1].text()).toContain('B-only failure'); expect(chips[1].text()).not.toContain('A-only');
+    expect(chips[1].get('.tool-chip-status').attributes('data-tone')).toBe('error');
+    expect(chips[1].get('.tool-result').text()).toContain(br.timestamp);
     wrapper.unmount();
   });
 
@@ -371,14 +397,14 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await callback(null);
     await flushPromises();
     centerScrolls = 0;
-    void wrapper.setProps({ entryId: 'group-target' });
+    void wrapper.setProps({ entryId: toolId('group-target') });
     if (action === 'unmount') wrapper.unmount();
-    else void wrapper.setProps(action === 'invalid' ? { invalidSegment: true } : { entryId: 'new-target' });
+    else void wrapper.setProps(action === 'invalid' ? { invalidSegment: true } : { entryId: toolId('new-target') });
     await flushPromises();
     expect(centerScrolls).toBe(action === 'change' ? 1 : 0);
     if (action !== 'unmount') {
       expect(wrapper.text()).not.toContain('requested conversation entry was not found');
-      if (action === 'change') expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe('new-target');
+      if (action === 'change') expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(toolId('new-target'));
       else expect(wrapper.find('.targeted-conversation-entry').exists()).toBe(false);
       wrapper.unmount();
     }
@@ -388,22 +414,22 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     const id = 'exact-group-call';
     api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 1, segment_context: null, entries: [...toolRows('first', 1), ...toolRows(id, 1)] });
     const router = makeRouter();
-    await router.push({ name: 'agent-detail', params: { id: 'agent:planner:project' }, query: { segment: '1', entry: id } });
+    await router.push({ name: 'agent-detail', params: { id: 'agent:planner:project' }, query: { segment: '1', entry: toolId(id) } });
     const pinia = createPinia();
     const wrapper = mount(CockpitView, { global: { plugins: [pinia, router] } });
     await flushPromises();
-    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(id);
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(toolId(id));
     useAgentStore(pinia).entries = [...toolRows('current-first', 2), ...toolRows('current-call', 2)];
     useAgentStore(pinia).conversationError = 'current failed';
     await flushPromises();
-    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(id);
+    expect(wrapper.get('.targeted-conversation-entry').attributes('data-entry-id')).toBe(toolId(id));
     expect(wrapper.text()).not.toContain('current failed');
-    await router.push({ query: { segment: 'bad', entry: id } });
+    await router.push({ query: { segment: 'bad', entry: toolId(id) } });
     await flushPromises();
     expect(wrapper.text()).toContain('Invalid segment selection');
     expect(wrapper.find('.tool-group-body').exists()).toBe(false);
     api.getAgentConversationVersion.mockResolvedValue({ session_id: 'agent:planner:project', version: 2, segment_context: null, entries: [...toolRows('first', 1), ...toolRows(id, 1), { ...activation('agent:planner:project', '0123456789abcdef'), content: '{"event":"activation_open"}' }] });
-    await router.push({ query: { segment: '2', entry: id } });
+    await router.push({ query: { segment: '2', entry: toolId(id) } });
     await flushPromises();
     expect(wrapper.text()).toContain('Malformed activation_open');
     expect(wrapper.find('.tool-chip').exists()).toBe(false);

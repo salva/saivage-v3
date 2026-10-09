@@ -185,7 +185,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
   it('uses the shared combined exchange with both source anchors and intervening prose without extra fetch', async () => {
     const id = 'agent:executor:project';
     const rows = [call('edit', { path: 'src/main.ts', old_string: 'before', new_string: 'after' }), entry('correction', 'text', 'Replace only this string'), result('edit', { path: 'src/main.ts', replacements: 1, bytes: 42, edited: true }, { round_id: 'r-user-0000000000000000000000000000000b' })].map((row) => ({ ...row, session_id: id }));
-    api.getAgentConversation.mockResolvedValue({ session_id: id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: rows, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'result' } });
+    api.getAgentConversation.mockResolvedValue({ session_id: id, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: rows, cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: rows[2].id } });
     live.openConversation.mockImplementation((_id, callback) => { void callback(null); return vi.fn(); });
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] });
     await router.push('/'); await router.isReady();
@@ -198,11 +198,11 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     expect(chips[0].text()).toContain('Applied · 1 replacements');
     expect(chips[0].text()).toContain('Result recorded later');
     await chips[0].find('button.tool-chip-toggle').trigger('click');
-    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['call', 'result', 'correction']);
-    expect(wrapper.get('[data-entry-id="call"]').text()).toContain(rows[0].round_id);
-    expect(wrapper.get('[data-entry-id="call"]').text()).toContain(rows[0].timestamp);
-    expect(wrapper.get('[data-entry-id="result"]').text()).toContain(rows[2].round_id);
-    expect(wrapper.get('[data-entry-id="result"]').text()).toContain(rows[2].timestamp);
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual([rows[0].id, rows[2].id, 'correction']);
+    expect(wrapper.get('.tool-request').text()).toContain(rows[0].round_id);
+    expect(wrapper.get('.tool-request').text()).toContain(rows[0].timestamp);
+    expect(wrapper.get('.tool-result').text()).toContain(rows[2].round_id);
+    expect(wrapper.get('.tool-result').text()).toContain(rows[2].timestamp);
     expect(chips[0].text()).toContain('1 retained entries between request and result');
     expect(chips[0].text()).toContain('Supplied old string');
     expect(chips[0].text()).toContain('before');

@@ -736,6 +736,8 @@ Every autonomous, Analyst, repair, continuation, and refine-summary invocation r
 That per-call input identity and the invocation owner's session identity are distinct from the stable source-session identity carried by the validated provider conversation projection.
 Ordinary persisted actor turns require the invocation and source-session identities to be equal.
 For original source UUID `S` and provider tool-call ID `T`, settlement identities are `${S}:tool-call:${T}` and `${S}:tool-result:${T}`.
+Provider call IDs need not be unique across source inputs. Shared UI exchange matching
+uses the existing compound session/source-input/call identity, not call ID alone.
 Success and failure both use `tool_result`; the next invocation UUID is unrelated.
 Attempt index orders transport attempts only within one invocation.
 

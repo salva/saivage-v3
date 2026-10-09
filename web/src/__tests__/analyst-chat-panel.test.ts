@@ -53,7 +53,7 @@ const entries = [
     timestamp: '2025-01-01T00:00:00Z',
   },
   {
-    id: '2',
+    id: 'source:tool-call:call-1',
     session_id: analystSessionId,
     role: 'assistant',
     kind: 'tool_call',
@@ -75,7 +75,7 @@ const entries = [
     timestamp: '2025-01-01T00:00:01Z',
   },
   {
-    id: '3',
+    id: 'source:tool-result:call-1',
     session_id: analystSessionId,
     role: 'tool',
     kind: 'tool_result',
@@ -120,7 +120,7 @@ describe('AnalystChatPanel', () => {
       segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1,
       segment_context: null,
       entries,
-      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' },
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries[2].id },
     });
     api.getCardChildren.mockResolvedValue({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
     api.sendChatMessage.mockResolvedValue({
@@ -211,7 +211,7 @@ describe('AnalystChatPanel', () => {
       session_id: analystSessionId,
       segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null,
       entries: [entries[0], entries[1], { ...entries[0], id: 'correction', content: 'Inspect only this document', message_index: 2 }, { ...entries[2], round_id: 'r-user-00000000000000000000000000000002' }],
-      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' },
+      cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries[2].id },
     });
     const wrapper = mountPanel();
     await flushPromises();
@@ -225,7 +225,7 @@ describe('AnalystChatPanel', () => {
     expect(chip.find('button.tool-chip-toggle').attributes('aria-expanded')).toBe('true');
     expect(wrapper.find('.tool-chip-detail').exists()).toBe(true);
     const recorded = wrapper.find('.tool-result');
-    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['1', '2', '3', 'correction']);
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['1', entries[1].id, entries[2].id, 'correction']);
     expect(recorded.text()).toContain('Recorded content');
     expect(recorded.text()).toContain('docs');
     expect(api.getAgentConversation).toHaveBeenCalledTimes(1);
@@ -236,7 +236,7 @@ describe('AnalystChatPanel', () => {
   it.each([false, true])('does not bypass arrival following after an accepted frame (Pause=%s)', async (paused) => {
     let callback!: (frame: ConversationInvalidation) => Promise<void>;
     live.openConversation.mockImplementation((_id, value) => { callback = value; void callback(null); return live.closeConversation; });
-    api.getAgentConversation.mockResolvedValueOnce({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: entries.slice(0, 2), cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '2' } });
+    api.getAgentConversation.mockResolvedValueOnce({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: entries.slice(0, 2), cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries[1].id } });
     const wrapper = mountPanel();
     await flushPromises();
     const owner = wrapper.get('.chat-scroll-area');
@@ -245,8 +245,8 @@ describe('AnalystChatPanel', () => {
     await owner.trigger('scroll');
     if (paused) await wrapper.get('input[type="checkbox"]').setValue(true);
     await wrapper.get('.tool-chip-toggle').trigger('click');
-    api.getAgentConversation.mockResolvedValueOnce({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [entries[2]], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' } });
-    await callback({ t: 'invalidate', resource: 'conversation', id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: '3' });
+    api.getAgentConversation.mockResolvedValueOnce({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [entries[2]], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries[2].id } });
+    await callback({ t: 'invalidate', resource: 'conversation', id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, visible_message_id: entries[2].id });
     await flushPromises();
     expect((owner.element as HTMLElement).scrollTop).toBe(200);
     expect(wrapper.findAll('.tool-chip')).toHaveLength(1);
@@ -466,7 +466,7 @@ describe('AnalystChatPanel', () => {
     expect(second.text()).not.toContain('Loading history…');
     expect(second.text()).toContain('hello');
     expect(second.text()).toContain('optimistic retained');
-    resolveRefresh({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: '3' } });
+    resolveRefresh({ session_id: analystSessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: entries[2].id } });
     await refresh;
     second.unmount();
     expect(secondClose).toHaveBeenCalledOnce();

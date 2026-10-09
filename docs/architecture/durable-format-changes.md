@@ -162,6 +162,12 @@ release. No deployment, reset or migration is authorized by this source work.
 
 ## Durable-preserving conversation API/UI change
 
+The shared UI timeline now matches tool exchanges using the existing canonical
+session/source-input/call identity rather than provider call ID alone. This is an
+ephemeral association correction only: no payload, selection, layout interpretation
+or discriminator changes; conversation index/genesis/envelope remain **6**. Adoption
+is matching-source UI delivery, with no retained-state transformation or cutover.
+
 Source evidence: `agents.currentInstructions` in `src/contracts/operator-api-agents.ts`,
 `src/application/read-models/agent-operator-read-model.ts` and its operator handler;
 `web/src/utils/agent-timeline/timeline.ts` and the shared conversation/disclosure renderers.

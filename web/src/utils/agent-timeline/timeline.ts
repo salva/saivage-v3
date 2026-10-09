@@ -1,12 +1,14 @@
 import type { AgentConversationEntry } from '../../api/types';
-import { parseToolCallMessage } from '../persistedToolCall';
+import { loggedToolCallIdentity, loggedToolResultIdentity, loggedToolCallKey } from '../../../../src/schemas/message-identity';
 import { parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound } from './types';
 import { activationEntry } from './activation';
 
-function callIdOf(entry: AgentConversationEntry): string | undefined {
-  if (entry.tool_call_id) return entry.tool_call_id;
-  return entry.kind === 'tool_call' ? parseToolCallMessage(JSON.parse(entry.content)).id : undefined;
+function exchangeKey(entry: AgentConversationEntry): string | undefined {
+  if (entry.kind !== 'tool_call' && entry.kind !== 'tool_result') return undefined;
+  const identity = entry.kind === 'tool_call' ? loggedToolCallIdentity(entry) : loggedToolResultIdentity(entry);
+  if (!identity) throw new Error(`Missing canonical tool identity for '${entry.id}'.`);
+  return loggedToolCallKey(identity);
 }
 function visible(entry: AgentConversationEntry): boolean {
   return entry.kind === 'tool_call' || entry.kind === 'tool_result' || entry.kind === 'content_policy_refusal'
@@ -21,7 +23,7 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
   const positions = new Map(entries.map((entry, index) => [entry.id, index]));
   for (const entry of entries) {
     if (entry.kind !== 'tool_call' && entry.kind !== 'tool_result') continue;
-    const id = callIdOf(entry);
+    const id = exchangeKey(entry);
     if (id) (entry.kind === 'tool_call' ? calls : results).set(id, entry);
   }
   const rounds: TimelineRound[] = [];
@@ -31,7 +33,7 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
     const newRun = previousRoundId !== entry.round_id;
     previousRoundId = entry.round_id;
     if (kind !== 'compacted' && !visible(entry)) continue;
-    const id = callIdOf(entry);
+    const id = exchangeKey(entry);
     if (entry.kind === 'tool_result' && id && calls.has(id)) continue;
     let round = rounds.at(-1);
     if (!round || newRun || round.entries[0].round_id !== entry.round_id) {

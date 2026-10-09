@@ -26,7 +26,7 @@ it('keeps image paths plain text in both halves, including complete metadata-onl
   const descriptor = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 800, height: 400, byte_length: 1000, sha256: 'a'.repeat(64) };
   const r = result('view_image', {}, { content: JSON.stringify({ success: true, content: [{ type: 'image', image: descriptor }], data: { source_path: 'screen.png', source_dimensions: { width: 1600, height: 800 }, oriented_dimensions: { width: 1600, height: 800 }, sent_dimensions: { width: 800, height: 400 }, orientation_applied: false, resized: true, scale: { x: 0.5, y: 0.5 }, max_dimension: 800 } }) });
   for (const entries of [[c, r], [r]]) {
-    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(entries), expandedIds: new Set(['call', 'result']) } });
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(entries), expandedIds: new Set([c.id, r.id]) } });
     expect(wrapper.findAll('a, img, canvas, video')).toHaveLength(0);
     expect(wrapper.text()).toContain('Image snapshot recorded');
     expect(wrapper.text()).toContain('sha256');
@@ -56,7 +56,7 @@ it('abbreviates long image paths as text while preserving exact path, descriptor
   expect(inlinePartsText(display.target)).toContain('FINAL-SNAPSHOT.png');
   expect(display.links).toEqual([]);
   expect(inlinePartsText(display.status)).toBe('Image snapshot recorded · sent 800 × 400');
-  const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set(['call']) } });
+  const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set([c.id]) } });
   expect(wrapper.findAll('a, img, canvas, video')).toHaveLength(0);
   expect(wrapper.get('.tool-request .semantic-section').text()).toContain(path);
   expect(wrapper.get('.tool-result .semantic-section').text()).toContain(path);
@@ -78,10 +78,9 @@ it('presents ordered native MCP content and two metadata-only descriptors once w
     ['text', 'Returned text · content 3'], ['json', 'Typed image descriptor · content 4'],
     ['text', 'Returned text · content 5'],
   ]);
-  const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set(['call']) } });
+  const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, r]), expandedIds: new Set([c.id]) } });
   expect(wrapper.findAll('[data-tool-entry-id]')).toHaveLength(1);
-  expect(wrapper.findAll('[data-entry-id="call"]')).toHaveLength(1);
-  expect(wrapper.findAll('[data-entry-id="result"]')).toHaveLength(1);
+  expect(wrapper.findAll('[data-entry-id]').map(node => node.attributes('data-entry-id'))).toEqual([c.id, r.id]);
   const sections = wrapper.findAll('.tool-result .semantic-section');
   expect(sections.map(section => section.text()).join('|')).toMatch(/native before.*content 2.*plain text.*content 4.*native after/s);
   expect(wrapper.get('.tool-result .safe-original code').element.textContent).toBe(raw);

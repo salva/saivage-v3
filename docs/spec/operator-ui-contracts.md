@@ -449,7 +449,10 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   percentage, or ETA. `model_recovered` uncertainty, failed uncertainty-only
   mates, later activation, and lifecycle corrections remain separate facts.
 - A matched exchange renders once at the call position, suppressing only its standalone
-  result and visually empty rounds. `call → prose → result → correction` displays
+  result: matching requires equal session/source-input/call identity recovered from
+  canonical message IDs. Provider call-ID reuse alone neither pairs nor suppresses rows;
+  current and exact-history readers never borrow a mate from another selected segment.
+  Visually empty rounds are omitted. `call → prose → result → correction` displays
   `combined → prose → correction`; **Result recorded later** marks intervening entries.
   Details preserve both original source positions/times and intervening-entry count,
   never backdated knowledge, invented duration or author attribution. Interleaved calls
@@ -463,6 +466,8 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
 - Request and Result retain distinct unique exact DOM anchors. Cold/Back/refresh route
   targets and inline links reveal the owning row and correct half before owner-local
   scroll/focus. No hidden duplicate result or unconstrained ancestor scrolling exists.
+  Each image action retains its exact matched result's message/content/image identity
+  and selected session/segment provenance, including when provider call IDs repeat.
 - Tool settlement is distinct from domain outcome: **Running at observation** is
   not completion; **Process failed · exit N** can accompany successful settlement;
   **Exited · exit 0** is not proof that tests passed. **Effects uncertain** proves

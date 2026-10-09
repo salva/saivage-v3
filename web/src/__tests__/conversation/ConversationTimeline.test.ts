@@ -16,19 +16,19 @@ describe('ordered shared ConversationTimeline', () => {
     const timeline = entriesToTimeline([c, correction, diagnostic, r, read, other]);
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }, { path: '/files', name: 'files', component: { template: '<div />' } }] });
     await router.push('/'); await router.isReady();
-    const wrapper = mount(ConversationTimeline, { props: { timeline, expandedIds: new Set(['call', 'read-one', 'read-two']) }, global: { plugins: [router] }, attachTo: document.body });
-    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual(['call', 'result', 'correction', 'diagnostic', 'read-one', 'read-two']);
+    const wrapper = mount(ConversationTimeline, { props: { timeline, expandedIds: new Set([c.id, read.id, other.id]) }, global: { plugins: [router] }, attachTo: document.body });
+    expect(wrapper.findAll('[data-entry-id]').map((row) => row.attributes('data-entry-id'))).toEqual([c.id, r.id, 'correction', 'diagnostic', read.id, other.id]);
     expect(wrapper.findAll('.tool-chip')).toHaveLength(3);
     expect(wrapper.findAll('.tool-chip')[0].text()).toContain('Process failed · exit 1');
     expect(wrapper.findAll('.tool-chip')[0].text()).toContain('2 retained entries between request and result');
-    expect(wrapper.find('[data-entry-id="result"]').text()).toContain(r.timestamp);
-    expect(wrapper.find('[data-entry-id="call"]').text()).toContain('npm test');
+    expect(wrapper.find('.tool-result').text()).toContain(r.timestamp);
+    expect(wrapper.find('.tool-request').text()).toContain('npm test');
     wrapper.unmount();
   });
   it('renders unmatched results with no requested-context substitution and no grouping', () => {
     const r = result('read', { metadata_only: true });
-    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([r]), expandedIds: new Set(['result']) } });
-    expect(wrapper.find('.tool-result').attributes('data-entry-id')).toBe('result');
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([r]), expandedIds: new Set([r.id]) } });
+    expect(wrapper.find('.tool-result').attributes('data-entry-id')).toBe(r.id);
     expect(wrapper.text()).toContain('Requested context unavailable');
     expect(wrapper.text()).toContain('Metadata only');
     expect(wrapper.find('.tool-group').exists()).toBe(false);
@@ -39,8 +39,8 @@ describe('ordered shared ConversationTimeline', () => {
     const diagnostic = { ...entry('diagnostic', 'model_issue', '{"message":"visible issue"}'), role: 'system' as const };
     const refusal = { ...entry('refusal', 'content_policy_refusal', '{}'), role: 'system' as const };
     const r = result('read', { metadata_only: true });
-    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, system, diagnostic, refusal, r]), expandedIds: new Set(['call']) } });
-    expect(wrapper.findAll('[data-entry-id]').map(row => row.attributes('data-entry-id'))).toEqual(['call', 'result', 'recorded-node', 'diagnostic', 'refusal']);
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([c, system, diagnostic, refusal, r]), expandedIds: new Set([c.id]) } });
+    expect(wrapper.findAll('[data-entry-id]').map(row => row.attributes('data-entry-id'))).toEqual([c.id, r.id, 'recorded-node', 'diagnostic', 'refusal']);
     const details = wrapper.get('.recorded-system-context');
     expect((details.element as HTMLDetailsElement).open).toBe(false);
     expect(details.text()).toContain(system.id);

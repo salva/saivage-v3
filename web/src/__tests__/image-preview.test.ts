@@ -8,10 +8,11 @@ import type { AgentConversationEntry } from '../api/types';
 import { getConversationImage, getFileImage } from '../api/client';
 import { effectScope, nextTick, ref } from 'vue';
 import { useAgentTimeline } from '../composables/useAgentTimeline';
+import { call, result as toolResult } from './tool-presenters/fixtures';
 vi.mock('../api/client', () => ({ getConversationImage: vi.fn(), getFileImage: vi.fn(), OperatorApiError: class extends Error {} }));
 const context = { session_id: 'agent:analyst:global' as const, segment_version: 3, segment_id: '00000000-0000-4000-8000-000000000003' };
 const image = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 800, height: 1600, byte_length: 100, sha256: '0'.repeat(64) };
-const entry = (content: unknown): AgentConversationEntry => ({ id: 'result', session_id: context.session_id, round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 1, block_index: 0, role: 'tool', kind: 'tool_result', content: JSON.stringify(content), timestamp: '2026-10-08T00:00:00Z', tool: 'synthetic_typed_producer', tool_call_id: 'call' } as unknown as AgentConversationEntry);
+const entry = (content: unknown): AgentConversationEntry => ({ id: 'source:tool-result:call', session_id: context.session_id, round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 1, block_index: 0, role: 'tool', kind: 'tool_result', content: JSON.stringify(content), timestamp: '2026-10-08T00:00:00Z', tool: 'synthetic_typed_producer', tool_call_id: 'call' } as unknown as AgentConversationEntry);
 const result = { success: true, data: { image_url: 'https://invalid', image }, content: [{ type: 'text', text: 'before' }, { type: 'image', image }, { type: 'text', text: 'between' }, { type: 'image', image }] };
 describe('caller-local selected image preview', () => {
   beforeEach(() => {
@@ -24,7 +25,7 @@ describe('caller-local selected image preview', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); document.body.innerHTML = ''; });
   it('uses actual ordered references without producer metadata, never nested JSON or URLs', async () => {
     const selections = conversationImages(entry(result), context, 'synthetic_typed_producer');
-    expect(selections.map(s => s.locator)).toEqual([1, 3].map(content_index => ({ ...context, message_id: 'result', content_index, image_id: image.id })));
+    expect(selections.map(s => s.locator)).toEqual([1, 3].map(content_index => ({ ...context, message_id: entry(result).id, content_index, image_id: image.id })));
     expect(selections[0].metadata).toBe('Original dimensions not recorded');
     expect(conversationImages(entry({ success: true, data: { image, image_url: 'https://invalid' } }), context, 'view_image')).toEqual([]);
     const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([entry(result)]), expandedIds: new Set<string>(), imageContext: context } });
@@ -50,7 +51,7 @@ describe('caller-local selected image preview', () => {
     expect(area.scrollTop).toBe(80); expect(controls.pinnedToLatest.value).toBe(true); expect(controls.autoScrollPaused.value).toBe(false);
     controls.inspectingImage.value = false; await nextTick();
     expect(area.scrollTop).toBe(80);
-    entries.value = [...entries.value, { ...entry(result), id: 'later' }]; await nextTick();
+    entries.value = [...entries.value, { ...entry(result), id: 'later:tool-result:call' }]; await nextTick();
     expect(area.scrollTop).toBe(500); // ordinary next arrival resumes prior follow policy
     scope.stop();
   });
@@ -62,11 +63,27 @@ describe('caller-local selected image preview', () => {
     const native = entry({ ...result, data: { images: [{ content_index: 1, ...nativeMetadata }] } });
     expect(conversationImages(native, context, 'mcp_tool_call')[0].metadata).toContain('Orientation-adjusted 1600 × 3200');
     expect(conversationImages(native, context, 'mcp_tool_call')[1].metadata).toBe('Original dimensions not recorded');
-    const call = { ...branded, id: 'call', role: 'assistant' as const, kind: 'tool_call' as const, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call', type: 'function', function: { name: 'view_image', arguments: '{}' } }] }) };
+    const call = { ...branded, id: 'source:tool-call:call', role: 'assistant' as const, kind: 'tool_call' as const, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call', type: 'function', function: { name: 'view_image', arguments: '{}' } }] }) };
     const between = { ...branded, id: 'between', role: 'assistant' as const, kind: 'text' as const, content: 'Before result' };
     const timeline = entriesToTimeline([call, between, branded]);
     const row = timeline.rounds[0].rows[0];
     expect(conversationImages(row.mate, context, 'view_image')[0].locator).toEqual({ ...context, message_id: branded.id, content_index: 0, image_id: image.id });
+  });
+  it('selects the exact result-owned image for each expanded repeated-ID exchange', async () => {
+    const a = call('synthetic_typed_producer', { target: 'A' }, 'a', 'call_0');
+    const b = call('synthetic_typed_producer', { target: 'B' }, 'b', 'call_0');
+    const secondImage = { ...image, id: '00000000-0000-4000-8000-000000000002', sha256: 'b'.repeat(64) };
+    const ar = toolResult('synthetic_typed_producer', {}, { tool_call_id: 'call_0', content: JSON.stringify({ success: true, content: [{ type: 'image', image }] }) }, 'a');
+    const br = toolResult('synthetic_typed_producer', {}, { tool_call_id: 'call_0', content: JSON.stringify({ success: true, content: [{ type: 'text', text: 'B only' }, { type: 'image', image: secondImage }] }) }, 'b');
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([a, ar, b, br]), expandedIds: new Set([a.id, b.id]), imageContext: context } });
+    expect(wrapper.findAll('[data-entry-id]').map(node => node.attributes('data-entry-id'))).toEqual([a.id, ar.id, b.id, br.id]);
+    for (const [index, r, descriptor, content_index] of [[0, ar, image, 0], [1, br, secondImage, 1]] as const) {
+      await wrapper.findAll('.tool-chip')[index].get('.image-actions button').trigger('click'); await flushPromises();
+      expect(getConversationImage).toHaveBeenLastCalledWith({ ...context, message_id: r.id, content_index, image_id: descriptor.id }, expect.any(AbortSignal));
+      const close = [...document.querySelectorAll('button')].find(button => button.textContent?.startsWith('Close / Return'))!;
+      close.click(); await flushPromises();
+    }
+    wrapper.unmount();
   });
   it('clears replaced pixels, aborts and ignores departed successes; unmount revokes accepted URLs', async () => {
     const selections = conversationImages(entry(result), context, 'mcp_tool_call');
