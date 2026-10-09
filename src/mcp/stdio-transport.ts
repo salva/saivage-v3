@@ -11,6 +11,7 @@ import {
   type McpToolDefinition,
 } from './protocol.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
+import type { NativeMcpResult } from './native-result.js';
 
 interface MessageIdSource {
   next(): number | string;
@@ -269,7 +270,7 @@ export class StdioMcpConnection {
     args: Record<string, unknown>;
     signal: AbortSignal;
     onResponse: () => void;
-  }): Promise<unknown> {
+  }): Promise<NativeMcpResult> {
     input.signal.throwIfAborted();
     const response = await this.exchange(
       {

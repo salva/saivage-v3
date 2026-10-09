@@ -58,3 +58,5 @@ export const NativeMcpResultSchema = z
     _meta: z.record(z.unknown()).optional(),
   })
   .passthrough();
+
+export type NativeMcpResult = z.infer<typeof NativeMcpResultSchema>;

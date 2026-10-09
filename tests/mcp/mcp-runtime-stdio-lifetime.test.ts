@@ -41,7 +41,7 @@ function fixture(options?: {
   const methods: string[] = [];
   let id = 0;
   let mutations = 0;
-  const events = { appendEventPrepared: jest.fn() };
+  const events = { appendEventPrepared: jest.fn<(prepare: () => unknown) => void>() };
   const runner = {
     spawnInteractive: () => ({
       process: options?.missingStreams ? { stderr } : { stdin, stdout, stderr },
@@ -84,6 +84,7 @@ function fixture(options?: {
       }),
     );
   });
+  const stats = new McpInvocationStatsRecorder(events as never);
   const runtime = new McpServerRuntime({
     name: 'one',
     config: { transport: 'stdio', command: 'synthetic', autostart: false, disabled: false },
@@ -92,7 +93,7 @@ function fixture(options?: {
     processScope: {} as never,
     projectRoot: '/project space/á',
     ids: options?.ids ?? { next: () => ++id },
-    invocationStats: new McpInvocationStatsRecorder(events as never),
+    invocationStats: stats,
   });
   return {
     runtime,
@@ -109,6 +110,7 @@ function fixture(options?: {
     calls,
     methods,
     events,
+    stats,
     get mutations() {
       return mutations;
     },
@@ -142,15 +144,17 @@ describe('runtime lifetime receiver ordering', () => {
       f.destroy();
     },
   );
-  it.each(['roots-write', 'EOF', 'mapped-error'] as const)(
+  it.each(['roots-write', 'EOF', 'native-error-roots-write', 'native-error-EOF', 'mapped-error'] as const)(
     'retains a consumed known response before %s closure and fences queued work',
     async (mode) => {
       const f = fixture();
       await f.runtime.start();
+      const eof = mode.endsWith('EOF');
+      const nativeError = mode.startsWith('native-error');
       const result = f.runtime.invokeTool('mutate', {}).catch((error) => error);
       await f.entered.promise;
       const queued = f.runtime.invokeTool('mutate', {}).catch((error) => error);
-      if (mode !== 'EOF')
+      if (!eof)
         jest.spyOn(f.stdin, 'write').mockImplementation(() => {
           throw new Error('roots answer write failed');
         });
@@ -160,17 +164,22 @@ describe('runtime lifetime receiver ordering', () => {
           id: f.calls[0].id,
           ...(mode === 'mapped-error'
             ? { error: { code: -32602, message: 'known failure' } }
-            : { result: { content: [{ type: 'text', text: 'known result' }] } }),
-        }) + (mode !== 'EOF' ? wire({ jsonrpc: '2.0', id: 'roots', method: 'roots/list' }) : ''),
+            : { result: { content: [{ type: 'text', text: 'known result' }], ...(nativeError ? { isError: true } : {}) } }),
+        }) + (!eof ? wire({ jsonrpc: '2.0', id: 'roots', method: 'roots/list' }) : ''),
       );
-      if (mode === 'EOF') f.stdout.emit('end');
+      if (eof) f.stdout.emit('end');
       expect(f.runtime.isReady()).toBe(false);
       expect(f.runtime.isAdmissionOpen()).toBe(false);
       expect(f.terminate).toHaveBeenCalledTimes(1);
       const known = await result;
       if (mode === 'mapped-error') expect(known).toMatchObject({ code: 'INVALID_ARGUMENTS' });
-      else expect(known).toMatchObject({ content: [{ type: 'text', text: 'known result' }] });
+      else expect(known).toEqual({ content: [{ type: 'text', text: 'known result' }], ...(nativeError ? { isError: true } : {}) });
       expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
+      const succeeded = !nativeError && mode !== 'mapped-error';
+      expect(f.stats.snapshot()['one:mutate']).toMatchObject({ total: 1, success: succeeded ? 1 : 0, error: succeeded ? 0 : 1 });
+      const event = f.events.appendEventPrepared.mock.calls[0][0]();
+      expect(event).toMatchObject({ kind: 'mcp_tool_invocation', success: succeeded });
+      if (nativeError) expect(event).not.toHaveProperty('error');
       await queued;
       await expect(f.runtime.invokeTool('mutate', {})).rejects.toThrow('not running');
       expect(f.calls).toHaveLength(1);

@@ -673,7 +673,12 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   established**, or the explicit body-not-allowed/restart-unavailable rejection.
   These global rows have no synthetic card link and are excluded from Errors and
   card-filtered Events. Errors explicitly includes runtime diagnostics, actionable
-  errors and failed MCP invocations only. Direct controls record known handler returns
+  errors and failed MCP invocations only, including returned native `isError:true`
+  envelopes. When the invocation event has no optional error text, the existing
+  message is **MCP tool &lt;tool&gt; invocation failed**, with source `mcp:<server>`
+  and the catalog's informational severity. Safe native diagnostics remain in the
+  failed tool result, not copied into Events/Errors. Invocation outcome is not a
+  guarantee of subsequent projection or model delivery. Direct controls record known handler returns
   and explicit handler rejections; status reads, pre-handler denials, thrown failures
   and transport loss have no promised row. Missing evidence does not authorize repeating
   a command. Analyst tool evidence remains in conversations, not duplicate control events.

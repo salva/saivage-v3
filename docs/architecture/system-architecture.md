@@ -684,6 +684,17 @@ but the existing exact-launch terminal observer, not EOF, supplies delayed exit 
 capture-error status. Stop joins that observer and retains its classification;
 failed containment takes precedence and releases its wait race without retirement.
 Publication uncertainty escapes before ordinary cleanup, containment or later effects.
+After the existing completion-sensitive caller/generation checks, McpServerRuntime
+classifies the validated returned native envelope once with `isError !== true` and
+supplies that same boolean to invocation counters and event publication, returning
+the envelope unchanged. Native failure is not a transport exception. The returned
+result publication stays outside the transport catch; publication rejection escapes
+unchanged without retry, compensating event or containment. Counters may already
+have advanced before a failed append; this is not a cross-resource transaction.
+Native failure rows omit optional error text and enter the unchanged Errors filter
+and generic browser presenter. Safe remote diagnostics remain in tool results,
+not duplicated in the app log. Later projection, conversion or image-publication
+failure does not change the recorded native outcome or promise model delivery.
 Strict authenticated lifecycle routes share operator contract registration; new
 control/discovery agent selections remain independent from invocation. No topology,
 install registry, enable persistence, reconciliation scheduler or second containment

@@ -14,6 +14,7 @@ import {
 } from './protocol.js';
 import type { McpServerHandle } from './server-registry.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
+import type { NativeMcpResult } from './native-result.js';
 
 interface StreamableHttpReadContext {
   serverName: string;
@@ -358,7 +359,7 @@ export async function invokeStreamableHttpTool(input: {
   timeoutMs: number;
   ids: MessageIdSource;
   signal: AbortSignal;
-}): Promise<unknown> {
+}): Promise<NativeMcpResult> {
   const {
     serverName,
     toolName,

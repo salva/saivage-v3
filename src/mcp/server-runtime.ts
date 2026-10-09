@@ -37,6 +37,7 @@ import {
   probeStreamableHttpStartup,
 } from './streamable-http-transport.js';
 import { StdioMcpConnection } from './stdio-transport.js';
+import type { NativeMcpResult } from './native-result.js';
 
 interface McpJsonRpcIdProvider {
   next(): number | string;
@@ -279,7 +280,7 @@ export class McpServerRuntime {
       this.validateToolArguments(toolName, toolDefinition.inputSchema, args);
       const startTime = Date.now();
       const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
-      let result: unknown;
+      let result: NativeMcpResult;
       let responseCompleted = false;
       try {
         result =
@@ -356,8 +357,9 @@ export class McpServerRuntime {
         throw err;
       }
       const durationMs = Date.now() - startTime;
-      this.#invocationStats.record(this.name, toolName, true);
-      this.#invocationStats.publish(this.name, toolName, true, durationMs);
+      const success = result.isError !== true;
+      this.#invocationStats.record(this.name, toolName, success);
+      this.#invocationStats.publish(this.name, toolName, success, durationMs);
       return result;
     }, options?.signal);
     // This completion is deliberately not an admitted operation: stop joins inner work.

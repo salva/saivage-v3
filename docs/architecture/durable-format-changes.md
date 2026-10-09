@@ -21,6 +21,36 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Durable-preserving native MCP invocation telemetry (F-05, 2026-10-09)
+
+Source evidence: the regression was introduced by `cadf0f21`, observed at audit
+baseline `f8d05e75` and implementation parent
+`2c25b70d5c6d8a67ef592ad3a3caaea1ab6d451d`. This F-05 source changeset
+corrects the runtime producer: a validated returned native `isError:true` envelope
+now supplies `success:false` to the existing counter/event owners; false or absent
+`isError` supplies true. `cadf0f21^:src/mcp/tools-call-response.ts` threw
+`TOOL_EXECUTION_ERROR` for native true, reaching the existing failure telemetry
+branch. Canonical Errors semantics remained failed MCP invocations. This restores
+future production of that existing meaning, not a new retained interpretation.
+Synthetic actual-runtime and production-composition tests cover returned native
+outcomes through counters, strict app-log queries, authenticated Errors and the
+browser projector, preserving known completed stdio responses after closure.
+
+The app-log/provider-evidence shared `version:1,type:rows` envelope remains **1**;
+`mcp_tool_invocation.success:false` already denotes failure and `error` is already
+optional. Conversation index/genesis/segment remain **6**, including descriptor-
+selected PNGs; failed-provider diagnostic **2 / privacy-policy-2** is unchanged.
+No family, selection, provenance or layout changes, bump or shared unreleased
+cutover are claimed. Existing incorrectly recorded success rows remain successes:
+no reinterpretation, history reconstruction or append-only rewrite. Later image
+projection failures remain distinct from known native invocation outcomes.
+
+Installed release/deployment applicability is **unknown**. This fix alone requires
+no migration/reset for valid current state, certifies no complete installation and
+authorizes no deployment. Older incompatible state remains a stopped blocker;
+external migration still requires an explicit identified-project owner request
+and the AGENTS offline boundary. None is requested here.
+
 ### Durable-preserving MCP discovery settlement (F-07, 2026-10-09)
 
 Source evidence: examined `f8d05e75`, implementation parent `6cb23dd2`, and

@@ -51,7 +51,8 @@ describe('MCP schema validation at runtime use', () => {
       const registry = new ManagedProcessGroupRegistry();
       const scope = registry.createContainerScope(registry.rootScope, 'mcp');
       const runner = new ProcessRunner(root, registry, testApplicationFatalPort);
-      const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: { appendEventPrepared() {} } as never });
+      const events = { appendEventPrepared: jest.fn() };
+      const manager = new McpManager({ configAuthority: testConfigAuthority(root), processRunner: runner, mcpProcessRootScope: scope, eventLogger: events as never });
       const calls = () => transport === 'stdio'
         ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
         : httpCalls;
@@ -64,6 +65,8 @@ describe('MCP schema validation at runtime use', () => {
           });
         }
         expect(calls()).toHaveLength(0);
+        expect(manager.getInvocationStats()).toEqual({});
+        expect(events.appendEventPrepared).not.toHaveBeenCalled();
         const args = { scale: 'css', type: 'png' };
         await expect(manager.invokeTool('one', official.name, args)).resolves.toEqual({ content: [{ type: 'text', text: 'accepted' }] });
         expect(calls()).toEqual([{ name: official.name, arguments: args }]);
@@ -94,6 +97,8 @@ describe('MCP schema validation at runtime use', () => {
           await expect(manager.invokeTool('one', official.name, {})).rejects.toMatchObject({ data: { reason: inputSchema.$schema ? 'schema_unsupported' : 'schema_compile_error' } });
         }
         expect(calls()).toHaveLength(4);
+        expect(manager.getInvocationStats()[`one:${official.name}`]).toMatchObject({ total: 4, success: 4, error: 0 });
+        expect(events.appendEventPrepared).toHaveBeenCalledTimes(4);
       } finally {
         // Remove only after actual owning containment succeeded.
         await manager.cleanupForApplicationStop();

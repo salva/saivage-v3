@@ -9,6 +9,7 @@ import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 
 function deferred<T>() {
@@ -38,10 +39,11 @@ async function fixture() {
     setImmediate(() => stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\n'));
   });
   let id = 0;
-  const events = { appendEventPrepared: jest.fn(() => {}) };
-  const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'stdio', command: 'test', autostart: true, disabled: false }, revision: 'r', processRunner: runner as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder(events as never) });
+  const events = { appendEventPrepared: jest.fn((_prepare: () => unknown) => {}) };
+  const stats = new McpInvocationStatsRecorder(events as never);
+  const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'stdio', command: 'test', autostart: true, disabled: false }, revision: 'r', processRunner: runner as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: stats });
   await runtime.start();
-  return { runtime, containment, terminate, entered, calls, stdout, events };
+  return { runtime, containment, terminate, entered, calls, stdout, events, stats };
 }
 const success = { failed: [] };
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -93,17 +95,77 @@ describe('active stdio cancellation ownership', () => {
     expect(f.events.appendEventPrepared).not.toHaveBeenCalled();
   });
 
-  it('event publication uncertainty after a complete response escapes before any stop or later logging', async () => {
+  it.each([
+    { isError: false, uncertain: true }, { isError: true, uncertain: true },
+    { isError: false, uncertain: false }, { isError: true, uncertain: false },
+  ])('event publication rejection after native $isError (uncertain=$uncertain) escapes before any stop or later logging', async ({ isError, uncertain }) => {
     const f = await fixture();
-    const failure = new PublicationOutcomeUnknownError();
+    const failure = uncertain ? new PublicationOutcomeUnknownError() : new Error('exact ordinary event publication failure');
     f.events.appendEventPrepared.mockImplementation(() => { throw failure; });
     const observed = f.runtime.invokeTool('pending', {}).catch(error => error);
     await f.entered.promise;
-    f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [] } }) + '\n');
+    f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [], isError } }) + '\n');
     expect(await observed).toBe(failure);
     expect(f.terminate).not.toHaveBeenCalled();
     expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
+    expect(f.calls).toHaveLength(1);
+    expect(f.stats.snapshot()['one:pending']).toMatchObject({ total: 1, success: isError ? 0 : 1, error: isError ? 1 : 0 });
+    expect(f.events.appendEventPrepared.mock.calls[0][0]()).toMatchObject({ success: !isError });
     // Mock-only streams: no real process owner needs follow-up containment.
+  });
+
+  it('later recognized image conversion failure leaves the actual native invocation successful without replay', async () => {
+    const f = await fixture();
+    const installation = createMcpToolInvocationInstallation();
+    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, tool, args, options) => f.runtime.invokeTool(tool, args, options) });
+    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
+    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
+    await f.entered.promise;
+    f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [{ type: 'image', mimeType: 'image/png', data: 'YQ==' }] } }) + '\n');
+    const execution = await result;
+    const settled = settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult;
+    expect(settled).toMatchObject({ success: false, error: 'Invalid or oversized image; generate a smaller valid source.' });
+    expect(f.stats.snapshot()['one:pending']).toMatchObject({ total: 1, success: 1, error: 0 });
+    expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
+    expect(f.events.appendEventPrepared.mock.calls[0][0]()).toMatchObject({ success: true });
+    expect(f.calls).toHaveLength(1);
+    expect(f.terminate).not.toHaveBeenCalled();
+    f.containment.resolve(success);
+    await f.runtime.stop();
+  });
+
+  it.each([
+    { response: { error: { code: -32602, message: 'invalid remote arguments' } }, code: 'INVALID_ARGUMENTS' },
+    { response: { error: { code: -32001, message: 'remote failure' } }, code: 'MCP_ERROR_-32001' },
+    { response: { result: { content: [{ type: 'text', text: 1 }] } }, code: 'MCP_INVALID_RESULT' },
+    { response: {}, code: 'MCP_NO_RESULT' },
+  ])('retains mapped $code rejection with one eligible failure record rather than native success', async ({ response, code }) => {
+    const f = await fixture();
+    const observed = f.runtime.invokeTool('pending', {}).catch(error => error);
+    await f.entered.promise;
+    f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, ...response }) + '\n');
+    expect(await observed).toMatchObject({ code });
+    expect(f.stats.snapshot()['one:pending']).toMatchObject({ total: 1, success: 0, error: 1 });
+    expect(f.events.appendEventPrepared).toHaveBeenCalledTimes(1);
+    expect(f.events.appendEventPrepared.mock.calls[0][0]()).toMatchObject({ success: false, error: expect.any(String) });
+    expect(f.calls).toHaveLength(1);
+    expect(f.terminate).not.toHaveBeenCalled();
+    f.containment.resolve(success);
+    await f.runtime.stop();
+  });
+
+  it('unknown tool and already-aborted caller add no invocation or telemetry', async () => {
+    const f = await fixture();
+    await expect(f.runtime.invokeTool('unknown', {})).rejects.toMatchObject({ code: 'TOOL_NOT_FOUND' });
+    const caller = new AbortController();
+    const reason = new Error('already cancelled');
+    caller.abort(reason);
+    await expect(f.runtime.invokeTool('pending', {}, { signal: caller.signal })).rejects.toBe(reason);
+    expect(f.calls).toHaveLength(0);
+    expect(f.events.appendEventPrepared).not.toHaveBeenCalled();
+    expect(f.stats.snapshot()).toEqual({});
+    f.containment.resolve(success);
+    await f.runtime.stop();
   });
 
   it.each(['caller', 'deadline'] as const)('%s synchronously fences discovery, drains two queued calls and joins direct containment without self-join', async mode => {

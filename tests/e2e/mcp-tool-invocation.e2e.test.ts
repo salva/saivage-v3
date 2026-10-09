@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createServer as createViteServer } from 'vite';
 import { pathToFileURL } from 'node:url';
 import * as YAML from 'yaml';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
@@ -192,7 +193,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       await closeServer(provider); await closeServer(mcp);
     }
   }, 60_000);
-  it('discovers and calls a streamable-HTTP tool through authenticated Analyst start and persists the settled result', async () => {
+  it.each([true, false, undefined])('records native isError=%p through HTTP, settlement, status and durable operator Errors', async (isError) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mcp-production-e2e-'));
     roots.push(projectRoot);
     const mcpMethods: string[] = [];
@@ -216,7 +217,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         } else if (body.method === 'tools/call') {
           toolCalls.push(body.params);
           response.setHeader('content-type', 'application/json');
-          response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: `echo:${body.params.arguments.marker}` }] } }));
+          response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: {
+            content: [{ type: 'text', text: `echo:${body.params.arguments.marker}` }, ...(isError === true ? [{ type: 'image', mimeType: 'image/png', data: 'not selected' }] : [])],
+            ...(isError === undefined ? {} : { isError }),
+            _meta: { producer: 'synthetic-peer' },
+          } }));
         } else throw new Error(`Unexpected MCP operation '${body.method}'.`);
       } catch (error) {
         fixtureFailure = error as Error;
@@ -296,17 +301,64 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       expect(mcpMethods).toEqual(['HEAD', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
       expect(toolCalls).toEqual([{ name: 'echo_marker', arguments: { marker: MARKER } }]);
       const mappedMcpResult = [{ type: 'text', text: `echo:${MARKER}` }];
-      const wrappedMcpResult = { result: {}, native_content: [{ content_index: 0, type: 'text' }] };
-      expect(markerResultSeenByProvider).toEqual({ success: true, data: wrappedMcpResult, content: mappedMcpResult });
+      const wrappedMcpResult = {
+        result: { ...(isError === undefined ? {} : { isError }), _meta: { producer: 'synthetic-peer' } },
+        native_content: [{ content_index: 0, type: 'text' }, ...(isError === true ? [{ content_index: 1, type: 'image', mimeType: 'image/png' }] : [])],
+        ...(isError === true ? { content: mappedMcpResult } : {}),
+      };
+      const settlement = isError === true
+        ? { success: false, error: 'MCP tool reported an error; effects may have occurred.', data: wrappedMcpResult }
+        : { success: true, data: wrappedMcpResult, content: mappedMcpResult };
+      expect(markerResultSeenByProvider).toEqual(settlement);
+      expect(wrappedMcpResult).not.toHaveProperty('images');
+      expect(JSON.stringify(settlement)).not.toContain('not selected');
 
       const conversation = readConversation(projectRoot, 'agent:executor:project').physicalRows;
       const mcpRows = conversation.filter((row) => row.tool === 'mcp_tool_call');
       expect(mcpRows.map((row) => row.kind)).toEqual(['tool_call', 'tool_result']);
       expect(mcpRows[1]).toMatchObject({ tool_call_id: 'mcp-call', context_policy: { kind: 'tool_result', settlement_origin: 'executed', evidence: { kind: 'none' } } });
-      expect(JSON.parse(mcpRows[1]!.content)).toEqual({ success: true, data: wrappedMcpResult, content: mappedMcpResult });
-      expect(new EventQueryService(projectRoot).queryEvents({ kind: 'mcp_tool_invocation' }).events).toEqual([
-        expect.objectContaining({ kind: 'mcp_tool_invocation', server: SERVER_NAME, tool: 'echo_marker', success: true }),
+      expect(JSON.parse(mcpRows[1]!.content)).toEqual(settlement);
+      const query = new EventQueryService(projectRoot);
+      const events = query.queryEvents({ kind: 'mcp_tool_invocation' }).events;
+      expect(events).toEqual([
+        expect.objectContaining({ kind: 'mcp_tool_invocation', server: SERVER_NAME, tool: 'echo_marker', success: isError !== true }),
       ]);
+      expect(events[0]).not.toHaveProperty('error');
+      expect(JSON.stringify(events)).not.toContain(MARKER);
+      expect(JSON.stringify(events)).not.toContain('synthetic-peer');
+      const stats = { total: 1, success: isError === true ? 0 : 1, error: isError === true ? 1 : 0 };
+      expect(app.server.mcpManager.getInvocationStats()[`${SERVER_NAME}:echo_marker`]).toMatchObject(stats);
+      expect(app.server.mcpManager.getToolsReadModel().servers).toEqual([
+        expect.objectContaining({ name: SERVER_NAME, tools: [expect.objectContaining({ name: 'echo_marker', stats: expect.objectContaining(stats) })] }),
+      ]);
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const statusResponse = await fetch(`${appOrigin(app)}/api/mcp/tools`, { headers });
+      expect(statusResponse.status).toBe(200);
+      expect(await statusResponse.json()).toMatchObject({ servers: [expect.objectContaining({ tools: [expect.objectContaining({ stats: expect.objectContaining(stats) })] })] });
+      expect((await fetch(`${appOrigin(app)}/api/debug/errors`)).status).toBe(401);
+      const errorsResponse = await fetch(`${appOrigin(app)}/api/debug/errors`, { headers });
+      expect(errorsResponse.status).toBe(200);
+      const errors = await errorsResponse.json();
+      const expectedErrors = { total: isError === true ? 1 : 0, errors: isError === true ? events : [] };
+      expect(query.queryErrors()).toEqual(expectedErrors);
+      expect(errors).toEqual(expectedErrors);
+      if (isError === true) {
+        // Vite resolves the browser's actual alias and extensionless imports, without
+        // copying its projector into a backend test or changing production UI code.
+        const browserModules = await createViteServer({
+          configFile: false, root: resolve('web'),
+          optimizeDeps: { noDiscovery: true, entries: [] },
+          server: { middlewareMode: true },
+          resolve: { alias: { '@saivage/schemas': resolve('src/schemas') } },
+        });
+        try {
+          const { projectErrorRecord } = await browserModules.ssrLoadModule('/src/stores/debug-read-model.ts');
+          expect(projectErrorRecord(errors.errors[0])).toMatchObject({
+            id: events[0].id, source: `mcp:${SERVER_NAME}`, type: 'mcp_tool_invocation',
+            severity: 'info', message: 'MCP tool echo_marker invocation failed',
+          });
+        } finally { await browserModules.close(); }
+      }
       expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { summary: 'MCP marker completed.' } } });
       expect({ analystCalls, rootCalls }).toEqual({ analystCalls: 2, rootCalls: 2 });
     } finally {

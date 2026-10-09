@@ -1577,6 +1577,14 @@ The explicitly cut-over discovery/read/version surfaces pack every provider-visi
 
 `mcp_tool_call` validates the complete native CallToolResult envelope. Successful native text and images retain their original positions in ordered `content`; non-text/non-image protocol blocks are projected JSON serialized as text at their positions, never fetched or promoted into pixels. Envelope extensions, `structuredContent` and `_meta` remain ordinary `data.result`; indexed native metadata and captures are `data.native_content` and `data.images`. Native errors retain safe diagnostics but select no images. Malformed/unknown native blocks fail explicitly. JSON-looking text and image-like structured data stay ordinary data.
 
+For an eligible invocation returning a validated native envelope, `isError:true`
+increments the MCP failure counter and publishes one `mcp_tool_invocation` with
+`success:false`; explicit false or absent `isError` increments success and publishes
+`success:true`. Native failure events omit optional error text; safe diagnostics
+remain in the failed tool result, not copied into the app log. This is the known
+native invocation outcome, not a guarantee of later projection, image conversion,
+settlement or model delivery. Later failures do not revise it or replay the call.
+
 Native static PNG/JPEG/WebP require canonical base64 and declared MIME matching decoded format. Each source is at most 32 MiB/40 million pixels; aggregate source images are at most 32 MiB. Orientation and aspect-preserving reduction precede sRGB PNG selection, at most 16 MiB per image. Local optional `max_dimension` uses the same 1..16384 or `original` schema as `view_image`, default 1600, and is not forwarded to the server. Captures preserve actual source/oriented/sent dimensions, applied orientation, resize/scale and requested bound at their content index; no source path is invented. Workspace `view_image` independently remains PNG/JPEG-only with its actual path.
 
 Stdio JSON frames and HTTP JSON/SSE assembly are bounded at 48 MiB UTF-8 wire bytes. Complete projected non-image text/JSON is bounded at 1 MiB, never truncated or paged. Effects may have occurred before oversize failure. All asynchronous conversion and validation finish before the exact invoking signal's immediate fence ahead of synchronous exact-session image publication. Cancellation during normalization publishes no image and propagates the identical reason, including recognized conversion failures; unrelated errors/publication uncertainty propagate unchanged without later effects. Ordinary projected transport/input error fields remain at most 512 UTF-8 bytes. MCP remains outside response paging and participates normally in compaction/admission, through the shared single originating-call Responses/Codex output and distinct atomic multimodal summary/refine user path.

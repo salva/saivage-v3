@@ -1,11 +1,11 @@
 import { InvalidArgumentsError, McpInvokeError } from './errors.js';
-import { NativeMcpResultSchema } from './native-result.js';
+import { NativeMcpResultSchema, type NativeMcpResult } from './native-result.js';
 
 export function mapToolsCallResponse(
   response: Record<string, unknown>,
   serverName: string,
   toolName: string,
-): unknown {
+): NativeMcpResult {
   if (response.error) {
     const error = response.error as { code: number; message: string; data?: unknown };
     if (error.code === -32602) throw new InvalidArgumentsError(serverName, toolName, error.data);
