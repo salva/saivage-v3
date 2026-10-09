@@ -464,13 +464,12 @@ export class McpServerRuntime {
     const abortController = new AbortController();
     this.handle = { abortController };
     this.startedAt = new Date().toISOString();
-    const startupProbe = await probeStreamableHttpStartup({
+    await probeStreamableHttpStartup({
+      serverName: this.name,
       config: cfg,
       signal,
     });
     this.assertCurrent(generation, signal);
-    if (!startupProbe.ok)
-      throw new Error(`Streamable HTTP MCP server '${this.name}' failed its startup probe.`);
   }
 
   private discoverTools(signal: AbortSignal): Promise<McpToolDefinition[]> {

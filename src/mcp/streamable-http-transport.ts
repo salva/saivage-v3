@@ -1,5 +1,8 @@
 import { TimeoutError, TransportError } from './errors.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import {
+  PublicationOutcomeUnknownError,
+  throwIfPublicationOutcomeUnknown,
+} from '../contracts/index.js';
 import type { StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import {
   CLIENT_NAME,
@@ -35,12 +38,12 @@ function isJsonRpcResponseForId(
   return msg.jsonrpc === '2.0' && msg.id === expectedId && ('result' in msg || 'error' in msg);
 }
 
-function sanitizeJsonRpcError(error: unknown): string {
-  if (!error || typeof error !== 'object') return 'unknown JSON-RPC error';
-  const err = error as { code?: unknown; message?: unknown };
-  const code = typeof err.code === 'number' ? err.code : 'unknown';
-  const message = typeof err.message === 'string' ? err.message.slice(0, 200) : 'unknown error';
-  return `${message} (code ${code})`;
+function discoveryRejection(serverName: string, operation: string, error: unknown): TransportError {
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+  return new TransportError(
+    serverName,
+    `${operation} rejected${typeof code === 'number' && Number.isFinite(code) ? ` (code ${code})` : ''}`,
+  );
 }
 
 async function readChunkWithAbort(
@@ -54,10 +57,14 @@ async function readChunkWithAbort(
     onAbort = () => reject(signal.reason);
     signal.addEventListener('abort', onAbort, { once: true });
   });
+  let publicationUnknown = false;
   try {
     return await Promise.race([reader.read(), aborted]);
+  } catch (error) {
+    publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+    throw error;
   } finally {
-    signal.removeEventListener('abort', onAbort);
+    if (!publicationUnknown) signal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -83,6 +90,7 @@ async function readBoundedJson(
   const reader = resp.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
+  let publicationUnknown = false;
   try {
     for (;;) {
       const { value, done } = await readChunkWithAbort(reader, context.signal);
@@ -92,10 +100,28 @@ async function readBoundedJson(
         throw new TransportError(context.serverName, 'MCP JSON response exceeded 48 MiB');
       chunks.push(value);
     }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+    const text = Buffer.concat(chunks).toString('utf8');
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new TransportError(
+        context.serverName,
+        `Malformed JSON response for ${context.operation}`,
+      );
+    }
+  } catch (error) {
+    publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+    throwIfPublicationOutcomeUnknown(error);
+    if (context.signal?.aborted) throw context.signal.reason;
+    throw error;
   } finally {
-    await reader.cancel().catch(() => undefined);
-    reader.releaseLock();
+    if (!publicationUnknown) {
+      await reader.cancel().catch((error) => {
+        throwIfPublicationOutcomeUnknown(error);
+      });
+      reader.releaseLock();
+    }
   }
 }
 
@@ -105,22 +131,10 @@ export async function readStreamableHttpJsonRpcResponse(
 ): Promise<Record<string, unknown>> {
   const contentType = getContentType(resp);
   if (!contentType.includes('text/event-stream')) {
-    try {
-      const parsed = await readBoundedJson(resp, context);
-      if (!isJsonRpcResponseForId(parsed, context.expectedId))
-        throw new TransportError(
-          context.serverName,
-          'MCP JSON response has wrong request identity',
-        );
-      return parsed;
-    } catch (err) {
-      throwIfPublicationOutcomeUnknown(err);
-      if (context.signal?.aborted) throw context.signal.reason;
-      throw new TransportError(
-        context.serverName,
-        `Failed to parse JSON response for ${context.operation}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    const parsed = await readBoundedJson(resp, context);
+    if (!isJsonRpcResponseForId(parsed, context.expectedId))
+      throw new TransportError(context.serverName, 'MCP JSON response has wrong request identity');
+    return parsed;
   }
   if (!resp.body)
     throw new TransportError(
@@ -131,6 +145,7 @@ export async function readStreamableHttpJsonRpcResponse(
   const decoder = new TextDecoder();
   let buffer = '';
   let receivedBytes = 0;
+  let publicationUnknown = false;
   try {
     for (;;) {
       const { value, done } = await readChunkWithAbort(reader, context.signal);
@@ -154,7 +169,8 @@ export async function readStreamableHttpJsonRpcResponse(
         let parsed: unknown;
         try {
           parsed = JSON.parse(data);
-        } catch {
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
           throw new TransportError(
             context.serverName,
             `Malformed Streamable HTTP SSE data for ${context.operation}`,
@@ -164,12 +180,17 @@ export async function readStreamableHttpJsonRpcResponse(
         boundary = buffer.search(/\r?\n\r?\n/);
       }
     }
+  } catch (error) {
+    publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+    throwIfPublicationOutcomeUnknown(error);
+    if (context.signal?.aborted) throw context.signal.reason;
+    throw error;
   } finally {
-    await reader.cancel().catch(() => undefined);
-    try {
+    if (!publicationUnknown) {
+      await reader.cancel().catch((error) => {
+        throwIfPublicationOutcomeUnknown(error);
+      });
       reader.releaseLock();
-    } catch {
-      /* ignore */
     }
   }
   throw new TransportError(
@@ -178,29 +199,23 @@ export async function readStreamableHttpJsonRpcResponse(
   );
 }
 
-async function readStreamableHttpNotificationError(
+async function consumeStreamableHttpInitializedNotification(
   resp: Response,
   serverName: string,
   signal: AbortSignal,
-): Promise<string | undefined> {
-  if (resp.status === 202 || resp.status === 204) return undefined;
+): Promise<void> {
+  if (resp.status === 202 || resp.status === 204) return;
   const contentType = getContentType(resp);
   if (contentType.includes('application/json')) {
-    try {
-      const body = await readBoundedJson(resp, {
-        serverName,
-        operation: 'notifications/initialized',
-        signal,
-      });
-      if (body.error) return sanitizeJsonRpcError(body.error);
-    } catch {
-      signal.throwIfAborted();
-      return 'malformed JSON error body';
-    }
+    const body = await readBoundedJson(resp, {
+      serverName,
+      operation: 'notifications/initialized',
+      signal,
+    });
+    if (body.error) throw discoveryRejection(serverName, 'notifications/initialized', body.error);
   }
   if (contentType.includes('text/event-stream'))
-    return `Streamable HTTP notification returned SSE body on MCP server '${serverName}'`;
-  return undefined;
+    throw new TransportError(serverName, 'notifications/initialized returned SSE body');
 }
 
 function sessionHeaders(handle?: McpServerHandle): Record<string, string> {
@@ -226,6 +241,7 @@ export async function discoverStreamableHttpTools(input: {
   serverSignal?.addEventListener('abort', onServerAbort, { once: true });
   signal.addEventListener('abort', onOperationAbort, { once: true });
   const tools: McpToolDefinition[] = [];
+  let publicationUnknown = false;
   try {
     const initId = ids.next();
     const initReq: McpJsonRpcRequest = {
@@ -247,7 +263,8 @@ export async function discoverStreamableHttpTools(input: {
       body: JSON.stringify(initReq),
       signal: discoveryAbort.signal,
     });
-    if (!initResp.ok) throw new Error(`Initialize HTTP POST returned status ${initResp.status}`);
+    if (!initResp.ok)
+      throw new TransportError(name, `initialize HTTP POST returned status ${initResp.status}`);
     const sessionId =
       initResp.headers?.get?.('Mcp-Session-Id') ?? initResp.headers?.get?.('mcp-session-id');
     if (sessionId && handle) handle.streamableHttpSessionId = sessionId;
@@ -258,8 +275,7 @@ export async function discoverStreamableHttpTools(input: {
       signal: discoveryAbort.signal,
     });
     if (initBody.error) {
-      const err = initBody.error as { message: string; code: number };
-      throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
+      throw discoveryRejection(name, 'initialize', initBody.error);
     }
 
     const notificationResp = await fetch(cfg.url, {
@@ -273,16 +289,15 @@ export async function discoverStreamableHttpTools(input: {
       signal: discoveryAbort.signal,
     });
     if (!notificationResp.ok)
-      throw new Error(
+      throw new TransportError(
+        name,
         `notifications/initialized HTTP POST returned status ${notificationResp.status}`,
       );
-    const notificationError = await readStreamableHttpNotificationError(
+    await consumeStreamableHttpInitializedNotification(
       notificationResp,
       name,
       discoveryAbort.signal,
     );
-    if (notificationError)
-      throw new Error(`notifications/initialized failed: ${notificationError}`);
 
     let cursor: string | undefined;
     let firstPage = true;
@@ -301,7 +316,8 @@ export async function discoverStreamableHttpTools(input: {
         body: JSON.stringify(listReq),
         signal: discoveryAbort.signal,
       });
-      if (!listResp.ok) throw new Error(`tools/list HTTP POST returned status ${listResp.status}`);
+      if (!listResp.ok)
+        throw new TransportError(name, `tools/list HTTP POST returned status ${listResp.status}`);
       const listBody = await readStreamableHttpJsonRpcResponse(listResp, {
         serverName: name,
         operation: 'tools/list',
@@ -309,8 +325,7 @@ export async function discoverStreamableHttpTools(input: {
         signal: discoveryAbort.signal,
       });
       if (listBody.error) {
-        const err = listBody.error as { message: string; code: number };
-        throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
+        throw discoveryRejection(name, 'tools/list', listBody.error);
       }
       const result = listBody.result as
         | (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string })
@@ -322,11 +337,15 @@ export async function discoverStreamableHttpTools(input: {
     } while (cursor);
     return tools;
   } catch (err) {
+    publicationUnknown = err instanceof PublicationOutcomeUnknownError;
+    throwIfPublicationOutcomeUnknown(err);
     if (discoveryAbort.signal.aborted) throw discoveryAbort.signal.reason;
     throw err;
   } finally {
-    serverSignal?.removeEventListener('abort', onServerAbort);
-    signal.removeEventListener('abort', onOperationAbort);
+    if (!publicationUnknown) {
+      serverSignal?.removeEventListener('abort', onServerAbort);
+      signal.removeEventListener('abort', onOperationAbort);
+    }
   }
 }
 
@@ -362,6 +381,7 @@ export async function invokeStreamableHttpTool(input: {
   const onOperationAbort = () => invokeAbort.abort(operationSignal.reason);
   signal?.addEventListener('abort', onServerAbort, { once: true });
   operationSignal.addEventListener('abort', onOperationAbort, { once: true });
+  let publicationUnknown = false;
   try {
     const requestId = ids.next();
     const request: McpJsonRpcRequest = {
@@ -406,10 +426,15 @@ export async function invokeStreamableHttpTool(input: {
       throw err;
     }
     return mapToolsCallResponse(body, serverName, toolName);
+  } catch (error) {
+    publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+    throw error;
   } finally {
-    clearTimeout(timeoutId);
-    signal?.removeEventListener('abort', onServerAbort);
-    operationSignal.removeEventListener('abort', onOperationAbort);
+    if (!publicationUnknown) {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', onServerAbort);
+      operationSignal.removeEventListener('abort', onOperationAbort);
+    }
   }
 }
 
@@ -432,24 +457,19 @@ export async function healthStreamableHttpServer(input: {
 }
 
 export async function probeStreamableHttpStartup(input: {
+  serverName: string;
   config: StreamableHttpMcpServerConfig;
   signal: AbortSignal;
-}): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {
-  const { config: cfg, signal } = input;
+}): Promise<void> {
+  const { serverName, config: cfg, signal } = input;
+  signal.throwIfAborted();
   try {
     const resp = await fetch(cfg.url, { method: 'HEAD', signal });
     if (!resp.ok)
-      return {
-        ok: false,
-        error: `Streamable HTTP health check returned status ${resp.status}`,
-        aborted: false,
-      };
-    return { ok: true };
+      throw new TransportError(serverName, `startup HEAD returned status ${resp.status}`);
   } catch (err) {
-    return {
-      ok: false,
-      error: `Streamable HTTP health check failed: ${err instanceof Error ? err.message : String(err)}`,
-      aborted: signal.aborted,
-    };
+    throwIfPublicationOutcomeUnknown(err);
+    if (signal.aborted) throw signal.reason;
+    throw err;
   }
 }

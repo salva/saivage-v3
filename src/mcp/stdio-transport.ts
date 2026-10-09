@@ -1,6 +1,7 @@
 import * as readline from 'node:readline';
 import { Transform, type Readable } from 'node:stream';
 import { TransportError } from './errors.js';
+import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import {
   CLIENT_NAME,
   CLIENT_VERSION,
@@ -168,6 +169,7 @@ export async function discoverStdioTools(input: {
   rl.once('close', () => {
     rlClosed = true;
   });
+  let publicationUnknown = false;
   try {
     const initId = ids.next();
     const initReq: McpJsonRpcRequest = {
@@ -182,10 +184,13 @@ export async function discoverStdioTools(input: {
     };
     safeWrite(proc.stdin, JSON.stringify(initReq) + '\n', name);
     const initResponse = await readJsonRpcResponse(rl, initId, signal, undefined, onRequest);
-    if (!initResponse) throw new Error('Server did not respond to initialize request');
+    if (!initResponse) throw new TransportError(name, 'initialize stream closed before response');
     if (initResponse.error) {
-      const err = initResponse.error as { message: string; code: number };
-      throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
+      const code = (initResponse.error as { code?: unknown }).code;
+      throw new TransportError(
+        name,
+        `initialize rejected${typeof code === 'number' && Number.isFinite(code) ? ` (code ${code})` : ''}`,
+      );
     }
     safeWrite(
       proc.stdin,
@@ -201,10 +206,13 @@ export async function discoverStdioTools(input: {
       firstPage = false;
       safeWrite(proc.stdin, JSON.stringify(listReq) + '\n', name);
       const listResponse = await readJsonRpcResponse(rl, listId, signal, undefined, onRequest);
-      if (!listResponse) throw new Error('Server did not respond to tools/list request');
+      if (!listResponse) throw new TransportError(name, 'tools/list stream closed before response');
       if (listResponse.error) {
-        const err = listResponse.error as { message: string; code: number };
-        throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
+        const code = (listResponse.error as { code?: unknown }).code;
+        throw new TransportError(
+          name,
+          `tools/list rejected${typeof code === 'number' && Number.isFinite(code) ? ` (code ${code})` : ''}`,
+        );
       }
       const result = listResponse.result as
         | (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string })
@@ -215,8 +223,11 @@ export async function discoverStdioTools(input: {
       } else cursor = undefined;
     } while (cursor);
     return tools;
+  } catch (error) {
+    publicationUnknown = error instanceof PublicationOutcomeUnknownError;
+    throw error;
   } finally {
-    await closeReadline(rl, () => rlClosed);
+    if (!publicationUnknown) await closeReadline(rl, () => rlClosed);
   }
 }
 

@@ -2,6 +2,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it } from '@jest/globals';
 
 import { discoverStdioTools, invokeStdioTool } from '../../src/mcp/stdio-transport.js';
+import { TransportError } from '../../src/mcp/errors.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
@@ -30,6 +31,39 @@ async function composedStdioCall(content: unknown) {
 }
 
 describe('stdio MCP transport composition', () => {
+  it.each(['initialize', 'tools/list'] as const)('classifies %s rejection/closure without exporting remote text', async stage => {
+    for (const close of [false, true]) {
+      const stdin = new PassThrough(); const stdout = new PassThrough();
+      const methods: string[] = [];
+      stdin.on('data', bytes => {
+        const request = JSON.parse(bytes.toString()); methods.push(request.method);
+        if (request.method === 'notifications/initialized') return;
+        setImmediate(() => {
+          if (request.method === stage && close) stdout.end();
+          else stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, ...(request.method === stage ? { error: { code: -32001, message: 'secret-remote-message' } } : { result: {} }) }) + '\n');
+        });
+      });
+      let id = 0;
+      try {
+        const error = await discoverStdioTools({ serverName: 'one', handle: { process: { stdin, stdout } as never }, ids: { next: () => ++id }, signal: new AbortController().signal }).catch(error => error);
+        expect(error).toBeInstanceOf(TransportError);
+        expect(error.message).toContain(stage);
+        expect(error.message).toContain(close ? 'stream closed before response' : 'code -32001');
+        expect(error.message).not.toContain('secret-remote-message');
+        expect(methods).toEqual(stage === 'initialize' ? ['initialize'] : ['initialize', 'notifications/initialized', 'tools/list']);
+      } finally { stdin.destroy(); stdout.destroy(); }
+    }
+  });
+  it('leaves missing-process and ID-source invariants unclassified', async () => {
+    const input = { serverName: 'one', ids: { next: () => 1 }, signal: new AbortController().signal };
+    const absent = await discoverStdioTools(input).catch(error => error);
+    expect(absent).not.toBeInstanceOf(TransportError);
+    const stdin = new PassThrough(); const stdout = new PassThrough();
+    const failure = new Error('ID invariant');
+    try {
+      await expect(discoverStdioTools({ ...input, handle: { process: { stdin, stdout } as never }, ids: { next: () => { throw failure; } } })).rejects.toBe(failure);
+    } finally { stdin.destroy(); stdout.destroy(); }
+  });
   it('answers negotiated workspace roots even when server request IDs collide with client IDs', async () => {
     const stdin = new PassThrough(); const stdout = new PassThrough();
     const requests: any[] = []; let listId: number;

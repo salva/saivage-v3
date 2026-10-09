@@ -9,7 +9,7 @@ import * as YAML from 'yaml';
 
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
-import { ServerNotRunningError } from '../../src/mcp/errors.js';
+import { ServerNotRunningError, TransportError } from '../../src/mcp/errors.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -29,6 +29,65 @@ function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason:
 const emptyReport: ProcessStopReport = { selected: [], stopped: [], failed: [] };
 
 describe('current named-agent MCP manager contract',()=>{
+  it.each(['success', 'report', 'rejection'] as const)('joins actual discovery rejection containment (%s) before settlement or replacement', async mode => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false } });
+    const originalFetch = globalThis.fetch;
+    const methods: string[] = [];
+    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response(null, { status: 200 });
+      const request = JSON.parse(String(init?.body)); methods.push(request.method);
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32003, message: 'secret discovery detail' } }));
+    }) as typeof fetch;
+    const { value, runner } = manager(projectRoot);
+    const containment = deferred<ProcessStopReport>(); const entered = deferred<void>();
+    const realTerminate = runner.closeAndTerminateDirectScope.bind(runner);
+    jest.spyOn(runner, 'closeAndTerminateDirectScope').mockImplementation(async input => {
+      entered.resolve(); const report = await containment.promise;
+      if (mode === 'success') await realTerminate(input);
+      return report;
+    });
+    try {
+      let settled = false;
+      const observed = value.startServer('one').catch(error => { settled = true; return error; });
+      await entered.promise;
+      expect(settled).toBe(false); expect(value.getServerTools('one')).toBeUndefined();
+      await expect(value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
+      const failure = new Error('exact containment failure');
+      if (mode === 'rejection') containment.reject(failure);
+      else containment.resolve(mode === 'report' ? { ...emptyReport, failed: [{ groupId: 'group', state: 'unconfirmed', diagnostic: 'fixture containment failure' }] } : emptyReport);
+      const error = await observed;
+      if (mode === 'success') {
+        expect(error).toBeInstanceOf(TransportError);
+        expect(error.message).not.toContain('secret discovery detail');
+        expect(methods).toEqual(['initialize']);
+        globalThis.fetch = successfulFetch() as typeof fetch;
+        await expect(value.startServer('one')).resolves.toMatchObject({ status: 'running', toolCount: 1 });
+        await value.cleanupForApplicationStop();
+      } else {
+        if (mode === 'rejection') expect(error).toBe(failure);
+        else expect(error.message).toContain('containment failed');
+        expect(error).not.toBeInstanceOf(TransportError);
+        await expect(value.startServer('one')).rejects.toMatchObject({ statusCode: 409 });
+        expect(methods).toEqual(['initialize']);
+      }
+    } finally { globalThis.fetch = originalFetch; }
+  });
+  it('preserves unknown startup fetch failure identity and fails autostart on classified discovery rejection', async () => {
+    const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
+    const originalFetch = globalThis.fetch;
+    try {
+      const failure = new TypeError('unknown fetch rejection');
+      globalThis.fetch = jest.fn(async () => { throw failure; }) as typeof fetch;
+      const first = manager(projectRoot);
+      await expect(first.value.startServer('one')).rejects.toBe(failure);
+      await first.value.cleanupForApplicationStop();
+      globalThis.fetch = jest.fn(async () => new Response(null, { status: 503 })) as typeof fetch;
+      const second = manager(projectRoot);
+      await expect(second.value.reconcilePersistedConfig()).resolves.toMatchObject({ converged: false, pending: [{ name: 'one', operation: 'add' }] });
+      expect(second.value.getServerTools('one')).toBeUndefined();
+      await second.value.cleanupForApplicationStop();
+    } finally { globalThis.fetch = originalFetch; }
+  });
   it('does not follow startup publication uncertainty with a second stop or reconciliation work', async () => {
     const projectRoot = root(); writeConfig(projectRoot, { one: { transport: 'streamable-http', url: 'http://localhost/mcp' } });
     const failure = new PublicationOutcomeUnknownError();

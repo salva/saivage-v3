@@ -26,6 +26,77 @@ afterEach(async () => {
 });
 
 describe('MCP tool invocation production composition', () => {
+  it('records rejected discovery and continues with a distinct explicitly requested corrective Analyst start', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mcp-discovery-e2e-')); roots.push(projectRoot);
+    const failedId = 'discovery-rejected-unique'; const correctedId = 'discovery-corrected-unique';
+    const methods: string[] = [];
+    let corrected = false; let providerCalls = 0; let fixtureFailure: unknown;
+    const mcp = createServer(async (request, response) => {
+      try {
+        if (request.method === 'HEAD') { methods.push('HEAD'); response.end(); return; }
+        const body = await readJsonRequest(request); methods.push(body.method);
+        response.setHeader('content-type', 'application/json');
+        if (body.method === 'initialize') response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, ...(corrected ? { result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } } } : { error: { code: -32006, message: 'secret external discovery detail' } }) }));
+        else if (body.method === 'notifications/initialized') { response.statusCode = 202; response.end(); }
+        else if (body.method === 'tools/list') response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { tools: [] } }));
+        else throw new Error('Unexpected MCP request');
+      } catch (error) { fixtureFailure = error; response.statusCode = 500; response.end(); }
+    });
+    const provider = createServer(async (request, response) => {
+      try {
+        const body = await readJsonRequest(request) as ChatCompletionRequest;
+        expect(offeredToolNames(body)).toContain('mcp_server_control');
+        const last = body.messages.at(-1);
+        providerCalls++;
+        if (providerCalls === 1) {
+          expect(methods).toEqual([]);
+          sendToolCall(response, failedId, 'mcp_server_control', { serverName: SERVER_NAME, action: 'start' });
+        } else if (providerCalls === 2) {
+          expect(last).toMatchObject({ role: 'tool', tool_call_id: failedId });
+          expect(JSON.parse(last!.content)).toMatchObject({ success: false, error: expect.stringContaining('initialize rejected (code -32006)') });
+          expect(last!.content).not.toContain('secret external discovery detail');
+          expect(methods).toEqual(['HEAD', 'initialize']);
+          corrected = true;
+          sendToolCall(response, correctedId, 'mcp_server_control', { serverName: SERVER_NAME, action: 'start' });
+        } else if (providerCalls === 3) {
+          expect(last).toMatchObject({ role: 'tool', tool_call_id: correctedId });
+          expect(JSON.parse(last!.content)).toMatchObject({ success: true, data: { serverName: SERVER_NAME, status: 'running', toolCount: 0 } });
+          sendFinalMessage(response, 'Corrective new start completed.');
+        } else throw new Error('Unexpected provider continuation');
+      } catch (error) { fixtureFailure = error; response.statusCode = 500; response.end(); }
+    });
+    let app: App | null = null;
+    try {
+      const mcpPort = await listen(mcp); const providerPort = await listen(provider);
+      writeProductionConfig(projectRoot, productionTestConfig(providerPort, config => {
+        config.mcpServers = { [SERVER_NAME]: { transport: 'streamable-http', url: `http://127.0.0.1:${mcpPort}`, autostart: false, disabled: false } };
+      }));
+      initializeProject(projectRoot);
+      app = await startProductionApp(projectRoot, TOKEN); apps.add(app);
+      expect(methods).toEqual([]);
+      const response = await fetch(`${appOrigin(app)}/api/chat`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ content: 'Start the configured MCP server; if discovery is rejected, correct it and request a new start.' }) });
+      const body = await response.json();
+      if (fixtureFailure) throw fixtureFailure;
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ toolInvocations: [expect.objectContaining({ result: expect.objectContaining({ success: false }) }), expect.objectContaining({ result: expect.objectContaining({ success: true }) })] });
+      expect(providerCalls).toBe(3);
+      expect(methods).toEqual(['HEAD', 'initialize', 'HEAD', 'initialize', 'notifications/initialized', 'tools/list']);
+      const rows = readConversation(projectRoot, 'agent:analyst:global').physicalRows;
+      const lifecycleRows = rows.filter(row => row.tool === 'mcp_server_control');
+      expect(lifecycleRows.map(row => [row.kind, row.tool_call_id])).toEqual([['tool_call', failedId], ['tool_result', failedId], ['tool_call', correctedId], ['tool_result', correctedId]]);
+      for (const [id, success] of [[failedId, false], [correctedId, true]] as const) {
+        const result = lifecycleRows.find(row => row.kind === 'tool_result' && row.tool_call_id === id)!;
+        expect(result).toMatchObject({ context_policy: { kind: 'tool_result', settlement_origin: 'executed', evidence: { kind: 'none' } } });
+        expect(JSON.parse(result.content).success).toBe(success);
+      }
+      expect(rows.filter(row => row.kind === 'tool_call').map(row => row.tool_call_id)).toEqual([failedId, correctedId]);
+      expect(rows.filter(row => row.kind === 'tool_result').map(row => row.tool_call_id)).toEqual([failedId, correctedId]);
+      expect(app.server.mcpManager.getServerTools(SERVER_NAME)).toEqual([]);
+    } finally {
+      if (app) { apps.delete(app); await app.stop(); }
+      await closeServer(provider); await closeServer(mcp);
+    }
+  }, 60_000);
   it('discovers and calls a streamable-HTTP tool through authenticated Analyst start and persists the settled result', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mcp-production-e2e-'));
     roots.push(projectRoot);

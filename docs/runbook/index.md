@@ -76,6 +76,16 @@ explicit stop/start loads only that entry. Other config changes still need resta
 Stop during startup closes immediately and joins; failed containment retains its
 closed owner and forbids replacement. Startup autostart is preserved.
 
+An agent start whose external discovery is explicitly rejected receives a recorded
+executed failed tool result only after successful local containment and stop join.
+Correct the configured server/fixture, then request a **new** start call; there is
+no automatic retry, replay or historical result rewrite. Unclassified failures and
+failed containment are not ordinary discovery results, and failed containment
+continues to prohibit replacement. HTTP containment stops local requests/owners,
+not the remote server or its effects. Authenticated REST discovery failure retains
+the existing internal-failure (500) contract, not an agent ToolResult or 404/409.
+Autostart discovery rejection fails startup reconciliation without readiness.
+
 Example pinned launch (create the dedicated project `tmp/browser-output` directory
 and supply deployment OS browser libraries beforehand):
 

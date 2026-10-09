@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { PassThrough } from 'node:stream';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { McpInvocationStatsRecorder } from '../../src/mcp/invocation-stats.js';
-import { TimeoutError } from '../../src/mcp/errors.js';
+import { TimeoutError, TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
@@ -47,6 +47,30 @@ const success = { failed: [] };
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
 
 describe('active stdio cancellation ownership', () => {
+  it.each(['unknown', 'caller', 'publication'] as const)('preserves actual HTTP discovery %s identity with the existing containment boundary', async mode => {
+    const originalFetch = globalThis.fetch;
+    const failure = mode === 'publication' ? new PublicationOutcomeUnknownError() : new TypeError('exact discovery reader/caller failure');
+    const terminate = jest.fn(async () => success);
+    const events = { appendEventPrepared: jest.fn() };
+    const caller = new AbortController();
+    const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: new McpInvocationStatsRecorder(events as never) });
+    const cancel = jest.spyOn(ReadableStreamDefaultReader.prototype, 'cancel');
+    const release = jest.spyOn(ReadableStreamDefaultReader.prototype, 'releaseLock');
+    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response(null, { status: 200 });
+      if (mode === 'caller') { caller.abort(failure); throw new Error('fetch aborted'); }
+      return new Response(new ReadableStream({ start(controller) { controller.error(failure); } }));
+    }) as typeof fetch;
+    try {
+      await expect(runtime.start(caller.signal)).rejects.toBe(failure);
+      expect(failure).not.toBeInstanceOf(TransportError);
+      expect(terminate).toHaveBeenCalledTimes(mode === 'publication' ? 0 : 1);
+      expect(events.appendEventPrepared).not.toHaveBeenCalled();
+      if (mode === 'publication') { expect(cancel).not.toHaveBeenCalled(); expect(release).not.toHaveBeenCalled(); }
+      else { expect(runtime.isContained()).toBe(true); expect(runtime.getTools()).toBeUndefined(); }
+      // Publication uncertainty: no owner follow-up or artifact inspection.
+    } finally { globalThis.fetch = originalFetch; jest.restoreAllMocks(); }
+  });
   it.each(['caller', 'deadline'] as const)('preserves %s classification through installed port, reader and real shared tool invocation', async mode => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();

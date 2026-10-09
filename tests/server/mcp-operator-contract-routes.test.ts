@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
@@ -8,6 +8,7 @@ import { mcpOperatorApiContracts } from '../../src/contracts/operator-api-mcp.js
 import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { McpLifecycleError } from '../../src/mcp/errors.js';
+import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 
 const fastifies: ReturnType<typeof Fastify>[] = [];
 
@@ -24,6 +25,28 @@ function mountRoutes(options: { mcpToolsProvider: McpToolsReadModelProvider }) {
 }
 
 describe('MCP operator contract routes', () => {
+  it('keeps actual discovery rejection an authenticated internal failure, not a lifecycle conflict or ToolResult', async () => {
+    const originalFetch = globalThis.fetch;
+    const terminate = jest.fn(async () => ({ failed: [] }));
+    const runtime = new McpServerRuntime({ name: 'browser', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: {} as never });
+    const fastify = Fastify({ logger: false }); fastifies.push(fastify);
+    const startServer = async (name: string) => { await runtime.start(); return { serverName: name, status: 'running' as const, toolCount: 0 }; };
+    const handlers = buildMcpOperatorContractHandlers({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) }, mcpLifecycle: { ...unusedMcpToolInvocation, startServer } });
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'test-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(fastify, mcpOperatorApiContracts, handlers);
+    const fetchMock = jest.fn(async (_url, init?: RequestInit) => init?.method === 'HEAD' ? new Response(null, { status: 200 }) : new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'secret remote REST text' } })));
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      const url = '/api/mcp/servers/browser/start';
+      expect((await fastify.inject({ method: 'POST', url, payload: {} })).statusCode).toBe(401);
+      expect(fetchMock).not.toHaveBeenCalled();
+      const response = await fastify.inject({ method: 'POST', url, headers: { authorization: 'Bearer test-token' }, payload: {} });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).not.toHaveProperty('success');
+      expect(response.body).not.toContain('secret remote REST text');
+      expect(runtime.isContained()).toBe(true); expect(runtime.getTools()).toBeUndefined();
+      expect(terminate).toHaveBeenCalledTimes(1);
+    } finally { globalThis.fetch = originalFetch; }
+  });
   it('authenticates before strict empty-body validation and maps only lifecycle conflicts', async () => {
     const fastify = Fastify({ logger: false }); fastifies.push(fastify);
     const calls: string[] = [];

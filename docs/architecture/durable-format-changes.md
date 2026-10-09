@@ -21,6 +21,27 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Durable-preserving MCP discovery settlement (F-07, 2026-10-09)
+
+Source evidence: examined `f8d05e75`, implementation parent `6cb23dd2`, and
+the existing lifecycle baseline `422b315f`; deployment/release applicability is
+unknown. `mcp/stdio-transport.ts` and `mcp/streamable-http-transport.ts` classify
+known external discovery rejection; `mcp/server-runtime.ts` retains containment
+and stop joins, and `tools/mcp-provider.ts` retains its narrow typed conversion.
+Future known rejected starts now produce the existing failed executed ToolResult
+with evidence `none`. Retained failed results, attribution, unmatched calls and
+uncertainty mates keep their existing interpretation and are never rewritten.
+Synthetic production-composition coverage strictly consumes the new call/result
+pairs, including a distinct corrective new start, through the current reader.
+
+Conversation index/genesis `format_version:6` and segment `version:6` /
+`type:conversation-segment` remain unchanged; selected images, card/record
+selectors, app-log/provider-evidence shared envelope **1**, and configuration
+are unaffected. No new family, bump or shared unreleased cutover is claimed.
+This change alone requires no migration/reset; earlier 5→6 adoption remains
+independent. Source approval grants no deployment, reset or migration consent,
+and equal versions do not certify installed-state compatibility.
+
 ### New private failed-provider diagnostic family (2026-10-09)
 
 New family initial **`format_version:1`**, strict
