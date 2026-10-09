@@ -1862,6 +1862,7 @@ tools.exclusive-identities = {"analystPresenterOnly":["delete_card","navigate_ba
 <!-- saivage:value-contract:tool-identities:end -->
 
 Built-in conversation tool-chip presentation is owned by one immutable static descriptor record in the web application.
+`utils/tool-presenters/index.ts` publishes presentation functions and the component-consumed `InlinePart`/`SemanticSection` types; components import through this public entry while type definitions remain owner-local.
 Each descriptor supplies the action, read-only grouping classification when applicable, call formatting, and optional successful-result formatting; knownness is the presence of that same descriptor.
 `ToolPair` contains only the durable call and its nullable durable result.
 A null result maps to neutral **No result recorded**, not inferred liveness or success.

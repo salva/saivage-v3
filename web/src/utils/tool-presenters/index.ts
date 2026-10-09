@@ -1,2 +1,2 @@
 export { presentToolCall, presentToolResult } from './present';
-export type { InlinePart } from './types';
+export type { InlinePart, SemanticSection } from './types';

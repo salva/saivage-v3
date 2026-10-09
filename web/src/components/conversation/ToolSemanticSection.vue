@@ -10,7 +10,7 @@
   </section>
 </template>
 <script setup lang="ts">
-import type { SemanticSection } from '../../utils/tool-presenters/types';
+import type { SemanticSection } from '../../utils/tool-presenters';
 import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 defineProps<{ section: SemanticSection }>();
