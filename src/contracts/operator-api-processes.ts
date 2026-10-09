@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { cardIdSchema, processStatusSchema } from '../schemas/index.js';
+import { cardIdSchema, processStatusSchema, type ProcessStatus } from '../schemas/index.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
   operatorSessionContract,
@@ -112,10 +112,35 @@ export const ProcessLogRefsSchema = z
   })
   .strict();
 
+const processObservationStatusSchema = z.enum([...processStatusSchema.options, 'unavailable']);
+export type ProcessObservationStatus = ProcessStatus | 'unavailable';
+const streamEvidenceSchema = z.enum(['open', 'eof', 'closed', 'not_captured']);
+const ProcessEvidenceSchema = z
+  .object({
+    group: z.enum(['tracked', 'absent', 'unverifiable']),
+    group_diagnostic: z.string().nullable(),
+    leader_exit: z
+      .object({
+        exit_code: z.number().int().nullable(),
+        signal: z.string().nullable(),
+        observed_at: z.string(),
+      })
+      .strict()
+      .nullable(),
+    leader_error: z.object({ diagnostic: z.string(), observed_at: z.string() }).strict().nullable(),
+    stdout: streamEvidenceSchema,
+    stderr: streamEvidenceSchema,
+    stdout_error: z.string().nullable(),
+    stderr_error: z.string().nullable(),
+  })
+  .strict();
+export type ProcessEvidence = z.infer<typeof ProcessEvidenceSchema>;
+
 export const ProcessViewSchema = z
   .object({
     id: z.string(),
-    status: processStatusSchema,
+    status: processObservationStatusSchema,
+    evidence: ProcessEvidenceSchema,
     started_at: z.string(),
     ended_at: z.string().nullable(),
     exit_code: z.number().int().nullable(),

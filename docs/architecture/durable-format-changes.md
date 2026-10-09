@@ -21,6 +21,34 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Durable-preserving unavailable process observations (#2, 2026-10-09)
+
+Implementation parent: `5936c08ec67e8748ea741faf1705a3bf885d8378`.
+Original reproduction baseline `f8d05e75`; incident registry/runner source
+`7a9a6415` remains unchanged through that parent. Current API observations add
+required evidence and unavailable status; successful `list_processes_tool` pages
+may retain those redacted facts as generic recorded query data. This **is persisted**,
+but does not change the existing unconstrained successful `ToolResult.data` domain.
+Canonical conversation reader/semantic validator retain pairing, policy and content
+hash checks without parsing list items through ProcessView. Current-primary's strict
+process set is only run/wait/kill; historical list presentation selects supplied
+generic fields. Prior list observations lacking evidence remain valid and unchanged,
+not backfilled or reinterpreted. Strict successful command payload/status is unchanged;
+unavailable commands use the existing failed error-string/no-data envelope.
+
+Conversation index/genesis/segment **6→6**, shared app-log/provider-evidence envelope
+**1→1**, card/record families and previous selectors **1→1**, lifecycle lock **1→1**:
+no incompatible shape, meaning, provenance or layout change from this parent. Raw
+process output remains ordinary bytes at the same paths, without an evidence wrapper.
+Failed-provider diagnostics remain **2 / failed-provider-request-privacy-2**;
+preserve F-01's independent 1→2 cutover and historical limits. F-04 compound UI
+identity, F-05 native telemetry, F-06 connection lifetime and F-07 classified discovery
+settlement remain intact. No shared unreleased cutover is claimed.
+
+Deployment applicability is unknown. #2 alone needs no migration/reset for valid
+current state, but unrelated release differences still require assessment. No
+deployment, restart, reset or external migration is authorized by this source change.
+
 ### Durable-preserving native MCP invocation telemetry (F-05, 2026-10-09)
 
 Source evidence: the regression was introduced by `cadf0f21`, observed at audit

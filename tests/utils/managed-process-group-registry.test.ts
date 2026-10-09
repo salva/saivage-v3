@@ -8,6 +8,7 @@ import {
   type ProcessCategory,
   type ProcessStopReport,
 } from '../../src/runtime/managed-process-group-registry.js';
+import { SyntheticProcessPlatform } from '../helpers/synthetic-process-platform.js';
 
 function errno(code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(code), { code });
@@ -34,10 +35,34 @@ function harness(probes: Array<'live' | 'ESRCH' | 'EPERM'> = ['live']): {
 }
 
 function launch(registry: ManagedProcessGroupRegistry, directScope: ManagedProcessScope, category: ProcessCategory = 'runtime_card', onAbsent: (reason: string | null) => void = () => {}): void {
-  registry.launch({ groupId: 'group-1', directScope, category, file: 'ignored', args: [], options: {}, onAbsent });
+  registry.launch({ groupId: 'group-1', directScope, category, file: 'ignored', args: [], options: {}, onAbsent, onUnverifiable: () => {} });
 }
 
 describe('ManagedProcessGroupRegistry capabilities and process-group truth', () => {
+  it.each(['probe', 'dispatch'] as const)('notifies once for %s EPERM and never touches a reused numeric PGID', async boundary => {
+    const platform = new SyntheticProcessPlatform();
+    const registry = new ManagedProcessGroupRegistry(platform);
+    const scope = registry.createDirectScope(registry.rootScope, 'direct', 'runtime_card');
+    const unavailable = jest.fn(); const absent = jest.fn();
+    registry.launch({ groupId: 'one', directScope: scope, category: 'runtime_card', file: 'fake', args: [], options: {}, onAbsent: absent, onUnverifiable: unavailable });
+    const child = platform.children[0]!;
+    if (boundary === 'probe') platform.states.set(child.pid!, 'EPERM');
+    else platform.dispatchError = 'EPERM';
+    const first = await registry.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'close', graceMs: 0 });
+    expect(unavailable).toHaveBeenCalledTimes(1);
+    expect(unavailable).toHaveBeenCalledWith(first.failed[0]!.diagnostic);
+    const operations = [...platform.operations];
+    platform.states.set(child.pid!, 'ESRCH'); child.emit('exit', 1, null); await Promise.resolve();
+    // Later occupant would be live and signalable, but numeric identity has no authority.
+    platform.states.set(child.pid!, 'live'); platform.dispatchError = null;
+    const root = await registry.terminateScopeTree({ rootScope: registry.rootScope, categories: ['runtime_card'], reason: 'root', graceMs: 0 });
+    const direct = await registry.terminateGroup({ groupId: 'one', directScope: scope, category: 'runtime_card', reason: 'again', graceMs: 0 });
+    expect(root.failed).toEqual(first.failed); expect(direct.failed).toEqual(first.failed);
+    expect(absent).not.toHaveBeenCalled(); expect(unavailable).toHaveBeenCalledTimes(1);
+    expect(platform.operations).toEqual(operations);
+    expect(operations).toEqual(boundary === 'probe' ? ['probe:4200'] : ['probe:4200', 'SIGTERM:4200']);
+    platform.destroy();
+  });
   it('rejects forged, sibling, container-as-direct, retired, and category-mismatched capabilities before spawn', async () => {
     const { registry, spawnCount } = harness();
     const container = registry.createContainerScope(registry.rootScope, 'same-label');
@@ -145,7 +170,7 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     const runtimeScope = registry.createDirectScope(runtimeRoot, 'runtime-card', 'runtime_card');
     const analystScope = registry.createDirectScope(analystRoot, 'analyst-session', 'operator_session');
     const mcpScope = registry.createDirectScope(mcpRoot, 'mcp-server', 'service_infrastructure');
-    const launchGroup = (groupId: string, scope: ManagedProcessScope, category: ProcessCategory) => registry.launch({ groupId, directScope: scope, category, file: 'ignored', args: [], options: {}, onAbsent: (reason) => operations.push(`removed:${groupId}:${reason}`) });
+    const launchGroup = (groupId: string, scope: ManagedProcessScope, category: ProcessCategory) => registry.launch({ groupId, directScope: scope, category, file: 'ignored', args: [], options: {}, onAbsent: (reason) => operations.push(`removed:${groupId}:${reason}`), onUnverifiable: () => {} });
     launchGroup('runtime-group', runtimeScope, 'runtime_card');
     launchGroup('analyst-group', analystScope, 'operator_session');
     launchGroup('mcp-group', mcpScope, 'service_infrastructure');
@@ -198,7 +223,7 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     const siblingScope = registry.createDirectScope(runtimeRoot, 'sibling', 'runtime_card');
     let resolveAbsence!: (reason: string | null) => void;
     const absence = new Promise<string | null>((resolve) => { resolveAbsence = resolve; });
-    registry.launch({ groupId: 'group-1', directScope, category: 'runtime_card', file: 'ignored', args: [], options: {}, onAbsent: (reason) => { onAbsent(reason); resolveAbsence(reason); } });
+    registry.launch({ groupId: 'group-1', directScope, category: 'runtime_card', file: 'ignored', args: [], options: {}, onAbsent: (reason) => { onAbsent(reason); resolveAbsence(reason); }, onUnverifiable: () => {} });
 
     const directContainment = registry.closeAndTerminateDirectScope({ directScope, category: 'runtime_card', reason: 'direct stop', graceMs: 1 });
     const [directReport, rootReport] = await Promise.all([directContainment, rootContainment!]);
@@ -210,5 +235,23 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     expect(() => registry.closeScope(directScope)).toThrow('not allocated');
     expect(() => registry.closeScope(siblingScope)).not.toThrow();
     expect(operations).toEqual(['probe:1', 'signal:SIGTERM', 'probe:2']);
+  });
+
+  it('does not report unavailable when overlapping containment confirms absence before dispatch throws EPERM', async () => {
+    const platform = new SyntheticProcessPlatform();
+    const registry = new ManagedProcessGroupRegistry(platform);
+    const scope = registry.createDirectScope(registry.rootScope, 'direct', 'runtime_card');
+    const unavailable = jest.fn(); const absent = jest.fn();
+    registry.launch({ groupId: 'one', directScope: scope, category: 'runtime_card', file: 'fake', args: [], options: {}, onAbsent: absent, onUnverifiable: unavailable });
+    let root!: Promise<ProcessStopReport>;
+    platform.signal = () => {
+      platform.states.set(4200, 'ESRCH');
+      root = registry.terminateScopeTree({ rootScope: registry.rootScope, categories: ['runtime_card'], reason: 'root', graceMs: 0 });
+      throw errno('EPERM');
+    };
+    const direct = await registry.closeAndTerminateDirectScope({ directScope: scope, category: 'runtime_card', reason: 'direct', graceMs: 0 });
+    expect(direct.failed).toEqual([]); expect((await root).failed).toEqual([]);
+    expect(direct.stopped).toEqual(['one']); expect(absent).toHaveBeenCalledTimes(1);
+    expect(unavailable).not.toHaveBeenCalled(); platform.destroy();
   });
 });

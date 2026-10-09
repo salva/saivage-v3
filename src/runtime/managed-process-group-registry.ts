@@ -38,6 +38,7 @@ interface GroupRecord {
   readonly directScopeRecord: DirectScopeRecord;
   readonly category: ProcessCategory;
   readonly onAbsent: (reason: string | null) => void;
+  readonly onUnverifiable: (diagnostic: string) => void;
   state: ManagedGroupState;
   diagnostic: string | null;
   terminationReason: string | null;
@@ -63,6 +64,7 @@ interface ManagedProcessLaunch {
   args: readonly string[];
   options: SpawnOptions;
   onAbsent: (reason: string | null) => void;
+  onUnverifiable: (diagnostic: string) => void;
 }
 
 export interface ManagedProcessPlatform {
@@ -148,6 +150,7 @@ export class ManagedProcessGroupRegistry {
       directScopeRecord: scope,
       category: input.category,
       onAbsent: input.onAbsent,
+      onUnverifiable: input.onUnverifiable,
       state: 'active',
       diagnostic: null,
       terminationReason: null,
@@ -318,6 +321,7 @@ export class ManagedProcessGroupRegistry {
       this.platform.probe(record.pgid);
       return 'live';
     } catch (error) {
+      if (record.absenceConfirmed) return 'absent';
       if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
         this.confirmAbsent(record);
         return 'absent';
@@ -334,6 +338,7 @@ export class ManagedProcessGroupRegistry {
       this.platform.signal(record.pgid, signal);
       return true;
     } catch (error) {
+      if (record.absenceConfirmed) return true;
       if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
         this.confirmAbsent(record);
         return true;
@@ -344,8 +349,10 @@ export class ManagedProcessGroupRegistry {
   }
 
   private markUnverifiable(record: GroupRecord, message: string): void {
+    if (record.absenceConfirmed || record.state === 'unverifiable') return;
     record.state = 'unverifiable';
     record.diagnostic = message;
+    record.onUnverifiable(message);
   }
 
   private confirmAbsent(record: GroupRecord): void {

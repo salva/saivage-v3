@@ -24,12 +24,13 @@ describe('web process-list transport', () => {
   });
 
   const process = {
+    evidence: { group: 'tracked', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'open', stderr: 'open', stdout_error: null, stderr_error: null },
     id: 'proc-1', started_at: '2026-01-01T00:00:00.000Z', ended_at: null, exit_code: null,
     timed_out: false, owner_id: 'runtime', owner_kind: 'runtime', session_id: null, card_id: null,
     command: 'echo ok', cwd: null, logs: { stdout: null, stderr: null },
   };
 
-  it.each(['running', 'exited', 'failed', 'killed'])('accepts transported process status %s', async (status) => {
+  it.each(['running', 'exited', 'failed', 'killed', 'unavailable'])('accepts transported process status %s', async (status) => {
     request.mockResolvedValue(new Response(JSON.stringify({ processes: [{ ...process, status }] }), { status: 200 }));
     await expect(listProcesses()).resolves.toEqual({ processes: [{ ...process, status }] });
   });

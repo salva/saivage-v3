@@ -403,6 +403,11 @@ base URL is inferred; missing token/cost/usage metrics remain unknown.
 with supplied owner/card identity, status, output references, and MCP connection/status
 evidence. Check retirement: a no-longer-listed process is not reconstructed as a completed
 history row, and visible ownership never grants a terminate control.
+Distinguish unavailable group/cleanup authority from actual leader exit and output
+settlement. Inspect stream open/EOF/close independently of capture errors; neither EOF
+nor leader success confirms cleanup. Later activations cannot take ownership; service-level
+intervention belongs to the operator. Historical lists show supplied facts only, not
+refreshed liveness or invented missing evidence.
 
 **F34 — Should — Configuration understanding.** Inspect safe configuration projections
 and installed workflow/model/tool bindings. Check a next-start configuration change:

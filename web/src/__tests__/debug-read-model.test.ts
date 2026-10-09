@@ -8,7 +8,7 @@ const actionable = { id: 'event-actionable', kind: 'runtime_actionable_error', t
 const mcpFailure = { id: 'event-mcp', kind: 'mcp_tool_invocation', timestamp, server: 'tools', tool: 'inspect', success: false, duration_ms: 10, error: 'tool failed' } as const satisfies DebugErrorRecord;
 
 function process(overrides: Partial<ProcessView>): ProcessView {
-  return { id: overrides.id ?? 'p', status: 'exited', started_at: timestamp, ended_at: null, exit_code: null, timed_out: false, owner_kind: 'agent', owner_id: 'agent-1', session_id: null, card_id: 'card-a', command: 'echo ok', cwd: null, logs: { stdout: null, stderr: null }, ...overrides };
+  return { id: overrides.id ?? 'p', status: 'exited', evidence: { group: 'absent', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null }, started_at: timestamp, ended_at: null, exit_code: null, timed_out: false, owner_kind: 'agent', owner_id: 'agent-1', session_id: null, card_id: 'card-a', command: 'echo ok', cwd: null, logs: { stdout: null, stderr: null }, ...overrides };
 }
 
 describe('debug-read-model', () => {

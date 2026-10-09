@@ -14,6 +14,7 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
     command: 'echo token=super-secret-value',
     cwd: '/workspace/project/subdir',
     status: 'running',
+    evidence: { group: 'tracked', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'open', stderr: 'open', stdout_error: null, stderr_error: null },
     started_at: '2026-01-01T00:00:00.000Z',
     completed_at: null,
     exit_code: null,
@@ -33,6 +34,7 @@ describe('process operator view projection', () => {
     await expect(processView(record())).resolves.toEqual({
       id: 'proc-1',
       status: 'running',
+      evidence: { group: 'tracked', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'open', stderr: 'open', stdout_error: null, stderr_error: null },
       started_at: '2026-01-01T00:00:00.000Z',
       ended_at: null,
       exit_code: null,

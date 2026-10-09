@@ -259,7 +259,7 @@ describe('ProcessRunner managed process groups', () => {
     child.emit('error', new Error('spawn error')); stdout.end(); stderr.end(); absent();
 
     await expect(synthetic.waitForSettlement(record.id)).rejects.toBe(sentinel);
-    expect(synthetic.get(record.id)).toMatchObject({ status: 'failed', exit_code: -1 });
+    expect(synthetic.get(record.id)).toMatchObject({ status: 'failed', exit_code: null, evidence: { leader_exit: null, leader_error: { diagnostic: 'spawn error' } } });
     rmSync(syntheticRoot, { recursive: true, force: true });
   });
 

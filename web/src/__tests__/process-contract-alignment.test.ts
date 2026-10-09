@@ -7,6 +7,7 @@ describe('process contract alignment', () => {
     const parsed = ProcessViewSchema.parse({
       id: 'proc-1',
       status: 'exited',
+      evidence: { group: 'absent', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null },
       owner_id: 'session-1',
       started_at: '2026-01-01T00:00:00.000Z',
       ended_at: '2026-01-01T00:00:01.000Z',

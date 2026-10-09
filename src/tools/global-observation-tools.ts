@@ -245,7 +245,7 @@ export const globalObservationToolBinders: readonly ToolBinder<
   defineToolBinder({
     name: 'list_processes_tool',
     description:
-      'List observed runtime processes as a byte-packed page; process output remains available through bounded read(work:///...).',
+      'List recorded runtime process observations as a byte-packed page, optionally filtered by status (including unavailable). Query success does not assert process success or containment. Evidence distinguishes group authority, actual leader exit, stream settlement and capture errors. Unavailable entries remain inspectable, not transferable to another activation; operator service-level intervention is required. Process output remains available through bounded read(work:///...).',
     resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
     inputSchema: () => listProcessesInputSchema,
     executor: (ctx, args) =>

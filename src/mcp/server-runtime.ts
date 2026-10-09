@@ -1,4 +1,5 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
+import { ProcessEvidenceUnavailableError } from '../runtime/runtime-api.js';
 import { pathToFileURL } from 'node:url';
 import {
   PublicationOutcomeUnknownError,
@@ -530,6 +531,22 @@ export class McpServerRuntime {
             (generation !== this.generation || !this.admissionOpen))
         )
           return;
+        const observedRecord = this.#processRunner.get(launch.record.id);
+        if (
+          error instanceof ProcessEvidenceUnavailableError ||
+          observedRecord?.status === 'unavailable'
+        ) {
+          if (!(error instanceof ProcessEvidenceUnavailableError))
+            this.observedCaptureError = error;
+          if (this.admissionOpen) this.closeAdmission('transport');
+          this.statusOverride = {
+            status: 'error',
+            error: 'Process evidence unavailable; containment unconfirmed',
+          };
+          this.ready = false;
+          this.clearCaches();
+          return;
+        }
         this.observedCaptureError = error;
         const admissionWasOpen = this.admissionOpen;
         if (admissionWasOpen) this.closeAdmission('transport');

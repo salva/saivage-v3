@@ -49,6 +49,7 @@ function runtimeApplication(
 
 describe('contract-backed process routes', () => {
   const processView = {
+    evidence: { group: 'tracked', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'open', stderr: 'open', stdout_error: null, stderr_error: null },
     id: 'proc-1',
     started_at: '2026-01-01T00:00:00.000Z',
     ended_at: null,
@@ -63,7 +64,7 @@ describe('contract-backed process routes', () => {
     logs: { stdout: null, stderr: null },
   };
 
-  it.each(['running', 'exited', 'failed', 'killed'] as const)(
+  it.each(['running', 'exited', 'failed', 'killed', 'unavailable'] as const)(
     'accepts process status %s',
     (status) => {
       expect(ProcessViewSchema.parse({ ...processView, status }).status).toBe(status);

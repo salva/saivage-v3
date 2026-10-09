@@ -27,7 +27,7 @@
         :class="{ selected: selectedProcessId === proc.id }"
       >
         <div class="process-header">
-          <span class="process-status-badge" :class="'ps-' + proc.status">{{ proc.status }}</span>
+          <span class="process-status-badge" :class="'ps-' + proc.status">{{ processLabel(proc) }}</span>
           <span v-if="proc.started_at" class="pd-lead-time">started {{ fmtDate(proc.started_at) }}<template v-if="proc.ended_at"> · ended {{ fmtDate(proc.ended_at) }}</template></span>
           <span class="process-id mono" :title="proc.id">{{ proc.id }}</span>
           <span class="process-time">Started {{ fmtDate(proc.started_at) }}</span>
@@ -45,6 +45,53 @@
           <div v-if="proc.ended_at" class="pd-row"><span class="pd-key">Ended:</span><span class="pd-value">{{ fmtDate(proc.ended_at) }}</span></div>
           <div class="pd-row"><span class="pd-key">Exit code:</span><span class="pd-value mono">{{ proc.exit_code ?? '-' }}</span></div>
           <div v-if="proc.timed_out" class="pd-row"><span class="pd-key">Timed out:</span><span class="pd-value">Yes</span></div>
+        </div>
+
+        <div class="process-details">
+          <div class="pd-row">
+            <span class="pd-key">Group:</span
+            ><span class="pd-value wrap"
+              >{{
+                proc.evidence.group === 'tracked'
+                  ? 'Tracked — absence not confirmed'
+                  : proc.evidence.group === 'unverifiable'
+                    ? 'Unverifiable — containment unconfirmed'
+                    : 'Absence confirmed'
+              }}<template v-if="proc.evidence.group_diagnostic">
+                · {{ proc.evidence.group_diagnostic }}</template
+              ></span
+            >
+          </div>
+          <div class="pd-row">
+            <span class="pd-key">Leader exit observed:</span
+            ><span class="pd-value wrap"
+              ><template v-if="proc.evidence.leader_exit"
+                >code {{ proc.evidence.leader_exit.exit_code ?? 'null' }} · signal
+                {{ proc.evidence.leader_exit.signal ?? 'null' }} ·
+                {{ fmtDate(proc.evidence.leader_exit.observed_at) }}</template
+              ><template v-else>Not observed</template></span
+            >
+          </div>
+          <div v-if="proc.evidence.leader_error" class="pd-row">
+            <span class="pd-key">Leader error:</span
+            ><span class="pd-value wrap"
+              >{{ proc.evidence.leader_error.diagnostic }} ·
+              {{ fmtDate(proc.evidence.leader_error.observed_at) }}</span
+            >
+          </div>
+          <div v-for="stream in ['stdout', 'stderr'] as const" :key="stream" class="pd-row">
+            <span class="pd-key">{{ stream }} evidence:</span
+            ><span class="pd-value wrap"
+              >{{ streamLabel(proc.evidence[stream])
+              }}<template v-if="proc.evidence[`${stream}_error`]">
+                · Capture failed: {{ proc.evidence[`${stream}_error`] }}</template
+              ></span
+            >
+          </div>
+          <p v-if="proc.status === 'unavailable'" class="process-empty-note">
+            Later activations cannot take ownership. Service-level intervention requires the
+            operator; this observation does not confirm cleanup or process completion.
+          </p>
         </div>
 
         <div class="process-logs">
@@ -99,6 +146,23 @@ function hasProcessLogs(proc: ProcessView): boolean {
 function fmtDate(timestamp: string): string {
   return formatRecentTimestamp(timestamp);
 }
+
+
+function processLabel(proc: ProcessView): string {
+  if (proc.status === 'unavailable') return 'Evidence unavailable';
+  if (proc.status === 'running' && proc.evidence.leader_exit)
+    return 'Awaiting group/output settlement';
+  return proc.status;
+}
+
+function streamLabel(state: ProcessView['evidence']['stdout']): string {
+  return {
+    open: 'Stream open',
+    eof: 'EOF observed',
+    closed: 'Closed without observed EOF',
+    not_captured: 'Not captured by runner',
+  }[state];
+}
 </script>
 
 <style scoped>
@@ -135,6 +199,10 @@ function fmtDate(timestamp: string): string {
 .process-status-badge.ps-running { background: var(--entry-accent-bg); color: var(--accent); }
 .process-status-badge.ps-exited { background: var(--entry-user-bg); color: var(--accent-2); }
 .process-status-badge.ps-failed { background: var(--entry-danger-bg); color: var(--danger); }
+.process-status-badge.ps-unavailable {
+  background: var(--entry-danger-bg);
+  color: var(--danger);
+}
 .process-status-badge.ps-killed { background: var(--entry-warn-bg); color: var(--warn); }
 .process-time { margin-left: auto; font-size: 11px; color: var(--text-muted); }
 .process-details,

@@ -1,5 +1,33 @@
 # Saivage Operator Runbook
 
+## Unavailable process evidence
+
+EPERM during a managed-group probe or failed signal dispatch permanently revokes
+that launch's numeric-PGID authority. Processes shows **Evidence unavailable**:
+inspect the first redacted group diagnostic, actual leader exit/error, separate
+stream open/EOF/closed facts and capture errors, plus ordinary log links. An EOF
+may coexist with capture failure; leader success and closed pipes do not certify
+group absence. Waits fail promptly, including with open inherited FDs. Entries and
+failed scopes remain retained; repeated cleanup cannot probe, signal, forget or
+transfer them to a later activation. List-query success records observation only.
+
+Failed containment is not successful Project Stop, and can block Run or MCP owner
+replacement. Service-level intervention requires separately authorized deployment
+operations: stop the exact service through its deployment owner, prevent automatic
+restart, and positively verify actual server/descendant absence before an authorized
+restart. Follow the existing lifecycle exclusion, authentication and abandoned-lock
+procedures; never erase a lock or kill a stale numeric PGID to clear this condition.
+Restart itself does not certify containment of privileged descendants. Current
+external absence cannot reconstruct missing historical exit, output or tool effects.
+
+MCP unavailable evidence fences admission/readiness/catalogs and retains the failed
+handle. Intentional stop or transport EOF may instead display **Process containment
+failed**; neither label permits replacement. The existing roots-lifetime and
+discovery-rejection procedures still apply: a distinct new explicit start after
+discovery correction is allowed only following successful containment/stop join,
+not after unavailable retained ownership. No automatic retry, takeover or recovery
+of the original command/experiment is promised.
+
 ## Image snapshots and native dependencies
 
 The [durable format changes inventory](../architecture/durable-format-changes.md)

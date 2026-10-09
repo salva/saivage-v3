@@ -11,6 +11,7 @@ export function buildProcessView(projectRoot: string, record: ProcessRecord): Pr
   const process: ProcessView = {
     id: record.id,
     status: record.status,
+    evidence: record.evidence,
     started_at: record.started_at,
     ended_at: record.completed_at ?? null,
     exit_code: record.exit_code ?? null,

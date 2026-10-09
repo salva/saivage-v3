@@ -48,7 +48,16 @@ export interface ProcessProviderContext {
   readonly category: ProcessCategory;
 }
 
-function failureFromError(err: unknown): ToolActionOutcome {
+function failureFromError(err: unknown, record?: ProcessRecord | null): ToolActionOutcome {
+  if (record?.status === 'unavailable') {
+    const e = record.evidence;
+    const leader = e.leader_exit
+      ? `exit=${e.leader_exit.exit_code}, signal=${e.leader_exit.signal}, at=${e.leader_exit.observed_at}`
+      : 'not observed';
+    err = new Error(
+      `Process '${record.id}': cleanup/exit evidence unavailable. Operator service-level intervention required; no activation takeover. Leader exit: ${leader}. stdout=${e.stdout}, stderr=${e.stderr}. Group unverifiable: ${e.group_diagnostic}. stdout capture=${e.stdout_error ?? 'no error recorded'}; stderr capture=${e.stderr_error ?? 'no error recorded'}. Leader error: ${e.leader_error?.diagnostic ?? 'not observed'}.`,
+    );
+  }
   const stable = redactTextWithStablePrefixesForOutbound(
     err instanceof Error ? err.message : String(err),
   );
@@ -184,6 +193,8 @@ function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRec
 }
 
 function processResult(record: ProcessRecord): ProcessToolResult {
+  if (record.status === 'unavailable')
+    throw new Error(`Process '${record.id}' evidence unavailable; no successful command result.`);
   const logSegments = record.card_id
     ? ['cards', record.card_id, 'processes', record.id]
     : ['processes', record.id];
@@ -224,6 +235,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => runCommandInputSchema,
       executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
+        let processId: string | undefined;
         try {
           throwIfAborted(signal);
           const record = ctx.processRunner.spawn({
@@ -239,6 +251,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               : {}),
             ownerKind: ctx.ownerKind,
           });
+          processId = record.id;
           if (args.wait === false)
             return executedToolOutcome('none', toolSucceeded(processResult(record)));
           let knownTerminal = false;
@@ -270,9 +283,10 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (knownTerminal) throw err;
+            if (ctx.processRunner.get(record.id)?.status === 'unavailable') throw err;
             if (!isAbortError(err, signal) && waitFailed && err === waitFailure) {
               const terminal = ctx.processRunner.get(record.id);
-              if (terminal && terminal.status !== 'running') {
+              if (terminal && terminal.status !== 'running' && terminal.status !== 'unavailable') {
                 ctx.processRunner.retireSettled(record.id, ctx.directScope);
                 throw err;
               }
@@ -287,7 +301,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
             } catch (killError) {
               throwIfPublicationOutcomeUnknown(killError);
               const terminal = ctx.processRunner.get(record.id);
-              if (terminal?.status !== 'running')
+              if (terminal && terminal.status !== 'running' && terminal.status !== 'unavailable')
                 ctx.processRunner.retireSettled(record.id, ctx.directScope);
               throw killError;
             }
@@ -305,7 +319,10 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
         } catch (err) {
           throwIfPublicationOutcomeUnknown(err);
           if (isAbortError(err, signal)) throw err;
-          return executedToolOutcome('none', failureFromError(err));
+          return executedToolOutcome(
+            'none',
+            failureFromError(err, processId ? ctx.processRunner.get(processId) : null),
+          );
         }
       },
     }),
@@ -316,9 +333,11 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => waitProcessInputSchema,
       executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
+        let owned = false;
         try {
           throwIfAborted(signal);
           const current = assertOwned(ctx, args.process_id);
+          owned = true;
           if (args.timeout_ms === 0 && current.status === 'running') {
             return executedToolOutcome('none', toolSucceeded(processResult(current)));
           }
@@ -340,6 +359,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               ? invocation.waits.waitProcess(args.process_id, pending)
               : pending);
           } catch (error) {
+            throwIfPublicationOutcomeUnknown(error);
             if (terminalFailed && error === terminalFailure)
               ctx.processRunner.retireSettled(args.process_id, ctx.directScope);
             throw error;
@@ -355,7 +375,10 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
         } catch (err) {
           throwIfPublicationOutcomeUnknown(err);
           if (isAbortError(err, signal)) throw err;
-          return executedToolOutcome('none', failureFromError(err));
+          return executedToolOutcome(
+            'none',
+            failureFromError(err, owned ? ctx.processRunner.get(args.process_id) : null),
+          );
         }
       },
     }),
@@ -367,8 +390,10 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       inputSchema: () => killProcessInputSchema,
       executor: (ctx, args) =>
         executeToolAction('none', async () => {
+          let owned = false;
           try {
             assertOwned(ctx, args.process_id);
+            owned = true;
             let record: ProcessRecord | null;
             try {
               record = await ctx.processRunner.kill(args.process_id, {
@@ -379,7 +404,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
             } catch (error) {
               throwIfPublicationOutcomeUnknown(error);
               const terminal = ctx.processRunner.get(args.process_id);
-              if (terminal?.status !== 'running')
+              if (terminal && terminal.status !== 'running' && terminal.status !== 'unavailable')
                 ctx.processRunner.retireSettled(args.process_id, ctx.directScope);
               throw error;
             }
@@ -391,7 +416,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
             }
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
-            return failureFromError(err);
+            return failureFromError(err, owned ? ctx.processRunner.get(args.process_id) : null);
           }
         }),
     }),

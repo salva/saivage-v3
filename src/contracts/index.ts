@@ -309,6 +309,7 @@ export type { McpToolCallArguments } from './mcp-invocation.js';
 export { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 export type { ParsedScopedPathUrl } from './scoped-path-url.js';
 export { ProcessViewSchema } from './operator-api-processes.js';
+export type { ProcessEvidence, ProcessObservationStatus } from './operator-api-processes.js';
 export type { ProcessView } from './operator-api-processes.js';
 export { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';
 export {

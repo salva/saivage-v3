@@ -61,6 +61,8 @@ export function selectSortedProcesses(processes: ReadonlyArray<ProcessView>): Pr
   return [...processes].sort((a, b) => {
     if (a.status === 'running' && b.status !== 'running') return -1;
     if (a.status !== 'running' && b.status === 'running') return 1;
+    if (a.status === 'unavailable' && b.status !== 'unavailable') return -1;
+    if (a.status !== 'unavailable' && b.status === 'unavailable') return 1;
     return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
   });
 }

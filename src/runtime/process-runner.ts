@@ -13,7 +13,7 @@ import type { Readable } from 'node:stream';
 import { join, resolve } from 'node:path';
 import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/index.js';
 import { writeAllExact } from '../persistence/index.js';
-import type { ProcessStatus } from '../schemas/index.js';
+import type { ProcessEvidence, ProcessObservationStatus } from '../contracts/index.js';
 import { now } from '../utils/index.js';
 import { sanitizedCommandEnv } from './command-policy.js';
 import { redactTextForOutbound } from '../redaction/index.js';
@@ -53,7 +53,8 @@ export interface ProcessRecord {
   agent_session_id: string | null;
   command: string;
   cwd: string;
-  status: ProcessStatus;
+  status: ProcessObservationStatus;
+  evidence: ProcessEvidence;
   started_at: string;
   completed_at: string | null;
   exit_code: number | null;
@@ -69,7 +70,7 @@ interface InteractiveProcessLaunch {
 
 export interface ProcessWaitResult {
   id: string;
-  status: ProcessStatus;
+  status: ProcessObservationStatus;
   exitCode: number | null;
   timedOut: boolean;
   waitDurationMs: number;
@@ -78,7 +79,7 @@ export interface ProcessWaitResult {
 
 interface ProcessListFilter {
   cardId?: string;
-  status?: ProcessStatus | ProcessStatus[];
+  status?: ProcessObservationStatus | ProcessObservationStatus[];
 }
 
 interface ProcessPresentation {
@@ -87,6 +88,32 @@ interface ProcessPresentation {
   leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal'> | null;
   terminationReason: string | null | undefined;
   terminalSettlement: Promise<void>;
+  captureFailure: Error | null;
+}
+
+export class ProcessEvidenceUnavailableError extends Error {
+  constructor(
+    readonly processId: string,
+    readonly diagnostic: string,
+  ) {
+    super(`Process '${processId}' evidence unavailable: ${diagnostic}`);
+    this.name = 'ProcessEvidenceUnavailableError';
+  }
+}
+
+function isTerminal(status: ProcessObservationStatus): boolean {
+  return status === 'exited' || status === 'failed' || status === 'killed';
+}
+
+function snapshot(record: ProcessRecord): ProcessRecord {
+  return {
+    ...record,
+    evidence: {
+      ...record.evidence,
+      leader_exit: record.evidence.leader_exit && { ...record.evidence.leader_exit },
+      leader_error: record.evidence.leader_error && { ...record.evidence.leader_error },
+    },
+  };
 }
 
 export interface ProcessOutputIo {
@@ -185,6 +212,7 @@ export class ProcessRunner {
     const started = Date.now();
     const presentation = this.presentations.get(procId);
     if (!presentation) throw new Error(`Unknown process '${procId}'.`);
+    this.assertEvidenceAvailable(presentation);
     if (presentation.record.status !== 'running') {
       await presentation.terminalSettlement;
       return this.waitResult(presentation, false, started);
@@ -194,6 +222,7 @@ export class ProcessRunner {
       presentation.terminalSettlement.then(() => 'settled' as const),
       delay(timeoutMs).then(() => 'timeout' as const),
     ]);
+    this.assertEvidenceAvailable(presentation);
     if (result === 'timeout') return this.waitResult(presentation, true, started);
     return this.waitResult(presentation, false, started);
   }
@@ -202,6 +231,7 @@ export class ProcessRunner {
     const started = Date.now();
     const presentation = this.presentations.get(procId);
     if (!presentation) throw new Error(`Unknown process '${procId}'.`);
+    this.assertEvidenceAvailable(presentation);
     await presentation.terminalSettlement;
     return this.waitResult(presentation, false, started);
   }
@@ -227,7 +257,7 @@ export class ProcessRunner {
     if (report.failed.length === 0) await presentation.terminalSettlement;
     else await this.#joinStopped(report, new Map([[procId, presentation]]));
     this.assertStopSucceeded(report);
-    return { ...presentation.record };
+    return snapshot(presentation.record);
   }
 
   async terminateScopeTree(input: {
@@ -249,6 +279,13 @@ export class ProcessRunner {
     const settlements = await Promise.allSettled(
       stopped.map(({ presentation }) => presentation.terminalSettlement),
     );
+    for (const settlement of settlements) {
+      if (
+        settlement.status === 'rejected' &&
+        settlement.reason instanceof PublicationOutcomeUnknownError
+      )
+        this.fatalPort.publicationOutcomeUnknown(settlement.reason);
+    }
     for (const { id, presentation } of stopped) this.retireSettled(id, presentation.directScope);
     const rejection = settlements.find(
       (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
@@ -272,26 +309,41 @@ export class ProcessRunner {
     try {
       report = await this.#registry.closeAndTerminateDirectScope(input);
     } catch (error) {
-      const alreadyTerminal = [...presentations.values()].filter(
-        (presentation) => presentation.record.status !== 'running',
+      if (error instanceof PublicationOutcomeUnknownError)
+        this.fatalPort.publicationOutcomeUnknown(error);
+      const alreadyTerminal = [...presentations.values()].filter((presentation) =>
+        isTerminal(presentation.record.status),
       );
-      await Promise.allSettled(
+      const settlements = await Promise.allSettled(
         alreadyTerminal.map((presentation) => presentation.terminalSettlement),
       );
+      for (const settlement of settlements) {
+        if (
+          settlement.status === 'rejected' &&
+          settlement.reason instanceof PublicationOutcomeUnknownError
+        )
+          this.fatalPort.publicationOutcomeUnknown(settlement.reason);
+      }
       for (const [id, presentation] of presentations) {
-        if (presentation.record.status !== 'running') this.retireSettled(id, input.directScope);
+        if (isTerminal(presentation.record.status)) this.retireSettled(id, input.directScope);
       }
       throw error;
     }
     const joinable = [...presentations.entries()].filter(
-      ([id, presentation]) =>
-        report.stopped.includes(id) || presentation.record.status !== 'running',
+      ([id, presentation]) => report.stopped.includes(id) || isTerminal(presentation.record.status),
     );
     const settlements = await Promise.allSettled(
       joinable.map(([, presentation]) => presentation.terminalSettlement),
     );
+    for (const settlement of settlements) {
+      if (
+        settlement.status === 'rejected' &&
+        settlement.reason instanceof PublicationOutcomeUnknownError
+      )
+        this.fatalPort.publicationOutcomeUnknown(settlement.reason);
+    }
     for (const [id, presentation] of presentations) {
-      if (presentation.record.status !== 'running') this.retireSettled(id, input.directScope);
+      if (isTerminal(presentation.record.status)) this.retireSettled(id, input.directScope);
     }
     const rejection = settlements.find(
       (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
@@ -305,7 +357,7 @@ export class ProcessRunner {
     if (!presentation) return;
     if (presentation.directScope !== directScope)
       throw new Error(`Process '${procId}' is not bound to the invoking direct scope.`);
-    if (presentation.record.status === 'running') return;
+    if (!isTerminal(presentation.record.status)) return;
     this.presentations.delete(procId);
   }
 
@@ -326,7 +378,7 @@ export class ProcessRunner {
   }
 
   list(filter?: ProcessListFilter): ProcessRecord[] {
-    let records = [...this.presentations.values()].map(({ record }) => ({ ...record }));
+    let records = [...this.presentations.values()].map(({ record }) => snapshot(record));
     if (filter?.cardId) records = records.filter((record) => record.card_id === filter.cardId);
     if (filter?.status) {
       const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
@@ -337,7 +389,7 @@ export class ProcessRunner {
 
   get(procId: string): ProcessRecord | null {
     const record = this.presentations.get(procId)?.record;
-    return record ? { ...record } : null;
+    return record ? snapshot(record) : null;
   }
 
   private launch(
@@ -371,6 +423,16 @@ export class ProcessRunner {
       command: redactTextForOutbound(spec.command),
       cwd,
       status: 'running',
+      evidence: {
+        group: 'tracked',
+        group_diagnostic: null,
+        leader_exit: null,
+        leader_error: null,
+        stdout: captureOutput ? 'open' : 'not_captured',
+        stderr: captureOutput ? 'open' : 'not_captured',
+        stdout_error: null,
+        stderr_error: null,
+      },
       started_at: now(),
       completed_at: null,
       exit_code: null,
@@ -382,9 +444,8 @@ export class ProcessRunner {
     const absence = new Promise<void>((resolveAbsent) => {
       resolveAbsence = resolveAbsent;
     });
-    let captureFailure: Error | null = null;
     const recordCaptureFailure = (error: Error): void => {
-      captureFailure ??= error;
+      presentation.captureFailure ??= error;
     };
     const presentation: ProcessPresentation = {
       record,
@@ -392,7 +453,15 @@ export class ProcessRunner {
       leaderOutcome: null,
       terminationReason: undefined,
       terminalSettlement: Promise.resolve(),
+      captureFailure: null,
     };
+    let resolveSettlement!: () => void;
+    let rejectSettlement!: (error: Error) => void;
+    presentation.terminalSettlement = new Promise<void>((resolve, reject) => {
+      resolveSettlement = resolve;
+      rejectSettlement = reject;
+    });
+    void presentation.terminalSettlement.catch(() => undefined);
     this.presentations.set(id, presentation);
     let child: ChildProcess;
     try {
@@ -408,8 +477,17 @@ export class ProcessRunner {
           stdio,
         },
         onAbsent: (reason) => {
+          record.evidence.group = 'absent';
           presentation.terminationReason = reason;
           resolveAbsence();
+        },
+        onUnverifiable: (diagnostic) => {
+          record.evidence.group = 'unverifiable';
+          record.evidence.group_diagnostic = diagnostic;
+          record.status = 'unavailable';
+          rejectSettlement(
+            presentation.captureFailure ?? new ProcessEvidenceUnavailableError(id, diagnostic),
+          );
         },
       });
     } catch (error) {
@@ -417,17 +495,26 @@ export class ProcessRunner {
       throw error;
     }
     const stdoutDrain = captureOutput
-      ? this.#captureReadable(child.stdout, stdoutPath, recordCaptureFailure)
+      ? this.#captureReadable(child.stdout, stdoutPath, record, 'stdout', recordCaptureFailure)
       : Promise.resolve();
     const stderrDrain = captureOutput
-      ? this.#captureReadable(child.stderr, stderrPath, recordCaptureFailure)
+      ? this.#captureReadable(child.stderr, stderrPath, record, 'stderr', recordCaptureFailure)
       : Promise.resolve();
-    presentation.terminalSettlement = Promise.all([absence, stdoutDrain, stderrDrain]).then(() => {
-      this.finalize(presentation, presentation.terminationReason ?? null, captureFailure);
-      if (captureFailure) throw captureFailure;
+    void Promise.all([absence, stdoutDrain, stderrDrain]).then(() => {
+      this.finalize(
+        presentation,
+        presentation.terminationReason ?? null,
+        presentation.captureFailure,
+      );
+      if (presentation.captureFailure) rejectSettlement(presentation.captureFailure);
+      else resolveSettlement();
     });
-    void presentation.terminalSettlement.catch(() => undefined);
     child.once('exit', (exitCode, signalCode) => {
+      record.evidence.leader_exit = {
+        exit_code: exitCode,
+        signal: signalCode ?? null,
+        observed_at: now(),
+      };
       presentation.leaderOutcome = {
         status:
           signalCode === 'SIGKILL' || signalCode === 'SIGTERM'
@@ -449,11 +536,14 @@ export class ProcessRunner {
       } catch (failure) {
         if (failure instanceof PublicationOutcomeUnknownError)
           this.fatalPort.publicationOutcomeUnknown(failure);
+        record.evidence.stderr_error ??=
+          failure instanceof Error ? failure.message : String(failure);
         recordCaptureFailure(failure instanceof Error ? failure : new Error(String(failure)));
       }
-      presentation.leaderOutcome = { status: 'failed', exit_code: -1, signal: null };
+      record.evidence.leader_error ??= { diagnostic: error.message, observed_at: now() };
+      presentation.leaderOutcome ??= { status: 'failed', exit_code: null, signal: null };
     });
-    return { record: { ...record }, process: child };
+    return { record: snapshot(record), process: child };
   }
 
   private finalize(
@@ -480,9 +570,18 @@ export class ProcessRunner {
   #captureReadable(
     readable: Readable | null,
     path: string,
+    record: ProcessRecord,
+    stream: 'stdout' | 'stderr',
     recordFailure: (error: Error) => void,
   ): Promise<void> {
-    if (!readable) return Promise.resolve();
+    if (!readable) {
+      record.evidence[stream] = 'not_captured';
+      return Promise.resolve();
+    }
+    const captureFailure = (error: Error): void => {
+      record.evidence[`${stream}_error`] ??= error.message;
+      recordFailure(error);
+    };
     readable.on('data', (chunk: Buffer | string) => {
       try {
         appendProcessOutputChunk(
@@ -493,11 +592,11 @@ export class ProcessRunner {
       } catch (error) {
         if (error instanceof PublicationOutcomeUnknownError)
           this.fatalPort.publicationOutcomeUnknown(error);
-        recordFailure(error instanceof Error ? error : new Error(String(error)));
+        captureFailure(error instanceof Error ? error : new Error(String(error)));
         readable.destroy();
       }
     });
-    readable.on('error', recordFailure);
+    readable.on('error', captureFailure);
     return new Promise<void>((resolveDrain) => {
       let settled = false;
       const settle = (): void => {
@@ -506,8 +605,14 @@ export class ProcessRunner {
           resolveDrain();
         }
       };
-      readable.once('end', settle);
-      readable.once('close', settle);
+      readable.once('end', () => {
+        record.evidence[stream] = 'eof';
+        settle();
+      });
+      readable.once('close', () => {
+        if (record.evidence[stream] !== 'eof') record.evidence[stream] = 'closed';
+        settle();
+      });
     });
   }
 
@@ -532,7 +637,7 @@ export class ProcessRunner {
     timedOut: boolean,
     started: number,
   ): ProcessWaitResult {
-    const record = { ...presentation.record };
+    const record = snapshot(presentation.record);
     return {
       id: record.id,
       status: record.status,
@@ -549,6 +654,17 @@ export class ProcessRunner {
       report.failed
         .map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`)
         .join('; '),
+    );
+  }
+
+  private assertEvidenceAvailable(presentation: ProcessPresentation): void {
+    if (presentation.record.status !== 'unavailable') return;
+    throw (
+      presentation.captureFailure ??
+      new ProcessEvidenceUnavailableError(
+        presentation.record.id,
+        presentation.record.evidence.group_diagnostic!,
+      )
     );
   }
 }

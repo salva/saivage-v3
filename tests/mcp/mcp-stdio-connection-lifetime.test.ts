@@ -287,8 +287,11 @@ describe('connection-owned stdio receiver', () => {
         expect(() => {
           if (kind === 'reader') f.stdout.emit('error', fatal);
           else
-            f.stdout.write(
-              wire(
+            // Assert at the owning callback: Node 24 pipe catches a thrown
+            // destination write and schedules a second fatal error event.
+            Reflect.get(f.connection, 'lines').emit(
+              'line',
+              JSON.stringify(
                 kind === 'hook'
                   ? { jsonrpc: '2.0', id: 1, result: {} }
                   : { method: 'roots/list', id: 1 },

@@ -10,6 +10,7 @@ describe('process outbound owner', () => {
     const process: ProcessView = {
       id: 'tok_process',
       status: 'failed',
+      evidence: { group: 'absent', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null },
       started_at: 'tok_started_at',
       ended_at: 'sk-ended-at',
       exit_code: 23,

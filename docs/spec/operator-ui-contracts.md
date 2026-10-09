@@ -646,6 +646,19 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   `work:///` log references. Successfully stopped scope-tree selections disappear
   after terminal settlement and retirement. Retirement does not erase a known link or
   promise retention; there is no terminate control or process-history cache.
+- Unavailable current rows display **Evidence unavailable**, group uncertainty and
+  **Leader exit observed** (actual code/signal/time or Not observed). A running row
+  with leader exit displays **Awaiting group/output settlement**, not confirmed
+  leader liveness. Stdout/stderr show **Stream open**, **EOF observed**,
+  **Closed without observed EOF**, or **Not captured by runner**, independently of
+  **Capture failed** diagnostics: EOF and failure can appear together. Unavailable
+  has no completion time; later activations cannot take ownership, and service-level
+  intervention requires the operator. Running rows sort first, unavailable next,
+  then terminal observations; log browsing and explicit Refresh remain read-only.
+- Historical process-list results remain **Recorded observation (not a live monitor)**.
+  Supplied evidence is shown with safe-original disclosure; old omitted evidence
+  stays unrecorded, never synthesized or refreshed. Failed command chips show their
+  recorded failure text without new successful payload or history rewrite.
 - Evidence is a source-labeled navigation index: card-version, per-record
   revision, and per-session segment catalogs open on demand with exact links
   into their owning readers and coverage labels. A session segment link includes

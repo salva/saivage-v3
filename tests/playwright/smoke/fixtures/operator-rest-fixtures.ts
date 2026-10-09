@@ -143,7 +143,7 @@ const outputRoot = {
 };
 export const processOwnerId = '11111111-1111-4111-8111-111111111111:node:0';
 export const processId = 'proc-111111111111';
-export const expectedProcessList = { processes: [{ id: processId, status: 'exited', command: 'npm run synthetic-smoke', cwd: '.', card_id: smokeCardId, session_id: processOwnerId, owner_id: processOwnerId, owner_kind: 'agent' as const, started_at: now, ended_at: now, exit_code: 0, timed_out: false, logs: { stdout: `work:///cards/${smokeCardId}/processes/${processId}/stdout.log`, stderr: `work:///cards/${smokeCardId}/processes/${processId}/stderr.log` } }] };
+export const expectedProcessList = { processes: [{ id: processId, status: 'exited', evidence: { group: 'absent', group_diagnostic: null, leader_exit: { exit_code: 0, signal: null, observed_at: now }, leader_error: null, stdout: 'eof', stderr: 'eof', stdout_error: null, stderr_error: null }, command: 'npm run synthetic-smoke', cwd: '.', card_id: smokeCardId, session_id: processOwnerId, owner_id: processOwnerId, owner_kind: 'agent' as const, started_at: now, ended_at: now, exit_code: 0, timed_out: false, logs: { stdout: `work:///cards/${smokeCardId}/processes/${processId}/stdout.log`, stderr: `work:///cards/${smokeCardId}/processes/${processId}/stderr.log` } }] };
 export const processListResponse = parseOperatorResponse('processes.list', 200, expectedProcessList);
 export const smokeServerAvailability = {
   generatedAt: now,

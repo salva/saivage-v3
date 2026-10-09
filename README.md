@@ -1,5 +1,9 @@
 # Saivage v3
 
+Managed process evidence can become **unavailable** after lost group authority.
+Leader exit and EOF do not confirm cleanup; failed scopes remain blockers and later
+activations cannot take ownership. See [operator diagnosis](docs/runbook/index.md#unavailable-process-evidence).
+
 ### Inspecting screenshots
 
 An agent can use `run_command` to save a **non-secret** screenshot in the project,

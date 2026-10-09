@@ -149,6 +149,7 @@ export type {
 export { ManagedProcessGroupRegistry } from './managed-process-group-registry.js';
 export type { ManagedProcessScope, ProcessStopReport } from './managed-process-group-registry.js';
 export { ProcessRunner } from './process-runner.js';
+export { ProcessEvidenceUnavailableError } from './process-runner.js';
 export type { ProcessCategory, ProcessRecord, ProcessWaitResult } from './process-runner.js';
 export { RuntimeGate } from './runtime-gate.js';
 export { settleFinalUnmatchedCall } from './actors/conversation-recovery.js';

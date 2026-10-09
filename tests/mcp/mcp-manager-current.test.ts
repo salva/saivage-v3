@@ -379,11 +379,13 @@ describe('current named-agent MCP manager contract',()=>{
     const record: ProcessRecord = {
       id: 'proc-capture', card_id: null, owner_id: 'mcp:one', owner_kind: 'runtime', agent_session_id: null,
       command: 'server', cwd: '/project', status: 'running', started_at: '2026-01-01T00:00:00.000Z', completed_at: null,
+      evidence: { group: 'tracked', group_diagnostic: null, leader_exit: null, leader_error: null, stdout: 'not_captured', stderr: 'not_captured', stdout_error: null, stderr_error: null },
       exit_code: null, signal: null, stdout_path: '/stdout', stderr_path: '/stderr',
     };
     const processScope = {} as never;
     const processRunner = {
       spawnInteractive: jest.fn(() => ({ process, record })),
+      get: jest.fn(() => record),
       waitForSettlement: jest.fn(() => terminal.promise),
       retireSettled: jest.fn(),
       closeAndTerminateDirectScope: jest.fn(async () => emptyReport),
