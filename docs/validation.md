@@ -274,6 +274,13 @@ actual web configuration must deny direct filesystem and resolved-alias requests
 to a denied file, before and after intentional shared-root imports. Babel must
 reject a source map outside the fixture package while retaining same-package and
 inline maps; the real babel-jest transformer also produces usable code and maps.
+The real installed ts-jest CLI also runs `config:init` in a fresh disposable
+directory, rendering its own fixed template without an existing config or
+`--force`. The generated CommonJS config is evaluated with repository-root
+module resolution to check the Node environment and usable ts-jest transform
+selection through the real preset. This config-generation smoke protects
+consumer compatibility; ordinary Jest JS/TS suites separately exercise the
+normal ts-jest ESM transformation path.
 The browser-client check executes the actual cards store, shared schemas and API
 client in Chromium with intercepted API calls, not a live deployment.
 
@@ -291,6 +298,16 @@ following their owners. It adds no production security wrapper or durable-format
 change. The checks are bounded consumer evidence, not comprehensive security
 certification, proof of old-release local exploitability, or root-agent containment;
 the jsdom suite does not exercise standalone Vitest mocker/browser mode.
+
+Handlebars 4.7.10 is selected through ts-jest's existing dependency range,
+without a direct dependency or override. The observed Handlebars consumer is
+ts-jest's config-init CLI, which compiles a fixed string template with default
+options, not an untrusted AST, prototype-method-enabled rendering, or inline
+HTML precompilation. No affected production HTTP/template path is evidenced;
+this bounded observation is not a comprehensive no-exposure proof or a reason
+to waive the independent root/web audit gate and its include-dev scope below.
+Consumer checks or a patched dependency alone do not establish all-green
+validation or whole-project acceptance.
 
 ## Build and release gates
 

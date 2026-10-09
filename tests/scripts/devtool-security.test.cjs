@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
-const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = require('node:fs');
+const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const { createRequire } = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const repository = path.resolve(__dirname, '../..');
 const workspaceTmp = path.resolve(repository, '../tmp');
@@ -11,6 +14,39 @@ function fixture(t) {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
+
+test('ts-jest config:init renders a usable CommonJS node configuration', () => {
+  const directory = mkdtempSync(path.join(workspaceTmp, 'saivage-ts-jest-config-'));
+  try {
+    const rootRequire = createRequire(path.join(repository, 'package.json'));
+    const cli = rootRequire.resolve('ts-jest/cli.js');
+    const result = spawnSync(process.execPath, [cli, 'config:init'], {
+      cwd: directory,
+      encoding: 'utf8',
+    });
+    assert.equal(result.error, undefined, 'installed ts-jest CLI must launch');
+    assert.equal(result.signal, null, 'configuration generation must exit normally');
+    assert.equal(result.status, 0, result.stderr);
+
+    const filename = path.join(directory, 'jest.config.js');
+    const module = { exports: {} };
+    vm.runInNewContext(readFileSync(filename, 'utf8'), {
+      module, exports: module.exports, require: rootRequire,
+    }, { filename });
+    const config = module.exports;
+    assert.equal(config.testEnvironment, 'node');
+    assert.deepEqual(Object.entries(config.transform), Object.entries(rootRequire('ts-jest').createDefaultPreset().transform));
+    const transforms = Object.entries(config.transform);
+    for (const input of ['consumer.ts', 'consumer.tsx']) {
+      const selection = transforms.find(([pattern]) => new RegExp(pattern).test(input));
+      assert.ok(selection, `${input} must select a transform`);
+      assert.equal(selection[1][0], 'ts-jest');
+      assert.equal(typeof rootRequire(selection[1][0]).default.createTransformer, 'function');
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('Vite denies a resolved alias to a denied file before and after shared imports', async (t) => {
   const { createServer, isFileServingAllowed } = await import('../../web/node_modules/vite/dist/node/index.js');
