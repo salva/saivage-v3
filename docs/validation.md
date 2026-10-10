@@ -325,6 +325,20 @@ to waive the independent root/web audit gate and its include-dev scope below.
 Consumer checks or a patched dependency alone do not establish all-green
 validation or whole-project acceptance.
 
+Root tsx 4.22.3 selects esbuild 0.28.2 within its existing `~0.28.0` range,
+without a direct dependency or override; Vite's separate esbuild 0.25.12
+remains unchanged. The actual tsx consumer is `scripts/copy-system-template-prompts.js`
+in `npm run build`: it compiles and copies every registered prompt closure,
+then recompiles the packaged closure. The registry/copy-script Jest checks and
+the full build, including compiled composition's source/package byte comparison,
+provide semantic acceptance evidence. Applicability of the Windows `servedir`
+traversal advisory to this Linux transpilation consumer is not established.
+The Jest/Istanbul chain's sprintf-js advisory remains unpatched and deferred;
+upstream repair or compatible parent removal is the revisit trigger. Run root
+and web audits independently with development dependencies included, including
+at the lower moderate threshold so a root finding cannot hide the web result.
+These dated audit results are not security certification or proof of deployed state.
+
 ## Build and release gates
 
 The build and release gates package every registered prompt tree. Packaging
