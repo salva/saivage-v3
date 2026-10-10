@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
-import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
@@ -117,8 +117,8 @@ describe('OversightSession owned check settlement', () => {
     const root = projectRoot();
     const complete = jest.fn(async () => finalMessage());
     const compact = jest.fn<CompactorPort['compact']>()
-      .mockRejectedValueOnce(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
-      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
+      .mockRejectedValueOnce(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
+      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, summaryRefusal: null, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
     const compactor: CompactorPort = { shouldCompact: () => true, compact };
 
     await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('failed');

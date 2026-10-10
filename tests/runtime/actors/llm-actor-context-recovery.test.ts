@@ -17,7 +17,7 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js'
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort, type LlmTerminalHandoff } from '../../../src/runtime/actors/llm-actor.js';
 import { compact, CompactionSummaryConstructionError, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
-import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { compileInvocationToolContract } from '../../../src/runtime/actors/context/context-blocks.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
@@ -46,7 +46,7 @@ afterEach(() => {
 describe('ConversationLLMActor last-chance summary publication ownership', () => {
   it.each(['preventive', 'local_exact_admission', 'authoritative_context_recovery'] as const)('owns a persistent summary prompt-policy block for %s without a fabricated primary error', async (strategy) => {
     const fixture = actorFixture();
-    const blocked = new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw flag', reason: 'prompt_policy_rejection' }));
+    const blocked = new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw flag', reason: 'prompt_policy_rejection' }));
     fixture.compact.mockRejectedValue(blocked);
     if (strategy === 'preventive') fixture.shouldCompact.mockReturnValue(true);
     if (strategy === 'local_exact_admission') fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
@@ -72,7 +72,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     const input: PreparedLlmInvocationInput = { ...invocation(), inputId: '00000000-0000-4000-8000-000000000011', agentId: 'agent:analyst:global', agentName: 'analyst', sessionId: 'agent:analyst:global', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [] } };
     const fixture = actorFixture(input, undefined, 'global');
     fixture.shouldCompact.mockReturnValue(true);
-    fixture.compact.mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('raw provider prose')));
+    fixture.compact.mockRejectedValue(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('raw provider prose')));
     const terminal = jest.fn<LlmTerminalHandoff>();
 
     const outcome = await fixture.actor.turn(input, undefined, terminal);
@@ -88,7 +88,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
   it('keeps original-primary publication uncertainty fatal before a summary-policy blocked handoff', async () => {
     const publication = new PublicationOutcomeUnknownError();
     const fixture = actorFixture(invocation(), publication);
-    fixture.compact.mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('raw provider prose')));
+    fixture.compact.mockRejectedValue(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('raw provider prose')));
     const terminal = jest.fn<LlmTerminalHandoff>();
 
     await expect(fixture.actor.turn(fixture.input, undefined, terminal)).rejects.toBe(publication);
@@ -252,7 +252,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
   it('invokes one local_exact_admission compaction before turn-start and sends only the re-admitted projection', async () => {
     const fixture = actorFixture();
     const compactedProjection = distinctProjection(fixture.input, 'local-p1');
-    fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
+    fixture.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
     fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission()).mockResolvedValueOnce(scriptedOrdinaryAdmission());
     fixture.execute.mockImplementation(async () => ({ result: { kind: 'message' as const, content: 'post-compaction answer' }, provider_exchanges: [attempt(fixture.input.inputId, 'ok', 0)] }));
     const terminal = jest.fn<LlmTerminalHandoff>();
@@ -274,7 +274,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
   it('terminates with a bounded LocalExactAdmissionError before turn-start or provider I/O when the second admission still does not fit', async () => {
     const fixture = actorFixture();
     fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission()).mockResolvedValueOnce(rejectedCompactionAdmission());
-    fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjectionOf(fixture), estimatedProviderMessageTokens: 1 });
+    fixture.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: compactedProjectionOf(fixture), estimatedProviderMessageTokens: 1 });
     await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toMatchObject({ name: 'LocalExactAdmissionError', source: 'primary_local', reason: 'capacity', localCompactionAttempted: true });
     expect(fixture.compact).toHaveBeenCalledTimes(1);
     expect(fixture.execute).not.toHaveBeenCalled();
@@ -315,6 +315,28 @@ describe('ConversationLLMActor local exact-admission transition', () => {
 });
 
 describe('ConversationLLMActor authoritative admitted recovery', () => {
+  it.each(['card', 'global'] as const)('carries successful refusal metadata through preventive, local and authoritative seams for %s without blocked settlement', async purpose => {
+    const input: PreparedLlmInvocationInput = purpose === 'card' ? invocation() : { ...invocation(), agentId: 'agent:analyst:global', agentName: 'analyst', sessionId: 'agent:analyst:global', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [] } };
+    const fixture = actorFixture(input, undefined, purpose);
+    if (purpose === 'global') {
+      const timestamp = '2026-10-10T00:00:00.000Z';
+      appendConversationBatch({ projectRoot: fixture.root }, [agentMessageSchema.parse({ id: 'global-activation', session_id: input.sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: input.inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
+    }
+    const refusal = { summaryInputId: '00000000-0000-4000-8000-000000000099' };
+    fixture.shouldCompact.mockReturnValue(true);
+    fixture.compact.mockImplementation(async ({ input, summaryRefusal, strategy }) => ({ kind: 'compacted', summaryRefusal: strategy === 'preventive' ? refusal : summaryRefusal, providerConversation: distinctProjection(input, strategy), estimatedProviderMessageTokens: 1 }));
+    fixture.prepare.mockResolvedValueOnce(rejectedCompactionAdmission()).mockResolvedValueOnce(scriptedOrdinaryAdmission());
+    fixture.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
+    fixture.resume.mockResolvedValue({ result: { kind: 'message', content: 'ordinary benign continuation' }, provider_exchanges: [attempt(fixture.input.inputId, 'error', 0), attempt(fixture.input.inputId, 'ok', 1)] });
+    await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).resolves.toMatchObject({ type: 'result', result: { content: 'ordinary benign continuation' } });
+    expect(fixture.compact.mock.calls.map(([args]) => [args.strategy, args.summaryRefusal])).toEqual([
+      ['preventive', null], ['local_exact_admission', refusal], ['authoritative_context_recovery', refusal],
+    ]);
+    expect(fixture.summaryCompletion).not.toHaveBeenCalled();
+    expect(fixture.plannerProjection).toHaveBeenCalledTimes(1);
+    expect(fixture.plannerProjection.mock.calls[0]![3].map(row => row.attempt_index)).toEqual([0, 1]);
+  });
+
   it('formats owned construction diagnostics without exposing the internal cause and keeps provider exhaustion on the separate handoff', async () => {
     const fixture = actorFixture();
     const construction = new CompactionSummaryConstructionError({ reason: 'incomplete_output', invocationCount: 2, correctionCount: 1, summaryBytes: 9_999, summaryTargetBytes: 12_000, cause: new Error('SENTINEL INTERNAL CAUSE') });
@@ -331,7 +353,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
   it('holds the suspension untouched, compacts authoritatively once, and returns the same suspension to recovery preparation', async () => {
     const fixture = actorFixture();
     const compactedProjection = distinctProjection(fixture.input, 'authoritative-p2');
-    const compacted = { kind: 'compacted' as const, providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 };
+    const compacted = { kind: 'compacted' as const, summaryRefusal: null, providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 };
     fixture.compact.mockResolvedValue(compacted);
     const resumeCompletion = { result: { kind: 'message' as const, content: 'recovered' }, provider_exchanges: [attempt(fixture.input.inputId, 'error', 0), attempt(fixture.input.inputId, 'ok', 1)] };
     fixture.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
@@ -355,7 +377,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
   it('settles a recovery preparation terminal failure as an ordinary error outcome without retry transport', async () => {
     const fixture = actorFixture();
     const compactedProjection = distinctProjection(fixture.input, 'terminal-p2');
-    fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
+    fixture.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
     const terminal = providerFailure(fixture.input.inputId, 'input_context_exhausted');
     fixture.prepareRecovery.mockImplementation(() => { throw terminal; });
     const terminalHandoff = jest.fn<LlmTerminalHandoff>();
@@ -405,7 +427,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
   it('parks a recovered tool call with the exact P2 prepared input and provider-owned attempts', async () => {
     const fixture = actorFixture(withTool(invocation()));
     const compactedProjection = distinctProjection(fixture.input, 'parked-p2');
-    fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
+    fixture.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: compactedProjection, estimatedProviderMessageTokens: 1 });
     fixture.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
     const attempts = [attempt(fixture.input.inputId, 'error', 0), attempt(fixture.input.inputId, 'ok', 1)];
     fixture.resume.mockResolvedValue({ result: { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{"query":"x"}' } }] }, provider_exchanges: attempts });
@@ -468,7 +490,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
 
   it('fails closed when recovery tries to suspend a second time', async () => {
     const fixture = actorFixture();
-    fixture.compact.mockResolvedValue({ kind: 'compacted', providerConversation: compactedProjectionOf(fixture), estimatedProviderMessageTokens: 1 });
+    fixture.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: compactedProjectionOf(fixture), estimatedProviderMessageTokens: 1 });
     fixture.resume.mockRejectedValue(new AdmittedProviderTurnFailure(providerFailure(fixture.input.inputId, 'input_context_exhausted'), fixture.capturedSuspension!));
     await expect(fixture.actor.turn(fixture.input, undefined, jest.fn())).rejects.toThrow(/cannot suspend a second time/);
   });
@@ -480,12 +502,12 @@ it.each(['primary', 'recomposed', 'recovery'] as const)('fences a disposed owner
   const started = new Promise<void>(resolve => { entered = resolve; });
   let release!: () => void;
   if (mode === 'recovery') {
-    f.compact.mockResolvedValue({ kind: 'compacted', providerConversation: distinctProjection(f.input, 'recovery'), estimatedProviderMessageTokens: 1 });
+    f.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: distinctProjection(f.input, 'recovery'), estimatedProviderMessageTokens: 1 });
     f.prepareRecovery.mockImplementation(() => new Promise(resolve => { release = () => resolve({ kind: 'recovery_prepared' } as never); entered(); }));
   } else {
     if (mode === 'recomposed') {
       f.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
-      f.compact.mockResolvedValue({ kind: 'compacted', providerConversation: distinctProjection(f.input, 'recomposed'), estimatedProviderMessageTokens: 1 });
+      f.compact.mockResolvedValue({ kind: 'compacted', summaryRefusal: null, providerConversation: distinctProjection(f.input, 'recomposed'), estimatedProviderMessageTokens: 1 });
     }
     f.prepare.mockImplementation(() => new Promise(resolve => { release = () => resolve(scriptedOrdinaryAdmission()); entered(); }));
   }

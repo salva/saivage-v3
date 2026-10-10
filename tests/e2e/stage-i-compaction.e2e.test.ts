@@ -54,7 +54,7 @@ describe('Stage-I versioned compaction', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-versioned-compaction-')); initProjectTree(root);
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendRound(root, ordinal);
-      const before = readConversation(root, SESSION); const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(before, []).messages), summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal, progress: noCompactionProgress });
+      const before = readConversation(root, SESSION); const result = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(before, []).messages), summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal, progress: noCompactionProgress });
       expect(result.kind).toBe('compacted'); const current = readCurrentConversationSegment(root, SESSION)!;
       expect(current.entry.version).toBe(2); expect(current.genesis.kind).toBe('compacted_segment_genesis'); expect(current.rows.some((row) => row.kind === ('context_compaction' as never))).toBe(false);
       expect(readHistoricalConversationSegment(root, SESSION, 1).genesis.kind).toBe('ordinary_segment_genesis');
@@ -112,7 +112,7 @@ describe('Stage-I versioned compaction', () => {
         expect(classified.rounds[0]!.estimated_tokens).toBeGreaterThan(input.preparedCompaction.tailBudgetTokens);
         expect(expectedTail.reduce((sum, row) => sum + estimateMessageTokens(row), 0)).toBeGreaterThanOrEqual(input.preparedCompaction.tailBudgetTokens);
         expect(estimateMessageTokens(expectedTail[1]!)).toBeLessThan(input.preparedCompaction.tailBudgetTokens);
-        const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input, summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress });
+        const result = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input, summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress });
         expect(result.kind).toBe('compacted');
         expect(requests).toHaveLength(publication); // Preferred endpoint accepted without fallback.
         const current = readCurrentConversationSegment(root, SESSION)!;
@@ -150,7 +150,7 @@ describe('Stage-I versioned compaction', () => {
       const coveredProcess = appendProcessSettlement(root, 1, 'covered-process', { stdout_complete: true, stderr_complete: false });
       for (let ordinal = 2; ordinal <= 7; ordinal++) appendRound(root, ordinal);
       const firstBefore = readConversation(root, SESSION);
-      expect((await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(firstBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
+      expect((await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(firstBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
       const first = readCurrentConversationSegment(root, SESSION)!;
       expect(first.conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-old']);
       expect(providerConversationProjection(first.conversation, []).messages.filter(({ content }) => content === 'EXACT OLD INSTRUCTION')).toHaveLength(1);
@@ -162,7 +162,7 @@ describe('Stage-I versioned compaction', () => {
       appendProtectedRound(root, 8, 'protected-new', 'EXACT NEW INSTRUCTION', 'workflow.rule');
       for (let ordinal = 9; ordinal <= 14; ordinal++) appendRound(root, ordinal);
       const secondBefore = readConversation(root, SESSION);
-      expect((await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(secondBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
+      expect((await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(secondBefore, []).messages), summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress })).kind).toBe('compacted');
       const second = readCurrentConversationSegment(root, SESSION)!;
       expect(second.entry.version).toBe(3);
       expect(second.conversation.effectiveCompactedHistory!.protectedPrompts.map(({ message }) => message.id)).toEqual(['protected-new']);
@@ -223,7 +223,7 @@ describe('Stage-I versioned compaction', () => {
       const rawRequests: string[][] = [];
       let activeCalls = 0;
       let maximumActiveCalls = 0;
-      const result = await compact({
+      const result = await compact({ summaryRefusal: null,
         strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(before, []).messages),
         summarizerProvider: {
           candidate: TEST_CANDIDATE,
@@ -277,7 +277,7 @@ describe('Stage-I versioned compaction', () => {
       const foldStarted = jest.fn();
       const foldCompleted = jest.fn();
 
-      await expect(compact({
+      await expect(compact({ summaryRefusal: null,
         strategy: 'preventive',
         conversations: { projectRoot: root },
         input: invocationFor(SESSION, providerConversationProjection(before.conversation, []).messages),
@@ -405,7 +405,7 @@ describe('Stage-I versioned compaction', () => {
 
       const preventiveRecords: SummaryWireRecord[] = [];
       const preventiveProvider = summaryProvider({ root: preventiveRoot, registry, candidate: sol, records: preventiveRecords, setTransport: (next) => { queued = next; }, correctionOnFirstNormal: false });
-      const preventiveResult = await compact({ strategy: 'preventive', conversations: { projectRoot: preventiveRoot }, input: inputFor(readConversation(preventiveRoot, SESSION)), summarizerProvider: preventiveProvider, signal: new AbortController().signal, progress: noCompactionProgress });
+      const preventiveResult = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: preventiveRoot }, input: inputFor(readConversation(preventiveRoot, SESSION)), summarizerProvider: preventiveProvider, signal: new AbortController().signal, progress: noCompactionProgress });
       expect(preventiveResult.kind).toBe('compacted');
       expect(readCurrentConversationSegment(preventiveRoot, SESSION)!.entry.genesis).toMatchObject({ covered_through_message_id: before.sourceRows[endpoints[0]! - 1]!.id });
       expect(preventiveRecords.every(({ correction }) => !correction)).toBe(true);
@@ -413,7 +413,7 @@ describe('Stage-I versioned compaction', () => {
       const wires: SummaryWireRecord[] = [];
       const summarizerProvider = summaryProvider({ root, registry, candidate: sol, records: wires, setTransport: (next) => { queued = next; }, correctionOnFirstNormal: true });
       const rejectedProjectionBytes = composedProjectionBytes(input.providerConversation);
-      const result = await compact({ strategy: 'local_exact_admission', conversations: { projectRoot: root }, input, summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress });
+      const result = await compact({ summaryRefusal: null, strategy: 'local_exact_admission', conversations: { projectRoot: root }, input, summarizerProvider, signal: new AbortController().signal, progress: noCompactionProgress });
       expect(result.kind).toBe('compacted');
       expect(wires.length).toBeGreaterThan(2);
       expect(wires.length).toBeLessThanOrEqual(16);

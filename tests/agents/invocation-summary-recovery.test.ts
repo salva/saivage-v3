@@ -26,29 +26,27 @@ afterEach(() => {
 });
 
 describe('InvocationService internal-summary recovery', () => {
-  it('retries one typed flag immediately with the exact retained request and shared input identity', async () => {
+  it.each(['prompt_flag', 'cyber_policy'] as const)('terminates first %s with actual classifier evidence and no second request', async (kind) => {
     const availability = new MemoryCandidateAvailability();
     const markFailed = jest.spyOn(availability, 'markFailed');
-    const service = scriptedService([promptPolicyFailure(), success('summary')], availability);
+    const original = kind === 'prompt_flag' ? promptPolicyFailure() : providerFailure(new LlmRequestError({ kind: 'content_policy', provider: CANDIDATE.provider, status: 200, message: 'cyber_policy', providerResponse: '' }));
+    const service = scriptedService([original, success('summary')], availability);
     const admission = admitted(service);
 
-    await expect(service.executeSummaryWithRecovery(admission)).resolves.toMatchObject({
-      result: { kind: 'message', content: 'summary' },
+    await expect(service.executeSummaryWithRecovery(admission)).rejects.toMatchObject({
+      originalFailure: original.originalFailure,
       provider_exchanges: [
         { source_input_id: INPUT_ID, attempt_index: 0, status: 'error' },
-        { source_input_id: INPUT_ID, attempt_index: 1, status: 'ok' },
       ],
     });
-    expect(service.sentBodies).toHaveLength(2);
-    expect(service.sentBodies[1]).toBe(service.sentBodies[0]);
-    expect(service.sentRequestHashes[1]).toBe(service.sentRequestHashes[0]);
+    expect(service.sentBodies).toHaveLength(1);
     expect(service.sentRequestHashes).toEqual(service.sentBodies.map((bytes) => createHash('sha256').update(bytes, 'utf8').digest('hex')));
-    expect(service.sentCandidates).toEqual([CANDIDATE, CANDIDATE]);
-    expect(service.sentInputIds).toEqual([INPUT_ID, INPUT_ID]);
+    expect(service.sentCandidates).toEqual([CANDIDATE]);
+    expect(service.sentInputIds).toEqual([INPUT_ID]);
     expect(markFailed).not.toHaveBeenCalled();
   });
 
-  it('terminates a persistent typed flag after two calls without fallback or availability mutation', async () => {
+  it('terminates a persistent typed flag after one call without fallback or availability mutation', async () => {
     const availability = new MemoryCandidateAvailability();
     const markFailed = jest.spyOn(availability, 'markFailed');
     const service = scriptedService([promptPolicyFailure(), promptPolicyFailure()], availability);
@@ -58,11 +56,10 @@ describe('InvocationService internal-summary recovery', () => {
     expect(failure).toMatchObject({
       provider_exchanges: [
         { source_input_id: INPUT_ID, attempt_index: 0 },
-        { source_input_id: INPUT_ID, attempt_index: 1 },
       ],
       originalFailure: { failure: { kind: 'provider_protocol_error', reason: 'prompt_policy_rejection' } },
     });
-    expect(service.sentBodies).toHaveLength(2);
+    expect(service.sentBodies).toHaveLength(1);
     expect(markFailed).not.toHaveBeenCalled();
   });
 

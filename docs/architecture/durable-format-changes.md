@@ -11,8 +11,8 @@ operational consent. Current contracts remain owned by the
 [architecture](./system-architecture.md); procedures remain owned by the
 [runbook](../runbook/index.md#external-migrations).
 
-Observed source baseline: `fb0152e99e423f5e5e2db5e28d7e38bb3166b759`, including the
-ordered-tool-content source change described below (conversation format 6).
+Observed source parent: `9dce1e8eef3e43d04a7711f3c4225fcfc30ae5c4` (conversation
+format 6); current target is this loss-tolerant-maintenance changeset (format 7).
 Introduction commits below establish source boundaries, not deployment dates or
 installed-state facts. Compare the selected releases' actual owning schemas and
 semantic consumers, including later changes; equal versions and successful startup
@@ -20,6 +20,41 @@ do not certify whole-project or historical compatibility. Maintain affected
 baseline/change entries with implementation, recording evidence and honest unknowns.
 
 ## Current source baseline
+
+### Loss-tolerant summary maintenance (2026-10-10)
+
+Source/implementation parent: `9dce1e8eef3e43d04a7711f3c4225fcfc30ae5c4`.
+Target: this coherent source changeset, not a self-referential invented commit hash.
+Owning schemas/producers are `canonical-conversation-artifacts.ts` and
+`conversation-file.ts`; compactor/validator/actor and strict current/historical,
+bootstrap and repair consumers adopt them together. Index and ordinary/compacted
+genesis `format_version:6→7`, segment envelope `version:6→7`, unchanged
+`type:conversation-segment`. Coverage may now mean strict structural selection with
+declared omission of covered compactable narrative and all inherited summary prose,
+not successful semantic refine of every compactable component. Nested history still
+has exactly summary text, protected prompts and newest required model facts. Ordinary
+semantic summaries remain ordinary summaries. Exact protected coordinates, canonical
+facts, continuation and unconsumed suffix remain strict. Refusal metadata is call-local,
+not persisted. The durable `compaction-summary-blocked` literal/schema is unchanged.
+
+Examined source and safe operator reports identify installed source `9dce1e8e`;
+no independent live certification occurred. This is a fresh bump, not reuse of an
+evidenced undeployed format-6 cutover. Earlier historical source-6 entries below remain
+honest provenance. Card/record/head/mailbox, shared app-log/provider-evidence envelope
+1, diagnostic 2/privacy-policy-2, lifecycle lock and unversioned configuration are
+unchanged. Raw selected PNGs remain descriptor-governed with unchanged pixels.
+
+Old/mixed indexed state blocks strictly; no probing, compatibility or implicit reset.
+Adoption requires separately consented complete reset or explicitly requested external
+offline migration to a pinned matching target under the runbook/AGENTS full gates.
+Every retained canonical index/genesis/envelope and applicable previous selector must
+match that target, preserving factual content/identities/links; historical generated
+summaries must not be relabeled as observed omission, nor provider effects fabricated.
+Normal compaction leaves prior indexed bytes unchanged; external adoption reencoding
+is a distinct authorized operation. Source completion grants no instance action,
+including JSQLite2. Startup alone is not complete validation, and binary-only downgrade
+after 7 publication is unsupported. Loss beyond accepted active-memory omission needs
+explicit concrete disclosure/consent.
 
 ### Durable-preserving unavailable process observations (#2, 2026-10-09)
 
@@ -216,8 +251,8 @@ contains the schemas and direct publication/consumption owners.
 | Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:1`, `card-version` / `card-tombstone`; predecessor-linked ordinary/final payload, sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
 | Record head / accepted history | `records/record-<stem>.json`, `records/accepted/<UUID>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:1`, `record-head` / `accepted-record`; required head identity, sole current draft, accepted predecessor and ordinary card provenance. |
-| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:6`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. |
-| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:6`, `type:conversation-segment`; strict nested message/tool-result/private-context and semantic contracts. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
+| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:7`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. |
+| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:7`, `type:conversation-segment`; strict nested message/tool-result/private-context and semantic contracts. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; separate lifecycle-exclusion boundary, not generated-root migration state. |
 

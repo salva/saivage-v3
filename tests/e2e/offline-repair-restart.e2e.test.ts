@@ -301,7 +301,7 @@ async function compactFixture(root: string) {
     8000,
     2000,
   );
-  const result = await compact({
+  const result = await compact({ summaryRefusal: null,
     strategy: 'preventive',
     conversations: { projectRoot: root },
     input: {

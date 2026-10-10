@@ -565,6 +565,7 @@ function isCorrectableOutput(error: unknown): boolean {
   if (error instanceof SummaryResultValidationError) return true;
   return (
     error instanceof ProviderTurnFailure &&
+    error.failure_phase === 'provider_attempt' &&
     error.originalFailure instanceof LlmRequestError &&
     error.originalFailure.failure.kind === 'output_token_limit_exceeded'
   );

@@ -12,7 +12,6 @@ import {
   ProviderTurnFailure,
   internalCompactionSummarySessionId,
   throwIfPublicationOutcomeUnknown,
-  isPromptPolicyRejection,
   LlmRequestError,
   AdmittedProviderTurnFailure,
   AdmittedRecoveryIntegrityError,
@@ -126,7 +125,6 @@ type AdmittedExecutionRun = {
   lastFailure: unknown;
   mandatoryFirst: Candidate | null;
   recoveryMode: boolean;
-  promptPolicyRejections: number;
   signal?: AbortSignal;
 };
 
@@ -353,7 +351,6 @@ export class InvocationService {
       lastFailure: null,
       mandatoryFirst: null,
       recoveryMode: false,
-      promptPolicyRejections: 0,
       signal,
     });
   }
@@ -461,7 +458,6 @@ export class InvocationService {
       lastFailure: null,
       mandatoryFirst: preparation.mandatoryFirstIdentity,
       recoveryMode: true,
-      promptPolicyRejections: 0,
       signal,
     });
   }
@@ -714,10 +710,7 @@ export class InvocationService {
     const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
       candidate: record.identity,
       recoveryDelayMs: this.recoveryDelayMs,
-      purpose: run.purpose,
-      promptPolicyRejections: run.promptPolicyRejections,
     });
-    if (isPromptPolicyRejection(originalFailure)) run.promptPolicyRejections++;
     if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
       if (err.provider_exchanges.length === 0)
         return new Error(

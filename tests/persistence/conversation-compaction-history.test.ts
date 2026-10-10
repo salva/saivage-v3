@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cardConversationVersionFile } from '../../src/persistence/layout.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { foldConversation } from '../../src/application/read-models/agent-conversation-read-model.js';
-import { CompactionSummaryConstructionError, compact as compactWithoutProgress, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
+import { LOCAL_OMISSION_SUMMARY, compact as compactWithoutProgress, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { composeContextProjection, providerConversationFromComposedContext, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -21,8 +22,8 @@ import {
 import type { ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
-import { EMPTY_COVERAGE_SUMMARY, SUMMARY_REFINE_INSTRUCTION, SummaryConstructionLimitError } from '../../src/runtime/actors/compaction/refine-accumulator.js';
-import { SummaryResultValidationError, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
+import { EMPTY_COVERAGE_SUMMARY, SUMMARY_REFINE_INSTRUCTION } from '../../src/runtime/actors/compaction/refine-accumulator.js';
+import { type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -180,10 +181,49 @@ function refusalMarker(ordinal: number): AgentMessage {
 
 async function compactOnce(root: string, strategy: 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission', calls: SummaryCall[]) {
   const conversation = readConversation(root, SESSION);
-  return compact({ strategy, conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: recordingSummarizer(calls), signal: new AbortController().signal });
+  return compact({ summaryRefusal: null, strategy, conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: recordingSummarizer(calls), signal: new AbortController().signal });
 }
 
 describe('accumulated compaction history generations', () => {
+  it('drops inherited prose but preserves exact protected coordinates, newest canonical facts, repair continuation and unmatched suffix', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-omission-generations-')); initProjectTree(root);
+    try {
+      const anonymous = protectedText('anonymous', 'EXACT ANONYMOUS INSTRUCTION');
+      const old = protectedText('old-key', 'RELEASED KEYED INSTRUCTION', 'workflow.rule');
+      appendConversationBatch({ projectRoot: root }, [activation(1), anonymous, old, text('first', BIG), recoveryNotice(1), refusalMarker(1), activation(2), text('second', BIG), activation(3), text('third', BIG)]);
+      const preparedCompaction = prepareCompaction({ ...POLICY, tail_fraction: 0 }, 'system', [], 8_000, 2_000);
+      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+      const ordinary = readCurrentConversationSegment(root, SESSION)!;
+      const firstProvider = recordingSummarizer([]);
+      firstProvider.completeTurn = async () => ({ result: { kind: 'message', content: 'LARGE INHERITED PROSE '.repeat(900) }, provider_exchanges: [] });
+      await expect(compact({ summaryRefusal: null, strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: { ...invocation(ordinary.conversation), preparedCompaction, preparedContext }, summarizerProvider: firstProvider, signal: new AbortController().signal })).resolves.toMatchObject({ kind: 'compacted' });
+      const first = readCurrentConversationSegment(root, SESSION)!;
+      const inheritedAnonymous = first.conversation.effectiveCompactedHistory!.protectedPrompts.find(({ message }) => message.id === anonymous.id)!;
+      const newest = protectedText('new-key', 'EXACT NEW KEYED INSTRUCTION', 'workflow.rule');
+      const repair = { ...text('repair', 'repair context'), kind: 'model_repair' as const };
+      const unmatched = summarizerOnlyBundle('00000000-0000-4000-8000-000000000005', 'unmatched', 'unused')[0]!;
+      appendConversationBatch({ projectRoot: root }, [activation(4), newest, recoveryNotice(4), refusalMarker(4), activation(5), repair, unmatched]);
+      const source = readConversation(root, SESSION);
+      const oldPaths = [ordinary, readCurrentConversationSegment(root, SESSION)!].map(segment => cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename));
+      const before = oldPaths.map(path => readFileSync(path));
+      const unused = recordingSummarizer([]);
+      unused.serializeSummaryRequest = jest.fn(() => { throw new Error('No summary after refusal'); });
+      await expect(compact({ summaryRefusal: { summaryInputId: '00000000-0000-4000-8000-000000000099' }, strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: { ...invocation(source), preparedCompaction, preparedContext }, summarizerProvider: unused, signal: new AbortController().signal })).resolves.toMatchObject({ kind: 'compacted' });
+      const successor = readCurrentConversationSegment(root, SESSION)!;
+      const history = successor.conversation.effectiveCompactedHistory!;
+      expect(history.summaryText).toBe(LOCAL_OMISSION_SUMMARY);
+      expect(history.protectedPrompts).toEqual([inheritedAnonymous, { source: { segmentVersion: first.entry.version, rowIndex: 1 }, message: newest }]);
+      expect(history.requiredModelFacts.latestRecovery!.activationInputId).toBe('00000000-0000-4000-8000-000000000004');
+      expect(history.requiredModelFacts.latestContentPolicyRefusal!.activationInputId).toBe('00000000-0000-4000-8000-000000000004');
+      expect(successor.rows).toEqual([unmatched]);
+      expect(successor.genesis).toMatchObject({ continuation: { kind: 'inherited_open_round', activation: { marker_id: 'activation-5', input_id: '00000000-0000-4000-8000-000000000005' }, active_segment_kind: 'repair' } });
+      expect(unused.serializeSummaryRequest).not.toHaveBeenCalled();
+      oldPaths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]));
+      expect(readHistoricalConversationSegment(root, SESSION, ordinary.entry.version).rows).toEqual(ordinary.rows);
+      expect(readHistoricalConversationSegment(root, SESSION, first.entry.version).genesis).toEqual(first.genesis);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('extracts protected instructions, orients without summarizing them, and folds a released keyed instruction once',async()=>{
     const root=mkdtempSync(join(tmpdir(),'compaction-history-protected-'));initProjectTree(root);
     try{
@@ -283,7 +323,7 @@ describe('accumulated compaction history generations', () => {
         completeTurn: async () => { throw failure; },
         projectProviderExchanges: jest.fn(),
       };
-      await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: failing, signal: new AbortController().signal })).rejects.toBe(failure);
+      await expect(compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: failing, signal: new AbortController().signal })).rejects.toBe(failure);
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.genesis.kind).toBe('ordinary_segment_genesis');
@@ -295,23 +335,22 @@ describe('accumulated compaction history generations', () => {
   it.each([
     ['tool-call result', { kind: 'tool_calls' as const, tool_calls: [] }],
     ['empty text', { kind: 'message' as const, content: '   ' }],
-  ])('corrects malformed successful %s once and wraps repeated noncompliance without publication', async (_label, malformedResult) => {
+  ])('corrects malformed successful %s once then publishes declared omission', async (_label, malformedResult) => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-history-malformed-summary-'));
     initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const conversation = readConversation(root, SESSION);
       const completeTurn = jest.fn(async () => ({ result: malformedResult, provider_exchanges: [] }));
-      const operation = compact({
+      const operation = compact({ summaryRefusal: null,
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() },
         signal: new AbortController().signal,
       });
-      const failure = await operation.catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(CompactionSummaryConstructionError);
-      expect((failure as Error & { cause: unknown }).cause).toBeInstanceOf(SummaryResultValidationError);
+      await expect(operation).resolves.toMatchObject({ kind: 'compacted', summaryRefusal: null });
+      expect(readConversation(root, SESSION).effectiveCompactedHistory!.summaryText).toContain('omitted from active memory without semantic preservation');
       expect(completeTurn).toHaveBeenCalledTimes(2);
-      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
+      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1, 2]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -325,33 +364,33 @@ describe('accumulated compaction history generations', () => {
       const abortReason = new Error('stop compaction summary');
       controller.abort(abortReason);
       const neverCalled = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
-      await expect(compact({
+      await expect(compact({ summaryRefusal: null,
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() }, signal: controller.signal,
       })).rejects.toBe(abortReason);
       expect(neverCalled).not.toHaveBeenCalled();
 
       const publicationFailure = new Error('summary exchange publication failed');
-      await expect(compact({
+      await expect(compact({ summaryRefusal: null,
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: {
           materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization,
           completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }),
           projectProviderExchanges: () => { throw publicationFailure; },
         }, signal: new AbortController().signal,
-      })).rejects.toBe(publicationFailure);
+      })).rejects.toMatchObject({ name: 'SummaryEvidencePublicationError', cause: publicationFailure });
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('wraps accumulator capacity failure as summary construction failure without publication', async () => {
+  it('publishes local omission after exact accumulator capacity failure without a provider call', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-history-materializer-invariant-'));
     initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const conversation = readConversation(root, SESSION);
       const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
-      const operation = compact({
+      const operation = compact({ summaryRefusal: null,
         strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: {
           candidate: CANDIDATE,
@@ -363,12 +402,10 @@ describe('accumulated compaction history generations', () => {
           projectProviderExchanges: jest.fn(),
         }, signal: new AbortController().signal,
       });
-      const failure = await operation.catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(CompactionSummaryConstructionError);
-      expect((failure as Error & { cause: unknown }).cause).toBeInstanceOf(SummaryConstructionLimitError);
-      expect((failure as Error & { cause: SummaryConstructionLimitError }).cause).toMatchObject({ reason: 'request_context_capacity', invocationCount: 0 });
+      await expect(operation).resolves.toMatchObject({ kind: 'compacted', summaryRefusal: null });
+      expect(readConversation(root, SESSION).effectiveCompactedHistory!.summaryText).toContain('omitted from active memory without semantic preservation');
       expect(completeTurn).not.toHaveBeenCalled();
-      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
+      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1, 2]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -507,7 +544,7 @@ describe('accumulated compaction history generations', () => {
       const openRoundBody = 'OPEN-ROUND-BODY'.concat('-open'.repeat(200));
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), ...summarizerOnlyBundle('00000000-0000-4000-8000-000000000001', 'call-1', openRoundBody)]);
       const conversation = readConversation(root, SESSION);
-      const result = await compact({ strategy: 'authoritative_context_recovery', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: recordingSummarizer([]), signal: new AbortController().signal });
+      const result = await compact({ summaryRefusal: null, strategy: 'authoritative_context_recovery', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: recordingSummarizer([]), signal: new AbortController().signal });
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('unreachable');
@@ -664,7 +701,7 @@ describe('accumulated compaction history generations', () => {
       expect(rejectedTokens).toBeGreaterThan(preparedInvocation.preparedCompaction.triggerMessageThreshold);
       expect(readConversationCatalog(root, SESSION).versions).toEqual(predecessorCatalog.versions);
 
-      const result = await compact({
+      const result = await compact({ summaryRefusal: null,
         strategy: 'preventive',
         conversations: { projectRoot: root },
         input: preparedInvocation,
@@ -737,7 +774,7 @@ describe('accumulated compaction history generations', () => {
       } as AgentMessage;
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), unmatchedCall]);
       const conversation = readConversation(root, SESSION);
-      const result = await compact({ strategy: 'authoritative_context_recovery', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: recordingSummarizer([]), signal: new AbortController().signal });
+      const result = await compact({ summaryRefusal: null, strategy: 'authoritative_context_recovery', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: recordingSummarizer([]), signal: new AbortController().signal });
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.rows.map((row) => row.id)).toEqual([unmatchedCall.id]);

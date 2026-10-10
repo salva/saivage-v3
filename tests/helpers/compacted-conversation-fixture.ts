@@ -73,7 +73,7 @@ export async function requireCompacted(
   summaryText: string,
 ): Promise<void> {
   const conversation = readConversation(projectRoot, SESSION);
-  const result = await compact({
+  const result = await compact({ summaryRefusal: null,
     strategy,
     conversations: { projectRoot },
     input: invocation(conversation),

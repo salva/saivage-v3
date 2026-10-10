@@ -554,7 +554,13 @@ diagnostic inspector/export or enablement control. Project/prompt text remains
 sensitive after projection; neither redaction nor hashes certify secret-free,
 complete, replayable or provider-received input. Canonical request metadata and
 content-policy dashboard counts do not establish completeness of internal-summary
-refusal observation; existing summary/refusal outcomes remain unchanged.
+refusal observation. Accumulated summary may show a code-owned notice declaring active
+memory omission rather than completed semantic summarization. Its full safe text and
+existing source/continuation remain inspectable without a new field/screen/counter.
+Maintenance evidence is not primary refusal or task approval. Completed-fold progress
+counts validated LLM calls only; local omission adds zero. Successful maintenance
+returns ordinary primary admission; failed no-candidate refusal retains existing safe
+card/global outcomes.
 
 Apply `AGENTS.md` and the current authorities, especially the contracts register,
 Publication-fatal operator behavior, and system-specification Sections 7–12.

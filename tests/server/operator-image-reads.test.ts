@@ -376,7 +376,7 @@ it('pins a historical selection across real compaction and current advancement, 
     [],
   );
   const candidate = { provider: 'test', account: null, model: 'test' } as const;
-  const compaction = await compact({
+  const compaction = await compact({ summaryRefusal: null,
     strategy: 'local_exact_admission',
     conversations: { projectRoot: root },
     input: {

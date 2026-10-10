@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-import { compact, prepareCompaction, type AutonomousCompactionPolicy, type CompactionStrategy } from '../../../../src/runtime/actors/compaction/compactor.js';
+import { compact, LOCAL_OMISSION_SUMMARY, prepareCompaction, type AutonomousCompactionPolicy, type CompactionStrategy } from '../../../../src/runtime/actors/compaction/compactor.js';
 import { estimateMessageTokens } from '../../../../src/runtime/actors/compaction/round-classifier.js';
 import { providerConversationProjection } from '../../../../src/runtime/actors/conversation-session.js';
 import { buildPreparedInvocationContext } from '../../../../src/runtime/actors/context/context-blocks.js';
@@ -12,7 +12,8 @@ import { appendConversationBatch, readConversation, readConversationCatalog, rea
 import { cardConversationVersionFile } from '../../../../src/persistence/layout.js';
 import { validateCompactedHistorySuccessor, type ValidatedConversation } from '../../../../src/contracts/conversation-validation.js';
 import { canonicalJson, type AgentMessage } from '../../../../src/schemas/index.js';
-import type { SummarizerProviderPort } from '../../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPolicyRefusalError, type SummarizerProviderPort } from '../../../../src/runtime/actors/compaction/summarizer.js';
+import { ProviderTurnFailure, LlmRequestError } from '../../../../src/contracts/index.js';
 import { initProjectTree } from '../../../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../../../helpers/row-policy-fixtures.js';
 import { RESPONSES_A, responsesBundle } from '../../../helpers/responses-producer-fixture.js';
@@ -71,7 +72,7 @@ function recordingProvider(outputs: string[] = ['summary']): { provider: Summari
   };
 }
 
-async function run(root: string, tailBudget: number, snap: AutonomousCompactionPolicy['snap'] = 'compact_straddler', strategy: CompactionStrategy = 'preventive', recorded = recordingProvider(), triggerFraction = 0.8) {
+async function run(root: string, tailBudget: number, snap: AutonomousCompactionPolicy['snap'] = 'compact_straddler', strategy: CompactionStrategy = 'preventive', recorded = recordingProvider(), triggerFraction = 0.8, summaryRefusal: { summaryInputId: string } | null = null) {
   const conversation = readConversation(root, SESSION);
   const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: triggerFraction, tail_fraction: tailBudget === 0 ? 0 : (tailBudget + 0.25) / 20_000, snap }, 'system', [], 20_000, 2_000);
   expect(preparedCompaction.tailBudgetTokens).toBe(tailBudget);
@@ -81,7 +82,7 @@ async function run(root: string, tailBudget: number, snap: AutonomousCompactionP
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
     capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
   };
-  const result = await compact({ strategy, conversations: { projectRoot: root }, input, summarizerProvider: recorded.provider, signal: new AbortController().signal, progress: noCompactionProgress });
+  const result = await compact({ summaryRefusal, strategy, conversations: { projectRoot: root }, input, summarizerProvider: recorded.provider, signal: new AbortController().signal, progress: noCompactionProgress });
   return { result, conversation, ...recorded };
 }
 
@@ -110,6 +111,96 @@ function assertTextSources(calls: Call[], expected: AgentMessage[]) {
 }
 
 describe('last agent-round tail selection through real publication', () => {
+  const refused = (): ReturnType<typeof recordingProvider> => {
+    const recorded = recordingProvider();
+    recorded.provider.completeTurn = jest.fn(async (input) => {
+      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', candidate: CANDIDATE, provider_exchanges: [], originalFailure: new LlmRequestError({ kind: 'content_policy', provider: 'test', status: 200, message: 'cyber_policy', providerResponse: '' }) });
+    });
+    return recorded;
+  };
+
+  it.each(['preventive', 'local_exact_admission', 'authoritative_context_recovery'] as const)('first refusal selects preferred local omission for %s even though furthest is smaller', async strategy => {
+    const recent = body('recent', 4_000);
+    const rows = [activation(1), body('prefix', 12_000), recent];
+    const root = fixture(rows);
+    const recorded = refused();
+    const completed = await run(root, tokens([recent]), 'compact_straddler', strategy, recorded);
+    const segment = assertPublished(root, completed.conversation, 'prefix', [recent]);
+    expect(segment.conversation.effectiveCompactedHistory!.summaryText).toBe(LOCAL_OMISSION_SUMMARY);
+    expect(completed.result).toMatchObject({ kind: 'compacted', summaryRefusal: { summaryInputId: expect.any(String) } });
+    expect(recorded.provider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(recorded.provider.projectProviderExchanges).toHaveBeenCalledTimes(1);
+    expect(segment.conversation.effectiveCompactedHistory!.requiredModelFacts.latestContentPolicyRefusal).toBeNull();
+  });
+
+  it('falls through to furthest only when preferred local omission cannot fit preventive hard capacity', async () => {
+    const recent = body('recent', 79_500);
+    const root = fixture([activation(1), body('prefix', 12_000), recent]);
+    const completed = await run(root, tokens([recent]) - 1, 'compact_straddler', 'preventive', refused(), 1);
+    assertPublished(root, completed.conversation, 'recent', []);
+  });
+
+  it.each([0, 100_000])('does not add summary work for duplicate/absent preferred endpoints (tail=%s)', async tailBudget => {
+    // A zero target selects the same furthest cutoff; a whole retained newest
+    // round gives no preferred cutoff. Both still have one safe local option.
+    const rows = [activation(1), body('prefix', 12_000)];
+    const root = fixture(rows);
+    const actualBudget = tailBudget ? tokens(rows) + 1 : 0;
+    const recorded = refused();
+    const completed = await run(root, actualBudget, 'keep_straddler_verbatim', 'local_exact_admission', recorded);
+    assertPublished(root, completed.conversation, 'prefix', []);
+    expect(recorded.provider.completeTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('same-invocation refusal skips all summary serialization and construction while a later fresh turn may summarize', async () => {
+    const root = fixture([activation(1), body('prefix', 12_000), body('recent', 4_000)]);
+    const first = await run(root, tokens([body('recent', 4_000)]), 'compact_straddler', 'preventive', refused());
+    if (first.result.kind !== 'compacted') throw new Error('Expected successor');
+    const recorded = recordingProvider();
+    recorded.provider.serializeSummaryRequest = jest.fn(() => { throw new Error('No post-refusal summary request'); });
+    const second = await run(root, 0, 'compact_straddler', 'local_exact_admission', recorded, 0.8, first.result.summaryRefusal);
+    expect(second.result).toMatchObject({ kind: 'compacted', summaryRefusal: first.result.summaryRefusal });
+    expect(recorded.calls).toEqual([]);
+    expect(recorded.provider.serializeSummaryRequest).not.toHaveBeenCalled();
+    appendConversationBatch({ projectRoot: root }, [body('new-turn', 8_000)]);
+    const fresh = await run(root, 0);
+    expect(fresh.calls).toHaveLength(1);
+    expect(fresh.result).toMatchObject({ kind: 'compacted', summaryRefusal: null });
+  });
+
+  it('unshrinkable protected state retains refusal identity and publishes no successor', async () => {
+    const protectedRow = { ...body('protected', 12_000), context_policy: { ...TEXT_ROW_POLICY, compactable: false } } as AgentMessage;
+    const root = fixture([activation(1), protectedRow]);
+    await expect(run(root, 0, 'compact_straddler', 'preventive', recordingProvider(), 0.8, { summaryInputId: INPUT })).rejects.toMatchObject({ name: 'SummaryPolicyRefusalError', summaryInputId: INPUT });
+    expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+  });
+
+  it('no positive safe endpoint propagates remembered refusal without constructing a candidate', async () => {
+    const root = fixture([activation(1), body('prefix', 12_000)]);
+    await run(root, 0);
+    const recorded = recordingProvider();
+    recorded.provider.serializeSummaryRequest = jest.fn(() => { throw new Error('No request'); });
+    await expect(run(root, 0, 'compact_straddler', 'authoritative_context_recovery', recorded, 0.8, { summaryInputId: INPUT })).rejects.toMatchObject({ name: 'SummaryPolicyRefusalError', summaryInputId: INPUT });
+    expect(recorded.provider.serializeSummaryRequest).not.toHaveBeenCalled();
+    expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
+  });
+
+  it.each(['refusal', 'capacity', 'invalid', 'nonreducing'] as const)('no qualifying omission keeps the %s failure identity and never continues uncompressed', async outcome => {
+    const root = fixture([activation(1), text('tiny', 'tiny')]);
+    const recorded = recordingProvider([outcome === 'invalid' ? ' ' : 'HUGE'.repeat(4_000)]);
+    let providerFailure: ProviderTurnFailure | null = null;
+    if (outcome === 'refusal' || outcome === 'capacity') {
+      providerFailure = new ProviderTurnFailure({ failure_phase: 'provider_attempt', candidate: CANDIDATE, provider_exchanges: [], originalFailure: outcome === 'refusal' ? new LlmRequestError({ kind: 'content_policy', provider: 'test', status: 200, message: 'cyber_policy', providerResponse: '' }) : new LlmRequestError({ kind: 'input_context_exhausted', provider: 'test', status: 400, message: 'capacity' }) });
+      recorded.provider.completeTurn = async () => { throw providerFailure; };
+    }
+    const result = run(root, 0, 'compact_straddler', 'local_exact_admission', recorded);
+    if (outcome === 'refusal') await expect(result).rejects.toBeInstanceOf(SummaryPolicyRefusalError);
+    else if (outcome === 'capacity') await expect(result).rejects.toBe(providerFailure);
+    else if (outcome === 'invalid') await expect(result).rejects.toMatchObject({ name: 'CompactionSummaryConstructionError', reason: 'empty_output', correctionCount: 1 });
+    else await expect(result).resolves.toMatchObject({ result: { kind: 'no_smaller_projection' } });
+    expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+  });
+
   it.each(['compact_straddler', 'keep_straddler_verbatim'] as const)('accounts for an exactly fitting open newest round with %s', async snap => {
     const rows = [activation(1), body('old', 12_000), activation(2), body('middle', 4_000), activation(3), body('newest', 1_000)];
     const root = fixture(rows);

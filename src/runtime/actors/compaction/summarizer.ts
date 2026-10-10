@@ -26,7 +26,7 @@ import {
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
 export const SUMMARY_OUTPUT_TARGET_BYTES = 12_000;
-export const SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE = COMPACTION_SUMMARY_BLOCKED_SUMMARY;
+export const SUMMARY_POLICY_REFUSAL_MESSAGE = COMPACTION_SUMMARY_BLOCKED_SUMMARY;
 
 const INTERNAL_SUMMARY_LABEL = 'internal-compaction-summary';
 
@@ -166,7 +166,13 @@ export async function invokeSummaryRequest(args: {
   args.signal.throwIfAborted();
   const completion = await sendAdmittedSummaryRequest(args);
   args.signal.throwIfAborted();
-  return validateSummaryCompletion(completion, args.summarizerProvider.candidate);
+  try {
+    return validateSummaryCompletion(completion, args.summarizerProvider.candidate);
+  } catch (error) {
+    if (isSummaryProviderRefusal(error))
+      throw new SummaryPolicyRefusalError(args.input.inputId, error.originalFailure);
+    throw error;
+  }
 }
 
 async function sendAdmittedSummaryRequest(args: {
@@ -175,31 +181,68 @@ async function sendAdmittedSummaryRequest(args: {
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
 }): Promise<ProviderTurnCompletion> {
+  let outcome:
+    | { kind: 'completed'; completion: ProviderTurnCompletion }
+    | { kind: 'failed'; failure: ProviderTurnFailure };
   try {
-    const completion = await args.summarizerProvider.completeTurn(
-      args.input,
-      args.admitted,
-      args.signal,
-    );
-    projectSummaryExchanges(args.summarizerProvider, args.input, completion.provider_exchanges);
-    return completion;
+    outcome = {
+      kind: 'completed',
+      completion: await args.summarizerProvider.completeTurn(
+        args.input,
+        args.admitted,
+        args.signal,
+      ),
+    };
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if (!(error instanceof ProviderTurnFailure)) throw error;
-    projectSummaryExchanges(args.summarizerProvider, args.input, error.provider_exchanges);
-    if (isPromptPolicyRejection(error.originalFailure))
-      throw new SummaryPromptPolicyBlockedError(args.input.inputId, error.originalFailure);
-    throw error;
+    outcome = { kind: 'failed', failure: error };
   }
+  if (outcome.kind === 'failed') {
+    projectSummaryExchanges(
+      args.summarizerProvider,
+      args.input,
+      outcome.failure.provider_exchanges,
+    );
+    if (isSummaryProviderRefusal(outcome.failure))
+      throw new SummaryPolicyRefusalError(args.input.inputId, outcome.failure.originalFailure);
+    throw outcome.failure;
+  }
+  projectSummaryExchanges(
+    args.summarizerProvider,
+    args.input,
+    outcome.completion.provider_exchanges,
+  );
+  return outcome.completion;
 }
 
-export class SummaryPromptPolicyBlockedError extends Error {
+function isSummaryProviderRefusal(error: unknown): error is ProviderTurnFailure {
+  return (
+    error instanceof ProviderTurnFailure &&
+    error.failure_phase === 'provider_attempt' &&
+    ((error.originalFailure instanceof LlmRequestError &&
+      error.originalFailure.failure.kind === 'content_policy') ||
+      isPromptPolicyRejection(error.originalFailure))
+  );
+}
+
+export class SummaryPolicyRefusalError extends Error {
   readonly summaryInputId: string;
 
   constructor(summaryInputId: string, cause: unknown) {
-    super(SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE, { cause });
-    this.name = 'SummaryPromptPolicyBlockedError';
+    super(SUMMARY_POLICY_REFUSAL_MESSAGE, { cause });
+    this.name = 'SummaryPolicyRefusalError';
     this.summaryInputId = summaryInputId;
+  }
+}
+
+// Preserve evidence ownership even if its publisher throws an object that looks
+// like a provider/construction failure. Enclosing maintenance catches must not
+// reinterpret this failure as permission to discard active memory.
+export class SummaryEvidencePublicationError extends Error {
+  constructor(cause: unknown) {
+    super('Failed to publish internal-summary provider evidence.', { cause });
+    this.name = 'SummaryEvidencePublicationError';
   }
 }
 
@@ -210,16 +253,21 @@ function projectSummaryExchanges(
 ): void {
   if (input.providerConversation.sourceSessionId === null)
     throw new Error('Summary request has no canonical source session.');
-  provider.projectProviderExchanges(
-    input.providerConversation.sourceSessionId,
-    'internal-summary',
-    input.inputId,
-    attempts,
-    {
-      assistantOutputIds: [],
-      terminalConversationOutputId: null,
-    },
-  );
+  try {
+    provider.projectProviderExchanges(
+      input.providerConversation.sourceSessionId,
+      'internal-summary',
+      input.inputId,
+      attempts,
+      {
+        assistantOutputIds: [],
+        terminalConversationOutputId: null,
+      },
+    );
+  } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
+    throw new SummaryEvidencePublicationError(error);
+  }
 }
 
 export class SummaryResultValidationError extends Error {

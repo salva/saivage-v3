@@ -105,7 +105,7 @@ const conversationVersionEntrySchema = z
   .strict();
 export const conversationVersionIndexSchema = z
   .object({
-    format_version: z.literal(6),
+    format_version: z.literal(7),
     kind: z.literal('conversation-version-index'),
     session_id: ConversationSessionIdSchema,
     created_at: z.string().datetime(),
@@ -141,7 +141,7 @@ export const conversationVersionIndexSchema = z
     }
   });
 const genesisBase = {
-  format_version: z.literal(6),
+  format_version: z.literal(7),
   id: uuidV4Schema,
   entry_id: uuidV4Schema,
   session_id: ConversationSessionIdSchema,
@@ -176,7 +176,7 @@ const conversationSegmentRowSchema = z.union([
 ]);
 export const conversationSegmentEnvelopeSchema = z
   .object({
-    version: z.literal(6),
+    version: z.literal(7),
     type: z.literal('conversation-segment'),
     rows: z.array(conversationSegmentRowSchema).min(1),
   })

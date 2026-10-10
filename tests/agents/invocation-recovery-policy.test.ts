@@ -8,7 +8,7 @@ import { classifyHttpFailure, classifyDirectProviderFailure } from '../../src/ag
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
 const policy = defaultInvocationRecoveryPolicy;
-const baseContext = { candidate, recoveryDelayMs: 25, purpose: 'primary' as const, promptPolicyRejections: 0 };
+const baseContext = { candidate, recoveryDelayMs: 25 };
 
 describe('InvocationRecoveryPolicy', () => {
   it.each([503, 403, 429])('applies actual recovery effects for HTTP/opened %s plus timing', (status) => {
@@ -80,7 +80,7 @@ describe('InvocationRecoveryPolicy', () => {
     )).toEqual({ kind: 'retry', wait: 'standard', retryDelayMs: 25 });
   });
 
-  it('permits only the first typed prompt-policy rejection for internal summaries', () => {
+  it('terminates typed prompt-policy rejection without identical retry', () => {
     const failure = new LlmRequestError({
       kind: 'provider_protocol_error',
       provider: 'openai-compatible',
@@ -88,12 +88,6 @@ describe('InvocationRecoveryPolicy', () => {
       message: 'flagged',
       reason: 'prompt_policy_rejection',
     });
-    expect(policy.decideFailure(failure, { ...baseContext, purpose: 'internal-summary' })).toEqual({
-      kind: 'retry',
-      wait: 'standard',
-      retryDelayMs: 0,
-    });
-    expect(policy.decideFailure(failure, { ...baseContext, purpose: 'internal-summary', promptPolicyRejections: 1 })).toEqual({ kind: 'terminal' });
     expect(policy.decideFailure(failure, baseContext)).toEqual({ kind: 'terminal' });
   });
 

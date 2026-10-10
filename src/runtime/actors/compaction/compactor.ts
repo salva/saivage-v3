@@ -35,6 +35,7 @@ import {
 import {
   SUMMARY_OUTPUT_TARGET_BYTES,
   SummaryResultValidationError,
+  SummaryPolicyRefusalError,
   type SummarizerProviderPort,
 } from './summarizer.js';
 import { ProviderTurnFailure } from '../../../contracts/index.js';
@@ -147,6 +148,7 @@ export type CompactionResult =
       kind: 'compacted';
       providerConversation: ProviderConversationProjection;
       estimatedProviderMessageTokens: number;
+      summaryRefusal: Readonly<{ summaryInputId: string }> | null;
     }
   | {
       kind: 'no_smaller_projection';
@@ -212,6 +214,7 @@ export class CompactionAppendError extends Error {
 
 export type CompactArgs = {
   strategy: CompactionStrategy;
+  summaryRefusal: Readonly<{ summaryInputId: string }> | null;
   conversations: ConversationFileContext;
   input: PreparedLlmInvocationInput;
   summarizerProvider: SummarizerProviderPort;
@@ -219,6 +222,8 @@ export type CompactArgs = {
   progress: CompactionProgressCallbacks;
   publication?: CompactionPublicationOptions;
 };
+export const LOCAL_OMISSION_SUMMARY =
+  'Earlier compactable conversation narrative and accumulated summary were omitted from active memory without semantic preservation. This notice does not establish tool effects, completion, approval, or authorization. Retained instructions and canonical facts still apply. Missing task context may require ordinary authorized card, record, or source reads; retained history is not automatically restored to this context.';
 type Candidate = {
   history: CompactedHistory;
   cutoffSourceIndex: number;
@@ -240,6 +245,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const rejectedComposedProviderConversationAccountingBytes =
     composedProviderConversationAccountingBytes(args.input.providerConversation);
   if (!segment) {
+    if (args.summaryRefusal)
+      throw new SummaryPolicyRefusalError(args.summaryRefusal.summaryInputId, undefined);
     if (args.strategy === 'preventive')
       throw new Error(`Conversation '${sessionId}' has no current segment to compact.`);
     return {
@@ -268,25 +275,30 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     budget.tailBudgetTokens,
     budget.snap,
   );
-  const summaries = createSequentialRefineAccumulator({
-    conversation,
-    inheritedHistory,
-    preparedBlocks: args.input.preparedContext.dynamicBlocks,
-    summarizerProvider: args.summarizerProvider,
-    budget: { contextUtilizationFraction: budget.contextUtilizationFraction },
-    signal: args.signal,
-    progress: args.progress,
-    protectedPrompts: operationProtection.activePrompts,
-    releasedInheritedMessages: operationProtection.releasedInheritedMessages,
-  });
+  const summaries = args.summaryRefusal
+    ? null
+    : createSequentialRefineAccumulator({
+        conversation,
+        inheritedHistory,
+        preparedBlocks: args.input.preparedContext.dynamicBlocks,
+        summarizerProvider: args.summarizerProvider,
+        budget: { contextUtilizationFraction: budget.contextUtilizationFraction },
+        signal: args.signal,
+        progress: args.progress,
+        protectedPrompts: operationProtection.activePrompts,
+        releasedInheritedMessages: operationProtection.releasedInheritedMessages,
+      });
 
-  const candidateFor = async (cutoffCount: number): Promise<Candidate | null> => {
+  const candidateFor = async (
+    cutoffCount: number,
+    accumulator: NonNullable<typeof summaries>,
+  ): Promise<Candidate | null> => {
     if (cutoffCount === 0) return null;
-    if (cutoffCount <= summaries.materializedThrough)
+    if (cutoffCount <= accumulator.materializedThrough)
       throw new Error(
-        `Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${summaries.materializedThrough}.`,
+        `Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${accumulator.materializedThrough}.`,
       );
-    const summaryText = await summaries.materializeThrough(cutoffCount);
+    const summaryText = await accumulator.materializeThrough(cutoffCount);
     return candidateFromSummary(cutoffCount, summaryText);
   };
 
@@ -338,10 +350,13 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
 
   let candidate: Candidate | null = null;
   const completed: Candidate[] = [];
-  let expectedFailure: unknown = null;
-  for (const endpoint of endpoints) {
+  let summaryRefusal = args.summaryRefusal;
+  let expectedFailure: unknown = summaryRefusal
+    ? new SummaryPolicyRefusalError(summaryRefusal.summaryInputId, undefined)
+    : null;
+  for (const endpoint of summaryRefusal ? [] : endpoints) {
     try {
-      const evaluated = await candidateFor(endpoint);
+      const evaluated = await candidateFor(endpoint, summaries!);
       if (!evaluated) continue;
       completed.push(evaluated);
       if (args.strategy === 'authoritative_context_recovery' && isTokenReduction(evaluated)) {
@@ -361,6 +376,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       if (args.signal.aborted && error === args.signal.reason) throw error;
       if (!isExpectedRecoveryFailure(error)) throw error;
       expectedFailure = error;
+      if (error instanceof SummaryPolicyRefusalError)
+        summaryRefusal = { summaryInputId: error.summaryInputId };
       const retained = selectQualifying(completed);
       if (retained) candidate = retained;
       break;
@@ -372,7 +389,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     !candidate &&
     expectedFailure === null &&
     completed.length > 0 &&
-    summaries.canCorrectLatestFold
+    summaries?.canCorrectLatestFold
   ) {
     const obstruction = finalObstruction(completed.at(-1)!);
     if (obstruction) {
@@ -386,19 +403,29 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
         if (args.signal.aborted && error === args.signal.reason) throw error;
-        if (
-          !(error instanceof ProviderTurnFailure) &&
-          !(error instanceof SummaryResultValidationError) &&
-          !(error instanceof SummaryConstructionLimitError) &&
-          !(error instanceof ProjectionObstruction)
-        )
-          throw error;
+        if (!isExpectedRecoveryFailure(error)) throw error;
         expectedFailure = error;
+        if (error instanceof SummaryPolicyRefusalError)
+          summaryRefusal = { summaryInputId: error.summaryInputId };
+        candidate = selectQualifying(completed);
       }
     }
   }
 
   if (!candidate) {
+    // Ordinary completed candidates always precede declared omission. Local
+    // candidates use exactly the existing preferred then furthest safe cutoffs.
+    for (const endpoint of endpoints) {
+      const omitted = candidateFromSummary(endpoint, LOCAL_OMISSION_SUMMARY);
+      if (selectQualifying([omitted])) {
+        candidate = omitted;
+        break;
+      }
+    }
+  }
+
+  if (!candidate) {
+    if (expectedFailure instanceof SummaryPolicyRefusalError) throw expectedFailure;
     if (expectedFailure instanceof ProviderTurnFailure) throw expectedFailure;
     if (
       expectedFailure instanceof SummaryResultValidationError ||
@@ -406,21 +433,25 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     )
       throw constructionFailure(
         expectedFailure,
-        summaries.invocationCount,
-        summaries.correctionCount,
+        summaries?.invocationCount ?? 0,
+        summaries?.correctionCount ?? 0,
       );
     if (expectedFailure instanceof ProjectionObstruction)
       throw constructionFailure(
         expectedFailure,
-        summaries.invocationCount,
-        summaries.correctionCount,
+        summaries?.invocationCount ?? 0,
+        summaries?.correctionCount ?? 0,
       );
     if (args.strategy === 'preventive') {
       const obstruction =
         completed.length > 0
           ? obstructionFor(completed.at(-1)!)
           : new ProjectionObstruction('request_context_capacity');
-      throw constructionFailure(obstruction, summaries.invocationCount, summaries.correctionCount);
+      throw constructionFailure(
+        obstruction,
+        summaries?.invocationCount ?? 0,
+        summaries?.correctionCount ?? 0,
+      );
     }
     return {
       kind: 'no_smaller_projection',
@@ -458,6 +489,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     kind: 'compacted',
     providerConversation,
     estimatedProviderMessageTokens: estimateProviderConversationTokens(providerConversation),
+    summaryRefusal,
   };
 
   function isTokenReduction(value: Candidate): boolean {
@@ -540,15 +572,17 @@ class ProjectionObstruction extends Error {
 function isExpectedRecoveryFailure(error: unknown): boolean {
   if (
     error instanceof SummaryResultValidationError ||
-    error instanceof SummaryConstructionLimitError
+    error instanceof SummaryConstructionLimitError ||
+    error instanceof SummaryPolicyRefusalError ||
+    error instanceof ProjectionObstruction
   )
     return true;
   return (
     error instanceof ProviderTurnFailure &&
+    error.failure_phase === 'provider_attempt' &&
     error.originalFailure instanceof LlmRequestError &&
     (error.originalFailure.failure.kind === 'output_token_limit_exceeded' ||
-      error.originalFailure.failure.kind === 'input_context_exhausted' ||
-      error.originalFailure.failure.kind === 'content_policy')
+      error.originalFailure.failure.kind === 'input_context_exhausted')
   );
 }
 

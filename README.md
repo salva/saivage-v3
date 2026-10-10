@@ -31,13 +31,23 @@ disposable context, lost on stop/active cancellation. Pixels cannot be certified
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
-Conversation index/genesis/envelope now use strict **format 6** for ordered content.
-Format 5 or earlier/mixed
+Conversation index/genesis/envelope now use strict **format 7** for loss-tolerant
+active-memory maintenance, retaining the ordered-content contract introduced in 6.
+Format 6 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;
 there is no GC. Installing Sharp requires optional native dependencies (see the
 [runbook](docs/runbook/index.md#image-snapshots-and-native-dependencies)).
+
+Conversation maintenance first preserves useful ordinary summaries. If bounded
+construction cannot produce a qualifying candidate, it may publish a fixed notice
+declaring omission of earlier compactable narrative and inherited summary prose.
+Protected instructions, canonical facts, exact suffix and frozen current context
+remain; indexed history is not automatically restored to active memory. Known
+successful maintenance returns to ordinary primary admission, not task approval.
+See [maintenance limits and evidence](docs/runbook/index.md#prepared-conversation-compaction)
+and the [format cutover](docs/architecture/durable-format-changes.md).
 
 Saivage is autonomous software engineering built for the long run. Give it the
 specification for a software project and it carries the work from

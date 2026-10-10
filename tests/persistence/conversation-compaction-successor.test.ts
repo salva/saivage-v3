@@ -1,12 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { cardConversationVersionFile, cardConversationVersionIndexFile, conversationPreviousIndexFile } from '../../src/persistence/layout.js';
 import { conversationSegmentEnvelopeSchema, conversationVersionIndexSchema } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { appendConversationBatch, initializeConversation, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { compact as compactWithoutProgress, prepareCompaction, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
+import { appendConversationBatch, initializeConversation, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
+import { compact as compactWithoutProgress, LOCAL_OMISSION_SUMMARY, prepareCompaction, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
@@ -75,7 +75,7 @@ function invocation(conversation: ValidatedConversation, overrides: Partial<Prep
 }
 
 async function compactOnce(root: string, strategy: 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission', provider: SummarizerProviderPort, conversation: ValidatedConversation, publication?: Parameters<typeof compact>[0]['publication']) {
-  return compact({ strategy, conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: provider, signal: new AbortController().signal, publication });
+  return compact({ summaryRefusal: null, strategy, conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: provider, signal: new AbortController().signal, publication });
 }
 
 function activation(ordinal: number, sessionId: ConversationSessionId = SESSION): AgentMessage {
@@ -128,7 +128,78 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
-  it('uses strict format 6 and rejects prospectively mutated protected rows and extraction coordinates without checksums', async () => {
+  it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 6 %s beneath a current format 7 index without rewriting bytes', async part => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-old-history-')); initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const old = readCurrentConversationSegment(root, SESSION)!;
+      await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary') }), old.conversation);
+      expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toEqual(old.rows);
+      const path = cardConversationVersionFile(root, 'project', 'planner', old.entry.filename);
+      const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
+      if (part === 'envelope') envelopes[0].version = 6;
+      else envelopes[0].rows[0].format_version = 6;
+      writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
+      const before = readFileSync(path);
+      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(7);
+      expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
+      expect(readFileSync(path)).toEqual(before);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it.each(['endpoint', 'correction'] as const)('forbids retained and local fallback for infrastructure/protocol failures at %s', async stage => {
+    for (const kind of ['server_transient', 'auth_permanent', 'rate_limit', 'parse_error', 'unknown', 'provider_protocol_error'] as const) {
+      const root = mkdtempSync(join(tmpdir(), 'compaction-narrow-taxonomy-')); initProjectTree(root);
+      try {
+        appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+        const failure = new ProviderTurnFailure({ failure_phase: 'provider_attempt', candidate: CANDIDATE, provider_exchanges: [], originalFailure: new LlmRequestError({ kind, provider: 'test', message: 'owning failure', status: 503 }) });
+        const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async () => {
+          if (completeTurn.mock.calls.length === (stage === 'endpoint' ? 2 : 3)) throw failure;
+          return { result: { kind: 'message', content: 'S'.repeat(stage === 'endpoint' ? 6_000 : 40_000) }, provider_exchanges: [] };
+        });
+        const preparedCompaction = prepareCompaction({ ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
+        const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+        await expect(compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION), { preparedCompaction, preparedContext }), summarizerProvider: { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), completeTurn }, signal: new AbortController().signal })).rejects.toBe(failure);
+        expect(completeTurn).toHaveBeenCalledTimes(stage === 'endpoint' ? 2 : 3);
+        expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
+  });
+
+  it.each(['endpoint', 'correction'] as const)('evidence publisher typed capacity/refusal errors cannot authorize fallback at %s', async stage => {
+    for (const misleading of [summaryProviderFailure('input_context_exhausted'), summaryProviderFailure('content_policy')]) {
+      const root = mkdtempSync(join(tmpdir(), 'compaction-evidence-owner-')); initProjectTree(root);
+      try {
+        appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+        const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async () => ({ result: { kind: 'message', content: 'S'.repeat(stage === 'endpoint' ? 6_000 : 40_000) }, provider_exchanges: [] }));
+        const projectProviderExchanges = jest.fn<SummarizerProviderPort['projectProviderExchanges']>(() => {
+          if (projectProviderExchanges.mock.calls.length === (stage === 'endpoint' ? 2 : 3)) throw misleading;
+        });
+        const preparedCompaction = prepareCompaction({ ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
+        const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+        await expect(compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION), { preparedCompaction, preparedContext }), summarizerProvider: { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), completeTurn, projectProviderExchanges }, signal: new AbortController().signal })).rejects.toMatchObject({ name: 'SummaryEvidencePublicationError', cause: misleading });
+        expect(completeTurn).toHaveBeenCalledTimes(stage === 'endpoint' ? 2 : 3);
+        expect(projectProviderExchanges).toHaveBeenCalledTimes(stage === 'endpoint' ? 2 : 3);
+        expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
+  });
+
+  it('refusal during final correction publishes local omission and makes no fourth summary call', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-correction-refusal-')); initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async () => {
+        if (completeTurn.mock.calls.length === 3) throw summaryProviderFailure('content_policy');
+        return { result: { kind: 'message', content: 'S'.repeat(40_000) }, provider_exchanges: [] };
+      });
+      await expect(compactOnce(root, 'preventive', { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), completeTurn }, readConversation(root, SESSION))).resolves.toMatchObject({ kind: 'compacted', summaryRefusal: { summaryInputId: expect.any(String) } });
+      expect(completeTurn).toHaveBeenCalledTimes(3);
+      expect(readConversation(root, SESSION).effectiveCompactedHistory!.summaryText).toBe(LOCAL_OMISSION_SUMMARY);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('uses strict format 7 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -138,10 +209,13 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(6);
-      expect(segment.genesis.format_version).toBe(6);
+      expect(segment.index.format_version).toBe(7);
+      expect(segment.genesis.format_version).toBe(7);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(6);
+      expect(envelope.version).toBe(7);
+      expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 6 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 6 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 6 }, ...segment.rows] }).success).toBe(false);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 3 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 3 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 3 }, ...segment.rows] }).success).toBe(false);
@@ -200,7 +274,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const conversation = readConversation(root, SESSION);
       const localPolicy = { ...POLICY, tail_fraction: 0.25 };
       const preparedCompaction = prepareCompaction(localPolicy, 'system', [], 8_000, 2_000);
-      const result = compact({ strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation, {
+      const result = compact({ summaryRefusal: null, strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation, {
         preparedCompaction,
         preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
       }), summarizerProvider: summarizer({
@@ -231,7 +305,7 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(rootFurthest, { recursive: true, force: true }); }
   });
 
-  it('uses only the selected endpoints without resubmitting source or publishing when none is accepted', async () => {
+  it('uses local omission only after both ordinary endpoints and correction fail qualification', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-selected-endpoints-'));
     initProjectTree(root);
     try {
@@ -252,26 +326,26 @@ describe('compaction fallback, successor identity, and internal summary identity
         preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
       });
       const calls: SummaryCall[] = [];
-      await expect(compact({
+      await expect(compact({ summaryRefusal: null,
         strategy: 'preventive', conversations: { projectRoot: root }, input,
         summarizerProvider: summarizer({ calls, summaryOf: constantSummary('S'.repeat(11_900)) }), signal: new AbortController().signal,
-      })).rejects.toMatchObject({ name: 'CompactionSummaryConstructionError', reason: 'no_reduction', correctionCount: 1 });
+      })).resolves.toMatchObject({ kind: 'compacted', summaryRefusal: null });
+      expect(readConversation(root, SESSION).effectiveCompactedHistory!.summaryText).toBe(LOCAL_OMISSION_SUMMARY);
+      expect(readCurrentConversationSegment(root, SESSION)!.entry.genesis).toMatchObject({ covered_through_message_id: 't2' });
       const leafInputs = calls.flatMap((call) => call.contents);
       expect(leafInputs.filter((content) => content.includes('ROW-ONE'))).toHaveLength(1);
       expect(leafInputs.filter((content) => content.includes('ROW-TWO'))).toHaveLength(1);
       expect(leafInputs.filter((content) => content.includes('ROW-THREE'))).toHaveLength(2);
-      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
 
       const exactCalls: SummaryCall[] = [];
-      const noSmaller = await compact({
-        strategy: 'local_exact_admission', conversations: { projectRoot: root }, input,
+      const noSmaller = await compact({ summaryRefusal: null,
+        strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION)),
         summarizerProvider: summarizer({ calls: exactCalls, summaryOf: constantSummary('S'.repeat(11_900)) }), signal: new AbortController().signal,
       });
-      expect(noSmaller.kind).toBe('no_smaller_projection');
-      if (noSmaller.kind !== 'no_smaller_projection') throw new Error('expected no-smaller diagnostics');
-      expect(noSmaller.smallestCandidateEstimatedProviderMessageTokens).not.toBeNull();
-      expect(noSmaller.rejectedEstimatedProviderMessageTokens).toBeLessThan(noSmaller.smallestCandidateEstimatedProviderMessageTokens!);
-      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+      expect(noSmaller.kind).toBe('compacted');
+      expect(readConversation(root, SESSION).effectiveCompactedHistory!.summaryText).toBe(LOCAL_OMISSION_SUMMARY);
+      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(3);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -305,15 +379,41 @@ describe('compaction fallback, successor identity, and internal summary identity
       const policy = { ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 };
       const preparedCompaction = prepareCompaction(policy, 'system', [], 8_000, 2_000);
       const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
-      const operation = compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation, { preparedCompaction, preparedContext }), summarizerProvider: provider, signal: new AbortController().signal });
+      const operation = compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation, { preparedCompaction, preparedContext }), summarizerProvider: provider, signal: new AbortController().signal });
       if (allowsFallback) {
         await expect(operation).resolves.toMatchObject({ kind: 'compacted' });
         expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
+        expect(readConversation(root, SESSION).effectiveCompactedHistory!.summaryText).toBe('R'.repeat(6_000));
+        expect(readCurrentConversationSegment(root, SESSION)!.entry.genesis).toMatchObject({ covered_through_message_id: 'activation-3' });
       } else {
         await expect(operation).rejects.toBe(failure);
         expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
       }
       expect(calls).toBe(kind === 'output_token_limit_exceeded' ? 3 : 2);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('never treats successful folds from a later failed endpoint advance as completed candidate coverage', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-partial-advance-')); initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      let laterFolds = 0;
+      const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async input => {
+        if (input.providerConversation.messages.some(row => row.content.includes('kind=new_source source=t3 '))) {
+          if (++laterFolds === 2) throw summaryProviderFailure('content_policy');
+          return { result: { kind: 'message', content: 'PARTIAL MUST NOT SELECT T3' }, provider_exchanges: [] };
+        }
+        return { result: { kind: 'message', content: 'R'.repeat(6_000) }, provider_exchanges: [] };
+      });
+      const preparedCompaction = prepareCompaction({ ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
+      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+      const result = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION), { preparedCompaction, preparedContext }), summarizerProvider: { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), contextWindowTokens: 6_000, completeTurn }, signal: new AbortController().signal });
+      expect(result).toMatchObject({ kind: 'compacted', summaryRefusal: { summaryInputId: expect.any(String) } });
+      expect(laterFolds).toBe(2);
+      const segment = readCurrentConversationSegment(root, SESSION)!;
+      expect(segment.entry.genesis).toMatchObject({ covered_through_message_id: 'activation-3' });
+      expect(segment.conversation.effectiveCompactedHistory!.summaryText).toBe('R'.repeat(6_000));
+      expect(segment.rows.map(row => row.id)).toEqual(['t3']);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -327,7 +427,7 @@ describe('compaction fallback, successor identity, and internal summary identity
         providerConversation: { sourceSessionId: SESSION, messages: providerConversationProjection(conversation, []).messages.slice(0, 1) },
       });
       const calls: SummaryCall[] = [];
-      await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: stale, summarizerProvider: summarizer({ calls, summaryOf: constantSummary('s') }), signal: new AbortController().signal })).rejects.toThrow(/stale/);
+      await expect(compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: stale, summarizerProvider: summarizer({ calls, summaryOf: constantSummary('s') }), signal: new AbortController().signal })).rejects.toThrow(/stale/);
       expect(calls).toHaveLength(0);
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -342,7 +442,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const indexPath = cardConversationVersionIndexFile(root, 'project', 'planner');
       const priorIndex = readFileSync(indexPath); const priorInode = statSync(indexPath).ino;
       const factory = jest.fn(() => `00000000-0000-4000-8000-${String(publicationTrace.length).padStart(12, '0')}`);
-      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { publicationTrace.push('hint'); }, agentMembershipChanged() { publicationTrace.push('membership'); } } }, input: invocation(readConversation(root, SESSION)), summarizerProvider: summarizer({ calls: [], summaryOf: constantSummary('identity summary') }), signal: new AbortController().signal, publication: {
+      const result = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { publicationTrace.push('hint'); }, agentMembershipChanged() { publicationTrace.push('membership'); } } }, input: invocation(readConversation(root, SESSION)), summarizerProvider: summarizer({ calls: [], summaryOf: constantSummary('identity summary') }), signal: new AbortController().signal, publication: {
         temporary: factory,
         io: {
           publishFreshFile: (path, bytes, temporary) => {
@@ -374,22 +474,27 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it.each([
+  it.each(([
     ['segment', 'temp-open'], ['segment', 'write'], ['segment', 'file-fsync'], ['segment', 'file-close'],
     ['segment', 'rename'], ['segment', 'rename-effect-throw'], ['segment', 'parent-open'], ['segment', 'parent-fsync'], ['segment', 'parent-close'],
     ['index', 'temp-open'], ['index', 'rename'], ['index', 'parent-fsync'],
-  ] satisfies Array<['segment' | 'index', PublicationFault]>)('stops compactor at actual %s %s publication failure, preserving its identity', async (owner, phase) => {
+  ] satisfies Array<['segment' | 'index', PublicationFault]>).flatMap(([owner, phase]) => [false, true].map(omission => ({ owner, phase, omission }))))('stops at actual $owner $phase publication failure (omission=$omission), preserving its identity', async ({ owner, phase, omission }) => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-publication-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const source = readConversation(root, SESSION);
       const witness = publicationWitness(phase); const effects: string[] = []; const calls: SummaryCall[] = [];
+      const provider = summarizer({ calls, summaryOf: constantSummary('s') });
+      const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async (...args) => {
+        if (omission) throw summaryProviderFailure('content_policy');
+        return provider.completeTurn(...args);
+      });
       let classified: unknown; let segmentAttempts = 0; let indexAttempts = 0; const allocated: string[] = [];
       const temporary = () => { const id = `00000000-0000-4000-8000-${String(allocated.length + 1).padStart(12, '0')}`; allocated.push(id); return id; };
       const preserve = (publish: () => void) => { try { publish(); } catch (error) { classified = error; throw error; } };
       let thrown: unknown;
       try {
-        await compact({ strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { effects.push('hint'); }, agentMembershipChanged() { effects.push('membership'); } } }, input: invocation(source), summarizerProvider: summarizer({ calls, summaryOf: constantSummary('s') }), signal: new AbortController().signal, publication: {
+        await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root, changes: { conversationChanged() { effects.push('hint'); }, agentMembershipChanged() { effects.push('membership'); } } }, input: invocation(source), summarizerProvider: { ...provider, completeTurn }, signal: new AbortController().signal, publication: {
           temporary,
           io: {
             publishFreshFile: (path, bytes, factory) => {
@@ -410,7 +515,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(effects).toEqual(owner === 'index' ? ['segment', 'index'] : ['segment']);
       expect(allocated).toHaveLength(owner === 'index' && phase !== 'parent-fsync' ? 2 : 1);
       expect(witness.trace.at(-1)).toBe(phase === 'rename-effect-throw' ? 'rename' : phase);
-      expect(calls).toHaveLength(1); // No fallback/summary work after failed publication.
+      expect(completeTurn).toHaveBeenCalledTimes(1); // No fallback/summary work after failed publication.
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -433,7 +538,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const calls: SummaryCall[] = [];
       const projectedSessions: string[] = [];
       const provider = summarizer({ calls, summaryOf: constantSummary('internal summary') });
-      const result = await compact({
+      const result = await compact({ summaryRefusal: null,
         strategy: 'preventive',
         conversations: { projectRoot: root },
         input,

@@ -16,7 +16,7 @@ import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../../src/c
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
-import { SummaryPromptPolicyBlockedError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPolicyRefusalError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
@@ -30,7 +30,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     initProjectTree(ownerRoot);
     try {
       const projection = [agentMessageSchema.parse({ id: 'projected', session_id: 'agent:planner:project', role: 'system', kind: 'text', content: 'canonical compacted projection', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' })];
-      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'agent:planner:project', messages: projection }, compactionMessage: projection[0]!, estimatedProviderMessageTokens: 1 }));
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', summaryRefusal: null, providerConversation: { sourceSessionId: 'agent:planner:project', messages: projection }, compactionMessage: projection[0]!, estimatedProviderMessageTokens: 1 }));
       const compactor: CompactorPort = { shouldCompact: () => true, compact };
       const providerInput = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal): Promise<ProviderTurnCompletion> => ({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] }));
       const provider = scriptedAdmissionProvider<PreparedLlmInvocationInput>(providerInput);
@@ -39,7 +39,8 @@ describe('ConversationLLMActor compaction ownership', () => {
 
       expect(compact).toHaveBeenCalledTimes(1);
       const compactArgs = compact.mock.calls[0]![0];
-      expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'progress', 'signal', 'strategy', 'summarizerProvider']);
+      expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'progress', 'signal', 'strategy', 'summarizerProvider', 'summaryRefusal']);
+      expect(compactArgs.summaryRefusal).toBeNull();
       expect(compactArgs.strategy).toBe('preventive');
       expect(compactArgs.conversations.projectRoot).toBe(ownerRoot);
       expect(compactArgs.input.sessionId).toBe('agent:planner:project');
@@ -62,7 +63,7 @@ describe('ConversationLLMActor compaction ownership', () => {
         compact: jest.fn<CompactorPort['compact']>(async (args) => {
           captureArgs(args);
           await held;
-          return { kind: 'compacted', providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 };
+          return { kind: 'compacted', summaryRefusal: null, providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 };
         }),
       };
       const changes = jest.fn();
@@ -111,7 +112,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       const held = new Promise<void>((resolve) => { release = resolve; });
       let markStarted!: () => void;
       const started = new Promise<void>((resolve) => { markStarted = resolve; });
-      const disposedActor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact: async (args) => { args.progress.foldStarted(); markStarted(); await held; return { kind: 'compacted', providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 }; } }, summarizerProvider: summarizer(async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] })) });
+      const disposedActor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact: async (args) => { args.progress.foldStarted(); markStarted(); await held; return { kind: 'compacted', summaryRefusal: null, providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 }; } }, summarizerProvider: summarizer(async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] })) });
       const turn = disposedActor.turn(input(), undefined, terminalHandoff);
       await started;
       expect(disposedActor.compactionProgress()?.foldInFlight).toBe(true);
@@ -212,7 +213,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     initProjectTree(root);
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'agent:reviewer:project', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'agent:reviewer:project', role: 'system', kind: 'text', content: 'x', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
+      const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', summaryRefusal: null, providerConversation: { sourceSessionId: 'agent:reviewer:project', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'agent:reviewer:project', role: 'system', kind: 'text', content: 'x', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
       const providerCall = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal) => new Promise<never>(() => undefined));
       const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
       await expect(actor.turn(input(), undefined, terminalHandoff)).rejects.toThrow(/Compaction changed provider conversation source session/);
@@ -249,7 +250,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       const foldCompleted = jest.fn();
       const foldFailed = jest.fn();
 
-      const rejection = await compact({
+      const rejection = await compact({ summaryRefusal: null,
         strategy: 'preventive',
         conversations: { projectRoot: root },
         input: invocation,
@@ -271,7 +272,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('propagates a summary prompt-policy block without endpoint fallback, correction, or successor publication', async () => {
+  it('publishes local omission after first summary refusal with no corrective summary call', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-summary-policy-owner-'));
     initProjectTree(root);
     try {
@@ -290,11 +291,11 @@ describe('ConversationLLMActor compaction ownership', () => {
         originalFailure: new LlmRequestError({ kind: 'provider_protocol_error', provider: 'test', status: 200, message: 'raw flag', reason: 'prompt_policy_rejection' }),
         candidate: { provider: 'test', account: null, model: 'test-model' },
       });
-      const blocked = new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', providerFailure.originalFailure);
+      const blocked = new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', providerFailure.originalFailure);
       const completeTurn = jest.fn(async () => { throw blocked; });
       const serializeSummaryRequest = jest.fn(deterministicSummarySerialization);
 
-      const rejection = await compact({
+      const rejection = await compact({ summaryRefusal: null,
         strategy: 'preventive',
         conversations: { projectRoot: root },
         input: invocation,
@@ -303,10 +304,10 @@ describe('ConversationLLMActor compaction ownership', () => {
         progress: { foldStarted: jest.fn(), foldCompleted: jest.fn(), foldFailed: jest.fn() },
       }).catch((error: unknown) => error);
 
-      expect(rejection).toBe(blocked);
+      expect(rejection).toMatchObject({ kind: 'compacted', summaryRefusal: { summaryInputId: blocked.summaryInputId } });
       expect(completeTurn).toHaveBeenCalledTimes(1);
       expect(serializeSummaryRequest.mock.calls.filter(([request]) => request.systemPrompt.includes('6000 UTF-8 bytes'))).toHaveLength(0);
-      expect(readConversationCatalog(root, 'agent:planner:project').versions).toHaveLength(1);
+      expect(readConversationCatalog(root, 'agent:planner:project').versions).toHaveLength(2);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

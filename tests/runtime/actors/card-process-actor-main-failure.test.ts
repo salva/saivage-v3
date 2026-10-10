@@ -18,7 +18,7 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
-import { SummaryPromptPolicyBlockedError } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../src/schemas/index.js';
 import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
@@ -191,7 +191,7 @@ describe('real CardProcess actor-main fatal containment', () => {
 
   it('owns a summary prompt-policy block through the normal card terminal and cleanup path', async () => {
     const complete = jest.fn(async () => { throw new Error('primary provider must not run'); });
-    const compact = jest.fn<CompactorPort['compact']>().mockRejectedValue(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW FLAG')));
+    const compact = jest.fn<CompactorPort['compact']>().mockRejectedValue(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('RAW FLAG')));
     const h = harness(scriptedAdmissionProvider(complete), { shouldCompact: () => true, compact });
     const { owner, activation } = await launchCapturingActivation(h);
 

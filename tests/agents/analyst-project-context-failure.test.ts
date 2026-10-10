@@ -15,7 +15,7 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
-import { SummaryPromptPolicyBlockedError } from '../../src/runtime/actors/compaction/summarizer.js';
+import { SummaryPolicyRefusalError } from '../../src/runtime/actors/compaction/summarizer.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
 import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 import { analystCapacityFixture, wideOrientation } from '../helpers/analyst-capacity-fixtures.js';
@@ -62,8 +62,8 @@ describe('Analyst project-context failure', () => {
     initProjectTree(projectRoot);
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'fresh submission succeeded' }, provider_exchanges: [] }));
     const compact = jest.fn<CompactorPort['compact']>()
-      .mockRejectedValueOnce(new SummaryPromptPolicyBlockedError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
-      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
+      .mockRejectedValueOnce(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('RAW PROVIDER FLAG')))
+      .mockImplementationOnce(async ({ input }) => ({ kind: 'compacted' as const, summaryRefusal: null, providerConversation: input.providerConversation, estimatedProviderMessageTokens: 1 }));
     const surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] };
     const session = new AnalystSession({
       cardTypeVocabulary: ['project'], sessionId: 'agent:analyst:global', agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: {},

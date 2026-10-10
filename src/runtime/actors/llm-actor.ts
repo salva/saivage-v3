@@ -82,10 +82,7 @@ import {
   type CompactionResult,
   type CompactionStrategy,
 } from './compaction/compactor.js';
-import {
-  SummaryPromptPolicyBlockedError,
-  type SummarizerProviderPort,
-} from './compaction/summarizer.js';
+import { SummaryPolicyRefusalError, type SummarizerProviderPort } from './compaction/summarizer.js';
 import type {
   ChildInvocationReservation,
   CompactionProgress,
@@ -196,6 +193,7 @@ type Disposition =
   | { kind: 'graceful_cancellation'; reason: unknown }
   | { kind: 'disposed'; reason: unknown };
 type InvocationOperation = {
+  summaryRefusal: Readonly<{ summaryInputId: string }> | null;
   input: CanonicalLlmInvocationInput;
   callbacks: Callbacks;
   result: Deferred<LLMActorOutcome>;
@@ -701,6 +699,7 @@ export class ConversationLLMActor {
     const settlement = deferred<void>();
     observe(settlement.promise);
     const operation: InvocationOperation = {
+      summaryRefusal: null,
       input,
       callbacks,
       result,
@@ -919,7 +918,7 @@ export class ConversationLLMActor {
       const cancellationFailure =
         gracefulCancellation && (error === operation.signal.reason || error === disposition.reason);
       if (operation.signal.aborted && !gracefulCancellation) throw error;
-      if (error instanceof SummaryPromptPolicyBlockedError) {
+      if (error instanceof SummaryPolicyRefusalError) {
         const outcome: Extract<LLMActorOutcome, { type: 'blocked' | 'error' }> =
           this.purpose.kind === 'autonomous-card'
             ? {
@@ -1353,7 +1352,7 @@ export class ConversationLLMActor {
     } catch (error) {
       this.#deliverPublicationFatal(error);
       if (signal.aborted && error === signal.reason) throw error;
-      if (error instanceof SummaryPromptPolicyBlockedError) {
+      if (error instanceof SummaryPolicyRefusalError) {
         this.#projectProviderExchanges(input, firstAttempts, {
           assistantOutputIds: [],
           terminalConversationOutputId: null,
@@ -1642,6 +1641,7 @@ export class ConversationLLMActor {
     try {
       const result = await this.compactor.compact({
         strategy,
+        summaryRefusal: operation.summaryRefusal,
         conversations: this.conversations,
         input,
         summarizerProvider: this.summarizerProvider,
@@ -1683,6 +1683,7 @@ export class ConversationLLMActor {
           },
         },
       });
+      if (result.kind === 'compacted') operation.summaryRefusal = result.summaryRefusal;
       this.#clearCompaction(operation);
       return result;
     } catch (error) {

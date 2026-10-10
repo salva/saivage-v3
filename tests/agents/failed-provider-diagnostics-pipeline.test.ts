@@ -938,13 +938,14 @@ describe('failed diagnostics through real invocation owners', () => {
         signal: new AbortController().signal,
       }),
     ).rejects.toMatchObject({
-      originalFailure: {
+      name: 'SummaryPolicyRefusalError',
+      summaryInputId: input.inputId,
+      cause: {
         failure: {
           kind: 'content_policy',
           message: 'Summary provider refused the compaction request.',
         },
       },
-      provider_exchanges: [{ status: 'ok', finish_reason: 'content_filter' }],
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(f.dumps()).toHaveLength(1);
@@ -1240,7 +1241,8 @@ describe('failed diagnostics through real invocation owners', () => {
       progress: noCompactionProgress,
     });
     await expect(accumulator.materializeThrough(rows.length)).rejects.toMatchObject({
-      originalFailure: { failure: { kind: 'content_policy' } },
+      name: 'SummaryPolicyRefusalError',
+      cause: { failure: { kind: 'content_policy' } },
     });
     expect(submitted).toEqual([admitted.serializedRequest]);
     const [dump] = f.dumps();

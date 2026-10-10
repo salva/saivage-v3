@@ -223,7 +223,7 @@ describe('authoritative re-admission remains separate from local capacity', () =
       catch (error) { original = error; throw error; }
     });
     const render = jest.fn(() => 'Analyst');
-    const compact = jest.fn<CompactorPort['compact']>(async ({ input }) => ({ kind: 'compacted', providerConversation: { sourceSessionId: input.sessionId, messages: [{ kind: 'synthetic_context', origin: 'dynamic', block_identity: 'controlled-recovery', role: 'system', content: 'x'.repeat(40000) }] }, estimatedProviderMessageTokens: 10000 }));
+    const compact = jest.fn<CompactorPort['compact']>(async ({ input }) => ({ kind: 'compacted', summaryRefusal: null, providerConversation: { sourceSessionId: input.sessionId, messages: [{ kind: 'synthetic_context', origin: 'dynamic', block_identity: 'controlled-recovery', role: 'system', content: 'x'.repeat(40000) }] }, estimatedProviderMessageTokens: 10000 }));
     const { session } = analystCapacityFixture(projectRoot, { candidateChain: chain, render, provider: { ...provider, prepareAdmittedRecovery: prepareRecovery }, compactor: { shouldCompact: () => false, compact } });
     if (mode === 'mandatory') {
       await expect(session.submit({ userContent: 'first authoritative send' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });

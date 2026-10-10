@@ -10,8 +10,9 @@ import {
   buildSummaryRequestInput,
   invokeSummaryRequest,
   SummaryResultValidationError,
-  SummaryPromptPolicyBlockedError,
-  SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE,
+  SummaryPolicyRefusalError,
+  SummaryEvidencePublicationError,
+  SUMMARY_POLICY_REFUSAL_MESSAGE,
   SUMMARY_COMPLETION_TOKENS,
   SUMMARY_OUTPUT_TARGET_BYTES,
   type SummaryRequestSerialization,
@@ -19,7 +20,7 @@ import {
 } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { internalCompactionSummarySessionId } from '../../../src/contracts/provider-exchange-log.js';
 import { createSequentialRefineAccumulator as createAccumulatorWithoutProgress } from '../../../src/runtime/actors/compaction/refine-accumulator.js';
-import { ProviderTurnFailure } from '../../../src/contracts/index.js';
+import { ProviderTurnFailure, PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 import { noCompactionProgress } from '../../helpers/executing-llm-snapshot.js';
@@ -33,6 +34,65 @@ const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const
 const BUDGET = { contextUtilizationFraction: 0.8 };
 
 describe('compaction summarizer projection boundary', () => {
+  it('publication uncertainty escapes before fold failure/cleanup even when provider already refused', async () => {
+    const rows = durableRound(SESSION, SOURCE_INPUT_ID);
+    const uncertainty = new PublicationOutcomeUnknownError();
+    const publisher = jest.fn<SummarizerProviderPort['projectProviderExchanges']>(() => { throw uncertainty; });
+    const progress = { foldStarted: jest.fn(), foldCompleted: jest.fn(), foldFailed: jest.fn() };
+    const accumulator = createAccumulatorWithoutProgress({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: { ...summarizerProvider(async input => { throw promptPolicyFailure(input.inputId); }), projectProviderExchanges: publisher }, budget: BUDGET, signal: new AbortController().signal, progress });
+    await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(uncertainty);
+    expect(progress.foldStarted).toHaveBeenCalledTimes(1);
+    expect(progress.foldCompleted).not.toHaveBeenCalled();
+    expect(progress.foldFailed).not.toHaveBeenCalled();
+    expect(publisher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not convert typed policy-shaped pre-provider admission failures', async () => {
+    const rows = durableRound(SESSION, SOURCE_INPUT_ID);
+    const actual = promptPolicyFailure(SOURCE_INPUT_ID);
+    const failure = new ProviderTurnFailure({ failure_phase: 'pre_provider', candidate: CANDIDATE, provider_exchanges: [], originalFailure: actual.originalFailure });
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: summarizerProvider(async () => { throw failure; }), budget: BUDGET, signal: new AbortController().signal });
+    await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(failure);
+    expect(accumulator.correctionCount).toBe(0);
+  });
+
+  it.each(['content_policy', 'prompt_flag', 'content_filter'] as const)('converts only actual %s summary refusal with its exact UUID and once-only evidence', async (kind) => {
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: SESSION, instruction: 'summarize', items: [] });
+    const admitted = admitSummaryRequest({ serialization: deterministicSummarySerialization(input), ...BUDGET, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Expected admission');
+    const originalFailure = kind === 'prompt_flag' ? promptPolicyFailure(input.inputId) : new ProviderTurnFailure({ failure_phase: 'provider_attempt', candidate: CANDIDATE, provider_exchanges: [errorAttempt(input.inputId)], originalFailure: new LlmRequestError({ kind: 'content_policy', provider: 'test', status: 200, message: 'cyber_policy', providerResponse: '' }) });
+    const exchanges = kind === 'content_filter' ? [okAttempt(input.inputId, 'content_filter')] : originalFailure.provider_exchanges;
+    const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>(async () => {
+      if (kind !== 'content_filter') throw originalFailure;
+      return { result: { kind: 'message', content: 'FILTERED SENTINEL' }, provider_exchanges: exchanges };
+    });
+    const projected = jest.fn<SummarizerProviderPort['projectProviderExchanges']>();
+    const failure = await invokeSummaryRequest({ input, admitted, signal: new AbortController().signal, summarizerProvider: { ...summarizerProvider(completeTurn), projectProviderExchanges: projected } }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SummaryPolicyRefusalError);
+    expect(failure).toMatchObject({ summaryInputId: input.inputId, cause: kind === 'content_filter' ? { failure: { kind: 'content_policy' } } : originalFailure.originalFailure });
+    expect(projected).toHaveBeenCalledTimes(1);
+    expect(projected.mock.calls[0]![3]).toBe(exchanges);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    if (kind === 'content_filter') expect(exchanges[0]).toMatchObject({ status: 'ok', finish_reason: 'content_filter' });
+  });
+
+  it.each(['success', 'provider_failure'] as const)('keeps misleading typed evidence-publication failure outside conversion on %s', async (outcome) => {
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: SESSION, instruction: 'summarize', items: [] });
+    const admitted = admitSummaryRequest({ serialization: deterministicSummarySerialization(input), ...BUDGET, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Expected admission');
+    for (const misleading of [promptPolicyFailure(input.inputId), new SummaryResultValidationError('empty_output', 'misleading'), new SummaryPolicyRefusalError(input.inputId, null)]) {
+      const publisher = jest.fn<SummarizerProviderPort['projectProviderExchanges']>(() => { throw misleading; });
+      const completeTurn: SummarizerProviderPort['completeTurn'] = async () => {
+        if (outcome === 'provider_failure') throw promptPolicyFailure(input.inputId);
+        return { result: { kind: 'message', content: 'summary' }, provider_exchanges: [okAttempt(input.inputId, 'content_filter')] };
+      };
+      const failure = await invokeSummaryRequest({ input, admitted, signal: new AbortController().signal, summarizerProvider: { ...summarizerProvider(completeTurn), projectProviderExchanges: publisher } }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(SummaryEvidencePublicationError);
+      expect(failure).toMatchObject({ cause: misleading });
+      expect(publisher).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('consumes real Responses completed prose once through the accumulator after an earlier failed exchange', async () => {
     const rows = durableRound(SESSION, SOURCE_INPUT_ID);
     const text = 'Responses native completed summary';
@@ -160,7 +220,7 @@ describe('compaction summarizer projection boundary', () => {
       summarizerProvider: { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [attempt('summary-input')] }), projectProviderExchanges: () => { throw publicationFailure; } },
       budget: BUDGET,
       signal: new AbortController().signal,
-    }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
+    }).materializeThrough(rows.length)).rejects.toMatchObject({ name: 'SummaryEvidencePublicationError', cause: publicationFailure });
 
     const controller = new AbortController();
     const abortReason = new Error('stop summary admission');
@@ -212,9 +272,9 @@ describe('compaction summarizer projection boundary', () => {
     });
 
     const failure = await accumulator.materializeThrough(rows.length).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(SummaryPromptPolicyBlockedError);
-    expect(failure).toMatchObject({ message: SUMMARY_PROMPT_POLICY_BLOCKED_MESSAGE, summaryInputId: expect.any(String), cause: providerFailure.originalFailure });
-    expect((failure as SummaryPromptPolicyBlockedError).summaryInputId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(failure).toBeInstanceOf(SummaryPolicyRefusalError);
+    expect(failure).toMatchObject({ message: SUMMARY_POLICY_REFUSAL_MESSAGE, summaryInputId: expect.any(String), cause: providerFailure.originalFailure });
+    expect((failure as SummaryPolicyRefusalError).summaryInputId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(completeTurn).toHaveBeenCalledTimes(1);
     expect(projected).toHaveBeenCalledTimes(1);
     expect(projected.mock.calls[0]![3]).toHaveLength(2);
@@ -224,7 +284,7 @@ describe('compaction summarizer projection boundary', () => {
 
     const publicationFailure = new Error('prompt-policy evidence publication failed');
     const publicationProvider = { materializeImage: async () => { throw new Error('Unexpected image.'); }, candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: () => { throw publicationFailure; } };
-    await expect(createSequentialRefineAccumulator({ conversation, inheritedHistory: null, preparedBlocks: [], summarizerProvider: publicationProvider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
+    await expect(createSequentialRefineAccumulator({ conversation, inheritedHistory: null, preparedBlocks: [], summarizerProvider: publicationProvider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length)).rejects.toMatchObject({ name: 'SummaryEvidencePublicationError', cause: publicationFailure });
   });
 
   it('treats the byte value as a prompt target and accepts complete prose and ordinary phrase use above it', async () => {
@@ -247,9 +307,14 @@ describe('compaction summarizer projection boundary', () => {
     for (const entry of cases) {
       const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'SENTINEL MUST NOT BE USED' }, provider_exchanges: [errorAttempt('transient'), okAttempt('summary-input', entry.finish)] }));
       const failure = await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: summarizerProvider(completeTurn), budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length).catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(ProviderTurnFailure);
-      expect((failure as ProviderTurnFailure).originalFailure).toMatchObject({ failure: { kind: entry.kind } });
-      expect((failure as ProviderTurnFailure).provider_exchanges).toHaveLength(2);
+      if (entry.finish === 'content_filter') {
+        expect(failure).toBeInstanceOf(SummaryPolicyRefusalError);
+        expect(failure).toMatchObject({ cause: { failure: { kind: 'content_policy' } }, summaryInputId: expect.any(String) });
+      } else {
+        expect(failure).toBeInstanceOf(ProviderTurnFailure);
+        expect((failure as ProviderTurnFailure).originalFailure).toMatchObject({ failure: { kind: entry.kind } });
+        expect((failure as ProviderTurnFailure).provider_exchanges).toHaveLength(2);
+      }
       expect(completeTurn).toHaveBeenCalledTimes(1);
     }
 

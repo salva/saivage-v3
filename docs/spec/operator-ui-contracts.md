@@ -373,7 +373,12 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   presence and between-rounds or inherited-open-round continuation appear inside.
   **Accumulated summary**,
   **Retained instructions (N)**, **Required model facts**, and **Source and continuation**
-  are independent, keyboard-operable and initially closed. Full safe summary and all
+  are independent, keyboard-operable and initially closed. Accumulated summary may
+  be a fixed code-owned declared-omission notice, not a completed LLM summary or
+  task approval. Render its full safe text without interpreting it. Internal-summary
+  refusal evidence is distinct from canonical primary-refusal counters. Completed-fold
+  progress counts validated LLM calls only; local omission adds zero. No new API
+  field, screen or counter is required. Full safe summary and all
   ordered instructions remain inspectable without preview truncation; individual
   instructions disclose full content, protection and exact source coordinates/identity.
   Original adjacency to summarized prose is not preserved. Facts are retained context,

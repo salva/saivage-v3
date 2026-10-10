@@ -73,7 +73,7 @@ async function seed(session: ConversationSessionId, suffix: string) {
 async function advance(session: ConversationSessionId) {
   const preparedCompaction = prepareCompaction({ context_utilization_fraction: .8, trigger_fraction: .8, tail_fraction: 0, snap: 'compact_straddler' }, 'system', [], 8000, 2000);
   const candidate = { provider: 'test', account: null, model: 'test' } as const;
-  const outcome = await compact({ strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: {
+  const outcome = await compact({ summaryRefusal: null, strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: {
     inputId: randomUUID(), agentId: session, agentName: session.split(':')[1]!, sessionId: session, systemPrompt: 'system', providerConversation: providerConversationProjection(readCurrentConversationSegment(root, session)!.conversation, []), tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction,
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [candidate] }, episodeContext: {},
   }, summarizerProvider: { candidate, contextWindowTokens: 100000, maxOutputTokens: 10000, materializeImage: (source, descriptor) => materializeConversationImage(root, source, descriptor), serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message', content: 'Synthetic covered history; no delivery proof.' }, provider_exchanges: [] }), projectProviderExchanges: () => [] }, signal: new AbortController().signal, progress: noCompactionProgress });

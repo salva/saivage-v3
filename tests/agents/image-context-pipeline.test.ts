@@ -456,7 +456,7 @@ it.each(['local_exact_admission', 'preventive', 'authoritative_context_recovery'
         };
       },
     };
-    const result = await compact({
+    const result = await compact({ summaryRefusal: null,
       strategy,
       conversations: { projectRoot },
       input: invocation(projection, 0.1),
@@ -626,7 +626,7 @@ it.each(['local_exact_admission', 'preventive', 'authoritative_context_recovery'
     const rejected = await materializeProviderConversation(f.projectRoot, f.projection);
     const summary = 'Visual observation: dark translucent screenshot. '.repeat(60);
     const seen: string[] = [];
-    const result = await compact({
+    const result = await compact({ summaryRefusal: null,
       strategy,
       conversations: { projectRoot: f.projectRoot },
       input: invocation(rejected),
@@ -919,7 +919,7 @@ it('retains a recent atomic image tail, rejects changed source descriptor freshn
   const projection = providerConversationProjection(readConversation(projectRoot, SESSION), []);
   const seen: string[] = [];
   const provider = summaryProvider(projectRoot, 'prior summary', seen);
-  const first = await compact({
+  const first = await compact({ summaryRefusal: null,
     strategy: 'authoritative_context_recovery',
     conversations: { projectRoot },
     input: invocation(await materializeProviderConversation(projectRoot, projection), 0.01),
@@ -942,7 +942,7 @@ it('retains a recent atomic image tail, rejects changed source descriptor freshn
     content: canonicalJson(parsed),
   };
   await expect(
-    compact({
+    compact({ summaryRefusal: null,
       strategy: 'local_exact_admission',
       conversations: { projectRoot },
       input: invocation(changed),
@@ -951,7 +951,7 @@ it('retains a recent atomic image tail, rejects changed source descriptor freshn
       progress: noCompactionProgress,
     }),
   ).rejects.toThrow(/stale/);
-  const second = await compact({
+  const second = await compact({ summaryRefusal: null,
     strategy: 'local_exact_admission',
     conversations: { projectRoot },
     input: invocation(first.providerConversation),
