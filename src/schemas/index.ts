@@ -165,6 +165,8 @@ export {
   type CardTypesSource,
   type McpServerConfig,
   mcpServerEntrySchema,
+  mcpConnectionSchema,
+  type McpConnection,
   type StdioMcpServerConfig,
   type StreamableHttpMcpServerConfig,
 } from './saivage-config.js';

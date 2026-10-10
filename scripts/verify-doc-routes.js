@@ -420,6 +420,23 @@ function extractConfigSchema(projectRoot) {
     const method = callee.name.text;
     const receiver = unwrapExpression(callee.expression);
     if (SCHEMA_WRAPPERS.has(method) || SCALAR_CHAINS.has(method)) { traverse(receiver, path); return; }
+    if (method === 'extend') {
+      let shape = node.arguments[0] && unwrapExpression(node.arguments[0]);
+      if (shape && ts.isIdentifier(shape)) shape = unwrapExpression(requiredInitializer(initializers, shape.text, relPath));
+      if (node.arguments.length !== 1 || !shape || !ts.isObjectLiteralExpression(shape)) throw new Error(`Unsupported .extend at ${path}`);
+      traverse(receiver, path);
+      const fields = rows.get(path);
+      if (!fields) throw new Error(`.extend receiver at ${path} must resolve to an object`);
+      for (const property of shape.properties) {
+        if (!ts.isPropertyAssignment(property)) throw new Error(`Unsupported .extend member at ${path}`);
+        const key = propertyName(property.name);
+        if (fields.includes(key)) throw new Error(`Unsupported .extend override at ${path}.${key}`);
+        fields.push(key);
+        traverse(property.initializer, `${path}.${key}`);
+      }
+      fields.sort();
+      return;
+    }
     if (ts.isIdentifier(receiver) && receiver.text === 'z') {
       if (method === 'object') {
         const shape = node.arguments[0] && unwrapExpression(node.arguments[0]);
@@ -802,7 +819,7 @@ const PATHS = Object.freeze({
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
   shippedTools: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
-  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
+  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/tools/mcp-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
 
@@ -1099,14 +1116,21 @@ function selectToolEquality(projectRoot) {
   const presenters = objectKeys(projectRoot, 'web/src/utils/tool-presenters/presenters.ts', 'TOOL_PRESENTERS');
   const roleUnion = new Set(Object.values(inventories).flat());
   roleUnion.add(stringInitializer(projectRoot, 'src/contracts/result-envelope.ts', 'TERMINAL_RESULT_TOOL_NAME'));
+  // Optional MCP selections need presenters without broadening shipped defaults.
+  const { ast: mcpAst } = sourceAst(projectRoot, 'src/tools/mcp-provider.ts');
+  for (const call of descendants(mcpAst, node => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'defineToolBinder')) {
+    const declaration = call.arguments[0] && unwrapExpression(call.arguments[0]);
+    if (!declaration || !ts.isObjectLiteralExpression(declaration)) throw new Error('MCP binder must use an object literal');
+    roleUnion.add(stringLiteralText(propertyAssignment(declaration, 'name', 'MCP binder'), 'MCP binder name'));
+  }
   const sets = [names, presenters, [...roleUnion]].map((values) => mathematicalSet(values, 'tool equality set'));
-  if (!sets.every((value) => canonicalJson(value) === canonicalJson(sets[0]))) throw new Error('Known tools, presenters, and shipped role union differ');
+  if (!sets.every((value) => canonicalJson(value) === canonicalJson(sets[0]))) throw new Error('Known tools, presenters, and shipped/optional MCP tool union differ');
   const { ast } = sourceAst(projectRoot, invocationPath);
   const initializer = unwrapExpression(requiredInitializer(constInitializers(ast), 'knownToolNames', invocationPath));
   if (!ts.isNewExpression(initializer) || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'Set' || initializer.arguments?.length !== 1 || identifierText(initializer.arguments[0], 'knownToolNames source') !== 'KNOWN_TOOL_INVOCATION_NAMES') throw new Error('knownToolNames must directly construct Set from KNOWN_TOOL_INVOCATION_NAMES');
   const gates = ast.statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name && statement.body && descendants(statement.body, (node) => ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'knownToolNames' && node.expression.name.text === 'has').length > 0).map((statement) => statement.name.text);
   if (gates.length === 0) throw new Error('No projector gate directly consumes knownToolNames');
-  return { names: sets[0], sources: ['KNOWN_TOOL_INVOCATION_NAMES', 'TOOL_PRESENTERS', 'shipped-role-union-plus-terminal'], gates: mathematicalSet(gates, 'projector gates') };
+  return { names: sets[0], sources: ['KNOWN_TOOL_INVOCATION_NAMES', 'TOOL_PRESENTERS', 'shipped-role-union-plus-terminal-and-optional-mcp'], gates: mathematicalSet(gates, 'projector gates') };
 }
 function stringInitializer(projectRoot, path, name) {
   const { ast } = sourceAst(projectRoot, path);

@@ -146,7 +146,7 @@ describe('named-agent inventories and composition', () => {
     expect([...surface.tools.keys()]).toEqual(['mcp_tool_call']);
     expect(surface.providers.map((provider)=>provider.providerName)).toEqual(['mcp']);
     await expect(invokeToolForLlm(surface, 'mcp_reconcile', {}, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_reconcile' }))).resolves.toEqual(syntheticToolSettlement('unsupported_tool', "Unsupported tool 'mcp_reconcile' for agent 'reviewer'."));
-    const outcome = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_tool_call' }));
+    const outcome = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:reviewer:project', toolName: 'mcp_tool_call' }));
     expect(outcome.kind).toBe('executed');
   });
 

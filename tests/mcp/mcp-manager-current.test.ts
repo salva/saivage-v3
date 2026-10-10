@@ -113,7 +113,7 @@ describe('current named-agent MCP manager contract',()=>{
     expect(await value.stopServer('one')).toEqual({ serverName: 'one', status: 'stopped', toolCount: 0 });
     expect(value.getServerTools('one')).toBeUndefined();
     expect(await value.startServer('one')).toEqual({ serverName: 'one', status: 'running', toolCount: 1 });
-    expect(value.getStatus()).toHaveLength(1);
+    expect(() =>value.getStatus()).toThrow(); // Complete definition observations strictly consume both maps.
     await value.cleanupForApplicationStop();
   });
 
@@ -131,7 +131,8 @@ describe('current named-agent MCP manager contract',()=>{
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(stopped).toBe(false); expect(cleaned).toBe(false); expect(value.getStatus()).toHaveLength(1);
     await expect(value.startServer('one')).rejects.toThrow('closed');
-    release.resolve(); await Promise.all([start, stop, cleanup]); expect(value.getStatus()).toEqual([]);
+    release.resolve(); await Promise.all([start, stop, cleanup]); expect(value.getStatus()).toMatchObject([
+      { name: 'one', status: 'stopped', bindingId: null, definitionSource: 'operator' }]);
 
     const other = manager(projectRoot); globalThis.fetch = successfulFetch() as typeof fetch;
     await other.value.startServer('one');
@@ -270,9 +271,9 @@ describe('current named-agent MCP manager contract',()=>{
   });
 
   it('performs no lifecycle mutation when the complete next configuration is invalid',async()=>{
-    const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value}=manager(projectRoot);await value.reconcilePersistedConfig();const status=value.getStatus();writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers:'invalid'}));
+    const projectRoot=root();writeConfig(projectRoot,{one:{transport:'streamable-http',url:'http://localhost/mcp',autostart:true,disabled:false}});globalThis.fetch=successfulFetch() as typeof fetch;const {value}=manager(projectRoot);await value.reconcilePersistedConfig();writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers:'invalid'}));
     await expect(value.reconcilePersistedConfig()).rejects.toThrow();
-    expect(value.getStatus()).toEqual(status);
+    expect(() =>value.getStatus()).toThrow('mcpServers must be a mapping');
     expect(value.getServerTools('one')).toEqual([expect.objectContaining({name:'ping'})]);
   });
 
@@ -292,12 +293,13 @@ describe('current named-agent MCP manager contract',()=>{
     expect(containmentAccess).toHaveBeenCalledTimes(1);
     expect(terminateRoot).toHaveBeenCalledTimes(1);
     await expect(value.reconcilePersistedConfig()).rejects.toThrow('closed');
-    await expect(value.invokeTool('one','ping',{})).rejects.toBeInstanceOf(ServerNotRunningError);
+    await expect(value.invokeTool('one', '11111111-1111-4111-8111-111111111111','ping',{})).rejects.toBeInstanceOf(ServerNotRunningError);
     direct.resolve(emptyReport);
     await expect(Promise.race([cleanup.then(() => 'settled'), Promise.resolve('pending')])).resolves.toBe('pending');
     rootTermination.resolve(emptyReport);
     await expect(cleanup).resolves.toBeUndefined();
-    expect(value.getStatus()).toEqual([]);
+    expect(value.getStatus()).toMatchObject([
+      { name: 'one', status: 'stopped', bindingId: null, definitionSource: 'operator' }]);
   });
 
   it('retrieves the existing containment when application admission was already closed',async()=>{
@@ -318,7 +320,8 @@ describe('current named-agent MCP manager contract',()=>{
     expect(containmentAccess).toHaveBeenCalledTimes(1);
     direct.resolve(emptyReport);
     await expect(cleanup).resolves.toBeUndefined();
-    expect(value.getStatus()).toEqual([]);
+    expect(value.getStatus()).toMatchObject([
+      { name: 'one', status: 'stopped', bindingId: null, definitionSource: 'operator' }]);
   });
 
   it('fails fast when containment is requested before admission closes',()=>{
@@ -342,7 +345,7 @@ describe('current named-agent MCP manager contract',()=>{
       entered.resolve();
       return new Response(new ReadableStream<Uint8Array>({ cancel: () => body.promise }), { headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
-    const call = value.invokeTool('one', 'ping', {}).catch(error => error);
+    const call = value.invokeTool('one', value.getServerStatus('one')!.bindingId!, 'ping', {}).catch(error => error);
     await entered.promise;
     let cleaned = false;
     const cleanup = value.cleanupForApplicationStop().then(() => { cleaned = true; });
@@ -352,7 +355,8 @@ describe('current named-agent MCP manager contract',()=>{
     expect(value.getStatus()).toHaveLength(1);
     body.resolve();
     await Promise.all([call, cleanup]);
-    expect(value.getStatus()).toEqual([]);
+    expect(value.getStatus()).toMatchObject([
+      { name: 'one', status: 'stopped', bindingId: null, definitionSource: 'operator' }]);
   });
 
   it('preserves root termination failure precedence and retains runtimes after failure',async()=>{

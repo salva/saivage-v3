@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer as createViteServer } from 'vite';
@@ -35,6 +35,336 @@ afterEach(async () => {
 });
 
 describe('MCP tool invocation production composition', () => {
+  it.each(['stdio', 'streamable-http'] as const)(
+    'selected agent dynamically registers, discovers, calls and removes %s without changing its frozen gateway or another owner',
+    async (transport) => {
+      const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-dynamic-composition-');
+      roots.push(projectRoot);
+      const callsPath = join(projectRoot, 'calls.jsonl');
+      writeFileSync(callsPath, '');
+      const script = join(projectRoot, 'peer.cjs');
+      writeFileSync(
+        script,
+        `
+const fs=require('node:fs'); const readline=require('node:readline');
+const send=(id,result)=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id,result})+'\\n');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const r=JSON.parse(line);
+ if(r.method==='initialize')send(r.id,{protocolVersion:'2025-06-18'});
+ if(r.method==='tools/list')send(r.id,{tools:[{name:'ping',inputSchema:{type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false}}]});
+ if(r.method==='tools/call') { fs.appendFileSync(${JSON.stringify(callsPath)},JSON.stringify({value:r.params.arguments.value,at:Date.now()})+'\\n');
+ setTimeout(()=>{send(r.id,{content:[{type:'text',text:'pong:'+r.params.arguments.value}]});if(r.params.arguments.value==='exit')setTimeout(()=>process.exit(0),30);},120); }
+});`,
+      );
+      const wireCalls: unknown[] = [];
+      const peer = createServer(async (req, res) => {
+        if (req.method === 'HEAD') {
+          res.end();
+          return;
+        }
+        const body = await readJsonRequest(req);
+        if (body.method === 'notifications/initialized') {
+          res.statusCode = 202;
+          res.end();
+          return;
+        }
+        if (body.method === 'tools/call') wireCalls.push(body.params);
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: body.id,
+            result:
+              body.method === 'tools/list'
+                ? {
+                    tools: [
+                      {
+                        name: 'ping',
+                        inputSchema: {
+                          type: 'object',
+                          properties: { value: { type: 'string' } },
+                          required: ['value'],
+                          additionalProperties: false,
+                        },
+                      },
+                    ],
+                  }
+                : body.method === 'tools/call'
+                  ? { content: [{ type: 'text', text: `pong:${body.params.arguments.value}` }] }
+                  : { protocolVersion: '2025-06-18' },
+          }),
+        );
+      });
+      const peerPort = await listen(peer);
+      const httpConnection = {
+        transport: 'streamable-http' as const,
+        url: `http://127.0.0.1:${peerPort}`,
+      };
+      const connection =
+        transport === 'stdio'
+          ? {
+              transport,
+              command: process.execPath,
+              args: [script],
+              env: { CUSTOM: 'synthetic-private-env' },
+            }
+          : httpConnection;
+      let app: App | null = null;
+      let fixtureFailure: unknown;
+      let step = 0;
+      let binding = '';
+      let processId: string | null = null;
+      let gateway: unknown;
+      const seen: string[] = [];
+      let processWait: ReturnType<typeof jest.spyOn>;
+      let processKill: ReturnType<typeof jest.spyOn>;
+      let waitsBeforeDenial = 0;
+      const provider = createServer(async (req, res) => {
+        try {
+          const body = (await readJsonRequest(req)) as ChatCompletionRequest;
+          if (gateway === undefined) gateway = body.tools;
+          else expect(body.tools).toEqual(gateway);
+          const last = body.messages.at(-1);
+          const settled = last?.role === 'tool' ? JSON.parse(last.content) : null;
+          if (last?.role === 'tool') seen.push(last.tool_call_id!);
+          const emit = (name: string, args: object) =>
+            sendToolCall(res, name + '-' + step, name, args);
+          step++;
+          switch (step) {
+            case 1:
+              expect(app!.server.mcpManager.getServerStatus('dynamic')).toBeUndefined();
+              emit('mcp_server_register', { serverName: 'dynamic', connection });
+              break;
+            case 2:
+              expect(settled).toMatchObject({ success: true, data: { registered: true } });
+              expect(app!.server.mcpManager.getServerStatus('dynamic')).toMatchObject({
+                status: 'stopped',
+                processId: null,
+              });
+              emit('mcp_server_control', { serverName: 'dynamic', action: 'start' });
+              break;
+            case 3:
+              expect(settled).toMatchObject({ success: true, data: { status: 'running' } });
+              emit('mcp_servers', { serverName: 'dynamic' });
+              break;
+            case 4: {
+              expect(settled).toMatchObject({
+                success: true,
+                data: {
+                  servers: [{ name: 'dynamic', definitionSource: 'agent', status: 'running' }],
+                },
+              });
+              processId = settled.data.servers[0].processId;
+              const runner = app!.server.runtimeApplication.processRunner;
+              if (transport === 'stdio')
+                expect(runner.get(processId!)).toMatchObject({
+                  owner_id: 'mcp:dynamic',
+                  owner_kind: 'runtime',
+                  card_id: null,
+                  evidence: { stdout: 'not_captured', stderr: 'not_captured' },
+                });
+              else expect(processId).toBeNull();
+              emit('list_processes_tool', {});
+              break;
+            }
+            case 5: {
+              expect(settled.success).toBe(true);
+              if (transport === 'stdio') {
+                expect(JSON.stringify(settled)).toContain(processId!);
+                expect(JSON.stringify(settled)).toContain('mcp:dynamic');
+                expect(JSON.stringify(settled)).toContain('not_captured');
+              }
+              waitsBeforeDenial = processWait.mock.calls.length;
+              emit('wait_process', { process_id: processId ?? 'proc-000000000000', timeout_ms: 0 });
+              break;
+            }
+            case 6:
+              expect(settled).toMatchObject({
+                success: false,
+                error: expect.stringContaining(
+                  transport === 'stdio' ? 'not owned' : 'Unknown process',
+                ),
+              });
+              expect(settled).not.toHaveProperty('data.stdout');
+              emit('kill_process', { process_id: processId ?? 'proc-000000000000' });
+              break;
+            case 7:
+              expect(settled).toMatchObject({
+                success: false,
+                error: expect.stringContaining(
+                  transport === 'stdio' ? 'not owned' : 'Unknown process',
+                ),
+              });
+              expect(processWait.mock.calls).toHaveLength(waitsBeforeDenial);
+              expect(processKill).not.toHaveBeenCalled();
+              if (processId)
+                expect(app!.server.runtimeApplication.processRunner.get(processId)?.status).toBe(
+                  'running',
+                );
+              emit('run_command', {
+                command: 'printf independent-command',
+                wait: true,
+                timeout_ms: 2000,
+              });
+              break;
+            case 8:
+              expect(settled.success).toBe(true);
+              expect(JSON.stringify(settled)).toContain('independent-command');
+              emit('mcp_tools', { serverName: 'dynamic' });
+              break;
+            case 9:
+              expect(settled.success).toBe(true);
+              binding = settled.data.bindingId;
+              expect(binding).toEqual(expect.any(String));
+              emit('mcp_tool_call', {
+                serverName: 'dynamic',
+                bindingId: binding,
+                toolName: 'ping',
+                args: { value: 'selected-agent' },
+              });
+              break;
+            case 10:
+              expect(JSON.stringify(settled)).toContain('pong:selected-agent');
+              emit('mcp_server_control', { serverName: 'dynamic', action: 'stop' });
+              break;
+            case 11:
+              expect(settled.success).toBe(true);
+              if (processId)
+                expect(app!.server.runtimeApplication.processRunner.get(processId)).toBeNull();
+              emit('mcp_server_unregister', { serverName: 'dynamic' });
+              break;
+            case 12:
+              expect(settled).toMatchObject({ success: true, data: { unregistered: true } });
+              sendFinalMessage(res, 'Dynamic connection removed.');
+              break;
+            default:
+              throw new Error('unexpected scripted provider step');
+          }
+        } catch (error) {
+          fixtureFailure = error;
+          res.statusCode = 500;
+          res.end();
+        }
+      });
+      try {
+        const providerPort = await listen(provider);
+        writeProductionConfig(
+          projectRoot,
+          productionTestConfig(providerPort, (config) => {
+            config.agents.analyst!.tools.push(
+              'mcp_server_register',
+              'mcp_server_unregister',
+              'mcp_servers',
+            );
+            config.mcpServers = {
+              independent: { ...httpConnection, autostart: true, disabled: false },
+            };
+          }),
+        );
+        initializeProject(projectRoot);
+        app = await startProductionApp(projectRoot, TOKEN);
+        apps.add(app);
+        // Observation-only spies retain the real shared runner and owner mechanics.
+        processWait = jest.spyOn(app.server.runtimeApplication.processRunner, 'waitForSettlement');
+        processKill = jest.spyOn(app.server.runtimeApplication.processRunner, 'kill');
+        const response = await fetch(`${appOrigin(app)}/api/chat`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ content: 'Exercise the selected dynamic connection tools.' }),
+        });
+        const reply = await response.json();
+        if (fixtureFailure) throw fixtureFailure;
+        expect(response.status).toBe(200);
+        expect(step).toBe(12);
+        expect(seen).toHaveLength(11);
+        expect(JSON.stringify(reply)).not.toContain('synthetic-private-env');
+        const manager = app.server.mcpManager;
+        const runner = app.server.runtimeApplication.processRunner;
+        await expect(
+          manager.invokeTool(
+            'independent',
+            manager.getServerStatus('independent')!.bindingId!,
+            'ping',
+            { value: 'independent' },
+          ),
+        ).resolves.toMatchObject({ content: [{ text: 'pong:independent' }] });
+        expect(peer.listening).toBe(true);
+        expect(manager.getServerStatus('dynamic')).toMatchObject({
+          definitionSource: null,
+          status: 'stopped',
+          processId: null,
+        });
+        const rows = readConversation(projectRoot, 'agent:analyst:global').physicalRows;
+        expect(rows.filter((r) => r.kind === 'tool_call').map((r) => r.tool_call_id)).toEqual(seen);
+        expect(rows.filter((r) => r.kind === 'tool_result').map((r) => r.tool_call_id)).toEqual(
+          seen,
+        );
+        const wireCount = () =>
+          transport === 'stdio'
+            ? readFileSync(callsPath, 'utf8').trim().split('\n').filter(Boolean).length
+            : wireCalls.length;
+        manager.registerServer('dynamic', connection);
+        await manager.startServer('dynamic');
+        const replacementBinding = manager.getServerStatus('dynamic')!.bindingId!;
+        expect(replacementBinding).not.toBe(binding);
+        const beforeStale = wireCount();
+        await expect(
+          manager.invokeTool('dynamic', binding, 'ping', { value: 'never-dispatched' }),
+        ).rejects.toThrow('Stale MCP binding');
+        expect(wireCount()).toBe(beforeStale);
+        await manager.invokeTool('dynamic', replacementBinding, 'ping', { value: 'bound-B' });
+        expect(wireCount()).toBe(beforeStale + 1);
+        await manager.unregisterServer('dynamic');
+        if (transport === 'stdio') {
+          manager.registerServer('serial', connection);
+          await manager.startServer('serial');
+          const serialBinding = manager.getServerStatus('serial')!.bindingId!;
+          const before = Date.now();
+          await Promise.all([
+            manager.invokeTool('serial', serialBinding, 'ping', { value: 'first' }),
+            manager.invokeTool('serial', serialBinding, 'ping', { value: 'second' }),
+          ]);
+          const calls = readFileSync(callsPath, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+          expect(calls.map((c) => c.value)).toEqual([
+            'selected-agent',
+            'bound-B',
+            'first',
+            'second',
+          ]);
+          expect(calls[3].at - calls[2].at).toBeGreaterThanOrEqual(100);
+          expect(Date.now() - before).toBeGreaterThanOrEqual(220);
+          const serialProcess = manager.getServerStatus('serial')!.processId!;
+          await manager.unregisterServer('serial');
+          expect(runner.get(serialProcess)).toBeNull();
+          manager.registerServer('natural', connection);
+          await manager.startServer('natural');
+          const naturalProcess = manager.getServerStatus('natural')!.processId!;
+          await manager.invokeTool(
+            'natural',
+            manager.getServerStatus('natural')!.bindingId!,
+            'ping',
+            { value: 'exit' },
+          );
+          await waitFor(() => runner.get(naturalProcess) === null, 'MCP natural exit retirement');
+          // EOF containment can win the OS-exit race; never infer exit zero from EOF.
+          expect(['stopped', 'error']).toContain(manager.getServerStatus('natural')!.status);
+          expect(manager.getServerStatus('natural')).toMatchObject({ processId: null });
+          await manager.unregisterServer('natural');
+        } else expect(wireCalls).toHaveLength(3);
+      } finally {
+        if (app) {
+          apps.delete(app);
+          await app.stop();
+        }
+        await closeServer(provider);
+        await closeServer(peer);
+      }
+    },
+    60_000,
+  );
   it('serves lifetime workspace roots through a real synthetic stdio child and manager without replay', async () => {
     const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-lifetime-á space-');
     roots.push(projectRoot);
@@ -103,10 +433,12 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       });
       for (let n = 1; n <= 2; n++)
         await expect(
-          manager.invokeTool('local', 'mutate', {}, { timeoutMs: 5000 }),
+          manager.invokeTool('local',
+            manager.getServerStatus('local')!.bindingId!, 'mutate', {}, { timeoutMs: 5000 }),
         ).resolves.toMatchObject({ content: [{ type: 'text', text: `mutation:${n}` }] });
       await expect(
-        manager.invokeTool('local', 'report', {}, { timeoutMs: 5000 }),
+        manager.invokeTool('local',
+          manager.getServerStatus('local')!.bindingId!, 'report', {}, { timeoutMs: 5000 }),
       ).resolves.toMatchObject({
         structuredContent: {
           mutations: 2,
@@ -252,7 +584,8 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         if (!tools.includes('mcp_tool_call') || !tools.includes('emit_result')) throw new Error(`Unexpected card-agent tool set: ${tools.join(',')}.`);
         rootCalls += 1;
         if (rootCalls === 1) {
-          sendToolCall(response, 'mcp-call', 'mcp_tool_call', { serverName: SERVER_NAME, toolName: 'echo_marker', args: { marker: MARKER } });
+          sendToolCall(response, 'mcp-call', 'mcp_tool_call', { serverName: SERVER_NAME,
+              bindingId: app!.server.mcpManager.getServerStatus(SERVER_NAME)!.bindingId!, toolName: 'echo_marker', args: { marker: MARKER } });
         } else if (rootCalls === 2) {
           markerResultSeenByProvider = JSON.parse(last?.content ?? 'null');
           if (last?.role !== 'tool' || JSON.stringify(markerResultSeenByProvider).includes(MARKER) === false) throw new Error('Root continuation did not receive the marker-bearing MCP settlement.');

@@ -7,7 +7,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 const McpTransportSchema = z.enum(['stdio', 'streamable-http']);
-const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
+const McpStatusStateSchema = z.enum(['starting', 'running', 'stopped', 'error']);
 const McpInvocationStatSchema = z
   .object({
     total: z.number().int().nonnegative(),
@@ -27,6 +27,10 @@ const McpServerToolsSchema = z
     name: z.string(),
     transport: McpTransportSchema,
     status: McpStatusStateSchema,
+    bindingId: z.string().uuid().nullable(),
+    definitionSource: z.enum(['operator', 'agent']).nullable(),
+    containmentFailed: z.boolean(),
+    processId: z.string().nullable(),
     toolCount: z.number().int().nonnegative(),
     tools: z.array(McpToolWithStatsSchema),
   })

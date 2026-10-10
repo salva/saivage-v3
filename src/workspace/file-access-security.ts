@@ -6,7 +6,11 @@ import {
 } from './secret-paths.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
-const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set(['.saivage/saivage.json']);
+const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
+  '.saivage/saivage.json',
+  // Connection credentials require the MCP owner's safe observation, never raw Files reads.
+  '.saivage/config/mcp-servers.json',
+]);
 
 const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set(['.saivage/saivage.yaml']);
 

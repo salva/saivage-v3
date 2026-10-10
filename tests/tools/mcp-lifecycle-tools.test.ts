@@ -89,8 +89,18 @@ describe('independent configured MCP admissions', () => {
   it('permits explicitly selected Reviewer discovery/control without granting invocation, and invocation alone grants neither', async () => {
     const startServer = jest.fn(async (serverName:string) => ({ serverName, status: 'running' as const, toolCount: 1 }));
     const schema = { type: 'object' as const, $schema: 'https://json-schema.org/draft/2020-12/schema', properties: { scale: { enum: ['css'] } }, required: ['scale'], additionalProperties: false };
-    const port = { ...unusedMcpToolInvocation, startServer, getServerTools: () => [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] };
-    expect(await call(['mcp_tools'], port, 'mcp_tools', { serverName: 'one', toolName: 'screenshot' })).toEqual({ success: true, data: { serverName: 'one', tools: [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] } });
+    const port = { ...unusedMcpToolInvocation, startServer,
+      getServerStatus: () => ({
+        name: 'one',
+        transport: 'stdio' as const,
+        status: 'running' as const,
+        bindingId: '11111111-1111-4111-8111-111111111111',
+        definitionSource: 'operator' as const,
+        containmentFailed: false,
+        processId: null,
+      }), getServerTools: () => [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] };
+    expect(await call(['mcp_tools'], port, 'mcp_tools', { serverName: 'one', toolName: 'screenshot' })).toEqual({ success: true, data: { serverName: 'one',
+        bindingId: '11111111-1111-4111-8111-111111111111', tools: [{ name: 'screenshot', description: 'Native screenshot', inputSchema: schema }] } });
     expect(await call(['mcp_server_control'], port, 'mcp_server_control', { serverName: 'one', action: 'start' })).toMatchObject({ success: true, data: { status: 'running' } });
     expect(startServer).toHaveBeenCalledTimes(1);
     for (const toolName of ['mcp_tools', 'mcp_server_control']) expect(await call(['mcp_tool_call'], port, toolName, { serverName: 'one', action: 'start' })).toMatchObject({ success: false, error: expect.stringContaining('Unsupported tool') });
@@ -101,7 +111,16 @@ describe('independent configured MCP admissions', () => {
     const name = 'mcp_tools';
     const stopped = { ...unusedMcpToolInvocation, getServerTools: () => undefined };
     expect(await call([name], stopped, name, { serverName: 'one' })).toMatchObject({ success: false, error: expect.stringContaining('stopped') });
-    const oversized = { ...unusedMcpToolInvocation, getServerTools: () => [{ name: 'huge', inputSchema: { type: 'object' as const, description: 'X'.repeat(1024 * 1024) } }] };
+    const oversized = { ...unusedMcpToolInvocation,
+      getServerStatus: () => ({
+        name: 'one',
+        transport: 'stdio' as const,
+        status: 'running' as const,
+        bindingId: '11111111-1111-4111-8111-111111111111',
+        definitionSource: 'operator' as const,
+        containmentFailed: false,
+        processId: null,
+      }), getServerTools: () => [{ name: 'huge', inputSchema: { type: 'object' as const, description: 'X'.repeat(1024 * 1024) } }] };
     expect(await call([name], oversized, name, { serverName: 'one', toolName: 'huge' })).toMatchObject({ success: false, error: expect.stringContaining('exceeds 1 MiB') });
     expect(await call([name], oversized, name, { serverName: 'one', toolName: 'missing' })).toMatchObject({ success: false, error: 'MCP tool not found.' });
   });

@@ -41,6 +41,7 @@ type RawConfig = Record<string, unknown>;
 export interface ResolvedConfigAuthority {
   readonly path: string;
   loadMcpServer(name: string): McpServerConfig | undefined;
+  loadMcpServers(): Record<string, McpServerConfig>;
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): {
     config: SaivageConfig;
@@ -162,6 +163,14 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     if (selected === undefined) return undefined;
     const { value } = interpolateValue(selected.toJSON(), this.#interpolationEnvironment);
     return mcpServerEntrySchema.parse(value);
+  }
+
+  loadMcpServers(): Record<string, McpServerConfig> {
+    const servers = this.readDocument().get('mcpServers', true);
+    if (servers === undefined) return {};
+    if (!YAML.isMap(servers)) throw new Error('mcpServers must be a mapping.');
+    const { value } = interpolateValue(servers.toJSON(), this.#interpolationEnvironment);
+    return saivageConfigSchema.shape.mcpServers.unwrap().parse(value);
   }
 
   applyChange(mutation: ConfigMutation): ConfigMutationResult {

@@ -98,8 +98,15 @@ explicit JSON sections, with no required or fabricated `source_path` and no dupl
 native text/descriptors. Concise MCP lifecycle/discovery presenters show recorded
 ready/stopped outcomes (including context-loss caution) and complete JSON input schemas,
 not browser controls or delivery claims. Authenticated POST lifecycle routes use the
-shared operator contract/auth machinery and strict empty bodies; the coarse MCP status
-view is unchanged. Loaded current instructions show browser guidance only when actually
+shared operator contract/auth machinery and strict empty bodies. MCP observations show
+`starting|running|stopped|error` (running means ready after discovery),
+`definitionSource:operator|agent|null`, `containmentFailed`, inspectable `bindingId`
+and safe `processId` (null after retirement or for HTTP). A null source with
+containment failure is a removed retained blocker, not an available definition.
+Starting exposes no ready tools. Process association grants no wait/kill authority
+and promises no captured protocol output. Registration/removal presenters show
+recorded publication/containment facts; no topology controls are added.
+Loaded current instructions show browser guidance only when actually
 composed, never dynamic discovery or full historical wire. Retained ordinary MCP data stays opaque inspectable JSON,
 not retrospectively complete or an attachment/delivery claim. Safe originals/copy,
 paired exact anchors and one reading surface remain unchanged.

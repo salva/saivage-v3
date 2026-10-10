@@ -64,7 +64,15 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
     save_as: 'record:///brief.md?card=tok_primary',
   },
   skill: { name: 'tok_primary' },
-  mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
+  mcp_tool_call: { serverName: 'ghu_server',
+    bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' },
+  },
+  mcp_server_register: {
+    serverName: 'ghu_server',
+    connection: { transport: 'stdio', command: 'node', env: { CUSTOM: OUTBOUND_RAW_MARKER } },
+  },
+  mcp_server_unregister: { serverName: 'ghu_server' },
+  mcp_servers: { serverName: 'ghu_server' },
   mcp_tools: { serverName: 'ghu_server', toolName: 'rt_tool' },
   mcp_server_control: { serverName: 'ghu_server', action: 'start' },
   edit_card: { card_id: 'card-a', title: marker },
@@ -117,7 +125,8 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       max_inline_bytes: 45,
       save_as: 'record:///brief.md?card=tok_primary',
     });
-    expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
+    expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server',
+      bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
     expect(complete('emit_result').arguments).toMatchObject({ outcome: 'tok_primary' });
     expect(JSON.stringify(complete('emit_result').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
   });

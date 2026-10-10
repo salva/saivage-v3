@@ -44,12 +44,18 @@ import {
   McpToolCallArgumentsSchema,
   McpServerControlArgumentsSchema,
   McpToolsArgumentsSchema,
+  McpServerRegisterArgumentsSchema,
+  McpServerUnregisterArgumentsSchema,
+  McpServersArgumentsSchema,
   type ToolInvocationProjectionInput,
   type ToolResult,
 } from '../contracts/index.js';
 import { activateCardArgumentsSchema } from '../contracts/tool-api.js';
 import { projectDynamicForOutbound, redactTextForOutbound, redactUrl } from '../redaction/index.js';
-import { projectMcpToolCallArgumentsForOutbound } from './mcp-invocation-outbound.js';
+import {
+  projectMcpToolCallArgumentsForOutbound,
+  projectMcpRegistrationForOutbound,
+} from './mcp-invocation-outbound.js';
 import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
 
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
@@ -100,6 +106,9 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'mcp_tool_call',
   'mcp_server_control',
   'mcp_tools',
+  'mcp_server_register',
+  'mcp_server_unregister',
+  'mcp_servers',
   'edit_card',
   'activate_card',
   TERMINAL_RESULT_TOOL_NAME,
@@ -183,6 +192,7 @@ function projectUnsupportedInvocation(
 }
 
 function projectParsedArguments(toolName: KnownToolInvocationName, value: unknown): unknown {
+  if (toolName === 'mcp_server_register') return projectMcpRegistrationForOutbound(value);
   if (toolName === 'list_cards') return structuredClone(value);
   if (toolName === 'create_card') {
     const projected = structuredClone(value);
@@ -238,6 +248,9 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'mcp_server_control':
     case 'mcp_tools':
+    case 'mcp_servers':
+    case 'mcp_server_unregister':
+    case 'mcp_server_register':
       return projectDynamicForOutbound(input);
     case 'emit_result':
       return {
@@ -406,6 +419,12 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return McpServerControlArgumentsSchema;
     case 'mcp_tools':
       return McpToolsArgumentsSchema;
+    case 'mcp_servers':
+      return McpServersArgumentsSchema;
+    case 'mcp_server_register':
+      return McpServerRegisterArgumentsSchema;
+    case 'mcp_server_unregister':
+      return McpServerUnregisterArgumentsSchema;
     case 'edit_card':
       return plannerEditCardInputSchema;
     case 'activate_card':

@@ -29,6 +29,13 @@ tools and authenticated start/stop APIs add no browser controls to the UI. Loade
 current instructions expose the actual composed browser guidance, not dynamic tool
 discovery, pixels or historical provider wire.
 
+MCP observations must distinguish **starting** from discovery-complete **running**,
+show operator/agent definition origin (or no definition for a retained blocker),
+containment failure, inspectable binding and safe current process association.
+Association is not wait/kill authority or protocol output capture. HTTP has none.
+Registration/removal exchanges show their own recorded facts, not an inferred
+later lifetime. No topology editor, tree visibility or lifetime timeline is added.
+
 ## Explicit loss visibility
 
 Operators need truthful coarse loss, not a guarantee of preservation or repaired availability. Strict startup errors direct a stopped, no-owner, fresh-complete-backup, exact-report/consent repair and separate restart flow; no degraded control room or automatic repair. See the [runbook](../runbook/index.md#exact-target-offline-repair). Files hides/refuses attic and resolved aliases before content inspection and offers no attic browser/repair control. Missing owning cards display **Card not found** separately from record/version misses.

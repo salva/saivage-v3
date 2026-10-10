@@ -283,6 +283,20 @@ requires opt-in and Oversight admits none. Edit alone changes no running server:
 explicit stop/start reloads only its current entry, not other workflows/routing.
 See the [pinned browser recipe](../runbook/index.md#configured-browser-lifecycle).
 
+An explicitly selected `mcp_server_register` may instead add a connection to the
+lazy `.saivage/config/mcp-servers.json` (format 1, type `mcp-server-definitions`,
+`servers` map). Names must not collide with YAML. Registration does not start;
+dynamic definitions survive restart/reset but always require explicit start.
+`mcp_server_unregister` removes only dynamic entries and contains their exact
+runtime. `mcp_servers` observes configured and retained owners independently.
+No new permissions are added to defaults. Discover with `mcp_tools`, then pass
+its `bindingId` to `mcp_tool_call`; stop/start requires fresh discovery.
+Stdio is an MCP-managed runtime process, not an attachable agent command;
+ordinary process wait/kill remains denied. HTTP is an external URL and local
+stop does not terminate it. Editing, live catalog refresh and card-tree lifetime
+refinements are deferred. `show_config` remains YAML-only; Files refuses the
+secret-bearing dynamic definition file. Include it in complete project backups.
+
 ## Server
 
 Failed-provider request diagnostics are **CLI-only**, disabled by default:

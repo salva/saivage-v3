@@ -162,25 +162,34 @@ function isHttpUrl(value: string): boolean {
 }
 
 // MCP Server entry
-const stdioMcpServerSchema = z
+const stdioMcpConnectionSchema = z
   .object({
     transport: z.literal('stdio'),
     command: z.string().min(1),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
-    disabled: z.boolean().default(false),
-    autostart: z.boolean().default(true),
   })
   .strict();
 
-const streamableHttpMcpServerSchema = z
+const streamableHttpMcpConnectionSchema = z
   .object({
     transport: z.literal('streamable-http'),
     url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
-    disabled: z.boolean().default(false),
-    autostart: z.boolean().default(true),
   })
   .strict();
+
+export const mcpConnectionSchema = z.discriminatedUnion('transport', [
+  stdioMcpConnectionSchema,
+  streamableHttpMcpConnectionSchema,
+]);
+export type McpConnection = z.infer<typeof mcpConnectionSchema>;
+
+const lifecycleFields = {
+  disabled: z.boolean().default(false),
+  autostart: z.boolean().default(true),
+};
+const stdioMcpServerSchema = stdioMcpConnectionSchema.extend(lifecycleFields);
+const streamableHttpMcpServerSchema = streamableHttpMcpConnectionSchema.extend(lifecycleFields);
 
 export const mcpServerEntrySchema = z.discriminatedUnion('transport', [
   stdioMcpServerSchema,
@@ -378,24 +387,10 @@ const effectiveCompactionSectionSchema = z
   })
   .strict()
   .superRefine(validateCompaction);
-const effectiveStdioMcpServerSchema = z
-  .object({
-    transport: z.literal('stdio'),
-    command: z.string().min(1),
-    args: z.array(z.string()).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    disabled: z.boolean(),
-    autostart: z.boolean(),
-  })
-  .strict();
-const effectiveStreamableHttpMcpServerSchema = z
-  .object({
-    transport: z.literal('streamable-http'),
-    url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
-    disabled: z.boolean(),
-    autostart: z.boolean(),
-  })
-  .strict();
+const effectiveLifecycleFields = { disabled: z.boolean(), autostart: z.boolean() };
+const effectiveStdioMcpServerSchema = stdioMcpConnectionSchema.extend(effectiveLifecycleFields);
+const effectiveStreamableHttpMcpServerSchema =
+  streamableHttpMcpConnectionSchema.extend(effectiveLifecycleFields);
 const effectiveMcpServerEntrySchema = z.discriminatedUnion('transport', [
   effectiveStdioMcpServerSchema,
   effectiveStreamableHttpMcpServerSchema,

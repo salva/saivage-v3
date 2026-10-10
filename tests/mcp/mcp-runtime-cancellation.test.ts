@@ -77,10 +77,10 @@ describe('active stdio cancellation ownership', () => {
   it.each(['caller', 'deadline'] as const)('preserves %s classification through installed port, reader and real shared tool invocation', async mode => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, tool, args, options) => f.runtime.invokeTool(tool, args, { ...options, timeoutMs: mode === 'deadline' ? 15 : 10_000 }) });
+    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, _binding, tool, args, options) => f.runtime.invokeTool(tool, args, { ...options, timeoutMs: mode === 'deadline' ? 15 : 10_000 }) });
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
     const caller = new AbortController();
-    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }), caller.signal);
+    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }), caller.signal);
     await f.entered.promise;
     if (mode === 'caller') caller.abort({ exact: 'non-default caller reason' });
     else {
@@ -117,9 +117,9 @@ describe('active stdio cancellation ownership', () => {
   it('later recognized image conversion failure leaves the actual native invocation successful without replay', async () => {
     const f = await fixture();
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, tool, args, options) => f.runtime.invokeTool(tool, args, options) });
+    installation.installer.install({ ...unusedMcpToolInvocation, getServerTools: () => f.runtime.getTools(), findToolCapability: () => null, invokeTool: (_server, _binding, tool, args, options) => f.runtime.invokeTool(tool, args, options) });
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
-    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
+    const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }));
     await f.entered.promise;
     f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [{ type: 'image', mimeType: 'image/png', data: 'YQ==' }] } }) + '\n');
     const execution = await result;

@@ -32,12 +32,16 @@ export interface McpJsonRpcRequest {
 }
 
 type McpTransport = 'stdio' | 'streamable-http';
-export type McpStatus = 'running' | 'stopped' | 'error';
+export type McpStatus = 'starting' | 'running' | 'stopped' | 'error';
 
 export interface McpServerStatus {
   name: string;
   transport: McpTransport;
   status: McpStatus;
+  bindingId: string | null;
+  definitionSource: 'operator' | 'agent' | null;
+  containmentFailed: boolean;
+  processId: string | null;
   pid?: number;
   error?: string;
   startedAt?: string;

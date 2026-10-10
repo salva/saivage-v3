@@ -26,7 +26,12 @@ are bounded, never truncated: wire 48 MiB, aggregate source images 32 MiB,
 projected non-image text/JSON 1 MiB. Selected Analyst/Executor tools can start a
 configured official Playwright MCP server, discover exact schemas and invoke native
 screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/runbook/index.md#configured-browser-lifecycle).
-Reviewer requires explicit admission; Oversight has no MCP. One server shares a
+Reviewer requires explicit admission; Oversight has no MCP. Independently selected
+registration/removal tools persist connections separately from operator YAML;
+registration does not launch and dynamic connections never autostart. Discover
+`bindingId` before calling; bindings change on stop/start. MCP-managed stdio process
+association does not grant ordinary process wait/kill; HTTP stop is local only.
+Live catalog refresh, editing and card-tree lifetimes remain deferred. One server shares a
 disposable context, lost on stop/active cancellation. Pixels cannot be certified secret-free.
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.

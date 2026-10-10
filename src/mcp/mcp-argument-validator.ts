@@ -22,8 +22,6 @@ const compilerOptions = {
   strict: false,
   validateSchema: true,
 };
-const draft2020Compiler = new Ajv2020(compilerOptions);
-const draft07Compiler = new Ajv(compilerOptions);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -159,12 +157,12 @@ export function compileMcpArgumentValidator(schema: unknown): CachedMcpArgumentV
     dialect === 'https://json-schema.org/draft/2020-12/schema' ||
     dialect === 'https://json-schema.org/draft/2020-12/schema#'
   ) {
-    compiler = draft2020Compiler;
+    compiler = new Ajv2020(compilerOptions);
   } else if (
     dialect === 'http://json-schema.org/draft-07/schema' ||
     dialect === 'http://json-schema.org/draft-07/schema#'
   ) {
-    compiler = draft07Compiler;
+    compiler = new Ajv(compilerOptions);
   } else {
     return {
       ok: false,

@@ -27,6 +27,12 @@
           <span class="mcp-sep" aria-hidden="true">·</span>
           <span class="mcp-tool-count">{{ server.toolCount }} tools</span>
         </h4>
+        <div class="debug-grid">
+          <div class="debug-grid-item"><span class="dg-key">Definition:</span><span class="dg-value">{{ server.definitionSource ?? 'Absent · retained owner' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Containment:</span><span class="dg-value">{{ server.containmentFailed ? 'Failed · name blocked' : 'No failure reported' }}</span></div>
+          <div v-if="server.processId" class="debug-grid-item"><span class="dg-key">Process association:</span><span class="dg-value">{{ server.processId }}</span></div>
+          <div v-if="server.bindingId" class="debug-grid-item"><span class="dg-key">Catalog binding:</span><span class="dg-value">{{ server.bindingId }}</span></div>
+        </div>
         <ViewState v-if="server.tools.length === 0" state="empty" title="No tools discovered." />
         <div v-for="tool in server.tools" :key="tool.name" class="mcp-tool-card">
           <div class="mcp-tool-name-row"><span class="mcp-tool-name">{{ tool.name }}</span></div>
@@ -84,6 +90,7 @@ function fmtDate(timestamp: string): string {
 }
 .mcp-server-badge.mcp-status-running { background: var(--entry-accent-bg); color: var(--accent); }
 .mcp-server-badge.mcp-status-stopped { background: var(--surface-3); color: var(--text-muted); }
+.mcp-server-badge.mcp-status-starting { background: var(--surface-3); color: var(--accent); }
 .mcp-server-badge.mcp-status-error { background: var(--entry-danger-bg); color: var(--danger); }
 .mcp-server-transport {
   font-size: 10px;

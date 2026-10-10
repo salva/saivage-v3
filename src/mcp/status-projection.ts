@@ -7,6 +7,10 @@ export interface InternalMcpToolsReadModel {
     name: string;
     transport: RuntimeMcpServerStatus['transport'];
     status: RuntimeMcpServerStatus['status'];
+    bindingId: string | null;
+    definitionSource: RuntimeMcpServerStatus['definitionSource'];
+    containmentFailed: boolean;
+    processId: string | null;
     toolCount: number;
     tools: Array<McpToolDefinition & { stats: McpInvocationStat }>;
   }>;
@@ -19,7 +23,12 @@ export function buildMcpServerStatus(input: {
   override?: { status: RuntimeMcpServerStatus['status']; error?: string };
   startedAt?: string;
   tools?: McpToolDefinition[];
-}): RuntimeMcpServerStatus {
+  ready: boolean;
+  starting: boolean;
+}): Omit<
+  RuntimeMcpServerStatus,
+  'bindingId' | 'definitionSource' | 'containmentFailed' | 'processId'
+> {
   const { name, config: cfg, handle, override, startedAt, tools } = input;
   if (cfg.disabled) return { name, transport: cfg.transport, status: 'stopped' };
   if (override?.status === 'error')
@@ -34,7 +43,13 @@ export function buildMcpServerStatus(input: {
   if (override?.status === 'stopped')
     return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: 0 };
   if (!handle)
-    return { name, transport: cfg.transport, status: 'stopped', startedAt, tools_count: 0 };
+    return {
+      name,
+      transport: cfg.transport,
+      status: input.starting ? 'starting' : 'stopped',
+      startedAt,
+      tools_count: 0,
+    };
   if (cfg.transport === 'stdio' && handle.process) {
     const proc = handle.process;
     if (proc.killed || proc.exitCode !== null)
@@ -50,7 +65,7 @@ export function buildMcpServerStatus(input: {
     return {
       name,
       transport: cfg.transport,
-      status: 'running',
+      status: input.ready ? 'running' : 'starting',
       pid: proc.pid ?? undefined,
       startedAt,
       tools_count: tools?.length ?? 0,
@@ -68,7 +83,7 @@ export function buildMcpServerStatus(input: {
     return {
       name,
       transport: cfg.transport,
-      status: 'running',
+      status: input.ready ? 'running' : 'starting',
       startedAt,
       tools_count: tools?.length ?? 0,
     };
@@ -92,6 +107,10 @@ export function buildMcpToolsReadModel(input: {
       name: status.name,
       transport: status.transport,
       status: status.status,
+      bindingId: status.bindingId,
+      definitionSource: status.definitionSource,
+      containmentFailed: status.containmentFailed,
+      processId: status.processId,
       toolCount: toolDefs.length,
       tools: toolList,
     };

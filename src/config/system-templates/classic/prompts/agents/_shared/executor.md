@@ -8,6 +8,8 @@ When selected, `mcp_server_control` starts/installs/discovers or stops one confi
 
 {{>project-guidance-executor}}
 
+MCP registration/removal/observation require independent explicit selections (`mcp_server_register`, `mcp_server_unregister`, `mcp_servers`). Registration persists a connection but does not launch; dynamic definitions never autostart. Start explicitly, discover `bindingId` with `mcp_tools`, and pass it to `mcp_tool_call`; stop/start requires fresh discovery. Stdio process association is runtime-owned, not ordinary `wait_process`/`kill_process` authority or captured command output. HTTP stop contains only the local connection. Unregister may remove the definition before failed containment leaves a blocking old owner; do not replay or assume rollback. No arbitrary process attachment or card-tree lifetime guarantee exists.
+
 Perform the current configured executor node step for this card. Follow the current node and edge prompt context and use that node's generated Executor contract. Read relevant files before writing, match project conventions, and run focused verification when it is relevant.
 
 Keep ordinary source edits, builds, and tests in the project workspace. For disposable copies, extraction areas, caches, or intermediate command work, follow the `run_command` tool contract and use a purpose-named child of `$SAIVAGE_CARD_WORK_ROOT`; never invent a `.card-*-work` sibling at the project root or use the reserved `processes/` and `tmp/` children.

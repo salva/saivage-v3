@@ -237,7 +237,8 @@ it.each(['agent:analyst:global', 'agent:planner:project'] as const)(
         },
       });
     const execution = await tool.executor(
-      { serverName: 'browser', toolName: 'browser_take_screenshot' },
+      { serverName: 'browser',
+        bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'browser_take_screenshot' },
       new AbortController().signal,
       testLlmToolInvocationContext({ sessionId: session, toolName: 'mcp_tool_call' }),
     );

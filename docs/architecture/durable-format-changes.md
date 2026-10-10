@@ -11,8 +11,10 @@ operational consent. Current contracts remain owned by the
 [architecture](./system-architecture.md); procedures remain owned by the
 [runbook](../runbook/index.md#external-migrations).
 
-Observed source parent: `9dce1e8eef3e43d04a7711f3c4225fcfc30ae5c4` (conversation
-format 6); current target is this loss-tolerant-maintenance changeset (format 7).
+The summary-maintenance entry records source parent
+`9dce1e8eef3e43d04a7711f3c4225fcfc30ae5c4` (conversation 6) and its format-7
+target. The later minimal dynamic MCP entry records its exact source parent
+`e980b1b14ce859808e469d4e2018e75f142ab30d`, already conversation 7.
 Introduction commits below establish source boundaries, not deployment dates or
 installed-state facts. Compare the selected releases' actual owning schemas and
 semantic consumers, including later changes; equal versions and successful startup
@@ -20,6 +22,34 @@ do not certify whole-project or historical compatibility. Maintain affected
 baseline/change entries with implementation, recording evidence and honest unknowns.
 
 ## Current source baseline
+
+### Minimal dynamic MCP definitions (2026-10-10)
+
+Exact source/implementation parent: `e980b1b14ce859808e469d4e2018e75f142ab30d`.
+Target is this coherent source changeset. The genuinely new lazy configuration
+family `.saivage/config/mcp-servers.json` declares `format_version:1`,
+`type:mcp-server-definitions` and a strict `servers` connection map. Its owner,
+schema and stateless synchronous reader/writer are `src/mcp/server-definitions.ts`;
+connection schemas are factored from `src/schemas/saivage-config.ts`. Absence is
+intentional empty state. Definitions are preserved by normal reset and complete
+backup, never autostart, and cannot shadow YAML. Older binaries may ignore this
+file; binary-only downgrade is not an approved rollback.
+
+Conversation index/genesis/segment remain **7**. Prior name-only MCP input and new
+bound/registration input are arbitrary recorded call JSON and generic result data,
+not executable retained contracts. Current strict reader, materializer and outbound
+projector tests retain both as historical facts without inventing bindings or replay.
+See `tests/mcp/mcp-historical-topology.test.ts` for the no-bump evidence. The prior
+conversation-7 summary-maintenance cutover below is preserved, not shared with this
+change. Deployment applicability is unknown; no undeployed/shared-cutover exception
+is claimed. No migration, reset, deployment or live adoption is performed here.
+
+YAML remains unversioned with unchanged disabled/autostart semantics. Card, record,
+head, mailbox and lifecycle-lock contracts are unchanged; app-log/provider-evidence
+envelope **1**, diagnostic/privacy policy **2**, compaction and image descriptors
+are unchanged. Bindings/status/process associations are transient projections or
+generic observation results, not additions to strict retained event/descriptor
+payloads. Equal discriminators still do not certify whole-installation compatibility.
 
 ### Loss-tolerant summary maintenance (2026-10-10)
 

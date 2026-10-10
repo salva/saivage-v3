@@ -26,7 +26,7 @@ async function composedStdioCall(content: unknown) {
     getServerTools: () => undefined,
   };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
-  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
+  const execution = await invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }));
   connection.dispose(new Error('test complete')); stdin.destroy(); stdout.destroy();
   return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome);
 }

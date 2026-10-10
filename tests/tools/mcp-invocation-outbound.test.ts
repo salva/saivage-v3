@@ -8,6 +8,7 @@ describe('MCP invocation outbound leaves', () => {
   it('preserves exact MCP identity and projects only opaque call arguments dynamically', () => {
     expect(projectMcpToolCallArgumentsForOutbound({
       serverName: 'ghu_server',
+        bindingId: '11111111-1111-4111-8111-111111111111',
       toolName: 'tok_primary',
       max_dimension: 'original',
       args: {
@@ -16,6 +17,7 @@ describe('MCP invocation outbound leaves', () => {
       },
     })).toEqual({
       serverName: 'ghu_server',
+      bindingId: '11111111-1111-4111-8111-111111111111',
       toolName: 'tok_primary',
       max_dimension: 'original',
       args: {

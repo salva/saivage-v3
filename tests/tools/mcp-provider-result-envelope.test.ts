@@ -11,7 +11,7 @@ import { McpInvokeError } from '../../src/mcp/errors.js';
 function invocation(invokeTool: () => Promise<unknown>, signal?: AbortSignal) {
   const manager = { ...unusedMcpToolInvocation, invokeTool, findToolCapability: () => null, getServerTools: () => undefined };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
-  return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
+  return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
 }
 async function result(value: unknown) {
   const execution = await invocation(async () => value);

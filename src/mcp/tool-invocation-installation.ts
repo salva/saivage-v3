@@ -38,13 +38,17 @@ export function createMcpToolInvocationInstallation(): McpToolInvocationInstalla
   };
 
   const port: McpToolInvocationPort = {
+    registerServer: (name, connection) => authority().registerServer(name, connection),
+    unregisterServer: (name) => authority().unregisterServer(name),
+    getStatus: () => authority().getStatus(),
+    getServerStatus: (name) => authority().getServerStatus(name),
     startServer: (name, signal) => authority().startServer(name, signal),
     stopServer: (name) => authority().stopServer(name),
     getServerTools: (name) => authority().getServerTools(name),
     findToolCapability: (serverName, toolName) =>
       authority().findToolCapability(serverName, toolName),
-    invokeTool: (serverName, toolName, args, options) =>
-      authority().invokeTool(serverName, toolName, args, options),
+    invokeTool: (serverName, bindingId, toolName, args, options) =>
+      authority().invokeTool(serverName, bindingId, toolName, args, options),
   };
   Object.freeze(port);
   const installer = new McpToolInvocationInstaller((next) => {

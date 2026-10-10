@@ -411,7 +411,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', 200, {
-        servers: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read', stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
+        servers: [{ name: 'filesystem', status: 'running', transport: 'stdio', bindingId: '11111111-1111-4111-8111-111111111111', definitionSource: 'operator', containmentFailed: false, processId: 'synthetic-mcp-launch', toolCount: 1, tools: [{ name: 'read', stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
       }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/processes') {

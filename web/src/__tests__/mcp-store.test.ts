@@ -19,6 +19,10 @@ describe('MCP displayed hierarchy store', () => {
     api.getMcpTools.mockResolvedValue({
       servers: [{
         name: 'filesystem', transport: 'stdio', status: 'running', toolCount: 2,
+          definitionSource: 'agent',
+          containmentFailed: false,
+          processId: 'launch-1',
+          bindingId: '11111111-1111-4111-8111-111111111111',
         tools: [
           { name: 'read', stats: { total: 7, success: 6, error: 1 } },
           { name: 'write', stats: { total: 3, success: 3, error: 0 } },

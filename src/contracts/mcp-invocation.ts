@@ -1,9 +1,28 @@
 import { z } from 'zod';
 import { imageMaxDimensionSchema } from './view-image.js';
+import { mcpConnectionSchema } from '../schemas/index.js';
+
+export const McpServerRegisterArgumentsSchema = z
+  .object({
+    serverName: z.string().min(1),
+    connection: mcpConnectionSchema,
+  })
+  .strict();
+export const McpServerUnregisterArgumentsSchema = z
+  .object({
+    serverName: z.string().min(1),
+  })
+  .strict();
+export const McpServersArgumentsSchema = z
+  .object({
+    serverName: z.string().min(1).optional(),
+  })
+  .strict();
 
 export const McpToolCallArgumentsSchema = z
   .object({
     serverName: z.string(),
+    bindingId: z.string().uuid(),
     toolName: z.string(),
     args: z.record(z.unknown()).optional(),
     max_dimension: imageMaxDimensionSchema.optional(),

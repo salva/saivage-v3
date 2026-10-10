@@ -304,6 +304,9 @@ export {
   McpToolCallArgumentsSchema,
   McpServerControlArgumentsSchema,
   McpToolsArgumentsSchema,
+  McpServerRegisterArgumentsSchema,
+  McpServerUnregisterArgumentsSchema,
+  McpServersArgumentsSchema,
 } from './mcp-invocation.js';
 export type { McpToolCallArguments } from './mcp-invocation.js';
 export { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';

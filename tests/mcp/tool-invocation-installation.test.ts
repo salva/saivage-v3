@@ -9,10 +9,19 @@ import {
 
 function port(label: string): McpToolInvocationPort {
   return {
+    registerServer: jest.fn((name: string) => ({ serverName: name, registered: true as const })),
+    unregisterServer: jest.fn(async (name: string) => ({
+      serverName: name,
+      unregistered: true as const,
+      status: 'stopped' as const,
+    })),
+    getStatus: jest.fn(() => []),
+    getServerStatus: jest.fn(() => undefined),
     startServer: jest.fn(async (name: string) => ({ serverName: name, status: 'running' as const, toolCount: 1 })),
     stopServer: jest.fn(async (name: string) => ({ serverName: name, status: 'stopped' as const, toolCount: 0 })),
     getServerTools: jest.fn(() => [{ name: label, description: label, inputSchema: { type: 'object' as const } }]),
-    findToolCapability: jest.fn(() => ({ serverName: label, name: label, description: label, inputSchema: { type: 'object' as const } })),
+    findToolCapability: jest.fn(() => ({ serverName: label,
+      bindingId: '11111111-1111-4111-8111-111111111111', name: label, description: label, inputSchema: { type: 'object' as const } })),
     invokeTool: jest.fn(async () => label),
   };
 }
@@ -25,7 +34,11 @@ describe('one-shot MCP tool invocation installation', () => {
       () => installation.port.startServer('server'),
       () => installation.port.stopServer('server'),
       () => installation.port.findToolCapability('server', 'tool'),
-      () => installation.port.invokeTool('server', 'tool', {}),
+      () => installation.port.invokeTool('server', '11111111-1111-4111-8111-111111111111', 'tool', {}),
+      () => installation.port.getStatus(),
+      () => installation.port.getServerStatus('server'),
+      () => installation.port.registerServer('server', { transport: 'stdio', command: 'node' }),
+      () => installation.port.unregisterServer('server'),
     ]) {
       expect(operation).toThrow(McpToolInvocationNotInstalledError);
       expect(operation).toThrow('MCP tool invocation authority is not installed.');
@@ -42,8 +55,10 @@ describe('one-shot MCP tool invocation installation', () => {
     expect(facade.getServerTools('server')).toEqual([expect.objectContaining({ name: 'first' })]);
     expect(facade.findToolCapability('server', 'tool')).toEqual(expect.objectContaining({ serverName: 'first' }));
     const signal = new AbortController().signal;
-    await expect(facade.invokeTool('server', 'tool', { value: 1 }, { timeoutMs: 2, signal })).resolves.toBe('first');
-    expect(authority.invokeTool).toHaveBeenCalledWith('server', 'tool', { value: 1 }, { timeoutMs: 2, signal });
+    await expect(facade.invokeTool('server',
+        '11111111-1111-4111-8111-111111111111', 'tool', { value: 1 }, { timeoutMs: 2, signal })).resolves.toBe('first');
+    expect(authority.invokeTool).toHaveBeenCalledWith('server',
+      '11111111-1111-4111-8111-111111111111', 'tool', { value: 1 }, { timeoutMs: 2, signal });
   });
 
   it.each(['same', 'different'] as const)('rejects a %s second authority and leaves the first installed', async (kind) => {
@@ -51,6 +66,6 @@ describe('one-shot MCP tool invocation installation', () => {
     const first = port('first');
     installation.installer.install(first);
     expect(() => installation.installer.install(kind === 'same' ? first : port('second'))).toThrow(McpToolInvocationAlreadyInstalledError);
-    await expect(installation.port.invokeTool('server', 'tool', {})).resolves.toBe('first');
+    await expect(installation.port.invokeTool('server', '11111111-1111-4111-8111-111111111111', 'tool', {})).resolves.toBe('first');
   });
 });

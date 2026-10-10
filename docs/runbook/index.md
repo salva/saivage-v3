@@ -91,11 +91,11 @@ retained runtime work; ordinary Project Stop still leaves MCP services alive.
 
 ### Configured browser lifecycle
 
-MCP definitions remain operator-owned YAML. `mcp_server_control` starts (including
+MCP definitions come from operator-owned YAML or agent-authored connection definitions. `mcp_server_control` starts (including
 fetch/install/discovery) or stops one named configured server; `mcp_tools` returns
 current exact schemas, optionally selecting toolName. Defaults admit these and
 `mcp_tool_call` to Analyst/Executor; Reviewer requires explicit selection, Oversight
-has none and Planner is unchanged. Each permission is independent. Operators may
+has none; custom card participants may opt in. Each permission is independent. Operators may
 use authenticated `POST /api/mcp/servers/:name/start` or `POST /api/mcp/servers/:name/stop` with `{}`; success
 is `{serverName,status,toolCount}`. Unknown names return 404, disabled/busy/changed
 live entries 409, failed start/containment an error. There is no new browser UI.
@@ -103,6 +103,43 @@ An identical ready start is idempotent. Edit alone does not change a running ser
 explicit stop/start loads only that entry. Other config changes still need restart.
 Stop during startup closes immediately and joins; failed containment retains its
 closed owner and forbids replacement. Startup autostart is preserved.
+
+### Dynamic MCP connections
+
+Explicitly select register/unregister/servers tools in the named agent inventory;
+this adds no default grants. A typical independently authorized sequence is:
+
+```text
+mcp_server_register({serverName:"local",connection:{transport:"stdio",command:"node",args:["peer.js"]}})
+mcp_server_control({serverName:"local",action:"start"})
+mcp_tools({serverName:"local"})
+mcp_tool_call({serverName:"local",bindingId:"<observed binding UUID>",toolName:"ping",args:{}})
+mcp_server_control({serverName:"local",action:"stop"})
+mcp_server_unregister({serverName:"local"})
+```
+
+For HTTP use `connection:{transport:"streamable-http",url:"https://example.com/mcp"}`.
+Registration persists only a connection in `.saivage/config/mcp-servers.json`;
+it neither launches nor rewrites YAML. Duplicate names reject. Definitions survive
+normal reset and host restart, but dynamic connections never autostart. Preserve
+the file in complete backups; `show_config` is YAML-only and Files refuses raw
+definition reads. Do not add credentials to chat examples.
+
+`mcp_servers` explains stopped definitions, starting owners and removed owners
+whose containment failed. Running means discovery complete. Fresh discovery is
+required after stop/start; stale bindings fail before wire dispatch, without retry.
+Unregister publishes removal before containment: on containment failure the
+definition stays absent and its closed owner blocks register/start. Do not assume
+failure undid removal or replay automatically; publication uncertainty is fatal
+before further operations. There is no atomic replace/edit/restart tool.
+
+Stdio `processId` is a safe shared Process observation association, not wait/kill
+authority. MCP owns the runtime launch and retirement; stdout/stderr are
+`not_captured`, not command output. Arbitrary process attachment is unsupported.
+HTTP has null process ID; local disconnect does not terminate the external peer.
+Ordinary Project Stop leaves MCP connections alive. Live catalog refresh and
+card-tree visibility/lifetime remain deferred. Deployment, reset and migration
+remain separate permissions; this source change authorizes none of them.
 
 An agent start whose external discovery is explicitly rejected receives a recorded
 executed failed tool result only after successful local containment and stop join.
@@ -575,7 +612,7 @@ Neither backup authorizes restoration or merging. In the reset branch, rollback 
 
 ## Configuration file cutovers
 
-The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Configured-server runtime start/stop/discovery is now supported; agent-authored topology and enable-state persistence remain unsupported. Explicitly select the new tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
+The tool-contract cleanup is a same-format adoption, not a generated-state reset: stop the service, remove any explicit `mcp_reconcile` selection from the instance's configured named-agent tool lists, then start the current binary. Materialized configurations are not updated by shipped-template changes; the removed name follows ordinary unsupported-tool admission with no alias or load-time normalization. Selected start/stop/discovery and dynamic connection registration/removal are supported; edit/restart/enable-state tools, live catalog refresh and card-tree lifetime remain deferred. Current calls require discovery's binding; prior name-only recorded calls remain historical facts, not replay inputs. Explicitly select additional tools and reconcile instance-owned browser guidance when authorized. This note authorizes no deployment or live configuration mutation.
 
 Project Oversight configuration is required even when checks are disabled:
 

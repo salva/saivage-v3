@@ -80,14 +80,14 @@ it.each([false, true])(
           projectRoot,
           mcpToolInvocation: {
             ...unusedMcpToolInvocation,
-            invokeTool: (_server, toolName, args, options) =>
+            invokeTool: (_server, _binding, toolName, args, options) =>
               runtime.invokeTool(toolName, args, options),
             getServerTools: () => runtime.getTools(),
             findToolCapability: () => null,
           },
         });
       const operation = tool.executor(
-        { serverName: 'one', toolName: 'screen' },
+        { serverName: 'one', bindingId: runtime.bindingId, toolName: 'screen' },
         controller.signal,
         testLlmToolInvocationContext({
           sessionId: 'agent:analyst:global',
@@ -142,7 +142,8 @@ it.each(['agent:executor:project', 'agent:analyst:global'] as const)('fences exa
     normalize.mockImplementationOnce(() => new Promise((done, fail) => { resolve = done; reject = fail; entered(); }));
     const tool = mcpToolBinders.find(binder => binder.name === 'mcp_tool_call')!.bind({ projectRoot, mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => ({ content: [{ type: 'image', data: 'YQ==', mimeType: 'image/png' }] }), getServerTools: () => undefined, findToolCapability: () => null } });
     const controller = new AbortController(); const reason = { exact: 'conversion cancellation' };
-    const operation = tool.executor({ serverName: 'one', toolName: 'screen' }, controller.signal, testLlmToolInvocationContext({ sessionId, toolName: 'mcp_tool_call' }));
+    const operation = tool.executor({ serverName: 'one',
+          bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'screen' }, controller.signal, testLlmToolInvocationContext({ sessionId, toolName: 'mcp_tool_call' }));
     await started; controller.abort(reason);
     if (failure) reject(new ImageInputError('recognized conversion failure'));
     else resolve({ bytes: Buffer.from('must not publish'), data: { source_dimensions: { width: 1, height: 1 }, oriented_dimensions: { width: 1, height: 1 }, sent_dimensions: { width: 1, height: 1 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 } });
@@ -156,7 +157,7 @@ it('checks aggregate sources after normalization but before any publication', as
   normalize.mockResolvedValue({ bytes: Buffer.from('unpublished'), data: { source_dimensions: { width: 1, height: 1 }, oriented_dimensions: { width: 1, height: 1 }, sent_dimensions: { width: 1, height: 1 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 } });
   const block = { type: 'image', data: Buffer.alloc(17 * 1024 * 1024).toString('base64'), mimeType: 'image/png' };
   const tool = mcpToolBinders.find(binder => binder.name === 'mcp_tool_call')!.bind({ projectRoot, mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => ({ content: [block, block] }), getServerTools: () => undefined, findToolCapability: () => null } });
-  const execution = await tool.executor({ serverName: 'one', toolName: 'screen' }, new AbortController().signal, testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: 'mcp_tool_call' }));
+  const execution = await tool.executor({ serverName: 'one', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'screen' }, new AbortController().signal, testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: 'mcp_tool_call' }));
   expect(execution.providerOutcome).toMatchObject({ kind: 'failed', error: expect.stringContaining('aggregate 32 MiB') });
   expect(normalize).toHaveBeenCalledTimes(1);
   expect(existsSync(dirname(conversationImageFile(projectRoot, 'agent:analyst:global', '11111111-1111-4111-8111-111111111111')))).toBe(false);
@@ -166,6 +167,7 @@ it('does not substitute later cancellation for unclassified conversion/publicati
     const controller = new AbortController();
     normalize.mockImplementationOnce(async () => { controller.abort({ later: 'cancel' }); throw failure; });
     const tool = mcpToolBinders.find(binder => binder.name === 'mcp_tool_call')!.bind({ projectRoot: '/unused', mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => ({ content: [{ type: 'image', data: 'YQ==', mimeType: 'image/png' }] }), getServerTools: () => undefined, findToolCapability: () => null } });
-    await expect(tool.executor({ serverName: 'one', toolName: 'screen' }, controller.signal, testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: 'mcp_tool_call' }))).rejects.toBe(failure);
+    await expect(tool.executor({ serverName: 'one',
+          bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'screen' }, controller.signal, testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: 'mcp_tool_call' }))).rejects.toBe(failure);
   }
 });

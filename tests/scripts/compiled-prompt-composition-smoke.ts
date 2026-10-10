@@ -242,6 +242,10 @@ try {
   createEventLog(projectRoot);
   const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
   const mcpToolInvocation = {
+    registerServer() { throw new Error('Unexpected MCP register'); },
+    async unregisterServer() { throw new Error('Unexpected MCP unregister'); },
+    getStatus() { throw new Error('Unexpected MCP status'); },
+    getServerStatus() { throw new Error('Unexpected MCP status'); },
     async startServer() { throw new Error('Unexpected MCP start in prompt smoke.'); },
     async stopServer() { throw new Error('Unexpected MCP stop in prompt smoke.'); },
     getServerTools() { throw new Error('Unexpected MCP server tools read in compiled prompt smoke.'); },

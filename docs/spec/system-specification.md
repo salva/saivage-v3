@@ -1090,7 +1090,7 @@ The shared positive-allowlist command environment inherits exactly `PATH`, `HOME
 Ordinary `run_command` children start from that shared environment, then receive the runner's explicit project locators and any explicit per-command environment overlay. Stdio MCP children also start from the same shared environment, followed by that server entry's exact configured `env` overlay. Explicit configured overlays are distinct from inherited environment policy, are not filtered by secret-like key names, and win on duplicate names.
 Streamable HTTP MCP does not launch a child process.
 
-The parsed configuration is the sole MCP server-entry authority.
+Operator YAML and the exact lazy `.saivage/config/mcp-servers.json` connection-definition file are the two MCP server-entry authorities. Duplicate names fail, without precedence. Dynamic definitions are configuration preserved by reset and complete backup, not generated runtime state; they never autostart. `show_config` remains the YAML effective-config projection.
 Every strict `stdio` entry requires a nonempty `command`, may contain only `args`, `env`, `disabled`, and `autostart` in addition to its discriminator, and remains fully validated when disabled.
 Every strict `streamable-http` entry requires one absolute `http:` or `https:` URL and may contain only `disabled` and `autostart` in addition to its discriminator.
 Missing transport fields, cross-transport fields, unknown fields, relative or malformed URLs, and non-HTTP(S) protocols fail configuration validation before MCP lifecycle or transport work.
@@ -1611,10 +1611,10 @@ TIMEOUT failures, while the exact caller reason reaches shared synthetic
 unchanged; no replay or denial of possible remote effects is implied. HTTP call
 cancellation remains request-local and does not stop the remote service.
 
-Configured MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'})`
+MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'})`
 and read-only `mcp_tools({serverName,toolName?})`, strict nonempty names and no extra
 fields. Discovery returns current names/descriptions and exact input schemas through
-outbound redaction; optional exact tool selection avoids catalog overflow. More than
+outbound redaction and a runtime `bindingId`; optional exact tool selection avoids catalog overflow. If redaction would alter an input schema, discovery fails rather than advertising altered validation. More than
 1 MiB fails explicitly, including a single oversize schema; no schema truncation.
 Discovery grants neither invocation nor control. Unknown owners/config entries fail
 explicitly; stopped/not-ready discovery exposes no phantom capabilities.
@@ -1623,7 +1623,7 @@ Start freshly reads only the exact selected effective MCP config entry; unknown 
 disabled entries reject. Equivalent ready owners return running, overlapping starts
 reject busy and changed non-contained owners require explicit stop first. Successfully
 contained owners can be replaced; failed containment owners are never replaced.
-Startup autostart remains unchanged. Runtime config edits alone change no live MCP:
+YAML startup autostart remains unchanged; dynamic definitions remain stopped on host restart. Runtime config edits alone change no live MCP:
 explicit stop/start reloads only that selected entry; unrelated routing/workflows
 still require application restart. Stop immediately fences the exact retained owner
 and joins startup/calls/containment, never waiting behind global reconciliation.
@@ -1634,6 +1634,12 @@ and joins stop only from untracked outer completion, avoiding self-join. Failed 
 and containment are errors, not installed/ready stubs; no retry or implicit restart.
 Application closure synchronously fences new starts/calls, aborts starts and closes
 all retained owners before joins and clearing. Project Stop leaves MCP alive.
+
+Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No edit/restart/enable/disable tools, live catalog refresh or card-tree lifetime rules are added.
+
+`mcp_servers({serverName?})` independently observes definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Common observations expose source `operator|agent|null`, `starting|running|stopped|error`, containment failure, binding and safe process association. Running means discovery complete; starting exposes no ready tools. Null source means an unregistered retained owner. `mcp_tool_call` requires the discovered binding, checks it before transport, and uses that exact immutable runtime catalog; stale bindings fail without retry. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card participants may independently select management, observation or invocation. Oversight remains observation-only and admits no MCP tools.
+
+Stdio `processId` correlates with the shared runner's `mcp:<name>` runtime-owned `service_infrastructure` launch, not an OS PID or transferable capability. Protocol streams are `not_captured`; ordinary activation/session-owned `wait_process` and `kill_process` remain denied. MCP stop/unregister and application cleanup own settlement and termination. Natural terminal consumption retires the ID. HTTP has no local process ID; disconnect contains local requests only, not the remote target. Arbitrary already-running process attachment is unsupported. Env values are structurally suppressed and URL/command secrets redacted in supported observations; Files refuses the connection-definition file and resolved aliases.
 
 Authenticated `POST /api/mcp/servers/:name/start` and `/stop` have strict empty object
 bodies, no commands/args/env, and successful `{serverName,status:'running'|'stopped',toolCount}`.

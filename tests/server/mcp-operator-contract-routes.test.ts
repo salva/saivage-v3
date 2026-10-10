@@ -81,7 +81,11 @@ describe('MCP operator contract routes', () => {
     };
     const fastify = mountRoutes({
       mcpToolsProvider: { getToolsReadModel: () => ({
-        servers: [{ name: 'ghu_server', transport: 'stdio', status: 'error', toolCount: 1, tools: [{ ...tool, stats: stat }] }],
+        servers: [{ name: 'ghu_server', transport: 'stdio', status: 'error',
+              bindingId: null,
+              definitionSource: null,
+              containmentFailed: true,
+              processId: 'process-1', toolCount: 1, tools: [{ ...tool, stats: stat }] }],
       }) },
     });
 
@@ -89,7 +93,11 @@ describe('MCP operator contract routes', () => {
 
     expect(tools.statusCode).toBe(200);
     expect(tools.json()).toEqual({
-      servers: [{ name: 'ghu_server', transport: 'stdio', status: 'error', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
+      servers: [{ name: 'ghu_server', transport: 'stdio', status: 'error',
+          bindingId: null,
+          definitionSource: null,
+          containmentFailed: true,
+          processId: 'process-1', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
     });
     const serialized = tools.body;
     for (const marker of ['opaque-title-marker', 'opaque-description-marker', 'opaque_input_marker', 'opaque_output_marker', 'opaque-annotation-marker', 'opaque_meta_marker']) {

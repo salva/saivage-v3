@@ -1,6 +1,7 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/runtime-api.js';
 import { ProcessEvidenceUnavailableError } from '../runtime/runtime-api.js';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import {
   PublicationOutcomeUnknownError,
   throwIfPublicationOutcomeUnknown,
@@ -56,6 +57,7 @@ interface McpServerRuntimeOptions {
 }
 
 export class McpServerRuntime {
+  readonly bindingId = randomUUID();
   readonly #processRunner: ProcessRunner;
   readonly #processScope: ManagedProcessScope;
   readonly #ids: McpJsonRpcIdProvider;
@@ -395,14 +397,22 @@ export class McpServerRuntime {
   }
 
   getStatus(): McpServerStatus {
-    return buildMcpServerStatus({
-      name: this.name,
-      config: this.config,
-      handle: this.handle,
-      override: this.statusOverride,
-      startedAt: this.startedAt,
-      tools: this.tools,
-    });
+    return {
+      ...buildMcpServerStatus({
+        name: this.name,
+        config: this.config,
+        handle: this.handle,
+        override: this.statusOverride,
+        startedAt: this.startedAt,
+        tools: this.tools,
+        ready: this.ready,
+        starting: this.admissionOpen && this.operations.size > 0 && !this.ready,
+      }),
+      bindingId: this.bindingId,
+      definitionSource: null,
+      containmentFailed: this.containmentFailed,
+      processId: this.handle?.processId ?? null,
+    };
   }
   getTools(): McpToolDefinition[] | undefined {
     return this.tools;
@@ -520,6 +530,7 @@ export class McpServerRuntime {
         this.ready = false;
         this.clearCaches();
         this.#processRunner.retireSettled(launch.record.id, this.#processScope);
+        delete observedHandle.processId;
       },
       (error) => {
         publicationUnknown = error instanceof PublicationOutcomeUnknownError;
@@ -556,6 +567,7 @@ export class McpServerRuntime {
         this.ready = false;
         this.clearCaches();
         this.#processRunner.retireSettled(launch.record.id, this.#processScope);
+        delete observedHandle.processId;
       },
     );
     const tracked = settlement
