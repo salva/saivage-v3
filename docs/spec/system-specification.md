@@ -1188,7 +1188,7 @@ Publication uncertainty is fatal, may retain its target and lock, and authorizes
 `init --force` does not exist.
 
 The CLI performs exactly one strict token-producing option parse using command-specific definitions.
-`init` accepts only `--profile`; `start` accepts only `--host`, `--port`, `--config`, `--project-root`, and `--create-runtime`; controls, reset, and help accept none.
+`init` accepts only `--profile`; `start` accepts only `--host`, `--port`, `--config`, `--project-root`, `--create-runtime`, and `--failed-provider-diagnostics <UUID>`; controls, reset, and help accept none.
 Unknown, inapplicable, positional, missing-value, and repeated singleton inputs fail before lock or write effects, including equal repetitions and mixed separated/equals spellings.
 Server startup receives typed parsed inputs rather than argv.
 Those same inputs select both the canonical pre-lock project root and `--create-runtime` intent and the complete environment inside terminal cleanup.
