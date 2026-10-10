@@ -21,6 +21,7 @@ import { SyntheticProcessPlatform } from '../helpers/synthetic-process-platform.
 const roots: string[] = [];
 const platforms: SyntheticProcessPlatform[] = [];
 afterEach(() => {
+  jest.restoreAllMocks();
   platforms.splice(0).forEach((platform) => platform.destroy());
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
@@ -79,15 +80,32 @@ describe('unavailable process evidence through real registry/runner', () => {
   it('rejects entered waits promptly, exposes independent facts through actual API handler, and never retires/reauthorizes', async () => {
     const f = fixture();
     const unbounded = f.runner.waitForSettlement(f.record.id).catch((error) => error);
-    // Short timeout deliberately leaves the independent queued losing timer unchanged.
+    // The bounded wait owns only its local timer, not registry or drain cleanup.
+    const allocate = jest.spyOn(globalThis, 'setTimeout');
+    const clear = jest.spyOn(globalThis, 'clearTimeout');
     const timed = f.runner.wait(f.record.id, 20).catch((error) => error);
+    expect(allocate).toHaveBeenCalledTimes(1);
+    const handle = allocate.mock.results[0]!.value as ReturnType<typeof setTimeout>;
     const report = await f.lose();
+    const lossOperations = [...f.platform.operations];
     expect(report.failed).toHaveLength(1);
     expect(await unbounded).toBeInstanceOf(ProcessEvidenceUnavailableError);
     expect(await timed).toBeInstanceOf(ProcessEvidenceUnavailableError);
+    expect(clear).toHaveBeenCalledWith(handle);
+    expect(f.runner.get(f.record.id)).toMatchObject({ status: 'unavailable', evidence: { stdout: 'open', stderr: 'open' } });
+    expect(f.child.stdout.destroyed).toBe(false);
+    expect(f.child.stderr.destroyed).toBe(false);
+    allocate.mockClear();
+    await expect(f.runner.wait(f.record.id, 20)).rejects.toBeInstanceOf(
+      ProcessEvidenceUnavailableError,
+    );
     await expect(f.runner.wait(f.record.id, 0)).rejects.toBeInstanceOf(
       ProcessEvidenceUnavailableError,
     );
+    expect(allocate).not.toHaveBeenCalled();
+    expect(f.platform.operations).toEqual(lossOperations);
+    allocate.mockRestore();
+    clear.mockRestore();
     const api = Fastify();
     const handlers = buildProcessOperatorContractHandlers({
       projectRoot: f.root,

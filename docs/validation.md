@@ -143,6 +143,11 @@ Completion waits, assertions, fixture/result limits, and application timers rema
 unchanged. These harness deadlines are not application latency guarantees and do
 not suppress process-exit diagnostics.
 
+Independently of those unchanged harness deadlines, ProcessRunner now retires its
+losing wait timeout. Focused timer-retirement and isolated natural-exit regressions
+cover that defect; historical tails/warnings were not complete handle attribution,
+and this coverage does not certify all teardown fixed.
+
 ## Profile coverage and prerequisites
 
 Both root and web dependencies must be installed before `npm run lint` or

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,100 @@ import { PassThrough } from 'node:stream';
 import { nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe('ProcessRunner call-local wait timers', () => {
+  let root: string;
+  let runner: ProcessRunner;
+  let child: EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+  let absent: () => void;
+  let id: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'proc-wait-timer-'));
+    child = new EventEmitter() as typeof child;
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const registry = {
+      launch(input: { onAbsent(): void }) { absent = input.onAbsent; return child; },
+    };
+    runner = new ProcessRunnerImplementation(root, registry as never, testApplicationFatalPort);
+    id = runner.spawn({ command: 'synthetic', directScope: {} as ManagedProcessScope, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' }).id;
+    // Only synthetic events use fake timers; never fake real registry polling.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function settle() {
+    child.emit('exit', 0, null);
+    absent();
+    child.stdout.end();
+    child.stderr.end();
+  }
+
+  it.each(['success', 'capture rejection'] as const)('clears the exact referenced timeout before delivering early %s', async (outcome) => {
+    const allocate = jest.spyOn(globalThis, 'setTimeout');
+    const clear = jest.spyOn(globalThis, 'clearTimeout');
+    const sentinel = new Error('capture sentinel');
+    const waiting = runner.wait(id, 60_000);
+    expect(allocate).toHaveBeenCalledTimes(1);
+    const handle = allocate.mock.results[0]!.value as ReturnType<typeof setTimeout>;
+    expect(handle.hasRef()).toBe(true);
+    const delivered = waiting.then(
+      (result) => { expect(clear).toHaveBeenCalledWith(handle); return result; },
+      (error: unknown) => { expect(clear).toHaveBeenCalledWith(handle); throw error; },
+    );
+    const assertion = outcome === 'success'
+      ? expect(delivered).resolves.toMatchObject({ id, status: 'exited', exitCode: 0, timedOut: false })
+      : expect(delivered).rejects.toBe(sentinel);
+    if (outcome === 'capture rejection') child.stdout.emit('error', sentinel);
+    settle();
+    await assertion;
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('clears a winning timeout without terminating or retiring the running presentation', async () => {
+    const allocate = jest.spyOn(globalThis, 'setTimeout');
+    const clear = jest.spyOn(globalThis, 'clearTimeout');
+    const waiting = runner.wait(id, 20);
+    const handle = allocate.mock.results[0]!.value as ReturnType<typeof setTimeout>;
+    await jest.advanceTimersByTimeAsync(20);
+    await expect(waiting).resolves.toMatchObject({ id, status: 'running', timedOut: true, exitCode: null });
+    expect(clear).toHaveBeenCalledWith(handle);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(runner.get(id)).toMatchObject({ status: 'running', evidence: { group: 'tracked', stdout: 'open', stderr: 'open' } });
+    expect(child.stdout.destroyed).toBe(false);
+    expect(child.stderr.destroyed).toBe(false);
+    settle();
+    await expect(runner.waitForSettlement(id)).resolves.toMatchObject({ status: 'exited', exitCode: 0 });
+    expect(runner.get(id)?.status).toBe('exited');
+  });
+
+  it.each(['success', 'capture rejection'] as const)('allocates no timer for running zero or terminal positive/zero with %s', async (outcome) => {
+    const allocate = jest.spyOn(globalThis, 'setTimeout');
+    await expect(runner.wait(id, 0)).resolves.toMatchObject({ status: 'running', timedOut: false });
+    const sentinel = new Error('terminal capture sentinel');
+    if (outcome === 'capture rejection') child.stdout.emit('error', sentinel);
+    settle();
+    const settlement = runner.waitForSettlement(id);
+    if (outcome === 'success') await settlement;
+    else await expect(settlement).rejects.toBe(sentinel);
+    for (const timeout of [60_000, 0]) {
+      const waiting = runner.wait(id, timeout);
+      if (outcome === 'success') await expect(waiting).resolves.toMatchObject({ status: 'exited', exitCode: 0, timedOut: false });
+      else await expect(waiting).rejects.toBe(sentinel);
+    }
+    await expect(runner.wait('unknown', 60_000)).rejects.toThrow("Unknown process 'unknown'");
+    expect(allocate).not.toHaveBeenCalled();
+  });
+});
 
 describe('ProcessRunner managed process groups', () => {
   let root: string;

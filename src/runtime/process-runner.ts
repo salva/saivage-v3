@@ -166,10 +166,6 @@ function generateId(): string {
   return `proc-${randomBytes(6).toString('hex')}`;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export class ProcessRunner {
   private readonly presentations = new Map<string, ProcessPresentation>();
   readonly #registry: ManagedProcessGroupRegistry;
@@ -218,13 +214,21 @@ export class ProcessRunner {
       return this.waitResult(presentation, false, started);
     }
     if (timeoutMs === 0) return this.waitResult(presentation, false, started);
-    const result = await Promise.race([
-      presentation.terminalSettlement.then(() => 'settled' as const),
-      delay(timeoutMs).then(() => 'timeout' as const),
-    ]);
-    this.assertEvidenceAvailable(presentation);
-    if (result === 'timeout') return this.waitResult(presentation, true, started);
-    return this.waitResult(presentation, false, started);
+    let timer!: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    });
+    try {
+      const result = await Promise.race([
+        presentation.terminalSettlement.then(() => 'settled' as const),
+        timeout.then(() => 'timeout' as const),
+      ]);
+      this.assertEvidenceAvailable(presentation);
+      if (result === 'timeout') return this.waitResult(presentation, true, started);
+      return this.waitResult(presentation, false, started);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async waitForSettlement(procId: string): Promise<ProcessWaitResult> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,25 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 describe('ProcessRunner smoke', () => {
+  it('exits naturally after an early bounded wait settles, without retaining its 60-second timer', () => {
+    const root = mkdtempSync(join(tmpdir(), 'process-wait-natural-exit-'));
+    try {
+      const child = spawnSync(process.execPath, [
+        '--import', 'tsx',
+        join(process.cwd(), 'tests', 'fixtures', 'process-wait-natural-exit.ts'),
+        root,
+      ], { cwd: process.cwd(), encoding: 'utf8', timeout: 10_000 });
+      // A bound-triggered kill is failure even if the completion marker was printed.
+      expect(child.error).toBeUndefined();
+      expect(child.signal).toBeNull();
+      expect(child.status).toBe(0);
+      expect(child.stderr).toBe('');
+      expect(child.stdout).toBe('process-wait-natural-exit: complete\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it('waits for a managed command to settle', async () => {
     const root = mkdtempSync(join(tmpdir(), 'process-runner-smoke-'));
     const registry = new ManagedProcessGroupRegistry();
