@@ -1,4 +1,9 @@
 export { canonicalJson } from './canonical-json.js';
+export {
+  parseActivationOpenPayload,
+  type ActivationInstructions,
+  type ActivationOpenPayload,
+} from './activation-instructions.js';
 export { uuidV4Schema } from './uuid.js';
 export {
   compactedHistorySchema,

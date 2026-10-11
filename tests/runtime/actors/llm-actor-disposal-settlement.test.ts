@@ -25,7 +25,7 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     const timestamp='2026-08-11T00:00:00.000Z';
     const observer=publicationObserver();
     const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:observer.conversationChanged,agentMembershipChanged:jest.fn()}};
-    appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:inputId,timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
+    appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',instructions:{kind:'unavailable',reason:'not_recorded'},agent_name:'analyst',input_id:inputId,timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
     const providerCall=jest.fn(async()=>{throw new Error('Provider must not be entered after cancellation.');});
     const actor=new ConversationLLMActor({purpose:{kind:'global-agent'},agentId:sessionId,provider:scriptedAdmissionProvider(providerCall),conversations,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort});
     const preparedCompaction=prepareCompaction({context_utilization_fraction:.8,trigger_fraction:.8,tail_fraction:.25,snap:'compact_straddler'},'system',[],8_000,2_000);
@@ -106,7 +106,7 @@ async function toolCallFixture(toolName:string){
   const timestamp='2026-08-11T00:00:00.000Z';
   const observer=publicationObserver();
   const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:observer.conversationChanged,agentMembershipChanged:jest.fn()}};
-  appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:inputId,timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
+  appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',instructions:{kind:'unavailable',reason:'not_recorded'},agent_name:'analyst',input_id:inputId,timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
   const completeTurn=jest.fn(async()=>({result:{kind:'tool_calls' as const,tool_calls:[{id:'call-1',type:'function' as const,function:{name:toolName,arguments:'{}'}}]},provider_exchanges:[]}));
   const actor=new ConversationLLMActor({purpose:{kind:'global-agent'},agentId:sessionId,provider:scriptedAdmissionProvider(completeTurn),conversations,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort});
   const preparedCompaction=prepareCompaction({context_utilization_fraction:.8,trigger_fraction:.8,tail_fraction:.25,snap:'compact_straddler'},'system',[],8_000,2_000);

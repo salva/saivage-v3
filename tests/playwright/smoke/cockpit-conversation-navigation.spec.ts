@@ -138,7 +138,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
 
 function activationRow(sessionId: string, suffix: string) {
   return { id: `${sessionId}:activation:${suffix}`, session_id: sessionId, role: 'system', kind: 'activity',
-    content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: smokeCardId }), input_id: '11111111-1111-4111-8111-111111111111', timestamp: now }),
+    content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: smokeCardId }), input_id: '11111111-1111-4111-8111-111111111111', timestamp: now }),
     context_policy: { kind: 'structural', behavior: 'activation_boundary' }, round_id: 'r-pre-11111111111141118111111111111111', message_index: 0, block_index: 0, timestamp: now };
 }
 

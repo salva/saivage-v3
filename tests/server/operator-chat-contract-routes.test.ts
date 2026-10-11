@@ -323,7 +323,7 @@ describe('operator chat route request contracts', () => {
 
     appendConversationBatch(
       { projectRoot },
-      buildGlobalAgentIngressRows('agent:analyst:global', sourceInputId, 'invoke'),
+      buildGlobalAgentIngressRows('agent:analyst:global', sourceInputId, 'invoke', { kind: 'unavailable', reason: 'not_recorded' }),
     );
     appendConversationBatch({ projectRoot, changes: { agentMembershipChanged() {}, conversationChanged: (change) => live.invalidate({ resource: 'conversation', id: change.session_id, segment_id: change.segment_id, segment_version: change.segment_version, visible_message_id: change.visible_message_id }) } }, [
       {
@@ -734,6 +734,7 @@ describe('operator chat route request contracts', () => {
       'agent:analyst:global',
       inputId,
       'question',
+      { kind: 'unavailable', reason: 'not_recorded' },
     );
     appendConversationBatch({ projectRoot }, ingress);
     appendConversationBatch({ projectRoot }, [

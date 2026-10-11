@@ -16,6 +16,8 @@ import { z } from 'zod';
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { readProviderExchangeEntries } from '../../../src/persistence/provider-exchange-log.js';
+import { parseActivationOpenPayload } from '../../../src/schemas/index.js';
 import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import { InvocationService } from '../../../src/agents/invocation-service.js';
@@ -57,6 +59,16 @@ function session(root: string, provider: LLMProviderPort, runtimeProjectionChang
 
 const finalMessage = (): ProviderTurnCompletion => ({ result: { kind: 'message', content: 'No action needed.' }, provider_exchanges: [] });
 
+function assertPreparedCheck(root: string): void {
+  const rows = readConversation(root,'agent:oversight:global').physicalRows;
+  const markers = rows.filter(row => row.kind==='activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+  expect(markers).toHaveLength(1);
+  const marker=markers[0]!;
+  expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({
+    kind:'prepared',role_text:'Perform proportionate project oversight.',node:null,
+  });
+}
+
 describe('OversightSession owned check settlement', () => {
   it('matches a real-service late successful tool call through existing cancellation settlement without execution or continuation', async () => {
     const root = projectRoot();
@@ -75,6 +87,8 @@ describe('OversightSession owned check settlement', () => {
     release(new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'call-real', type: 'function', function: { name: 'probe', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
     await expect(pending).resolves.toBe('cancelled');
     const rows = readConversation(root, 'agent:oversight:global').sourceRows;
+    const marker = rows.find(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp))!;
+    expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({kind:'prepared',role_text:'Perform proportionate project oversight.',node:null});
     expect(rows.filter((row) => row.kind === 'tool_call')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
     expect(rows.find((row) => row.kind === 'tool_result')).toMatchObject({ tool_call_id: 'call-real', content: expect.stringContaining('cancelled before tool execution') });
@@ -123,6 +137,10 @@ describe('OversightSession owned check settlement', () => {
 
     await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('failed');
     expect(complete).not.toHaveBeenCalled();
+    assertPreparedCheck(root);
+    const rows=readConversation(root,'agent:oversight:global').physicalRows;
+    expect(rows.filter(row=>row.kind==='activity'&&JSON.parse(row.content).event==='llm_turn_started')).toEqual([]);
+    expect(readProviderExchangeEntries(root,'agent:oversight:global')).toEqual([]);
     expect(readConversation(root, 'agent:oversight:global').sourceRows.some((row) => row.content.includes('RAW PROVIDER FLAG'))).toBe(false);
 
     await expect(session(root, scriptedAdmissionProvider(complete), () => {}, undefined, compactor).run()).resolves.toBe('succeeded');
@@ -161,6 +179,7 @@ describe('OversightSession owned check settlement', () => {
       },
     };
     await expect(session(root, provider).run()).resolves.toBe('failed');
+    assertPreparedCheck(root);
     await expect(session(root, scriptedAdmissionProvider(async () => finalMessage())).run()).resolves.toBe('succeeded');
   });
 
@@ -178,6 +197,23 @@ describe('OversightSession owned check settlement', () => {
     expect(()=>check.assertEffectSignal(new AbortController().signal)).toThrow(/does not belong/);
     check.cancel(new Error('runtime paused'));
     await expect(task).resolves.toBe('cancelled');
+    assertPreparedCheck(root);
+  });
+
+  it('retains only prepared instruction evidence when cancelled after ingress before provider admission', async () => {
+    const root=projectRoot();
+    const complete=jest.fn(async () => finalMessage());
+    const base=scriptedAdmissionProvider(complete);
+    let check!: OversightSession;
+    const provider: LLMProviderPort = {...base,async preparePrimaryRequestAdmission(_input,signal) {
+      check.cancel(new Error('cancel before admission'));
+      signal.throwIfAborted();
+      throw new Error('Cancellation did not abort admission.');
+    }};
+    check=session(root,provider);
+    await expect(check.run()).resolves.toBe('cancelled');
+    expect(complete).not.toHaveBeenCalled();
+    assertPreparedCheck(root);
   });
 
   it('publishes an entered tool result exactly once when cancellation wins after executor entry',async()=>{
@@ -198,6 +234,7 @@ describe('OversightSession owned check settlement', () => {
     const failure = new Error('provider invariant');
     const check = session(root, scriptedAdmissionProvider(async () => { throw failure; }));
     await expect(check.run()).rejects.toBe(failure);
+    assertPreparedCheck(root);
   });
 
   it('delivers publication uncertainty to the nonreturning fatal boundary rather than ordinary failure',async()=>{

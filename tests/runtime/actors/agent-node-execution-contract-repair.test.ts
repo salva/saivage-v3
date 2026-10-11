@@ -151,7 +151,7 @@ function harness(args: {
   internals.prepareNodeEntry = () => undefined;
   internals.prepareRecordRequirements = () => undefined;
   internals.captureRecordHead = () => 1;
-  internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: 'input-1' }; };
+  internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: 'input-1', preparedContext: {prefix:{instructionText:'fixture role'},dynamicBlocks:[{content:'fixture card'},{content:'fixture node'}]} }; };
   internals.enterNodeConversation = (prepared) => ({ ...prepared, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } });
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
   if (!args.useRealCorrection) internals.correctionContext = (_process, _node, violations, remaining) => [{ role: 'user', content: `correction: ${violations.join('; ')}\nCorrective attempts remaining before this node fails: ${remaining}.` }];
@@ -384,7 +384,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
     expect(test.plainTextCorrectionMessages[0]).toEqual([
-      { role: 'user', content: 'correct the result', protection: { compactable: false, compaction_key: ' correction key ' } },
+      { role: 'user', content: 'correct the result', instruction_origin: 'workflow_prompt', protection: { compactable: false, compaction_key: ' correction key ' } },
       { role: 'user', content: '\n\nValidation errors:\n- emit_result is required.\n\nCorrective attempts remaining before this node fails: 15.' },
     ]);
   });
@@ -403,7 +403,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const continuation = callback('continuation-input');
     expect(continuation.messages.slice(0, expectedPrefix.length).map(({content})=>content)).toEqual(expectedPrefix);
     expect(continuation.messages.slice(expectedPrefix.length, expectedPrefix.length + 2)).toEqual([
-      { role: 'user', content: 'correct the result', protection: { compactable: false, compaction_key: ' correction key ' } },
+      { role: 'user', content: 'correct the result', instruction_origin: 'workflow_prompt', protection: { compactable: false, compaction_key: ' correction key ' } },
       expect.objectContaining({ role: 'user', content: expect.stringMatching(/^\n\nValidation errors:\n- .+\n\nCorrective attempts remaining before this node fails: 15\.$/us) }),
     ]);
     if(terminalVariant==='pending'||terminalVariant==='stale'){

@@ -11,6 +11,8 @@ import {
   type MessageRole,
   type ConversationSessionId,
   type CardConversationSessionId,
+  type ActivationInstructions,
+  type ActivationOpenPayload,
 } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/index.js';
 import type { ProviderConversationProjection } from '../../contracts/index.js';
@@ -36,6 +38,7 @@ export type ProviderVisibleUserContextMessage = Readonly<{
   role: 'user';
   content: string;
   protection?: Readonly<{ compactable: boolean; compaction_key?: string }>;
+  instruction_origin?: 'workflow_prompt';
 }>;
 
 export function appendUserContextMessage(
@@ -73,6 +76,9 @@ export function buildUserContextMessage(
     role: 'user',
     kind: 'text',
     content,
+    ...(userContextMessage.instruction_origin === undefined
+      ? {}
+      : { instruction_origin: userContextMessage.instruction_origin }),
     context_policy: userContextMessage.protection
       ? durablePrimaryContentPolicy(userContextMessage.protection)
       : DURABLE_PRIMARY_CONTENT_POLICY,
@@ -86,7 +92,13 @@ export function buildUserContextMessage(
 export function appendActivationMarker(
   conversations: ConversationFileContext,
   sessionId: ConversationSessionId,
-  payload: { event: 'activation_open'; agent_name: string; card_id: string; input_id: string },
+  payload: {
+    event: ActivationOpenPayload['event'];
+    agent_name: string;
+    card_id: string;
+    input_id: string;
+    instructions: ActivationOpenPayload['instructions'];
+  },
 ): AgentMessage {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
@@ -110,9 +122,10 @@ export function buildGlobalAgentIngressRows(
   sessionId: ConversationSessionId,
   inputId: string,
   userContent: string,
+  instructions: ActivationInstructions,
 ): readonly [AgentMessage, AgentMessage] {
   return [
-    buildGlobalAgentActivationMarker(sessionId, inputId),
+    buildGlobalAgentActivationMarker(sessionId, inputId, instructions),
     buildContextTextMessage(sessionId, 'user', userContent),
   ];
 }
@@ -120,6 +133,7 @@ export function buildGlobalAgentIngressRows(
 function buildGlobalAgentActivationMarker(
   sessionId: ConversationSessionId,
   inputId: string,
+  instructions: ActivationInstructions,
 ): AgentMessage {
   const timestamp = new Date().toISOString();
   return agentMessageSchema.parse({
@@ -132,6 +146,7 @@ function buildGlobalAgentActivationMarker(
       event: 'activation_open',
       agent_name: conversationSessionIdentity(sessionId).agentName,
       input_id: inputId,
+      instructions,
       timestamp,
     }),
     round_id: generateRoundId('pre'),

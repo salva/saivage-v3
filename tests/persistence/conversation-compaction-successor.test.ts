@@ -88,8 +88,8 @@ function activation(ordinal: number, sessionId: ConversationSessionId = SESSION)
     kind: 'activity',
     context_policy: ACTIVITY_ROW_POLICY,
     content: JSON.stringify(sessionId === SESSION
-      ? { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }
-      : { event: 'activation_open', agent_name: 'compaction-summarizer', input_id: inputId, timestamp }),
+      ? { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }
+      : { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'compaction-summarizer', input_id: inputId, timestamp }),
     round_id: `r-pre-${String(ordinal).padStart(32, '0')}`,
     message_index: 0,
     block_index: 0,
@@ -141,7 +141,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       else envelopes[0].rows[0].format_version = 6;
       writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
       const before = readFileSync(path);
-      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(7);
+      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(8);
       expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
       expect(readFileSync(path)).toEqual(before);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -209,10 +209,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(7);
-      expect(segment.genesis.format_version).toBe(7);
+      expect(segment.index.format_version).toBe(8);
+      expect(segment.genesis.format_version).toBe(8);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(7);
+      expect(envelope.version).toBe(8);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 6 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 6 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 6 }, ...segment.rows] }).success).toBe(false);

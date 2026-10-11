@@ -48,7 +48,7 @@ function append(session: ConversationSessionId, tool: string, result: ToolResult
   const messageId = `${input}:tool-result:${name}`;
   const requestId = `${input}:tool-call:${name}`;
   appendConversationBatch({ projectRoot: root }, [
-    { ...row(`${input}:activation`, 'system', JSON.stringify({ event: 'activation_open', agent_name: session.split(':')[1], ...(session.endsWith(':global') ? {} : { card_id: session.split(':')[2] }), input_id: input, timestamp })), kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary },
+    { ...row(`${input}:activation`, 'system', JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: session.split(':')[1], ...(session.endsWith(':global') ? {} : { card_id: session.split(':')[2] }), input_id: input, timestamp })), kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary },
     { ...row(requestId, 'assistant', JSON.stringify({ role: 'assistant', tool_calls: [{ id: name, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: label }) } }] })), kind: 'tool_call', tool, tool_call_id: name, context_policy: policies.call },
     ...(label.endsWith('current') ? [{ ...row(`${input}:between`, 'assistant', 'Intervening public prose, before the result was known.'), kind: 'text', context_policy: TEXT_ROW_POLICY }] : []),
     { ...row(messageId, 'tool', content), kind: 'tool_result', tool, tool_call_id: name, context_policy: policies.result },

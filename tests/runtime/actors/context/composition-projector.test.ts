@@ -191,7 +191,7 @@ describe('composition projector selection pass', () => {
 
   it('omits activation boundaries and provider failures from both projections', () => {
     const composed = compose([
-      row({ id: 'act', role: 'system', kind: 'activity', content: '{"event":"activation_open"}', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary }),
+      agentMessageSchema.parse(row({ id: 'act', role: 'system', kind: 'activity', content: JSON.stringify({event:'activation_open',agent_name:'planner',card_id:'project',input_id:INPUT_A,timestamp:TS,instructions:{kind:'prepared',role_text:'ROLE-EVIDENCE-NOT-CONTEXT',node:{node_id:'plan',text:'NODE-EVIDENCE-NOT-CONTEXT'}}}), context_policy: STRUCTURAL_ROW_POLICY.activation_boundary })),
       row({ id: 'issue', role: 'assistant', kind: 'model_issue', content: 'provider blew up', context_policy: STRUCTURAL_ROW_POLICY.provider_failure }),
       row({ id: 't1', role: 'user', kind: 'text', content: 'hello' }),
     ]);

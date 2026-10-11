@@ -18,6 +18,8 @@ import { ToolResultSchema } from '../../../src/contracts/tool-result.js';
 import { ViewImageDataSchema } from '../../../src/contracts/view-image.js';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
+import { appendActivationMarker, buildGlobalAgentIngressRows, buildUserContextMessage } from '../../../src/runtime/actors/conversation-session.js';
+import { buildModelRepairMessage } from '../../../src/runtime/actors/llm-delivery-log.js';
 import { describeNodeResultContract } from '../../../src/runtime/runtime-api.js';
 import { formatVocabularySnippet } from '../../../src/tools/prompt-api.js';
 import { redactTextForOutbound } from '../../../src/redaction/index.js';
@@ -39,7 +41,7 @@ const planner = 'agent:planner:project' as const;
 const inputId = '00000000-0000-4000-8000-000000000088';
 const timestamp = '2026-10-07T12:00:00.000Z';
 // Follow-up outputs never replace the delivered reader's original evidence.
-const evidence = fileURLToPath(new URL('../../../docs/working/2026-10-07-conversation-reading-ux/evidence/compact-summary/real-server/', import.meta.url));
+const evidence = fileURLToPath(new URL('../../../docs/working/2026-10-11-conversation-delivered-prompts-fix/evidence/real-server/', import.meta.url));
 const retainedCommand = `npm test -- ${'long_unbroken_argument_'.repeat(160)} final-command-Z`;
 const longText = Array.from({ length: 40 }, (_, n) => `Retained line ${n}: ${'ordinary readable evidence '.repeat(8)}`).join('\n');
 let root: string;
@@ -118,7 +120,7 @@ async function seed(session: ConversationSessionId) {
   });
   const rows = [
     { ...row(`${inputId}:activation`, JSON.stringify({ event: 'activation_open', agent_name: session.split(':')[1],
-      ...(session === analyst ? {} : { card_id: session.split(':')[2] }), input_id: inputId, timestamp }), 'system'), kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary },
+      ...(session === analyst ? {} : { card_id: session.split(':')[2] }), input_id: inputId, timestamp, instructions: { kind: 'unavailable', reason: 'not_recorded' } }), 'system'), kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary },
     row('recorded-system', `${longText}\nfinal-system-Z`, 'system'),
     command[0], row('between', 'No result was known at this intervening prose.'), command[1], row('correction', 'Correction after result.'),
     ...pair('failed-command', 'run_command', { command: 'synthetic-failure' }, { success: false, error: 'Synthetic command failed: final-failure-Z' }),
@@ -130,6 +132,158 @@ async function seed(session: ConversationSessionId) {
   appendConversationBatch({ projectRoot: root }, rows.map(r => agentMessageSchema.parse(r)));
 }
 
+// Real compiled prompt rendering, production marker/context/repair builders and
+// canonical publication. No provider call or installed project is involved.
+function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code' | 'project') {
+  const registry = createPromptTemplateRegistry(workflows);
+  const process = workflows.cardTypes.get(cardType)!;
+  const names = session === analyst ? ['global'] : cardType === 'project' ? ['plan'] : ['execute', 'verify'];
+  const markers: string[] = [];
+  const promptRows: string[] = [];
+  for (const [ordinal, name] of names.entries()) {
+    const sourceId = `11111111-1111-4111-8111-${String(ordinal + 1).padStart(12, '0')}`;
+    if (session === analyst) {
+      const role = registry.render({ kind: 'global-agent' }, 'analyst', { vocabularySnippet: formatVocabularySnippet(workflows.cardTypeVocabulary) });
+      const ingress = buildGlobalAgentIngressRows(session, sourceId, 'Synthetic operator question', { kind: 'prepared', role_text: role, node: null });
+      appendConversationBatch({ projectRoot: root }, ingress);
+      markers.push(ingress[0].id);
+      continue;
+    }
+    const node = process.states.get(`node:${name}`)!;
+    if (node.kind !== 'node') throw new Error('Expected fixture compiled node.');
+    const role = registry.render({ kind: 'workflow-agent', cardType }, node.agent.name, { contractDescription: describeNodeResultContract(process, `node:${name}`) });
+    const compiledPrompt = process.processPrompts.get(node.prompt.promptId)!;
+    const nodeText = `Current workflow node '${name}':\n\n${compiledPrompt.text}`;
+    const marker = appendActivationMarker({ projectRoot: root }, session, {
+      event: 'activation_open', agent_name: node.agent.name, card_id: session.split(':')[2]!, input_id: sourceId,
+      instructions: { kind: 'prepared', role_text: role, node: { node_id: name, text: nodeText } },
+    });
+    markers.push(marker.id);
+    const entryRoute = process.states.get('entry:BACKLOG')!.on.values().next().value!;
+    const prior = process.states.get('node:execute');
+    const edge = prior && [...prior.on.values()].find(edge => edge.targetStateId === `node:${name}`);
+    const transition = ordinal === 0 ? entryRoute : edge;
+    if (!transition || !('prompt' in transition.semantic) || !transition.semantic.prompt)
+      throw new Error('Fixture requires an actual configured lifecycle/edge prompt.');
+    const declaration = transition.semantic.prompt;
+    const prompt = { role: 'user' as const, content: process.processPrompts.get(declaration.promptId)!.text, instruction_origin: 'workflow_prompt' as const,
+      protection: { compactable: declaration.compactable, ...(declaration.compactionKey === undefined ? {} : { compaction_key: declaration.compactionKey }) } };
+    const owned = buildUserContextMessage(session, sourceId, 'process_transition', 0, prompt);
+    const neighbor = buildUserContextMessage(session, sourceId, 'process_transition', 1, { role: 'user', content: prompt.content });
+    appendConversationBatch({ projectRoot: root }, [owned, neighbor]);
+    promptRows.push(owned.id);
+    if (node.correctionPrompt) {
+      const correction = process.processPrompts.get(node.correctionPrompt.promptId)!;
+      const directive = { ...prompt, content: correction.text, protection: { compactable: node.correctionPrompt.compactable, ...(node.correctionPrompt.compactionKey === undefined ? {} : { compaction_key: node.correctionPrompt.compactionKey }) } };
+      const repair = buildModelRepairMessage({ sessionId: session, inputId: sourceId } as Parameters<typeof buildModelRepairMessage>[0], directive);
+      const continuation = buildUserContextMessage(session, sourceId, 'continuation_hook', 0, directive);
+      appendConversationBatch({ projectRoot: root }, [repair, continuation]);
+      promptRows.push(repair.id, continuation.id);
+    }
+  }
+  if (session === analyst) appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(session,
+    '99999999-9999-4999-8999-999999999999', 'Synthetic confirmation-only ingress', { kind: 'not_applicable', reason: 'non_model_ingress' }));
+  return { markers, promptRows };
+}
+const instructionFixtures = new Map<ConversationSessionId, ReturnType<typeof seedInstructionEvidence>>();
+
+test('production API historical prepared/workflow evidence stays source-local, safely copyable and independent of current config', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedTokenBeforeNavigation(page, token);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  const reader = page.locator('.conversation-container');
+  for (const session of [executor, analyst]) {
+    const fixture = instructionFixtures.get(session)!;
+    await page.goto(`${origin}/agents/${session}?segment=1&entry=${encodeURIComponent(fixture.markers[0]!)}`);
+    const response = await page.request.get(`${origin}/api/agents/${encodeURIComponent(session)}/conversation/versions/1`, { headers: { authorization: `Bearer ${token}` } });
+    expect(response.status()).toBe(200);
+    const dto = parseOperatorResponse('agents.conversationVersions.get', 200, await response.json());
+    expect(JSON.stringify(dto)).not.toMatch(/canary|UNACTIVATED DISK CONTENT|CURRENT-LOADED-ONLY-Z|producer_account_id|provider_projection/);
+    const timeline = reader.locator('.conversation-timeline');
+    await expect(timeline).toContainText('Historical instructions unavailable — not recorded');
+    if (session === analyst) await expect(timeline).toContainText('No model invocation for this ingress');
+    expect(await timeline.locator('.activation-marker').evaluateAll(es => es.filter(e => e.textContent?.includes('Prepared instructions')).map(e => e.getAttribute('data-entry-id')))).toEqual(fixture.markers);
+    for (const markerId of fixture.markers) {
+      const marker = timeline.locator(`[data-entry-id="${markerId}"]`);
+      await expect(marker).toContainText('not proof of model delivery or interpretation');
+      const instructions = JSON.parse(dto.entries.find(entry => entry.id === markerId)!.content).instructions;
+      const role = marker.locator('.instruction-disclosure').first();
+      await role.locator('summary').click();
+      await expect(role.locator('pre')).toHaveText(instructions.role_text);
+      await role.getByRole('button', { name: 'copy', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(instructions.role_text);
+      expect(instructions.role_text).not.toContain('{{contractDescription}}');
+      if (instructions.node) {
+        const node = marker.locator('.instruction-disclosure').last();
+        await expect(node.locator('summary')).toHaveText(`Node ${instructions.node.node_id} instructions`);
+        await node.locator('summary').click();
+        await expect(node.locator('pre')).toHaveText(instructions.node.text);
+        await node.getByRole('button', { name: 'copy', exact: true }).click();
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(instructions.node.text);
+      }
+    }
+    const marked = dto.entries.filter(entry => entry.instruction_origin === 'workflow_prompt');
+    expect(marked.map(entry => entry.id)).toEqual(fixture.promptRows);
+    for (const entry of marked) {
+      const row = timeline.locator(`[data-entry-id="${entry.id}"]`);
+      await expect(row).toContainText('Recorded workflow instruction');
+      await expect(row).toContainText('delivery not established');
+      expect(await row.locator('pre').count()).toBe(1);
+      await expect(row.locator('pre')).toHaveText(entry.content);
+      await row.locator(':scope > details > summary').click();
+      await expect(row.locator('pre')).toBeVisible();
+      await row.getByRole('button', { name: 'copy', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(entry.content);
+    }
+    if (session === executor) {
+      const unmarkedNeighbor = dto.entries.find(entry => entry.kind === 'text' && !entry.instruction_origin && entry.content === marked[0]!.content)!;
+      await expect(timeline.locator(`[data-entry-id="${unmarkedNeighbor.id}"]`)).not.toContainText('Recorded workflow instruction');
+      // A real exact cursor tail contains independently classified prompts but no
+      // invented activation start or current-config substitution.
+      const current = parseOperatorResponse('agents.conversation', 200, await (await page.request.get(`${origin}/api/agents/${encodeURIComponent(session)}/conversation`, { headers: { authorization: `Bearer ${token}` } })).json());
+      const tail = parseOperatorResponse('agents.conversation', 200, await (await page.request.get(`${origin}/api/agents/${encodeURIComponent(session)}/conversation?segment_id=${current.segment_id}&segment_version=${current.segment_version}&since=${encodeURIComponent(fixture.markers.at(-1)!)}`, { headers: { authorization: `Bearer ${token}` } })).json());
+      expect(tail.entries.some(entry => entry.instruction_origin === 'workflow_prompt')).toBe(true);
+      expect(tail.entries.some(entry => entry.kind === 'activity')).toBe(false);
+      // The visible tail is the real API's exact cursor response, not authored
+      // UI strings. Only the source-fixture transport selects that response.
+      const tailUrl = `${origin}/api/agents/${encodeURIComponent(session)}/conversation`;
+      await page.route(tailUrl, route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(tail) }));
+      await page.goto(`${origin}/agents/${session}`);
+      await page.reload();
+      await expect(timeline).toContainText('The activation start is outside this displayed segment or tail');
+      await expect(timeline.locator('.activation-marker')).toHaveCount(0);
+      await expect(timeline.locator('.instruction-disclosure').first()).toContainText('Recorded workflow instruction');
+      await page.unroute(tailUrl);
+    }
+    await expect(reader.locator('.current-instructions')).not.toHaveAttribute('open', '');
+    await reader.locator('.current-instructions > summary').click();
+    await expect(reader.locator('.current-instructions')).toContainText('CURRENT-LOADED-ONLY-Z');
+    await reader.locator('.current-instructions > summary').click();
+    await expect(reader.locator('.technical-details')).toHaveCount(1);
+    expect(await timeline.textContent()).not.toContain('Delivered instructions');
+  }
+  await page.goto(`${origin}/agents/${planner}`);
+  await expect(reader).toContainText('Earlier activation instructions are in indexed source history');
+  const context = reader.getByTestId('conversation-segment-context');
+  await context.locator(':scope > summary').click();
+  const protectedContext = context.getByTestId('retained-instruction-context');
+  await protectedContext.locator(':scope > summary').click();
+  await protectedContext.locator('li > details > summary').click();
+  await expect(protectedContext).toContainText('Recorded workflow instruction');
+  await expect(protectedContext).toContainText('final-protected-Z');
+  await protectedContext.locator('.instruction-disclosure > summary').click();
+  const protectedText = await protectedContext.locator('.instruction-disclosure pre').textContent();
+  await protectedContext.getByRole('button', { name: 'copy', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(protectedText);
+  await reader.getByRole('button', { name: 'Inspect source segment 2', exact: true }).click();
+  await expect(reader).toContainText('Conversation · exact segment 2');
+  await reader.getByRole('button', { name: 'Inspect source segment 1', exact: true }).click();
+  await expect(reader.locator(`[data-entry-id="${instructionFixtures.get(planner)!.markers[0]}"]`)).toContainText('Prepared instructions');
+  await expect(reader.getByTestId('conversation-segment-context')).toHaveCount(0);
+  expect(providerRequests).toEqual([]);
+  await page.close();
+});
+
 test.beforeAll(async () => {
   const port = await listen(sink);
   root = mkdtempSync('/home/salva/g/ml/tmp/reading-real-server-');
@@ -138,15 +292,20 @@ test.beforeAll(async () => {
     config.providers.fixture!.capabilities = { ...config.providers.fixture!.capabilities, transportProtocol: 'openai-responses', imageInput: true };
     config.oversight.enabled = false;
     config.mcpServers = {};
+    config.card_types.code!.workflow.entries.BACKLOG.prompt = { reference: 'stopped-recovery', compactable: true };
+    config.card_types.project!.workflow.entries.BACKLOG.prompt = { reference: 'stopped-recovery', compactable: true };
     const nodes = config.card_types.code!.workflow.nodes;
     nodes.verify = structuredClone(nodes.execute!);
     nodes.execute!.edges.done!.target = { node: 'verify' };
+    nodes.execute!.edges.done!.prompt = { reference: 'plan-to-review', compactable: true };
   });
   writeProductionConfig(root, config);
   // Preserve actual bundled image guidance and compose an explicit fragment seam.
   const promptRoot = join(root, '.saivage/config/prompts');
   mkdirSync(join(promptRoot, 'agents/_shared'), { recursive: true });
   mkdirSync(join(promptRoot, 'fragments/_shared'), { recursive: true });
+  mkdirSync(join(promptRoot, 'process/_shared'), { recursive: true });
+  writeFileSync(join(promptRoot, 'process/_shared/execute.md'), `${readFileSync(join(process.cwd(), 'src/config/system-templates/classic/prompts/process/_shared/execute.md'), 'utf8')}\nSynthetic node source sentinel token=node-egress-canary\nfinal-recorded-node-Z`);
   writeFileSync(join(promptRoot, 'fragments/_shared/reader-canary.md'), 'api_key=fragment-canary\nsk-');
   for (const name of ['executor', 'analyst']) {
     const bundled = readFileSync(join(process.cwd(), `src/config/system-templates/classic/prompts/agents/_shared/${name}.md`), 'utf8');
@@ -157,11 +316,20 @@ test.beforeAll(async () => {
   const child = new CardService(root, workflows).create({ type: 'code', parent: 'project', title: 'Synthetic reader child', bootstrap_content: 'Synthetic brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
   executor = `agent:executor:${child.id}` as ConversationSessionId;
   await seed(executor); await seed(analyst);
+  for (const [session, cardType] of [[executor, 'code'], [analyst, 'code'], [planner, 'project']] as const)
+    instructionFixtures.set(session, seedInstructionEvidence(session, cardType));
   await publishThreeGenerationCompactedConversation(root, `${longText}\nfinal-summary-Z`, {
-    first: { content: `${longText}\nfirst-protected-Z`, key: 'reader-protected' },
-    replacement: { content: `${longText}\nfinal-protected-Z`, key: 'reader-protected' },
+    first: { content: `${longText}\nfirst-protected-Z`, key: 'reader-protected', instruction_origin: 'workflow_prompt' },
+    replacement: { content: `${longText}\nfinal-protected-Z`, key: 'reader-protected', instruction_origin: 'workflow_prompt' },
   });
   for (const path of [cardHeadFile(root, 'project'), cardHeadFile(root, child.id), ...[executor, analyst, planner].map(session => currentConversationSegmentPath(root, session))]) unchangedSelections.set(path, readFileSync(path));
+  // Capture precedes a genuinely different loaded template observation. The
+  // historical API must keep its old strings while current configuration changes.
+  for (const name of ['executor', 'analyst']) {
+    const path = join(promptRoot, `agents/_shared/${name}.md`);
+    writeFileSync(path, `${readFileSync(path, 'utf8')}\nCURRENT-LOADED-ONLY-Z\nfinal-loaded-instructions-Z`);
+  }
+  workflows = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: {} }).loadEffective().workflows;
   app = await startProductionApp(root, token);
   origin = appOrigin(app);
   // An unactivated edit is not loaded configuration; expectedBindings retains

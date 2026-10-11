@@ -8,6 +8,7 @@ import {
   buildCandidateRequest,
   buildLlmOptions,
   selectLlmProtocolAdapter,
+  type InvocationRequest,
 } from '../../src/agents/execution-api.js';
 import {
   createInvocationServiceProvider,
@@ -24,11 +25,14 @@ import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.j
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import {
   segmentContext,
   foldConversation,
+  foldHistoricalConversationRows,
+  ConversationSegmentChangedError,
 } from '../../src/application/read-models/agent-conversation-read-model.js';
 import {
   ConversationLLMActor,
@@ -42,9 +46,10 @@ import {
   LOCAL_OMISSION_SUMMARY,
   type AutonomousCompactionPolicy,
 } from '../../src/runtime/actors/compaction/compactor.js';
+import { estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { appendActivationMarker, buildUserContextMessage, providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import {
@@ -67,9 +72,14 @@ import {
   ProviderTurnFailure,
   LlmRequestError,
   PublicationOutcomeUnknownError,
+  type CandidateRequestPlan,
+  type LlmCompleteOptions,
 } from '../../src/contracts/index.js';
 import {
   agentMessageSchema,
+  parseActivationOpenPayload,
+  canonicalValueSha256,
+  sha256Hex,
   type AgentMessage,
   type ConversationSessionId,
 } from '../../src/schemas/index.js';
@@ -104,6 +114,22 @@ function refusal(): Response {
   );
 }
 
+function assertDecorationNeutralRequest(request: InvocationRequest, plan: CandidateRequestPlan, options: LlmCompleteOptions): void {
+  const projection=request.providerConversation;
+  const baseline=buildCandidateRequest({candidate:plan.candidate,capabilities:plan.capabilities,adapter:plan.adapter,
+    systemPrompt:request.systemPrompt,
+    providerConversation:projection.sourceSessionId===null?projection:{sourceSessionId:projection.sourceSessionId,messages:projection.messages.map(message=>{
+      if(message.kind==='synthetic_context') return message;
+      const {instruction_origin: _origin,...ordinary}=message;
+      expect(estimateMessageTokens(message)).toBe(estimateMessageTokens(ordinary));
+      return ordinary;
+    })},options,
+  });
+  expect(plan.request.serializedBody).toBe(baseline.request.serializedBody);
+  expect(plan.request.requestHash).toBe(baseline.request.requestHash);
+  expect(plan.request.estimatedWireInputTokens).toBe(baseline.request.estimatedWireInputTokens);
+}
+
 function row(session: ConversationSessionId, id: string, content: string): AgentMessage {
   return agentMessageSchema.parse({
     id,
@@ -128,7 +154,7 @@ function marker(session: ConversationSessionId, ordinal: number): AgentMessage {
     kind: 'activity',
     context_policy: ACTIVITY_ROW_POLICY,
     content: JSON.stringify({
-      event: 'activation_open',
+      event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
       agent_name: agentName,
       ...(session.endsWith(':project') ? { card_id: 'project' } : {}),
       input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`,
@@ -145,6 +171,9 @@ function fixture(
     protected?: boolean;
     trigger?: number;
     capacity?: number;
+    instructionEvidence?: boolean;
+    recentContent?: string;
+    roleText?: string;
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), 'summary-maintenance-e2e-'));
@@ -173,11 +202,12 @@ function fixture(
     conversationChanged: jest.fn(),
     llmExchangeChanged: jest.fn(),
   };
+  const candidateAvailability = new MemoryCandidateAvailability();
   const service = new InvocationService({
     projectRoot: root,
     registry,
     freshness,
-    candidateAvailability: new MemoryCandidateAvailability(),
+    candidateAvailability,
   });
   const summaryProvider: SummarizerProviderPort = {
     candidate: SUMMARY,
@@ -216,7 +246,7 @@ function fixture(
     projectProviderExchanges: (...values) => service.projectProviderExchanges(...values),
   };
   const prefix = row(session, 'old-narrative', 'P'.repeat(args.prefix ?? 20_000));
-  const recent = row(session, 'recent-narrative', 'R'.repeat(args.recent ?? 4_000));
+  const recent = row(session, 'recent-narrative', args.recentContent ?? 'R'.repeat(args.recent ?? 4_000));
   const rows = args.protected
     ? [
         marker(session, 1),
@@ -229,10 +259,19 @@ function fixture(
         row(session, 'current-tiny', 'tiny'),
       ]
     : [marker(session, 1), prefix, marker(session, 3), recent];
-  appendConversationBatch({ projectRoot: root }, rows);
+   if (args.instructionEvidence) {
+     if(session !== 'agent:planner:project') throw new Error('Instruction-evidence fixture is card-owned.');
+     for (const [ordinal,content] of [[1,prefix.content],[3,recent.content]] as const) {
+       const inputId=`00000000-0000-4000-8000-${String(ordinal).padStart(12,'0')}`;
+       appendActivationMarker({projectRoot:root},session,{event:'activation_open',agent_name:'planner',card_id:'project',input_id:inputId,
+         instructions:{kind:'prepared',role_text:ordinal===1?'HISTORICAL-ROLE-EVIDENCE-ONLY':args.roleText??'STATIC INSTRUCTIONS',node:{node_id:ordinal===1?'prior':'work',text:ordinal===1?'HISTORICAL-NODE-EVIDENCE-ONLY':'ACTUAL FULL COMPILED NODE'}},
+       });
+       appendConversationBatch({projectRoot:root},[buildUserContextMessage(session,inputId,'process_transition',0,{role:'user',content,instruction_origin:'workflow_prompt'})]);
+     }
+   } else appendConversationBatch({ projectRoot: root }, rows);
   const preparedCompaction = prepareCompaction(
     policy,
-    'STATIC INSTRUCTIONS',
+    args.roleText ?? 'STATIC INSTRUCTIONS',
     [],
     Math.floor(capacity * 0.8) - 500,
     500,
@@ -262,7 +301,7 @@ function fixture(
     agentId: session,
     agentName: session.split(':')[1]!,
     sessionId: session,
-    systemPrompt: 'STATIC INSTRUCTIONS',
+    systemPrompt: args.roleText ?? 'STATIC INSTRUCTIONS',
     providerConversation: providerConversationProjection(readConversation(root, session), blocks),
     tools: [],
     compiledToolContracts: [],
@@ -270,7 +309,7 @@ function fixture(
     modelParams: { temperature: 0 },
     preparedCompaction,
     preparedContext: buildPreparedInvocationContext({
-      instructionText: 'STATIC INSTRUCTIONS',
+      instructionText: args.roleText ?? 'STATIC INSTRUCTIONS',
       terminalToolNames: [],
       compiledTools: [],
       dynamicBlocks: blocks,
@@ -333,6 +372,7 @@ function fixture(
     actor,
     terminal,
     service,
+    candidateAvailability,
     summaryProvider,
     compactor,
     strategies,
@@ -345,6 +385,151 @@ function fixture(
 }
 
 describe('loss-tolerant maintenance through production invocation and persistence', () => {
+  it('keeps prepared ingress evidence when real exact admission rejects oversized static instructions before transport', async () => {
+    const f=fixture({instructionEvidence:true,prefix:100,recent:100,roleText:'\\'.repeat(16_000),trigger:0.99});
+    const before=readHistoricalConversationSegment(f.root,f.session,1).rows;
+    const counts=f.script(kind=>{
+      if(kind==='primary') throw new Error('Exact admission must reject before primary transport.');
+      return chatSuccess('small summary');
+    });
+    const frozen=structuredClone(f.input.preparedContext);
+    await expect(f.actor.turn(f.input,undefined,f.terminal)).rejects.toMatchObject({name:'LocalExactAdmissionError',source:'primary_local'});
+    expect(counts.primary).toBe(0);
+    expect(f.input.preparedContext).toEqual(frozen);
+    expect(readHistoricalConversationSegment(f.root,f.session,1).rows).toEqual(before);
+    const marker=before.filter(row=>row.kind==='activity').at(-1)!;
+    expect(parseActivationOpenPayload(marker.content,f.session,marker.timestamp)?.instructions).toEqual({kind:'prepared',role_text:f.input.systemPrompt,node:{node_id:'work',text:f.input.preparedContext.dynamicBlocks[1]!.content}});
+    expect(readProviderExchangeEntries(f.root,f.session).filter(row=>row.data.session_id===f.session)).toEqual([]);
+  });
+  it.each(['provider_error','pinned_refusal_retry','routing_unavailable','summary_then_provider_error'] as const)(
+    'retains source prepared evidence and frozen context through %s without claiming primary success',
+    async (scenario) => {
+      const f=fixture({instructionEvidence:true,...(scenario==='summary_then_provider_error'?{prefix:1_000,recent:24_000}:{prefix:100,recent:100,trigger:0.99})});
+      const source=readHistoricalConversationSegment(f.root,f.session,1);
+      const originalMarkers=source.rows.filter(row=>row.kind==='activity'&&parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+      const frozen=structuredClone(f.input.preparedContext);
+      if(scenario==='routing_unavailable') f.candidateAvailability.markFailed(PRIMARY,{state:'BLOCKED_UNTIL',untilMs:Date.now()+60_000,reason:'synthetic route unavailable'});
+      const originalAdmission=f.service.preparePrimaryRequestAdmission.bind(f.service);
+      jest.spyOn(f.service,'preparePrimaryRequestAdmission').mockImplementation(request=>{
+        const admission=originalAdmission(request);
+        if(admission.kind==='admitted') for(const candidate of admission.candidates) if(candidate.kind==='admitted') assertDecorationNeutralRequest(request,candidate.plan,admission.execution.options);
+        return admission;
+      });
+      const originalPinned=f.service.preflightPinnedContentPolicyRequest.bind(f.service);
+      const pinnedAdmission=jest.spyOn(f.service,'preflightPinnedContentPolicyRequest').mockImplementation(request=>{
+        const admission=originalPinned(request);
+        if(admission.kind==='admitted') assertDecorationNeutralRequest(request,admission.plan,admission.options);
+        return admission;
+      });
+      const counts=f.script(kind=>kind==='summary'?chatSuccess('SUMMARY-WITHOUT-PRIMARY-SUCCESS'):scenario==='pinned_refusal_retry'?refusal():new Response(JSON.stringify({error:{code:'invalid_request_error',type:'invalid_request_error',message:'synthetic provider rejected this request'}}),{status:400,headers:{'content-type':'application/json'}}));
+      if(scenario==='pinned_refusal_retry') {
+        await expect(f.actor.turn(f.input,undefined,f.terminal)).resolves.toMatchObject({type:'blocked',result:{kind:'content-policy-refusal'}});
+        expect(counts).toEqual({summary:0,primary:2});
+        expect(pinnedAdmission).toHaveBeenCalledTimes(1);
+      } else if(scenario==='provider_error'||scenario==='summary_then_provider_error') {
+        await expect(f.actor.turn(f.input,undefined,f.terminal)).resolves.toMatchObject({type:'error',error:expect.stringContaining('synthetic provider rejected this request')});
+        expect(counts).toEqual({summary:scenario==='summary_then_provider_error'?2:0,primary:1});
+        expect(pinnedAdmission).not.toHaveBeenCalled();
+      } else {
+        await expect(f.actor.turn(f.input,undefined,f.terminal)).resolves.toMatchObject({type:'error'});
+        expect(counts).toEqual({summary:0,primary:0});
+        expect(pinnedAdmission).not.toHaveBeenCalled();
+      }
+      expect(f.input.preparedContext).toEqual(frozen);
+      const retained=readHistoricalConversationSegment(f.root,f.session,1).rows.filter(row=>row.kind==='activity'&&parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+      expect(retained).toEqual(originalMarkers);
+      expect(parseActivationOpenPayload(retained[1]!.content,f.session,retained[1]!.timestamp)?.instructions).toEqual({kind:'prepared',role_text:f.input.preparedContext.prefix.instructionText,node:{node_id:'work',text:f.input.preparedContext.dynamicBlocks[1]!.content}});
+      for(const {body,kind} of f.requests) {
+        const messages=JSON.parse(body).messages as Array<{content:string}>;
+        if(kind==='primary') {
+          expect(messages.filter(message=>message.content===f.input.systemPrompt)).toHaveLength(1);
+          expect(messages.filter(message=>message.content===f.input.preparedContext.dynamicBlocks[1]!.content)).toHaveLength(1);
+        }
+        for(const excluded of ['activation_open','instruction_origin','HISTORICAL-ROLE-EVIDENCE-ONLY','HISTORICAL-NODE-EVIDENCE-ONLY','Prepared instructions','Recorded workflow instruction']) expect(body).not.toContain(excluded);
+      }
+      const allExchanges=readProviderExchangeEntries(f.root,f.session);
+      const exchanges=allExchanges.filter(row=>row.data.session_id===f.session);
+      expect(exchanges.map(row=>row.data.attempt_index)).toEqual(scenario==='pinned_refusal_retry'?[0,1]:scenario==='routing_unavailable'?[]:[0]);
+      expect(exchanges.every(row=>row.data.session_id===f.session&&row.data.source_input_id===INPUT_ID)).toBe(true);
+      expect(exchanges.every(row=>row.data.payload.status==='error')).toBe(true);
+      const summaries=allExchanges.filter(row=>row.data.session_id.startsWith('internal:compaction-summary:'));
+      expect(summaries).toHaveLength(scenario==='summary_then_provider_error'?2:0);
+      expect(summaries.every(row=>row.data.payload.status==='ok')).toBe(true);
+    },
+  );
+  it.each(['preventive','local_exact_admission'] as const)(
+    'covers the source activation before any primary request through %s without exporting evidence as context',
+    async (strategy) => {
+      const f=fixture({instructionEvidence:true,prefix:1_000,recent:24_000,
+        ...(strategy==='local_exact_admission'?{trigger:0.99,recentContent:'\\'.repeat(16_000)}:{}),
+      });
+      expect(shouldCompact(f.input)).toBe(strategy==='preventive');
+      const before=foldConversation(f.root,f.session);
+      const publicReader=new AgentOperatorReadModelService(f.root,TEST_WORKFLOWS,()=>new Map());
+      const beforeApi=publicReader.getConversation(f.session);
+      const markerRows=before.entries.filter(row=>row.kind==='activity'&&parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+      expect(markerRows).toHaveLength(2);
+      expect(markerRows.map(row=>estimateMessageTokens(row))).toEqual([0,0]);
+      const sourceMarker=markerRows[1]!;
+      const sourceInstructions=parseActivationOpenPayload(sourceMarker.content,f.session,sourceMarker.timestamp)!.instructions;
+      const prompt=before.entries.at(-1)!;
+      expect(prompt.instruction_origin).toBe('workflow_prompt');
+      const tail=foldConversation(f.root,f.session,{lastN:1});
+      expect(tail.entries).toEqual([prompt]);
+      const overviewTail=publicReader.readCurrentSegmentTail(f.session,1);
+      expect(overviewTail.kind).toBe('populated');
+      if(overviewTail.kind!=='populated') throw new Error('Missing overview tail.');
+      expect(overviewTail.conversation.entries).toEqual([prompt]);
+      const incremental=foldConversation(f.root,f.session,{segmentId:before.segmentId,segmentVersion:before.segmentVersion,since:sourceMarker.id});
+      expect(incremental.entries).toEqual([prompt]);
+      const frozen=structuredClone(f.input.preparedContext);
+      const admittedBodies:string[]=[];
+      const originalAdmission=f.service.preparePrimaryRequestAdmission.bind(f.service);
+      jest.spyOn(f.service,'preparePrimaryRequestAdmission').mockImplementation(request=>{
+        const admission=originalAdmission(request);
+        if(admission.kind==='admitted') for(const candidate of admission.candidates) {
+          if(candidate.kind!=='admitted') continue;
+          assertDecorationNeutralRequest(request,candidate.plan,admission.execution.options);
+          if(candidate.plan.candidate.model===PRIMARY.model) admittedBodies.push(candidate.plan.request.serializedBody);
+        }
+        return admission;
+      });
+      const counts=f.script(kind=>{
+        if(kind==='primary') {
+          const current=readCurrentConversationSegment(f.root,f.session)!;
+          expect(current.entry.version).toBeGreaterThan(1);
+          expect(current.genesis.kind).toBe('compacted_segment_genesis');
+          if(current.genesis.kind==='compacted_segment_genesis') expect(current.genesis.source.covered_through_message_id).toBe(prompt.id);
+        }
+        return chatSuccess(kind==='summary'?'SUMMARY-SENTINEL':'primary complete');
+      });
+      await expect(f.actor.turn(f.input,undefined,f.terminal)).resolves.toMatchObject({type:'result'});
+      expect(counts).toEqual({summary:2,primary:1});
+      expect(f.strategies.map(value=>value.strategy)).toEqual([strategy]);
+      expect(f.input.preparedContext).toEqual(frozen);
+      expect(f.input.preparedContext.dynamicBlocksSha256).toBe(canonicalValueSha256(f.input.preparedContext.dynamicBlocks));
+      expect(f.input.preparedContext.prefix.immutablePrefixSha256).toBe(sha256Hex(f.input.preparedContext.prefix.immutablePrefixBytes));
+      expect(f.input.preparedContext.prefix.instructionText).toBe(f.input.systemPrompt);
+      const primary=f.requests.find(request=>request.kind==='primary')!.body;
+      expect(admittedBodies).toContain(primary);
+      const body=JSON.parse(primary);
+      expect(body.messages.filter((message:{content:string})=>message.content==='STATIC INSTRUCTIONS')).toHaveLength(1);
+      expect(body.messages.filter((message:{content:string})=>message.content==='ACTUAL FULL COMPILED NODE')).toHaveLength(1);
+      for(const request of f.requests) for(const excluded of ['HISTORICAL-ROLE-EVIDENCE-ONLY','HISTORICAL-NODE-EVIDENCE-ONLY','instruction_origin','activation_open','Prepared instructions','Recorded workflow instruction']) expect(request.body).not.toContain(excluded);
+      const history=readHistoricalConversationSegment(f.root,f.session,1);
+      expect(JSON.parse(foldHistoricalConversationRows(history.rows).find(row=>row.id===sourceMarker.id)!.content).instructions).toEqual(sourceInstructions);
+      expect(foldHistoricalConversationRows(history.rows).find(row=>row.id===prompt.id)?.instruction_origin).toBe('workflow_prompt');
+      expect(()=>foldConversation(f.root,f.session,{segmentId:before.segmentId,segmentVersion:before.segmentVersion,since:prompt.id})).toThrow(ConversationSegmentChangedError);
+      expect(()=>publicReader.getConversation(f.session,{segment_id:beforeApi.segment_id,segment_version:beforeApi.segment_version,since:prompt.id})).toThrow(ConversationSegmentChangedError);
+      const replacement=publicReader.getConversation(f.session);
+      expect(replacement.segment_id).not.toBe(beforeApi.segment_id);
+      expect(replacement.entries.some(row=>row.id===sourceMarker.id||row.id===prompt.id)).toBe(false);
+      const historicalApi=publicReader.getConversationVersion(f.session,1);
+      expect(JSON.parse(historicalApi.entries.find(row=>row.id===sourceMarker.id)!.content).instructions).toEqual(sourceInstructions);
+      expect(historicalApi.entries.find(row=>row.id===prompt.id)?.instruction_origin).toBe('workflow_prompt');
+      expect(foldConversation(f.root,f.session).entries.some(row=>row.id===sourceMarker.id)).toBe(false);
+    },
+  );
   it('actual AnalystRuntime settles no-candidate refusal and accepts a later explicit submission without immediate automatic retry', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'summary-maintenance-analyst-owner-'));
     roots.push(projectRoot);
@@ -491,7 +676,7 @@ describe('loss-tolerant maintenance through production invocation and persistenc
       expect(f.terminal).toHaveBeenCalledTimes(1);
       const current = readCurrentConversationSegment(f.root, f.session)!;
       expect(current.entry.version).toBe(2);
-      expect(current.index.format_version).toBe(7);
+      expect(current.index.format_version).toBe(8);
       expect(current.conversation.effectiveCompactedHistory!.summaryText).toBe(
         LOCAL_OMISSION_SUMMARY,
       );

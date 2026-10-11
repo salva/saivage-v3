@@ -23,7 +23,7 @@ function row(session_id: ConversationSessionId, id: string, kind: 'activity' | '
       kind === 'activity'
         ? JSON.stringify({
             agent_name: parts[1],
-            event: 'activation_open',
+            event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
             input_id: '00000000-0000-4000-8000-000000000001',
             timestamp: stamp,
             ...(card ? { card_id: card } : {}),

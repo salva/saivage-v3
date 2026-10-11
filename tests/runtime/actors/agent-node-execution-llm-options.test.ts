@@ -27,7 +27,7 @@ describe('AgentNodeExecution LLM options', () => {
     appendConversationBatch({ projectRoot }, [{
       id: 'activation', session_id: sessionId, role: 'system', kind: 'activity',
       context_policy: { kind: 'structural', behavior: 'activation_boundary' },
-      content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-23T00:00:00.000Z' }),
+      content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-23T00:00:00.000Z' }),
       round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-23T00:00:00.000Z',
     }]);
 
@@ -102,7 +102,7 @@ describe('AgentNodeExecution LLM options', () => {
       cardId: 'project',
       conversations: { projectRoot },
     } as never, {} as never) as unknown as {
-      prepareNodeEntry(process: unknown, node: unknown, transition: unknown, input: unknown, sessionId: string, inputId: string, reviewerPair: null): void;
+      prepareNodeEntry(process: unknown, node: unknown, transition: unknown, input: unknown, sessionId: string, inputId: string, reviewerPair: null, instructions: import('../../../src/schemas/index.js').ActivationInstructions): void;
     };
     const node = { nodeId: 'work', agent: { name: 'planner' }, promptId: 'work' };
     const process = {
@@ -115,13 +115,13 @@ describe('AgentNodeExecution LLM options', () => {
     const firstInputId = '00000000-0000-4000-8000-000000000001';
     const secondInputId = '00000000-0000-4000-8000-000000000002';
 
-    runner.prepareNodeEntry(process, node, transition, input, sessionId, firstInputId, null);
+    runner.prepareNodeEntry(process, node, transition, input, sessionId, firstInputId, null, {kind:'unavailable',reason:'not_recorded'});
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.kind === 'activity')
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId]);
     expect(readConversation(projectRoot, sessionId).sourceRows.filter((row) => row.role === 'user')).toEqual([]);
 
-    runner.prepareNodeEntry(process, node, transition, input, sessionId, secondInputId, null);
+    runner.prepareNodeEntry(process, node, transition, input, sessionId, secondInputId, null, {kind:'unavailable',reason:'not_recorded'});
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.kind === 'activity')
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId, secondInputId]);

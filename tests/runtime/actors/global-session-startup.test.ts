@@ -29,7 +29,7 @@ describe('configured global fresh-startup settlement', () => {
   });
 
   it('byte-preserves valid current conversation data', () => {
-    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question', { kind: 'unavailable', reason: 'not_recorded' }));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); const before = readFileSync(path);
     stabilize(root, SESSION);
     expect(readFileSync(path)).toEqual(before);
@@ -37,10 +37,10 @@ describe('configured global fresh-startup settlement', () => {
 
   it('admits retained ordinary system text beside later two-row ingress without rewriting it', () => {
     const root = projectRoot();
-    const old = buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'old question');
+    const old = buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'old question', { kind: 'unavailable', reason: 'not_recorded' });
     const retained = { ...old[1], id: `${SESSION}:retained-note`, role: 'system' as const, content: '[workspace-context] view: cockpit', round_id: old[0].round_id, message_index: 0, block_index: 1 };
     appendConversationBatch({ projectRoot: root }, [old[0], retained, old[1]]);
-    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '22222222-2222-4222-8222-222222222222', 'new question'));
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '22222222-2222-4222-8222-222222222222', 'new question', { kind: 'unavailable', reason: 'not_recorded' }));
     const segment = readCurrentConversationSegment(root, SESSION)!;
     const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     const before = readFileSync(path);
@@ -51,12 +51,12 @@ describe('configured global fresh-startup settlement', () => {
 
   it('rejects malformed marker content and marker-free system-text preambles without editing either', () => {
     const malformedRoot = projectRoot();
-    const ingress = buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question');
+    const ingress = buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question', { kind: 'unavailable', reason: 'not_recorded' });
     appendConversationBatch({ projectRoot: malformedRoot }, ingress);
     const malformedSegment = readCurrentConversationSegment(malformedRoot, SESSION)!;
     const malformedPath = globalAgentConversationVersionFile(malformedRoot, 'analyst', malformedSegment.entry.filename);
     const malformedEnvelope = JSON.parse(readFileSync(malformedPath, 'utf8').trim()) as { rows: Array<{ content?: string }> };
-    malformedEnvelope.rows[1]!.content = JSON.stringify({ event: 'activation_open', agent_name: 'analyst' });
+    malformedEnvelope.rows[1]!.content = JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'analyst' });
     writeFileSync(malformedPath, `${JSON.stringify(malformedEnvelope)}\n`);
     const malformedBefore = readFileSync(malformedPath);
     expect(() => stabilize(malformedRoot, SESSION)).toThrow();
@@ -79,7 +79,7 @@ describe('configured global fresh-startup settlement', () => {
     const root = projectRoot();
     initializeMissingConversation(root, sessionId);
     const inputId = '11111111-1111-4111-8111-111111111111';
-    const ingress = buildGlobalAgentIngressRows(sessionId, inputId, 'question');
+    const ingress = buildGlobalAgentIngressRows(sessionId, inputId, 'question', { kind: 'unavailable', reason: 'not_recorded' });
     appendConversationBatch({ projectRoot: root }, ingress);
     appendConversationBatch({ projectRoot: root }, [{
       id: `${inputId}:tool-call:call-startup`, session_id: sessionId, role: 'assistant', kind: 'tool_call',
@@ -108,7 +108,7 @@ describe('configured global fresh-startup settlement', () => {
   });
 
   it('selected global owning consumption discards a proven unterminated suffix', () => {
-    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question', { kind: 'unavailable', reason: 'not_recorded' }));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); const before = readFileSync(path); appendFileSync(path, '{"broken":');
     expect(() => stabilize(root, SESSION)).not.toThrow();
     expect(readFileSync(path)).toEqual(before);
@@ -116,7 +116,7 @@ describe('configured global fresh-startup settlement', () => {
   });
 
   it.each(['schema', 'semantic'] as const)('does not discard a suffix after complete %s-invalid global history', (fault) => {
-    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question'));
+    const root = projectRoot(); appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(SESSION, '11111111-1111-4111-8111-111111111111', 'question', { kind: 'unavailable', reason: 'not_recorded' }));
     const segment = readCurrentConversationSegment(root, SESSION)!; const path = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     const envelope = JSON.parse(readFileSync(path, 'utf8').trim());
     appendFileSync(path, fault === 'schema' ? '{"complete":"invalid"}\n' : `${JSON.stringify({ ...envelope, rows: envelope.rows.slice(1) })}\n`);
@@ -128,7 +128,7 @@ describe('configured global fresh-startup settlement', () => {
   it.each(['nonfinal-call', 'multiple-calls', 'genesis', 'wrong-session', 'unsupported-version', 'no-complete-prefix', 'invalid-earlier-envelope'] as const)('fails %s without changing consumed bytes', (fault) => {
     const root = projectRoot();
     const input = '11111111-1111-4111-8111-111111111111';
-    const ingress = buildGlobalAgentIngressRows(SESSION, input, 'question');
+    const ingress = buildGlobalAgentIngressRows(SESSION, input, 'question', { kind: 'unavailable', reason: 'not_recorded' });
     appendConversationBatch({ projectRoot: root }, ingress);
     appendStartupPendingCall(root, SESSION, input);
     const segment = readCurrentConversationSegment(root, SESSION)!;
@@ -152,7 +152,7 @@ describe('configured global fresh-startup settlement', () => {
     rmSync(globalAgentConversationVersionIndexFile(root, 'analyst'));
     expect(()=>stabilize(root,SESSION)).toThrow();
     initializeMissingConversation(root, SESSION);
-    appendConversationBatch({projectRoot:root},buildGlobalAgentIngressRows(SESSION,'22222222-2222-4222-8222-222222222222','check'));
+    appendConversationBatch({projectRoot:root},buildGlobalAgentIngressRows(SESSION,'22222222-2222-4222-8222-222222222222','check',{kind:'unavailable',reason:'not_recorded'}));
     const segment=readCurrentConversationSegment(root,SESSION)!;
     rmSync(globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename));
     expect(()=>stabilize(root,SESSION)).toThrow();

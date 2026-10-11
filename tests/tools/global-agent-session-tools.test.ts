@@ -54,7 +54,7 @@ function rows(): AgentMessage[] {
       kind: 'activity',
       context_policy: ACTIVITY_ROW_POLICY,
       content: JSON.stringify({
-        event: 'activation_open',
+        event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
         agent_name: 'planner',
         card_id: 'project',
         input_id: sourceInputId,
@@ -325,9 +325,11 @@ describe('global agent-session observation tools', () => {
     expect(first.kind).toBe('succeeded');if(first.kind!=='succeeded')throw new Error(first.error);
     const page=(first.data as any).messages;
     expect(page.total).toBe(3);expect(page.next).not.toBeNull();
-    expect(Buffer.byteLength(JSON.stringify(first),'utf8')).toBeLessThanOrEqual(1024);
+    expect(Buffer.byteLength(settledSuccessBytes(first.data),'utf8')).toBeLessThanOrEqual(1024);
     const second=await invokeAgentObservation(projectRoot,'read_agent_session',{session_id:'agent:planner:project',last_n:3,response_bytes:1024,position:page.next});
     expect(second).toMatchObject({kind:'succeeded',data:{messages:{position:page.next}}});
+    if(second.kind!=='succeeded')throw new Error(second.error);
+    expect(Buffer.byteLength(settledSuccessBytes(second.data),'utf8')).toBeLessThanOrEqual(1024);
   });
 
   it('pages a complete oversized compacted context independently without leaking secret text',async()=>{
@@ -391,7 +393,7 @@ describe('global agent-session observation tools', () => {
         id: 'child-activation',
         session_id: sessionId,
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'executor',
           card_id: child.id,
           input_id: sourceInputId,

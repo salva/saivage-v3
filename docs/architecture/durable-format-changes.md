@@ -23,6 +23,40 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Historical instruction evidence (2026-10-11)
+
+Exact implementation parent: `10900176cfe8f28fd0501664b0db201b73ec8eec`.
+This coherent cutover freshly advances conversation index and ordinary/compacted
+genesis `format_version:7→8` and segment envelope `version:7→8`, retaining
+`type:conversation-segment`. `persistence/canonical-conversation-artifacts.ts`
+owns these discriminators; previous index slots share the selector contract.
+`schemas/activation-instructions.ts` owns the shared strict activation parser.
+Every activation payload requires `instructions`: prepared rendered role text
+and nullable exact node ID/text, explicit `unavailable/not_recorded`, or global
+`not_applicable/non_model_ingress`. Card prepared snapshots require a node; globals
+have none. New model-backed producers record prepared values, never absence.
+Existing card user text/model-repair rows may positively record only
+`instruction_origin:'workflow_prompt'`, including embedded protected prompts.
+Unmarked rows are not inferred to be human-authored or retroactively classified.
+
+Snapshots are structural evidence, excluded from provider/summarizer context,
+accounting and protected/fact selection. Public projection positively selects and
+independently privacy-filters role/node text. Preparation is not delivery evidence;
+compaction retains source snapshots only in their indexed source segments.
+Source applicability is conversation 7 at the exact parent; installed deployment
+applicability is unknown. This is not reuse of the 6→7 cutover or evidence of an
+undeployed format-8 release. Old/mixed retained state strictly blocks.
+Source completion authorizes no adoption, deployment, reset or migration. Adoption
+requires separately consented complete reset or explicitly requested external offline
+migration to a pinned matching release under all AGENTS/runbook gates. Unknown
+historical instructions stay unavailable; current templates, hashes, private
+diagnostics and resemblance cannot invent text or provenance. No product converter,
+dual reader or normalization is provided; binary-only downgrade over 8 is unsupported.
+Card/record/head/mailbox, descriptor-selected raw PNGs, MCP definitions 1, lifecycle
+lock, unversioned configuration, private diagnostic 2/privacy-policy-2 and shared
+app-log/provider-exchange envelope 1 remain unchanged. Historical entries below
+describe their own source boundaries, not the new current baseline.
+
 ### Minimal dynamic MCP definitions (2026-10-10)
 
 Exact source/implementation parent: `e980b1b14ce859808e469d4e2018e75f142ab30d`.
@@ -35,7 +69,7 @@ intentional empty state. Definitions are preserved by normal reset and complete
 backup, never autostart, and cannot shadow YAML. Older binaries may ignore this
 file; binary-only downgrade is not an approved rollback.
 
-Conversation index/genesis/segment remain **7**. Prior name-only MCP input and new
+At that cutover conversation index/genesis/segment remained **7**. Prior name-only MCP input and new
 bound/registration input are arbitrary recorded call JSON and generic result data,
 not executable retained contracts. Current strict reader, materializer and outbound
 projector tests retain both as historical facts without inventing bindings or replay.
@@ -281,8 +315,8 @@ contains the schemas and direct publication/consumption owners.
 | Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:1`, `card-version` / `card-tombstone`; predecessor-linked ordinary/final payload, sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
 | Record head / accepted history | `records/record-<stem>.json`, `records/accepted/<UUID>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:1`, `record-head` / `accepted-record`; required head identity, sole current draft, accepted predecessor and ordinary card provenance. |
-| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:7`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. |
-| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:7`, `type:conversation-segment`; strict nested message/tool-result/private-context and semantic contracts. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
+| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:8`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. Protected messages preserve positive workflow-prompt provenance. |
+| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:8`, `type:conversation-segment`; required strict activation instruction evidence and optional positive workflow-prompt provenance alongside strict message/tool-result/private-context semantics. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; separate lifecycle-exclusion boundary, not generated-root migration state. |
 

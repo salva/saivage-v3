@@ -15,7 +15,7 @@ import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { canonicalJson } from '../../src/schemas/index.js';
+import { canonicalJson, parseActivationOpenPayload } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort, type RestartCapability } from '../../src/contracts/index.js';
 import { globalAgentConversationVersionFile } from '../../src/persistence/layout.js';
 import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
@@ -113,6 +113,12 @@ describe('Analyst parsed tool invocation', () => {
     release();
     await expect(winner).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
     expect(test.completeTurn).toHaveBeenCalledTimes(2);
+    const markers = readConversation(test.projectRoot, 'agent:analyst:global').physicalRows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+    expect(markers).toHaveLength(1);
+    expect(parseActivationOpenPayload(markers[0]!.content,markers[0]!.session_id,markers[0]!.timestamp)?.instructions).toEqual({
+      kind:'prepared',role_text:test.completeTurn.mock.calls[0]![0].preparedContext!.prefix.instructionText,node:null,
+    });
+    expect(markers[0]!.content).not.toContain('analyst.workspace_focus');
     const initialFocus = test.completeTurn.mock.calls[0]![0].preparedContext!.dynamicBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content;
     expect(test.completeTurn.mock.calls[1]![0].preparedContext!.dynamicBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content).toBe(initialFocus);
     expect(JSON.parse(initialFocus).focus).toBe('no_focus');
@@ -229,6 +235,9 @@ describe('Analyst parsed tool invocation', () => {
     expect(canonicalJson(response.toolInvocations![0]!.result)).toBe(durable!.content);
     expect(test.list).toHaveBeenCalledTimes(1);
     await expect(test.session.submit({ userContent: 'RESTART SERVER', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: null } })).resolves.toMatchObject({ restart: { status: 'scheduled' } });
+    const markers = readConversation(test.projectRoot, 'agent:analyst:global').physicalRows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+    expect(markers).toHaveLength(2);
+    expect(parseActivationOpenPayload(markers[1]!.content,markers[1]!.session_id,markers[1]!.timestamp)?.instructions).toEqual({kind:'not_applicable',reason:'non_model_ingress'});
     expect(test.list).toHaveBeenCalledTimes(1);
     expect(test.completeTurn).toHaveBeenCalledTimes(1);
   });
@@ -359,7 +368,7 @@ describe('Analyst parsed tool invocation', () => {
     } else if (fixture === 'nonfinal unmatched call') {
       const marker = readConversation(test.projectRoot, 'agent:analyst:global').sourceRows.find((row) => row.kind === 'activity')!;
       const inputId = '22222222-2222-4222-8222-222222222222';
-      appendRaw(path, { ...marker, id: `${marker.id}-later`, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: inputId, timestamp: marker.timestamp }), round_id: deterministicRoundId('pre', inputId) });
+      appendRaw(path, { ...marker, id: `${marker.id}-later`, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'analyst', input_id: inputId, timestamp: marker.timestamp }), round_id: deterministicRoundId('pre', inputId) });
     } else {
       const call = readConversation(test.projectRoot, 'agent:analyst:global').unmatchedCall!.message;
       const inputId = '33333333-3333-4333-8333-333333333333';
@@ -373,7 +382,7 @@ describe('Analyst parsed tool invocation', () => {
   it('settles a seeded selected-session call with its persisted policy before fresh Analyst ingress', async () => {
     const test = analyst('{"value":"new"}', jest.fn(async (args) => executedToolOutcome('none', toolSucceeded(args))));
     const oldInput = '44444444-4444-4444-8444-444444444444';
-    const ingress = buildGlobalAgentIngressRows('agent:analyst:global', oldInput, 'old request');
+    const ingress = buildGlobalAgentIngressRows('agent:analyst:global', oldInput, 'old request', { kind: 'unavailable', reason: 'not_recorded' });
     appendConversationBatch({ projectRoot: test.projectRoot }, ingress);
     const oldPolicy = toolCallRowPolicy();
     if (oldPolicy.kind !== 'tool_call') throw new Error('Expected tool-call policy fixture.');
@@ -397,5 +406,5 @@ describe('Analyst parsed tool invocation', () => {
 });
 
 function appendRaw(path: string, row: unknown): void {
-  appendFileSync(path, `${JSON.stringify({ version: 7, type: 'conversation-segment', rows: [row] })}\n`);
+  appendFileSync(path, `${JSON.stringify({ version: 8, type: 'conversation-segment', rows: [row] })}\n`);
 }

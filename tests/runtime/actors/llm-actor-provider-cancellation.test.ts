@@ -27,7 +27,7 @@ function fixture() {
   const conversationChanged = jest.fn();
   const exchangeChanged = jest.fn();
   const conversations = { projectRoot: root, changes: { conversationChanged, agentMembershipChanged: jest.fn() } };
-  appendConversationBatch(conversations, [agentMessageSchema.parse({ id: 'activation', session_id: sessionId, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: inputId, timestamp: '2026-10-01T00:00:00.000Z' }), context_policy: { kind: 'structural', behavior: 'activation_boundary' }, round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-10-01T00:00:00.000Z' })]);
+  appendConversationBatch(conversations, [agentMessageSchema.parse({ id: 'activation', session_id: sessionId, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'analyst', input_id: inputId, timestamp: '2026-10-01T00:00:00.000Z' }), context_policy: { kind: 'structural', behavior: 'activation_boundary' }, round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-10-01T00:00:00.000Z' })]);
   const availability = new MemoryCandidateAvailability();
   const service = new InvocationService({ projectRoot: root, registry: invocationProviderRegistry([candidate]), candidateAvailability: availability, freshness: { ...NO_FRESHNESS_EFFECTS, llmExchangeChanged: exchangeChanged } });
   let fatalEntered!: (error: PublicationOutcomeUnknownError) => void;

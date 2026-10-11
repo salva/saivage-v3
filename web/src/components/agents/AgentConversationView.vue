@@ -14,7 +14,7 @@
       <StatusBanner v-if="sessionSummaryRefreshing" tone="stale" message="Refreshing session status…" />
       <section class="segment-context">
         <strong>Conversation · {{ exactVersion === null ? 'current' : 'exact' }} segment {{ readerVersion ?? 'pending' }}</strong>
-        <details><summary>About this conversation</summary><p>Retained conversation and compacted context used in request assembly, not the exact original or current model request. Matched results are displayed with their earlier request. Static/prepared instructions, tool definitions, wire encoding and private replay are not reconstructed. No selected compacted context does not mean no system prompt was supplied.</p></details>
+        <details><summary>About this conversation</summary><p>Retained conversation and compacted context, not the exact original or current model request. Matched results are displayed with their earlier request. Prepared instructions are privacy-filtered historical evidence at recorded activation boundaries, not delivery receipts. Tool definitions, wire encoding, arbitrary dynamic context and private replay are not reconstructed. No selected compacted context does not mean no system prompt was supplied.</p></details>
       </section>
       <CurrentInstructions :session-id="props.sessionId" :historical="exactVersion !== null" />
       <details :key="`technical:${props.sessionId}`" class="technical-details" @toggle="rawPanelOpen = ($event.currentTarget as HTMLDetailsElement).open">
@@ -33,7 +33,8 @@
         :message="socketWaitingMessage"
       />
       <template v-else>
-       <SelectedCompactedContext v-if="readerContext" :key="readerIdentity" :context="readerContext" :version="readerVersion" />
+        <SelectedCompactedContext v-if="readerContext" :key="readerIdentity" :context="readerContext" :version="readerVersion" />
+        <p v-if="readerContext">Earlier activation instructions are in indexed source history, not an active instruction block. <button class="conv-tb-btn" @click="selectVersion(readerContext.source_version)">Inspect source segment {{ readerContext.source_version }}</button></p>
        <details :key="`history:${readerIdentity}`" class="version-history" :open="segmentVersion !== null && segmentVersion !== undefined" @toggle="onVersionHistoryToggle">
         <summary>Segment history</summary>
         <ViewState v-if="conversationVersionsLoading" state="loading" title="Loading segment history" />

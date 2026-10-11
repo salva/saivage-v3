@@ -457,7 +457,7 @@ function publishMarker(projectRoot: string, sessionId: ConversationSessionId): v
         content: JSON.stringify({
           agent_name: identity.agentName,
           ...(identity.cardId === null ? {} : { card_id: identity.cardId }),
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           input_id: '00000000-0000-4000-8000-000000000001',
           timestamp,
         }),

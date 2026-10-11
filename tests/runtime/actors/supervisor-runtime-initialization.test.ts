@@ -44,7 +44,7 @@ function seedInterruptedSession(root: string, sessionId: CardConversationSession
   const timestamp = '2026-08-10T00:00:00.000Z';
   const marker = {
     id: `${input}:activation:${agentName}`, session_id: sessionId, role: 'system' as const, kind: 'activity' as const,
-    content: JSON.stringify({ event: 'activation_open', agent_name: agentName, card_id: cardId, input_id: input, timestamp }),
+    content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: agentName, card_id: cardId, input_id: input, timestamp }),
     context_policy: ACTIVITY_ROW_POLICY, round_id: `r-pre-${'1'.repeat(32)}`,
     message_index: 0, block_index: 0, timestamp,
   };

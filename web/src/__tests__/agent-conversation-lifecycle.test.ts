@@ -75,7 +75,7 @@ function activation(sessionId: AgentConversationEntry['session_id'], suffix: str
   const timestamp = '2026-10-02T12:00:00.000Z';
   return { ...textEntry(`${sessionId}:activation:${suffix}`, 0), session_id: sessionId, role: 'system', kind: 'activity', timestamp,
     context_policy: { kind: 'structural', behavior: 'activation_boundary' },
-    content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: 'project' }), input_id: '11111111-1111-4111-8111-111111111111', timestamp }),
+    content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: sessionId.split(':')[1], ...(sessionId.endsWith(':global') ? {} : { card_id: 'project' }), input_id: '11111111-1111-4111-8111-111111111111', timestamp }),
   };
 }
 

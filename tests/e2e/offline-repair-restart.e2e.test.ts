@@ -262,7 +262,7 @@ async function compactFixture(root: string) {
         kind: 'activity',
         context_policy: ACTIVITY_ROW_POLICY,
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'planner',
           card_id: 'project',
           input_id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,

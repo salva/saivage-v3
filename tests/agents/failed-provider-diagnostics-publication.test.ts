@@ -323,7 +323,7 @@ describe('diagnostic publication uses existing fatal primitive boundary', () => 
           role: 'system',
           kind: 'activity',
           content: JSON.stringify({
-            event: 'activation_open',
+            event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
             agent_name: 'planner',
             card_id: 'project',
             input_id: inputId,

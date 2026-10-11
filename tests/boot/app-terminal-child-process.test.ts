@@ -69,13 +69,13 @@ describe('App terminal process adapters', () => {
     new CardService(root).setStatus('project', 'running');
     const sessionId = 'agent:analyst:global' as const;
     const input = '11111111-1111-4111-8111-111111111111';
-    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(sessionId, input, 'interrupted question'));
+    appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(sessionId, input, 'interrupted question', { kind: 'unavailable', reason: 'not_recorded' }));
     appendStartupPendingCall(root, sessionId, input);
     const segment = readCurrentConversationSegment(root, sessionId)!;
     let target = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     if (fault === 'oversight-tail') {
       initializeMissingConversation(root, 'agent:oversight:global');
-      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:oversight:global', input, 'interrupted check'));
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows('agent:oversight:global', input, 'interrupted check', { kind: 'unavailable', reason: 'not_recorded' }));
       const oversight = readCurrentConversationSegment(root, 'agent:oversight:global')!;
       target = globalAgentConversationVersionFile(root, 'oversight', oversight.entry.filename);
     }

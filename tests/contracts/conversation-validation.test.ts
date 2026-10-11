@@ -181,7 +181,23 @@ const OTHER_INPUT = '00000000-0000-4000-8000-000000000002';
 const GENESIS_ID = '11111111-1111-4111-8111-111111111111';
 const MARKER_ID = '22222222-2222-4222-8222-222222222222';
 
-function activation(id = 'activation', inputId = INPUT): AgentMessage { const timestamp = '2026-08-11T00:00:00.000Z'; return agentMessageSchema.parse({ id, context_policy: ACTIVITY_ROW_POLICY, session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
+function activation(id = 'activation', inputId = INPUT): AgentMessage { const timestamp = '2026-08-11T00:00:00.000Z'; return agentMessageSchema.parse({ id, context_policy: ACTIVITY_ROW_POLICY, session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
+
+describe('strict activation instruction evidence', () => {
+  it('requires explicit evidence and rejects unknown fields or mismatched identities at canonical consumption', () => {
+    const marker = activation();
+    const payload = JSON.parse(marker.content);
+    expect(agentMessageSchema.parse(marker)).toEqual(marker);
+    const {instructions: _instructions, ...missing} = payload;
+    const invalid = [missing, {...payload,card_id:'card-a'}, {...payload,agent_name:'executor'},
+      {...payload,instructions:{kind:'prepared',role_text:'role',node:null}},
+      {...payload,instructions:{kind:'prepared',role_text:'role',node:{node_id:'plan',text:'node',private:'sentinel'}}},
+      {...payload,instructions:{kind:'unavailable',reason:'unknown'}},
+      {...payload,instructions:{kind:'not_applicable',reason:'non_model_ingress'}},
+    ];
+    for (const value of invalid) expect(() => agentMessageSchema.parse({...marker,content:JSON.stringify(value)})).toThrow();
+  });
+});
 function text(id: string): AgentMessage { return agentMessageSchema.parse({ id, context_policy: TEXT_ROW_POLICY, session_id: SESSION, role: 'assistant', kind: 'text', content: id, round_id: `r-assistant-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
 function protectedText(id: string, content: string, sessionId: ConversationSessionId = SESSION): AgentMessage { return agentMessageSchema.parse({ id, context_policy: { ...TEXT_ROW_POLICY, compactable: false }, session_id: sessionId, role: 'user', kind: 'text', content, round_id: `r-user-${'2'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
 

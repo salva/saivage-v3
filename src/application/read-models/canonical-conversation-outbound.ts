@@ -12,6 +12,7 @@ import {
   agentMessageSchema,
   canonicalJson,
   parseCanonicalContentPolicyRefusal,
+  parseActivationOpenPayload,
   type AgentMessage,
 } from '../../schemas/index.js';
 import {
@@ -25,6 +26,44 @@ export function projectCanonicalConversationRow(
   projectInvocation: ToolInvocationProjector,
 ): AgentMessage {
   const row = stripModelDecoration(agentMessageSchema.parse(value));
+  if (row.kind === 'activity') {
+    const payload = parseActivationOpenPayload(row.content, row.session_id, row.timestamp);
+    if (payload) {
+      const instructions = payload.instructions;
+      return agentMessageSchema.parse({
+        ...row,
+        ...(row.links
+          ? {
+              links: row.links.map((link) => ({
+                ...link,
+                ...(link.label === undefined ? {} : { label: redactTextForOutbound(link.label) }),
+              })),
+            }
+          : {}),
+        content: canonicalJson({
+          event: 'activation_open',
+          agent_name: payload.agent_name,
+          ...('card_id' in payload ? { card_id: payload.card_id } : {}),
+          input_id: payload.input_id,
+          timestamp: payload.timestamp,
+          instructions:
+            instructions.kind === 'prepared'
+              ? {
+                  kind: 'prepared',
+                  role_text: redactTextForOutbound(instructions.role_text),
+                  node:
+                    instructions.node === null
+                      ? null
+                      : {
+                          node_id: instructions.node.node_id,
+                          text: redactTextForOutbound(instructions.node.text),
+                        },
+                }
+              : { kind: instructions.kind, reason: instructions.reason },
+        }),
+      });
+    }
+  }
   if (row.kind === 'tool_call') return projectCallRow(row, projectInvocation);
   if (row.kind === 'tool_result') return projectResultRow(row, projectInvocation);
   if (row.kind === 'content_policy_refusal') {

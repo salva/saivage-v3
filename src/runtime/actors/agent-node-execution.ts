@@ -222,6 +222,11 @@ export class AgentNodeExecution {
         sessionId,
         prepared.inputId,
         reviewerPair,
+        {
+          kind: 'prepared',
+          role_text: prepared.preparedContext.prefix.instructionText,
+          node: { node_id: node.nodeId, text: prepared.preparedContext.dynamicBlocks[1]!.content },
+        },
       );
       const baseline = new Map(
         node.requirements.map((record) => [
@@ -612,6 +617,7 @@ export class AgentNodeExecution {
     sessionId: CardConversationSessionId,
     inputId: string,
     reviewerPair: ReviewerContextPair | null,
+    instructions: import('../../schemas/index.js').ActivationInstructions,
   ): void {
     settleFinalUnmatchedCall(this.deps.conversations, sessionId);
     appendActivationMarker(this.deps.conversations, sessionId, {
@@ -619,6 +625,7 @@ export class AgentNodeExecution {
       agent_name: node.agent.name,
       card_id: this.deps.cardId,
       input_id: inputId,
+      instructions,
     });
     const roleContext: ProviderVisibleUserContextMessage[] = [];
     const selected = this.selectRecipientNotifications(process, node, input);
@@ -1155,6 +1162,7 @@ function renderedDurablePrompt(
   return {
     role: 'user',
     content: promptText(process, declaration.promptId),
+    instruction_origin: 'workflow_prompt',
     protection: {
       compactable: declaration.compactable,
       ...(declaration.compactionKey === undefined

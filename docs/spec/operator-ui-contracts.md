@@ -369,8 +369,33 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
 
 - Orientation reads **Conversation — current segment N** or **Conversation — exact
   segment N**. Retained conversation and compacted context are used in request
-  assembly, not an exact model request: static/prepared additions, tool definitions,
-  protocol encoding and private replay can differ and are not reconstructed here.
+  assembly, not an exact model request. Recorded prepared role/node evidence is
+  inspectable at source boundaries; tool definitions, arbitrary dynamic context,
+  protocol encoding and private replay are not reconstructed here.
+- Each source activation retains **Activation entry recorded** and shows
+  **Prepared instructions**, agent/node identity and recorded time. Independently
+  expandable **Role instructions** and **Node &lt;id&gt; instructions** use a labeled
+  instruction band/border/background, not color alone; full safe text wraps inline
+  and Copy copies all public text. Explain **privacy-filtered recorded instructions**
+  and preparation, not delivery or interpretation. Admission, cancellation, routing
+  failure, turn-start or successful exchange never upgrades this to Delivered.
+  Raw activation details contain only projected public fields.
+- Explicit absence reads **Historical instructions unavailable — not recorded**;
+  non-model ingress reads **No model invocation for this ingress**. Never substitute
+  current templates. Marked user text is **Recorded workflow instruction** at its
+  existing source position, with **Recorded context — delivery not established**,
+  full safe text/copy, links, source anchors and time. Marked repair retains
+  **Repair instruction recorded** in its single diagnostic disclosure plus the
+  workflow-origin explanation. Protected details retain provenance, coordinates
+  and policy; unmarked ordinary context stays ordinary without inferred origin.
+- A segment/tail starting after its activation says the start is outside the
+  displayed segment/tail, not that instructions never existed. Compacted views
+  explain earlier activation instructions are in indexed source history and offer
+  **Inspect source segment N** using the exact known `source_version`; no automatic
+  chain crawl or guessed adjacent version. Historical and card/global readers share
+  the same renderer. Incremental arrival never relocates or duplicates instruction
+  rows; changed segment identity replaces the baseline as before. Existing current
+  configuration, technical/exchange, tool/image, search/jump and follow features remain.
 - One conversation-owned scroll surface contains orientation, context, disclosures and
   timeline; expanded prose, code, instructions, stdout/stderr and raw payloads grow in
   normal flow, not nested vertical scrollports. Tree and Analyst remain independent panes.

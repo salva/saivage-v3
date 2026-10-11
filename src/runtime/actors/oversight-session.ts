@@ -193,6 +193,11 @@ export class OversightSession {
           this.#sessionId,
           inputId,
           'Perform one proportionate project Oversight check. No action is a successful result.',
+          {
+            kind: 'prepared',
+            role_text: prepared.preparedContext.prefix.instructionText,
+            node: null,
+          },
         ),
       );
       signal.throwIfAborted();

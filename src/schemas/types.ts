@@ -180,6 +180,7 @@ interface OpenAIResponsesProviderProjection {
   projection_kind: 'assistant_message' | 'assistant_tool_call';
 }
 export interface AgentMessage {
+  instruction_origin?: 'workflow_prompt';
   id: string;
   session_id: ConversationSessionId;
   role: MessageRole;

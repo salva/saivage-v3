@@ -599,7 +599,7 @@ function globalActivation(): AgentMessage {
     role: 'system',
     kind: 'activity',
     content: JSON.stringify({
-      event: 'activation_open',
+      event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
       agent_name: 'analyst',
       input_id: '00000000-0000-4000-8000-000000000001',
       timestamp,

@@ -56,7 +56,7 @@ function appendOpenMatchedRound(projectRoot: string, cardId: string): void {
   const resultContent = JSON.stringify({ success: true, data: { cards: [] } });
   const base = { session_id: sessionId, round_id: 'r-pre-ffffffffffffffffffffffffffffffff', message_index: 0, block_index: 0, timestamp };
   appendConversationBatch({ projectRoot }, [
-    { ...base, context_policy: ACTIVITY_ROW_POLICY, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'executor', card_id: cardId, input_id: inputId, timestamp }) },
+    { ...base, context_policy: ACTIVITY_ROW_POLICY, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'executor', card_id: cardId, input_id: inputId, timestamp }) },
     { ...base, context_policy: toolRowPolicies({ content: resultContent }).call, id: `${inputId}:tool-call:list-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'list-1', type: 'function', function: { name: 'list_cards', arguments: '{}' } }] }), tool: 'list_cards', tool_call_id: 'list-1', message_index: 1 },
     { ...base, context_policy: toolRowPolicies({ content: resultContent }).result, id: `${inputId}:tool-result:list-1`, role: 'tool', kind: 'tool_result', content: resultContent, tool: 'list_cards', tool_call_id: 'list-1', message_index: 2 },
   ] satisfies AgentMessage[]);

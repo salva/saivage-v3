@@ -26,6 +26,38 @@ import { readConversation, readHistoricalConversationSegment } from '../../src/p
 import { cardAgentSessionId, parseConversationSessionId } from '../../src/schemas/conversation-session-id.js';
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
+import { parseActivationOpenPayload } from '../../src/schemas/index.js';
+import { foldConversation, foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
+
+function assertRecordedNodeInstructions(root: string, starts: Array<{node: string; input: LlmInvocationInput}>): void {
+  for (const sessionId of new Set(starts.map(({input}) => parseConversationSessionId(input.sessionId)))) {
+    const selected = starts.filter(({input}) => input.sessionId === sessionId);
+    const rows = readConversation(root, sessionId).physicalRows;
+    const publicRows = foldConversation(root, sessionId).entries;
+    const markers = rows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content, sessionId, row.timestamp) !== null);
+    expect(markers).toHaveLength(selected.length);
+    selected.forEach(({node, input}, index) => {
+      const marker = markers[index]!;
+      const nodeBlock = input.preparedContext!.dynamicBlocks[1]!;
+      expect(parseActivationOpenPayload(marker.content, sessionId, marker.timestamp)?.instructions).toEqual({
+        kind: 'prepared', role_text: input.systemPrompt, node: {node_id: node, text: nodeBlock.content},
+      });
+      const publicMarker = publicRows.find(row => row.id === marker.id)!;
+      expect(parseActivationOpenPayload(publicMarker.content, sessionId, marker.timestamp)?.instructions).toEqual(
+        parseActivationOpenPayload(marker.content, sessionId, marker.timestamp)?.instructions,
+      );
+      expect(input.providerConversation.messages.filter(row => row.content === nodeBlock.content)).toHaveLength(1);
+      expect(input.providerConversation.messages.map(row => row.content).join('\n')).not.toContain('instruction_origin');
+    });
+    const prompts = rows.filter(row => row.instruction_origin === 'workflow_prompt');
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const row of prompts) expect(publicRows.find(entry => entry.id === row.id)?.instruction_origin).toBe('workflow_prompt');
+    for (const row of rows.filter(row => row.content.startsWith('Previous process node:'))) expect(row.instruction_origin).toBeUndefined();
+    const nonPromptNeighbors=rows.filter(row=>row.role==='assistant'||row.kind==='tool_result'||row.kind==='activity');
+    expect(nonPromptNeighbors.length).toBeGreaterThan(0);
+    expect(nonPromptNeighbors.every(row=>row.instruction_origin===undefined)).toBe(true);
+  }
+}
 
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 const complete=(result:LlmCompleteResult):ProviderTurnCompletion=>({result,provider_exchanges:[]});
@@ -45,7 +77,12 @@ function runtimeHarness(root:string,config:SaivageConfig,provider:(input:LlmInvo
 function harness(type:'code'|'architecture'|'data'|'test',provider:(input:LlmInvocationInput,signal:AbortSignal)=>Promise<ProviderTurnCompletion>,summary?:{calls:LlmInvocationInput[];content:string}){
   const root=mkdtempSync(join(tmpdir(),`specialized-${type}-flow-`));roots.push(root);createProjectIdentity(root,`Specialized ${type}`);
   const config=testConfig();
-  if(summary){const capabilities=config.providers.test?.capabilities;if(!capabilities)throw new Error('test provider capabilities are missing');capabilities.contextWindowTokens=30_000;}
+  if(summary){const capabilities=config.providers.test?.capabilities;if(!capabilities)throw new Error('test provider capabilities are missing');capabilities.contextWindowTokens=30_000;
+    if(type==='data') {
+      config.card_types.data!.workflow.nodes.schema!.correction_prompt = {...config.card_types.data!.workflow.nodes.schema!.correction_prompt,compactable:false,compaction_key:'schema-correction'};
+      config.card_types.data!.workflow.entries.BACKLOG!.prompt = {reference:'specialized-recover',compactable:true};
+    }
+  }
   const structural=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot});publishInitialProjectRuntime(root,structural);
   const child=new CardService(root,structural).create({type,parent:'project',title:`${type} flow`,bootstrap_content:`Exercise ${type}.`,priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
   return{...runtimeHarness(root,config,provider,summary),child};
@@ -141,14 +178,17 @@ describe('specialized production card-type flows',()=>{
   });
 
   it('re-enters code green with increasing ordinals and versioned status evidence before refactor completion',async()=>{
-    let plannerCalls=0;let executorCalls=0;const ordinals:number[]=[];const transitions:string[]=[];let supervisor!:ReturnType<typeof createSupervisorRuntimeApi>;let childId='';
+    let plannerCalls=0;let executorCalls=0;const ordinals:number[]=[];const transitions:string[]=[];let supervisor!:ReturnType<typeof createSupervisorRuntimeApi>;let childId='';const starts:Array<{node:string;input:LlmInvocationInput}>=[];
     const run=harness('code',async(input)=>{
       if(input.agentName==='planner'){
         plannerCalls+=1;if(plannerCalls===1)return complete(tool('activate','activate_card',{card_id:childId}));if(plannerCalls===2)return complete(tool('parent-write','write',{path:'record:///status.md?card=project',content:'Code child complete.'}));if(plannerCalls===3)return complete(tool('parent-done','emit_result',{outcome:'complete_direct',summary:'Code child accepted.'}));throw new Error(`Unexpected planner call ${plannerCalls}`);
       }
       executorCalls+=1;
-      if(executorCalls%2===1){const position=supervisor.getActorRuntimeReadModel().cards.find(({cardId})=>cardId===childId)?.processState;if(position?.kind!=='node')throw new Error('missing active code position');ordinals.push(position.executionOrdinal);transitions.push(...transitionRows(input).slice(-1).map(({content})=>content));}
+      const position=supervisor.getActorRuntimeReadModel().cards.find(({cardId})=>cardId===childId)?.processState;if(position?.kind!=='node')throw new Error('missing active code position');
+      if(ordinals.at(-1)!==position.executionOrdinal){starts.push({node:position.nodeId,input});ordinals.push(position.executionOrdinal);transitions.push(...transitionRows(input).slice(-1).map(({content})=>content));}
       const actions=[
+        {kind:'message' as const,content:'Plain prose is not an accepted workflow outcome.'},
+        tool('invalid-result','emit_result',{outcome:'not_a_declared_outcome',summary:'Reject this invalid outcome.'}),
         tool('red-write','write',{path:`record:///status.md?card=${childId}`,content:'Defect reproduced.'}),tool('red-result','emit_result',{outcome:'red_confirmed',summary:'Defect reproduced.'}),
         tool('green-one-write','write',{path:`record:///status.md?card=${childId}`,content:'First repair remains red.'}),tool('green-one-result','emit_result',{outcome:'still_red',summary:'First repair remains red.'}),
         tool('green-two-write','write',{path:`record:///status.md?card=${childId}`,content:'Second repair is green.'}),tool('green-two-result','emit_result',{outcome:'green',summary:'Focused check passes.'}),
@@ -157,6 +197,17 @@ describe('specialized production card-type flows',()=>{
     });supervisor=run.supervisor;childId=run.child.id;
     expect((await supervisor.startProject()).started).toBe(true);await waitUntil(()=>supervisor.getStatus().status==='stopped');
     expect(ordinals).toEqual([0,1,2,3]);
+    expect(starts.map(({node}) => node)).toEqual(['red','green','green','refactor']);
+    assertRecordedNodeInstructions(run.root, starts);
+    const rows = readConversation(run.root, `agent:executor:${childId}`).physicalRows;
+    const red = run.workflows.cardTypes.get('code')!.states.get('node:red')!;
+    if(red.kind!=='node') throw new Error('Missing red correction owner.');
+    const correction = run.workflows.cardTypes.get('code')!.processPrompts.get(red.correctionPrompt.promptId)!.text;
+    const configuredCorrections = rows.filter(row => row.content === correction);
+    expect(configuredCorrections.map(row => ({kind:row.kind,origin:row.instruction_origin}))).toEqual([
+      {kind:'model_repair',origin:'workflow_prompt'}, {kind:'text',origin:'workflow_prompt'},
+    ]);
+    expect(rows.filter(row => row.kind === 'text' && row.content.includes('attempts remaining')).every(row => row.instruction_origin === undefined)).toBe(true);
     expect(transitions.map((text)=>text.match(/^Previous process node: ([^\n]+)/u)?.[1])).toEqual(['red','green','green']);
     expect(transitions[0]).toMatch(/record:\/\/\/status\.md\?card=card-[a-z-]+&v=\d+/u);expect(transitions[1]).toContain('Accepted outcome: still_red');
     expect(readConversation(run.root, `agent:executor:${childId}`).physicalRows.filter((row)=>row.role==='user'&&row.kind==='text'&&row.content.includes('prior repair attempt remains red'))).toHaveLength(1);
@@ -187,10 +238,19 @@ describe('specialized production card-type flows',()=>{
     });supervisor=run.supervisor;childId=run.child.id;
     expect((await supervisor.startProject()).started).toBe(true);
     await pendingApprovalAnnounced;
-    expect(supervisor.notifyCard(childId,{id:'11111111-1111-4111-8111-111111111111',content:'Reconsider the accepted architecture against the new deployment boundary.',created_at:'2026-09-14T00:00:00.000Z',source:'test'})).toEqual({ok:true,notificationId:'11111111-1111-4111-8111-111111111111'});
+    const draft=run.workflows.cardTypes.get('architecture')!.states.get('node:draft')!;
+    if(draft.kind!=='node') throw new Error('Missing draft instruction owner.');
+    const notificationText=`Reconsider the accepted architecture against the new deployment boundary.\nRecorded workflow instruction:\n${run.workflows.cardTypes.get('architecture')!.processPrompts.get(draft.prompt.promptId)!.text}`;
+    expect(supervisor.notifyCard(childId,{id:'11111111-1111-4111-8111-111111111111',content:notificationText,created_at:'2026-09-14T00:00:00.000Z',source:'test'})).toEqual({ok:true,notificationId:'11111111-1111-4111-8111-111111111111'});
     releasePendingApproval();
     await waitUntil(()=>supervisor.getStatus().status==='stopped');
     expect(nodeStarts.map(({node})=>node)).toEqual(['draft','component-review','system-review','draft','component-review','system-review','draft','component-review','system-review']);
+    assertRecordedNodeInstructions(run.root, nodeStarts);
+    const executorRows = readConversation(run.root, `agent:executor:${childId}`).physicalRows;
+    expect(executorRows.filter(row => row.content === notificationText)).toEqual([
+      expect.objectContaining({role:'user',kind:'text'}),
+    ]);
+    expect(executorRows.find(row => row.content === notificationText)?.instruction_origin).toBeUndefined();
     const contexts=nodeStarts.slice(1).map(({input})=>transitionRows(input).at(-1)!.content);expect(contexts.map((text)=>text.match(/^Previous process node: ([^\n]+)/u)?.[1])).toEqual(['draft','component-review','system-review','draft','component-review','system-review','draft','component-review']);
     for(const {node,input} of nodeStarts.slice(1)){const messages=input.providerConversation.messages;let transitionIndex=-1;for(let index=messages.length-1;index>=0;index-=1){const row=messages[index]!;if(row.role==='user'&&row.kind==='text'&&row.content.startsWith('Previous process node:')){transitionIndex=index;break;}}expect(transitionIndex).toBeGreaterThanOrEqual(0);expect(messages[transitionIndex]!.content).toMatch(/record:\/\/\/(status|review)\.md\?card=card-[a-z-]+&v=\d+/u);const process=run.workflows.cardTypes.get('architecture')!;const compiledNode=process.states.get(`node:${node}`)!;if(compiledNode.kind!=='node')throw new Error(`missing compiled node ${node}`);const selectedText=process.processPrompts.get(compiledNode.prompt.promptId)!.text;expect(messages.filter((row)=>row.kind==='synthetic_context'&&row.origin==='dynamic'&&row.block_identity===`node-activation:${childId}:${node}`&&row.content===`Current workflow node '${node}':\n\n${selectedText}`)).toHaveLength(1);expect(messages.slice(transitionIndex+1).some((row)=>row.content===selectedText)).toBe(false);}
     const reviewUrls=contexts.filter((text)=>text.includes('review.md?')).map((text)=>text.match(/record:\/\/\/review\.md\?card=[^\s]+&v=\d+/u)![0]);expect(new Set(reviewUrls).size).toBe(reviewUrls.length);for(const url of reviewUrls){const version=Number(url.match(/&v=(\d+)$/u)![1]);const record=run.cards.readRecordVersion(childId,'review.md',version);expect(record.kind==='found'&&record.value.projection.versionUrl).toBe(url);}
@@ -234,6 +294,24 @@ describe('specialized production card-type flows',()=>{
     const schemaState=process.states.get('node:schema')!;if(schemaState.kind!=='node')throw new Error('missing schema node');const schemaText=process.processPrompts.get(schemaState.prompt.promptId)!.text;const validateState=process.states.get('node:validate')!;if(validateState.kind!=='node')throw new Error('missing validate node');const validateText=process.processPrompts.get(validateState.prompt.promptId)!.text;
     expect(schemaRowsBeforeResult.some((row)=>row.content===`Current workflow node 'schema':\n\n${schemaText}`||row.content===schemaText)).toBe(false);
     const finalConversation=readConversation(run.root,cardAgentSessionId('executor',childId));expect(finalConversation.physicalRows.some((row)=>row.content===`Current workflow node 'validate':\n\n${validateText}`||row.content===validateText)).toBe(false);const historicalRows=readHistoricalConversationSegment(run.root,cardAgentSessionId('executor',childId),1).rows;expect(historicalRows.some((row)=>row.role==='assistant'&&row.content.startsWith("Current workflow node 'implement':"))).toBe(true);expect(historicalRows.some((row)=>row.content===`Current workflow node 'schema':\n\n${schemaText}`||row.content===schemaText||row.content===`Current workflow node 'validate':\n\n${validateText}`||row.content===validateText)).toBe(false);
+    const originalMarker = historicalRows.find(row => row.kind==='activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp))!;
+    const originalInstructions = parseActivationOpenPayload(originalMarker.content,originalMarker.session_id,originalMarker.timestamp)!.instructions;
+    expect(originalInstructions).toEqual({kind:'prepared',role_text:nodeInputs[0]!.input.systemPrompt,node:{node_id:'schema',text:`Current workflow node 'schema':\n\n${schemaText}`}});
+    expect(JSON.parse(foldHistoricalConversationRows(historicalRows).find(row => row.id===originalMarker.id)!.content).instructions).toEqual(originalInstructions);
+    expect(summarizedSource).not.toContain(nodeInputs[0]!.input.systemPrompt);
+    expect(summarizedSource).not.toContain('instruction_origin');
+    expect(summarizedSource).not.toContain('Prepared instructions');
+    const protectedCorrection = foldConversation(run.root,cardAgentSessionId('executor',childId)).segmentContext;
+    expect(protectedCorrection?.kind).toBe('compacted');
+    if(!protectedCorrection) throw new Error('Missing compacted context.');
+    expect(protectedCorrection.protected_prompts).toContainEqual(expect.objectContaining({
+      source:expect.objectContaining({segment_version:1}),
+      message:expect.objectContaining({kind:'model_repair',instruction_origin:'workflow_prompt',content:process.processPrompts.get(schemaForCorrection.correctionPrompt.promptId)!.text}),
+    }));
+    const compactableEntry = historicalRows.find(row => row.instruction_origin==='workflow_prompt' && row.kind==='text' && row.context_policy.kind==='content' && row.context_policy.compactable)!;
+    expect(compactableEntry).toBeDefined();
+    expect(summarizedSource).toContain(compactableEntry.content);
+    expect(protectedCorrection.protected_prompts.some(entry => entry.message.id===compactableEntry.id)).toBe(false);
     expect(run.cards.read(childId)!.lifecycle).toMatchObject({status:'blocked',result:{kind:'workflow-result',agent_name:'executor',node_id:'validate',outcome:'blocked',records:[{name:'status.md',url:expect.stringMatching(/&v=\d+$/u)}]}});
   });
 });

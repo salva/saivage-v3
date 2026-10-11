@@ -320,7 +320,7 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
     const fixture = actorFixture(input, undefined, purpose);
     if (purpose === 'global') {
       const timestamp = '2026-10-10T00:00:00.000Z';
-      appendConversationBatch({ projectRoot: fixture.root }, [agentMessageSchema.parse({ id: 'global-activation', session_id: input.sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: input.inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
+      appendConversationBatch({ projectRoot: fixture.root }, [agentMessageSchema.parse({ id: 'global-activation', session_id: input.sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'analyst', input_id: input.inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
     }
     const refusal = { summaryInputId: '00000000-0000-4000-8000-000000000099' };
     fixture.shouldCompact.mockReturnValue(true);
@@ -613,7 +613,7 @@ function seedMarkerLedRounds(root: string): void {
     const timestamp = `2026-09-09T00:0${ordinal}:00.000Z`;
     const inputId = ordinal === 6 ? '00000000-0000-4000-8000-000000000001' : `00000000-0000-4000-8000-${String(ordinal + 1).padStart(12, '0')}`;
     appendConversationBatch({ projectRoot: root }, [
-      agentMessageSchema.parse({ id: `real-activation-${ordinal}`, session_id: 'agent:planner:project', role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }),
+      agentMessageSchema.parse({ id: `real-activation-${ordinal}`, session_id: 'agent:planner:project', role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }),
       agentMessageSchema.parse({ id: `real-message-${ordinal}`, session_id: 'agent:planner:project', role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: `P0-CONTENT-${ordinal}-`.repeat(350), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }),
     ]);
   }

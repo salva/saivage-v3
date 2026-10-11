@@ -49,7 +49,7 @@ const READ_POLICY: InvocationResultPolicy = (() => {
 })();
 
 function seedFinalUnmatchedRead(projectRoot: string, sessionId: CardConversationSessionId, inputId: string, callId: string): void {
-  appendActivationMarker({ projectRoot }, sessionId, { event: 'activation_open', agent_name: sessionId.split(':')[1]!, card_id: sessionId.split(':')[2]!, input_id: inputId });
+  appendActivationMarker({ projectRoot }, sessionId, { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: sessionId.split(':')[1]!, card_id: sessionId.split(':')[2]!, input_id: inputId });
   appendLlmTurnToolCallBatch({ projectRoot }, { inputId, sessionId, agentName: sessionId.split(':')[1] } as never, { id: callId, type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'work:///' }) } }, READ_POLICY);
 }
 

@@ -3,6 +3,7 @@ import {
   conversationSessionIdentity,
   MODEL_RECOVERY_NOTICE_TEXT,
   parseCanonicalContentPolicyRefusal,
+  parseActivationOpenPayload,
   type AgentMessage,
   type CompactedHistory,
   type ConversationSessionId,
@@ -713,36 +714,7 @@ function validateActivationOpenMarker(
   message: AgentMessage,
 ): boolean {
   if (message.kind !== 'activity') return false;
-  const payload = parseJsonObject(message.content);
-  if (payload.event !== 'activation_open') return false;
-  const identity = conversationSessionIdentity(sourceSessionId);
-  const expectedKeys =
-    identity.cardId === null
-      ? ['agent_name', 'event', 'input_id', 'timestamp']
-      : ['agent_name', 'card_id', 'event', 'input_id', 'timestamp'];
-  if (
-    JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(expectedKeys) ||
-    payload.agent_name !== identity.agentName ||
-    payload.timestamp !== message.timestamp ||
-    !isCanonicalUuid(payload.input_id) ||
-    (identity.cardId !== null && payload.card_id !== identity.cardId)
-  ) {
-    throw new Error(
-      `Conversation '${sourceSessionId}' has a malformed ${identity.agentName} activation_open marker.`,
-    );
-  }
-  return true;
-}
-
-function parseJsonObject(content: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
+  return parseActivationOpenPayload(message.content, sourceSessionId, message.timestamp) !== null;
 }
 
 function isCanonicalUuid(value: unknown): boolean {

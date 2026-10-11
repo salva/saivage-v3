@@ -120,7 +120,7 @@ function activation(ordinal: number): AgentMessage {
     role: 'system',
     kind: 'activity',
     context_policy: ACTIVITY_ROW_POLICY,
-    content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }),
+    content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }),
     round_id: `r-pre-${String(ordinal).padStart(32, '0')}`,
     message_index: 0,
     block_index: 0,

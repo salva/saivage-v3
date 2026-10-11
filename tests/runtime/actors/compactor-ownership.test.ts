@@ -327,7 +327,7 @@ function appendCompactionRound(root: string): void {
   const sessionId = 'agent:planner:project' as const;
   const timestamp = '2026-09-11T00:00:00.000Z';
   appendConversationBatch({ projectRoot: root }, [
-    { id: 'final-correction-activation', session_id: sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp },
+    { id: 'final-correction-activation', session_id: sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp },
     { id: 'final-correction-source', session_id: sessionId, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: `FINAL-CORRECTION-SOURCE-${'x'.repeat(3_000)}`, round_id: `r-user-${'2'.repeat(32)}`, message_index: 1, block_index: 0, timestamp },
   ]);
 }

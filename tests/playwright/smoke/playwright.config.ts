@@ -20,10 +20,12 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: `VITE_SAIVAGE_API_TOKEN= sh -c 'cd ../../../web && npm run build && npm run preview -- --host 0.0.0.0 --port ${port}'`,
+    command: `VITE_SAIVAGE_API_TOKEN= timeout --foreground --signal=TERM --kill-after=15s 1200s sh -c 'cd ../../../web && npm run build && exec npm run preview -- --host 0.0.0.0 --port ${port}'`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 120_000,
+    // Keep preview in Playwright's process group and allow ordinary TERM first.
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 20_000 },
   },
   projects: [
     {

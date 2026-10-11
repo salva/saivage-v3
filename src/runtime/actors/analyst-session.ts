@@ -315,6 +315,11 @@ export class AnalystSession {
         this.#sessionId,
         operation.acceptedOperationId,
         operation.input.userContent,
+        {
+          kind: 'prepared',
+          role_text: preparedInput.preparedContext.prefix.instructionText,
+          node: null,
+        },
       ),
     );
     operation.step = { ...operation.step, ingress: 'published' };
@@ -488,6 +493,7 @@ export class AnalystSession {
         this.#sessionId,
         operation.acceptedOperationId,
         operation.input.userContent,
+        { kind: 'not_applicable', reason: 'non_model_ingress' },
       ),
     );
     const request = operation.step.request;

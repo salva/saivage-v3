@@ -12,6 +12,7 @@ import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-
 import { foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
 import { responsesBundle, RESPONSES_A } from '../helpers/responses-producer-fixture.js';
 import { sha256Hex } from '../../src/schemas/index.js';
+import { agentMessageSchema, parseActivationOpenPayload, STRUCTURAL_ROW_POLICY } from '../../src/schemas/index.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
@@ -37,6 +38,34 @@ const classifiedProjector: ToolInvocationProjector = (input) => {
 };
 
 describe('canonical conversation outbound row projection', () => {
+  it('positively projects separate role/node instruction strings and rejects private nested fields', () => {
+    const payload = {
+      event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp,
+      instructions: {kind: 'prepared', role_text: 'ROLE-SENTINEL token=tok_secret', node: {node_id:'plan',text:'NODE-SENTINEL token=tok_secret'}},
+    };
+    const marker = { ...ordinary(), role:'system', kind:'activity', context_policy:STRUCTURAL_ROW_POLICY.activation_boundary, content:JSON.stringify(payload) };
+    const projected = projectCanonicalConversationRow(marker, identityProjector);
+    const parsed = parseActivationOpenPayload(projected.content, sessionId, timestamp)!;
+    expect(parsed.instructions).toEqual({kind:'prepared',role_text:'ROLE-SENTINEL token=[REDACTED]',node:{node_id:'plan',text:'NODE-SENTINEL token=[REDACTED]'}});
+    expect(JSON.stringify(projected)).not.toContain('tok_secret');
+    expect(projected).not.toHaveProperty('model_spec');
+    for (const instructions of [
+      {...payload.instructions, immutablePrefixBytes:'PRIVATE-PREFIX'},
+      {...payload.instructions, node:{...payload.instructions.node, native:'PRIVATE-NATIVE'}},
+    ]) expect(() => projectCanonicalConversationRow({...marker,content:JSON.stringify({...payload,instructions})},identityProjector)).toThrow();
+    expect(() => projectCanonicalConversationRow({...marker,content:JSON.stringify({...payload,diagnostic_body:'PRIVATE-DIAGNOSTIC'})},identityProjector)).toThrow();
+    expect(parseActivationOpenPayload(marker.content, sessionId, timestamp)?.instructions).toEqual(payload.instructions);
+  });
+
+  it('accepts only positive card-owned workflow provenance and preserves it without inferring unmarked history', () => {
+    const row = {...ordinary(), role:'user', instruction_origin:'workflow_prompt'};
+    expect(projectCanonicalConversationRow(row,identityProjector).instruction_origin).toBe('workflow_prompt');
+    expect(projectCanonicalConversationRow({...ordinary(),role:'user'},identityProjector).instruction_origin).toBeUndefined();
+    for (const override of [
+      {instruction_origin:'human'}, {role:'assistant'}, {session_id:'agent:analyst:global'},
+      {kind:'activity',role:'system',context_policy:STRUCTURAL_ROW_POLICY.activation_boundary},
+    ]) expect(() => agentMessageSchema.parse({...row,...override})).toThrow();
+  });
   it('folds historical rows through tool-specific projection without private rows, reordering, or source mutation', () => {
     const privateBundle = responsesBundle(sessionId, source, RESPONSES_A, '{"success":true,"data":null}');
     const rows = [privateBundle[0]!, call(), ordinary(), result()];

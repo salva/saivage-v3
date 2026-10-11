@@ -1,5 +1,6 @@
 <template>
   <div class="conversation-timeline">
+    <p v-if="firstSourceEntry && !activationEntry(firstSourceEntry)">The activation start is outside this displayed segment or tail; this does not mean no instructions existed.</p>
     <section
       v-for="(round, index) in timeline.rounds"
       :key="round.id"
@@ -16,6 +17,13 @@
           <ContextBlock v-if="row.entry.kind === 'text' || row.entry.kind === 'content_policy_refusal'" :entry="row.entry" />
           <div v-else-if="activationEntry(row.entry)" :data-entry-id="row.entry.id" tabindex="-1" class="activation-marker">
             <strong>Activation entry recorded</strong>
+            <template v-if="activationEntry(row.entry)!.instructions.kind === 'prepared'">
+              <p>Prepared instructions · {{ activationEntry(row.entry)!.agentName }} · {{ row.entry.timestamp }} — historical rendered instructions prepared for this activation; not proof of model delivery or interpretation.</p>
+              <InstructionDisclosure label="Role instructions" :text="preparedInstructions(row.entry).role_text" explanation="Prepared instructions" />
+              <InstructionDisclosure v-if="preparedInstructions(row.entry).node" :label="`Node ${preparedInstructions(row.entry).node!.node_id} instructions`" :text="preparedInstructions(row.entry).node!.text" explanation="Prepared instructions" />
+            </template>
+            <p v-else-if="activationEntry(row.entry)!.instructions.kind === 'unavailable'">Historical instructions unavailable — not recorded</p>
+            <p v-else>No model invocation for this ingress</p>
             <details><summary>Recorded activation details</summary><p>{{ provenance(row.entry) }}</p><pre><JsonText :text="row.entry.content" /></pre></details>
           </div>
           <DiagnosticRow v-else-if="['model_issue', 'model_repair', 'model_recovered'].includes(row.entry.kind)" :entry="row.entry" />
@@ -48,6 +56,7 @@ import { activationEntry } from '../../utils/agent-timeline/activation';
 import { buildToolDisplay } from '../../utils/tool-friendly';
 import CompactedCluster from './CompactedCluster.vue';
 import ContextBlock from './ContextBlock.vue';
+import InstructionDisclosure from './InstructionDisclosure.vue';
 import DiagnosticRow from './DiagnosticRow.vue';
 import ToolChip from './ToolChip.vue';
 import JsonText from '../content/JsonText.vue';
@@ -59,8 +68,14 @@ import ImagePreviewDialog from '../../files/ImagePreviewDialog.vue';
 function provenance(entry: AgentConversationEntry): string {
   return `${entry.role} · ${entry.timestamp} · ${entry.id} · source ${entry.round_id}, message ${entry.message_index}, block ${entry.block_index}`;
 }
+function preparedInstructions(entry: AgentConversationEntry) {
+  const instructions = activationEntry(entry)!.instructions;
+  if (instructions.kind !== 'prepared') throw new Error('Expected prepared activation instructions.');
+  return instructions;
+}
 
 const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string>; imageContext?: ImageContext }>();
+const firstSourceEntry = computed(() => props.timeline.rounds.find(round => round.kind !== 'compacted')?.rows[0]?.entry);
 const emit = defineEmits<{ toggle: [id: string]; inspecting: [open: boolean] }>();
 const inspection = ref<{ images: ImageSelection[]; index: number } | null>(null);
 const previewSelection = computed(() => inspection.value ? { kind: 'conversation' as const, image: inspection.value.images[inspection.value.index] } : null);

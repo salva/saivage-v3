@@ -348,7 +348,7 @@ describe('Supervisor restart full-chain recovery', () => {
       expect(child.id).toBe('card-a');
       const stoppedChild = setupCards.create({ type: 'code', parent: 'project', title: 'Formerly used stopped child', bootstrap_content: 'Preserve this session.', priority: 1, urgency: 'normal', created_by: 'planner', depends_on: [] });
       setupCards.setStatus(stoppedChild.id, 'running');
-      appendActivationMarker({ projectRoot }, `agent:executor:${stoppedChild.id}`, { event: 'activation_open', agent_name: 'executor', card_id: stoppedChild.id, input_id: '33333333-3333-4333-8333-333333333333' });
+      appendActivationMarker({ projectRoot }, `agent:executor:${stoppedChild.id}`, { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'executor', card_id: stoppedChild.id, input_id: '33333333-3333-4333-8333-333333333333' });
       const stoppedEvidencePath = appendStartupEvidence(projectRoot, `agent:executor:${stoppedChild.id}`);
       const stoppedEvidenceBytes = readFileSync(stoppedEvidencePath);
       setupCards.stopRunning(stoppedChild.id);

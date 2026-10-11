@@ -164,7 +164,7 @@ function rows(image: ImageDescriptor, alternateProducer = false, contentBlocks: 
       kind: 'activity',
       context_policy: ACTIVITY_ROW_POLICY,
       content: JSON.stringify({
-        event: 'activation_open',
+        event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
         agent_name: 'planner',
         card_id: 'project',
         input_id: INPUT,
@@ -252,7 +252,7 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
       name: 'mcp_tool_call', arguments: JSON.stringify({ serverName: 'native-fixture', toolName: 'capture' }),
     } }] }) };
     if (sessionId === 'agent:analyst:global') sourceRows[0] = {
-      ...sourceRows[0]!, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: INPUT, timestamp }),
+      ...sourceRows[0]!, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'analyst', input_id: INPUT, timestamp }),
     };
     appendConversationBatch({ projectRoot }, sourceRows);
     const conversation = readConversation(projectRoot, sessionId);

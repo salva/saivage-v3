@@ -210,7 +210,7 @@ describe('failed diagnostics through real invocation owners', () => {
         role: 'system',
         kind: 'activity',
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'planner',
           card_id: 'project',
           input_id: inputId,
@@ -1149,7 +1149,7 @@ describe('failed diagnostics through real invocation owners', () => {
         kind: 'activity',
         context_policy: { kind: 'structural', behavior: 'activation_boundary' },
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'planner',
           card_id: 'project',
           input_id: inputId,
@@ -1319,7 +1319,7 @@ describe('failed diagnostics through real invocation owners', () => {
             role: 'system',
             kind: 'activity',
             content: JSON.stringify({
-              event: 'activation_open',
+              event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
               agent_name: 'planner',
               card_id: 'project',
               input_id: inputId,

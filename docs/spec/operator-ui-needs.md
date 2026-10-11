@@ -1,5 +1,23 @@
 # Operator UI: Functional Needs Specification
 
+## Historical instructions at their recorded boundaries
+
+Operators need historical rendered role/node instructions in actual node chronology,
+even when one named-agent session moves between nodes. **Prepared instructions**
+means preparation, not model delivery or interpretation. Distinct labeled disclosures
+show privacy-filtered role and node text with full safe copy at the activation row.
+Owned workflow prompts stay at their existing rows as **Recorded workflow instruction**;
+repair and retained-protected details preserve that positive provenance. Ordinary
+unmarked context is not classified by resemblance or current configuration.
+
+**Historical instructions unavailable — not recorded** is explicit absence;
+**No model invocation for this ingress** is legitimate non-model ingress. An activation
+start outside the displayed segment/tail is neither of these. Earlier compacted
+activation instructions live in indexed source history, reachable through explicit
+source selection, not automatic history stitching. **Currently configured instructions**
+remains separate and current-only. Card and global readers share rendering and preserve
+tool/image inspection, anchors, activation jumps, technical/exchange details and follow.
+
 ## Recorded images are not delivery receipts
 
 Operators need to distinguish **image snapshot recorded** (safe source, sent

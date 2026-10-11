@@ -51,7 +51,7 @@ describe('durable-preserving MCP topology history', () => {
         kind: 'activity',
         context_policy: ACTIVITY_ROW_POLICY,
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'planner',
           card_id: 'project',
           input_id: input,

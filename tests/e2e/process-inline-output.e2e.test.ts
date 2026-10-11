@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { parseActivationOpenPayload } from '../../src/schemas/index.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
 import {
   appOrigin, closeServer, createServer, initializeProject, listen, offeredToolNames,
   postStartProject, productionTestConfig, readJsonRequest, sendFinalMessage,
@@ -17,6 +21,7 @@ const roots: string[] = [];
 const apps = new Set<App>();
 
 afterEach(async () => {
+  jest.restoreAllMocks(); syncBuiltinESMExports();
   for (const app of [...apps]) await app.stop();
   apps.clear();
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
@@ -136,12 +141,18 @@ describe('process inline output production composition', () => {
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
           workflow: {
             notification_recipient: 'executor',
-            entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
+            entries: { BACKLOG: { node: 'execute', prompt: { reference: 'correct-execution-result', compactable: true } }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: { reference: 'stopped-recovery', compactable: true } } },
             nodes: { execute: { agent: 'executor', prompt: { reference: 'execute', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true }, records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
           },
         };
       });
       writeProductionConfig(projectRoot, config);
+      const promptRoot = resolveSystemTemplate('classic-typed').promptRoot;
+      for (const [purpose,reference,sentinel] of [['agents','executor','ROLE'],['process','execute','NODE']]) {
+        const directory=join(projectRoot,'.saivage','config','prompts',purpose!,'_shared');
+        mkdirSync(directory,{recursive:true});
+        writeFileSync(join(directory,`${reference}.md`),`${readFileSync(join(promptRoot,purpose!,'_shared',`${reference}.md`),'utf8')}\n${sentinel}-PUBLIC-SENTINEL token=tok_${sentinel!.toLowerCase()}_private\n`);
+      }
       initializeProject(projectRoot);
       app = await startProductionApp(projectRoot, TOKEN);
       apps.add(app);
@@ -156,6 +167,18 @@ describe('process inline output production composition', () => {
       if (fixtureFailure) throw fixtureFailure;
 
       const durableRows = readConversation(projectRoot, 'agent:executor:project').physicalRows;
+      const markers = durableRows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
+      expect(markers).toHaveLength(1);
+      const marker = markers[0]!;
+      const firstRequest = providerRequests.find(request => offeredToolNames(request).includes('emit_result'))!;
+      const nodeText = firstRequest.messages.find(message => message.content.startsWith("Current workflow node 'execute':"))!.content;
+      expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({
+        kind:'prepared',role_text:firstRequest.messages[0]!.content,node:{node_id:'execute',text:nodeText},
+      });
+      const entryPrompt = durableRows.find(row => row.instruction_origin === 'workflow_prompt')!;
+      expect(entryPrompt).toMatchObject({role:'user',kind:'text'});
+      expect(durableRows.indexOf(marker)).toBeLessThan(durableRows.indexOf(entryPrompt));
+      expect(providerRequests.every(request => !JSON.stringify(request).includes('instruction_origin'))).toBe(true);
       const processResults = durableRows.filter((row) => row.kind === 'tool_result' && ['run_command', 'wait_process', 'kill_process'].includes(row.tool ?? '')).map((row) => JSON.parse(row.content).data as Record<string, unknown>);
       expect(processResults).toHaveLength(6);
       expect(processResults.every((result) => typeof result.stdout_url === 'string' && typeof result.stderr_url === 'string')).toBe(true);
@@ -163,8 +186,52 @@ describe('process inline output production composition', () => {
       expect(processResults.find((result) => result.process_id === waitProcessId && result.status === 'exited')).toMatchObject({ stdout_url: waitStdoutUrl, stdout: 'wait-start-wait-end' });
 
       const sessionId = encodeURIComponent('agent:executor:project');
+      const projectionReads:string[]=[];
+      const observeRead = (path: fs.PathLike | number): void => {
+        if(typeof path==='number') return;
+        const name=String(path);
+        projectionReads.push(name);
+        for(const forbidden of ['/diagnostics/','auth-profiles.json','saivage.yaml','/config/prompts/','provider-exchange.jsonl','/private-replay/','/native-fields/'])
+          if(name.includes(forbidden)) throw new Error(`Instruction projection attempted forbidden private/current-config read: ${forbidden}`);
+      };
+      const originalRead=fs.readFileSync;
+      const originalOpen=fs.openSync;
+      const readSpy=jest.spyOn(fs,'readFileSync').mockImplementation(((path:fs.PathOrFileDescriptor,...args:unknown[])=>{
+        observeRead(path); return Reflect.apply(originalRead,fs,[path,...args]);
+      }) as typeof fs.readFileSync);
+      const openSpy=jest.spyOn(fs,'openSync').mockImplementation((path,flags,...args)=>{
+        observeRead(path); return originalOpen(path,flags,...args);
+      });
+      syncBuiltinESMExports();
       const conversationResponse = await operatorGet(app, `/api/agents/${sessionId}/conversation`);
       expect(conversationResponse.status).toBe(200);
+      expect(JSON.stringify(conversationResponse.body)).not.toContain('test-only-provider-key');
+      expect(JSON.stringify(conversationResponse.body)).not.toContain(`http://127.0.0.1:${providerPort}`);
+      expect(conversationResponse.body.entries.find((row: any) => row.id === entryPrompt.id).instruction_origin).toBe('workflow_prompt');
+      expect(JSON.parse(conversationResponse.body.entries.find((row: any) => row.id === marker.id).content).instructions).toEqual({
+        kind:'prepared',role_text:redactTextForOutbound(firstRequest.messages[0]!.content),node:{node_id:'execute',text:redactTextForOutbound(nodeText)},
+      });
+      for(const sentinel of ['tok_role_private','tok_node_private']) {
+        expect(JSON.stringify(conversationResponse.body)).not.toContain(sentinel);
+        expect(marker.content).toContain(sentinel);
+      }
+      expect(JSON.stringify(conversationResponse.body)).toContain('ROLE-PUBLIC-SENTINEL');
+      expect(JSON.stringify(conversationResponse.body)).toContain('NODE-PUBLIC-SENTINEL');
+      const incrementalQuery = new URLSearchParams({segment_id:conversationResponse.body.segment_id,segment_version:String(conversationResponse.body.segment_version),since:marker.id});
+      const incremental = await operatorGet(app, `/api/agents/${sessionId}/conversation?${incrementalQuery}`);
+      expect(incremental.status).toBe(200);
+      expect(incremental.body.entries.some((row: any) => row.id === marker.id)).toBe(false);
+      expect(incremental.body.entries.filter((row: any) => row.id === entryPrompt.id)).toEqual([
+        conversationResponse.body.entries.find((row: any) => row.id === entryPrompt.id),
+      ]);
+      const historical = await operatorGet(app, `/api/agents/${sessionId}/conversation/versions/1`);
+      expect(historical.status).toBe(200);
+      expect(historical.body.entries).toEqual(conversationResponse.body.entries);
+      const configuredBefore = await operatorGet(app, `/api/agents/${sessionId}/current-instructions`);
+      expect(configuredBefore.status).toBe(200);
+      expect(projectionReads.some(path=>path.endsWith('/index.json'))).toBe(true);
+      expect(projectionReads.some(path=>path.endsWith('.jsonl'))).toBe(true);
+      readSpy.mockRestore(); openSpy.mockRestore(); syncBuiltinESMExports();
       const apiProcessResults = conversationResponse.body.entries.filter((entry: any) => entry.kind === 'tool_result' && ['run_command', 'wait_process', 'kill_process'].includes(entry.tool)).map((entry: any) => JSON.parse(entry.content).data);
       expect(apiProcessResults).toEqual(processResults);
       const processesResponse = await operatorGet(app, '/api/processes');
@@ -172,7 +239,21 @@ describe('process inline output production composition', () => {
       expect(observedPrimaryResults).toHaveLength(6);
       expect(providerRequests.length).toBe(analystCalls + executorCalls);
       expect({ analystCalls, executorCalls }).toEqual({ analystCalls: 2, executorCalls: 8 });
+      apps.delete(app); await app.stop();
+      const overrideDirectory = join(projectRoot,'.saivage','config','prompts','agents','_shared');
+      mkdirSync(overrideDirectory,{recursive:true});
+      writeFileSync(join(overrideDirectory,'executor.md'),`${readFileSync(join(resolveSystemTemplate('classic-typed').promptRoot,'agents','_shared','executor.md'),'utf8')}\nCURRENT-CONFIG-ONLY-SENTINEL\n`);
+      app = await startProductionApp(projectRoot,TOKEN); apps.add(app);
+      const configuredAfter = await operatorGet(app, `/api/agents/${sessionId}/current-instructions`);
+      expect(configuredAfter.status).toBe(200);
+      expect(JSON.stringify(configuredAfter.body)).toContain('CURRENT-CONFIG-ONLY-SENTINEL');
+      expect(configuredAfter.body).not.toEqual(configuredBefore.body);
+      const retained = await operatorGet(app, `/api/agents/${sessionId}/conversation/versions/1`);
+      expect(retained).toEqual(historical);
+      expect(JSON.stringify(retained.body)).not.toContain('CURRENT-CONFIG-ONLY-SENTINEL');
+      expect(providerRequests.length).toBe(analystCalls + executorCalls);
     } finally {
+      jest.restoreAllMocks(); syncBuiltinESMExports();
       if (app) { apps.delete(app); await app.stop(); }
       await closeServer(provider);
     }

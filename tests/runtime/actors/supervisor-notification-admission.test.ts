@@ -173,7 +173,7 @@ describe('Supervisor notification admission at terminal ownership', () => {
     }, undefined, TEST_RUNTIME_WORKFLOWS);
     const input = '11111111-1111-4111-8111-111111111111';
     h.cards.setStatus('project', 'running');
-    appendActivationMarker({ projectRoot: h.projectRoot }, 'agent:planner:project', { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: input });
+    appendActivationMarker({ projectRoot: h.projectRoot }, 'agent:planner:project', { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: input });
     appendStartupPendingCall(h.projectRoot, 'agent:planner:project', input);
     h.cards.stopRunning('project');
     await h.supervisor.start();

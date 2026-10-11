@@ -1,6 +1,11 @@
 <template>
   <article class="context-block" :class="`role-${entry.role}`" data-testid="context-block" :data-entry-id="entry.id">
-    <details v-if="entry.role === 'system' && entry.kind === 'text'" class="recorded-system-context">
+    <template v-if="entry.instruction_origin === 'workflow_prompt'">
+      <InstructionDisclosure label="Recorded workflow instruction" :text="content" explanation="Recorded context — delivery not established" />
+      <p>{{ entry.timestamp }} · {{ entry.id }} · source {{ entry.round_id }}, message {{ entry.message_index }}, block {{ entry.block_index }}</p>
+      <div v-if="entry.links?.length" class="msg-links"><button v-for="link in entry.links" :key="`${link.entity_type}:${link.entity_id}`" type="button" class="msg-link" @click="navigate(link)">{{ link.label ?? link.entity_id }}</button></div>
+    </template>
+    <details v-else-if="entry.role === 'system' && entry.kind === 'text'" class="recorded-system-context">
       <summary>Recorded system context</summary>
       <p>Role {{ entry.role }} · {{ entry.timestamp }} · {{ entry.id }}</p>
       <pre class="msg-body">{{ content }}</pre>
@@ -17,6 +22,7 @@ import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AgentConversationEntry } from '../../api/types';
 import MarkdownText from '../content/MarkdownText.vue';
+import InstructionDisclosure from './InstructionDisclosure.vue';
 const props = defineProps<{ entry: AgentConversationEntry }>();
 const content = computed(() => props.entry.kind === 'content_policy_refusal'
   ? `A prior activation ended after repeated provider content-policy refusal. Reassess the task decomposition and use only assistance the provider can give within its safety requirements. Operator evidence: /agents/${encodeURIComponent(props.entry.session_id)}?entry=${encodeURIComponent(props.entry.id)}.`

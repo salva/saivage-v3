@@ -38,7 +38,7 @@ function fixture(rows: AgentMessage[]): string {
 function activation(ordinal: number): AgentMessage {
   return {
     ...text(`activation-${ordinal}`, ''), role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY,
-    content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }),
+    content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }),
   };
 }
 

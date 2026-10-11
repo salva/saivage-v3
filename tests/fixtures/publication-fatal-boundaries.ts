@@ -139,7 +139,7 @@ if (mode === 'llm-conversation' || mode === 'llm-segment-compaction') {
     const rows: AgentMessage[] = [1, 2, 3].flatMap((ordinal) => {
       const timestamp = `2026-08-18T00:0${ordinal}:00.000Z`;
       return [
-        { id: `activation-${ordinal}`, session_id: sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp },
+        { id: `activation-${ordinal}`, session_id: sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp },
         { id: `text-${ordinal}`, session_id: sessionId, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(12_000), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp },
       ] as AgentMessage[];
     });

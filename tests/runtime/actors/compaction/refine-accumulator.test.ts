@@ -655,7 +655,7 @@ function onlySourceRange(input: SummaryInput): string {
 function activation(): AgentMessage {
   const inputId = '11111111-1111-4111-8111-111111111111';
   const timestamp = '2026-09-08T00:00:00.000Z';
-  return agentMessageSchema.parse({ id: 'activation', session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp });
+  return agentMessageSchema.parse({ id: 'activation', session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp });
 }
 
 function text(id: string, content: string): AgentMessage {

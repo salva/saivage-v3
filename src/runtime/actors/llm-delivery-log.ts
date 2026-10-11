@@ -450,6 +450,9 @@ export function buildModelRepairMessage(
     role: 'user',
     kind: 'model_repair',
     content: directive.content,
+    ...(directive.instruction_origin === undefined
+      ? {}
+      : { instruction_origin: directive.instruction_origin }),
     context_policy: directive.protection
       ? { ...DURABLE_PRIMARY_CONTENT_POLICY, ...directive.protection }
       : DURABLE_PRIMARY_CONTENT_POLICY,

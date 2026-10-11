@@ -36,14 +36,22 @@ disposable context, lost on stop/active cancellation. Pixels cannot be certified
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
-Conversation index/genesis/envelope now use strict **format 7** for loss-tolerant
-active-memory maintenance, retaining the ordered-content contract introduced in 6.
-Format 6 or earlier/mixed
+Conversation index/genesis/envelope now use strict **format 8** for once-recorded
+historical instruction evidence, retaining loss-tolerant maintenance and ordered content.
+Format 7 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;
 there is no GC. Installing Sharp requires optional native dependencies (see the
 [runbook](docs/runbook/index.md#image-snapshots-and-native-dependencies)).
+
+Conversation activation boundaries expose **Prepared instructions**: privacy-filtered
+historical rendered role and node text, not a delivery receipt or complete wire request.
+Owned durable prompts are **Recorded workflow instruction** at their original rows;
+compacted activation text is inspected through explicit indexed source history.
+Unavailable history is never filled from current templates. **Currently configured
+instructions** remains independent. Source completion authorizes no adoption or
+deployment; binary-only downgrade after format-8 publication is unsupported.
 
 Conversation maintenance first preserves useful ordinary summaries. If bounded
 construction cannot produce a qualifying candidate, it may publish a fixed notice

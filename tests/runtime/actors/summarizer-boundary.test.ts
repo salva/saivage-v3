@@ -338,7 +338,7 @@ function durableRound(sessionId: ConversationSessionId, sourceInputId: string): 
   const settled = JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } });
   const policies = toolRowPolicies({ content: settled });
   return [
-    agentMessageSchema.parse({ ...common, context_policy: ACTIVITY_ROW_POLICY, id: 'activation-1', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: sourceInputId, timestamp }), message_index: 0, block_index: 0 }),
+    agentMessageSchema.parse({ ...common, context_policy: ACTIVITY_ROW_POLICY, id: 'activation-1', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: sourceInputId, timestamp }), message_index: 0, block_index: 0 }),
     agentMessageSchema.parse({ ...common, context_policy: policies.call, id: `${sourceInputId}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'large.txt' }) } }] }), message_index: 1, block_index: 0 }),
     agentMessageSchema.parse({ ...common, context_policy: policies.result, id: `${sourceInputId}:tool-result:call-1`, role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: settled, message_index: 2, block_index: 0 }),
   ];

@@ -6,7 +6,8 @@
       <li v-for="entry in context.protected_prompts" :key="`${entry.source.segment_version}:${entry.source.row_index}:${entry.message.id}`">
         <details><summary>Segment {{ entry.source.segment_version }}, row {{ entry.source.row_index }} · {{ entry.message.id }}</summary>
         <pre><JsonText :text="metadata(entry.message)" /></pre>
-        <pre>{{ entry.message.content }}</pre>
+         <InstructionDisclosure v-if="entry.message.instruction_origin" label="Recorded workflow instruction" :text="entry.message.content" explanation="Retained recorded context — delivery not established" />
+         <pre v-else>{{ entry.message.content }}</pre>
         <span class="declaration">compactable: false<span v-if="entry.message.context_policy.kind === 'content' && entry.message.context_policy.compaction_key !== undefined"> · key: {{ entry.message.context_policy.compaction_key }}</span></span>
         </details>
       </li>
@@ -16,6 +17,7 @@
 <script setup lang="ts">
 import type { AgentConversationEntry, AgentConversationResponse } from '../../api/types';
 import JsonText from '../content/JsonText.vue';
+import InstructionDisclosure from '../conversation/InstructionDisclosure.vue';
 defineProps<{ context: AgentConversationResponse['segment_context'] }>();
 function metadata(message: AgentConversationEntry): string {
   const { content: _content, ...recorded } = message;

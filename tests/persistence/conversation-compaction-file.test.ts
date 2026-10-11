@@ -124,7 +124,7 @@ describe('conversation compaction file persistence', () => {
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) {
         const inputId = `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`;
-        const ingress = buildGlobalAgentIngressRows(analyst, inputId, `question ${ordinal} ${'x'.repeat(400)}`);
+        const ingress = buildGlobalAgentIngressRows(analyst, inputId, `question ${ordinal} ${'x'.repeat(400)}`, { kind: 'unavailable', reason: 'not_recorded' });
         if (ordinal === 1) {
           const oldNote = { ...ingress[1], role: 'system' as const, id: 'retained-workspace-note', content: '[workspace-context] old focus', round_id: ingress[0].round_id, message_index: 0, block_index: 1 };
           appendConversationBatch({ projectRoot: root }, [ingress[0], oldNote, ingress[1]]);
@@ -135,7 +135,7 @@ describe('conversation compaction file persistence', () => {
       expect(result.kind).toBe('compacted');
       expect(readHistoricalConversationSegment(root, analyst, 1).rows.some((row) => row.content === '[workspace-context] old focus')).toBe(true);
       expect(readCurrentConversationSegment(root, analyst)!.genesis.kind).toBe('compacted_segment_genesis');
-      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(analyst, '00000000-0000-4000-8000-000000000008', 'question after compacted history'));
+      appendConversationBatch({ projectRoot: root }, buildGlobalAgentIngressRows(analyst, '00000000-0000-4000-8000-000000000008', 'question after compacted history', { kind: 'unavailable', reason: 'not_recorded' }));
       expect(readConversation(root, analyst).sourceRows.some((row) => row.content === 'question after compacted history')).toBe(true);
       expect(readHistoricalConversationSegment(root, analyst, 1).rows.some((row) => row.content === '[workspace-context] old focus')).toBe(true);
       expect(readConversation(root, analyst).sourceRows.some((row) => row.content.includes('workspace_focus'))).toBe(false);
@@ -143,5 +143,5 @@ describe('conversation compaction file persistence', () => {
   });
 });
 
-function round(ordinal: number): AgentMessage[] { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; return [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(400), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]; }
+function round(ordinal: number): AgentMessage[] { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; return [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: 'x'.repeat(400), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]; }
 function invocation(messages: readonly ProviderConversationItem[], sessionId: typeof SESSION | 'agent:analyst:global' = SESSION): PreparedLlmInvocationInput { const preparedCompaction = prepareCompaction(POLICY, 'system', [], 8_000, 2_000); return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: sessionId === SESSION ? 'planner' : 'analyst', sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [...messages] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {} }; }

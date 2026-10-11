@@ -34,8 +34,8 @@ export async function publishThreeGenerationCompactedConversation(
   projectRoot: string,
   summaryText = 'fixture compacted summary',
   protectedPrompts?: Readonly<{
-    first: Readonly<{ content: string; key: string }>;
-    replacement: Readonly<{ content: string; key: string }>;
+    first: Readonly<{ content: string; key: string; instruction_origin?: 'workflow_prompt' }>;
+    replacement: Readonly<{ content: string; key: string; instruction_origin?: 'workflow_prompt' }>;
   }>,
   privateProducer?: Candidate,
 ): Promise<ConversationSessionId> {
@@ -43,7 +43,7 @@ export async function publishThreeGenerationCompactedConversation(
     activation(1),
     text('text-1', BIG),
     ...(privateProducer ? responsesBundle(SESSION, inputIdFor(11), privateProducer, '{"success":true,"data":"covered-tool"}') : []),
-    ...(protectedPrompts ? [protectedText('protected-1', protectedPrompts.first.content, protectedPrompts.first.key)] : []),
+    ...(protectedPrompts ? [protectedText('protected-1', protectedPrompts.first.content, protectedPrompts.first.key, protectedPrompts.first.instruction_origin)] : []),
     recoveryNotice(1),
     activation(2),
     ...summarizerOnlyBundle(2, 'fact-bundle'.concat('-fact'.repeat(4_000))),
@@ -57,7 +57,7 @@ export async function publishThreeGenerationCompactedConversation(
   appendConversationBatch({ projectRoot }, [
     repair('small repair'),
     activation(4),
-    ...(protectedPrompts ? [protectedText('protected-2', protectedPrompts.replacement.content, protectedPrompts.replacement.key)] : []),
+    ...(protectedPrompts ? [protectedText('protected-2', protectedPrompts.replacement.content, protectedPrompts.replacement.key, protectedPrompts.replacement.instruction_origin)] : []),
     text('text-4', BIG),
     ...summarizerOnlyBundle(4, 'second-open-round'.concat('-open'.repeat(400))),
     ...(privateProducer ? responsesBundle(SESSION, inputIdFor(12), privateProducer, '{"success":true,"data":"second-covered-tool"}') : []),
@@ -132,7 +132,7 @@ function activation(ordinal: number): AgentMessage {
     kind: 'activity',
     context_policy: ACTIVITY_ROW_POLICY,
     content: JSON.stringify({
-      event: 'activation_open',
+      event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
       agent_name: 'planner',
       card_id: 'project',
       input_id: inputId,
@@ -160,9 +160,10 @@ function text(id: string, content: string): AgentMessage {
   };
 }
 
-function protectedText(id: string, content: string, compactionKey: string): AgentMessage {
+function protectedText(id: string, content: string, compactionKey: string, instructionOrigin?: 'workflow_prompt'): AgentMessage {
   return {
     ...text(id, content),
+    ...(instructionOrigin ? { instruction_origin: instructionOrigin } : {}),
     context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: compactionKey },
   };
 }

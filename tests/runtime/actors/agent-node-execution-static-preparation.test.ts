@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { initializeConversation, readConversation, readCurrentConversationSegment, type ConversationFileContext } from '../../../src/persistence/conversation-file.js';
-import { canonicalJson, type CardNotification, type ConversationSessionId } from '../../../src/schemas/index.js';
+import { canonicalJson, parseActivationOpenPayload, type CardNotification, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 import { compileProjectWorkflows, describeNodeResultContract, type CompiledNodeContract } from '../../../src/runtime/card-process/card-process-config.js';
 import { defineTool, executedToolOutcome, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
@@ -145,12 +145,12 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
 
 const READ_POLICY: InvocationResultPolicy = (() => { const bytes = canonicalJson(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE); return { resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, resultPolicyTemplateBytes: bytes, resultPolicyTemplateSha256: sha256Hex(bytes) }; })();
 function seedUnmatched(test: ReturnType<typeof harness>, inputId = '00000000-0000-4000-8000-000000000031') {
-  appendActivationMarker({ projectRoot: test.projectRoot }, test.sessionId, { event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: inputId });
+  appendActivationMarker({ projectRoot: test.projectRoot }, test.sessionId, { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId });
   appendLlmTurnToolCallBatch({ projectRoot: test.projectRoot }, { inputId, sessionId: test.sessionId, agentName: 'planner' } as never, { id: 'old-read', type: 'function', function: { name: 'read', arguments: '{"path":"work:///"}' } }, READ_POLICY);
 }
 function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[]): void {
   const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
-  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 7, type: 'conversation-segment', rows })}\n`);
+  appendFileSync(cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename), `${JSON.stringify({ version: 8, type: 'conversation-segment', rows })}\n`);
 }
 
 describe('AgentNodeExecution static preparation', () => {
@@ -225,10 +225,16 @@ describe('AgentNodeExecution static preparation', () => {
     expect(input.providerConversation.messages.filter((item) => item.content === expectedNode)).toHaveLength(1);
     expect(input.providerConversation.messages.some((item) => item.content === expectedInstruction)).toBe(false);
     expect(expectedInstruction.split(describeNodeResultContract(test.process as never, 'node:plan'))).toHaveLength(2);
-    expect(readConversation(test.projectRoot, test.sessionId).sourceRows.some((row) => row.content.includes(selectedNodeText))).toBe(false);
+    const rows = readConversation(test.projectRoot, test.sessionId).sourceRows;
+    const marker = rows.find(row => row.kind === 'activity')!;
+    expect(parseActivationOpenPayload(marker.content, marker.session_id, marker.timestamp)?.instructions).toEqual({
+      kind: 'prepared', role_text: expectedInstruction,
+      node: { node_id: test.productionNode.nodeId, text: expectedNode },
+    });
+    expect(rows.filter(row => row.kind === 'activity')).toHaveLength(1);
   });
 
-  it('reads the selected compiled node text once before ingress and preserves it only in prepared context', async () => {
+  it('reads the selected compiled node text once before ingress and records evidence without another context occurrence', async () => {
     const test = harness({ kind: 'capacity', systemPrompt: 'system' });
 
     await expect(test.run()).rejects.toThrow('turn sentinel');
@@ -239,7 +245,10 @@ describe('AgentNodeExecution static preparation', () => {
     expect(input.preparedContext.dynamicBlocks[1].content).toBe("Current workflow node 'work':\n\nnode prompt");
     expect(input.preparedContext.dynamicBlocksSha256).toBe(canonicalValueSha256(input.preparedContext.dynamicBlocks));
     expect(input.providerConversation.messages.filter((item) => item.content.endsWith('node prompt'))).toHaveLength(1);
-    expect(readConversation(test.projectRoot, test.sessionId).sourceRows.some((row) => row.content.includes('node prompt'))).toBe(false);
+    const marker = readConversation(test.projectRoot, test.sessionId).sourceRows.find(row => row.kind === 'activity')!;
+    expect(parseActivationOpenPayload(marker.content, marker.session_id, marker.timestamp)?.instructions).toEqual({
+      kind: 'prepared', role_text: 'system', node: { node_id: 'work', text: input.preparedContext.dynamicBlocks[1].content },
+    });
   });
 
   it('rejects a static capacity failure before every durable node-entry effect', async () => {
@@ -317,7 +326,7 @@ describe('AgentNodeExecution static preparation', () => {
       appendFileSync(segmentPath, '{"version":1,"type":"conversation-segment","rows":[{"broken":true}]}\n');
     } else if (fixture === 'nonfinal unmatched call') {
       const marker = readConversation(test.projectRoot, test.sessionId).physicalRows[0]!;
-      appendRawRows(test, [{ ...marker, id: `${marker.id}-later`, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000032', timestamp: marker.timestamp }) }]);
+      appendRawRows(test, [{ ...marker, id: `${marker.id}-later`, content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000032', timestamp: marker.timestamp }) }]);
     } else {
       const call = readConversation(test.projectRoot, test.sessionId).physicalRows[1]!;
       const secondInput = '00000000-0000-4000-8000-000000000033';

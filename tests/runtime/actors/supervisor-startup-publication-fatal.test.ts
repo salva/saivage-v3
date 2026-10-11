@@ -46,7 +46,7 @@ describe('startup session publication fatal boundary', () => {
     const input = '11111111-1111-4111-8111-111111111111';
     const timestamp = '2026-08-10T00:00:00.000Z';
     actualConversationFile.appendConversationBatch({ projectRoot: root }, [{ id: `${input}:activation:executor`, session_id: sessionId,
-      role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'executor', card_id: child.id, input_id: input, timestamp }),
+      role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'executor', card_id: child.id, input_id: input, timestamp }),
       context_policy: ACTIVITY_ROW_POLICY, round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }]);
     actualConversationFile.appendConversationBatch({ projectRoot: root }, [{ id: `${input}:tool-call:pending`, session_id: sessionId,
       role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'pending', context_policy: toolCallRowPolicy(),

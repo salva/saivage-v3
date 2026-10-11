@@ -12,7 +12,11 @@ import {
 import { cardIdSchema, cardParentId } from './card-id.js';
 import { agentNameSchema } from './agent-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
-import { ConversationSessionIdSchema } from './conversation-session-id.js';
+import {
+  ConversationSessionIdSchema,
+  conversationSessionIdentity,
+} from './conversation-session-id.js';
+import { parseActivationOpenPayload } from './activation-instructions.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from './content-policy.js';
 import { canonicalJson } from './canonical-json.js';
 import { rowContextPolicySchema, type StructuralRowBehavior } from './context-policy.js';
@@ -233,6 +237,7 @@ export const agentMessageSchema = z
     model_spec: z.string().optional(),
     requested_model_spec: z.string().optional(),
     provider_projection: providerProjectionSchema.optional(),
+    instruction_origin: z.literal('workflow_prompt').optional(),
   })
   .strict()
   .superRefine((message, ctx) => {
@@ -242,6 +247,16 @@ export const agentMessageSchema = z
     ): void => ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: [...path] });
     const structuralBehavior: StructuralRowBehavior | undefined =
       message.context_policy.kind === 'structural' ? message.context_policy.behavior : undefined;
+    if (
+      message.instruction_origin !== undefined &&
+      (message.role !== 'user' ||
+        !['text', 'model_repair'].includes(message.kind) ||
+        conversationSessionIdentity(message.session_id).cardId === null)
+    )
+      policyIssue(
+        'Workflow prompt provenance requires a card-session user text or model_repair row.',
+        ['instruction_origin'],
+      );
     switch (message.kind) {
       case 'text':
       case 'model_repair':
@@ -252,6 +267,11 @@ export const agentMessageSchema = z
       case 'activity':
         if (structuralBehavior !== 'activation_boundary')
           policyIssue("'activity' rows require structural activation_boundary policy.");
+        try {
+          parseActivationOpenPayload(message.content, message.session_id, message.timestamp);
+        } catch (error) {
+          policyIssue(`Malformed activation_open marker: ${String(error)}`, ['content']);
+        }
         break;
       case 'model_issue':
         if (structuralBehavior !== 'provider_failure')

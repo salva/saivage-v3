@@ -91,6 +91,7 @@ describe('application startup generated-state admission', () => {
           sessionId,
           '11111111-1111-4111-8111-111111111111',
           'pending text is not interruption',
+          { kind: 'unavailable', reason: 'not_recorded' },
         ),
       );
       const segment = readCurrentConversationSegment(root, sessionId)!;
@@ -204,7 +205,7 @@ describe('application startup generated-state admission', () => {
             const inputId = '11111111-1111-4111-8111-111111111111';
             appendConversationBatch(
               { projectRoot: root },
-              buildGlobalAgentIngressRows(sessionId, inputId, 'question'),
+              buildGlobalAgentIngressRows(sessionId, inputId, 'question', { kind: 'unavailable', reason: 'not_recorded' }),
             );
             appendStartupPendingCall(root, sessionId, inputId);
           }
@@ -247,7 +248,7 @@ describe('application startup generated-state admission', () => {
     ] as const) {
       const sessionId = cardAgentSessionId(agentName, cardId);
       appendActivationMarker({ projectRoot: root }, sessionId, {
-        event: 'activation_open',
+        event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
         agent_name: agentName,
         card_id: cardId,
         input_id: input,
@@ -294,7 +295,7 @@ describe('application startup generated-state admission', () => {
     const sessionId = cardAgentSessionId('executor', child.id);
     const input = '11111111-1111-4111-8111-111111111111';
     appendActivationMarker({ projectRoot: root }, sessionId, {
-      event: 'activation_open',
+      event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
       agent_name: 'executor',
       card_id: child.id,
       input_id: input,
@@ -457,7 +458,7 @@ describe('application startup generated-state admission', () => {
       const sessionId = `agent:${agentName}:global` as const;
       initializeMissingConversation(root, sessionId);
       const inputId = '11111111-1111-4111-8111-111111111111';
-      const ingress = buildGlobalAgentIngressRows(sessionId, inputId, 'question');
+      const ingress = buildGlobalAgentIngressRows(sessionId, inputId, 'question', { kind: 'unavailable', reason: 'not_recorded' });
       appendConversationBatch({ projectRoot: root }, ingress);
       appendConversationBatch({ projectRoot: root }, [
         {
@@ -537,6 +538,7 @@ describe('application startup generated-state admission', () => {
         'agent:oversight:global',
         '11111111-1111-4111-8111-111111111111',
         'check',
+        { kind: 'unavailable', reason: 'not_recorded' },
       ),
     );
     const segment = readCurrentConversationSegment(root, 'agent:oversight:global')!;
@@ -566,11 +568,12 @@ describe('application startup generated-state admission', () => {
             sessionId,
             '11111111-1111-4111-8111-111111111111',
             'question',
+            { kind: 'unavailable', reason: 'not_recorded' },
           ),
         );
       else
         appendActivationMarker({ projectRoot: root }, sessionId, {
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'planner',
           card_id: 'project',
           input_id: '11111111-1111-4111-8111-111111111111',
@@ -611,7 +614,7 @@ describe('application startup generated-state admission', () => {
         role: 'system',
         kind: 'activity',
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'analyst',
           input_id: '00000000-0000-4000-8000-000000000001',
           timestamp,
@@ -691,7 +694,7 @@ describe('application startup generated-state admission', () => {
           role: 'system',
           kind: 'activity',
           content: JSON.stringify({
-            event: 'activation_open',
+            event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
             agent_name: 'executor',
             card_id: child.id,
             input_id: '00000000-0000-4000-8000-000000000003',
@@ -855,7 +858,7 @@ describe('application startup generated-state admission', () => {
         role: 'system',
         kind: 'activity',
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'analyst',
           input_id: '00000000-0000-4000-8000-000000000002',
           timestamp,

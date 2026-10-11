@@ -156,7 +156,7 @@ function record(
       kind: 'activity',
       context_policy: ACTIVITY_ROW_POLICY,
       content: JSON.stringify({
-        event: 'activation_open',
+        event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
         agent_name: session.split(':')[1],
         ...(session.endsWith(':global') ? {} : { card_id: 'project' }),
         input_id: source,
@@ -468,7 +468,7 @@ it('pins a historical selection across real compaction and current advancement, 
         kind: 'activity',
         context_policy: ACTIVITY_ROW_POLICY,
         content: JSON.stringify({
-          event: 'activation_open',
+          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'executor',
           card_id: child.id,
           input_id: source,

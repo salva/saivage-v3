@@ -4,7 +4,7 @@ import type {
   CardConversationSessionId,
   ConversationSessionId,
 } from '../../schemas/index.js';
-import { conversationSessionIdentity } from '../../schemas/index.js';
+import { conversationSessionIdentity, parseActivationOpenPayload } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
@@ -177,28 +177,15 @@ function activationMarker(
   message: AgentMessage,
 ): { agentName: string; cardId: string; inputId: string } | null {
   if (message.kind !== 'activity') return null;
-  try {
-    const payload = JSON.parse(message.content) as {
-      event?: unknown;
-      agent_name?: unknown;
-      card_id?: unknown;
-      input_id?: unknown;
-    };
-    if (payload.event !== 'activation_open') return null;
-    if (
-      typeof payload.agent_name !== 'string' ||
-      typeof payload.card_id !== 'string' ||
-      typeof payload.input_id !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-        payload.input_id,
-      )
-    )
-      throw new Error(`Activation marker '${message.id}' has malformed content.`);
-    return { agentName: payload.agent_name, cardId: payload.card_id, inputId: payload.input_id };
-  } catch (error) {
-    if (message.id.includes(':activation:')) throw error;
-    return null;
-  }
+  const payload = parseActivationOpenPayload(
+    message.content,
+    message.session_id,
+    message.timestamp,
+  );
+  if (!payload) return null;
+  if (!('card_id' in payload))
+    throw new Error(`Activation marker '${message.id}' is not card-owned.`);
+  return { agentName: payload.agent_name, cardId: payload.card_id, inputId: payload.input_id };
 }
 
 function requireAssociatedActivationMarker(
