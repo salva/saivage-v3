@@ -438,8 +438,11 @@ describe('ConversationLLMActor authoritative admitted recovery', () => {
     expect(outcome.type).toBe('tool_call');
     if (outcome.type !== 'tool_call') throw new Error('Expected tool call.');
     const capturedRecoveryInput = fixture.prepareRecovery.mock.calls[0]![0].input;
-    expect(fixture.actor.waitingToolInput(outcome)).toBe(capturedRecoveryInput);
-    expect(fixture.actor.waitingToolInput(outcome).providerConversation).toBe(compactedProjection);
+    const waitingInput = fixture.actor.waitingToolInput(outcome);
+    expect(waitingInput).toStrictEqual(capturedRecoveryInput);
+    expect(waitingInput.preparedContext).toBe(capturedRecoveryInput.preparedContext);
+    expect(waitingInput.routePass).toBe(fixture.input.routePass);
+    expect(waitingInput.providerConversation).toBe(compactedProjection);
     expect(fixture.prepareRecovery).toHaveBeenCalledTimes(1);
     expect(fixture.prepareRecovery.mock.calls[0]![0].suspension).toBe(fixture.capturedSuspension);
     expect(fixture.resume).toHaveBeenCalledTimes(1);

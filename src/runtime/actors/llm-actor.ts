@@ -195,6 +195,7 @@ type Disposition =
 type InvocationOperation = {
   summaryRefusal: Readonly<{ summaryInputId: string }> | null;
   input: CanonicalLlmInvocationInput;
+  readonly continuationRoutePass: CanonicalLlmInvocationInput['routePass'];
   callbacks: Callbacks;
   result: Deferred<LLMActorOutcome>;
   settlement: Deferred<void>;
@@ -701,6 +702,7 @@ export class ConversationLLMActor {
     const operation: InvocationOperation = {
       summaryRefusal: null,
       input,
+      continuationRoutePass: input.routePass,
       callbacks,
       result,
       settlement,
@@ -869,7 +871,7 @@ export class ConversationLLMActor {
           resultPolicy: (persisted as { resultPolicy: InvocationResultPolicy }).resultPolicy,
         };
         const parked: ParkedOperation = {
-          input: persisted.input,
+          input: { ...persisted.input, routePass: operation.continuationRoutePass },
           callbacks: operation.callbacks,
           outcome,
           waiting,
@@ -886,7 +888,7 @@ export class ConversationLLMActor {
             ? {
                 kind: 'retained_text',
                 operation: {
-                  input: persisted.input,
+                  input: { ...persisted.input, routePass: operation.continuationRoutePass },
                   callbacks: operation.callbacks,
                   outcome,
                   disposition: operation.disposition,

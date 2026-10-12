@@ -1914,6 +1914,11 @@ Once planning, admission, credentials, and cancellation checks admit transport, 
 Cancellation, invalid plan, admission rejection, or credential failure before transport is a final `pre_provider` zero-call result.
 Analyst content refusal remains a one-call terminal model error with no retry row or pinned request.
 
+The pin applies only to that logical invocation. Successful pinned output and both attempts retain the original source-input UUID and actual candidate attribution; completion persistence and terminal handoff describe the pinned attempt, not an ordinary call.
+If existing workflow rules authorize a subsequent tool continuation or configured plaintext repair, that new logical turn receives a fresh UUID, restarts attempt indexing at zero, and enters ordinary admission with the complete original configured candidate chain in its original order.
+It preserves the frozen prepared context and rereads canonical history, including the retry notice, successful output, and settled tool result or plaintext-repair context under existing projection rules. Completing or accepting output does not itself authorize another turn; terminal tools, accepted plaintext, and cancellation retain their existing no-continuation behavior.
+Pinned preflight rejection or non-policy failure remains terminal for that invocation, with no ordinary fallback.
+
 If the pinned call also refuses, the actor combines and reindexes both error attempts under the original source input, appends one strict system `content_policy_refusal` marker, publishes the combined safe exchanges exactly once, then hands off typed BLOCKED.
 The marker contains only version/type, source input, candidate, and the second terminal refusal's exact `provider_response`; it contains no request conversation, first response, generated paraphrase, tool input, or partial output.
 Physical marker content never enters provider/summarizer input.

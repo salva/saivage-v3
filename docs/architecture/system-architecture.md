@@ -1415,6 +1415,10 @@ Invocation Service keeps planning, integrity, admission, credentials, cancellati
 Pre-transport failures make zero calls and are final.
 Global agents and direct summarizers gain taxonomy only.
 
+At the invocation-to-continuation phase boundary, the actor distinguishes actual-attempt input from retained continuation routing. Each invocation captures its original ordinary route once; the current attempt input remains pinned during the retry, including its refreshed canonical projection and original source-input UUID. Completion persistence, terminal handoff, and failure attribution use that actual attempt input.
+Only parked tool and retained plaintext continuation seeds copy the persisted completion input with its route replaced by the complete original configured ordinary chain, preserving candidate order, frozen prepared context, and refreshed history. Existing continuation consumers allocate a fresh UUID and reread canonical history before ordinary admission, with attempt indexing restarting at zero. Invocation Service reevaluates that configured chain normally; neither it nor the provider gains new continuation authority.
+The route-only copy does not reopen terminal or cancelled work: existing workflow disposition and lease rules still determine whether a tool continuation or configured plaintext repair occurs. Accepted output needs no new call; repeated refusal, pinned preflight rejection, and other pinned failures remain terminal for the invocation.
+
 On a second refusal the actor owns marker-first completion: combine/reindex both attempts, append one marker containing only pass two's terminal raw response, publish both safe exchanges once with the marker as each error's `terminal_conversation_output_id`, then hand off typed BLOCKED.
 Error exchange payloads always carry that required nullable identity and never successful `assistant_output_ids`; successful payloads retain assistant IDs and never the error identity.
 A transport-successful attempt whose output fails local validation therefore links its assistant `model_issue` through `assistant_output_ids`; only provider error attempts use `terminal_conversation_output_id`.
