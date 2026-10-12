@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { createServer } from 'node:http';
-import { consumeProviderRequest, ProviderInactivityTimeoutError, readBodyTextBestEffort } from '../../src/agents/llm-request-inactivity.js';
+import { consumeProviderRequest, ProviderInactivityTimeoutError, ProviderRequestDeadlineError, readBodyTextBestEffort } from '../../src/agents/llm-request-inactivity.js';
 import { controlledResponse, pendingHeaders } from '../helpers/provider-inactivity.js';
 
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
@@ -18,6 +18,7 @@ describe('best-effort request body consumption', () => {
     { name: 'ordinary failure', aborted: false, error: new TypeError('body failure'), rethrow: false },
     { name: 'independent AbortError', aborted: false, error: Object.assign(new Error('independent abort'), { name: 'AbortError' }), rethrow: false },
     { name: 'inactivity timeout', aborted: false, error: new ProviderInactivityTimeoutError(), rethrow: true },
+    { name: 'absolute deadline', aborted: false, error: new ProviderRequestDeadlineError(), rethrow: true },
     { name: 'Error signal reason', aborted: true, error: new Error('owner stopped'), rethrow: true },
     { name: 'non-Error signal reason', aborted: true, error: { stopped: true }, rethrow: true },
     { name: 'AbortError on aborted signal', aborted: true, error: Object.assign(new Error('body aborted'), { name: 'AbortError' }), separateReason: new Error('owner reason'), rethrow: true },
@@ -64,6 +65,28 @@ describe('best-effort request body consumption', () => {
 });
 
 describe('request-local inactivity scope', () => {
+  it('expires continuous body traffic at the absolute 15-minute deadline and releases both timers', async () => {
+    jest.useFakeTimers({ now: 0 });
+    let stream!: ReturnType<typeof controlledResponse>;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      stream = controlledResponse(init!.signal!); return stream.response;
+    });
+    const pending = consumeProviderRequest('https://test.invalid', {}, undefined,
+      (response, context) => context.readText(response)).catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 14; i++) {
+      await jest.advanceTimersByTimeAsync(60_000);
+      stream.send(new TextEncoder().encode('data: still active\n\n'));
+      await jest.advanceTimersByTimeAsync(0);
+    }
+    await jest.advanceTimersByTimeAsync(59_999);
+    expect(jest.getTimerCount()).toBe(2);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(await pending).toBeInstanceOf(ProviderRequestDeadlineError);
+    expect(stream.response.body!.locked).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it.each(['success', 'fetch failure', 'callback failure'] as const)('clears timer and owner listener on %s, with inert late activity', async outcome => {
     jest.useFakeTimers();
     const owner = new AbortController();
@@ -103,7 +126,7 @@ describe('request-local inactivity scope', () => {
     try {
       await jest.advanceTimersByTimeAsync(119999);
       expect(effective.aborted).toBe(false);
-      expect(jest.getTimerCount()).toBe(1);
+      expect(jest.getTimerCount()).toBe(2);
       await jest.advanceTimersByTimeAsync(1);
       expect(await pending).toBeInstanceOf(ProviderInactivityTimeoutError);
       expect(await pending).toBe(effective.reason);

@@ -511,7 +511,7 @@ it.each(['openai-responses', 'openai-codex-backend'] as const)('suppresses %s ec
   const imageRow = projection.messages.find(item => item.kind === 'tool_result')!;
   if (imageRow.kind === 'synthetic_context' || !imageRow.images?.length) throw new Error('Expected materialized result');
   const dataUrl = imageRow.images[0]!.dataUrl;
-  for (const [status, code, kind] of [[400, 'context_length_exceeded', 'input_context_exhausted'], [429, 'rate_limit_exceeded', 'rate_limit'], [401, 'invalid_api_key', 'auth_permanent'], [503, 'server_is_overloaded', 'server_transient'], [400, 'unrecognized_error', 'provider_protocol_error']] as const) {
+  for (const [status, code, kind] of [[400, 'context_length_exceeded', 'input_context_exhausted'], [429, 'rate_limit_exceeded', 'rate_limit'], [401, 'invalid_api_key', 'auth_permanent'], [503, 'server_is_overloaded', 'server_overloaded'], [400, 'unrecognized_error', 'provider_protocol_error']] as const) {
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { code, type: status === 400 ? 'invalid_request_error' : code, param: 'input', message: `${dataUrl} /images/private.png` } }), { status, ...(status === 429 ? { headers: { 'retry-after': '2' } } : {}) }));
     let failure: ProviderTurnFailure | undefined;
     try { await executeLlmProviderAttempt({ projectRoot: f.projectRoot, registry, plan: built, options: options(), capabilityRequest: { requiresImages: true }, attemptContext: { sourceSessionId: SESSION, invocationSessionId: SESSION, inputId: options().inputId, purpose: 'primary', attemptIndex: 0 } }); }

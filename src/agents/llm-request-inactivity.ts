@@ -1,6 +1,14 @@
 import type { LlmResponseConsumption } from '../contracts/index.js';
 
 const PROVIDER_INACTIVITY_MS = 120_000;
+const PROVIDER_REQUEST_DEADLINE_MS = 15 * 60_000;
+
+export class ProviderRequestDeadlineError extends Error {
+  constructor() {
+    super(`Provider request exceeded absolute deadline of ${PROVIDER_REQUEST_DEADLINE_MS} ms.`);
+    this.name = 'ProviderRequestDeadlineError';
+  }
+}
 
 export class ProviderInactivityTimeoutError extends Error {
   constructor() {
@@ -18,6 +26,7 @@ export async function readBodyTextBestEffort(
   } catch (error) {
     if (
       error instanceof ProviderInactivityTimeoutError ||
+      error instanceof ProviderRequestDeadlineError ||
       (consumption.signal.aborted &&
         (error === consumption.signal.reason ||
           (error instanceof Error && error.name === 'AbortError')))
@@ -37,12 +46,14 @@ export async function consumeProviderRequest<T>(
   const controller = new AbortController();
   let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const clear = (): void => {
     clearTimeout(timer);
     timer = undefined;
   };
   const onOwnerAbort = (): void => {
     clear();
+    clearTimeout(deadlineTimer);
     controller.abort(ownerSignal!.reason);
   };
   const onData = (): void => {
@@ -75,6 +86,10 @@ export async function consumeProviderRequest<T>(
   };
   ownerSignal?.addEventListener('abort', onOwnerAbort, { once: true });
   onData();
+  deadlineTimer = setTimeout(() => {
+    if (!active || controller.signal.aborted) return;
+    controller.abort(new ProviderRequestDeadlineError());
+  }, PROVIDER_REQUEST_DEADLINE_MS);
   try {
     const response = await fetch(input, { ...init, signal: controller.signal });
     return await consume(response, context);
@@ -93,6 +108,7 @@ export async function consumeProviderRequest<T>(
   } finally {
     active = false;
     clear();
+    clearTimeout(deadlineTimer);
     ownerSignal?.removeEventListener('abort', onOwnerAbort);
   }
 }

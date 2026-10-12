@@ -6,6 +6,9 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 const CTX = { provider: 'openai', producerAccountId: responsesProducerAccountId({ provider: 'openai', account: null }), model: 'gpt-5.6', sourceInputId: 'input-1', responseStatus: 200 };
 
 describe('OpenAI Responses parser', () => {
+  it.each(['server_is_overloaded', 'overloaded'])('maps exact HTTP-200 failed terminal %s without inventing wire status', code => {
+    expect(failureFor({ status: 'failed', error: { code, message: 'busy' } })).toMatchObject({ kind: 'server_overloaded', status: 200 });
+  });
   it.each([undefined, null, {}, { input_tokens: null, output_tokens_details: null }])('keeps omitted Responses usage unknown %#', usage => {
     expect(parseOpenAIResponsesJson(JSON.stringify({ status: 'completed', output: [], usage }), CTX).result.usage).toBeUndefined();
   });

@@ -25,6 +25,26 @@ afterEach(() => {
 });
 
 describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth refresh', (provider) => {
+  it('bounds continuously received refresh bytes at 15 minutes without writing auth or sending the model request', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const fixture = setup(provider);
+    let stream!: ReturnType<typeof controlledResponse>;
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      stream = controlledResponse(init!.signal!); return stream.response;
+    });
+    const pending = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard').catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 14; i++) {
+      await jest.advanceTimersByTimeAsync(60_000); stream.send(' '); await jest.advanceTimersByTimeAsync(0);
+    }
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(await pending).toMatchObject({ failure: { kind: 'server_transient', provider, status: 0 } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    expect(stream.response.body!.locked).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('retains malformed-response fallback for an ordinary body failure, including independent AbortError', async () => {
     const fixture = setup(provider);
     const response = new Response(new ReadableStream({ start(controller) { controller.error(new DOMException('independent read failure', 'AbortError')); } }));
@@ -70,7 +90,7 @@ describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth ref
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
       const signal = init!.signal!;
       if (!refreshStream) { refreshSignal = signal; refreshStream = controlledResponse(signal); return Promise.resolve(refreshStream.response); }
-      expect(jest.getTimerCount()).toBe(1);
+      expect(jest.getTimerCount()).toBe(2);
       return pendingHeaders(signal);
     });
     const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });

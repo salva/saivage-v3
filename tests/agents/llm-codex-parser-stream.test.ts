@@ -283,7 +283,7 @@ describe('OpenAI Codex stream parser', () => {
         await expect(result).rejects.toBe(abortReason);
       } else {
         await expect(result).rejects.toMatchObject({ failure: {
-          kind: outcome === 'parse' ? 'parse_error' : 'server_transient',
+          kind: outcome === 'parse' ? 'parse_error' : 'server_overloaded',
           provider: 'openai-codex',
           ...(outcome === 'provider' ? { message: 'OpenAI Codex stream error: server_is_overloaded: busy' } : {}),
         } });
@@ -389,10 +389,10 @@ describe('OpenAI Codex stream parser', () => {
 
   it.each([
     ['error', event({ type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } }), {
-      kind: 'server_transient', provider: 'openai-codex', status: 200, message: 'OpenAI Codex stream error: server_is_overloaded: busy',
+      kind: 'server_overloaded', provider: 'openai-codex', status: 200, message: 'OpenAI Codex stream error: server_is_overloaded: busy',
     } satisfies LlmTransportFailure],
     ['response.failed', event({ type: 'response.failed', response: { status: 'failed', error: { code: 'server_is_overloaded', message: 'busy' } } }), {
-      kind: 'server_transient', provider: 'openai-codex', status: 200, message: 'OpenAI Codex response failed: server_is_overloaded: busy',
+      kind: 'server_overloaded', provider: 'openai-codex', status: 200, message: 'OpenAI Codex response failed: server_is_overloaded: busy',
     } satisfies LlmTransportFailure],
   ])('lets pre-completion %s supersede message and tool candidates and prevents rescue', async (_name, failureEvent, expected) => {
     await expectFailure(stream(message('candidate') + finalizedTool() + failureEvent + completion('resp_later')), expected);

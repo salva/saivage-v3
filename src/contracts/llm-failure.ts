@@ -17,6 +17,7 @@ export type LlmTransportFailure =
       resetsAt?: string;
     }
   | { kind: 'server_transient'; provider: string; message: string; status: number }
+  | { kind: 'server_overloaded'; provider: string; message: string; status: number }
   | { kind: 'timeout'; provider: string; message: string }
   | {
       kind: 'provider_protocol_error';

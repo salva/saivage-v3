@@ -91,6 +91,7 @@ import {
 } from '../helpers/invocation-provider-fixture.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 import { publicationWitness } from '../helpers/segment-publication-io.js';
+import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 
 const PRIMARY = { provider: 'primary-test', account: null, model: 'primary' } as const;
 const SUMMARY = { provider: 'summary-test', account: null, model: 'summary' } as const;
@@ -98,6 +99,7 @@ const INPUT_ID = '00000000-0000-4000-8000-000000000003';
 const roots: string[] = [];
 afterEach(() => {
   jest.restoreAllMocks();
+  jest.useRealTimers();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
 
@@ -824,6 +826,52 @@ describe('loss-tolerant maintenance through production invocation and persistenc
     expect(readCurrentConversationSegment(f.root, f.session)!.entry.version).toBe(3);
   });
 
+  it.each(['success', 'refusal', 'auth', 'protocol', 'finite'] as const)(
+    'real summary composition exceeds 64 overload wires then %s without false fold progress or omission authority', async outcome => {
+      jest.useFakeTimers();
+      const f = fixture({ trigger: 1, capacity: 80_000 });
+      const counts = f.script((kind, ordinal) => {
+        if (kind === 'primary') return ordinal === 1 ? contextExhausted() : chatSuccess('continued');
+        if (ordinal <= 65) return new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 });
+        if (outcome === 'success') return chatSuccess('small useful summary');
+        if (outcome === 'refusal') return refusal();
+        return new Response(JSON.stringify({ error: { message: 'terminal synthetic failure' } }),
+          { status: outcome === 'auth' ? 401 : outcome === 'finite' ? 500 : 400 });
+      });
+      const pending = f.actor.turn(f.input, undefined, f.terminal).catch(error => error);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(counts).toEqual({ summary: 1, primary: 1 });
+      expect(f.actor.compactionProgress()).toMatchObject({ foldsDone: 0, foldInFlight: true });
+      const readModel = new AgentOperatorReadModelService(f.root, TEST_WORKFLOWS,
+        () => executingLlmSnapshots([f.session], f.actor.compactionProgress()));
+      expect(readModel.getSession(f.session).session).toMatchObject({ status: 'active', activity: 'busy',
+        compaction: { folds_done: 0, fold_in_flight: true } });
+      expect(f.completedFolds.every(folds => folds === 0)).toBe(true);
+      expect(f.terminal).not.toHaveBeenCalled();
+      expect(readProviderExchangeEntries(f.root, f.session)).toHaveLength(0);
+      expect(readConversation(f.root, f.session).sourceRows.filter(row => row.kind === 'model_issue')).toHaveLength(0);
+      await jest.advanceTimersByTimeAsync(930_000 + 60 * 600_000 + 180_000);
+      const result = await pending;
+      const eligible = outcome === 'success' || outcome === 'refusal';
+      if (eligible) expect(result.type).toBe('result');
+      else expect(result).toMatchObject({ name: 'LastChanceSummaryProviderUnavailableError', cause: expect.any(ProviderTurnFailure) });
+      expect(counts).toEqual({ summary: 66, primary: eligible ? 2 : 1 });
+      const summaries = f.requests.filter(request => request.kind === 'summary');
+      expect(new Set(summaries.map(request => request.body)).size).toBe(1);
+      const evidence = readProviderExchangeEntries(f.root, f.session);
+      const summaryEvidence = evidence.filter(entry => entry.data.session_id.startsWith('internal:'));
+      expect(summaryEvidence).toHaveLength(counts.summary);
+      expect(new Set(summaryEvidence.map(entry => entry.data.source_input_id)).size).toBe(1);
+      expect(summaryEvidence.map(entry => entry.data.attempt_index)).toEqual(Array.from({ length: counts.summary }, (_, i) => i));
+      expect(evidence.filter(entry => entry.data.session_id === f.session)).toHaveLength(counts.primary);
+      expect(Math.max(...f.completedFolds)).toBe(outcome === 'success' ? 1 : 0);
+      const current = readCurrentConversationSegment(f.root, f.session)!;
+      expect(current.entry.version).toBe(eligible ? 2 : 1);
+      if (outcome === 'refusal') expect(current.conversation.effectiveCompactedHistory!.summaryText).toContain(LOCAL_OMISSION_SUMMARY);
+      expect(jest.getTimerCount()).toBe(0);
+    },
+  );
+
   it('primary refusal after successful omission retains its own sole pinned retry and permanent primary fact', async () => {
     const f = fixture();
     const counts = f.script(() => refusal());
@@ -846,21 +894,27 @@ describe('loss-tolerant maintenance through production invocation and persistenc
     expect(evidence.filter((row) => row.data.session_id.startsWith('internal:'))).toHaveLength(1);
   });
 
-  it('retains a fully completed fitting summary above 12KB after a later refusal without cosmetic correction or partial coverage', async () => {
+  it.each([0, 65])('retains a fully completed fitting summary above 12KB after a later refusal without cosmetic correction or partial coverage (overload wires=%s)', async overloadWires => {
+    jest.useFakeTimers();
     const f = fixture({ prefix: 80_000, recent: 40_000, capacity: 25_000, trigger: 0.6 });
     const text = 'USEFUL FITTING SUMMARY '.repeat(650);
     expect(Buffer.byteLength(text.trim())).toBeGreaterThan(12_000);
     const counts = f.script((kind, ordinal) =>
       kind === 'primary'
         ? chatSuccess('continued with retained summary')
-        : ordinal === 1
+        : ordinal <= overloadWires
+          ? new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 })
+        : ordinal === overloadWires + 1
           ? chatSuccess(text)
           : refusal(),
     );
-    await expect(f.actor.turn(f.input, undefined, f.terminal)).resolves.toMatchObject({
+    const pending = f.actor.turn(f.input, undefined, f.terminal);
+    await jest.advanceTimersByTimeAsync(overloadWires ? 930_000 + 60 * 600_000 : 0);
+    await expect(pending).resolves.toMatchObject({
       type: 'result',
     });
-    expect(counts).toEqual({ summary: 2, primary: 1 });
+    expect(counts).toEqual({ summary: overloadWires + 2, primary: 1 });
+    expect(new Set(f.requests.filter(request => request.kind === 'summary').slice(0, overloadWires + 1).map(request => request.body)).size).toBe(1);
     const current = readCurrentConversationSegment(f.root, f.session)!;
     expect(current.conversation.effectiveCompactedHistory!.summaryText).toBe(text.trim());
     expect(current.entry.genesis).toMatchObject({ covered_through_message_id: 'activation-3' });
@@ -897,6 +951,27 @@ describe('loss-tolerant maintenance through production invocation and persistenc
     expect(counts).toEqual({ summary: 1, primary: 0 });
     expect(readCurrentConversationSegment(f.root, f.session)!.entry.version).toBe(1);
     expect(f.terminal).not.toHaveBeenCalled();
+  });
+
+  it('summary publication uncertainty after actual overload escapes unchanged before fallback or progress cleanup', async () => {
+    jest.useFakeTimers();
+    const f = fixture();
+    const counts = f.script((_kind, ordinal) => ordinal === 1
+      ? new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }) : refusal());
+    const uncertainty = new PublicationOutcomeUnknownError(new Error('summary evidence publication'));
+    const publish = jest.spyOn(f.service, 'projectProviderExchanges').mockImplementation(() => { throw uncertainty; });
+    let settled = false;
+    void f.actor.turn(f.input, undefined, f.terminal).then(() => { settled = true; }, () => { settled = true; });
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(settled).toBe(false);
+    expect(f.fatal).toHaveBeenCalledWith(uncertainty);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(counts).toEqual({ summary: 2, primary: 0 });
+    expect(f.actor.compactionProgress()).toMatchObject({ foldsDone: 0, foldInFlight: true });
+    expect(f.terminal).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(7_200_000);
+    expect(counts).toEqual({ summary: 2, primary: 0 });
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it.each(['segment', 'index'] as const)(

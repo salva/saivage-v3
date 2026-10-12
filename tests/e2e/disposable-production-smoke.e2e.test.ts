@@ -194,6 +194,67 @@ afterEach(async () => {
 });
 
 describe('disposable production-composition smoke', () => {
+  it('keeps real overloaded tool continuation outstanding through Pause then Stop without tool replay', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-overload-e2e-'));
+    roots.push(root);
+    const appPort = await unusedPort();
+    let app: App | null = null;
+    const plannerBodies: string[] = [];
+    const provider = createServer(async (request, response) => {
+      const body = await requestBody(request);
+      if (body.model === 'analyst-model') {
+        if (body.messages.at(-1)?.role === 'tool') finalMessage(response);
+        else toolCall(response, 1, 'start_project', {});
+      } else {
+        plannerBodies.push(JSON.stringify(body));
+        if (plannerBodies.length === 1) toolCall(response, 101, 'write', { path: 'overload-once.txt', content: 'one known effect' });
+        else {
+          response.statusCode = 503;
+          response.setHeader('content-type', 'application/json');
+          response.end(JSON.stringify({ error: { code: 'server_is_overloaded' } }));
+        }
+      }
+    });
+    const providerPort = await listen(provider);
+    try {
+      runCli(root, 'init');
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
+      writeCustomPrompts(root);
+      app = await start(root);
+      await chat(app, 'Start project work.');
+      await waitUntil(() => plannerBodies.length === 2, 'first overload');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const providers = await api(app, '/api/providers');
+      expect(providers.status).toBe(200);
+      expect(JSON.stringify(providers.body)).toContain('server_overloaded');
+      expect(JSON.stringify(providers.body)).toContain('COOLING');
+      const agents = await api(app, '/api/agents');
+      expect(agents.status).toBe(200);
+      expect(agents.body.sessions.find((session: { id: string }) => session.id === 'agent:planner:project')).toMatchObject({ status: 'active', activity: 'busy', compaction: null });
+      expect((await api(app, '/api/runtime/pause', { method: 'POST' })).status).toBe(200);
+      expect((await api(app, '/api/runtime/status')).body.runtime).toBe('pausing');
+      expect(app.server.runtimeApplication.cardStore.read('project')!.lifecycle.status).toBe('running');
+      const rows = () => readConversation(root, 'agent:planner:project').sourceRows;
+      expect(rows().filter(row => row.kind === 'model_issue')).toHaveLength(0);
+      expect(rows().filter(row => row.kind === 'tool_result' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      await new Promise(resolve => setTimeout(resolve, 30_100));
+      await waitUntil(() => plannerBodies.length === 3, 'retry while Pause pending');
+      expect(plannerBodies[2]).toBe(plannerBodies[1]);
+      expect((await api(app, '/api/runtime/status')).body.runtime).toBe('pausing');
+      expect((await api(app, '/api/runtime/stop-project', { method: 'POST' })).status).toBe(200);
+      expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
+      expect(rows().filter(row => row.kind === 'tool_call' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      expect(rows().filter(row => row.kind === 'tool_result' && row.tool_call_id === 'call-101')).toHaveLength(1);
+      expect(readFileSync(join(root, 'overload-once.txt'), 'utf8')).toBe('one known effect');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(plannerBodies).toHaveLength(3);
+    } finally {
+      if (app) await stop(app);
+      provider.closeAllConnections();
+      await new Promise<void>(resolve => provider.close(() => resolve()));
+    }
+  }, 60_000);
+
   it('settles an in-scope Planner self-notification with a pending matched result before root replacement', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-self-notice-e2e-'));
     roots.push(root);

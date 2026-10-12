@@ -154,7 +154,9 @@ static configured possibilities remain distinguishable from observed execution h
 **F3 — Must — Active participation.** From current-work orientation, identify available
 executing named-agent evidence and its card or global scope without searching a global
 roster. Check an executing child, its waiting parent, and an interval-waiting Oversight:
-none is classified as executing solely because a conversation exists. See N1.
+none is classified as executing solely because a conversation exists. An admitted
+invocation remains outstanding during provider overload/backoff; executing does not
+prove bytes are currently in flight. See N1.
 
 **F4 — Must — Progress evidence.** Provide an immediately discoverable route from current
 work to its latest available activity or result evidence. Check a running scenario, one
@@ -163,12 +165,15 @@ selected-session conversation-compaction progress (completed summary calls, in-f
 visible compaction progress is system activity evidence, not agent liveness; its absence
 must not be presented as agent idleness. Where refresh failure retains progress, it may
 be shown as last-known. Report the observation, not an invented heartbeat, percentage
-complete, ETA, or definitive “stuck” classification.
+complete, ETA, or definitive “stuck” classification. An in-flight summary call may
+retry overload without adding any completed fold. Attempt evidence may remain
+unpublished until settlement; its absence proves neither idleness nor success.
 
 **F5 — Must — Problems relevant now.** Expose known runtime degradation, retained halt
 error, and current-card blocking/failure evidence from ordinary orientation without
 requiring transcript search. Check each supplied problem fixture and a missing-data
 fixture; absence of loaded errors must not be presented as “no project problems.”
+Provider cooling is advisory availability, not a failed card or successful progress.
 
 ### B. Understand the work, not just individual cards
 
@@ -422,7 +427,9 @@ exception stacks or a fictitious durable runtime-status history.
 **F32 — Should — Routing availability.** Inspect configured candidates and current
 process-local routing availability, distinguishing recorded cooling/blocking state from
 present eligibility. Check restart and deadline expiry: no durable health history or
-base URL is inferred; missing token/cost/usage metrics remain unknown.
+base URL is inferred; missing token/cost/usage metrics remain unknown. Overload
+cooling uses existing resource refresh, not a new poller or countdown, and its
+advisory horizon is not an exact invocation send promise.
 
 **F33 — Should — Process and integration diagnosis.** Inspect currently listed processes
 with supplied owner/card identity, status, output references, and MCP connection/status

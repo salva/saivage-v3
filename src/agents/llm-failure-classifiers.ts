@@ -1,6 +1,9 @@
 import type { LlmTransportFailure } from '../contracts/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { ProviderInactivityTimeoutError } from './llm-request-inactivity.js';
+import {
+  ProviderInactivityTimeoutError,
+  ProviderRequestDeadlineError,
+} from './llm-request-inactivity.js';
 
 interface ClassifierContext {
   provider: string;
@@ -65,9 +68,8 @@ const TRANSIENT_TOKENS = new Set([
   'internal_server_error',
   'service_unavailable',
   'temporarily_unavailable',
-  'overloaded',
-  'server_is_overloaded',
 ]);
+const OVERLOAD_TOKENS = new Set(['overloaded', 'server_is_overloaded']);
 const AUTH_TOKENS = new Set([
   'auth',
   'authentication_error',
@@ -129,6 +131,12 @@ export function classifyDirectProviderFailure(args: {
   const responseStatus = source.responseStatus;
   const embeddedStatus =
     source.kind === 'opened_response_terminal' ? source.embeddedStatus : undefined;
+  const overloaded = error !== undefined && directToken(error, OVERLOAD_TOKENS);
+  if (
+    overloaded &&
+    (responseStatus === 403 || embeddedStatus === 403 || directToken(error!, AUTH_TOKENS))
+  )
+    return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
   if (responseStatus === 401 || embeddedStatus === 401)
     return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
   const rateLimit = (): LlmTransportFailure => ({
@@ -147,9 +155,10 @@ export function classifyDirectProviderFailure(args: {
     return rateLimit();
   }
   if (
-    (embeddedStatus !== undefined && embeddedStatus >= 500) ||
-    responseStatus >= 500 ||
-    (error !== undefined && directToken(error, TRANSIENT_TOKENS))
+    !overloaded &&
+    ((embeddedStatus !== undefined && embeddedStatus >= 500) ||
+      responseStatus >= 500 ||
+      (error !== undefined && directToken(error, TRANSIENT_TOKENS)))
   )
     return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
   const contextEligible = source.kind === 'opened_response_terminal' || responseStatus === 400;
@@ -201,6 +210,8 @@ export function classifyDirectProviderFailure(args: {
       bodyPreview: args.providerResponse.slice(0, 500),
       reason: 'prompt_policy_rejection',
     };
+  if (overloaded)
+    return { kind: 'server_overloaded', provider, status: responseStatus, message: args.message };
   if (args.retryAfterMs !== undefined || args.resetsAt !== undefined) return rateLimit();
   return undefined;
 }
@@ -315,7 +326,7 @@ export function classifyTransportFailure(
   err: unknown,
   ctx: ClassifierContext,
 ): LlmTransportFailure {
-  if (err instanceof ProviderInactivityTimeoutError)
+  if (err instanceof ProviderInactivityTimeoutError || err instanceof ProviderRequestDeadlineError)
     return { kind: 'timeout', provider: ctx.provider, message: err.message };
   return (
     defaultTransportClassifier(err, ctx) ?? {

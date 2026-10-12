@@ -148,6 +148,31 @@ function refusal() {
 }
 
 describe('failed diagnostics through real invocation owners', () => {
+  it('writes strict diagnostic 3 overload with unchanged privacy and original-attempt offset', async () => {
+    jest.useFakeTimers();
+    const f = fixture('openai-chat-completions');
+    const fetch = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 }))
+      .mockResolvedValueOnce(chatSuccess('recovered'));
+    const admission = f.service.preflightPinnedContentPolicyRequest({
+      inputId, agentName: 'planner', sessionId: session, systemPrompt: 'system',
+      providerConversation: { sourceSessionId: session, messages: [] }, tools: [], terminalToolNames: [],
+      modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: {},
+      routePass: { kind: 'pinned-content-policy-retry', candidate: f.candidate },
+    });
+    if (admission.kind !== 'admitted') throw new Error('must admit');
+    const pending = f.service.executePinnedContentPolicyRequest(admission, { attemptIndex: 4 });
+    await jest.advanceTimersByTimeAsync(30_000);
+    await expect(pending).resolves.toMatchObject({ result: { content: 'recovered' } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(f.dumps()).toHaveLength(1);
+    expect(f.dumps()[0]).toMatchObject({ format_version: 3, privacy_policy: 'failed-provider-request-privacy-2',
+      failure_kind: 'server_overloaded', input_id: inputId, source_session_id: session,
+      invocation_session_id: session, attempt_index: 4, http_status: 503,
+      raw_request_sha256: hash(String(fetch.mock.calls[0]![1]!.body)) });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('projects actual parsed, published and replayed native Responses without altering durable or wire replay', async () => {
     const f = fixture('openai-responses');
     const args =
@@ -291,7 +316,7 @@ describe('failed diagnostics through real invocation owners', () => {
     expect(f.dumps()).toHaveLength(1);
     const [dump] = f.dumps();
     expect(dump).toMatchObject({
-      format_version: 2,
+      format_version: 3,
       privacy_policy: 'failed-provider-request-privacy-2',
       source_session_id: session,
       invocation_session_id: session,
@@ -434,7 +459,7 @@ describe('failed diagnostics through real invocation owners', () => {
       const [dump] = f.dumps();
       expect(f.dumps()).toHaveLength(1);
       expect(dump).toMatchObject({
-        format_version: 2,
+        format_version: 3,
         privacy_policy: 'failed-provider-request-privacy-2',
         body_disposition: 'redacted',
         reencoded: true,
@@ -854,7 +879,7 @@ describe('failed diagnostics through real invocation owners', () => {
     expect(f.dumps()).toHaveLength(1);
     const submitted = String(fetch.mock.calls[0]![1]!.body);
     expect(f.dumps()[0]).toMatchObject({
-      format_version: 2,
+      format_version: 3,
       privacy_policy: 'failed-provider-request-privacy-2',
       body_disposition: 'exact',
       reencoded: false,

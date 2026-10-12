@@ -4,11 +4,13 @@ import type { AvailabilityDecision } from './candidate-availability.js';
 interface InvocationFailureContext {
   candidate: Candidate;
   recoveryDelayMs: number;
+  overloadDelayMs?: number;
 }
 
 type InvocationFailureDecision =
   | { kind: 'terminal'; availability?: AvailabilityDecision }
   | { kind: 'retry'; wait: 'rate-limit'; availability: AvailabilityDecision }
+  | { kind: 'retry'; wait: 'overload'; retryDelayMs: number; availability: AvailabilityDecision }
   | { kind: 'retry'; wait: 'standard'; retryDelayMs: number; availability?: AvailabilityDecision };
 
 function assertNever(x: never): never {
@@ -32,6 +34,19 @@ class InvocationRecoveryPolicy {
     const failure = this.classify(error);
 
     switch (failure.kind) {
+      case 'server_overloaded': {
+        const retryDelayMs = context.overloadDelayMs ?? 30_000;
+        return {
+          kind: 'retry',
+          wait: 'overload',
+          retryDelayMs,
+          availability: {
+            state: 'COOLING',
+            untilMs: Date.now() + retryDelayMs,
+            reason: 'server_overloaded',
+          },
+        };
+      }
       case 'auth_permanent':
         return {
           kind: 'terminal',

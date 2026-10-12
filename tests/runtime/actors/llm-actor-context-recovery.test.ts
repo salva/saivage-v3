@@ -577,7 +577,7 @@ function actorFixture(inputOverride: PreparedLlmInvocationInput = invocation(), 
   };
   const suspension: SuspendedAdmittedExecution = Object.freeze({
     authority: ordinaryAdmittedExecutionAuthority([CANDIDATE]),
-    records: Object.freeze([Object.freeze({ identity: CANDIDATE, routeIndex: 0, state: Object.freeze({ kind: 'context_failed', attempts: 1, failure: firstFailure }) })]),
+    records: Object.freeze([Object.freeze({ identity: CANDIDATE, routeIndex: 0, state: Object.freeze({ kind: 'context_failed', attempts: 1, finiteFailures: 1, overloadDelayMs: 30_000, failure: firstFailure }) })]),
     contextFailedIdentity: CANDIDATE,
     settledProviderAttempts: Object.freeze([attempt(input.inputId, 'error', 0)]),
     deadlineMs: Number.MAX_SAFE_INTEGER,

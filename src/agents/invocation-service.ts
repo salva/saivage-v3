@@ -65,6 +65,7 @@ const MAX_INVOCATION_RECOVERY_RETRIES = 3;
 const LLM_UNAVAILABILITY_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const WAITABLE_UNAVAILABILITY_REASONS = new Set([
   'server_transient',
+  'server_overloaded',
   'timeout',
   'rate_limit',
   'unknown',
@@ -115,18 +116,29 @@ type MutableAdmittedRecord = {
 
 type AdmittedExecutionRun = {
   purpose: 'primary' | 'internal-summary';
-  authority: OrdinaryAdmittedExecutionAuthority;
   records: MutableAdmittedRecord[];
   plans: Map<number, CandidateRequestPlan>;
   execution: OrdinaryAdmittedExecutionInputs;
-  bindings: AdmittedExecutionBindings;
   settled: ProviderExchangeAttempt[];
   deadlineMs: number;
   lastFailure: unknown;
   mandatoryFirst: Candidate | null;
   recoveryMode: boolean;
   signal?: AbortSignal;
-};
+  diagnosticOffset: number;
+} & (
+  | {
+      mode: 'ordinary';
+      authority: OrdinaryAdmittedExecutionAuthority;
+      bindings: AdmittedExecutionBindings;
+    }
+  | {
+      mode: 'pinned';
+      bindings: Pick<AdmittedExecutionBindings, 'inputId' | 'sessionId' | 'sourceSessionId'> & {
+        agentName?: never;
+      };
+    }
+);
 
 export class InvocationService {
   private readonly diagnostics: FailedProviderRequestDiagnostics | undefined;
@@ -331,7 +343,7 @@ export class InvocationService {
       records.push({
         identity: verdict.candidate,
         routeIndex,
-        state: { kind: 'untried', attempts: 0 },
+        state: { kind: 'untried', attempts: 0, finiteFailures: 0, overloadDelayMs: 30_000 },
       });
       plans.set(routeIndex, verdict.plan);
     }
@@ -340,6 +352,8 @@ export class InvocationService {
         'Ordinary admitted records do not match the frozen execution authority membership.',
       );
     return this.runAdmittedExecution({
+      mode: 'ordinary',
+      diagnosticOffset: 0,
       purpose,
       authority: admission.executionAuthority,
       records,
@@ -447,6 +461,8 @@ export class InvocationService {
     }));
     const plans = new Map(preparation.plans.map((entry) => [entry.routeIndex, entry.plan]));
     return this.runAdmittedExecution({
+      mode: 'ordinary',
+      diagnosticOffset: 0,
       purpose: 'primary',
       authority: preparation.authority,
       records,
@@ -467,48 +483,31 @@ export class InvocationService {
     diagnosticContext: { attemptIndex: number },
     signal?: AbortSignal,
   ): Promise<ProviderTurnCompletion> {
-    const candidate = preflight.candidate;
-    try {
-      throwIfAborted(signal);
-      const completion = await this.executeAdmittedPlan(
-        preflight.plan,
-        { ...preflight.options, signal },
-        preflight.capabilityRequest,
+    return this.runAdmittedExecution({
+      mode: 'pinned',
+      purpose: 'primary',
+      diagnosticOffset: diagnosticContext.attemptIndex,
+      records: [
         {
-          sourceSessionId: preflight.sourceSessionId,
-          invocationSessionId: preflight.invocationSessionId,
-          inputId: preflight.inputId,
-          purpose: 'primary',
-          attemptIndex: diagnosticContext.attemptIndex,
+          identity: preflight.candidate,
+          routeIndex: 0,
+          state: { kind: 'untried', attempts: 0, finiteFailures: 0, overloadDelayMs: 30_000 },
         },
-      );
-      const attempts = indexProviderExchangeAttempts(
-        preflight.inputId,
-        0,
-        completion.provider_exchanges,
-      );
-      return { ...completion, provider_exchanges: attempts };
-    } catch (error) {
-      throwIfPublicationOutcomeUnknown(error);
-      if (error instanceof ProviderTurnFailure) {
-        const attempts =
-          error.failure_phase === 'provider_attempt'
-            ? indexProviderExchangeAttempts(preflight.inputId, 0, error.provider_exchanges)
-            : [];
-        throw new ProviderTurnFailure({
-          failure_phase: attempts.length > 0 ? 'provider_attempt' : 'pre_provider',
-          provider_exchanges: attempts,
-          originalFailure: error.originalFailure,
-          candidate,
-        });
-      }
-      throw new ProviderTurnFailure({
-        failure_phase: 'pre_provider',
-        provider_exchanges: [],
-        originalFailure: error,
-        candidate,
-      });
-    }
+      ],
+      plans: new Map([[0, preflight.plan]]),
+      execution: { options: preflight.options, capabilityRequest: preflight.capabilityRequest },
+      bindings: {
+        inputId: preflight.inputId,
+        sessionId: preflight.invocationSessionId,
+        sourceSessionId: preflight.sourceSessionId,
+      },
+      settled: [],
+      deadlineMs: Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS,
+      lastFailure: null,
+      mandatoryFirst: null,
+      recoveryMode: false,
+      signal,
+    });
   }
 
   projectProviderExchanges(
@@ -591,7 +590,7 @@ export class InvocationService {
     const { signal } = run;
     for (;;) {
       throwIfAborted(signal);
-      this.refreshRecordStates(run.records);
+      this.refreshRecordStates(run.records, run.deadlineMs, run.mode);
       let record: MutableAdmittedRecord;
       if (run.mandatoryFirst) {
         const mandatory = run.records.find((entry) =>
@@ -604,7 +603,7 @@ export class InvocationService {
         run.mandatoryFirst = null;
         record = mandatory;
       } else {
-        const next = this.nextCandidateState(run.records, run.deadlineMs);
+        const next = this.nextCandidateState(run.records, run.deadlineMs, run.mode);
         if (next.kind === 'timeout') {
           const message = `No LLM candidate became available for agent '${run.bindings.agentName}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
           throw new ProviderTurnFailure({
@@ -631,7 +630,11 @@ export class InvocationService {
           });
         }
         record = next.record;
-        if (!this.candidateAvailability.isAvailable(record.identity)) {
+        if (
+          run.mode === 'ordinary' &&
+          !isLocalOverload(record.state) &&
+          !this.candidateAvailability.isAvailable(record.identity)
+        ) {
           const entry = this.candidateAvailability.getEntry(record.identity);
           const attempts = attemptsOf(record.state);
           if (
@@ -642,6 +645,8 @@ export class InvocationService {
           ) {
             record.state = {
               kind: 'temporarily_unavailable',
+              finiteFailures: record.state.finiteFailures,
+              overloadDelayMs: record.state.overloadDelayMs,
               attempts,
               untilMs: entry.untilMs,
               reason: entry.reason,
@@ -649,6 +654,8 @@ export class InvocationService {
           } else {
             record.state = {
               kind: 'exhausted',
+              finiteFailures: record.state.finiteFailures,
+              overloadDelayMs: record.state.overloadDelayMs,
               attempts,
               lastFailure: lastFailureOf(record.state),
             };
@@ -671,7 +678,7 @@ export class InvocationService {
             invocationSessionId: run.bindings.sessionId,
             inputId: run.bindings.inputId,
             purpose: run.purpose,
-            attemptIndex: run.settled.length,
+            attemptIndex: run.diagnosticOffset + run.settled.length,
           },
         );
         run.settled.push(
@@ -710,6 +717,7 @@ export class InvocationService {
     const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
       candidate: record.identity,
       recoveryDelayMs: this.recoveryDelayMs,
+      overloadDelayMs: record.state.overloadDelayMs,
     });
     if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
       if (err.provider_exchanges.length === 0)
@@ -724,17 +732,26 @@ export class InvocationService {
         ),
       );
     }
-    if (decision.availability) {
+    if (
+      decision.availability &&
+      (run.mode === 'ordinary' || (decision.kind === 'retry' && decision.wait === 'overload'))
+    ) {
       throwIfAborted(signal);
       this.candidateAvailability.markFailed(record.identity, decision.availability);
     }
+    const overloaded = decision.kind === 'retry' && decision.wait === 'overload';
+    const finiteFailures = record.state.finiteFailures + (overloaded ? 0 : 1);
+    const overloadDelayMs = overloaded
+      ? Math.min(600_000, record.state.overloadDelayMs * 2)
+      : 30_000;
+    const accounting = { attempts, finiteFailures, overloadDelayMs };
     const contextExhausted =
       err instanceof ProviderTurnFailure &&
       err.failure_phase === 'provider_attempt' &&
       originalFailure instanceof LlmRequestError &&
       originalFailure.failure.kind === 'input_context_exhausted';
-    if (contextExhausted && !run.recoveryMode) {
-      record.state = Object.freeze({ kind: 'context_failed', attempts, failure: err });
+    if (contextExhausted && !run.recoveryMode && run.mode === 'ordinary') {
+      record.state = Object.freeze({ kind: 'context_failed', ...accounting, failure: err });
       const turnFailure = new ProviderTurnFailure({
         failure_phase: 'provider_attempt',
         provider_exchanges: run.settled,
@@ -761,7 +778,7 @@ export class InvocationService {
         }),
       );
     }
-    if (decision.kind === 'terminal') {
+    if (decision.kind === 'terminal' || (run.mode === 'pinned' && !overloaded)) {
       if (contextExhausted && run.recoveryMode) {
         const failure = originalFailure as LlmRequestError;
         return new ProviderTurnFailure({
@@ -782,24 +799,24 @@ export class InvocationService {
       });
     }
     run.lastFailure = originalFailure;
-    const hasBudget = attempts < 1 + this.maxRecoveryRetries;
+    const hasBudget = overloaded || finiteFailures < 1 + this.maxRecoveryRetries;
     if (!hasBudget) {
-      record.state = { kind: 'exhausted', attempts, lastFailure: originalFailure };
+      record.state = { kind: 'exhausted', ...accounting, lastFailure: originalFailure };
       return null;
     }
     if (decision.wait === 'rate-limit') {
       record.state = {
         kind: 'retry_waiting',
         wait: 'rate_limit',
-        attempts,
+        ...accounting,
         untilMs: decision.availability.untilMs,
         lastFailure: originalFailure,
       };
     } else {
       record.state = {
         kind: 'retry_waiting',
-        wait: 'standard',
-        attempts,
+        wait: decision.wait === 'overload' ? 'overload' : 'standard',
+        ...accounting,
         untilMs: Date.now() + decision.retryDelayMs,
         lastFailure: originalFailure,
       };
@@ -810,12 +827,54 @@ export class InvocationService {
   private nextCandidateState(
     records: MutableAdmittedRecord[],
     deadlineMs: number,
+    mode: 'ordinary' | 'pinned',
   ):
     | { kind: 'attempt'; record: MutableAdmittedRecord }
     | { kind: 'wait'; waitMs: number }
     | { kind: 'timeout' }
     | { kind: 'none' } {
     const now = Date.now();
+    if (mode === 'pinned') {
+      const record = records[0]!;
+      if (record.state.kind === 'retry_waiting')
+        return { kind: 'wait', waitMs: Math.max(0, record.state.untilMs - now) };
+      return { kind: 'attempt', record };
+    }
+    const overloads = records.filter((record) => isLocalOverload(record.state));
+    if (overloads.length > 0) {
+      const finiteReady = records.find(
+        (record) =>
+          !isLocalOverload(record.state) &&
+          (record.state.kind === 'untried' || record.state.kind === 'retry_ready') &&
+          this.candidateAvailability.isAvailable(record.identity),
+      );
+      if (finiteReady) return { kind: 'attempt', record: finiteReady };
+      const overloadReady = overloads
+        .filter((record) => record.state.kind === 'retry_ready')
+        .sort(
+          (a, b) => retryDueTime(a.state) - retryDueTime(b.state) || a.routeIndex - b.routeIndex,
+        );
+      if (overloadReady[0]) return { kind: 'attempt', record: overloadReady[0] };
+      const dueTimes: number[] = overloads.map((record) => retryDueTime(record.state));
+      for (const record of records) {
+        if (isLocalOverload(record.state) || record.state.kind === 'exhausted') continue;
+        if (
+          record.state.kind === 'retry_waiting' ||
+          record.state.kind === 'temporarily_unavailable'
+        ) {
+          dueTimes.push(Math.min(record.state.untilMs, deadlineMs));
+        } else if (record.state.kind === 'untried' || record.state.kind === 'retry_ready') {
+          const entry = this.candidateAvailability.getEntry(record.identity);
+          if (
+            entry?.reason &&
+            WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason) &&
+            now < deadlineMs
+          )
+            dueTimes.push(Math.min(entry.untilMs, deadlineMs));
+        }
+      }
+      return { kind: 'wait', waitMs: Math.max(0, Math.min(...dueTimes) - now) };
+    }
     const untried = records.find(
       (record) =>
         record.state.kind === 'untried' && this.candidateAvailability.isAvailable(record.identity),
@@ -852,15 +911,52 @@ export class InvocationService {
       if (entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason))
         return waitUntil(entry.untilMs, now, deadlineMs);
     }
-    return { kind: 'none' };
+    return now >= deadlineMs ? { kind: 'timeout' } : { kind: 'none' };
   }
 
-  private refreshRecordStates(records: MutableAdmittedRecord[]): void {
+  private refreshRecordStates(
+    records: MutableAdmittedRecord[],
+    deadlineMs: number,
+    mode: 'ordinary' | 'pinned',
+  ): void {
     const now = Date.now();
     for (const record of records) {
+      if (mode === 'ordinary' && record.state.kind === 'untried') {
+        const entry = this.candidateAvailability.getEntry(record.identity);
+        if (
+          entry &&
+          entry.state !== 'HEALTHY' &&
+          now < entry.untilMs &&
+          entry.reason &&
+          WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)
+        )
+          record.state = {
+            ...record.state,
+            kind: 'temporarily_unavailable',
+            untilMs: entry.untilMs,
+            reason: entry.reason,
+          };
+      }
       const state = record.state;
+      if (
+        now >= deadlineMs &&
+        !isLocalOverload(state) &&
+        (state.kind === 'retry_waiting' ||
+          state.kind === 'retry_ready' ||
+          state.kind === 'temporarily_unavailable')
+      ) {
+        record.state = {
+          kind: 'exhausted',
+          attempts: state.attempts,
+          finiteFailures: state.finiteFailures,
+          overloadDelayMs: state.overloadDelayMs,
+          lastFailure: lastFailureOf(state),
+        };
+        continue;
+      }
       if (state.kind === 'retry_waiting' && state.untilMs <= now)
         record.state = {
+          ...state,
           kind: 'retry_ready',
           wait: state.wait,
           attempts: state.attempts,
@@ -871,6 +967,9 @@ export class InvocationService {
         if (!entry || entry.state === 'HEALTHY' || now >= entry.untilMs)
           record.state = {
             kind: 'retry_ready',
+            finiteFailures: state.finiteFailures,
+            overloadDelayMs: state.overloadDelayMs,
+            untilMs: state.untilMs,
             wait: 'standard',
             attempts: state.attempts,
             lastFailure: undefined,
@@ -878,6 +977,8 @@ export class InvocationService {
         else
           record.state = {
             kind: 'temporarily_unavailable',
+            finiteFailures: state.finiteFailures,
+            overloadDelayMs: state.overloadDelayMs,
             attempts: state.attempts,
             untilMs: entry.untilMs,
             reason: entry.reason,
@@ -885,6 +986,18 @@ export class InvocationService {
       }
     }
   }
+}
+
+function isLocalOverload(state: AdmittedCandidateAttemptState): boolean {
+  return (
+    (state.kind === 'retry_waiting' || state.kind === 'retry_ready') && state.wait === 'overload'
+  );
+}
+
+function retryDueTime(state: AdmittedCandidateAttemptState): number {
+  if (state.kind !== 'retry_waiting' && state.kind !== 'retry_ready')
+    throw new Error('Retry due time requires a retry record.');
+  return state.untilMs;
 }
 
 function attemptsOf(state: AdmittedCandidateAttemptState): number {

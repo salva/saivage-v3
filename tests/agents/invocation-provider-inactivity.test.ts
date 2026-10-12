@@ -33,6 +33,34 @@ function request(chain: Candidate[]): InvocationRequest {
 }
 
 describe('Invocation Service provider inactivity recovery', () => {
+  it('classifies continuous valid nonterminal SSE exceeding 15 minutes as finite timeout and uses admitted alternative', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const { service, availability } = fixture();
+    let stream!: ReturnType<typeof controlledResponse>;
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url).includes('codex.test')) { stream = controlledResponse(init!.signal!); return stream.response; }
+      return new Response('{"choices":[{"message":{"content":"healthy"},"finish_reason":"stop"}]}');
+    });
+    const admission = service.preparePrimaryRequestAdmission(request([stalled, healthy]));
+    if (admission.kind !== 'admitted') throw new Error('fixture must admit');
+    const pending = service.executeAdmittedWithRecovery(admission);
+    await jest.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 14; i++) {
+      await jest.advanceTimersByTimeAsync(60_000);
+      stream.send('data: {"type":"nonterminal"}\n\n');
+      await jest.advanceTimersByTimeAsync(0);
+    }
+    await jest.advanceTimersByTimeAsync(60_000);
+    const completion = await pending;
+    expect(completion.result).toEqual({ kind: 'message', content: 'healthy' });
+    expect(completion.provider_exchanges[0]).toMatchObject({ status: 'error',
+      error: { name: 'ProviderRequestDeadlineError', message: 'Provider request exceeded absolute deadline of 900000 ms.' } });
+    expect(availability.getEntry(stalled)).toMatchObject({ state: 'COOLING', reason: 'timeout', untilMs: 960_000 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(stream.response.body!.locked).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('records comments-only Codex timeout and immediately uses a healthy admitted alternative with standard cooling', async () => {
     jest.useFakeTimers({ now: 1000 });
     const owner = new AbortController();
@@ -40,7 +68,7 @@ describe('Invocation Service provider inactivity recovery', () => {
     let stream!: ReturnType<typeof controlledResponse>;
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       if (String(url).includes('codex.test')) { stream = controlledResponse(init!.signal!); return stream.response; }
-      expect(jest.getTimerCount()).toBe(1);
+      expect(jest.getTimerCount()).toBe(2);
       return new Response('{"choices":[{"message":{"content":"healthy"},"finish_reason":"stop"}]}');
     });
     const admission = service.preparePrimaryRequestAdmission(request([stalled, healthy]));

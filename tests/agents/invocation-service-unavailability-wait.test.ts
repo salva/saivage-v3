@@ -7,7 +7,7 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import type { CandidateRequestPlan } from '../../src/contracts/index.js';
-import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
+import { AdmittedProviderTurnFailure, ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
@@ -62,6 +62,191 @@ afterEach(() => {
 });
 
 describe('InvocationService temporary LLM unavailability wait', () => {
+  it('runs real Codex HTTP-200 overload terminals beyond four attempts and two hours on frozen bytes', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const codex = { provider: 'openai-codex', account: null, model: 'gpt-5' };
+    const availability = new MemoryCandidateAvailability();
+    const bodies: string[] = [];
+    const sentAt: number[] = [];
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      bodies.push(init!.body as string); sentAt.push(Date.now());
+      const event = bodies.length <= 20
+        ? { type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } }
+        : { type: 'response.completed', response: { id: 'recovered-response' } };
+      const message = bodies.length <= 20 ? '' : `data: ${JSON.stringify({ type: 'response.output_item.done', item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'recovered' }] } })}\n\n`;
+      return new Response(`${message}data: ${JSON.stringify(event)}\n\n`, { status: 200 });
+    });
+    const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability,
+      registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test-account') }) });
+    let settled = false;
+    const pending = invoke(svc, request([codex])).then(result => { settled = true; return result; });
+    await jest.advanceTimersByTimeAsync(0);
+    const delays = [30_000, 60_000, 120_000, 240_000, 480_000, ...Array<number>(15).fill(600_000)];
+    for (const [index, delay] of delays.entries()) {
+      expect(settled).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(index + 1);
+      expect(availability.getEntry(codex)).toMatchObject({ reason: 'server_overloaded', untilMs: Date.now() + delay });
+      await jest.advanceTimersByTimeAsync(delay - 1);
+      expect(fetch).toHaveBeenCalledTimes(index + 1);
+      await jest.advanceTimersByTimeAsync(1);
+    }
+    const completion = await pending;
+    expect(Date.now()).toBeGreaterThan(7_200_000);
+    expect(completion.result).toMatchObject({ kind: 'message', content: 'recovered' });
+    expect(completion.provider_exchanges).toHaveLength(21);
+    completion.provider_exchanges.forEach((attempt, index) => expect(attempt).toMatchObject({ source_input_id: request().inputId, attempt_index: index, response_status: 200 }));
+    expect(new Set(bodies).size).toBe(1);
+    expect(sentAt.slice(1).map((time, index) => time - sentAt[index]!)).toEqual(delays);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each(['success', 'rate_limit', 'transient', 'auth'] as const)('tries admitted B promptly after A overload; B %s respects local overload authority', async outcome => {
+    jest.useFakeTimers({ now: 0 });
+    const sent: string[] = [];
+    let aCalls = 0;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      const provider = new URL(String(url)).hostname.split('.')[0]!; sent.push(provider);
+      if (provider === 'p') {
+        aCalls++;
+        if (aCalls <= 6) return new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 });
+        return chatSuccess('A recovered');
+      }
+      if (outcome === 'success') return chatSuccess('B recovered');
+      if (outcome === 'auth') return new Response('{}', { status: 401 });
+      if (outcome === 'rate_limit') return new Response('{}', { status: 429, headers: { 'retry-after': '20000' } });
+      return serverUnavailable();
+    });
+    const pending = invoke(service({ chain: [candidate, alternate] }), request([candidate, alternate]));
+    const observed = pending.catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(sent.slice(0, 2)).toEqual(['p', 'alt']);
+    if (outcome === 'auth') expect(await observed).toMatchObject({ originalFailure: { failure: { kind: 'auth_permanent' } } });
+    else {
+      if (outcome !== 'success') await jest.advanceTimersByTimeAsync(1_530_000);
+      expect(await observed).toMatchObject({ result: { kind: 'message', content: outcome === 'success' ? 'B recovered' : 'A recovered' } });
+      if (outcome === 'transient') expect(sent.filter(p => p === 'alt')).toHaveLength(4);
+    }
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('uses oldest-due overload order and does not let a newly cooled earlier route jump a ready later route', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const sent: string[] = [];
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      const provider = new URL(String(url)).hostname.split('.')[0]!; sent.push(provider);
+      return sent.length <= 5 ? new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }) : chatSuccess('done');
+    });
+    const pending = invoke(service({ chain: [candidate, alternate] }), request([candidate, alternate]));
+    await jest.advanceTimersByTimeAsync(90_000);
+    await pending;
+    expect(sent).toEqual(['p', 'alt', 'p', 'alt', 'p', 'alt']);
+  });
+
+  it('loses overload authority on later finite failures and counts only four finite failures', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => fetch.mock.calls.length <= 6
+      ? new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }) : serverUnavailable());
+    const caught = invoke(service(), request()).catch(error => error);
+    await jest.advanceTimersByTimeAsync(1_710_000);
+    expect(await caught).toMatchObject({ originalFailure: { failure: { kind: 'server_transient' } }, provider_exchanges: expect.any(Array) });
+    expect(fetch).toHaveBeenCalledTimes(10);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each(['server_transient', 'rate_limit', 'auth_permanent', 'content_policy', 'timeout'] as const)('does not grant a later %s unlimited recovery after the finite wait horizon', async kind => {
+    jest.useFakeTimers({ now: 0 });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      if (fetch.mock.calls.length <= 20) return new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 });
+      if (kind === 'timeout') throw new Error('ETIMEDOUT');
+      return new Response(JSON.stringify({ error: { code: kind === 'content_policy' ? 'content_filter' : 'other' } }),
+        { status: kind === 'rate_limit' ? 429 : kind === 'auth_permanent' ? 401 : kind === 'content_policy' ? 400 : 503 });
+    });
+    const caught = invoke(service(), request()).catch(error => error);
+    await jest.advanceTimersByTimeAsync(9_930_000);
+    expect(await caught).toMatchObject({ originalFailure: { failure: { kind } } });
+    expect(fetch).toHaveBeenCalledTimes(21);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not inherit unlimited overload authority from shared availability on a fresh invocation', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    availability.markFailed(candidate, { state: 'COOLING', untilMs: 10_800_000, reason: 'server_overloaded' });
+    const fetch = jest.spyOn(globalThis, 'fetch');
+    const caught = invoke(service({ availability }), request()).catch(error => error);
+    await jest.advanceTimersByTimeAsync(7_200_000);
+    expect(await caught).toBeInstanceOf(ProviderTurnFailure);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('retains finite accounting and overload due/backoff through another candidate context suspension', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    const sent: Array<[string, number]> = [];
+    let aCalls = 0; let bCalls = 0;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      const provider = new URL(String(url)).hostname.split('.')[0]!; sent.push([provider, Date.now()]);
+      if (provider === 'p') {
+        aCalls++;
+        return aCalls <= 2 ? new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }) : chatSuccess('A recovered');
+      }
+      bCalls++;
+      return bCalls === 1 ? new Response(JSON.stringify({ error: { code: 'context_length_exceeded' } }), { status: 400 })
+        : new Response('{}', { status: 429, headers: { 'retry-after': '20000' } });
+    });
+    const svc = service({ chain: [candidate, alternate], availability });
+    const caught = await invoke(svc, request([candidate, alternate])).catch(error => error);
+    expect(caught).toBeInstanceOf(AdmittedProviderTurnFailure);
+    const suspension = (caught as AdmittedProviderTurnFailure).suspension;
+    expect(suspension.records.map(record => record.state)).toMatchObject([
+      { kind: 'retry_waiting', wait: 'overload', attempts: 1, finiteFailures: 0, untilMs: 30_000, overloadDelayMs: 60_000 },
+      { kind: 'context_failed', attempts: 1, finiteFailures: 1, overloadDelayMs: 30_000 },
+    ]);
+    const preparation = svc.prepareAdmittedRecovery({ suspension, request: request([candidate, alternate]) });
+    const pending = svc.resumeAdmittedExecution(preparation);
+    await jest.advanceTimersByTimeAsync(90_000);
+    expect((await pending).result).toMatchObject({ kind: 'message', content: 'A recovered' });
+    expect(sent).toEqual([['p',0], ['alt',0], ['alt',0], ['p',30_000], ['p',90_000]]);
+  });
+
+  it.each([false, true])('expires a finite alternative at two hours without zero-delay spin or killing pending overload (shared initial wait=%s)', async sharedInitialWait => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    if (sharedInitialWait) availability.markFailed(alternate, { state: 'COOLING', reason: 'server_overloaded', untilMs: 7_300_000 });
+    const sent: Array<[string, number]> = [];
+    let aCalls = 0;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      const provider = new URL(String(url)).hostname.split('.')[0]!; sent.push([provider, Date.now()]);
+      if (provider === 'alt') return new Response('{}', { status: 429, headers: { 'retry-after': '20000' } });
+      aCalls++;
+      return aCalls <= 20 ? new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }) : chatSuccess('A recovered');
+    });
+    const pending = invoke(service({ chain: [candidate, alternate], availability }), request([candidate, alternate]));
+    await jest.advanceTimersByTimeAsync(9_930_000);
+    expect((await pending).result).toMatchObject({ kind: 'message', content: 'A recovered' });
+    expect(sent.filter(([provider]) => provider === 'alt')).toEqual(sharedInitialWait ? [] : [['alt',0]]);
+    expect(sent).toHaveLength(sharedInitialWait ? 21 : 22);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('cancels local overload delay with exact reason and no later send or availability mutation', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const controller = new AbortController();
+    const reason = new Error('stop overload');
+    const availability = new MemoryCandidateAvailability();
+    const failed = jest.spyOn(availability, 'markFailed');
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }));
+    const caught = invoke(service({ availability }), request([candidate], controller.signal)).catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    controller.abort(reason);
+    expect(await caught).toBe(reason);
+    await jest.advanceTimersByTimeAsync(600_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it.each([503, 403, 429])('applies truthful HTTP %s plus Retry-After to real availability and retry selection', async (status) => {
     jest.useFakeTimers({ now: 1000 });
     const availability = new MemoryCandidateAvailability();

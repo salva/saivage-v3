@@ -12,7 +12,7 @@ import { chatSuccess, contextExhausted, invocationProviderRegistry } from '../he
 const first: Candidate = { provider: 'first', account: null, model: 'm1' };
 const second: Candidate = { provider: 'second', account: null, model: 'm2' };
 const roots: string[] = [];
-afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function refusal(): Response {
   const body = JSON.stringify({ error: { code: 'content_filter', message: 'content policy refusal' } });
@@ -34,6 +34,38 @@ function request(routePass: InvocationRequest['routePass'], signal?: AbortSignal
 }
 
 describe('content-policy route passes', () => {
+  it.each(['success', 'refusal', 'rate', 'context', 'auth', 'timeout'] as const)('retries only pinned overload on exact retained bytes, then %s settles without route leakage', async outcome => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    availability.markFailed(first, { state: 'BLOCKED_UNTIL', untilMs: 99_000_000, reason: 'rate_limit' });
+    const reads = jest.spyOn(availability, 'isAvailable');
+    const bodies: string[] = [];
+    const hosts: string[] = [];
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      bodies.push(init!.body as string); hosts.push(new URL(String(url)).hostname);
+      if (bodies.length <= 8) return new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 });
+      if (outcome === 'success') return chatSuccess('pinned success');
+      if (outcome === 'refusal') return refusal();
+      if (outcome === 'context') return contextExhausted();
+      if (outcome === 'timeout') throw new Error('ETIMEDOUT');
+      return new Response('{}', { status: outcome === 'rate' ? 429 : 401 });
+    });
+    const svc = service(availability);
+    const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
+    if (preflight.kind !== 'admitted') throw new Error('Expected pinned admission.');
+    const pending = svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 3 }).catch(error => error);
+    await jest.advanceTimersByTimeAsync(2_730_000);
+    const settled = await pending;
+    if (outcome === 'success') expect(settled).toMatchObject({ result: { kind: 'message', content: 'pinned success' } });
+    else expect(settled).toMatchObject({ candidate: first, originalFailure: { failure: { kind: { refusal: 'content_policy', rate: 'rate_limit', context: 'input_context_exhausted', auth: 'auth_permanent', timeout: 'timeout' }[outcome] } } });
+    expect(settled.provider_exchanges.map((attempt: { attempt_index: number }) => attempt.attempt_index)).toEqual([0,1,2,3,4,5,6,7,8]);
+    expect(new Set(bodies).size).toBe(1);
+    expect(new Set(hosts)).toEqual(new Set(['first.example.test']));
+    expect(reads).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(9);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('returns a known pinned success despite racing abort without availability effects', async () => {
     const availability = new MemoryCandidateAvailability();
     const reads = jest.spyOn(availability, 'isAvailable');
@@ -137,14 +169,14 @@ describe('content-policy route passes', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('reports observed pre-transport cancellation as a final zero-call pinned failure', async () => {
+  it('forwards observed pre-transport cancellation without a pinned send', async () => {
     const controller = new AbortController();
     controller.abort(new Error('cancel before transport'));
     const fetch = jest.spyOn(globalThis, 'fetch');
     const svc = service();
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }, controller.signal));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
-    await expect(svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 }, controller.signal)).rejects.toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [], candidate: first });
+    await expect(svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 }, controller.signal)).rejects.toBe(controller.signal.reason);
     expect(fetch).not.toHaveBeenCalled();
   });
 

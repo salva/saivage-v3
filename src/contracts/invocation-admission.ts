@@ -192,29 +192,35 @@ export type PinnedAdmittedContentPolicyRequest = Extract<
   { kind: 'admitted' }
 >;
 
-export type AdmittedCandidateAttemptState =
-  | Readonly<{ kind: 'untried'; attempts: 0 }>
-  | Readonly<{
-      kind: 'temporarily_unavailable';
-      attempts: number;
-      untilMs: number;
-      reason: string | undefined;
-    }>
-  | Readonly<{
-      kind: 'retry_waiting';
-      wait: 'standard' | 'rate_limit';
-      attempts: number;
-      untilMs: number;
-      lastFailure: unknown;
-    }>
-  | Readonly<{
-      kind: 'retry_ready';
-      wait: 'standard' | 'rate_limit';
-      attempts: number;
-      lastFailure: unknown;
-    }>
-  | Readonly<{ kind: 'context_failed'; attempts: number; failure: ProviderTurnFailure }>
-  | Readonly<{ kind: 'exhausted'; attempts: number; lastFailure: unknown | null }>;
+export type AdmittedCandidateAttemptState = Readonly<{
+  finiteFailures: number;
+  overloadDelayMs: number;
+}> &
+  (
+    | Readonly<{ kind: 'untried'; attempts: 0 }>
+    | Readonly<{
+        kind: 'temporarily_unavailable';
+        attempts: number;
+        untilMs: number;
+        reason: string | undefined;
+      }>
+    | Readonly<{
+        kind: 'retry_waiting';
+        wait: 'standard' | 'rate_limit' | 'overload';
+        attempts: number;
+        untilMs: number;
+        lastFailure: unknown;
+      }>
+    | Readonly<{
+        kind: 'retry_ready';
+        wait: 'standard' | 'rate_limit' | 'overload';
+        attempts: number;
+        untilMs: number;
+        lastFailure: unknown;
+      }>
+    | Readonly<{ kind: 'context_failed'; attempts: number; failure: ProviderTurnFailure }>
+    | Readonly<{ kind: 'exhausted'; attempts: number; lastFailure: unknown | null }>
+  );
 
 type AdmittedCandidateAttemptStateKind = AdmittedCandidateAttemptState['kind'];
 
@@ -370,6 +376,9 @@ type RetainedAdmissionStateDiagnostics = Readonly<{
   admittedCandidateIdentitiesSha256: string;
   contextFailedIdentitySha256: string;
   stateCounts: Readonly<Record<AdmittedCandidateAttemptStateKind, number>>;
+  totalAttempts: number;
+  finiteFailures: number;
+  pendingOverloadCount: number;
 }>;
 
 export function retainedAdmissionStateDiagnostics(
@@ -386,6 +395,16 @@ export function retainedAdmissionStateDiagnostics(
     admittedCandidateIdentitiesSha256: suspension.authority.admittedCandidateIdentitiesSha256,
     contextFailedIdentitySha256: candidateIdentitySha256(suspension.contextFailedIdentity),
     stateCounts: Object.freeze(stateCounts),
+    totalAttempts: suspension.records.reduce((sum, record) => sum + record.state.attempts, 0),
+    finiteFailures: suspension.records.reduce(
+      (sum, record) => sum + record.state.finiteFailures,
+      0,
+    ),
+    pendingOverloadCount: suspension.records.filter(
+      ({ state }) =>
+        (state.kind === 'retry_waiting' || state.kind === 'retry_ready') &&
+        state.wait === 'overload',
+    ).length,
   });
 }
 
@@ -464,6 +483,21 @@ export function verifySuspendedAdmittedExecution(suspension: SuspendedAdmittedEx
         'Suspended admitted execution records are not in strictly increasing route order.',
       );
     lastRouteIndex = record.routeIndex;
+    const state = record.state;
+    if (
+      !Number.isInteger(state.attempts) ||
+      state.attempts < 0 ||
+      !Number.isInteger(state.finiteFailures) ||
+      state.finiteFailures < 0 ||
+      state.finiteFailures > state.attempts ||
+      ![30_000, 60_000, 120_000, 240_000, 480_000, 600_000].includes(state.overloadDelayMs) ||
+      ((state.kind === 'retry_waiting' || state.kind === 'retry_ready') &&
+        (!['standard', 'rate_limit', 'overload'].includes(state.wait) ||
+          !Number.isFinite(state.untilMs)))
+    )
+      throw new AdmittedRecoveryIntegrityError(
+        'Suspended admitted execution carries invalid retry accounting.',
+      );
   }
   const contextFailed = suspension.records.filter(
     (

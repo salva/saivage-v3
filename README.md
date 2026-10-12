@@ -191,11 +191,17 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 
 ## Current documentation
 
+Confirmed typed provider overload retries indefinitely with exponential delays
+from 30 seconds to a 10-minute cap, including admitted policy pins and summary calls.
+Other failures retain their finite/terminal policies. Stop cancels requests and waits;
+cooperative Pause may remain pending. Each active HTTP consumption is bounded to
+15 minutes. See [provider overload operations](docs/runbook/index.md#provider-overload).
+
 Failed-provider request diagnostics are disabled by default. Explicit
 `saivage start --failed-provider-diagnostics <UUID>` opts into finite, private local
 capture (16 failure slots/one hour, at most 8 MiB per file). Project/prompt text
 remains sensitive after projection: it is not a secret-free export, complete raw
-request, replay fixture or receipt. New captures use diagnostic v2/policy-2; retained
+request, replay fixture or receipt. New captures use diagnostic v3/policy-2; retained
 v1 files do not gain its privacy guarantees. See the [diagnostics runbook](docs/runbook/index.md#private-failed-provider-request-diagnostics)
 before enabling, inspecting or rolling back over retained captures.
 
@@ -268,11 +274,11 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
 - Conversation compaction is model-aware (`context_utilization_fraction` 0.80,
   `trigger_fraction` 0.90, `tail_fraction` 0.25) with one contextual
   sequential-refine accumulator inside a shared 16-logical-call bound. A narrowly
-  identified internal-summary policy flag gets one immediate identical retry;
-  persistent flagging blocks the owning card safely instead of continuing or
-  exposing provider prose. See the
+  identified first internal-summary refusal stops summary calls and permits only
+  eligible completed-summary reuse or local omission, never an identical policy retry.
+  Exhausted safe maintenance blocks the owning card without exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-  Conversation index/genesis/segment format **6** retains summary, protected
+  Conversation index/genesis/segment format **8** retains summary, protected
   instructions, required model facts, and continuation without compaction
   checksums or accumulated accounting. Adoption from earlier formats is a
   **incompatible cutover** across all four generated roots: separately consented

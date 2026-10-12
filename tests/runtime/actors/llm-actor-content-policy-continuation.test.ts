@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { InvocationService } from '../../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
 import { createInvocationServiceProvider } from '../../../src/application/invocation-service-provider.js';
-import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
+import { NO_FRESHNESS_EFFECTS, PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../../src/contracts/index.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import {
   ConversationLLMActor,
@@ -47,6 +47,7 @@ const CHAIN = [FIRST, SECOND];
 const roots: string[] = [];
 afterEach(() => {
   jest.restoreAllMocks();
+  jest.useRealTimers();
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
@@ -87,6 +88,7 @@ function fixture(
   responses: Array<() => Response | Promise<Response>>,
   terminalTool = false,
   contextWindowTokens = 100_000,
+  fatalPort: ApplicationFatalPort = testApplicationFatalPort,
 ) {
   const root = mkdtempSync(join(tmpdir(), 'llm-content-policy-continuation-'));
   roots.push(root);
@@ -167,13 +169,14 @@ function fixture(
     routePass: { kind: 'ordinary', candidateChain: CHAIN },
     episodeContext: { synthetic: 'episode' },
   };
+  const availability = new MemoryCandidateAvailability();
   const service = new InvocationService({
     projectRoot: root,
     registry: invocationProviderRegistry(CHAIN, {
       first: { contextWindowTokens },
       second: { contextWindowTokens },
     }),
-    candidateAvailability: new MemoryCandidateAvailability(),
+    candidateAvailability: availability,
     freshness: NO_FRESHNESS_EFFECTS,
   });
   const admission = jest.spyOn(service, 'preparePrimaryRequestAdmission');
@@ -187,7 +190,7 @@ function fixture(
     conversations: { projectRoot: root },
     compactor: testCompactor,
     summarizerProvider: unusedSummarizerProvider,
-    fatalPort: testApplicationFatalPort,
+    fatalPort,
   });
   const requests: WireRequest[] = [];
   const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
@@ -204,6 +207,7 @@ function fixture(
     input,
     actor,
     service,
+    availability,
     admission,
     pinned,
     projection,
@@ -256,6 +260,79 @@ function expectFreshOrdinary(f: ReturnType<typeof fixture>) {
 }
 
 describe('content-policy successful pin continuation ownership', () => {
+  it.each([false, true])('post-overload actor evidence publication retains exact error identity (unknown=%s) and never resends', async unknown => {
+    jest.useFakeTimers();
+    const failure = unknown ? new PublicationOutcomeUnknownError(new Error('synthetic uncertainty')) : new Error('ordinary evidence publication failure');
+    const fatal = jest.fn((error: PublicationOutcomeUnknownError): never => { throw error; });
+    const f = fixture([() => refusal(), () => new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }), () => chatSuccess('known output')], false, 100_000, { publicationOutcomeUnknown: fatal });
+    f.projection.mockImplementation(() => { throw failure; });
+    let settled = false;
+    const pending = f.actor.turn(f.input, undefined, f.handoff).then(result => { settled = true; return result; }, error => { settled = true; return error; });
+    await jest.advanceTimersByTimeAsync(30_000);
+    if (unknown) expect(settled).toBe(false);
+    else expect(await pending).toBe(failure);
+    expect(f.fetch).toHaveBeenCalledTimes(3);
+    expect(f.projection).toHaveBeenCalledTimes(1);
+    expect(f.handoff).not.toHaveBeenCalled();
+    expect(fatal).toHaveBeenCalledTimes(unknown ? 1 : 0);
+    if (unknown) expect(fatal).toHaveBeenCalledWith(failure);
+    await jest.advanceTimersByTimeAsync(7_200_000);
+    expect(f.fetch).toHaveBeenCalledTimes(3);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('retries a real admitted pin through overload then retries fresh ordinary tool continuation without replay', async () => {
+    jest.useFakeTimers();
+    const overload = () => new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 });
+    const f = fixture([() => refusal(), ...Array.from({ length: 7 }, () => overload), toolResponse,
+      ...Array.from({ length: 5 }, () => overload), () => chatSuccess('done')]);
+    f.availability.markFailed(SECOND, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 7_200_000, reason: 'rate_limit' });
+    const first = f.actor.turn(f.input, undefined, f.handoff);
+    await jest.advanceTimersByTimeAsync(2_130_000);
+    const outcome = await first;
+    if (outcome.type !== 'tool_call') throw new Error('Expected probe call.');
+    expect(f.pinned).toHaveBeenCalledTimes(1);
+    expect(f.requests.slice(1, 9)).toEqual(Array(8).fill(f.requests[1]));
+    expect(f.rows().filter(row => row.kind === 'content_policy_retry')).toHaveLength(1);
+    expect(f.projection).toHaveBeenCalledTimes(1);
+    expect(f.projection.mock.calls[0]![3].map(attempt => attempt.attempt_index)).toEqual(Array.from({ length: 9 }, (_, i) => i));
+    const execute = jest.fn(() => executedNoneSettlement(toolSucceeded({ once: true })));
+    const continuation = f.actor.appendToolResult(outcome.toolCallId, execute());
+    await jest.advanceTimersByTimeAsync(930_000);
+    await expect(continuation).resolves.toMatchObject({ outcome: { type: 'result' } });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(f.rows().filter(row => row.kind === 'tool_call')).toHaveLength(1);
+    expect(f.rows().filter(row => row.kind === 'tool_result')).toHaveLength(1);
+    expect(f.admission).toHaveBeenCalledTimes(2);
+    const next = f.admission.mock.calls[1]![0];
+    expect(next.inputId).not.toBe(f.input.inputId);
+    expect(next.routePass).toEqual({ kind: 'ordinary', candidateChain: CHAIN });
+    expect(next.preparedContext).toBe(f.input.preparedContext);
+    expect(f.requests.slice(9)).toEqual(Array(6).fill(f.requests[9]));
+    expect(f.projection).toHaveBeenCalledTimes(2);
+    expect(f.projection.mock.calls[1]![3]).toHaveLength(6);
+    expect(new Set(f.projection.mock.calls[1]![3].map(attempt => attempt.source_input_id))).toEqual(new Set([next.inputId]));
+    expect(readProviderExchangeEntries(f.root, f.input.sessionId)).toHaveLength(15);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('overload on the pin followed by a second real refusal blocks once with no third authorization', async () => {
+    jest.useFakeTimers();
+    const overload = () => new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 });
+    const f = fixture([() => refusal(), ...Array.from({ length: 5 }, () => overload), () => refusal('second refusal')]);
+    const pending = f.actor.turn(f.input, undefined, f.handoff);
+    await jest.advanceTimersByTimeAsync(930_000);
+    await expect(pending).resolves.toMatchObject({ type: 'blocked' });
+    expect(f.fetch).toHaveBeenCalledTimes(7);
+    expect(f.admission).toHaveBeenCalledTimes(1);
+    expect(f.pinned).toHaveBeenCalledTimes(1);
+    expect(f.rows().filter(row => row.kind === 'content_policy_retry')).toHaveLength(1);
+    expect(f.rows().filter(row => row.kind === 'content_policy_refusal')).toHaveLength(1);
+    expect(f.projection).toHaveBeenCalledTimes(1);
+    expect(readProviderExchangeEntries(f.root, f.input.sessionId).map(entry => entry.data.attempt_index)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('settles one synthetic tool once and freshly admits the complete original ordinary chain', async () => {
     const f = fixture([() => refusal(), toolResponse, () => chatSuccess('done')]);
     const outcome = await f.actor.turn(f.input, undefined, f.handoff);

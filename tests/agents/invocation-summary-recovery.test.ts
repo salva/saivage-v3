@@ -26,6 +26,26 @@ afterEach(() => {
 });
 
 describe('InvocationService internal-summary recovery', () => {
+  it.each(['success', 'refusal', 'auth', 'protocol'] as const)('retains one summary admission/input through more than 64 overload transports, then %s', async outcome => {
+    jest.useFakeTimers({ now: 0 });
+    const overload = () => providerFailure(new LlmRequestError({ kind: 'server_overloaded', provider: CANDIDATE.provider, status: 200, message: 'busy' }));
+    const final = outcome === 'success' ? success('summary recovered') : outcome === 'refusal' ? promptPolicyFailure()
+      : providerFailure(new LlmRequestError({ kind: outcome === 'auth' ? 'auth_permanent' : 'provider_protocol_error', provider: CANDIDATE.provider, status: 200, message: 'terminal' }));
+    const service = scriptedService([...Array.from({ length: 65 }, overload), final]);
+    const pending = service.executeSummaryWithRecovery(admitted(service)).catch(error => error);
+    await jest.advanceTimersByTimeAsync(930_000 + 60 * 600_000);
+    const settled = await pending;
+    expect(settled.provider_exchanges).toHaveLength(66);
+    expect(settled.provider_exchanges.map((attempt: ProviderExchangeAttempt) => attempt.attempt_index)).toEqual(Array.from({ length: 66 }, (_, index) => index));
+    expect(new Set(service.sentBodies).size).toBe(1);
+    expect(new Set(service.sentRequestHashes).size).toBe(1);
+    expect(new Set(service.sentInputIds)).toEqual(new Set([INPUT_ID]));
+    expect(service.sentCandidates).toEqual(Array<Candidate>(66).fill(CANDIDATE));
+    if (outcome === 'success') expect(settled).toMatchObject({ result: { kind: 'message', content: 'summary recovered' } });
+    else expect(settled).toMatchObject({ originalFailure: (final as ProviderTurnFailure).originalFailure });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it.each(['prompt_flag', 'cyber_policy'] as const)('terminates first %s with actual classifier evidence and no second request', async (kind) => {
     const availability = new MemoryCandidateAvailability();
     const markFailed = jest.spyOn(availability, 'markFailed');

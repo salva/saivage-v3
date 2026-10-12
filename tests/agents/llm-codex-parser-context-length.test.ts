@@ -78,7 +78,7 @@ describe('OpenAI Codex SSE error classification', () => {
     { type: 'response.failed', response: { status: 'failed', error: { code: 'server_is_overloaded', message: 'busy' } } },
   ])('classifies exact direct server overload evidence at opened HTTP 200: %#', (event) => {
     expect(failureFor(event)).toMatchObject({
-      kind: 'server_transient',
+      kind: 'server_overloaded',
       provider: 'openai-codex',
       status: 200,
     });

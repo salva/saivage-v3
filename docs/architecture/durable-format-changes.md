@@ -23,6 +23,29 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Provider overload diagnostics (2026-10-12)
+
+Exact implementation parent: `2c9ed2ab7d0f2354f4281d2e65dd25925b0c0108`.
+`agents/failed-provider-request-diagnostics.ts` advances private
+`kind:failed-provider-request-diagnostic` **`format_version:2→3`** by adding
+strict `failure_kind:server_overloaded`. This is a fresh owner-local bump,
+not an assumed unreleased shared cutover. The privacy projection and
+`privacy_policy:'failed-provider-request-privacy-2'` remain unchanged.
+New opt-in activations write only 3 with the existing capture bounds/source
+attribution. Retained diagnostics have no runtime reader/index: old files remain
+untouched/unconsumed, with no reset, converter, probing, scan or migration needed
+for this isolated adoption. Parent deployment is incident-reported provenance,
+not independently certified here; no deployment date or installed-state claim is made.
+
+Source evidence: the owning strict diagnostic schema/writer and diagnostic-pipeline
+tests; invocation retry state remains in memory only. Conversation index/genesis
+`format_version:8` and segment `version:8/type:conversation-segment` stay unchanged.
+App-log and provider evidence retain their shared `version:1/type:rows` envelope,
+raw safe error/status and source/output attribution, not a persisted transport
+failure-kind enum. Card, record, lock, configuration and MCP families are unchanged.
+Source completion grants no deployment, Run, reset or migration; rollback must
+consider all release contracts/privacy, not infer compatibility from conversation 8.
+
 ### Historical instruction evidence (2026-10-11)
 
 Exact implementation parent: `10900176cfe8f28fd0501664b0db201b73ec8eec`.

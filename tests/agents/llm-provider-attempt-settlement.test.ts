@@ -4,8 +4,35 @@ import { createProviderExchangeRecorder as realRecorder } from '../../src/agents
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { controlledResponse } from '../helpers/provider-inactivity.js';
 import type { CandidateRequestPlan, LlmCompleteOptions } from '../../src/contracts/index.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { invocationProviderRegistry } from '../helpers/invocation-provider-fixture.js';
 
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); jest.resetModules(); });
+
+it.each([false, true])('runner overload recorder failure keeps exact identity before settled reads (unknown=%s)', async unknown => {
+  jest.useFakeTimers();
+  const failure = unknown ? new PublicationOutcomeUnknownError(new Error('recording uncertainty')) : new Error('ordinary recorder failure');
+  const recordError = jest.fn(async () => { throw failure; });
+  const settled = jest.fn(() => []);
+  jest.unstable_mockModule('../../src/agents/provider-exchange-recorder.js', () => ({
+    createProviderExchangeRecorder: () => ({ beginExchange: async () => ({ recordError }), settledAttempts: settled }),
+  }));
+  const { executeLlmProviderAttempt } = await import('../../src/agents/llm-provider-attempt.js');
+  const candidate = { provider: 'test', account: null, model: 'model' };
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 }));
+  const serializedBody = '{}';
+  const plan: CandidateRequestPlan = { candidate,
+    capabilities: { transportProtocol: 'openai-chat-completions', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+    adapter: selectLlmProtocolAdapter('openai-chat-completions'),
+    request: { body: {}, serializedBody, requestHash: createHash('sha256').update(serializedBody).digest('hex'), imageCount: 0, estimatedWireInputTokens: 1 } };
+  const options: LlmCompleteOptions = { providerSessionId: 'synthetic', inputId: 'settlement', temperature: 0, max_tokens: 100, tools: [], tool_choice: 'auto', terminalToolOffered: [], contract_id: 'test.v1', contractName: 'test' };
+  await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: invocationProviderRegistry([candidate]), plan, options, capabilityRequest: {}, attemptContext: { sourceSessionId: null, invocationSessionId: 'internal:settlement-test', inputId: options.inputId, purpose: 'primary', attemptIndex: 0 } })).rejects.toBe(failure);
+  expect(recordError).toHaveBeenCalledTimes(1);
+  expect(settled).not.toHaveBeenCalled();
+  await jest.advanceTimersByTimeAsync(7_200_000);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
 
 it('keeps valid Codex completion immediately before expiry successful throughout delayed recorder settlement', async () => {
   jest.useFakeTimers();

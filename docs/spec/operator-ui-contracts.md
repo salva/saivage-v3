@@ -1,5 +1,14 @@
 # Operator UI: Exact Contracts Register
 
+Outstanding named-agent execution includes provider overload/backoff, not just
+active wire consumption. Existing provider-resource refresh reports advisory
+cooling/reason/deadline, not an exact send countdown. Compaction in-flight means
+one logical summary call outstanding; overload retries add no completed folds.
+Recorded exchanges may appear only at settlement. No provider wait is represented
+as the exact tool/child/process waiting barrier. Cooperative Pause may remain
+`pausing` while admitted work continues; Stop is containment. These clarifications
+change no presentation fields or rendering contract.
+
 ## Shared JSON data display
 
 Dedicated JSON data displays share lossless lexical decoration: keys, strings,

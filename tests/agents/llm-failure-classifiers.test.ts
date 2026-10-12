@@ -115,6 +115,38 @@ describe('strict HTTP input-context classification', () => {
 });
 
 describe('common HTTP and transport classification', () => {
+  it.each<[number, Record<string, unknown>, string]>([
+    [503, { code: 'server_is_overloaded' }, 'server_overloaded'],
+    [529, { type: 'OVERLOADED' }, 'server_overloaded'],
+    [503, { code: 'server_is_overloaded', type: 'server_error' }, 'server_overloaded'],
+    [401, { code: 'server_is_overloaded' }, 'auth_permanent'],
+    [403, { code: 'overloaded', type: 'content_filter' }, 'auth_permanent'],
+    [503, { code: 'overloaded', type: 'unauthorized' }, 'auth_permanent'],
+    [429, { code: 'overloaded' }, 'rate_limit'],
+    [503, { code: 'overloaded', type: 'rate_limit_exceeded' }, 'rate_limit'],
+    [503, { code: 'overloaded', type: 'content_filter' }, 'content_policy'],
+    [503, { code: 'overloaded', message: 'content policy refusal' }, 'content_policy'],
+    // The existing context grammar requires a compatible type; overload is not one.
+    [400, { code: 'context_length_exceeded', type: 'overloaded' }, 'server_overloaded'],
+    [400, { code: 'context_length_exceeded', type: 'overloaded', message: 'content policy' }, 'content_policy'],
+    [503, { message: 'server_is_overloaded' }, 'server_transient'],
+    [503, { metadata: { code: 'overloaded' } }, 'server_transient'],
+  ])('classifies overload mixed evidence for HTTP and opened terminals: %s %p', (status, error, kind) => {
+    for (const transport of ['chat', 'responses', 'codex'] as const)
+      expect(classifyHttpFailure(transport, mockResponse(status, { 'retry-after': '3600' }), JSON.stringify({ error }), { provider: 'test', model: 'm' }))
+        .toMatchObject({ kind, status });
+    expect(classifyDirectProviderFailure({ provider: 'test', source: { kind: 'opened_response_terminal', responseStatus: 200, embeddedStatus: status },
+      error, allowedContextParams: ['input'], message: 'failure', providerResponse: '', retryAfterMs: 3_600_000 }))
+      .toMatchObject({ kind, status: 200 });
+  });
+
+  it('retains opened prompt-policy rejection instead of overload authority', () => {
+    expect(classifyDirectProviderFailure({ provider: 'test', source: { kind: 'opened_response_terminal', responseStatus: 200, embeddedStatus: undefined },
+      error: { code: 'invalid_prompt', type: 'overloaded', message: 'Your prompt was flagged as potentially violating our usage policy' },
+      allowedContextParams: ['input'], message: 'failure', providerResponse: '' }))
+      .toMatchObject({ kind: 'provider_protocol_error', status: 200, reason: 'prompt_policy_rejection' });
+  });
+
   it('adds bounded evidence only to an exact opened HTTP-200 prompt-policy rejection', () => {
     const incident = {
       provider: 'openai-codex',
