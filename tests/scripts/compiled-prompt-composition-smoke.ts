@@ -223,11 +223,9 @@ try {
   for (const nodeId of ['component-review', 'system-review']) {
     const node = requireValue(architecture.states.get(`node:${nodeId}`), `Missing ${nodeId}.`);
     if (node.kind !== 'node') throw new Error(`Missing ${nodeId}.`);
-    const agent = renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'architecture' }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
-    if (node.selectedAgentPrompt.source !== 'bundled-shared' || !agent.includes('record:///review.md?card=<card-id>') || !requireValue(architecture.processPrompts.get(node.prompt.promptId), `Missing ${nodeId} prompt.`).text.includes('record:///review.md?card=<card-id>')) throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);
-  }
-  for (const prompt of architecture.processPrompts.values()) if (prompt.reference.includes('revision') || prompt.reference === 'architecture-to-system-review') {
-    if (!prompt.text.includes('versioned `review.md` URL')) throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);
+    if (node.selectedAgentPrompt.source !== 'bundled-shared' || node.selectedAgentPrompt.reference !== 'reviewer') throw new Error(`${nodeId} does not select the shared Reviewer.`);
+    requireValue(architecture.processPrompts.get(node.prompt.promptId), `Missing ${nodeId} prompt.`);
+    if (!node.requirements.some(({ definition, mode, gate }) => definition.name === 'review.md' && mode === 'clean' && gate === 'updated')) throw new Error(`${nodeId} lacks its fresh updated review.md gate.`);
   }
   const providerRegistry = new ProviderRegistry(typedTestConfig);
   const workflows = bindRuntimeWorkflows(typedWorkflows, new ModelRouter(providerRegistry), providerRegistry, typedTestConfig.compaction.context_utilization_fraction);

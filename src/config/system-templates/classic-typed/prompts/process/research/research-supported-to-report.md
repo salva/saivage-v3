@@ -1,1 +1,1 @@
-Report the supported conclusion from the accepted assessment evidence, clearly separating evidence, inference, limitations, and recommendations.
+The accepted assessment supports the bounded conclusion. Retain its classification and versioned evidence without promoting it to policy or parent acceptance.

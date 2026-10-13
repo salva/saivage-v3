@@ -1,1 +1,1 @@
-Revise the architecture draft to address the immediately preceding system-review findings, including cross-cutting and integration effects. Preserve and cite the immutable versioned `review.md` URL in cumulative `status.md`; the revised draft must pass component review again before system review.
+The accepted system review requires revision, including its cross-cutting/integration findings. Preserve the immutable versioned `review.md` URL in cumulative `status.md`. The revised draft still requires component review before system review.

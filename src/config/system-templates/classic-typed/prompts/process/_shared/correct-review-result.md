@@ -1,1 +1,1 @@
-Correct the Reviewer result and required records, then call `emit_result` exactly according to the current generated contract.
+Use the supplied violations and remaining-attempt diagnostics to correct the Reviewer result and required records. Repeat review work only when those violations require it; then call `emit_result` according to the current generated contract.

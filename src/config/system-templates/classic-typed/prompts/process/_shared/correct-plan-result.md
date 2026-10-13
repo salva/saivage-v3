@@ -1,1 +1,1 @@
-Correct the Planner result and required records, then call `emit_result` exactly according to the current generated contract.
+Use the supplied violations and remaining-attempt diagnostics to correct the Planner result and required records. Reassess planning work only when those violations require it; then call `emit_result` according to the current generated contract.

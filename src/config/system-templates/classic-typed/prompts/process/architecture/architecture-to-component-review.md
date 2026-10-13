@@ -1,1 +1,1 @@
-Review the accepted architecture draft first at component scope: local cohesion, contracts, feasibility, and unnecessary complexity. Use the preceding accepted draft summary and versioned `status.md` evidence.
+The draft is accepted as ready for component review, not as approved architecture. Its accepted summary and versioned `status.md` are the proposal evidence for this review.

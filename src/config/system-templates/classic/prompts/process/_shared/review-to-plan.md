@@ -1,1 +1,1 @@
-The Reviewer requires revision. Address the immediately preceding findings and update the `{{cardType}}` card evidence before selecting the next route.
+The accepted review requires revision of this `{{cardType}}` card. Assess every concrete finding as evidence, not a binding remedy. Preserve the immutable versioned `review.md` URL in updated `status.md`, choose the appropriate in-scope correction through the owning Planner's direct children, and explain findings that do not warrant the proposed change. Choose the next route from new evidence.

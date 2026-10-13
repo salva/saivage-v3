@@ -1,1 +1,1 @@
-Report the bounded-inconclusive result honestly from the accepted assessment evidence, including what remains uncertain, why scoped investigation ended, and any justified recommendations.
+The accepted assessment is bounded-inconclusive. Preserve its versioned evidence, remaining uncertainty and reasons scoped investigation ended; this is neither support nor refutation.

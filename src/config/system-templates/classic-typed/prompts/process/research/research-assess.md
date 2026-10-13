@@ -1,1 +1,10 @@
-Assess the accepted evidence against the bounded question, separating observations from inference and preserving uncertainty. Update `record:///status.md?card=<card-id>` with the reasoning and evidence citations. Select `supported` or `refuted` for a conclusion established by the evidence. Select `bounded_inconclusive` when the bounded question remains uncertain and reasonable investigation is exhausted, including when successive recorded hypotheses are refuted without convergence on an answer or another useful discriminator; do not relabel a conclusively refuted question as inconclusive. Select `evidence_gap` only for concrete obtainable evidence or materially different useful analysis capable of changing a specific assessment or decision, naming that assessment or decision, the obtainable discriminator, the change it could support, and the next work. Select `blocked` when a required brief deliverable cannot be met within this bounded goal without a specific scope correction, access, input, or decision, or `failed` for a conclusive failure; do not silently discard outstanding brief scope.
+Assess accepted evidence against the bounded question. Separate observations from inference, preserve uncertainty, and record reasoning and citations in `status.md`.
+
+Choose the classification justified by evidence:
+- `supported` or `refuted`: evidence establishes that conclusion; never relabel a conclusively refuted question as inconclusive.
+- `bounded_inconclusive`: the question remains uncertain and reasonable investigation is exhausted, including successive recorded hypotheses refuted without convergence on an answer or another useful discriminator.
+- `evidence_gap`: concrete obtainable evidence or materially different useful analysis can change a specific assessment/decision. Name that decision, obtainable discriminator, change it could support and next work.
+- `blocked`: a required brief deliverable cannot be met within the bounded goal without specific scope correction, access, input or decision.
+- `failed`: conclusive failure.
+
+No classification silently discards outstanding brief scope.
