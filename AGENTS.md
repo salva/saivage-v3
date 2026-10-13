@@ -74,6 +74,7 @@ Reusable project workflows live under `.github/skills/<skill>/SKILL.md`.
 - OpenCode loads these skills directly through root `opencode.json`.
 - GitHub Copilot does not auto-load OpenCode skills; when a task matches a skill description, read the relevant `SKILL.md` and follow it as the project-local workflow.
 - Do not add symlinked or duplicate tool-specific skill trees. Keep `.github/skills/` as the shared source of truth.
+- Any agent authoring, editing, or reviewing prompts, templates, or agent instructions must read and follow `saivage-prompt-authoring` before the work, including its final clean-room pass after all edits.
 
 Current high-value skills include:
 
@@ -81,6 +82,7 @@ Current high-value skills include:
 - `saivage-lxc-operations`: LXC operations for Saivage v3-relevant deployments such as the v2-on-v3 harness, GetRich v2, and Pueblicos.
 - `saivage-project-reset`: reset target projects managed by Saivage v3 deployments, such as GetRich v2 or Pueblicos.
 - `opencode-skill-authoring`: create or revise project OpenCode skills under `.github/skills/`.
+- `saivage-prompt-authoring`: mandatory composition-aware prompt/instruction authoring and review, including a final clean-room pass.
 - `saivage-issue-fix-adversarial-review`: mandatory issue-fixing workflow that iterates design/plan adversarial review before implementation.
 - `saivage-todo-protocol`: track work items through their lifecycle using `docs/working/todo.md` and `docs/working/done.md`.
 - `saivage-v3-mailbox-submit`: submit proposals to the v2-on-v3 harness mailbox.
