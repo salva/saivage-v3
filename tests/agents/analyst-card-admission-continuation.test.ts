@@ -120,10 +120,10 @@ describe('Analyst card admission through real session continuation', () => {
     const h = harness(); const root = create(h.cards); const nested = create(h.cards, root.id); const leaf = create(h.cards, nested.id, 'code'); runningChain(h, leaf.id);
     // A valid paused running chain also has running ancestors. The first
     // blocked member is the root, but subtree admission reads the nested leaf.
-    const descendants = jest.spyOn(h.cards, 'getDescendantIds');
+    const subtree = jest.spyOn(h.cards, 'readCurrentSubtree');
     await denied(h, 'delete_card', { ids: [root.id] }, `${root.id}' is running`);
-    expect(descendants).toHaveBeenCalledWith(root.id);
-    expect(descendants.mock.results[0]!.value).toContain(leaf.id);
+    expect(subtree).toHaveBeenCalledWith(root.id);
+    expect(subtree.mock.results[0]!.value).toEqual(expect.arrayContaining([expect.objectContaining({ id: leaf.id, lifecycle: { status: 'running', result: null, error: null, completed_at: null } })]));
   });
 
   it('admits no prefix of a multi-root deletion when the later root is blocked', async () => {
@@ -139,6 +139,8 @@ describe('Analyst card admission through real session continuation', () => {
     h.cards.setStatus(nested.id, 'running'); h.currentCardId = nested.id;
     expect(h.cards.read(root.id)!.lifecycle.status).not.toBe('running');
     const deletion = jest.spyOn(h.cards, 'deleteSubtrees');
+    const reads = jest.spyOn(h.cards, 'read');
+    const subtree = jest.spyOn(h.cards, 'readCurrentSubtree');
     // Session orientation correctly rejects this discontinuous topology before
     // a provider turn. Invoke its real bound tool directly to isolate admission.
     const before = cardBytes(h.projectRoot);
@@ -150,6 +152,8 @@ describe('Analyst card admission through real session continuation', () => {
     expect(readAppLogEntries(h.projectRoot, 'control_action')).toHaveLength(1);
     expect(cardBytes(h.projectRoot)).toEqual(before);
     expect(deletion).not.toHaveBeenCalled();
+    expect(subtree).toHaveBeenCalledWith(root.id);
+    expect(reads.mock.calls.map(([id]) => id)).toEqual([root.id]);
   });
 
   it.each(['project', 'card-missing'])('settles existing root/missing deletion admission: %s', async (id) => {

@@ -34,6 +34,7 @@ const { PublicationOutcomeUnknownError, AnalystInterventionNotReadyError } = awa
 const { AnalystSession } = await import('../../src/runtime/actors/analyst-session.js');
 const { testApplicationFatalPort } = await import('../helpers/test-application-fatal-port.js');
 const { workflowResult } = await import('../helpers/workflow-result.js');
+const { cardHeadFile } = await import('../../src/persistence/layout.js');
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import type { ProviderTurnCompletion } from '../../src/contracts/index.js';
 import type { CardNotification } from '../../src/schemas/index.js';
@@ -229,6 +230,100 @@ function completeProject(cards: InstanceType<typeof CardService>) {
 }
 
 describe('Analyst known card effects and best-effort propagation', () => {
+  it.each(['done', 'cancelled'] as const)('denies cancellation of a %s descendant with no card effects or descendant rereads', async (status) => {
+    const h = harness(); const parent = create(h.cards); const first = create(h.cards, parent.id); const later = create(h.cards, parent.id);
+    for (const child of [first, later]) {
+      if (status === 'done') {
+        h.cards.setStatus(child.id, 'running');
+        h.cards.commitActivationOutcome(child.id, { status, summary: status, result: workflowResult('DONE', 'done') }, '2026-10-14T00:00:00.000Z');
+      } else h.cards.setStatus(child.id, status);
+    }
+    const before = [parent, first, later].map((card) => fs.readFileSync(cardHeadFile(h.projectRoot, card.id)));
+    const read = jest.spyOn(h.cards, 'read'); const subtree = jest.spyOn(h.cards, 'readCurrentSubtree');
+    expect(await h.invoke('cancel_card', { cardId: parent.id })).toMatchObject({ success: false, error: expect.stringContaining(`card '${first.id}' is ${status}`) });
+    expect(subtree).toHaveBeenCalledWith(parent.id);
+    expect(read.mock.calls.map(([id]) => id)).toEqual([parent.id]);
+    expect([parent, first, later].map((card) => fs.readFileSync(cardHeadFile(h.projectRoot, card.id)))).toEqual(before);
+    expect(h.audits()).toMatchObject([{ action: 'card.cancel', outcome: 'denied' }]);
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it('denies reorder using requested-child order and subtree preorder without separate child reads', async () => {
+    const h = harness(); const parent = create(h.cards); const first = create(h.cards, parent.id); const second = create(h.cards, parent.id);
+    const early = create(h.cards, second.id); const later = create(h.cards, second.id);
+    h.cards.setStatus(first.id, 'running'); h.cards.setStatus(early.id, 'running'); h.cards.setStatus(later.id, 'running');
+    // Direct bound tool isolates canonical status admission, not Supervisor chain orientation.
+    const before = fs.readFileSync(cardHeadFile(h.projectRoot, parent.id));
+    const read = jest.spyOn(h.cards, 'read'); const reorder = jest.spyOn(h.cards, 'reorderChildren');
+    expect(await h.invoke('reorder_child', { parentId: parent.id, orderedChildIds: [second.id, first.id] })).toMatchObject({ success: false, error: expect.stringContaining(`child subtree '${second.id}' contains '${early.id}' in status running`) });
+    expect(read.mock.calls.map(([id]) => id)).toEqual([parent.id]);
+    expect(reorder).not.toHaveBeenCalled(); expect(h.notify).not.toHaveBeenCalled();
+    expect(fs.readFileSync(cardHeadFile(h.projectRoot, parent.id))).toEqual(before);
+    expect(h.audits()).toMatchObject([{ action: 'card.reorder_child', outcome: 'denied' }]);
+  });
+
+  it.each(['delete', 'cancel', 'reorder'] as const)('completes strict subtree consumption before %s status denial', async (operation) => {
+    const h = harness(); const parent = create(h.cards); const first = create(h.cards, parent.id); const later = create(h.cards, parent.id);
+    h.cards.setStatus(first.id, operation === 'cancel' ? 'cancelled' : 'running');
+    fs.writeFileSync(cardHeadFile(h.projectRoot, later.id), '{bad json}');
+    const mutations = testAnalystMutationServices(h.projectRoot, h.cards, h.notify).cards;
+    if (operation === 'cancel') await expect(mutations.cancel(parent.id)).rejects.toThrow();
+    else expect(() => operation === 'delete' ? mutations.delete([parent.id]) : mutations.reorder('project', [parent.id])).toThrow();
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it('keeps root, missing, invalid and parent/permutation precedence ahead of subtree consumption', async () => {
+    const h = harness(); const parent = create(h.cards); const child = create(h.cards, parent.id);
+    const mutations = testAnalystMutationServices(h.projectRoot, h.cards, h.notify).cards;
+    const subtree = jest.spyOn(h.cards, 'readCurrentSubtree');
+    expect(mutations.delete(['project'])).toEqual({ kind: 'denied', reason: 'root project card cannot be deleted' });
+    expect(mutations.delete(['card-z'])).toEqual({ kind: 'denied', reason: "card 'card-z' does not exist" });
+    expect(() => mutations.delete(['bad'])).toThrow();
+    await expect(mutations.cancel('project')).resolves.toEqual({ kind: 'denied', reason: 'root project card cannot be cancelled' });
+    await expect(mutations.cancel('card-z')).resolves.toEqual({ kind: 'denied', reason: "card 'card-z' does not exist" });
+    await expect(mutations.cancel('bad')).rejects.toThrow();
+    expect(mutations.reorder('card-z', [])).toEqual({ kind: 'denied', reason: "parent 'card-z' does not exist" });
+    expect(() => mutations.reorder('bad', [])).toThrow();
+    h.cards.setStatus(parent.id, 'running');
+    fs.writeFileSync(cardHeadFile(h.projectRoot, child.id), '{bad json}');
+    expect(mutations.reorder(parent.id, [])).toEqual({ kind: 'denied', reason: `parent '${parent.id}' is running` });
+    expect(mutations.reorder('project', [])).toEqual({ kind: 'denied', reason: 'reorder_set_mismatch' });
+    expect(subtree).not.toHaveBeenCalled();
+  });
+
+  it('real delete freshly rejects a target made running at its owner boundary', async () => {
+    const h = harness(); const target = create(h.cards);
+    const original = h.cards.deleteSubtrees.bind(h.cards);
+    let beforeOwner: Buffer | undefined;
+    jest.spyOn(h.cards, 'deleteSubtrees').mockImplementation((...args) => {
+      h.cards.setStatus(target.id, 'running');
+      beforeOwner = fs.readFileSync(cardHeadFile(h.projectRoot, target.id));
+      return original(...args);
+    });
+    const observation = jest.spyOn(h.cards, 'readCurrentSubtree');
+    await expect(h.invoke('delete_card', { ids: [target.id] })).rejects.toThrow();
+    expect(observation.mock.results[0]!.value).toMatchObject([{ id: target.id, lifecycle: { status: 'backlog' } }]);
+    expect(fs.readFileSync(cardHeadFile(h.projectRoot, target.id))).toEqual(beforeOwner);
+    expect(h.cards.read(target.id)!.lifecycle.status).toBe('running');
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it('real reorder freshly rejects child membership changed at its owner boundary', async () => {
+    const h = harness(); const parent = create(h.cards); const first = create(h.cards, parent.id); const second = create(h.cards, parent.id);
+    const original = h.cards.reorderChildren.bind(h.cards);
+    let beforeOwner: Buffer | undefined;
+    let addedId = '';
+    jest.spyOn(h.cards, 'reorderChildren').mockImplementation((...args) => {
+      addedId = create(h.cards, parent.id).id;
+      beforeOwner = fs.readFileSync(cardHeadFile(h.projectRoot, parent.id));
+      return original(...args);
+    });
+    expect(await h.invoke('reorder_child', { parentId: parent.id, orderedChildIds: [second.id, first.id] })).toMatchObject({ success: false, error: 'reorder_set_mismatch', data: { missing: [addedId] } });
+    expect(fs.readFileSync(cardHeadFile(h.projectRoot, parent.id))).toEqual(beforeOwner);
+    expect(h.cards.listChildren(parent.id)).toEqual([first.id, second.id, addedId]);
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
   function operation(name: 'create_card' | 'cancel_card' | 'reorder_child', h: ReturnType<typeof harness>) {
     const parent = create(h.cards); const first = create(h.cards, parent.id); const second = create(h.cards, parent.id);
     // The main operation is admitted; propagation has a known resting ancestor

@@ -401,9 +401,9 @@ export class CardService {
     }
     return out;
   }
-  getDescendantIds(id: string): string[] {
+  readCurrentSubtree(id: string): CardRecord[] {
     const result = readActiveCardSubtree(this.projectRoot, id);
-    return result.kind === 'card-not-found' ? [] : result.value.slice(1).map(({ card }) => card.id);
+    return result.kind === 'card-not-found' ? [] : clone(result.value.map(({ card }) => card));
   }
   readRecordCurrent(
     cardId: string,

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -109,8 +109,45 @@ describe('CardService scoped relationship reads', () => {
     expect(cards.getParent('project')).toBeNull();
     expect(cards.getParent(nested.id)).toBe(first.id);
     expect(cards.getAncestors(nested.id)).toEqual(['project', goal.id, first.id]);
-    expect(cards.getDescendantIds(goal.id)).toEqual([first.id, nested.id, second.id]);
     expect(cards.list().map((card) => card.id)).toEqual(['project', goal.id, first.id, second.id, nested.id]);
+    cards.reorderChildren(goal.id, [second.id, first.id]);
+    expect(cards.readCurrentSubtree(goal.id).map((card) => card.id)).toEqual([goal.id, second.id, first.id, nested.id]);
+  });
+
+  it('returns independent nested observations and sees subsequent supported updates freshly', () => {
+    const { cards } = project();
+    const goal = cards.create(input('project', 'goal'));
+    const child = cards.create(input(goal.id));
+    const held = cards.readCurrentSubtree(goal.id);
+    const edited = cards.readCurrentSubtree(goal.id);
+    edited[0]!.child_membership.length = 0;
+    edited[0]!.active_child_order.reverse();
+    edited[1]!.depends_on.push('card-z');
+    edited[1]!.lifecycle.status = 'running';
+    expect(cards.readCurrentSubtree(goal.id)).toEqual(held);
+    cards.setStatus(child.id, 'running');
+    expect(cards.readCurrentSubtree(goal.id)[1]!.lifecycle.status).toBe('running');
+    expect(held[1]!.lifecycle.status).toBe('backlog');
+  });
+
+  it('ignores unlinked targets and stops at tombstones without consuming their descendants', () => {
+    const { root, cards } = project();
+    const unlinked = publishInitialChildCard(root, input('project'), TEST_WORKFLOWS.cardTypes.get('code')!);
+    expect(cards.readCurrentSubtree(unlinked.id)).toEqual([]);
+    const goal = cards.create(input('project', 'goal'));
+    const child = cards.create(input(goal.id));
+    cards.deleteSubtrees([goal.id], () => true, 'analyst');
+    corruptCurrent(root, child.id);
+    expect(cards.readCurrentSubtree(goal.id)).toEqual([]);
+    expect(cards.readCurrentSubtree('project').map((card) => card.id)).toEqual(['project']);
+  });
+
+  it('rejects a missing linked canonical selection rather than treating it as absence', () => {
+    const { root, cards } = project();
+    const goal = cards.create(input('project', 'goal'));
+    const child = cards.create(input(goal.id));
+    unlinkSync(cardHeadFile(root, child.id));
+    expect(() => cards.readCurrentSubtree(goal.id)).toThrow();
   });
 
   it('visits each reached descendant membership fold once',()=>{
@@ -122,9 +159,9 @@ describe('CardService scoped relationship reads', () => {
     const { cards } = project();
     expect(cards.getParent('card-z')).toBeNull();
     expect(cards.getAncestors('card-z')).toEqual([]);
-    expect(cards.getDescendantIds('card-z')).toEqual([]);
+    expect(cards.readCurrentSubtree('card-z')).toEqual([]);
     for (const call of [
-      () => cards.getParent('bad'), () => cards.getAncestors('bad'), () => cards.getDescendantIds('bad'),
+      () => cards.getParent('bad'), () => cards.getAncestors('bad'), () => cards.readCurrentSubtree('bad'),
     ]) expect(call).toThrow();
   });
 
@@ -137,11 +174,11 @@ describe('CardService scoped relationship reads', () => {
 
     expect(cards.getParent(reached.id)).toBe(healthy.id);
     expect(cards.getAncestors(reached.id)).toEqual(['project', healthy.id]);
-    expect(cards.getDescendantIds(healthy.id)).toEqual([reached.id]);
+    expect(cards.readCurrentSubtree(healthy.id).map((card) => card.id)).toEqual([healthy.id, reached.id]);
     expect(() => cards.list()).toThrow();
     corruptCurrent(root, reached.id);
     expect(() => cards.getParent(reached.id)).toThrow();
-    expect(() => cards.getDescendantIds(healthy.id)).toThrow();
+    expect(() => cards.readCurrentSubtree(healthy.id)).toThrow();
   });
 
   it('does not validate missing dependencies on reached cards while full projections reject them', () => {
@@ -152,7 +189,7 @@ describe('CardService scoped relationship reads', () => {
 
     expect(cards.getParent(goalPublished.child.id)).toBe('project');
     expect(cards.getAncestors(goalPublished.child.id)).toEqual(['project']);
-    expect(cards.getDescendantIds(goalPublished.child.id)).toEqual([childPublished.child.id]);
+    expect(cards.readCurrentSubtree(goalPublished.child.id).map((card) => card.id)).toEqual([goalPublished.child.id, childPublished.child.id]);
     expect(() => cards.list()).toThrow(/depends_on missing card 'card-z'/);
     expect(rootCard.child_membership).toContain(goalPublished.child.id);
   });
@@ -167,7 +204,7 @@ describe('CardService scoped relationship reads', () => {
     expect(second.child.id).toBe('card-b');
     expect(cards.getParent(first.child.id)).toBe('project');
     expect(cards.getAncestors(second.child.id)).toEqual(['project']);
-    expect(cards.getDescendantIds('project')).toEqual([first.child.id, second.child.id]);
+    expect(cards.readCurrentSubtree('project').map((card) => card.id)).toEqual(['project', first.child.id, second.child.id]);
     expect(() => cards.list()).toThrow(/dependency graph contains a cycle/);
   });
 
@@ -179,7 +216,7 @@ describe('CardService scoped relationship reads', () => {
 
     expect(cards.getParent(healthy.child.id)).toBe('project');
     expect(cards.getAncestors(healthy.child.id)).toEqual(['project']);
-    expect(cards.getDescendantIds(healthy.child.id)).toEqual([]);
+    expect(cards.readCurrentSubtree(healthy.child.id).map((card) => card.id)).toEqual([healthy.child.id]);
     expect(() => cards.list()).toThrow(/depends_on missing card 'card-z'/);
   });
 
@@ -194,7 +231,7 @@ describe('CardService scoped relationship reads', () => {
     expect(secondCycle.child.id).toBe('card-c');
     expect(cards.getParent(healthy.child.id)).toBe('project');
     expect(cards.getAncestors(healthy.child.id)).toEqual(['project']);
-    expect(cards.getDescendantIds(healthy.child.id)).toEqual([]);
+    expect(cards.readCurrentSubtree(healthy.child.id).map((card) => card.id)).toEqual([healthy.child.id]);
     expect(() => cards.list()).toThrow(/dependency graph contains a cycle/);
   });
 });

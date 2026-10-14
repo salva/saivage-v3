@@ -40,7 +40,7 @@ describe('analyst card mutation service deletion', () => {
       expect(allowed(card('running'))).toBe(false);
       return { requested: [FIRST, SECOND], deleted: [SECOND, FIRST] };
     });
-    const service = services({ deleteSubtrees, read: (id: string) => card('backlog', id), getDescendantIds: () => [] } as unknown as CardService).cards;
+    const service = services({ deleteSubtrees, read: (id: string) => card('backlog', id), readCurrentSubtree: (id: string) => [card('backlog', id)] } as unknown as CardService).cards;
 
     expect(service.delete([FIRST, SECOND, FIRST])).toEqual({
       kind: 'returned', success: true,
@@ -51,7 +51,7 @@ describe('analyst card mutation service deletion', () => {
 
   it('returns one failure without a partial-success payload when complete preflight rejects', () => {
     const deleteSubtrees = jest.fn(() => { throw new Error(`Card '${SECOND}' cannot be deleted`); });
-    const service = services({ deleteSubtrees, read: (id: string) => card('backlog', id), getDescendantIds: () => [] } as unknown as CardService).cards;
+    const service = services({ deleteSubtrees, read: (id: string) => card('backlog', id), readCurrentSubtree: (id: string) => [card('backlog', id)] } as unknown as CardService).cards;
 
     expect(() => service.delete([FIRST, SECOND])).toThrow(`Card '${SECOND}' cannot be deleted`);
     expect(deleteSubtrees).toHaveBeenCalledTimes(1);
@@ -64,7 +64,6 @@ describe('analyst stopped card mutations', () => {
     const child = card('backlog', SECOND);
     const store = {
       read: jest.fn((id: string) => id === FIRST ? stopped : null),
-      getDescendantIds: jest.fn(() => []),
       getAncestors: jest.fn(() => []),
       listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : []), create: jest.fn(() => child),
     } as unknown as CardService;
@@ -83,7 +82,7 @@ describe('analyst stopped card mutations', () => {
     { status: 'stopped', allowed: true }, { status: 'done', allowed: false }, { status: 'failed', allowed: true }, { status: 'cancelled', allowed: false },
   ] as const)('applies cancellation membership to $status', async ({ status, allowed }) => {
     const target = card(status);
-    const store = { read: () => target, getDescendantIds: () => [], getParent: () => 'project' } as unknown as CardService;
+    const store = { read: () => target, readCurrentSubtree: () => [target], getParent: () => 'project' } as unknown as CardService;
     const cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }));
     const outcome = await services(store, undefined, cancelCard).cards.cancel(FIRST);
     expect(outcome.kind !== 'denied').toBe(allowed);
@@ -122,6 +121,18 @@ describe('analyst stopped card mutations', () => {
 });
 
 describe('analyst child reorder propagation', () => {
+  it('leaves absent requested subtree observation to the fresh reorder owner without an exact child read', () => {
+    const parent = card('backlog', 'project', 'project');
+    const read = jest.fn((id: string) => id === 'project' ? parent : null);
+    const readCurrentSubtree = jest.fn((_id: string) => [] as CardRecord[]);
+    const reorderChildren = jest.fn((_parentId: string, _orderedChildIds: readonly string[]) => ({ ok: false as const, reason: 'ordered child ids do not match current children', missing: [], extra: [FIRST] }));
+    const store = { read, readCurrentSubtree, listChildren: () => [FIRST], reorderChildren } as unknown as CardService;
+    expect(services(store).cards.reorder('project', [FIRST])).toMatchObject({ kind: 'returned', success: false, error: 'reorder_set_mismatch', data: { extra: [FIRST] } });
+    expect(read.mock.calls.map(([id]) => id)).toEqual(['project']);
+    expect(readCurrentSubtree).toHaveBeenCalledWith(FIRST);
+    expect(reorderChildren).toHaveBeenCalledWith('project', [FIRST]);
+  });
+
   function reorderHarness(result: ReturnType<CardService['reorderChildren']>) {
     const parent = card('backlog', 'project', 'project');
     const reorderChildren = jest.fn((_parentId: string, _orderedChildIds: readonly string[]) => result);

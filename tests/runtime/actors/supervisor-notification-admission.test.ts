@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
+import { createAnalystMutationServices } from '../../../src/application/analyst-mutation-services.js';
 import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
@@ -189,6 +190,29 @@ function refusal(inputId: string, raw: string): ProviderTurnFailure {
 }
 
 describe('Supervisor notification admission at terminal ownership', () => {
+  it('freshly rejects a stored cancel target changed after the Analyst subtree observation', async () => {
+    const provider = scriptedAdmissionProvider(async () => { throw new Error('Unexpected provider call.'); });
+    const h = harness(provider);
+    const target = h.cards.create({ type: 'code', parent: 'project', title: 'stored', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const notifyCard = jest.fn((_id: string, notification: { id: string }) => ({ ok: true as const, notificationId: notification.id }));
+    let beforeOwner: Buffer | undefined;
+    const mutations = createAnalystMutationServices({
+      store: h.cards, configAuthority: {} as never, notifyCard, submitNotification: jest.fn() as never,
+      cancelCard: async (id, reason) => {
+        h.cards.setStatus(id, 'running');
+        h.cards.commitActivationOutcome(id, { status: 'done', summary: 'done', result: workflowResult('DONE', 'done') }, '2026-10-14T00:00:00.000Z');
+        beforeOwner = readFileSync(cardHeadFile(h.projectRoot, id));
+        return h.supervisor.cancelCard(id, reason);
+      },
+    });
+    const observation = jest.spyOn(h.cards, 'readCurrentSubtree');
+    await expect(mutations.cards.cancel(target.id)).rejects.toThrow(`Card '${target.id}' in status 'done' cannot be cancelled.`);
+    expect(observation.mock.results[0]!.value).toMatchObject([{ id: target.id, lifecycle: { status: 'backlog' } }]);
+    expect(readFileSync(cardHeadFile(h.projectRoot, target.id))).toEqual(beforeOwner);
+    expect(h.cards.read(target.id)!.lifecycle.status).toBe('done');
+    expect(notifyCard).not.toHaveBeenCalled();
+  });
+
   it.each(['stop', 'close'] as const)(
     'keeps a selected-global known enqueue receipt when synchronous %s takes over the card owner',
     async (takeover) => {

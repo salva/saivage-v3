@@ -3,7 +3,7 @@ import { PROJECT_CARD_ID, createCardNotification } from '../cards/store-api.js';
 import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { projectNotificationSubmission } from './notification-result-projection.js';
-import { cardDepth, MAX_CARD_DEPTH, type CardRecord, type CardTypeName } from '../schemas/index.js';
+import { cardDepth, MAX_CARD_DEPTH, type CardTypeName } from '../schemas/index.js';
 import {
   throwIfPublicationOutcomeUnknown,
   parseRecordUrl as awaitImportParse,
@@ -124,12 +124,6 @@ function reportPropagation(
   }
 }
 
-function subtree(store: CardService, rootId: string): CardRecord[] {
-  return [rootId, ...store.getDescendantIds(rootId)]
-    .map((id) => store.read(id))
-    .filter((card): card is CardRecord => card !== null);
-}
-
 class AnalystCardMutationImplementation implements AnalystCardMutationService {
   constructor(
     private readonly store: CardService,
@@ -190,7 +184,9 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     for (const id of ids) {
       if (id === PROJECT_CARD_ID) return denied('root project card cannot be deleted');
       if (!this.store.read(id)) return denied(`card '${id}' does not exist`);
-      const blocked = subtree(this.store, id).find((card) => card.lifecycle.status === 'running');
+      const blocked = this.store
+        .readCurrentSubtree(id)
+        .find((card) => card.lifecycle.status === 'running');
       if (blocked) return denied(`card '${blocked.id}' is running`);
     }
     const result = this.store.deleteSubtrees(
@@ -205,9 +201,9 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const card = this.store.read(cardId);
     if (!card) return denied(`card '${cardId}' does not exist`);
     if (card.id === PROJECT_CARD_ID) return denied('root project card cannot be cancelled');
-    const blocked = subtree(this.store, cardId).find(
-      (candidate) => !canCancelCardStatus(candidate.lifecycle.status),
-    );
+    const blocked = this.store
+      .readCurrentSubtree(cardId)
+      .find((candidate) => !canCancelCardStatus(candidate.lifecycle.status));
     if (blocked) return denied(`card '${blocked.id}' is ${blocked.lifecycle.status}`);
     const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
     const anchor = this.store.getParent(card.id) ?? cardId;
@@ -237,14 +233,12 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     )
       return denied('reorder_set_mismatch');
     for (const childId of orderedChildIds) {
-      const child = this.store.read(childId);
-      if (!child) continue;
-      const blocked = subtree(this.store, child.id).find(
-        (candidate) => candidate.lifecycle.status === 'running',
-      );
+      const blocked = this.store
+        .readCurrentSubtree(childId)
+        .find((candidate) => candidate.lifecycle.status === 'running');
       if (blocked)
         return denied(
-          `child subtree '${child.id}' contains '${blocked.id}' in status ${blocked.lifecycle.status}`,
+          `child subtree '${childId}' contains '${blocked.id}' in status ${blocked.lifecycle.status}`,
         );
     }
     const result = this.store.reorderChildren(parentId, [...orderedChildIds]);
