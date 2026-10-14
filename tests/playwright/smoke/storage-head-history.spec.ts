@@ -205,3 +205,126 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   expect(badResponses).toEqual([]);
   assertPreviewRequestFailures(failures);
 });
+
+for (const outcome of ['success', 'failure'] as const) {
+  test(`built Records preserves manual inspection after held current ${outcome}`, async ({ page, context, baseURL }, testInfo) => {
+    if (!baseURL) throw new Error('baseURL required');
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const pageErrors: string[] = [];
+    const consoleErrors: string[] = [];
+    const requestErrors: string[] = [];
+    const expectedBootstrapAborts: string[] = [];
+    const failures = observePreviewRequestFailures(page, baseURL);
+    const badResponses: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+    page.on('requestfailed', (request) => {
+      const url = new URL(request.url());
+      const error = request.failure()?.errorText ?? '';
+      // Bootstrap may supersede its first runtime pair. Keep this case narrower
+      // than the shared preview classifier: record/history cancellations fail.
+      if (request.method() === 'GET' && url.origin === new URL(baseURL).origin &&
+        error === 'net::ERR_ABORTED' && url.search === '' &&
+        (url.pathname === '/api/state' || url.pathname === '/api/runtime/status')) {
+        expectedBootstrapAborts.push(url.pathname);
+      } else requestErrors.push(`${request.url()} ${error}`);
+    });
+    const prefix = `/api/cards/${smokeCardId}/records/${recordName}`;
+    page.on('response', (response) => {
+      if (response.status() >= 400) badResponses.push(`${response.status()} ${new URL(response.url()).pathname}`);
+    });
+    await installOperatorWebSocketShim(page);
+    const rest = await installOperatorRestRoutes(page);
+    let currentReads = 0;
+    let historyReads = 0;
+    const versionReads: number[] = [];
+    const diffReads: number[] = [];
+    let held!: Route;
+    let markHeld!: () => void;
+    const heldReady = new Promise<void>((resolve) => { markHeld = resolve; });
+    const secondText = 'New independent accepted selection two.';
+    const secondAccepted = { ...accepted, source_version: 2, source_entry_id: fourthId,
+      card_version_seq: 7, content: secondText, content_sha256: hash(secondText), size_bytes: Buffer.byteLength(secondText) };
+    const currentBody = (fresh: boolean) => {
+      const text = fresh ? 'Late fresh current draft.' : draftText;
+      return { card_id: smokeCardId, record: { head_id: fresh ? fourthId : firstId, name: recordName,
+        revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted,
+        draft: { opened_at: now, updated_at: now, content: text, content_sha256: hash(text) }, effective_content_source: 'draft' } };
+    };
+    await page.route(`**/api/cards/${smokeCardId}/records{,/**,?**}`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === `/api/cards/${smokeCardId}/records`) return json(route, 'cards.records.list', {
+        card_id: smokeCardId, records: [{ name: recordName, format: 'markdown', schema: 'brief.v1', bootstrap: true, current: null }] });
+      if (url.pathname === prefix) {
+        currentReads++;
+        if (currentReads === 1) return json(route, 'cards.records.get', currentBody(false));
+        expect(currentReads).toBe(2);
+        held = route; markHeld(); return;
+      }
+      if (url.pathname === `${prefix}/history`) {
+        historyReads++;
+        const versions = historyReads === 1 ? [1] : [1, 2];
+        return json(route, 'cards.records.history.list', { card_id: smokeCardId, name: recordName,
+          versions: versions.map((version) => ({ version, entry_id: version === 1 ? acceptedId : fourthId,
+            published_at: now, version_url: `${currentUrl}&v=${version}` })), total: versions.length });
+      }
+      if (url.pathname.startsWith(`${prefix}/versions/`)) {
+        const version = Number(url.pathname.split('/').at(-1)); versionReads.push(version);
+        const body = version === 1 ? accepted : secondAccepted;
+        return json(route, 'cards.records.versions.get', { card_id: smokeCardId, name: recordName, version,
+          version_url: `${currentUrl}&v=${version}`, entry_id: body.source_entry_id, published_at: now,
+          artifact: { published_at: now, accepted: body } });
+      }
+      if (url.pathname === `${prefix}/diff`) {
+        const version = Number(url.searchParams.get('from')); diffReads.push(version);
+        expect(url.searchParams.get('to')).toBe('current'); expect(url.searchParams.get('view')).toBe('effective');
+        return json(route, 'cards.records.diff', { card_id: smokeCardId, name: recordName, from: version,
+          to: { kind: 'current', head_id: firstId, revision: 3, accepted_version: 1 }, view: 'effective',
+          hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: [`-${version === 1 ? acceptedText : secondText}`, '+Independent diff observation.'] }] });
+      }
+      return route.fallback();
+    });
+    await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`));
+    const records = page.getByTestId('facet-records').locator('.records-list');
+    await expect(records.getByText(draftText, { exact: true })).toBeVisible();
+    await records.getByRole('button', { name: 'History', exact: true }).click();
+    await records.getByRole('button', { name: 'v1 · accepted', exact: true }).click();
+    await expect(records.locator('.selected-record')).toContainText(acceptedText);
+    await page.evaluate(({ id, name }) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: id, record_name: name }), { id: smokeCardId, name: recordName });
+    await heldReady;
+    await expect(records.getByRole('button', { name: 'History', exact: true })).toBeEnabled();
+    await records.getByRole('button', { name: 'History', exact: true }).click();
+    const secondButton = records.getByRole('button', { name: 'v2 · accepted', exact: true });
+    await expect(secondButton).toBeEnabled(); await secondButton.click();
+    const selection = records.locator('.selected-record');
+    await expect(selection).toContainText(secondText);
+    await expect(selection.locator('.record-diff')).toContainText('+Independent diff observation.');
+    if (outcome === 'success') await json(held, 'cards.records.get', currentBody(true));
+    else await json(held, 'cards.records.get', { error: 'card_record_not_found', cardId: smokeCardId, name: recordName }, 404);
+    if (outcome === 'success') await expect(records.getByText('Late fresh current draft.', { exact: true })).toBeVisible();
+    else { await expect(records.locator('.record-stale')).toContainText('card_record_not_found'); await expect(records.locator('.record-stale button')).toHaveText('Retry'); }
+    await expect(records.locator('.record-history button')).toHaveCount(2);
+    await expect(selection).toContainText('Selected v2'); await expect(selection).toContainText(secondText);
+    await expect(selection).toContainText('Observed card mutation revision 7');
+    await expect(selection).toContainText('Current record revision 3');
+    await expect(selection.locator('.record-diff')).toContainText('+Independent diff observation.');
+    await selection.getByRole('button', { name: 'Copy selected record locator', exact: true }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${currentUrl}&v=2`);
+    expect(new URL(page.url()).searchParams.has('record')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('version')).toBe(false);
+    expect(currentReads).toBe(2); expect(historyReads).toBe(2); expect(versionReads).toEqual([1, 2]); expect(diffReads).toEqual([1, 2]);
+    await page.screenshot({ path: testInfo.outputPath(`record-current-${outcome}-history-preserved.png`), fullPage: true });
+    expect(rest.unknown).toEqual([]); expect(pageErrors).toEqual([]); expect(requestErrors).toEqual([]);
+    assertPreviewRequestFailures(failures);
+    expect(badResponses).toEqual(outcome === 'failure' ? [`404 ${prefix}`] : []);
+    if (outcome === 'failure') {
+      expect(consoleErrors).toHaveLength(1); expect(consoleErrors[0]).toContain('404');
+    } else expect(consoleErrors).toEqual([]);
+    await testInfo.attach('transport-error-counts', { contentType: 'application/json', body: JSON.stringify({
+      page: pageErrors.length, console: consoleErrors.length, request: requestErrors.length,
+      expectedHttp: badResponses.length, expectedBootstrapAborts: expectedBootstrapAborts.length,
+      expectedStateAborts: expectedBootstrapAborts.filter((path) => path === '/api/state').length,
+      expectedRuntimeStatusAborts: expectedBootstrapAborts.filter((path) => path === '/api/runtime/status').length,
+      unexpected: failures.unexpected.length + requestErrors.length }) });
+  });
+}

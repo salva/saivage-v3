@@ -21,12 +21,155 @@ const descriptors=[
 const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_id:'11111111-1111-4111-8111-111111111111',revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((settle) => { resolve = settle; });
-  return { promise, resolve };
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((settle, fail) => { resolve = settle; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+const recordName = 'brief.md';
+const nextHead = '22222222-2222-4222-8222-222222222222';
+function recordHistory(version: number) {
+  return { card_id: A, name: recordName, versions: [{ version, entry_id: nextHead,
+    published_at: '2026-07-22T00:00:00.000Z', version_url: `record:///${recordName}?card=${A}&v=${version}` }], total: 1 };
+}
+function recordSelection(version: number) {
+  const accepted = { ...content(A, recordName, `history ${version}`).record.accepted,
+    source_version: version, source_entry_id: nextHead, card_version_seq: 7 };
+  return { card_id: A, name: recordName, version, version_url: recordHistory(version).versions[0]!.version_url,
+    entry_id: nextHead, published_at: accepted.committed_at, artifact: { published_at: accepted.committed_at, accepted } };
+}
+function recordDiff(version: number) {
+  return { card_id: A, name: recordName, from: version,
+    to: { kind: 'current' as const, head_id: content(A, recordName).record.head_id, revision: 2, accepted_version: 2 },
+    view: 'effective' as const, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: [`-history ${version}`, '+observed current'] }] };
+}
+async function recordStore() {
+  vi.mocked(getCard).mockImplementation(async (id) => ({ card: cardView(id) }));
+  vi.mocked(listCardRecords).mockImplementation(async (id) => ({ card_id: id, records: [descriptors[0]!] }));
+  vi.mocked(getCardRecord).mockImplementation(async (id, name) => content(id, name));
+  vi.mocked(listRecordHistory).mockResolvedValue(recordHistory(1));
+  vi.mocked(getRecordVersion).mockImplementation(async (_id, _name, version) => recordSelection(version));
+  vi.mocked(getRecordDiff).mockImplementation(async (_id, _name, version) => recordDiff(version));
+  const store = useCardStore();
+  await store.fetchCardDetail(A); await store.loadCardRecords(A);
+  return store;
 }
 
 describe('CardStore exact card resources',()=>{
   beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();});
+
+  it.each(['success', 'failure'])('preserves changed completed and pending history across current %s', async (outcome) => {
+    const store = await recordStore();
+    await store.openRecordHistory(recordName); await store.selectRecordVersion(recordName, 1);
+    for (const historicalFirst of [true, false]) {
+      const current = deferred<Awaited<ReturnType<typeof getCardRecord>>>();
+      const history = deferred<Awaited<ReturnType<typeof listRecordHistory>>>();
+      const selected = deferred<Awaited<ReturnType<typeof getRecordVersion>>>();
+      const diff = deferred<Awaited<ReturnType<typeof getRecordDiff>>>();
+      vi.mocked(getCardRecord).mockReturnValueOnce(current.promise);
+      const refresh = store.refreshRecord(recordName, 'invalidated');
+      vi.mocked(listRecordHistory).mockReturnValueOnce(history.promise);
+      vi.mocked(getRecordVersion).mockReturnValueOnce(selected.promise);
+      vi.mocked(getRecordDiff).mockReturnValueOnce(diff.promise);
+      const version = historicalFirst ? 3 : 4;
+      const catalogRead = store.openRecordHistory(recordName);
+      const selectionRead = store.selectRecordVersion(recordName, version);
+      const finishHistory = async () => {
+        history.resolve(recordHistory(version)); selected.resolve(recordSelection(version)); diff.resolve(recordDiff(version));
+        await Promise.all([catalogRead, selectionRead]);
+      };
+      if (historicalFirst) await finishHistory();
+      const before = store.cardRecords[recordName]!;
+      if (outcome === 'success') current.resolve({ ...content(A, recordName, 'new current'), record: {
+        ...content(A, recordName, 'new current').record, head_id: nextHead } });
+      else current.reject(new Error('current failed'));
+      await refresh;
+      const slot = store.cardRecords[recordName]!;
+      for (const key of ['descriptor', 'history', 'historyLoading', 'historyError', 'selectedVersion', 'selected', 'selectedLoading', 'selectedError', 'diff', 'diffLoading', 'diffError'] as const)
+        expect(slot[key]).toEqual(before[key]);
+      if (!historicalFirst) {
+        expect(slot).toMatchObject({ selectedVersion: version, historyLoading: true, selectedLoading: true, diffLoading: true });
+        await finishHistory();
+      }
+      expect(store.cardRecords[recordName]).toMatchObject({ history: recordHistory(version), selected: recordSelection(version),
+        diff: recordDiff(version), selectedVersion: version, historyLoading: false, selectedLoading: false, diffLoading: false });
+      if (outcome === 'success') expect(slot.current?.record).toMatchObject({ head_id: nextHead, revision: 2 });
+      else expect(slot).toMatchObject({ staleReason: 'refresh-failed', refreshError: 'current failed', content: { content: 'accepted' } });
+    }
+  });
+
+  it.each(['success', 'failure'])('preserves new historical errors and null selection on current %s', async (outcome) => {
+    const store = await recordStore();
+    const current = deferred<Awaited<ReturnType<typeof getCardRecord>>>();
+    vi.mocked(getCardRecord).mockReturnValueOnce(current.promise);
+    const refresh = store.refreshRecord(recordName, 'invalidated');
+    vi.mocked(listRecordHistory).mockRejectedValueOnce(new Error('new catalog error'));
+    await store.openRecordHistory(recordName);
+    if (outcome === 'success') current.resolve(content(A, recordName)); else current.reject(new Error('current failed'));
+    await refresh;
+    expect(store.cardRecords[recordName]).toMatchObject({ selectedVersion: null, selected: null, diff: null, historyError: 'new catalog error' });
+    const second = deferred<Awaited<ReturnType<typeof getCardRecord>>>();
+    vi.mocked(getCardRecord).mockReturnValueOnce(second.promise);
+    const again = store.refreshRecord(recordName, 'invalidated');
+    vi.mocked(getRecordVersion).mockRejectedValueOnce(new Error('new selected error'));
+    vi.mocked(getRecordDiff).mockRejectedValueOnce(new Error('new diff error'));
+    await store.selectRecordVersion(recordName, 3);
+    if (outcome === 'success') second.resolve(content(A, recordName)); else second.reject(new Error('current failed'));
+    await again;
+    expect(store.cardRecords[recordName]).toMatchObject({ selectedVersion: 3, selectedError: 'new selected error', diffError: 'new diff error', historyError: 'new catalog error' });
+  });
+
+  it.each(['optional empty', 'initial failed retry', 'accepted empty failure'])('preserves concurrent history on %s', async (branch) => {
+    const store = await recordStore();
+    const optional = { ...descriptors[0]!, bootstrap: false };
+    vi.mocked(listCardRecords).mockResolvedValueOnce({ card_id: A, records: [optional] });
+    await store.loadRecordDescriptors(A);
+    const missing = new OperatorApiError('cards.records.get', 404, { error: 'card_record_not_found', cardId: A, name: recordName });
+    if (branch === 'initial failed retry') {
+      vi.mocked(getCardRecord).mockRejectedValueOnce(new Error('first failure')); await store.loadCardRecords(A);
+    } else if (branch === 'accepted empty failure') {
+      vi.mocked(getCardRecord).mockRejectedValueOnce(missing); await store.loadCardRecords(A);
+    }
+    const current = deferred<Awaited<ReturnType<typeof getCardRecord>>>();
+    vi.mocked(getCardRecord).mockReturnValueOnce(current.promise);
+    const read = branch === 'initial failed retry' ? store.retryRecord(recordName) : branch === 'accepted empty failure' ? store.refreshRecord(recordName, 'invalidated') : store.loadCardRecords(A);
+    await store.openRecordHistory(recordName); await store.selectRecordVersion(recordName, 3);
+    current.reject(branch === 'optional empty' ? missing : new Error('late failure'));
+    await read;
+    expect(store.cardRecords[recordName]).toMatchObject({ history: recordHistory(1), selected: recordSelection(3), selectedVersion: 3, diff: recordDiff(3) });
+    if (branch === 'optional empty') expect(store.cardRecords[recordName]).toMatchObject({ content: { kind: 'empty' }, error: null, stale: false });
+    else if (branch === 'initial failed retry') expect(store.cardRecords[recordName]).toMatchObject({ current: null, content: null, loading: false, error: 'late failure', stale: false });
+    else expect(store.cardRecords[recordName]).toMatchObject({ content: { kind: 'empty' }, staleReason: 'refresh-failed', refreshError: 'late failure' });
+  });
+
+  it.each(['superseded', 'departed', 'cleared', 'reset', 'missing detail'])('fences late resolve/reject and finalizers when current is %s', async (fence) => {
+    for (const rejection of [false, true]) {
+      const store = await recordStore();
+      const current = deferred<Awaited<ReturnType<typeof getCardRecord>>>();
+      vi.mocked(getCardRecord).mockReturnValueOnce(current.promise);
+      const read = store.refreshRecord(recordName, 'invalidated');
+      const signal = vi.mocked(getCardRecord).mock.calls.at(-1)![2]!;
+      let newer: Promise<void> | undefined;
+      const replacement = deferred<Awaited<ReturnType<typeof getCardRecord>>>();
+      if (fence === 'superseded') {
+        vi.mocked(getCardRecord).mockReturnValueOnce(replacement.promise);
+        newer = store.refreshRecord(recordName, 'invalidated');
+      } else if (fence === 'departed') { await store.fetchCardDetail('card-b'); await store.loadCardRecords('card-b'); }
+      else if (fence === 'cleared') store.clearCardSelection();
+      else if (fence === 'reset') store.reset();
+      else { vi.mocked(getCard).mockRejectedValueOnce(new OperatorApiError('cards.get', 404, { error: 'Card not found', cardId: A })); await store.refreshCardDetail('invalidated'); }
+      expect(signal.aborted).toBe(true);
+      const before = store.cardRecords;
+      if (rejection) current.reject(new Error('late error')); else current.resolve(content(A, recordName, 'late content'));
+      await read;
+      expect(store.cardRecords).toBe(before);
+      if (newer) {
+        expect(store.cardRecords[recordName]!.refreshing).toBe(true);
+        replacement.resolve(content(A, recordName, 'replacement')); await newer;
+        expect(store.cardRecords[recordName]!.content).toMatchObject({ content: 'replacement' });
+      }
+    }
+  });
 
   it('replaces exact head identity when a fresh card/record selection has the same displayed revision', async () => {
     const nextId = '22222222-2222-4222-8222-222222222222';
@@ -176,6 +319,19 @@ describe('CardStore exact card resources',()=>{
     const store = useCardStore(); await store.fetchCardDetail(A); await store.loadCardRecords(A);
     expect(store.cardRecords['research-findings.md']!.content).toBeNull();
     expect(store.cardRecords['research-findings.md']!.error).toBe('card_record_not_found');
+  });
+
+  it.each(['wrong operation', 'opaque 500'])('does not classify %s as optional empty', async (kind) => {
+    const store = await recordStore();
+    vi.mocked(listCardRecords).mockResolvedValueOnce({ card_id: A, records: [{ ...descriptors[0]!, bootstrap: false }] });
+    await store.loadRecordDescriptors(A);
+    const error = kind === 'wrong operation'
+      ? new OperatorApiError('cards.records.list', 404, { error: 'Card not found', cardId: A })
+      : new OperatorApiError('cards.records.get', 500, { error: 'InternalServerError', message: 'Internal server error' });
+    vi.mocked(getCardRecord).mockRejectedValueOnce(error);
+    await store.loadCardRecords(A);
+    expect(store.cardRecords[recordName]!.content).toBeNull();
+    expect(store.cardRecords[recordName]!.error).not.toBeNull();
   });
 
   it('fences a selected-card load after pending descriptors before reading record content',async()=>{

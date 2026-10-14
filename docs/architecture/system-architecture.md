@@ -1732,6 +1732,10 @@ DebugStore keeps those canonical REST rows, while the pure exhaustive web read-m
 This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.
 
 For Cards specifically, CardStore owns disjoint `hierarchySlicesByParentId`, selected detail, an ordered map of selected-card record states keyed by exact configured name, mounted selected history, immutable selected history entry, and selected current-relative diff state.
+Combined record slots have independent current, catalog, selected-version and diff
+field owners. After request/card fencing, current settlement merges only current
+content, loading/error and freshness fields into the live slot; it never restores
+captured historical fields or changes a diff's observed target identity.
 A single compact `CardFlowHeader` owns shared selected-card orientation in cockpit
 facets and admitted card-session views. It keeps the plain-language observed workflow
 step primary and bounds exact workflow/publication mechanics inside its scrollable

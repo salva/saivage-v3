@@ -572,7 +572,7 @@ export const useCardStore = defineStore('cards', () => {
             ? response.record.draft!.updated_at
             : response.record.accepted?.committed_at;
         cardRecords.value = withKey(cardRecords.value, name, {
-          ...prior,
+          ...cardRecords.value[name]!,
           current: response,
           loading: false,
           error: null,
@@ -599,7 +599,7 @@ export const useCardStore = defineStore('cards', () => {
           (content === null || content.kind === 'empty');
         if (optionalEmpty404)
           cardRecords.value = withKey(cardRecords.value, name, {
-            ...prior,
+            ...cardRecords.value[name]!,
             loading: false,
             error: null,
             content: { kind: 'empty' },
@@ -607,7 +607,7 @@ export const useCardStore = defineStore('cards', () => {
           });
         else if (content)
           cardRecords.value = withKey(cardRecords.value, name, {
-            ...prior,
+            ...cardRecords.value[name]!,
             loading: false,
             refreshing: false,
             stale: true,
@@ -616,8 +616,12 @@ export const useCardStore = defineStore('cards', () => {
           });
         else
           cardRecords.value = withKey(cardRecords.value, name, {
-            ...emptyRecordState(prior.descriptor),
+            ...cardRecords.value[name]!,
+            current: null,
+            content: null,
+            loading: false,
             error: message(error, `Failed to load ${name}`),
+            ...fresh(),
           });
       })
       .finally(() => {

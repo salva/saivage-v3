@@ -393,6 +393,11 @@ Plain resource reads cancel their pending request when their owner departs. Supe
   remains visible alongside independent history/selection loading, local
   error/Retry, or selected content and provenance. Missing exact versions never
   substitute current content; a diff error does not hide selected content.
+  Manual controls remain usable during current refresh. Current completion,
+  success or failure, preserves independently changed catalogs, historical
+  selections and diffs, including their loading and errors. A null selection
+  stays null; a retained diff keeps its own observed target head identity,
+  not a relabelled or recomputed observation of the new current head.
 - Card versions expose publication facts and current-relative differences.
   Null change metadata means attribution unavailable; no author or cause is
   inferred. Record revisions keep their own sequences. Overview explains that

@@ -368,4 +368,52 @@ describe('CardRecordsSection', () => {
     expect(getCardRecord).toHaveBeenCalledTimes(3);
     expect(wrapper.find('.record-stale').exists()).toBe(false);
   });
+
+  it.each(['success', 'failure'])('keeps manual changed inspection after late current %s without refetch', async (outcome) => {
+    const store = await admit();
+    const { wrapper, errors } = render();
+    await flushPromises();
+    await wrapper.get('.history-button').trigger('click'); await flushPromises();
+    await wrapper.get('.record-history button').trigger('click'); await flushPromises();
+    const current = deferred<CardRecordContentResponse>();
+    vi.mocked(getCardRecord).mockReturnValueOnce(current.promise);
+    const refresh = store.refreshRecord(name, 'invalidated');
+    const changed = { ...catalog(), versions: catalog().versions.filter((entry) => entry.version !== 1), total: 2 };
+    vi.mocked(listRecordHistory).mockResolvedValueOnce(changed);
+    await flushPromises();
+    expect(wrapper.get('.history-button').attributes('disabled')).toBeUndefined();
+    await wrapper.get('.history-button').trigger('click'); await flushPromises();
+    vi.mocked(getRecordDiff).mockRejectedValueOnce(new Error('new diff failed'));
+    const versionButton = wrapper.findAll('.record-history button').find((button) => button.text().startsWith('v2'))!;
+    expect(versionButton.attributes('disabled')).toBeUndefined();
+    await versionButton.trigger('click'); await flushPromises();
+    expect(wrapper.get('.record-history-error button').text()).toBe('Retry diff');
+    expect(wrapper.get('.record-history-error button').attributes('disabled')).toBeUndefined();
+    vi.mocked(getRecordDiff).mockResolvedValueOnce({ card_id: A, name, from: 2,
+      to: { kind: 'current', head_id: entryId, revision: 4, accepted_version: 4 }, view: 'effective',
+      hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: ['-historical brief 2', '+observed current'] }] });
+    await wrapper.get('.record-history-error button').trigger('click'); await flushPromises();
+    // A catalog error acquired during refresh must survive too, beside its last good catalog.
+    vi.mocked(listRecordHistory).mockRejectedValueOnce(new Error('new history failed'));
+    await wrapper.get('.history-button').trigger('click'); await flushPromises();
+    const counts = [vi.mocked(listRecordHistory).mock.calls.length, vi.mocked(getRecordVersion).mock.calls.length, vi.mocked(getRecordDiff).mock.calls.length];
+    const next = content();
+    if (outcome === 'success') current.resolve({ ...next, record: { ...next.record, head_id: '22222222-2222-4222-8222-222222222222', accepted: { ...next.record.accepted!, content: 'fresh current' } } });
+    else current.reject(new Error('late current failed'));
+    await refresh; await flushPromises();
+    expect(wrapper.get('.selected-record').text()).toContain('Selected v2');
+    expect(wrapper.get('.selected-record').text()).toContain(selected(2).version_url);
+    expect(wrapper.get('.selected-record').text()).toContain('historical brief 2');
+    expect(wrapper.get('.record-diff').text()).toContain('+observed current');
+    expect(wrapper.get('.record-diff').text()).toContain('Current record revision 4');
+    expect(wrapper.get('.record-history').text()).not.toContain('v1');
+    expect(wrapper.text()).toContain('new history failed');
+    if (outcome === 'failure') {
+      expect(wrapper.text()).toContain('accepted brief'); expect(wrapper.get('.record-stale').text()).toContain('late current failed');
+      expect(wrapper.get('.record-stale button').text()).toBe('Retry');
+    } else expect(wrapper.text()).toContain('fresh current');
+    expect([vi.mocked(listRecordHistory).mock.calls.length, vi.mocked(getRecordVersion).mock.calls.length, vi.mocked(getRecordDiff).mock.calls.length]).toEqual(counts);
+    expect(store.cardRecords[name]!.diff?.to).toMatchObject({ head_id: entryId });
+    expect(errors).not.toHaveBeenCalled();
+  });
 });

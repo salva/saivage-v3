@@ -23,6 +23,16 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Current-record UI settlement ownership — no durable impact (2026-10-14)
+
+Implementation parent: `e0c55a5ff3fef058622a94753738e8475867dc17`.
+Current REST completion now preserves independent transient catalog, selection
+and diff state. REST contracts, retained bytes and interpretation are unchanged;
+record heads/accepted artifacts remain format 1 and conversation index/genesis/
+envelopes remain 9. No discriminator changes or F12 migration/reset are needed.
+This is outside the earlier 8→9 cutover; source evidence establishes no installed
+applicability or compatibility of other release changes.
+
 ### Native absolute command cwd — no durable impact (2026-10-14)
 
 Exact implementation parent: `c48a9e57a953cfb8817c3ce332edd75b59e3bc44`.
