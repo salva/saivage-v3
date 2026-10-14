@@ -74,7 +74,6 @@ async function createServer(options: CreateServerOptions): Promise<ServerInstanc
     runtimeApplication: services.runtimeApplication,
     mcpManager: services.mcpManager,
     configAuthority: environment.configAuthority,
-    saivageConfig: services.config,
     liveSyncSocket: services.liveSyncSocket,
     restartCapability: services.restartCapability,
     authPolicy: services.authPolicy,

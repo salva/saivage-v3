@@ -2,9 +2,6 @@ import { describe, expect, it } from '@jest/globals';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type {
-  SaivageConfig,
-} from '../../src/schemas/saivage-config.js';
-import type {
   OperatorApiBody,
   OperatorApiHandlerResult,
   OperatorApiParams,
@@ -28,7 +25,6 @@ import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
 import { SAIVAGE_VERSION } from '../../src/version.js';
 
 declare const runtimeApplication: RuntimeApplication;
-declare const saivageConfig: SaivageConfig;
 declare const processRunner: ProcessRunner;
 declare const cardStore: CardService;
 declare const mcpToolsProvider: McpToolsReadModelProvider;
@@ -43,11 +39,11 @@ const serverAvailability = {
 const actorRuntime = { pauseMode: 'idle' as const, cards: [] };
 
 function chatFactoryDependencyTypeFixtures(): void {
-  buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, saivageConfig, restartCapability: { available: false } });
+  buildChatOperatorContractHandlers({ runtimeApplication, restartCapability: { available: false } });
   // @ts-expect-error Chat composition requires the runtime application.
-  buildChatOperatorContractHandlers({ projectRoot: '.', saivageConfig, restartCapability: { available: false } });
-  // @ts-expect-error Chat composition requires the startup-selected Saivage config.
-  buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, restartCapability: { available: false } });
+  buildChatOperatorContractHandlers({ restartCapability: { available: false } });
+  // @ts-expect-error Chat composition requires the restart capability.
+  buildChatOperatorContractHandlers({ runtimeApplication });
 }
 
 function processFactoryDependencyTypeFixtures(): void {

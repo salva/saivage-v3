@@ -32,7 +32,6 @@ import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
 import { AnalystSession } from '../../src/runtime/actors/analyst-session.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
-import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { AgentNodeExecution } from '../../src/runtime/actors/agent-node-execution.js';
 import { ActivationOperationTracker, InvocationLifecycle } from '../../src/runtime/actors/invocation-lifecycle.js';
@@ -49,7 +48,6 @@ async function submitThroughRest(submit: (input: { userContent: string }) => Pro
   const app = await createFastifyApp({ nodeEnv: 'test', server: { logLevel: 'silent' } } as Environment, fatalPort);
   const runtime = new ContractRuntime({ fatalPort, authPolicy: new AuthPolicy({}), eventLogger: {} as never });
   runtime.mount(app, chatOperatorApiContracts, buildChatOperatorContractHandlers({
-    projectRoot: path ? dirname(path) : '.', saivageConfig: TEST_SAIVAGE_CONFIG,
     restartCapability: { available: false },
     runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
   }));

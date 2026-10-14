@@ -38,7 +38,6 @@ interface OperatorContractRouteRegistrationOptions
   eventLogger: EventLog;
   mcpManager: McpManager;
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
-  saivageConfig: import('../../schemas/saivage-config.js').SaivageConfig;
   workflows: import('../../runtime/runtime-api.js').CompiledRuntimeWorkflows;
   fatalPort: ApplicationFatalPort;
 }
@@ -74,10 +73,8 @@ export function registerOperatorContractRoutes(
       captureExecutingLlmSnapshots: options.runtimeApplication.captureExecutingLlmSnapshots,
     }),
     ...buildChatOperatorContractHandlers({
-      projectRoot,
       runtimeApplication: options.runtimeApplication,
       restartCapability: options.restartCapability,
-      saivageConfig: options.saivageConfig,
     }),
     ...buildFilesDebugOperatorContractHandlers({
       projectRoot,

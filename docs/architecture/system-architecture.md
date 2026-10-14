@@ -235,6 +235,8 @@ It combines authentication policy with the optional boot input into one immutabl
 The exact capability is passed unchanged through runtime, tool, Analyst, and REST composition. Scheduled chat restart acknowledgement belongs to REST response finish, not observation-only sockets.
 `buildRuntimeStatusReadModel()` is the sole projector of its discriminator to public `restart_server_available`.
 
+Chat handlers receive only the runtime application and restart capability; `AuthPolicy` remains at the HTTP/WS admission boundary. Configuration authority remains with its existing runtime, config, Files, and MCP owners. `ServerInstance.saivageConfig` remains a separate in-process config inspection surface, not an HTTP exposure or chat dependency.
+
 `AnalystSession` is a plain serial phase coordinator.
 Admission moves one pending restart-confirmation capability into one accepted operation, whose immutable accepted ID identifies ingress and confirmed-restart publication and is distinct from every fresh initial, tool-continuation, and repair invocation source.
 Its tracker consumer alone installs reusable idle, permanent failed, or disposed settlement and delivers the caller.

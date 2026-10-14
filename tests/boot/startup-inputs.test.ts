@@ -106,7 +106,7 @@ describe('typed startup input precedence', () => {
     const root = rootWithConfig();
     await expect(loadEnvironment(inputs(root), {
       NODE_ENV: 'test', LOG_LEVEL: 'debug', SAIVAGE_API_TOKEN: 'startup-token',
-    })).resolves.toMatchObject({ nodeEnv: 'test', server: { logLevel: 'debug' }, auth: { apiToken: 'startup-token', devModeAuthDisabled: false } });
+    })).resolves.toMatchObject({ nodeEnv: 'test', server: { logLevel: 'debug' }, auth: { apiToken: 'startup-token' } });
   });
 
   it.each(['', '   '])('rejects a set-but-blank API token %#', async (apiToken) => {
@@ -133,9 +133,9 @@ describe('typed startup input precedence', () => {
 
   it('uses only an absent token to select authentication-disabled mode', async () => {
     const root = rootWithConfig();
-    await expect(loadEnvironment(inputs(root), {})).resolves.toMatchObject({ auth: { apiToken: undefined, devModeAuthDisabled: true } });
+    await expect(loadEnvironment(inputs(root), {})).resolves.toMatchObject({ auth: { apiToken: undefined } });
     await expect(loadEnvironment(inputs(root), { SAIVAGE_API_TOKEN: 'verbatim-token' })).resolves.toMatchObject({
-      auth: { apiToken: 'verbatim-token', devModeAuthDisabled: false },
+      auth: { apiToken: 'verbatim-token' },
     });
   });
 });

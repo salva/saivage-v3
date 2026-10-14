@@ -17,7 +17,6 @@ import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
-import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { projectLiveToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 import {
@@ -68,13 +67,11 @@ describe('operator chat route request contracts', () => {
     acknowledge.mockClear();
     fastify = Fastify({ logger: false });
     const handlers = buildChatOperatorContractHandlers({
-      projectRoot,
       runtimeApplication: {
         analystRuntime: { submit },
         analystSessionId: 'agent:analyst:global',
         cardStore: new CardService(projectRoot),
       } as unknown as RuntimeApplication,
-      saivageConfig: TEST_SAIVAGE_CONFIG,
       restartCapability: { available: true, port: { schedule: jest.fn(), acknowledge } },
     });
     new ContractRuntime({
@@ -110,6 +107,21 @@ describe('operator chat route request contracts', () => {
     });
     expect(response.statusCode).toBe(404);
     expect(response.json()).toMatchObject({ error: 'Not Found', statusCode: 404 });
+  });
+
+  it('rejects unauthorized chat requests before validation or Analyst submission', async () => {
+    for (const headers of [{}, { authorization: 'Bearer wrong-token' }]) {
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/chat',
+        headers,
+        payload: { unexpected: true },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(submit).not.toHaveBeenCalled();
+      expect(acknowledge).not.toHaveBeenCalled();
+    }
   });
 
   it('admits canonical POST and submits the Analyst turn', async () => {
@@ -474,7 +486,7 @@ describe('operator chat route request contracts', () => {
     const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => ['view_image'], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
     fastify = Fastify({ logger: false });
     const contracts = new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort });
-    contracts.mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: sessionId, cardStore } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    contracts.mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ runtimeApplication: { analystRuntime: runtime, analystSessionId: sessionId, cardStore } as unknown as RuntimeApplication, restartCapability: { available: false } }));
     contracts.mount(fastify, agentOperatorApiContracts, buildAgentOperatorContractHandlers({ projectRoot, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() }));
     await fastify.ready();
     try {
@@ -524,7 +536,7 @@ describe('operator chat route request contracts', () => {
     });
     const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => ['explode'], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
     fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore: new CardService(projectRoot) } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore: new CardService(projectRoot) } as unknown as RuntimeApplication, restartCapability: { available: false } }));
     await fastify.ready();
 
     const first = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'first' } });
@@ -563,7 +575,7 @@ describe('operator chat route request contracts', () => {
     const createSession = jest.fn(() => session);
     const runtime = new AnalystRuntime({ createSession, getAvailableToolNames: () => [tool.name], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
     fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore: new CardService(projectRoot) } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore: new CardService(projectRoot) } as unknown as RuntimeApplication, restartCapability: { available: false } }));
     await fastify.ready();
     const first = fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'capacity send' } });
     // inject is lazy until its promise is consumed.
@@ -609,7 +621,7 @@ describe('operator chat route request contracts', () => {
     });
     const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => [], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
     fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, buildChatOperatorContractHandlers({ runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore } as unknown as RuntimeApplication, restartCapability: { available: false } }));
     await fastify.ready();
     const refinement = Object.fromEntries(Array.from({ length: 105 }, (_, i) => [`k${i}`, 'sk-a']));
     const bad = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'bad', workspaceContext: { view: 'files', entityId: null, refinement } } });

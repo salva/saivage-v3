@@ -17,7 +17,6 @@ import { ContractRuntime } from '../../../src/server/contract-runtime.js';
 import { AuthPolicy } from '../../../src/server/auth-policy.js';
 import { chatOperatorApiContracts } from '../../../src/contracts/operator-api-chats.js';
 import { createEventLog } from '../../../src/observability/index.js';
-import { TEST_SAIVAGE_CONFIG } from '../../helpers/test-saivage-config.js';
 import type { RuntimeApplication } from '../../../src/application/runtime-composition.js';
 
 test('browser sends frozen card focus to real shared Analyst while inspected content stays available', async ({ page }) => {
@@ -39,7 +38,7 @@ test('browser sends frozen card focus to real shared Analyst while inspected con
       cardTypeVocabulary: ['project'], fatalPort: testApplicationFatalPort, sessionId: 'agent:analyst:global', agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true }, candidateChain: [{ provider: 'test', account: null, model: 'test-model' }], routeUsableInputTokens: 80_000, promptTemplates: { render: () => 'Saivage Analyst' }, restartCapability: { available: false }, provider, conversations: { projectRoot: root }, compactionPolicy: testCompactionPolicy, compactor: { shouldCompact: () => false, compact: async () => { throw new Error('unexpected compaction'); } }, summarizerProvider: unusedSummarizerProvider, cardStore, runtimeCurrent: () => ({ status: 'stopped', currentCardId: null }), runtimeProjectionChanged() {}, createInvocationSurface: () => ({ agentName: 'analyst', tools: new Map(), providers: [] }), shutdownProcesses: async () => {},
     });
     const runtime = new AnalystRuntime({ createSession: () => session, getAvailableToolNames: () => [], terminateRoot: async () => ({ selected: [], stopped: [], failed: [] }) });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'focus-token' }), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(api, chatOperatorApiContracts, buildChatOperatorContractHandlers({ projectRoot: root, runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore } as unknown as RuntimeApplication, saivageConfig: TEST_SAIVAGE_CONFIG, restartCapability: { available: false } }));
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'focus-token' }), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(api, chatOperatorApiContracts, buildChatOperatorContractHandlers({ runtimeApplication: { analystRuntime: runtime, analystSessionId: 'agent:analyst:global', cardStore } as unknown as RuntimeApplication, restartCapability: { available: false } }));
     await api.ready();
 
     await seedTokenBeforeNavigation(page, 'focus-token');

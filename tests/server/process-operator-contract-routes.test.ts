@@ -136,7 +136,6 @@ describe('contract-backed process routes', () => {
         }),
         configAuthority: testConfigAuthority(projectRoot),
         runtimeApplication: runtimeApplication(processRunner, cardStore),
-        saivageConfig: TEST_SAIVAGE_CONFIG,
         workflows: TEST_RUNTIME_WORKFLOWS,
         providerRoutingReadModelProvider,
         authPolicy: new AuthPolicy(),

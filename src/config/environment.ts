@@ -27,7 +27,6 @@ export interface Environment {
   };
   readonly auth: {
     readonly apiToken?: string;
-    readonly devModeAuthDisabled: boolean;
   };
 }
 
@@ -210,7 +209,6 @@ export async function loadEnvironment(
     },
     auth: {
       apiToken,
-      devModeAuthDisabled: apiToken === undefined,
     },
   };
 

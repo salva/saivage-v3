@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../../schemas/index.js';
 import type { RuntimeApplication } from '../../application/index.js';
 import type { CardService } from '../../cards/store-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
@@ -20,7 +19,6 @@ export function registerServerRoutes(options: {
   cardStore: CardService;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
-  saivageConfig: SaivageConfig;
   configAuthority: ResolvedConfigAuthority;
   liveSyncSocket: LiveSyncSocket;
   restartCapability: RestartCapability;
@@ -44,7 +42,6 @@ export function registerServerRoutes(options: {
     mcpManager: options.mcpManager,
     serverAvailabilityProvider,
     configAuthority: options.configAuthority,
-    saivageConfig: options.saivageConfig,
     providerRoutingReadModelProvider: () =>
       options.runtimeApplication.getProviderRoutingReadModel(),
     restartCapability: options.restartCapability,
