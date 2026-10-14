@@ -25,6 +25,9 @@ import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixt
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { appendConversationBatch, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
+import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
+import { workspaceArgumentEgressRows, WORKSPACE_ARGUMENT_CANARY, WORKSPACE_ARGUMENT_PUBLIC_PATH, WORKSPACE_ARGUMENT_SOURCE } from '../helpers/workspace-argument-egress-fixture.js';
+import { buildGlobalAgentIngressRows } from '../../src/runtime/actors/conversation-session.js';
 
 const roots: string[] = [];
 
@@ -33,6 +36,42 @@ afterEach(() => {
 });
 
 describe('mounted operator compacted Agent conversations', () => {
+  it.each(['agent:analyst:global', 'agent:planner:project'] as const)('filters failed and unmatched %s current/history requests while preserving exact raw segment bytes', async (sessionId) => {
+    for (const unmatched of [false, true]) {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mounted-location-egress-'));
+      roots.push(projectRoot);
+      initProjectTree(projectRoot);
+      const rows = workspaceArgumentEgressRows(sessionId, unmatched);
+      if (sessionId === 'agent:analyst:global') appendConversationBatch({ projectRoot }, buildGlobalAgentIngressRows(sessionId, WORKSPACE_ARGUMENT_SOURCE, 'Synthetic location question', { kind: 'unavailable', reason: 'not_recorded' }));
+      appendConversationBatch({ projectRoot }, rows);
+      const segmentPath = currentConversationSegmentPath(projectRoot, sessionId);
+      const bytes = readFileSync(segmentPath);
+      expect(bytes.toString()).toContain(WORKSPACE_ARGUMENT_CANARY);
+      const stored = readHistoricalConversationSegment(projectRoot, sessionId, 1);
+      const fastify = Fastify({ logger: false });
+      new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, agentOperatorApiContracts, buildAgentOperatorContractHandlers({ projectRoot, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => executingLlmSnapshots([]) }));
+      try {
+        const base = `/api/agents/${encodeURIComponent(sessionId)}/conversation`;
+        const currentResponse = await fastify.inject({ method: 'GET', url: base });
+        const historyResponse = await fastify.inject({ method: 'GET', url: `${base}/versions/1` });
+        expect(currentResponse.statusCode).toBe(200);
+        expect(historyResponse.statusCode).toBe(200);
+        const current = AgentConversationResponseSchema.parse(currentResponse.json());
+        const history = ConversationVersionContentResponseSchema.parse(historyResponse.json());
+        expect(current.segment_id).toBe(stored.entry.entry_id);
+        expect(history.entry_id).toBe(stored.entry.entry_id);
+        expect(current.entries).toEqual(history.entries);
+        for (const dto of [current, history]) {
+          expect(JSON.stringify(dto)).not.toContain(WORKSPACE_ARGUMENT_CANARY);
+          expect(dto.session_id).toBe(sessionId);
+          expect(dto.entries.map(row => [row.id, row.tool_call_id, row.round_id, row.message_index])).toEqual(stored.rows.map(row => [row.id, row.tool_call_id, row.round_id, row.message_index]));
+          expect(JSON.parse(JSON.parse(dto.entries.find(row => row.kind === 'tool_call')!.content).tool_calls[0].function.arguments)).toEqual({ path: WORKSPACE_ARGUMENT_PUBLIC_PATH, metadata_only: true });
+          expect(dto.entries.filter(row => row.kind === 'tool_result')).toHaveLength(unmatched ? 0 : 1);
+        }
+        expect(readFileSync(segmentPath)).toEqual(bytes);
+      } finally { await fastify.close(); }
+    }
+  });
   it('projects real current and exact-history tool rows safely while preserving selected source identity and order', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-mounted-tool-egress-'));
     roots.push(projectRoot);

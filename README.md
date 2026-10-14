@@ -102,6 +102,8 @@ and appear once at the request position, including nonadjacent results;
 times remain inspectable. Compact friendly action/abbreviated-target/honest-outcome summaries
 expand to complete Request/Result detail and independent output heads; safe-original
 disclosures copy complete public values.
+Public request locations are privacy-filtered even for failed calls or calls with no
+recorded result, in both current and selected history; exact record selections remain usable.
 Safe-original image copy stays descriptor-only. Settlement need not mean process completion,
 acceptance, delivery or perception. Repair directives do not prove repair; interruption
 notices keep effects uncertainty visible. Scroll-away pauses following; Analyst's explicit

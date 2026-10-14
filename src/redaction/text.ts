@@ -361,7 +361,7 @@ function redactSecrets(content: string): string {
 }
 function redactProviderLikeText(content: string): string {
   return content
-    ? redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content)))
+    ? redactSecretAssignmentsForOutbound(redactEscapedJsonSecretValues(redactSecrets(content)))
     : content;
 }
 function redactJsonSecretValues(content: string): string {
@@ -373,7 +373,7 @@ function redactYamlSecretValues(content: string): string {
 function redactEscapedJsonSecretValues(content: string): string {
   return content.replace(ESCAPED_JSON_SECRET_VALUE_RE, replaceEscapedJsonSecretValue);
 }
-function redactInlineSecretAssignments(content: string): string {
+export function redactSecretAssignmentsForOutbound(content: string): string {
   return content
     .replace(INLINE_SECRET_ASSIGNMENT_RE, replaceInlineSecretAssignment)
     .replace(URL_SECRET_QUERY_PARAM_RE, replaceUrlSecretQueryParam);

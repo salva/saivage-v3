@@ -569,6 +569,10 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   received public strings through the final character, not reserialized summaries,
   private durable bytes or provider wire. All content and supported links use the
   same source-owned public projection for current and selected history.
+  Recorded workspace locations in Request, safe-original JSON and full copy are
+  server-filtered independently of execution outcome, including rejected calls and
+  calls with no recorded result. These are not unsanitized execution arguments;
+  strict valid record selections and exact evidence/source identities remain usable.
 - Tool summaries in the exact-session reader and Analyst panel keep the target on one
   visual line with meaningful abbreviation and width-dependent ellipsis, not wrapping
   long commands, paths or queries into a payload-sized block. Ordinary action/target/outcome

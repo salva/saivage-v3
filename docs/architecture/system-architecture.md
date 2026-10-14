@@ -898,6 +898,15 @@ Unknown diff fields fail rather than becoming dynamic.
 Tool invocation uses the [exact shipped tool identities](#exact-shipped-tool-identities) for its direct argument switch.
 Its leaf input is structurally `complete` with real arguments and result, `call-row` with raw canonical argument string and no result, or `result-row` with a strict result and no arguments.
 Known-valid, unsupported, known malformed-JSON, and known schema-invalid argument classifications are distinct, so rejected calls remain readable without settlement-message inference.
+The shared live/current/history argument switch applies complete outbound text defense to
+free-form workspace locations: read/image/write/edit `path`, glob `directory`, grep
+`path`, command `cwd`, and webfetch `save_as`. Strict valid `record:///` selections,
+including historical versions, preserve their supplied spelling; arbitrary record/work
+scheme prefixes confer no exemption. Webfetch `url` retains its separate URL projection.
+Optional `skill.name` is a lookup key: explicit secret assignments/query values are
+filtered, while credential-shaped aliases remain exact. Filtering is independent of
+success, failure or an absent result and changes neither execution arguments nor raw
+canonical evidence.
 Results instead have one shape-independent path: parse only the generic success/failure envelope and recursively redact opaque optional data and error without consulting tool identity.
 Existing Analyst array/wrapper and terminal payloads are ordinary values of `data: unknown`, not versioned or compatibility shapes.
 Exposure paths are live `chats.send`, complete generic Agent transcript rows, and direct or recursively nested bounded `read_agent_session` rows.

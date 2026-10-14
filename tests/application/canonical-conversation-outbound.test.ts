@@ -15,6 +15,7 @@ import { responsesBundle, RESPONSES_A } from '../helpers/responses-producer-fixt
 import { agentMessageSchema, parseActivationOpenPayload, STRUCTURAL_ROW_POLICY } from '../../src/schemas/index.js';
 import { AgentConversationEntrySchema } from '../../src/contracts/operator-api-agents.js';
 import { OUTBOUND_URL, OUTBOUND_REDACTED_URL, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
+import { workspaceArgumentEgressRows, WORKSPACE_ARGUMENT_CANARY, WORKSPACE_ARGUMENT_PUBLIC_PATH } from '../helpers/workspace-argument-egress-fixture.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
@@ -40,6 +41,20 @@ const classifiedProjector: ToolInvocationProjector = (input) => {
 };
 
 describe('canonical conversation outbound row projection', () => {
+  it.each(['agent:analyst:global', 'agent:planner:project'] as const)('projects failed and unmatched workspace calls in %s without changing canonical bytes or identity', (session) => {
+    for (const unmatched of [false, true]) {
+      const rows = workspaceArgumentEgressRows(session, unmatched);
+      const bytes = JSON.stringify(rows);
+      const projected = foldHistoricalConversationRows(rows);
+      expect(JSON.stringify(projected)).not.toContain(WORKSPACE_ARGUMENT_CANARY);
+      expect(JSON.parse(JSON.parse(projected[0]!.content).tool_calls[0].function.arguments)).toEqual({ path: WORKSPACE_ARGUMENT_PUBLIC_PATH, metadata_only: true });
+      expect(projected.map(row => [row.id, row.session_id, row.tool_call_id, row.round_id, row.message_index])).toEqual(rows.map(row => [row.id, row.session_id, row.tool_call_id, row.round_id, row.message_index]));
+      expect(projected).toHaveLength(unmatched ? 1 : 2);
+      expect(projected.filter(row => row.kind === 'tool_result')).toHaveLength(unmatched ? 0 : 1);
+      expect(JSON.stringify(rows)).toBe(bytes);
+      expect(projectCanonicalConversationRow(rows[0]!, projectToolInvocation)).toEqual(projected[0]);
+    }
+  });
   it.each([
     'Notes\n  api_key: "SYNTHETIC_CANARY"\r\nFINAL-SAFE-Z',
     '{"api_key"\t:\n"SYNTHETIC_CANARY\\\\path\\"quote"}\nFINAL-SAFE-Z',

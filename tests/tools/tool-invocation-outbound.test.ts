@@ -4,9 +4,11 @@ import type { ToolInvocationProjectionInput } from '../../src/contracts/tool-inv
 import { TERMINAL_RESULT_TOOL_NAME } from '../../src/contracts/result-envelope.js';
 import { parseConversationSessionId } from '../../src/schemas/index.js';
 import { buildRuntimeToolCatalog } from '../../src/tools/runtime-tool-catalog.js';
+import { readWorkspaceInputSchema, viewImageInputSchema, writeWorkspaceInputSchema, editWorkspaceInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema, runCommandInputSchema, WebfetchInvocationSchema, skillInputSchema } from '../../src/contracts/index.js';
 import {
   KNOWN_TOOL_INVOCATION_NAMES,
   projectToolInvocation,
+  projectLiveToolInvocation,
   type KnownToolInvocationName,
 } from '../../src/tools/tool-invocation-outbound.js';
 import {
@@ -45,9 +47,9 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   get_card_version: { card_id: 'card-a', version: 1, section: 'summary' },
   diff_card_versions: { card_id: 'card-a', from_version: 1, to_version: 2 },
   read_record_version: { card_id: 'card-a', record_name: 'status.md', version: 1, byte_offset: 0 },
-  read: { path: 'project:///tok_primary', position: { kind: 'text', byte_offset: 0 } },
-  write: { path: 'project:///tok_primary', content: marker },
-  edit: { path: 'project:///tok_primary', old_string: marker, new_string: marker, replace_all: false },
+  read: { path: 'project:///notes', position: { kind: 'text', byte_offset: 0 } },
+  write: { path: 'project:///notes', content: marker },
+  edit: { path: 'project:///notes', old_string: marker, new_string: marker, replace_all: false },
   glob: { directory: 'project:///', pattern: marker, max_results: 1 },
   grep: { path: 'project:///', pattern: marker, include: '*.ts', max_results: 1 },
   apply_patch: { patch: marker },
@@ -61,7 +63,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
     metadata_only: false,
     max_bytes: 123,
     max_inline_bytes: 45,
-    save_as: 'record:///brief.md?card=tok_primary',
+    save_as: 'record:///brief.md?card=project',
   },
   skill: { name: 'tok_primary' },
   mcp_tool_call: { serverName: 'ghu_server',
@@ -81,6 +83,86 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
+  const locations = [
+    ['read', 'path', readWorkspaceInputSchema],
+    ['view_image', 'path', viewImageInputSchema],
+    ['write', 'path', writeWorkspaceInputSchema],
+    ['edit', 'path', editWorkspaceInputSchema],
+    ['glob', 'directory', globWorkspaceInputSchema],
+    ['grep', 'path', grepWorkspaceInputSchema],
+    ['run_command', 'cwd', runCommandInputSchema],
+    ['webfetch', 'save_as', WebfetchInvocationSchema],
+  ] as const;
+
+  it.each(locations)('filters valid %s locations independently of outcome and call shape', (toolName, key, schema) => {
+    for (const location of [
+      'https://example.invalid/report?access_token=SYNTHETIC_PATH_CANARY',
+      'tmp/access_token=SYNTHETIC_PATH_CANARY FINAL-PATH-Z',
+      'record:///status.md?card=project&v=1&access_token=SYNTHETIC_PATH_CANARY',
+      'work:///tmp/access_token=SYNTHETIC_PATH_CANARY FINAL-PATH-Z',
+    ]) {
+      const args = { ...(validArguments[toolName] as object), [key]: location };
+      const admitted = schema.parse(args);
+      const before = JSON.stringify(args);
+      const expected = { ...admitted, [key]: location.replace('SYNTHETIC_PATH_CANARY', '[REDACTED]') };
+      // Other text fields retain their existing filtering.
+      for (const field of ['content', 'old_string', 'new_string', 'pattern', 'command'])
+        if (field in expected) (expected as Record<string, unknown>)[field] = 'Authorization: [REDACTED]';
+      if (toolName === 'webfetch') (expected as Record<string, unknown>)['url'] = OUTBOUND_REDACTED_URL;
+      for (const result of [{ success: false as const, error: 'Synthetic rejection' }, { success: true as const, data: null }]) {
+        const input = { shape: 'complete' as const, identity: identity(toolName), arguments: args, result };
+        expect(projectToolInvocation(input)).toMatchObject({ arguments: expected, identity: input.identity });
+        expect(projectLiveToolInvocation(input).arguments).toEqual(expected);
+      }
+      const call = projectToolInvocation({ shape: 'call-row', identity: callIdentity(toolName), arguments: before });
+      if (call.shape !== 'call-row') throw new Error('unexpected shape');
+      expect(JSON.parse(call.arguments)).toEqual(expected);
+      expect(call).not.toHaveProperty('result');
+      expect(JSON.stringify(args)).toBe(before);
+    }
+  });
+
+  it.each(locations)('preserves safe %s locations, spelling and all options', (toolName, key, schema) => {
+    for (const location of [
+      'record:///status.md?card=project&v=1', 'record:///sk-notes.md?card=project&v=1',
+      'record:///sk-notes.md?card=%70roject&v=1',
+      'work:///tmp/stash/webfetch-1720000000000-0123456789abcdef.txt', 'docs/notes.md',
+    ]) {
+      const args = schema.parse({ ...(validArguments[toolName] as object), [key]: location });
+      const projected = projectLiveToolInvocation({ shape: 'complete', identity: identity(toolName), arguments: args, result: { success: false, error: 'Synthetic rejection' } });
+      expect((projected.arguments as Record<string, unknown>)[key]).toBe(location);
+    }
+    if (['grep', 'run_command', 'webfetch'].includes(toolName)) {
+      const args = { ...(validArguments[toolName] as Record<string, unknown>) };
+      delete args[key];
+      schema.parse(args);
+      expect(projectLiveToolInvocation({ shape: 'complete', identity: identity(toolName), arguments: args, result: { success: true } }).arguments).not.toHaveProperty(key);
+    }
+  });
+
+  it('filters skill assignments but preserves exact lookup aliases and optional absence', () => {
+    for (const name of ['tok_primary', 'sk-notes', 'access_token=SYNTHETIC_PATH_CANARY FINAL-KEY-Z', 'https://example.invalid/?access_token=SYNTHETIC_PATH_CANARY']) {
+      const args = skillInputSchema.parse({ name });
+      const input = { shape: 'complete' as const, identity: identity('skill'), arguments: args, result: { success: false as const, error: 'Synthetic missing skill' } };
+      expect(projectLiveToolInvocation(input).arguments).toEqual({ name: name.replace('SYNTHETIC_PATH_CANARY', '[REDACTED]') });
+      expect(projectToolInvocation(input)).toMatchObject({ arguments: name.includes('CANARY') ? { name: name.replace('SYNTHETIC_PATH_CANARY', '[REDACTED]') } : args });
+      const call = projectToolInvocation({ shape: 'call-row', identity: callIdentity('skill'), arguments: JSON.stringify(args) });
+      if (call.shape !== 'call-row') throw new Error('unexpected shape');
+      expect(JSON.parse(call.arguments)).toEqual({ name: name.replace('SYNTHETIC_PATH_CANARY', '[REDACTED]') });
+    }
+    expect(projectLiveToolInvocation({ shape: 'complete', identity: identity('skill'), arguments: skillInputSchema.parse({}), result: { success: true } }).arguments).toEqual({});
+  });
+
+  it('does not exempt arbitrary work/record schemes or credential-shaped free-form filenames', () => {
+    for (const path of ['work:///tmp/sk-SYNTHETIC_PATH_CANARY', 'record:///sk-SYNTHETIC_PATH_CANARY?card=not-a-card', 'tmp/sk-SYNTHETIC_PATH_CANARY']) {
+      const args = readWorkspaceInputSchema.parse({ path });
+      const projected = projectLiveToolInvocation({ shape: 'complete', identity: identity('read'), arguments: args, result: { success: false, error: 'Synthetic rejection' } });
+      expect(JSON.stringify(projected.arguments)).not.toContain('SYNTHETIC_PATH_CANARY');
+      expect(JSON.stringify(projected.arguments)).toContain('sk-[REDACTED]');
+      expect(args.path).toBe(path);
+    }
+  });
+
   it('matches the runtime catalog plus the generated terminal tool and every name reaches complete, call-row, and result-row', () => {
     const catalogNames = new Set(Array.from(buildRuntimeToolCatalog().values(), ({ binder }) => binder.name));
     const expectedNames = new Set([...catalogNames, TERMINAL_RESULT_TOOL_NAME]);
@@ -123,7 +205,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       metadata_only: false,
       max_bytes: 123,
       max_inline_bytes: 45,
-      save_as: 'record:///brief.md?card=tok_primary',
+      save_as: 'record:///brief.md?card=project',
     });
     expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server',
       bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });

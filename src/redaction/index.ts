@@ -2,6 +2,7 @@ export {
   SECRET_REDACTION_PLACEHOLDER,
   redactSnippetForOutbound,
   redactTextForOutbound,
+  redactSecretAssignmentsForOutbound,
   redactRecordPromptForOutbound,
   redactTextWithStablePrefixesForOutbound,
   redactUrl,

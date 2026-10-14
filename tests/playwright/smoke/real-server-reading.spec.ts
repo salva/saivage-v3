@@ -32,6 +32,8 @@ import { currentConversationSegmentPath } from '../../helpers/current-conversati
 import { cardHeadFile } from '../../../src/persistence/layout.js';
 import { bootstrapContextSupplier } from '../../../src/runtime/records/bootstrap-context.js';
 import { workspaceToolBinders } from '../../../src/tools/workspace-provider.js';
+import { readWorkspaceInputSchema } from '../../../src/contracts/index.js';
+import { WORKSPACE_ARGUMENT_CANARY, WORKSPACE_ARGUMENT_PATH, WORKSPACE_ARGUMENT_PUBLIC_PATH } from '../../helpers/workspace-argument-egress-fixture.js';
 
 // Reuse the existing smoke harness's asset build/preview bootstrap. Every page
 // navigation below targets the independently owned startApp origin, not preview.
@@ -126,6 +128,7 @@ async function seed(session: ConversationSessionId) {
     row('recorded-system', `${longText}\nfinal-system-Z`, 'system'),
     command[0], row('between', 'No result was known at this intervening prose.'), command[1], row('correction', 'Correction after result.'),
     ...pair('failed-command', 'run_command', { command: 'synthetic-failure' }, { success: false, error: 'Synthetic command failed: final-failure-Z' }),
+    ...pair('failed-location', 'read', readWorkspaceInputSchema.parse({ path: WORKSPACE_ARGUMENT_PATH, metadata_only: true }), { success: false, error: 'Synthetic rejected location FINAL-RESULT-Z' }),
     ...pair('image', 'view_image', { path: 'synthetic-screen.png', max_dimension: 1600 }, { success: true, content: [{ type: 'image', image }],
       data: ViewImageDataSchema.parse({ source_path: 'synthetic-screen.png', source_dimensions: { width: 1, height: 1 }, oriented_dimensions: { width: 1, height: 1 }, sent_dimensions: { width: 1, height: 1 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 }) }),
     ...pair('ordered-content', 'mcp_tool_call', { serverName: 'synthetic', toolName: 'capture' }, nativeResult),
@@ -404,6 +407,45 @@ test('compacted supplier record prompt keeps safe retained disclosure and full c
   await record.getByRole('button', { name: 'copy', exact: true }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(retained.message.content);
   expect(await record.textContent()).not.toContain('body-egress-canary');
+  expect(providerRequests).toEqual([]);
+});
+
+test('rejected workspace request has public location bytes in Request, safe-original and full copy for current and history', async ({ page }) => {
+  await seedTokenBeforeNavigation(page, token);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  for (const session of [executor, analyst]) {
+    for (const historical of [false, true]) {
+      const base = `${origin}/api/agents/${encodeURIComponent(session)}/conversation`;
+      const response = await page.request.get(historical ? `${base}/versions/1` : base, { headers: { authorization: `Bearer ${token}` } });
+      expect(response.status()).toBe(200);
+      const dto = historical
+        ? parseOperatorResponse('agents.conversationVersions.get', 200, await response.json())
+        : parseOperatorResponse('agents.conversation', 200, await response.json());
+      expect(JSON.stringify(dto)).not.toContain(WORKSPACE_ARGUMENT_CANARY);
+      const id = `${inputId}:tool-call:failed-location`;
+      const publicCall = dto.entries.find(row => row.id === id)!;
+      const argumentsValue = JSON.parse(JSON.parse(publicCall.content).tool_calls[0].function.arguments);
+      expect(argumentsValue).toEqual({ path: WORKSPACE_ARGUMENT_PUBLIC_PATH, metadata_only: true });
+      expect(dto.entries.find(row => row.id === `${inputId}:tool-result:failed-location`)?.content).toContain('FINAL-RESULT-Z');
+      await page.goto(`${origin}/agents/${session}${historical ? '?segment=1' : ''}`);
+      const exchange = page.locator(`[data-tool-entry-id="${id}"]`);
+      await expect(exchange).toHaveCount(1);
+      await exchange.locator('.tool-chip-toggle').click();
+      const request = exchange.locator('.tool-request');
+      await expect(request).toContainText('Request');
+      await expect(request).toContainText(WORKSPACE_ARGUMENT_PUBLIC_PATH);
+      expect(await request.textContent()).not.toContain(WORKSPACE_ARGUMENT_CANARY);
+      const safe = request.locator('.safe-original');
+      await safe.locator('summary').click();
+      await expect(safe.locator('pre')).toHaveText(publicCall.content);
+      await safe.getByRole('button', { name: 'copy', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(publicCall.content);
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      expect(JSON.parse(JSON.parse(copied).tool_calls[0].function.arguments)).toEqual(argumentsValue);
+      expect(copied).toContain('FINAL-PATH-Z');
+      expect(copied).not.toContain(WORKSPACE_ARGUMENT_CANARY);
+    }
+  }
   expect(providerRequests).toEqual([]);
 });
 

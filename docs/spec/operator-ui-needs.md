@@ -290,6 +290,9 @@ target, arguments, observations, content and errors directly inspectable;
 exact tool codes, identities and times and complete received safe projected values are
 secondary inspection; safe-original request/result disclosures copy the exact received
 public strings through the final character, unaffected by summary abbreviation.
+Current and selected-history request inspection/copy must filter recognized credentials
+in rejected-call locations too, while keeping exact record evidence and source identities
+usable; a call with no result receives the same public argument filtering.
 An unmatched result stays at its original
 position with requested context unavailable. Inspect exact selected image snapshots,
 including safe descriptors in raw/copy; snapshot recorded proves neither delivery nor

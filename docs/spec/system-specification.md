@@ -2099,10 +2099,20 @@ Malformed valid JSON at declared status 200 is therefore a contract/protocol fai
 Operator egress projects granular Card resources source-adjacently and uses a small source-tagged owner dispatcher for provider exchanges, logged events, control actions, card diffs, effective config, process views, tool invocations, Agent conversations, strict server-egress WebSocket envelopes, and MCP tools. Card history artifacts use their direct outbound-card projector rather than a generic history redaction branch.
 Webfetch argument projection belongs to the singular tool-invocation owner, and webfetch results use that owner's generic opaque-result projection; neither has an independent dispatcher branch.
 A separately selected `dynamic` branch is available only for owner-classified opaque leaves.
-Complete known owners never enter recursive credential guessing: identities, discriminants, topology, counts, timestamps, booleans, nulls, and canonical non-webfetch URLs are copied by their owner, while only classified prose, secret containers, URLs, and opaque payloads are transformed.
+Complete known owners never enter recursive credential guessing: identities, discriminants, topology, counts, timestamps, booleans, nulls, and owner-established canonical locators are copied by their owner, while classified prose, free-form locations, secret containers, URLs, and opaque payloads are transformed.
 
 The invocation owner recognizes the identities and relations in the architecture's [exact shipped tool identities](../architecture/system-architecture.md#exact-shipped-tool-identities).
 Each retains direct valid-argument classification for complete live invocations and canonical call rows.
+Public workspace call locations (`path` for read/image/write/edit, glob `directory`,
+grep `path`, command `cwd`, and webfetch `save_as`) receive complete outbound text
+defense against recognized credentials. Strict valid record selections, including
+`&v=...`, retain exact spelling; safe ordinary paths and canonical work locators remain
+usable. A record/work scheme prefix alone grants no exemption. Webfetch `url` keeps
+its existing URL filtering. Skill names retain lookup-key aliases but filter explicit
+secret assignments and query values. Argument schema acceptance is not confidentiality
+admission: public filtering applies even to failed or final unmatched calls, without
+changing execution arguments, canonical bytes or execution-target admission. It is not
+an arbitrary-secret detection guarantee.
 Call rows never gain a result and result rows never gain arguments.
 A structurally valid failed call remains readable when its identity is unsupported, its argument string is malformed JSON, or a known tool's parsed arguments fail its schema: unsupported/schema-rejected values project only that opaque value, malformed raw arguments receive text defense, and exact invocation identities remain unchanged.
 

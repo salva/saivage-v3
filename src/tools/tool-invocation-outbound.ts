@@ -31,6 +31,8 @@ import {
   readRuntimeErrorsInputSchema,
   readRuntimeEventsInputSchema,
   readWorkspaceInputSchema,
+  parseRecordUrl,
+  RecordUrlInputError,
   runCommandInputSchema,
   skillInputSchema,
   waitProcessInputSchema,
@@ -50,7 +52,12 @@ import {
   type ToolResult,
 } from '../contracts/index.js';
 import { activateCardArgumentsSchema } from '../contracts/tool-api.js';
-import { projectDynamicForOutbound, redactTextForOutbound, redactUrl } from '../redaction/index.js';
+import {
+  projectDynamicForOutbound,
+  redactSecretAssignmentsForOutbound,
+  redactTextForOutbound,
+  redactUrl,
+} from '../redaction/index.js';
 import {
   projectMcpToolCallArgumentsForOutbound,
   projectMcpRegistrationForOutbound,
@@ -224,27 +231,41 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'reconfigure':
       return projectReconfigureArguments(input);
     case 'write':
-      return { ...input, content: redactTextForOutbound(input['content'] as string) };
+      return {
+        ...input,
+        path: projectLocation(input['path'] as string),
+        content: redactTextForOutbound(input['content'] as string),
+      };
     case 'edit':
       return {
         ...input,
+        path: projectLocation(input['path'] as string),
         old_string: redactTextForOutbound(input['old_string'] as string),
         new_string: redactTextForOutbound(input['new_string'] as string),
       };
     case 'glob':
-      return copyWithText(input, ['pattern']);
+      return copyWithLocations(copyWithText(input, ['pattern']), ['directory']);
     case 'grep':
-      return copyWithText(input, ['pattern', 'include']);
+      return copyWithLocations(copyWithText(input, ['pattern', 'include']), ['path']);
     case 'apply_patch':
       return { patch: redactTextForOutbound(input['patch'] as string) };
     case 'run_command':
-      return { ...input, command: redactTextForOutbound(input['command'] as string) };
+      return copyWithLocations(copyWithText(input, ['command']), ['cwd']);
     case 'websearch':
       return { ...input, query: redactTextForOutbound(input['query'] as string) };
     case 'webfetch': {
       const invocation = WebfetchInvocationSchema.parse(input);
-      return WebfetchInvocationSchema.parse({ ...invocation, url: redactUrl(invocation.url) });
+      return WebfetchInvocationSchema.parse(
+        copyWithLocations({ ...invocation, url: redactUrl(invocation.url) }, ['save_as']),
+      );
     }
+    case 'read':
+    case 'view_image':
+      return copyWithLocations(input, ['path']);
+    case 'skill':
+      return typeof input['name'] === 'string'
+        ? { ...input, name: redactSecretAssignmentsForOutbound(input['name']) }
+        : structuredClone(input);
     case 'mcp_tool_call':
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'mcp_server_control':
@@ -282,13 +303,30 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'get_card_version':
     case 'diff_card_versions':
     case 'read_record_version':
-    case 'read':
-    case 'view_image':
     case 'wait_process':
     case 'kill_process':
-    case 'skill':
       return structuredClone(value);
   }
+}
+
+function projectLocation(location: string): string {
+  try {
+    parseRecordUrl(location);
+    return location;
+  } catch (error) {
+    if (!(error instanceof RecordUrlInputError)) throw error;
+  }
+  return redactTextForOutbound(location);
+}
+
+function copyWithLocations(
+  input: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const output = structuredClone(input);
+  for (const key of keys)
+    if (typeof input[key] === 'string') output[key] = projectLocation(input[key]);
+  return output;
 }
 
 function projectReconfigureArguments(input: Record<string, unknown>): unknown {
