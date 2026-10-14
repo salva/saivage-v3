@@ -20,7 +20,6 @@ import { toPublicCardActorState } from '../../schemas/index.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
 import type { ActorRuntimeReadModel } from '../../application/index.js';
 import type {
-  NotificationSubmissionPort,
   NotificationSubmissionResult,
   NotifyCardResult,
   RuntimeApi,
@@ -414,33 +413,15 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return { ok: true, notificationId: notification.id };
   }
 
-  submitNotification(
+  async submitNotification(
     cardId: string,
     notification: CardNotification,
     urgency: NotificationUrgency,
     signal?: AbortSignal,
   ): Promise<NotificationSubmissionResult> {
-    return this.submitNotificationWithAdmission(cardId, notification, urgency, signal, () => null);
-  }
-
-  private async submitNotificationWithAdmission(
-    cardId: string,
-    notification: CardNotification,
-    urgency: NotificationUrgency,
-    signal: AbortSignal | undefined,
-    admitCaller: () => CardActivationOwner | null,
-  ): Promise<NotificationSubmissionResult> {
-    const submittingOwner = admitCaller();
     const targetCard = this.behavior.actorStore.read(cardId);
     if (!targetCard) return { queued: false, reason: 'missing_card', cardId };
     const selection = urgency === 'urgent' ? this.selectUrgentRoute(cardId) : null;
-    if (
-      submittingOwner &&
-      (this.activationOwners.get(submittingOwner.cardId) !== submittingOwner ||
-        submittingOwner.phase !== 'active' ||
-        submittingOwner.terminalWinner !== 'open')
-    )
-      throw new Error('Notification caller ownership changed before enqueue.');
     let queued: NotifyCardResult;
     try {
       queued = this.notifyCard(cardId, notification);
@@ -599,16 +580,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       completion.reject(error);
       void this.beginHalt('runtime_failure').catch(() => undefined);
     });
-    if (
-      submittingOwner === boundary ||
-      (submittingOwner && capture.suffix.includes(submittingOwner))
-    )
-      return {
-        queued: true,
-        cardId,
-        notificationId: queued.notificationId,
-        interruption: { status: 'pending_tool_settlement' },
-      };
     await completion.promise;
     return {
       queued: true,
@@ -669,13 +640,15 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return Object.freeze({
       activateChild: ({
         childCardId,
+        instructions,
         invocation,
       }: {
         childCardId: string;
+        instructions: string;
         invocation: ChildInvocationLease;
       }) => {
         try {
-          return this.activateChild(requireParent(), childCardId, invocation);
+          return this.activateChild(requireParent(), childCardId, instructions, invocation);
         } catch (error) {
           const halt = this.halt;
           if (halt && error === halt.interruption)
@@ -725,6 +698,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   private activateChild(
     parent: CardActivationOwner,
     childCardId: string,
+    instructions: string,
     lease: ChildInvocationLease,
   ): Promise<import('../../contracts/tool-api.js').CardActivationOutcome> {
     if (this.halt?.owners.includes(parent)) return this.rejectLease(lease, this.halt.interruption);
@@ -779,7 +753,11 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           `Card '${childCardId}' in status '${admission.child.lifecycle.status}' is not activatable.`,
         ),
       );
-    const relationship = Object.freeze({ parentCardId: parent.cardId, invocation: lease });
+    const relationship = Object.freeze({
+      parentCardId: parent.cardId,
+      instructions,
+      invocation: lease,
+    });
     const owner = this.createOwner(admission.child, entry, 'child_admission', relationship);
     this.ownershipTransition(true, () => {
       this.requireOwnerAuthority(parent);
@@ -819,20 +797,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   ): CardActivationOwner {
     const activationId = randomUUID();
     const parentControl = this.boundParentControl(card.id, activationId);
-    const submitNotification: NotificationSubmissionPort = (id, notification, urgency, signal) =>
-      this.submitNotificationWithAdmission(id, notification, urgency, signal, () => {
-        const owner = this.activationOwners.get(card.id);
-        if (
-          !owner ||
-          owner.activationId !== activationId ||
-          owner.phase !== 'active' ||
-          owner.terminalWinner !== 'open' ||
-          this.halt ||
-          !this.applicationAdmissionOpen
-        )
-          throw new Error(`Card activation '${card.id}' is closed to notification submission.`);
-        return owner;
-      });
     const process = this.behavior.workflows.cardTypes.get(card.type);
     if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
     const processor = new CardProcessActor({
@@ -843,7 +807,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       store: this.behavior.actorStore,
       parentControl,
       notifyCard: (id, notification) => this.notifyCard(id, notification),
-      submitNotification,
       provider: this.behavior.provider,
       conversations: this.behavior.conversations,
       processRunner: this.#processRunner,
@@ -882,6 +845,10 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
             kind: 'parent' as const,
             cardId: owner.parentRelationship.parentCardId,
             sessionId: owner.parentRelationship.invocation.identity.sessionId,
+            sourceInputId: owner.parentRelationship.invocation.identity.sourceInputId,
+            toolCallId: owner.parentRelationship.invocation.identity.toolCallId,
+            toolName: 'activate_card' as const,
+            instructions: owner.parentRelationship.instructions,
           };
     const input = {
       activationId: owner.activationId,

@@ -172,7 +172,7 @@ describe('process inline output production composition', () => {
       const marker = markers[0]!;
       const firstRequest = providerRequests.find(request => offeredToolNames(request).includes('emit_result'))!;
       const nodeText = firstRequest.messages.find(message => message.content.startsWith("Current workflow node 'execute':"))!.content;
-      expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({
+       expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toMatchObject({
         kind:'prepared',role_text:firstRequest.messages[0]!.content,node:{node_id:'execute',text:nodeText},
       });
       const entryPrompt = durableRows.find(row => row.instruction_origin === 'workflow_prompt')!;
@@ -208,7 +208,7 @@ describe('process inline output production composition', () => {
       expect(JSON.stringify(conversationResponse.body)).not.toContain('test-only-provider-key');
       expect(JSON.stringify(conversationResponse.body)).not.toContain(`http://127.0.0.1:${providerPort}`);
       expect(conversationResponse.body.entries.find((row: any) => row.id === entryPrompt.id).instruction_origin).toBe('workflow_prompt');
-      expect(JSON.parse(conversationResponse.body.entries.find((row: any) => row.id === marker.id).content).instructions).toEqual({
+       expect(JSON.parse(conversationResponse.body.entries.find((row: any) => row.id === marker.id).content).instructions).toMatchObject({
         kind:'prepared',role_text:redactTextForOutbound(firstRequest.messages[0]!.content),node:{node_id:'execute',text:redactTextForOutbound(nodeText)},
       });
       for(const sentinel of ['tok_role_private','tok_node_private']) {

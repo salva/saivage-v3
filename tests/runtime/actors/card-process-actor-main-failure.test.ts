@@ -9,14 +9,20 @@ import { testApplicationFatalPort } from '../../helpers/test-application-fatal-p
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
-import { ConversationLLMActor, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import {
+  ConversationLLMActor,
+  type LLMProviderPort,
+} from '../../../src/runtime/actors/llm-actor.js';
 import { ActivationOperationTracker } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
-import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
+import {
+  scriptedAdmissionProvider,
+  testAutonomousCompaction,
+} from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../src/schemas/index.js';
@@ -29,7 +35,9 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-interface LaunchPlan { readonly owner: CardActivationOwner }
+interface LaunchPlan {
+  readonly owner: CardActivationOwner;
+}
 interface SupervisorInternals {
   activationOwners: Map<string, CardActivationOwner>;
   halt: { interruption: RuntimeStoppedInterruption; promise: Promise<void> } | null;
@@ -37,7 +45,15 @@ interface SupervisorInternals {
   launchStartedProject(launch: LaunchPlan): unknown;
 }
 
-function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))), compactor?: CompactorPort) {
+function harness(
+  provider: LLMProviderPort = scriptedAdmissionProvider(
+    async (_input: unknown, signal: AbortSignal) =>
+      new Promise<never>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      ),
+  ),
+  compactor?: CompactorPort,
+) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-main-failure-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
@@ -55,13 +71,35 @@ function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_i
     actorStore: cards,
     provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() { if (armed && !failureDelivered && new Error().stack?.includes('CardProcessActor.onTransition')) { failureDelivered = true; throw actorFailure; } }, agentMembershipChanged() {} },
+    freshness: {
+      runtimeChanged() {
+        if (
+          armed &&
+          !failureDelivered &&
+          new Error().stack?.includes('CardProcessActor.onTransition')
+        ) {
+          failureDelivered = true;
+          throw actorFailure;
+        }
+      },
+      agentMembershipChanged() {},
+    },
     processRunner: processes.processRunner,
     runtimeProcessRootScope: processes.runtimeProcessRootScope,
     promptTemplates: createTestPromptTemplateRegistry(),
   });
   const terminate = jest.spyOn(processes.processRunner, 'terminateScopeTree');
-  return { projectRoot, supervisor, cards, actorFailure, terminate, armActorTransitionFailure() { armed = true; failureDelivered = false; } };
+  return {
+    projectRoot,
+    supervisor,
+    cards,
+    actorFailure,
+    terminate,
+    armActorTransitionFailure() {
+      armed = true;
+      failureDelivered = false;
+    },
+  };
 }
 
 async function launchCapturingActivation(h: ReturnType<typeof harness>) {
@@ -78,7 +116,7 @@ async function launchCapturingActivation(h: ReturnType<typeof harness>) {
   jest.spyOn(owner.processor, 'activate').mockImplementation((input, signal) => {
     activationInput = input;
     activationSignal = signal;
-    return activation = original(input, signal);
+    return (activation = original(input, signal));
   });
   internals.launchStartedProject(prepared.launch);
   return { owner, activation, activationInput, activationSignal };
@@ -86,29 +124,53 @@ async function launchCapturingActivation(h: ReturnType<typeof harness>) {
 
 async function within<T>(promise: Promise<T>): Promise<T> {
   let timer!: NodeJS.Timeout;
-  const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Actor-main regression promise did not settle.')), 1_000); });
-  try { return await Promise.race([promise, timeout]); }
-  finally { clearTimeout(timer); }
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('Actor-main regression promise did not settle.')),
+      1_000,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function waitForError(supervisor: ReturnType<typeof createSupervisorRuntimeApi>): Promise<void> {
-  await within((async () => {
-    while (supervisor.getStatus().status !== 'error') await new Promise((resolve) => setTimeout(resolve, 5));
-  })());
+async function waitForError(
+  supervisor: ReturnType<typeof createSupervisorRuntimeApi>,
+): Promise<void> {
+  await within(
+    (async () => {
+      while (supervisor.getStatus().status !== 'error')
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    })(),
+  );
 }
 
 function fatalNotificationSpy(supervisor: ReturnType<typeof createSupervisorRuntimeApi>) {
-  return jest.spyOn(supervisor as unknown as { onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void }, 'onProcessorActorMainFailure');
+  return jest.spyOn(
+    supervisor as unknown as {
+      onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void;
+    },
+    'onProcessorActorMainFailure',
+  );
 }
 
 describe('real CardProcess actor-main fatal containment', () => {
   it('retains a required process cleanup rejection under public Stop after joining the real actor', async () => {
     let providerEntered!: () => void;
-    const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
-    const h = harness(scriptedAdmissionProvider(async (_input, signal) => {
-      providerEntered();
-      return new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-    }));
+    const entered = new Promise<void>((resolve) => {
+      providerEntered = resolve;
+    });
+    const h = harness(
+      scriptedAdmissionProvider(async (_input, signal) => {
+        providerEntered();
+        return new Promise<never>((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+        );
+      }),
+    );
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { owner, activation } = await launchCapturingActivation(h);
     const interrupted = expect(activation).rejects.toBeInstanceOf(RuntimeStoppedInterruption);
@@ -123,21 +185,26 @@ describe('real CardProcess actor-main fatal containment', () => {
     expect(actorJoin).toHaveBeenCalledTimes(1);
     await expect(actorJoin.mock.results[0]!.value).resolves.toBeDefined();
     expect(h.supervisor.getStatus().status).toBe('error');
-    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.get('project')).toBe(owner);
+    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.get('project')).toBe(
+      owner,
+    );
     await expect(h.supervisor.stopProject()).rejects.toBe(failure);
     expect(h.terminate).toHaveBeenCalledTimes(1);
   });
 
   it('retains an actual node rejection as a FAILED result rather than a failed containment join', async () => {
     const failure = new Error('selected Planner provider failed');
-    const complete = jest.fn(async () => { throw failure; });
+    const complete = jest.fn(async () => {
+      throw failure;
+    });
     const h = harness(scriptedAdmissionProvider(complete));
     const notification = fatalNotificationSpy(h.supervisor);
     const execute = jest.spyOn(AgentNodeExecution.prototype, 'execute');
     const { owner, activation } = await launchCapturingActivation(h);
 
     const failed = {
-      status: 'failed', summary: failure.message,
+      status: 'failed',
+      summary: failure.message,
       result: { kind: 'runtime-failure', summary: failure.message },
     };
     await expect(activation).resolves.toEqual(failed);
@@ -145,70 +212,150 @@ describe('real CardProcess actor-main fatal containment', () => {
     expect(complete).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledTimes(1);
     await expect(execute.mock.results[0]!.value).rejects.toBe(failure);
-    expect(h.cards.read('project')).toMatchObject({ lifecycle: {
-      status: 'failed', error: failure.message, result: failed.result,
-    } });
+    expect(h.cards.read('project')).toMatchObject({
+      lifecycle: {
+        status: 'failed',
+        error: failure.message,
+        result: failed.result,
+      },
+    });
     expect(notification).not.toHaveBeenCalled();
     expect((h.supervisor as unknown as SupervisorInternals).activationOwners.size).toBe(0);
-    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
+    await expect(h.supervisor.stopProject()).resolves.toEqual({
+      status: 'stopped',
+      contained: false,
+    });
   });
 
   it.each([
     ['create_card', { type: 'code', title: '', bootstrap_content: 'Brief' }],
     ['create_card', { type: 'code', title: ' \t\n', bootstrap_content: 'Brief' }],
-    ['create_card', { type: 'code', title: 'valid', bootstrap_content: 'Brief', urgency: 'urgent' }],
+    [
+      'create_card',
+      { type: 'code', title: 'valid', bootstrap_content: 'Brief', urgency: 'urgent' },
+    ],
     ['edit_card', { card_id: 'card-a', title: '' }],
     ['edit_card', { card_id: 'card-a', title: ' \t\n' }],
     ['edit_card', { card_id: 'card-a', urgency: 'urgent' }],
-  ] as Array<[string, Record<string, unknown>]>)('continues real card activation after malformed Planner %s input %#', async (name, args) => {
-    let calls = 0;
-    const complete = jest.fn(async () => {
-      calls += 1;
-      const tool = calls === 1 ? { name, arguments: JSON.stringify(args) }
-        : calls === 2 ? { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project', content: 'completed after rejected Planner input' }) }
-          : { name: 'emit_result', arguments: JSON.stringify({ outcome: 'complete_direct', summary: 'completed normally' }) };
-      if (calls > 3) throw new Error('Unexpected activation repair/continuation.');
-      return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `planner-call-${calls}`, type: 'function' as const, function: tool }] }, provider_exchanges: [] };
-    });
-    const h = harness(scriptedAdmissionProvider(complete));
-    const create = jest.spyOn(h.cards, 'create');
-    const edit = jest.spyOn(h.cards, 'editCard');
-    const { owner, activation } = await launchCapturingActivation(h);
-    await expect(within(activation)).resolves.toMatchObject({ status: 'done', summary: 'completed normally' });
-    await expect(within(owner.settlement.promise)).resolves.toMatchObject({ status: 'done' });
-    expect(complete).toHaveBeenCalledTimes(3);
-    expect(create).not.toHaveBeenCalled(); expect(edit).not.toHaveBeenCalled();
-    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done', error: null } });
-    const history = readConversation(h.projectRoot, 'agent:planner:project');
-    expect(history.unmatchedCall).toBeNull();
-    const call = history.sourceRows.find((row) => row.kind === 'tool_call' && row.tool_call_id === 'planner-call-1')!;
-    const result = history.sourceRows.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'planner-call-1')!;
-    expect(call.tool).toBe(name);
-    expect(JSON.parse(result.content)).toMatchObject({ success: false });
-    expect(result.context_policy).toMatchObject({ settlement_origin: 'rejected_before_execution', evidence: { kind: 'none' } });
-    expect(history.sourceRows.indexOf(result)).toBeGreaterThan(history.sourceRows.indexOf(call));
-  });
+  ] as Array<[string, Record<string, unknown>]>)(
+    'continues real card activation after malformed Planner %s input %#',
+    async (name, args) => {
+      let calls = 0;
+      const complete = jest.fn(async () => {
+        calls += 1;
+        const tool =
+          calls === 1
+            ? { name, arguments: JSON.stringify(args) }
+            : calls === 2
+              ? {
+                  name: 'write',
+                  arguments: JSON.stringify({
+                    path: 'record:///status.md?card=project',
+                    content: 'completed after rejected Planner input',
+                  }),
+                }
+              : {
+                  name: 'emit_result',
+                  arguments: JSON.stringify({
+                    outcome: 'complete_direct',
+                    summary: 'completed normally',
+                  }),
+                };
+        if (calls > 3) throw new Error('Unexpected activation repair/continuation.');
+        return {
+          result: {
+            kind: 'tool_calls' as const,
+            tool_calls: [
+              { id: `planner-call-${calls}`, type: 'function' as const, function: tool },
+            ],
+          },
+          provider_exchanges: [],
+        };
+      });
+      const h = harness(scriptedAdmissionProvider(complete));
+      const create = jest.spyOn(h.cards, 'create');
+      const edit = jest.spyOn(h.cards, 'editCard');
+      const { owner, activation } = await launchCapturingActivation(h);
+      await expect(within(activation)).resolves.toMatchObject({
+        status: 'done',
+        summary: 'completed normally',
+      });
+      await expect(within(owner.settlement.promise)).resolves.toMatchObject({ status: 'done' });
+      expect(complete).toHaveBeenCalledTimes(3);
+      expect(create).not.toHaveBeenCalled();
+      expect(edit).not.toHaveBeenCalled();
+      expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done', error: null } });
+      const history = readConversation(h.projectRoot, 'agent:planner:project');
+      expect(history.unmatchedCall).toBeNull();
+      const call = history.sourceRows.find(
+        (row) => row.kind === 'tool_call' && row.tool_call_id === 'planner-call-1',
+      )!;
+      const result = history.sourceRows.find(
+        (row) => row.kind === 'tool_result' && row.tool_call_id === 'planner-call-1',
+      )!;
+      expect(call.tool).toBe(name);
+      expect(JSON.parse(result.content)).toMatchObject({ success: false });
+      expect(result.context_policy).toMatchObject({
+        settlement_origin: 'rejected_before_execution',
+        evidence: { kind: 'none' },
+      });
+      expect(history.sourceRows.indexOf(result)).toBeGreaterThan(history.sourceRows.indexOf(call));
+    },
+  );
 
   it('owns a summary prompt-policy block through the normal card terminal and cleanup path', async () => {
-    const complete = jest.fn(async () => { throw new Error('primary provider must not run'); });
-    const compact = jest.fn<CompactorPort['compact']>().mockRejectedValue(new SummaryPolicyRefusalError('00000000-0000-4000-8000-000000000099', new Error('RAW FLAG')));
+    const complete = jest.fn(async () => {
+      throw new Error('primary provider must not run');
+    });
+    const compact = jest
+      .fn<CompactorPort['compact']>()
+      .mockRejectedValue(
+        new SummaryPolicyRefusalError(
+          '00000000-0000-4000-8000-000000000099',
+          new Error('RAW FLAG'),
+        ),
+      );
     const h = harness(scriptedAdmissionProvider(complete), { shouldCompact: () => true, compact });
     const { owner, activation } = await launchCapturingActivation(h);
 
-    await expect(within(activation)).resolves.toEqual({ status: 'blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, result: { kind: 'compaction-summary-blocked', summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY, session_id: 'agent:planner:project', summary_input_id: '00000000-0000-4000-8000-000000000099' } });
-    await expect(within(owner.settlement.promise)).resolves.toMatchObject({ status: 'blocked', result: { kind: 'compaction-summary-blocked' } });
-    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'blocked', error: COMPACTION_SUMMARY_BLOCKED_SUMMARY, completed_at: null, result: { kind: 'compaction-summary-blocked' } } });
+    await expect(within(activation)).resolves.toEqual({
+      status: 'blocked',
+      summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY,
+      result: {
+        kind: 'compaction-summary-blocked',
+        summary: COMPACTION_SUMMARY_BLOCKED_SUMMARY,
+        session_id: 'agent:planner:project',
+        summary_input_id: '00000000-0000-4000-8000-000000000099',
+      },
+    });
+    await expect(within(owner.settlement.promise)).resolves.toMatchObject({
+      status: 'blocked',
+      result: { kind: 'compaction-summary-blocked' },
+    });
+    expect(h.cards.read('project')).toMatchObject({
+      lifecycle: {
+        status: 'blocked',
+        error: COMPACTION_SUMMARY_BLOCKED_SUMMARY,
+        completed_at: null,
+        result: { kind: 'compaction-summary-blocked' },
+      },
+    });
     expect(complete).not.toHaveBeenCalled();
     expect(compact).toHaveBeenCalledTimes(1);
-    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.has('project')).toBe(false);
+    expect((h.supervisor as unknown as SupervisorInternals).activationOwners.has('project')).toBe(
+      false,
+    );
     expect(h.supervisor.captureAutonomousExecutingLlmSnapshots()).toEqual(new Map());
   });
 
   it('throws repeated activation synchronously without replacing the first activation', async () => {
     const h = harness();
-    const { owner, activation, activationInput, activationSignal } = await launchCapturingActivation(h);
+    const { owner, activation, activationInput, activationSignal } =
+      await launchCapturingActivation(h);
 
-    expect(() => owner.processor.activate(activationInput, activationSignal)).toThrow("Card process 'project' must be activated exactly once.");
+    expect(() => owner.processor.activate(activationInput, activationSignal)).toThrow(
+      "Card process 'project' must be activated exactly once.",
+    );
     const stop = h.supervisor.stopProject();
     await expect(within(activation)).rejects.toBeInstanceOf(RuntimeStoppedInterruption);
     await expect(within(stop)).resolves.toEqual({ status: 'stopped', contained: true });
@@ -227,87 +374,137 @@ describe('real CardProcess actor-main fatal containment', () => {
     void owner.settlement.promise.catch(() => undefined);
     const original = owner.processor.activate.bind(owner.processor);
     let activation!: Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
-    jest.spyOn(owner.processor, 'activate').mockImplementation((input, signal) => activation = original(input, signal));
+    jest
+      .spyOn(owner.processor, 'activate')
+      .mockImplementation((input, signal) => (activation = original(input, signal)));
     h.armActorTransitionFailure();
 
     internals.launchStartedProject(prepared.launch);
 
     await expect(within(activation)).rejects.toBe(h.actorFailure);
-    expect(log.mock.calls).toEqual(expect.not.arrayContaining([expect.arrayContaining(['BaseActor main-loop failure hook failed'])]));
+    expect(log.mock.calls).toEqual(
+      expect.not.arrayContaining([
+        expect.arrayContaining(['BaseActor main-loop failure hook failed']),
+      ]),
+    );
     expect(h.supervisor.getStatus().status).not.toBe('running');
     await waitForError(h.supervisor);
     expect(commit).not.toHaveBeenCalled();
     expect(h.terminate).toHaveBeenCalledTimes(1);
     expect(notification).toHaveBeenCalledTimes(1);
     expect(notification).toHaveBeenCalledWith('project', owner.activationId, h.actorFailure);
-    expect(log.mock.calls.filter(([message, error]) => message === 'BaseActor main loop failed' && error === h.actorFailure)).toHaveLength(1);
+    expect(
+      log.mock.calls.filter(
+        ([message, error]) => message === 'BaseActor main loop failed' && error === h.actorFailure,
+      ),
+    ).toHaveLength(1);
     await expect(h.supervisor.stopProject()).rejects.toBe(h.actorFailure);
   });
 
-  it.each(['cancel', 'stop', 'application-close'] as const)('%s-first settles activation first, then the callback joins one halt with no pending lane', async (race) => {
-    const h = harness();
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const notification = fatalNotificationSpy(h.supervisor);
-    const { owner, activation } = await launchCapturingActivation(h);
-    h.armActorTransitionFailure();
+  it.each(['cancel', 'stop', 'application-close'] as const)(
+    '%s-first settles activation first, then the callback joins one halt with no pending lane',
+    async (race) => {
+      const h = harness();
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const notification = fatalNotificationSpy(h.supervisor);
+      const { owner, activation } = await launchCapturingActivation(h);
+      h.armActorTransitionFailure();
 
-    let coordinator: ReturnType<typeof createAppTerminalCoordinator> | null = null;
-    let operation: Promise<unknown>;
-    if (race === 'cancel') operation = h.supervisor.cancelCard('project', 'cancel first');
-    else if (race === 'stop') operation = h.supervisor.stopProject();
-    else {
-      coordinator = createAppTerminalCoordinator();
-      coordinator.registerAdmissionCloser('runtime', () => h.supervisor.closeApplicationAdmission());
-      coordinator.registerCleanupLeaf('runtime', () => h.supervisor.cleanupForApplicationStop());
-      operation = coordinator.stop();
-    }
+      let coordinator: ReturnType<typeof createAppTerminalCoordinator> | null = null;
+      let operation: Promise<unknown>;
+      if (race === 'cancel') operation = h.supervisor.cancelCard('project', 'cancel first');
+      else if (race === 'stop') operation = h.supervisor.stopProject();
+      else {
+        coordinator = createAppTerminalCoordinator();
+        coordinator.registerAdmissionCloser('runtime', () =>
+          h.supervisor.closeApplicationAdmission(),
+        );
+        coordinator.registerCleanupLeaf('runtime', () => h.supervisor.cleanupForApplicationStop());
+        operation = coordinator.stop();
+      }
 
-    await expect(within(activation)).rejects.not.toBe(h.actorFailure);
-    if (race === 'application-close') await expect(within(operation)).resolves.toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_failed' }] });
-    else await expect(within(operation)).rejects.toBe(h.actorFailure);
-    await waitForError(h.supervisor);
-    expect(h.terminate).toHaveBeenCalledTimes(1);
-    expect(notification).toHaveBeenCalledTimes(1);
-    expect(notification).toHaveBeenCalledWith('project', owner.activationId, h.actorFailure);
-    await expect(h.supervisor.stopProject()).rejects.toBe(h.actorFailure);
-  });
+      await expect(within(activation)).rejects.not.toBe(h.actorFailure);
+      if (race === 'application-close')
+        await expect(within(operation)).resolves.toEqual({
+          warnings: [{ component: 'runtime', code: 'cleanup_failed' }],
+        });
+      else await expect(within(operation)).rejects.toBe(h.actorFailure);
+      await waitForError(h.supervisor);
+      expect(h.terminate).toHaveBeenCalledTimes(1);
+      expect(notification).toHaveBeenCalledTimes(1);
+      expect(notification).toHaveBeenCalledWith('project', owner.activationId, h.actorFailure);
+      await expect(h.supervisor.stopProject()).rejects.toBe(h.actorFailure);
+    },
+  );
 
   it('keeps actor-first identity locally while a structurally earlier pre-join cleanup failure is retained by the halt', async () => {
     let releaseFirst!: () => void;
-    const first = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const first = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
     let calls = 0;
     const provider: LLMProviderPort = scriptedAdmissionProvider(async () => {
       calls += 1;
       if (calls === 1) await first;
-      return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] };
+      return {
+        result: {
+          kind: 'tool_calls',
+          tool_calls: [
+            {
+              id: String(calls),
+              type: 'function',
+              function: {
+                name: calls === 1 ? 'write' : 'emit_result',
+                arguments:
+                  calls === 1
+                    ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' })
+                    : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }),
+              },
+            },
+          ],
+        },
+        provider_exchanges: [],
+      };
     });
     const h = harness(provider);
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const notification = fatalNotificationSpy(h.supervisor);
     const { owner, activation } = await launchCapturingActivation(h);
-    for (let index = 0; index < 100 && calls === 0; index++) await new Promise((resolve) => setImmediate(resolve));
+    for (let index = 0; index < 100 && calls === 0; index++)
+      await new Promise((resolve) => setImmediate(resolve));
     expect(calls).toBe(1);
     const cleanupFailure = new Error('pre-join cleanup failure B');
     const llmFailure = new Error('later LLM join failure');
     const trackerFailure = new Error('later tracker join failure');
     const originalDispose = ConversationLLMActor.prototype.dispose;
-    jest.spyOn(ConversationLLMActor.prototype, 'dispose').mockImplementation(function (this: ConversationLLMActor, reason) {
+    jest.spyOn(ConversationLLMActor.prototype, 'dispose').mockImplementation(function (
+      this: ConversationLLMActor,
+      reason,
+    ) {
       originalDispose.call(this, reason);
       throw cleanupFailure;
     });
-    const llmJoin = jest.spyOn(ConversationLLMActor.prototype, 'join').mockRejectedValue(llmFailure);
+    const llmJoin = jest
+      .spyOn(ConversationLLMActor.prototype, 'join')
+      .mockRejectedValue(llmFailure);
     const originalTrackerJoin = ActivationOperationTracker.prototype.join;
-    const trackerJoin = jest.spyOn(ActivationOperationTracker.prototype, 'join').mockImplementation(async function (this: ActivationOperationTracker) {
-      await originalTrackerJoin.call(this);
-      throw trackerFailure;
-    });
+    const trackerJoin = jest
+      .spyOn(ActivationOperationTracker.prototype, 'join')
+      .mockImplementation(async function (this: ActivationOperationTracker) {
+        await originalTrackerJoin.call(this);
+        throw trackerFailure;
+      });
     h.armActorTransitionFailure();
     releaseFirst();
 
     await expect(within(activation)).rejects.toBe(h.actorFailure);
     await waitForError(h.supervisor);
     await expect(h.supervisor.stopProject()).rejects.toBe(cleanupFailure);
-    expect(log.mock.calls.filter(([message, error]) => message === 'BaseActor main loop failed' && error === h.actorFailure)).toHaveLength(1);
+    expect(
+      log.mock.calls.filter(
+        ([message, error]) => message === 'BaseActor main loop failed' && error === h.actorFailure,
+      ),
+    ).toHaveLength(1);
     expect(h.terminate).toHaveBeenCalledTimes(1);
     expect(llmJoin).toHaveBeenCalledTimes(1);
     expect(trackerJoin).toHaveBeenCalledTimes(1);
@@ -319,33 +516,84 @@ describe('real CardProcess actor-main fatal containment', () => {
     let calls = 0;
     const provider: LLMProviderPort = scriptedAdmissionProvider(async () => {
       calls += 1;
-      return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'normal result wins' }) } }] }, provider_exchanges: [] };
+      return {
+        result: {
+          kind: 'tool_calls',
+          tool_calls: [
+            {
+              id: String(calls),
+              type: 'function',
+              function: {
+                name: calls === 1 ? 'write' : 'emit_result',
+                arguments:
+                  calls === 1
+                    ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' })
+                    : JSON.stringify({ outcome: 'complete_direct', summary: 'normal result wins' }),
+              },
+            },
+          ],
+        },
+        provider_exchanges: [],
+      };
     });
     const h = harness(provider);
     const notification = fatalNotificationSpy(h.supervisor);
     const { activation } = await launchCapturingActivation(h);
 
-    await expect(within(activation)).resolves.toMatchObject({ status: 'done', summary: 'normal result wins' });
-    for (let index = 0; index < 100 && h.supervisor.getStatus().status !== 'stopped'; index++) await new Promise((resolve) => setTimeout(resolve, 5));
+    await expect(within(activation)).resolves.toMatchObject({
+      status: 'done',
+      summary: 'normal result wins',
+    });
+    for (let index = 0; index < 100 && h.supervisor.getStatus().status !== 'stopped'; index++)
+      await new Promise((resolve) => setTimeout(resolve, 5));
     expect(h.supervisor.getStatus().status).toBe('stopped');
-    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
-    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { summary: 'normal result wins' } } });
+    await expect(h.supervisor.stopProject()).resolves.toEqual({
+      status: 'stopped',
+      contained: false,
+    });
+    expect(h.cards.read('project')).toMatchObject({
+      lifecycle: { status: 'done', result: { summary: 'normal result wins' } },
+    });
     expect(notification).not.toHaveBeenCalled();
   });
 
   it('rejects a real child actor-first activation exactly and interrupts its real lease/owners without ordinary publication', async () => {
     let releaseRoot!: () => void;
-    const rootBarrier = new Promise<void>((resolve) => { releaseRoot = resolve; });
+    const rootBarrier = new Promise<void>((resolve) => {
+      releaseRoot = resolve;
+    });
     let rootStarted = false;
     let childId = '';
     const provider: LLMProviderPort = scriptedAdmissionProvider(async (input) => {
-      if (input.sessionId !== 'agent:planner:project') throw new Error(`Unexpected child-fatal provider session '${input.sessionId}'.`);
+      if (input.sessionId !== 'agent:planner:project')
+        throw new Error(`Unexpected child-fatal provider session '${input.sessionId}'.`);
       rootStarted = true;
       await rootBarrier;
-      return { result: { kind: 'tool_calls', tool_calls: [{ id: 'activate-child', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      return {
+        result: {
+          kind: 'tool_calls',
+          tool_calls: [
+            {
+              id: 'activate-child',
+              type: 'function',
+              function: { name: 'activate_card', arguments: JSON.stringify({ instructions: 'Complete the scoped child task with current evidence.', card_id: childId }) },
+            },
+          ],
+        },
+        provider_exchanges: [],
+      };
     });
     const h = harness(provider);
-    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Fatal child', bootstrap_content: 'Fail in actor callback', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] }).id;
+    childId = h.cards.create({
+      type: 'code',
+      parent: 'project',
+      title: 'Fatal child',
+      bootstrap_content: 'Fail in actor callback',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    }).id;
     const commit = jest.spyOn(h.cards, 'commitActivationOutcome');
     const notification = fatalNotificationSpy(h.supervisor);
     const internals = h.supervisor as unknown as SupervisorInternals;
@@ -357,7 +605,11 @@ describe('real CardProcess actor-main fatal containment', () => {
     });
     const originalActivate = CardProcessActor.prototype.activate;
     let childActivation!: Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
-    jest.spyOn(CardProcessActor.prototype, 'activate').mockImplementation(function (this: CardProcessActor, input, signal) {
+    jest.spyOn(CardProcessActor.prototype, 'activate').mockImplementation(function (
+      this: CardProcessActor,
+      input,
+      signal,
+    ) {
       const activation = originalActivate.call(this, input, signal);
       if (this.cardId === childId) childActivation = activation;
       return activation;
@@ -366,14 +618,17 @@ describe('real CardProcess actor-main fatal containment', () => {
 
     const started = await h.supervisor.startProject();
     if (!started.started) throw new Error('child-fatal Run was rejected');
-    for (let index = 0; index < 100 && !rootStarted; index++) await new Promise((resolve) => setImmediate(resolve));
+    for (let index = 0; index < 100 && !rootStarted; index++)
+      await new Promise((resolve) => setImmediate(resolve));
     expect(rootStarted).toBe(true);
     h.armActorTransitionFailure();
     releaseRoot();
-    for (let index = 0; index < 100 && !childActivation; index++) await new Promise((resolve) => setImmediate(resolve));
+    for (let index = 0; index < 100 && !childActivation; index++)
+      await new Promise((resolve) => setImmediate(resolve));
     const childOwner = internals.activationOwners.get(childId);
     const rootOwner = internals.activationOwners.get('project');
-    if (!childOwner?.parentRelationship) throw new Error('real child owner was not retained by fatal halt');
+    if (!childOwner?.parentRelationship)
+      throw new Error('real child owner was not retained by fatal halt');
     if (!rootOwner) throw new Error('real root owner was not retained by child-fatal halt');
     const lease = childOwner.parentRelationship.invocation;
 
@@ -391,61 +646,120 @@ describe('real CardProcess actor-main fatal containment', () => {
     expect(h.terminate).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['llm-order', 'tracker', 'lifecycle'] as const)('selects CardProcess %s precedence while observing both LLMs, tracker, and lifecycle', async (winner) => {
-    let reviewerStarted = false;
-    let calls = 0;
-    const provider: LLMProviderPort = scriptedAdmissionProvider(async (input, signal) => {
-      if (input.sessionId === 'agent:planner:project') {
-        calls += 1;
-        if (calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'write-plan', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project', content: 'plan' }) } }] }, provider_exchanges: [] };
-        return { result: { kind: 'tool_calls', tool_calls: [{ id: 'review-plan', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome: 'admit_review', summary: 'review' }) } }] }, provider_exchanges: [] };
+  it.each(['llm-order', 'tracker', 'lifecycle'] as const)(
+    'selects CardProcess %s precedence while observing both LLMs, tracker, and lifecycle',
+    async (winner) => {
+      let reviewerStarted = false;
+      let calls = 0;
+      const provider: LLMProviderPort = scriptedAdmissionProvider(async (input, signal) => {
+        if (input.sessionId === 'agent:planner:project') {
+          calls += 1;
+          if (calls === 1)
+            return {
+              result: {
+                kind: 'tool_calls',
+                tool_calls: [
+                  {
+                    id: 'write-plan',
+                    type: 'function',
+                    function: {
+                      name: 'write',
+                      arguments: JSON.stringify({
+                        path: 'record:///status.md?card=project',
+                        content: 'plan',
+                      }),
+                    },
+                  },
+                ],
+              },
+              provider_exchanges: [],
+            };
+          return {
+            result: {
+              kind: 'tool_calls',
+              tool_calls: [
+                {
+                  id: 'review-plan',
+                  type: 'function',
+                  function: {
+                    name: 'emit_result',
+                    arguments: JSON.stringify({ outcome: 'admit_review', summary: 'review' }),
+                  },
+                },
+              ],
+            },
+            provider_exchanges: [],
+          };
+        }
+        if (input.sessionId === 'agent:reviewer:project') {
+          reviewerStarted = true;
+          return await new Promise<never>((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          );
+        }
+        throw new Error(`Unexpected precedence provider session '${input.sessionId}'.`);
+      });
+      const h = harness(provider);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const notification = fatalNotificationSpy(h.supervisor);
+      await launchCapturingActivation(h);
+      for (let index = 0; index < 200 && !reviewerStarted; index++)
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      expect(reviewerStarted).toBe(true);
+      const plannerFailure = new Error('frozen planner join failure');
+      const reviewerFailure = new Error('frozen reviewer join failure');
+      const trackerFailure = new Error('tracker join failure');
+      const joined: string[] = [];
+      let releasePlanner!: () => void;
+      let releaseReviewer!: () => void;
+      const plannerJoin = new Promise<never>((_resolve, reject) => {
+        releasePlanner = () => reject(plannerFailure);
+      });
+      const reviewerJoin = new Promise<never>((_resolve, reject) => {
+        releaseReviewer = () => reject(reviewerFailure);
+      });
+      jest.spyOn(ConversationLLMActor.prototype, 'join').mockImplementation(function (
+        this: ConversationLLMActor,
+      ) {
+        joined.push(this.agentId);
+        if (winner !== 'llm-order') return Promise.resolve({ status: 'joined' });
+        return this.agentId === 'agent:planner:project' ? plannerJoin : reviewerJoin;
+      });
+      const originalTrackerJoin = ActivationOperationTracker.prototype.join;
+      const trackerJoin = jest
+        .spyOn(ActivationOperationTracker.prototype, 'join')
+        .mockImplementation(async function (this: ActivationOperationTracker) {
+          const outcome = await originalTrackerJoin.call(this);
+          if (winner === 'tracker' || winner === 'llm-order') throw trackerFailure;
+          return outcome;
+        });
+      h.armActorTransitionFailure();
+      const stop = h.supervisor.stopProject();
+      if (winner === 'llm-order') {
+        for (let index = 0; index < 100 && joined.length < 2; index++)
+          await new Promise((resolve) => setImmediate(resolve));
+        releaseReviewer();
+        await new Promise((resolve) => setImmediate(resolve));
+        releasePlanner();
       }
-      if (input.sessionId === 'agent:reviewer:project') {
-        reviewerStarted = true;
-        return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-      }
-      throw new Error(`Unexpected precedence provider session '${input.sessionId}'.`);
-    });
-    const h = harness(provider);
-    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const notification = fatalNotificationSpy(h.supervisor);
-    await launchCapturingActivation(h);
-    for (let index = 0; index < 200 && !reviewerStarted; index++) await new Promise((resolve) => setTimeout(resolve, 2));
-    expect(reviewerStarted).toBe(true);
-    const plannerFailure = new Error('frozen planner join failure');
-    const reviewerFailure = new Error('frozen reviewer join failure');
-    const trackerFailure = new Error('tracker join failure');
-    const joined: string[] = [];
-    let releasePlanner!: () => void;
-    let releaseReviewer!: () => void;
-    const plannerJoin = new Promise<never>((_resolve, reject) => { releasePlanner = () => reject(plannerFailure); });
-    const reviewerJoin = new Promise<never>((_resolve, reject) => { releaseReviewer = () => reject(reviewerFailure); });
-    jest.spyOn(ConversationLLMActor.prototype, 'join').mockImplementation(function (this: ConversationLLMActor) {
-      joined.push(this.agentId);
-      if (winner !== 'llm-order') return Promise.resolve({ status: 'joined' });
-      return this.agentId === 'agent:planner:project' ? plannerJoin : reviewerJoin;
-    });
-    const originalTrackerJoin = ActivationOperationTracker.prototype.join;
-    const trackerJoin = jest.spyOn(ActivationOperationTracker.prototype, 'join').mockImplementation(async function (this: ActivationOperationTracker) {
-      const outcome = await originalTrackerJoin.call(this);
-      if (winner === 'tracker' || winner === 'llm-order') throw trackerFailure;
-      return outcome;
-    });
-    h.armActorTransitionFailure();
-    const stop = h.supervisor.stopProject();
-    if (winner === 'llm-order') {
-      for (let index = 0; index < 100 && joined.length < 2; index++) await new Promise((resolve) => setImmediate(resolve));
-      releaseReviewer();
-      await new Promise((resolve) => setImmediate(resolve));
-      releasePlanner();
-    }
-    const expected = winner === 'llm-order' ? plannerFailure : winner === 'tracker' ? trackerFailure : h.actorFailure;
+      const expected =
+        winner === 'llm-order'
+          ? plannerFailure
+          : winner === 'tracker'
+            ? trackerFailure
+            : h.actorFailure;
 
-    await expect(within(stop)).rejects.toBe(expected);
-    expect(joined).toEqual(['agent:planner:project', 'agent:reviewer:project']);
-    expect(trackerJoin).toHaveBeenCalledTimes(1);
-    expect(log.mock.calls.some(([message, error]) => message === 'BaseActor main loop failed' && error === h.actorFailure)).toBe(true);
-    expect(notification).toHaveBeenCalledTimes(1);
-    expect(h.supervisor.getStatus().status).toBe('error');
-  });
+      await expect(within(stop)).rejects.toBe(expected);
+      expect(joined).toEqual(['agent:planner:project', 'agent:reviewer:project']);
+      expect(trackerJoin).toHaveBeenCalledTimes(1);
+      expect(
+        log.mock.calls.some(
+          ([message, error]) =>
+            message === 'BaseActor main loop failed' && error === h.actorFailure,
+        ),
+      ).toBe(true);
+      expect(notification).toHaveBeenCalledTimes(1);
+      expect(h.supervisor.getStatus().status).toBe('error');
+    },
+  );
 });

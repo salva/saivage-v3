@@ -91,7 +91,7 @@ function invocation(conversation: ValidatedConversation): PreparedLlmInvocationI
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction,
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
     episodeContext: {},
@@ -192,7 +192,7 @@ describe('accumulated compaction history generations', () => {
       const old = protectedText('old-key', 'RELEASED KEYED INSTRUCTION', 'workflow.rule');
       appendConversationBatch({ projectRoot: root }, [activation(1), anonymous, old, text('first', BIG), recoveryNotice(1), refusalMarker(1), activation(2), text('second', BIG), activation(3), text('third', BIG)]);
       const preparedCompaction = prepareCompaction({ ...POLICY, tail_fraction: 0 }, 'system', [], 8_000, 2_000);
-      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction });
       const ordinary = readCurrentConversationSegment(root, SESSION)!;
       const firstProvider = recordingSummarizer([]);
       firstProvider.completeTurn = async () => ({ result: { kind: 'message', content: 'LARGE INHERITED PROSE '.repeat(900) }, provider_exchanges: [] });
@@ -266,7 +266,7 @@ describe('accumulated compaction history generations', () => {
       expect(segment.genesis.kind).toBe('compacted_segment_genesis');
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('unreachable');
       const history = segment.genesis.compaction;
-      expect(history.requiredModelFacts).toEqual({ latestRecovery: null, latestContentPolicyRefusal: null });
+      expect(history.requiredModelFacts).toEqual({ latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] });
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis');
       expect(segment.genesis.source.covered_through_message_id).toBe('activation-3');
       expect(segment.rows.map((row) => row.id)).toEqual(['t3']);

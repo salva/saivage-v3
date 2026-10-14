@@ -28,7 +28,7 @@ describe('shared historical instruction presentation from source compiler/public
         const base = { ...entry(inputId, 'text', content), session_id: session };
         return [agentMessageSchema.parse({ ...base, id: `${inputId}:activation`, role: 'system', kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary, content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: inputId, timestamp: base.timestamp, instructions }) }), agentMessageSchema.parse(base)];
       };
-      const ingress = fixtureIngress('11111111-1111-4111-8111-111111111111', 'Synthetic operator input', { kind: 'prepared', role_text: role, node: null });
+      const ingress = fixtureIngress('11111111-1111-4111-8111-111111111111', 'Synthetic operator input', { kind: 'prepared',activation_id:null,caller:{kind:'global'},card:null,parent_direction:null, role_text: role, node: null });
       const absent = fixtureIngress('22222222-2222-4222-8222-222222222222', 'Historical input', { kind: 'unavailable', reason: 'not_recorded' });
       const confirmation = fixtureIngress('33333333-3333-4333-8333-333333333333', 'Confirmation', { kind: 'not_applicable', reason: 'non_model_ingress' });
       const host = { kind: 'process', cardType: 'code' } as const;

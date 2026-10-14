@@ -20,11 +20,99 @@ import {
   sourceInputIdFromToolResultMessageId,
 } from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
+import { publicRecordSelection, type RecordObservation } from '../../schemas/index.js';
+import {
+  AgentConversationEntrySchema,
+  type AgentConversationEntry,
+} from '../../contracts/index.js';
+
+export function projectRecordObservation(value: RecordObservation) {
+  const source = value.source;
+  const observed = publicRecordSelection(value.observed);
+  const accepted = (selection: Extract<typeof observed.selection, { kind: 'accepted' }>) => ({
+    ...selection,
+    locator: redactTextForOutbound(selection.locator),
+  });
+  return {
+    observed: {
+      ...observed,
+      record_name: redactTextForOutbound(observed.record_name),
+      selection:
+        observed.selection.kind === 'accepted'
+          ? accepted(observed.selection)
+          : observed.selection.kind === 'draft'
+            ? {
+                kind: 'draft' as const,
+                accepted_backing: observed.selection.accepted_backing
+                  ? accepted(observed.selection.accepted_backing)
+                  : null,
+              }
+            : observed.selection,
+    },
+    source:
+      source.kind === 'preparation'
+        ? {
+            kind: source.kind,
+            input_id: source.input_id,
+            node_id: redactTextForOutbound(source.node_id),
+          }
+        : source.kind === 'prompt'
+          ? {
+              kind: source.kind,
+              input_id: source.input_id,
+              node_id: redactTextForOutbound(source.node_id),
+              reference: redactTextForOutbound(source.reference),
+            }
+          : {
+              kind: source.kind,
+              input_id: source.input_id,
+              tool_call_id: redactTextForOutbound(source.tool_call_id),
+              tool_name: redactTextForOutbound(source.tool_name),
+            },
+  };
+}
 
 export function projectCanonicalConversationRow(
   value: unknown,
   projectInvocation: ToolInvocationProjector,
-): AgentMessage {
+): AgentConversationEntry {
+  const row = projectRow(value, projectInvocation);
+  const policy = row.context_policy;
+  return AgentConversationEntrySchema.parse({
+    ...row,
+    id: redactTextForOutbound(row.id),
+    ...(row.tool ? { tool: redactTextForOutbound(row.tool) } : {}),
+    ...(row.tool_call_id ? { tool_call_id: redactTextForOutbound(row.tool_call_id) } : {}),
+    context_policy:
+      policy.kind === 'content'
+        ? {
+            kind: policy.kind,
+            compactable: policy.compactable,
+            ...(policy.compaction_key === undefined
+              ? {}
+              : { compaction_key: redactTextForOutbound(policy.compaction_key) }),
+          }
+        : policy.kind === 'structural'
+          ? { kind: policy.kind, behavior: policy.behavior }
+          : policy.kind === 'tool_result'
+            ? { kind: policy.kind, settlement_origin: policy.settlement_origin }
+            : { kind: policy.kind },
+    ...(row.record_observations
+      ? { record_observations: row.record_observations.map(projectRecordObservation) }
+      : {}),
+    ...(row.record_prompt
+      ? {
+          record_prompt: {
+            ...row.record_prompt,
+            node_id: redactTextForOutbound(row.record_prompt.node_id),
+            reference: redactTextForOutbound(row.record_prompt.reference),
+          },
+        }
+      : {}),
+  });
+}
+
+function projectRow(value: unknown, projectInvocation: ToolInvocationProjector): AgentMessage {
   const row = stripModelDecoration(agentMessageSchema.parse(value));
   if (row.kind === 'activity') {
     const payload = parseActivationOpenPayload(row.content, row.session_id, row.timestamp);
@@ -51,6 +139,32 @@ export function projectCanonicalConversationRow(
               ? {
                   kind: 'prepared',
                   role_text: redactTextForOutbound(instructions.role_text),
+                  activation_id: instructions.activation_id,
+                  caller:
+                    instructions.caller.kind === 'parent'
+                      ? {
+                          kind: 'parent',
+                          cardId: instructions.caller.cardId,
+                          sessionId: instructions.caller.sessionId,
+                          sourceInputId: instructions.caller.sourceInputId,
+                          toolCallId: redactTextForOutbound(instructions.caller.toolCallId),
+                          toolName: instructions.caller.toolName,
+                        }
+                      : { kind: instructions.caller.kind },
+                  card:
+                    instructions.card === null
+                      ? null
+                      : {
+                          cardId: instructions.card.cardId,
+                          cardType: instructions.card.cardType,
+                          title: redactTextForOutbound(instructions.card.title),
+                        },
+                  parent_direction:
+                    instructions.parent_direction === null
+                      ? null
+                      : {
+                          text: redactTextForOutbound(instructions.parent_direction.text),
+                        },
                   node:
                     instructions.node === null
                       ? null
@@ -130,9 +244,12 @@ function projectCallRow(
       role: 'assistant',
       tool_calls: [
         {
-          id: identity.toolCallId,
+          id: redactTextForOutbound(identity.toolCallId),
           type: 'function',
-          function: { name: identity.toolName, arguments: projected.arguments },
+          function: {
+            name: redactTextForOutbound(identity.toolName),
+            arguments: projected.arguments,
+          },
         },
       ],
     }),

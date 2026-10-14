@@ -5,8 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { RecordMutationSuccessSchema } from '../../../src/contracts/record-mutation.js';
 import { validateProcessToolResult } from '../../../src/tools/process-tool-result.js';
-import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
-import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId, publicToolPolicies } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 
@@ -23,11 +22,11 @@ const recordUrl = `record:///status.md?card=${smokeCardId}`;
 const rowId = (id: string, result = false) => `${segment}:tool-${result ? 'result' : 'call'}:${id}`;
 function text(session: string, id: string, content: string) {
   return { id, session_id: session, role: 'assistant', kind: 'text', content,
-    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
+    context_policy: { kind: 'content', compactable: true },
     round_id: `r-assistant-${segment.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp };
 }
 function pair(session: string, id: string, tool: string, args: object, result: object) {
-  const content = JSON.stringify(result), policy = toolRowPolicies({ content });
+  const content = JSON.stringify(result), policy = publicToolPolicies;
   const base = { session_id: session, tool, tool_call_id: id, message_index: 0, block_index: 0, timestamp, round_id: `r-assistant-${segment.replaceAll('-', '')}` };
   return [
     { ...base, id: rowId(id), role: 'assistant', kind: 'tool_call', context_policy: policy.call,

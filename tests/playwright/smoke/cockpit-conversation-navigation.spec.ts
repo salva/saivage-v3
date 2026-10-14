@@ -1,9 +1,8 @@
 import { expect, test, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
-import { installOperatorRestRoutes, smokeCardId, retainedInstructionContext } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId, retainedInstructionContext, publicToolPolicies } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
-import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
 import { redactTextForOutbound } from '../../../src/redaction/index.js';
 import { MODEL_RECOVERY_NOTICE_TEXT } from '../../../src/schemas/context-policy.js';
 
@@ -26,12 +25,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1296, height: 899
       message: { ...context.protected_prompts[0]!.message, id: `protected-${index}`, content: redactTextForOutbound(`Instruction ${index} token=instruction-egress-canary final-instruction-Z`) },
     }));
     const inheritedContext = { ...context,
-      required_model_facts: { latestRecovery: { sourceMessageId: '11111111-1111-4111-8111-111111111111:model-recovered', activationInputId: '11111111-1111-4111-8111-111111111111' }, latestContentPolicyRefusal: { markerId: '33333333-3333-4333-8333-333333333333', activationInputId: '22222222-2222-4222-8222-222222222222' } },
+      required_model_facts: { latestRecordObservations: [], latestRecovery: { sourceMessageId: '11111111-1111-4111-8111-111111111111:model-recovered', activationInputId: '11111111-1111-4111-8111-111111111111' }, latestContentPolicyRefusal: { markerId: '33333333-3333-4333-8333-333333333333', activationInputId: '22222222-2222-4222-8222-222222222222' } },
       continuation: { kind: 'inherited_open_round', activation: { marker_id: 'real-inherited-marker', input_id: '11111111-1111-4111-8111-111111111111' }, active_segment_kind: 'initial' },
     };
     const pair = callRows('context-call', 'r-assistant-33333333333343338333333333333333', 0);
     const text = (id: string, content: string, role = 'assistant') => ({ ...context.protected_prompts[0]!.message, id, role, content,
-      context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } });
+      context_policy: { kind: 'content', compactable: true } });
     const rows = [pair[0], text('recorded-system-row', 'Recorded node-looking text, not current authority. final-system-Z', 'system'),
       text('interleaved-prose', 'Correction before the result'), pair[1],
       { ...text('visible-diagnostic', '{"message":"visible recovery issue"}', 'system'), kind: 'model_issue', context_policy: { kind: 'structural', behavior: 'provider_failure' } },
@@ -145,7 +144,7 @@ function activationRow(sessionId: string, suffix: string) {
 function callRows(id: string, round: string, index: number, tool = 'read') {
   const content = 'synthetic-raw-response-only';
   const resultContent = JSON.stringify({ success: true, data: { path: 'README.md', content: { content, utf8_bytes: Buffer.byteLength(content), offset_bytes: 0, next_offset_bytes: Buffer.byteLength(content) }, total_bytes: Buffer.byteLength(content) } });
-  const policies = toolRowPolicies({ content: resultContent });
+  const policies = publicToolPolicies;
   const source = round.slice('r-assistant-'.length).replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
   const base = { session_id: executor, tool, tool_call_id: id, round_id: round, message_index: index, block_index: 0, timestamp: now };
   return [
@@ -193,7 +192,7 @@ function layoutRows(sessionId: string) {
   return cases.flatMap(({ tool, args, result }, index) => {
     const rows = callRows(`layout-${index}`, 'r-assistant-44444444444444448444444444444444', index, tool);
     const content = JSON.stringify(result);
-    const policies = toolRowPolicies({ content });
+    const policies = publicToolPolicies;
     rows[0] = { ...rows[0]!, session_id: sessionId, context_policy: policies.call,
       content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: `layout-${index}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }) };
     rows[1] = { ...rows[1]!, session_id: sessionId, context_policy: policies.result, content };
@@ -437,7 +436,7 @@ test('exact entry reload, unavailable card, global scope, narrow controls, and A
   await page.setViewportSize({ width: 900, height: 700 });
   const rest = await setup(page, true);
   await page.route(`**/api/agents/${encodeURIComponent(executor)}/conversation`, async (route: Route) => {
-    const entry = { id: marker, session_id: executor, role: 'assistant', kind: 'text', content: 'Exact marker transcript row', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-assistant-99999999999949998999999999999999', message_index: 0, block_index: 0, timestamp: now };
+    const entry = { id: marker, session_id: executor, role: 'assistant', kind: 'text', content: 'Exact marker transcript row', context_policy: { kind: 'content', compactable: true }, round_id: 'r-assistant-99999999999949998999999999999999', message_index: 0, block_index: 0, timestamp: now };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('agents.conversation', 200, { session_id: executor, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null, entries: [entry], cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: marker } })) });
   });
   await page.goto(`/agents/${encodeURIComponent(executor)}?entry=${marker}`);
@@ -664,7 +663,7 @@ test('diagnostic exact targets open at source position and retain truth through 
   const base = { session_id: executor, role: 'system', round_id: pair[0]!.round_id, message_index: 1, block_index: 0, timestamp: now };
   const diagnostics = [
     { ...base, id: 'issue-row', kind: 'model_issue', content: `Provider request rejected. ${'Technical error '.repeat(100)}FINAL-ISSUE-Z`, context_policy: { kind: 'structural', behavior: 'provider_failure' } },
-    { ...base, id: 'repair-row', role: 'user', kind: 'model_repair', content: 'Return a valid required result. FINAL-DIRECTIVE-Z', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } },
+    { ...base, id: 'repair-row', role: 'user', kind: 'model_repair', content: 'Return a valid required result. FINAL-DIRECTIVE-Z', context_policy: { kind: 'content', compactable: true } },
     { ...base, id: 'recovery-row', kind: 'model_recovered', content: MODEL_RECOVERY_NOTICE_TEXT, context_policy: { kind: 'structural', behavior: 'model_recovery_notice' } },
   ];
   let reads = 0;

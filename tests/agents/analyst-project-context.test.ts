@@ -67,8 +67,8 @@ describe('Analyst project context', () => {
 
     expect(list).toHaveBeenCalledTimes(1);
     expect(getParent).not.toHaveBeenCalled();
-    const input = providerInputs[0] as { preparedContext: { dynamicBlocks: ReadonlyArray<{ id: string; content: string }> }; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> } };
-    const tree = input.preparedContext.dynamicBlocks[0]!;
+    const input = providerInputs[0] as { preparedContext: { stableBlocks: ReadonlyArray<{ id: string; content: string }> }; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> } };
+    const tree = input.preparedContext.stableBlocks[0]!;
     expect(tree.id).toBe('analyst.project_tree');
     expect(Buffer.byteLength(tree.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
     const snapshot = JSON.parse(tree.content) as { root: { id: string; children?: Array<{ id: string }> }; active_path: string[] };
@@ -93,17 +93,17 @@ describe('Analyst project context', () => {
 
     await expect(buildSession(projectRoot, persisted, completeTurn, render).submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
 
-    const input = providerInputs[0] as { systemPrompt: string; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> }; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[]; immutablePrefixSha256: string }; dynamicBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown; internalToolContractSha256: string } };
+    const input = providerInputs[0] as { systemPrompt: string; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> }; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[]; immutablePrefixSha256: string }; stableBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown; internalToolContractSha256: string } };
     expect(input.systemPrompt).toBe('rendered prompt');
     expect(input.preparedContext.prefix.instructionText).toBe('rendered prompt');
     expect(input.preparedContext.prefix.terminalToolNames).toEqual([]);
     expect(input.preparedContext.prefix.immutablePrefixSha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(input.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
-    expect(input.preparedContext.dynamicBlocks).toHaveLength(2);
-    expect(input.preparedContext.dynamicBlocks[1]).toMatchObject({ id: 'analyst.workspace_focus', storage: 'activation_local', audience: 'primary_and_summarizer' });
-    const focus = input.preparedContext.dynamicBlocks[1]!;
+    expect(input.preparedContext.stableBlocks).toHaveLength(2);
+    expect(input.preparedContext.stableBlocks[1]).toMatchObject({ id: 'analyst.workspace_focus', storage: 'activation_local', audience: 'primary_and_summarizer' });
+    const focus = input.preparedContext.stableBlocks[1]!;
     expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.origin === 'dynamic' && item.block_identity === focus.id && item.content === focus.content)).toHaveLength(1);
-    const tree = input.preparedContext.dynamicBlocks[0]!;
+    const tree = input.preparedContext.stableBlocks[0]!;
     expect(tree.id).toBe('analyst.project_tree');
     expect(tree.storage).toBe('activation_local');
     expect(tree.replacement.kind).toBe('latest_snapshot');
@@ -124,14 +124,14 @@ describe('Analyst project context', () => {
     });
     const session = buildSession(projectRoot, { list } as unknown as CardServiceType, completeTurn, jest.fn(() => 'prompt'));
     await session.submit({ userContent: 'this card', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: { tab: 'overview' } } });
-    const first = providerInputs[0].preparedContext.dynamicBlocks[1].content;
+    const first = providerInputs[0].preparedContext.stableBlocks[1].content;
     expect(JSON.parse(first).focus).toMatchObject({ card_id: 'project', version_seq: listed[0]!.version_seq });
     listed[0]!.version_seq += 1;
     await session.submit({ userContent: 'still this card', workspaceContext: { view: 'cockpit', entityId: 'project', refinement: { tab: 'overview' } } });
-    const second = providerInputs[1].preparedContext.dynamicBlocks[1].content;
+    const second = providerInputs[1].preparedContext.stableBlocks[1].content;
     expect(JSON.parse(second).focus.version_seq).toBe(JSON.parse(first).focus.version_seq + 1);
     await session.submit({ userContent: 'no focus' });
-    expect(JSON.parse(providerInputs[2].preparedContext.dynamicBlocks[1].content).focus).toBe('no_focus');
+    expect(JSON.parse(providerInputs[2].preparedContext.stableBlocks[1].content).focus).toBe('no_focus');
     expect(list).toHaveBeenCalledTimes(3);
     const rows = readConversation(projectRoot, 'agent:analyst:global').sourceRows;
     expect(rows.filter((row) => row.role === 'user').map((row) => row.content)).toEqual(['this card', 'still this card', 'no focus']);

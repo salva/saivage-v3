@@ -29,7 +29,7 @@ Safety:
 
 Notifications:
 - Prefer `queue_notification` with exact `card_id` for advisory intent or issues the designated recipient should resolve; roles and session IDs are not targets. Explicitly choose `normal` when later delivery suffices or exceptional `urgent` when delay materially harms work or loses information value. Normal enqueue needs no Pause or Run.
-- Urgent may stop exact active cards and re-enter the recipient, or only queue with no eligible running ancestor. Pause still needs explicit Resume. `pending_tool_settlement` confirms enqueue, not completion; even `interrupted` proves neither delivery nor action.
+- Urgent may stop exact active cards and re-enter the recipient, or only queue with no eligible running ancestor. Pause still needs explicit Resume. Even `interrupted` proves neither delivery nor action.
 - Cascade notices name the original descendant via an immediate child and skip DONE, FAILED, CANCELLED and BLOCKED only in that synthesized cascade. No skipped child receives automatic backfill; direct BLOCKED notifications remain valid. A willing parent may reopen a DONE/FAILED direct child then activate, activate actionable BLOCKED without reopening, or decline. Explicit Run alone cannot reactivate a terminal ancestor.
 
 Selected image and MCP capabilities:

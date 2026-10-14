@@ -18,7 +18,12 @@ import type { CardId } from '../schemas/index.js';
 
 export type AnalystMutationOutcome =
   | { kind: 'denied'; reason: string }
-  | { kind: 'returned'; success: true; data?: unknown }
+  | {
+      kind: 'returned';
+      success: true;
+      data?: unknown;
+      record_observations?: readonly import('../schemas/index.js').RecordSelectionObservation[];
+    }
   | { kind: 'returned'; success: false; error: string; data?: unknown };
 
 export interface CreateAnalystCardInput {
@@ -387,7 +392,12 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
       () => this.propagate(path),
     );
     return result.kind === 'applied'
-      ? { kind: 'returned', success: true, data: result.data }
+      ? {
+          kind: 'returned',
+          success: true,
+          data: result.data,
+          record_observations: result.record_observations,
+        }
       : { kind: 'returned', success: false, error: result.error, data: result.data };
   }
 
@@ -412,7 +422,12 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
       () => this.propagate(path),
     );
     return result.kind === 'applied'
-      ? { kind: 'returned', success: true, data: result.data }
+      ? {
+          kind: 'returned',
+          success: true,
+          data: result.data,
+          record_observations: result.record_observations,
+        }
       : { kind: 'returned', success: false, error: result.error, data: result.data };
   }
 

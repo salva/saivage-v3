@@ -9,8 +9,8 @@ import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, type BlockedResult } from '../.
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 describe('activate_card shared tool contract', () => {
-  it('accepts exactly one valid card_id', () => {
-    const args = { card_id: 'card-a-b' };
+  it('accepts exactly a valid card_id and explicit direction', () => {
+    const args = { card_id: 'card-a-b', instructions: 'Complete the child task.' };
 
     expect(activateCardArgumentsSchema.parse(args)).toEqual(args);
   });
@@ -27,8 +27,9 @@ describe('activate_card shared tool contract', () => {
 
   it.each([
     ['missing card_id', {}],
-    ['extra field', { card_id: 'card-a', extra: true }],
-    ['invalid card_id', { card_id: 'card-1' }],
+    ['missing instructions', { card_id: 'card-a' }],
+    ['extra field', { card_id: 'card-a', instructions: 'Direction', extra: true }],
+    ['invalid card_id', { card_id: 'card-1', instructions: 'Direction' }],
   ])('rejects %s', (_name, value) => {
     expect(activateCardArgumentsSchema.safeParse(value).success).toBe(false);
   });

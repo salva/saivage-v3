@@ -36,7 +36,7 @@ function invocation(inputId: string, contracts: readonly InvocationContract[]): 
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction,
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: contracts, dynamicBlocks: [], preparedCompaction }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: contracts, stableBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
     episodeContext: {},

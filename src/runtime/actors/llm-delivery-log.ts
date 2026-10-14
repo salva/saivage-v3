@@ -64,6 +64,10 @@ function assertResultPolicyConsistency(
 }
 
 export type SettledToolResultFacts = Readonly<{
+  recordObservations: Extract<
+    import('../../contracts/tool-result.js').ToolActionOutcome,
+    { kind: 'succeeded' }
+  >['record_observations'];
   providerResult: ToolResult;
   settledResultBytes: string;
   resultContentSha256: string;
@@ -88,6 +92,7 @@ export function settleToolResultForConversation(
     settlement.kind === 'executed' ? 'executed' : settlement.kind;
   const evidence = settledEvidence(resultPolicy, settlement, providerResult, toolName);
   return Object.freeze({
+    recordObservations: outcome.kind === 'succeeded' ? outcome.record_observations : undefined,
     providerResult,
     settledResultBytes,
     resultContentSha256,
@@ -364,6 +369,19 @@ function buildToolResultMessage(
     message_index: 2,
     block_index: 0,
     timestamp: createdAt,
+    ...(facts.recordObservations && facts.recordObservations.observations.length > 0
+      ? {
+          record_observations: facts.recordObservations.observations.map((observed) => ({
+            observed,
+            source: {
+              kind: facts.recordObservations!.kind,
+              input_id: record.source_input_id,
+              tool_call_id: record.tool_call_id,
+              tool_name: record.tool_name,
+            },
+          })),
+        }
+      : {}),
   });
 }
 

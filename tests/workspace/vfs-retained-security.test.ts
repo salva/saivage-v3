@@ -5,7 +5,8 @@ import { join, parse, relative, resolve, sep } from 'node:path';
 
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { displayPathForResolved, listScopedPath, resolveScopedPath, visitFiles, visitScopedFiles } from '../../src/workspace/vfs.js';
-import { authorizeWriteProject, editProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
+import { authorizeWriteProject, editProject, readProject as readWithObservations, writeProject } from '../../src/tools/project-file-tools.js';
+const readProject = async (...args: Parameters<typeof readWithObservations>) => (await readWithObservations(...args)).data;
 import { buildScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
 

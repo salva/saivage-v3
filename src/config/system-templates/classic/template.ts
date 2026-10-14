@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { CardTypeName, CardTypesSource } from '../../../schemas/index.js';
-import { createClassicConfig } from '../classic-shared.js';
+import { createClassicConfig, classicRecordContext } from '../classic-shared.js';
 const prompt = (reference: string) => ({ reference, compactable: true });
 
 const allNonRootTypes = [
@@ -149,15 +149,15 @@ function executionCardType(): CardTypesSource[CardTypeName] {
 }
 
 const cardTypes: CardTypesSource = {
-  project: planningCardType(),
-  goal: planningCardType(),
-  architecture: executionCardType(),
-  code: executionCardType(),
-  test: executionCardType(),
-  doc: executionCardType(),
-  data: executionCardType(),
-  research: executionCardType(),
-  ops: executionCardType(),
+  project: classicRecordContext(planningCardType()),
+  goal: classicRecordContext(planningCardType()),
+  architecture: classicRecordContext(executionCardType()),
+  code: classicRecordContext(executionCardType()),
+  test: classicRecordContext(executionCardType()),
+  doc: classicRecordContext(executionCardType()),
+  data: classicRecordContext(executionCardType()),
+  research: classicRecordContext(executionCardType()),
+  ops: classicRecordContext(executionCardType()),
 };
 
 const config = createClassicConfig(cardTypes);

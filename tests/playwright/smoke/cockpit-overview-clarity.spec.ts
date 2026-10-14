@@ -114,7 +114,7 @@ function transcriptEntries() {
     id: `77777777-7777-4777-8${String(index).padStart(3, '0')}-777777777777`,
     session_id: sessionId, role: 'assistant', kind: 'text',
     content: index === 17 ? transcriptLastMarker : `Real synthetic fixture transcript message ${index + 1}: ${'readable transcript body '.repeat(8)}`,
-    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
+    context_policy: { kind: 'content', compactable: true },
     round_id: `r-assistant-${String(index + 1).padStart(32, '0')}`, message_index: index, block_index: 0, timestamp: now,
   }));
 }

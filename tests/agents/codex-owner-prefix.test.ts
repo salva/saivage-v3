@@ -170,7 +170,7 @@ describe('actual composed Codex ordinary-turn requests', () => {
     const changed = admitted(svc, request([old, protectedRow, tail], 1, [changedBlock])).built.body;
     expect(changed.input).not.toEqual(first.input);
     expect((changed.input as unknown[])[0]).toEqual({ role: 'system', content: 'NEW VERIFY NODE' });
-    const compacted = admitted(svc, request([tail], 2, [changedBlock], { historyMessageId: 'genesis:history', historyTimestamp: '2026-10-06T00:00:00.000Z', summaryText: 'SELECTED SUMMARY', protectedPrompts: [{ source: { segmentVersion: 1, rowIndex: 1 }, message: protectedRow }], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } })).built.body;
+    const compacted = admitted(svc, request([tail], 2, [changedBlock], { historyMessageId: 'genesis:history', historyTimestamp: '2026-10-06T00:00:00.000Z', summaryText: 'SELECTED SUMMARY', protectedPrompts: [{ source: { segmentVersion: 1, rowIndex: 1 }, message: protectedRow }], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } })).built.body;
     expect(JSON.stringify(compacted.input)).not.toContain('OLD COVERED WORK');
     expect(compacted.input).toEqual(expect.arrayContaining([
       { role: 'system', content: 'Historical summary:\nSELECTED SUMMARY' },
@@ -184,7 +184,7 @@ describe('actual composed Codex ordinary-turn requests', () => {
     const key = (root: string, sessionId: string, value = invocation) => admitted(service(root), { ...value, sessionId }).built.body.prompt_cache_key;
     expect(key(ROOT, SESSION)).toBe(affinity());
     expect(key(ROOT, SESSION, { ...invocation, inputId: INPUTS[1]! })).toBe(affinity());
-    expect(key(ROOT, SESSION, request([], 2, [{ ...BLOCK, content: 'NEW ACTIVATION' }], { historyMessageId: 'history', historyTimestamp: '2026-10-06T00:00:00.000Z', summaryText: 'compacted source', protectedPrompts: [], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } }))).toBe(affinity());
+    expect(key(ROOT, SESSION, request([], 2, [{ ...BLOCK, content: 'NEW ACTIVATION' }], { historyMessageId: 'history', historyTimestamp: '2026-10-06T00:00:00.000Z', summaryText: 'compacted source', protectedPrompts: [], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } }))).toBe(affinity());
     for (const [root, session] of [[ROOT + '-two', SESSION], [ROOT, 'agent:executor:card-b'], [ROOT, 'agent:reviewer:card-a'], [ROOT, `internal:compaction-summary:${sha256Hex(SESSION)}`]]) {
       expect(key(root!, session!)).toBe(affinity(root!, session!));
       expect(key(root!, session!)).not.toBe(affinity());

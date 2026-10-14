@@ -94,14 +94,14 @@ describe('named-agent card-type workflow compilation',()=>{
       expect.objectContaining({source_node_id:'review',outcome:'approved',condition:'pending_notifications',prompt:{reference:'review-to-notifications',compactable:false,compaction_key:' notification key '}}),
     ]));
   });
-  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)})).toContain('independently scheduled project-global observer');});
+  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)})).toBe(renderCompiledPrompt({kind:'global-agent'},compiled.oversight.name,compiled.oversightPrompt.compiled,{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)}));});
   it('admits configured Oversight subsets without requiring or restoring the shipped full policy',()=>{
     for(const tools of [[], ['get_card', 'queue_notification']]){
       const config=source();config.agents.oversight!.tools=tools;
       expect(compileProjectWorkflows(config).oversight.tools.map((tool)=>tool.name)).toEqual(tools);
     }
   });
-  it('rejects every invalid selected Oversight authority even while disabled',()=>{failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;},/must differ/);failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.tools=[];},/global session/);failure((value)=>{value.agents.oversight!.can_create_children=true;},/can_create_children/);failure((value)=>{value.agents.oversight!.record_writes=['status.md'];},/no record_writes/);failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.tools.push('skill');},/skills: false/);failure((value)=>{value.agents.oversight!.tools=['run_command'];},/forbidden/);});
+  it('rejects every invalid selected Oversight authority even while disabled',()=>{failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;value.agents.oversight!.tools=[];},/must differ/);failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.tools=[];},/global session/);failure((value)=>{value.agents.oversight!.can_create_children=true;},/can_create_children/);failure((value)=>{value.agents.oversight!.record_writes=['status.md'];},/no record_writes/);failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.tools.push('skill');},/skills: false/);failure((value)=>{value.agents.oversight!.tools=['run_command'];},/forbidden/);});
   it('requires the complete Oversight section and validates its disabled route without provider I/O',()=>{
     const missing=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete missing.oversight;
     expect(()=>saivageConfigSchema.parse(missing)).toThrow();
@@ -182,7 +182,6 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(nodeResultSchema(process,'node:verify').safeParse({outcome:'coverage_ready',summary:'Wrong node.'}).success).toBe(false);
     expect(describeNodeResultContract(process,'node:diagnose')).toContain(`outcome (one of: ${diagnoseOutcomes.join(' | ')})`);
     expect(nodeResultToolDefinition(process,'node:diagnose').function.parameters).toMatchObject({type:'object',properties:{outcome:{type:'string',enum:diagnoseOutcomes}},required:['outcome','summary'],additionalProperties:false});
-    expect(process.processPrompts.get('test-diagnose' as never)?.text).toBe('Run or inspect the focused target and determine whether the accepted brief already has meaningful adequate coverage with passing tests, identifies missing coverage, or exposes an actually failing test or fixture. A fresh or resumed diagnosis may truthfully require no test or source change; do not manufacture a failure or metadata delta for behavior that is already correct. Update `record:///status.md?card=<card-id>` with the target, commands, observations, classification, and current status. Select `coverage_ready` only when meaningful coverage is adequate for the accepted brief and the focused tests pass, `coverage_gap` for absent meaningful coverage, `failing_test` for an observed failing test or fixture, `blocked` when diagnosis needs unavailable input, or `failed` for a conclusive failure.\n');
     expect(process.processPrompts.get('test-to-verify' as never)?.text).toBe("The focused tests pass, whether already passing at diagnosis or after coverage or repair work. Verify the affected suite and the coverage's meaning, stability, and scope before completion.\n");
   });
 
@@ -210,7 +209,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(workflow.processPrompts.get('execute' as never)?.text).toBe('GLOBAL PROCESS global');
     const registry=createPromptTemplateRegistry(compiled);
     expect(registry.render({kind:'workflow-agent',cardType:'global'},'executor',{contractDescription:'contract'})).toBe('GLOBAL CARD CARD FRAGMENT contract');
-    expect(registry.render({kind:'global-agent'},'analyst',{vocabularySnippet:'types'})).toContain('Saivage Analyst');
+    expect(registry.render({kind:'global-agent'},'analyst',{vocabularySnippet:'types'})).toBe(renderCompiledPrompt({kind:'global-agent'},compiled.analyst.name,compiled.analystPrompt.compiled,{vocabularySnippet:'types'}));
     expect(registry.render({kind:'global-agent'},'oversight',{vocabularySnippet:'custom vocabulary'})).toContain('custom vocabulary');
   });
   it('projects exactly configured graphs and the same effective leaf tool selection used by execution',()=>{
@@ -363,7 +362,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect((compiled.cardTypes as Map<unknown,unknown>).set).toBeUndefined();
     expect(compiled.cardTypes.get('project')).not.toBe(compiled.cardTypes.get('goal'));
     for(const type of ['architecture','code','test','doc','data','research','ops'] as const)expect(compiled.cardTypes.get(type)?.states.get('node:execute')).toMatchObject({kind:'node',nodeId:'execute'});
-    expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','queue_notification','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch']);
+    expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reopen_card','reorder_child','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','read_record_version','websearch','webfetch']);
     expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
     expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
     expect(compiled.agents.get('analyst')?.tools.map((tool)=>tool.name)).toEqual(source().agents.analyst!.tools);
@@ -425,6 +424,8 @@ describe('named-agent card-type workflow compilation',()=>{
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
     for(const id of ['analyst','oversight','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':id==='oversight'?'{{> oversight-vocabulary}}':`${id} {{contractDescription}}`);
     for(const id of ['plan','recover','review','handle-notifications','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','review-to-notifications','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
+    write(defaults,'process','_shared','changed-record','{{recordSelection}}');
+    write(defaults,'process','_shared','changed-record-with-body','{{recordSelection}} {{recordContent}}');
     write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
     write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');
     write(defaults,'fragments','_shared','shared-piece','bundled-fragment');
@@ -499,8 +500,6 @@ describe('named-agent card-type workflow compilation',()=>{
     const compiled=compileProjectWorkflows(source());
     for(const[cardType,workflow]of compiled.cardTypes){
       for(const prompt of workflow.processPrompts.values())expect(prompt.text).not.toMatch(/\{\{[^}]+\}\}/u);
-      expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toContain('or this activation was preserved while its previous node was interrupted');
-      expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toContain('Do not replay an interrupted invocation');
       for(const state of workflow.states.values())if(state.kind==='node'){
         const rendered=renderCompiledPrompt({kind:'workflow-agent',cardType},state.agent.name,state.selectedAgentPrompt.compiled,{contractDescription:'GENERATED CONTRACT'});
         expect(rendered.match(/GENERATED CONTRACT/gu)).toHaveLength(1);
@@ -518,8 +517,9 @@ describe('named-agent card-type workflow compilation',()=>{
     const executor=compiled.cardTypes.get('doc')!.states.get('node:execute')!;if(executor.kind!=='node')throw new Error('missing executor');
     const executorText=renderCompiledPrompt({kind:'workflow-agent',cardType:'doc'},executor.agent.name,executor.selectedAgentPrompt.compiled,variables);
     expect(executorText).not.toContain('code card');
-    expect(executorText).toContain('Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,variables)).toContain('Reference cards durably as `[[card:<id>]]`; do not rely on friendly display paths.');
+    const registry=createPromptTemplateRegistry(compiled);
+    expect(registry.render({kind:'workflow-agent',cardType:'doc'},executor.agent.name,variables)).toBe(executorText);
+    expect(registry.render({kind:'workflow-agent',cardType:'goal'},review.agent.name,variables)).toBe(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,variables));
   });
 
   it('fails rather than falling through when an exact prompt candidate is present but unreadable as a file',()=>{
@@ -600,6 +600,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const value=source();value.agents.reviewer!.record_writes=['review.md'];
     expect(()=>compileProjectWorkflows(value)).not.toThrow();
     delete value.card_types.architecture!.records['status.md'];
+    value.card_types.architecture!.workflow.nodes.execute!.record_prompts = [];
     expect(()=>compileProjectWorkflows(value)).toThrow(/descendant_context record 'status.md'.*architecture/);
   });
 

@@ -11,6 +11,8 @@
     <RetainedInstructionContext :context="context" />
     <details data-testid="compacted-facts"><summary>Required model facts</summary>
       <p>Facts retained by compaction, not new recovery/refusal occurrences or liveness.</p>
+      <p>Latest record descriptors retain original coordinates and time, not new observations or reconstructed prompt/body bytes.</p>
+      <RecordObservations v-for="fact in context.required_model_facts.latestRecordObservations" :key="`${fact.source.segmentVersion}:${fact.source.rowIndex}:${fact.observation.observed.view}`" :observations="[fact.observation]" :timestamp="fact.source.timestamp" :source-label="`segment ${fact.source.segmentVersion}, row ${fact.source.rowIndex}, ${fact.source.messageId}`" />
       <strong>Latest recovery notice — {{ context.required_model_facts.latestRecovery ? 'present' : 'absent' }}</strong>
       <pre v-if="context.required_model_facts.latestRecovery"><JsonText :text="JSON.stringify(context.required_model_facts.latestRecovery, null, 2)" /></pre>
       <strong>Latest content-policy refusal — {{ context.required_model_facts.latestContentPolicyRefusal ? 'present' : 'absent' }}</strong>
@@ -27,6 +29,7 @@
 import type { AgentConversationResponse } from '../../api/types';
 import RetainedInstructionContext from './RetainedInstructionContext.vue';
 import JsonText from '../content/JsonText.vue';
+import RecordObservations from '../conversation/RecordObservations.vue';
 defineProps<{ context: NonNullable<AgentConversationResponse['segment_context']>; version: number | null }>();
 </script>
 <style scoped>

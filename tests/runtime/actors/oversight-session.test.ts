@@ -65,7 +65,7 @@ function assertPreparedCheck(root: string): void {
   expect(markers).toHaveLength(1);
   const marker=markers[0]!;
   expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({
-    kind:'prepared',role_text:'Perform proportionate project oversight.',node:null,
+    kind:'prepared',activation_id:null,caller:{kind:'global'},card:null,parent_direction:null,role_text:'Perform proportionate project oversight.',node:null,
   });
 }
 
@@ -88,7 +88,7 @@ describe('OversightSession owned check settlement', () => {
     await expect(pending).resolves.toBe('cancelled');
     const rows = readConversation(root, 'agent:oversight:global').sourceRows;
     const marker = rows.find(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp))!;
-    expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({kind:'prepared',role_text:'Perform proportionate project oversight.',node:null});
+    expect(parseActivationOpenPayload(marker.content,marker.session_id,marker.timestamp)?.instructions).toEqual({kind:'prepared',activation_id:null,caller:{kind:'global'},card:null,parent_direction:null,role_text:'Perform proportionate project oversight.',node:null});
     expect(rows.filter((row) => row.kind === 'tool_call')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
     expect(rows.find((row) => row.kind === 'tool_result')).toMatchObject({ tool_call_id: 'call-real', content: expect.stringContaining('cancelled before tool execution') });

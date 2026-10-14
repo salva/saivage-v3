@@ -3,6 +3,7 @@
     <template v-if="entry.instruction_origin === 'workflow_prompt'">
       <InstructionDisclosure label="Recorded workflow instruction" :text="content" explanation="Recorded context — delivery not established" />
       <p>{{ entry.timestamp }} · {{ entry.id }} · source {{ entry.round_id }}, message {{ entry.message_index }}, block {{ entry.block_index }}</p>
+      <p v-if="entry.record_prompt">Record condition: {{ entry.record_prompt.reason }} · node {{ entry.record_prompt.node_id }} · reference {{ entry.record_prompt.reference }}</p>
       <div v-if="entry.links?.length" class="msg-links"><button v-for="link in entry.links" :key="`${link.entity_type}:${link.entity_id}`" type="button" class="msg-link" @click="navigate(link)">{{ link.label ?? link.entity_id }}</button></div>
     </template>
     <details v-else-if="entry.role === 'system' && entry.kind === 'text'" class="recorded-system-context">

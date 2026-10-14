@@ -23,7 +23,6 @@ import {
   plannerCancelCardInputSchema,
   plannerEditCardInputSchema,
   plannerReopenCardInputSchema,
-  plannerQueueNotificationInputSchema,
   plannerReorderChildInputSchema,
   queueNotificationInputSchema,
   readAgentSessionInputSchema,
@@ -212,6 +211,8 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
       return copyWithText(input, ['title', 'bootstrap_content']);
     case 'cancel_card':
       return copyWithText(input, ['reason']);
+    case 'activate_card':
+      return copyWithText(input, ['instructions']);
     case 'queue_notification':
       return copyWithText(input, ['body']);
     case 'edit_card':
@@ -286,7 +287,6 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'wait_process':
     case 'kill_process':
     case 'skill':
-    case 'activate_card':
       return structuredClone(value);
   }
 }
@@ -345,7 +345,7 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'reopen_card':
       return z.union([analystReopenCardInputSchema, plannerReopenCardInputSchema]);
     case 'queue_notification':
-      return z.union([queueNotificationInputSchema, plannerQueueNotificationInputSchema]);
+      return queueNotificationInputSchema;
     case 'get_status':
     case 'start_project':
     case 'pause_runtime':

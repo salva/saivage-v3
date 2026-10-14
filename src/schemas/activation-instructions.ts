@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { agentNameSchema } from './agent-name.js';
-import { cardIdSchema } from './card-id.js';
+import { cardIdSchema, cardParentId } from './card-id.js';
+import { cardTypeNameSchema } from './card-type-name.js';
 import {
   conversationSessionIdentity,
+  ConversationSessionIdSchema,
   type ConversationSessionId,
 } from './conversation-session-id.js';
 
@@ -11,6 +13,29 @@ const activationInstructionsSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('prepared'),
       role_text: z.string(),
+      activation_id: z.string().uuid().nullable(),
+      caller: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('root') }).strict(),
+        z.object({ kind: z.literal('global') }).strict(),
+        z
+          .object({
+            kind: z.literal('parent'),
+            cardId: cardIdSchema,
+            sessionId: ConversationSessionIdSchema,
+            sourceInputId: z.string().uuid(),
+            toolCallId: z.string().min(1),
+            toolName: z.literal('activate_card'),
+          })
+          .strict(),
+      ]),
+      card: z
+        .object({ cardId: cardIdSchema, cardType: cardTypeNameSchema, title: z.string() })
+        .strict()
+        .nullable(),
+      parent_direction: z
+        .object({ text: z.string().regex(/\S/u) })
+        .strict()
+        .nullable(),
       node: z
         .object({ node_id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u), text: z.string() })
         .strict()
@@ -61,12 +86,28 @@ export function parseActivationOpenPayload(
     throw new Error(`Conversation '${sessionId}' has a malformed activation_open marker identity.`);
   if (
     payload.instructions.kind === 'prepared' &&
-    (payload.instructions.node === null) !== (cardId === null)
+    ((payload.instructions.node === null) !== (cardId === null) ||
+      (payload.instructions.card === null) !== (cardId === null) ||
+      (payload.instructions.activation_id === null) !== (cardId === null) ||
+      (payload.instructions.caller.kind === 'global') !== (cardId === null) ||
+      (payload.instructions.caller.kind === 'root' && cardId !== 'project') ||
+      (payload.instructions.parent_direction !== null) !==
+        (payload.instructions.caller.kind === 'parent') ||
+      (payload.instructions.card !== null && payload.instructions.card.cardId !== cardId))
   )
     throw new Error(
       `Conversation '${sessionId}' has a malformed activation instruction node identity.`,
     );
   if (cardId !== null && payload.instructions.kind === 'not_applicable')
     throw new Error(`Card conversation '${sessionId}' requires model activation instructions.`);
+  if (payload.instructions.kind === 'prepared' && payload.instructions.caller.kind === 'parent') {
+    const caller = payload.instructions.caller;
+    if (
+      cardId === null ||
+      cardParentId(cardId) !== caller.cardId ||
+      conversationSessionIdentity(caller.sessionId).cardId !== caller.cardId
+    )
+      throw new Error(`Conversation '${sessionId}' has malformed parent activation evidence.`);
+  }
   return payload;
 }

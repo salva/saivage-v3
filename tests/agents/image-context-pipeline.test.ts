@@ -335,7 +335,7 @@ function invocation(
       instructionText: 'system',
       terminalToolNames: [],
       compiledTools: [],
-      dynamicBlocks: [],
+      stableBlocks: [],
       preparedCompaction,
     }),
     capabilityRequest: {},

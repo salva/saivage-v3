@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
-import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, publicToolPolicies } from './fixtures/operator-rest-fixtures.js';
 import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenBeforeNavigation, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
-import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
 import { validateProcessToolResult } from '../../../src/tools/process-tool-result.js';
 
 const syntheticToken = 'synthetic-playwright-token';
@@ -21,7 +20,7 @@ const entries = Array.from({ length: 60 }, (_, index) => ({
     'This synthetic analyst message intentionally spans multiple lines.',
     'It gives the real browser enough transcript content to require the inner panel scroller.',
   ].join('\n'),
-  context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } as const,
+  context_policy: { kind: 'content', compactable: true } as const,
   round_id: roundId,
   message_index: index,
   block_index: 0,
@@ -80,7 +79,7 @@ for (const paused of [false, true]) {
     const segment = '11111111-1111-4111-8111-111111111111';
     const stdout = 'Complete retained head FINAL-Z';
     const content = JSON.stringify({ success: true, data: validateProcessToolResult({ status: 'exited', exit_code: 0, process_id: 'proc-012345abcdef', stdout, stderr: '', stdout_complete: true, stderr_complete: true, stdout_bytes: Buffer.byteLength(stdout), stderr_bytes: 0, stdout_url: 'work:///processes/proc-012345abcdef/stdout.log', stderr_url: 'work:///processes/proc-012345abcdef/stderr.log' }) });
-    const policy = toolRowPolicies({ content });
+    const policy = publicToolPolicies;
     const base = { session_id: sessionId, tool: 'run_command', tool_call_id: 'arrival-call', round_id: roundId, message_index: 0, block_index: 0, timestamp: now };
     const call = { ...base, id: `${segment}:tool-call:arrival-call`, role: 'assistant', kind: 'tool_call', context_policy: policy.call,
       content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'arrival-call', type: 'function', function: { name: 'run_command', arguments: JSON.stringify({ command: `npm test -- ${'long_unbroken_argument_'.repeat(160)}FINAL-COMMAND-Z` }) } }] }) };

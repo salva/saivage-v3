@@ -751,6 +751,7 @@ describe('application startup generated-state admission', () => {
     publishInitialProjectRuntime(root, compileProjectWorkflows(TEST_SAIVAGE_CONFIG));
     const config = structuredClone(TEST_SAIVAGE_CONFIG);
     config.agents['oversight-v2'] = { ...config.agents.oversight! };
+    config.agents.oversight!.tools = config.agents.oversight!.tools.filter(tool => tool !== 'queue_notification');
     config.agents['unused-worker'] = { ...config.agents.executor! };
     config.oversight.agent = 'oversight-v2';
     replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), config);

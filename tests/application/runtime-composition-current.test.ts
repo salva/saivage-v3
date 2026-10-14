@@ -38,13 +38,30 @@ class DeterministicOversightClock implements OversightClock {
   readonly timers = new Map<number, { at: number; callback: () => void }>();
   monotonicNow = () => this.now;
   wallNow = () => new Date(Date.parse(this.wall) + this.now).toISOString();
-  setTimeout = (callback: () => void, delay: number) => { const id = this.#next++; this.timers.set(id, { at: this.now + delay, callback }); return id; };
-  clearTimeout = (handle: unknown) => { this.timers.delete(handle as number); };
-  advance(ms: number) { this.now += ms; for (;;) { const due = [...this.timers].find(([, timer]) => timer.at <= this.now); if (!due) return; this.timers.delete(due[0]); due[1].callback(); } }
+  setTimeout = (callback: () => void, delay: number) => {
+    const id = this.#next++;
+    this.timers.set(id, { at: this.now + delay, callback });
+    return id;
+  };
+  clearTimeout = (handle: unknown) => {
+    this.timers.delete(handle as number);
+  };
+  advance(ms: number) {
+    this.now += ms;
+    for (;;) {
+      const due = [...this.timers].find(([, timer]) => timer.at <= this.now);
+      if (!due) return;
+      this.timers.delete(due[0]);
+      due[1].callback();
+    }
+  }
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); }
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
   throw new Error('condition not reached');
 }
 
@@ -139,7 +156,12 @@ describe('current runtime composition', () => {
     initProjectTree(projectRoot);
     const config = TEST_SAIVAGE_CONFIG;
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(
+      TEST_WORKFLOWS,
+      new ModelRouter(registry),
+      registry,
+      config.compaction.context_utilization_fraction,
+    );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
     const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
@@ -166,7 +188,9 @@ describe('current runtime composition', () => {
       mcpToolInvocation: unusedMcpToolInvocation,
       restartCapability: { available: false },
       fatalPort: testApplicationFatalPort,
-      onOversightOwnerFailure(error) { throw error; },
+      onOversightOwnerFailure(error) {
+        throw error;
+      },
       analystSessionId: 'agent:analyst:global',
     });
     expect(Object.keys(app).filter((key) => key.startsWith('runtime'))).toEqual(['runtimeApi']);
@@ -185,39 +209,94 @@ describe('current runtime composition', () => {
     initProjectTree(projectRoot);
     const config = TEST_SAIVAGE_CONFIG;
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(
+      TEST_WORKFLOWS,
+      new ModelRouter(registry),
+      registry,
+      config.compaction.context_utilization_fraction,
+    );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
     const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
     const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
-    const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
+    const freshness = {
+      runtimeChanged: jest.fn(),
+      cardProjectionChanged: jest.fn(),
+      agentMembershipChanged: jest.fn(),
+      conversationChanged: jest.fn(),
+      llmExchangeChanged: jest.fn(),
+    };
     let analystCalls = 0;
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (request, init) => {
-      const body = String(init?.body ?? (request instanceof Request ? await request.clone().text() : ''));
-      if (body.includes('Saivage Analyst')) {
+      const body = String(
+        init?.body ?? (request instanceof Request ? await request.clone().text() : ''),
+      );
+      if (JSON.parse(body).tools.some((tool: {function:{name:string}}) => tool.function.name === 'show_config')) {
         analystCalls += 1;
         if (analystCalls === 1) return toolCalls({ id: 'resume-stopped', name: 'resume_runtime' });
         if (analystCalls === 2) return toolCalls({ id: 'pause-stopped', name: 'pause_runtime' });
         if (analystCalls === 3) return toolCalls({ id: 'start-stopped', name: 'start_project' });
-        return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'started' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+        return new Response(
+          JSON.stringify({
+            choices: [
+              { message: { role: 'assistant', content: 'started' }, finish_reason: 'stop' },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
       }
       const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
-      return await new Promise<Response>((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      return await new Promise<Response>((_resolve, reject) =>
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
     });
-    const app = createRuntimeApplication({ projectRoot, processIdentity: { pid: 42, startedAt: '2026-09-21T00:00:00.000Z' }, config, workflows, providerRegistry: registry, configAuthority: createTestConfigAuthority(projectRoot), cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner, runtimeProcessRootScope: runtimeRoot, analystProcessRootScope: analystRoot, mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure(error) { throw error; }, analystSessionId: 'agent:analyst:global' });
+    const app = createRuntimeApplication({
+      projectRoot,
+      processIdentity: { pid: 42, startedAt: '2026-09-21T00:00:00.000Z' },
+      config,
+      workflows,
+      providerRegistry: registry,
+      configAuthority: createTestConfigAuthority(projectRoot),
+      cardStore: new CardService(projectRoot, workflows, freshness),
+      freshness,
+      processRunner,
+      runtimeProcessRootScope: runtimeRoot,
+      analystProcessRootScope: analystRoot,
+      mcpToolInvocation: unusedMcpToolInvocation,
+      restartCapability: { available: false },
+      fatalPort: testApplicationFatalPort,
+      onOversightOwnerFailure(error) {
+        throw error;
+      },
+      analystSessionId: 'agent:analyst:global',
+    });
     await app.runtimeApi.start();
 
     const response = await app.analystRuntime.submit({ userContent: 'recover from stopped state' });
     expect(response.toolInvocations?.map(({ tool, result }) => ({ tool, result }))).toEqual([
-      { tool: 'resume_runtime', result: expect.objectContaining({ success: false, data: { runtime_status: 'stopped' } }) },
-      { tool: 'pause_runtime', result: expect.objectContaining({ success: false, data: { runtime_status: 'stopped' } }) },
+      {
+        tool: 'resume_runtime',
+        result: expect.objectContaining({ success: false, data: { runtime_status: 'stopped' } }),
+      },
+      {
+        tool: 'pause_runtime',
+        result: expect.objectContaining({ success: false, data: { runtime_status: 'stopped' } }),
+      },
       { tool: 'start_project', result: expect.objectContaining({ success: true }) },
     ]);
     expect(analystCalls).toBe(4);
     expect(app.runtimeApi.getStatus().status).toBe('running');
 
-    app.closeRuntimeAdmission(); app.closeAnalystAdmission(); app.closeOversightAdmission(); processRunner.closeLaunchAdmission();
-    await Promise.all([app.cleanupRuntimeForApplicationStop(), app.cleanupAnalystForApplicationStop(), app.cleanupOversightForApplicationStop()]);
+    app.closeRuntimeAdmission();
+    app.closeAnalystAdmission();
+    app.closeOversightAdmission();
+    processRunner.closeLaunchAdmission();
+    await Promise.all([
+      app.cleanupRuntimeForApplicationStop(),
+      app.cleanupAnalystForApplicationStop(),
+      app.cleanupOversightForApplicationStop(),
+    ]);
   });
 
   it('captures an instantiated Analyst session without constructing Analyst runtime on a read', () => {
@@ -226,7 +305,12 @@ describe('current runtime composition', () => {
     initProjectTree(projectRoot);
     const config = TEST_SAIVAGE_CONFIG;
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(
+      TEST_WORKFLOWS,
+      new ModelRouter(registry),
+      registry,
+      config.compaction.context_utilization_fraction,
+    );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
     const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
@@ -256,7 +340,9 @@ describe('current runtime composition', () => {
       mcpToolInvocation: unusedMcpToolInvocation,
       restartCapability: { available: false },
       fatalPort: testApplicationFatalPort,
-      onOversightOwnerFailure(error) { throw error; },
+      onOversightOwnerFailure(error) {
+        throw error;
+      },
       analystSessionId: 'agent:analyst:global',
     });
     expect(app.captureExecutingLlmSnapshots().size).toBe(0);
@@ -268,45 +354,151 @@ describe('current runtime composition', () => {
 
   it('composes transition-driven Oversight concurrently with Analyst and autonomous card execution', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-composition-oversight-e2e-'));
-    roots.push(projectRoot); initProjectTree(projectRoot);
-    const config = structuredClone(TEST_SAIVAGE_CONFIG); config.oversight.interval_seconds = 1;
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    config.oversight.interval_seconds = 1;
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(compileProjectWorkflows(config), new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const workflows = bindRuntimeWorkflows(
+      compileProjectWorkflows(config),
+      new ModelRouter(registry),
+      registry,
+      config.compaction.context_utilization_fraction,
+    );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
     const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
     const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
     const clock = new DeterministicOversightClock();
     const requests: string[] = [];
-    const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
-    const cardStore=new CardService(projectRoot,workflows,freshness);
-    const goal=cardStore.create({type:'goal',parent:'project',title:'deep planning scope',bootstrap_content:'plan',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
-    const leaf=cardStore.create({type:'code',parent:goal.id,title:'deep active child',bootstrap_content:'execute',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
-    jest.spyOn(globalThis, 'fetch').mockImplementation(async (request, init) => {
-      requests.push(String(init?.body ?? (request instanceof Request ? await request.clone().text() : '')));
-      const activationTarget=requests.length===1?goal.id:requests.length===2?leaf.id:null;
-      if(activationTarget)return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`activate-${activationTarget}`,type:'function',function:{name:'activate_card',arguments:JSON.stringify({card_id:activationTarget})}}]},finish_reason:'tool_calls'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}}),{status:200,headers:{'content-type':'application/json'}});
-      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
-      return await new Promise<Response>((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    const freshness = {
+      runtimeChanged: jest.fn(),
+      cardProjectionChanged: jest.fn(),
+      agentMembershipChanged: jest.fn(),
+      conversationChanged: jest.fn(),
+      llmExchangeChanged: jest.fn(),
+    };
+    const cardStore = new CardService(projectRoot, workflows, freshness);
+    const goal = cardStore.create({
+      type: 'goal',
+      parent: 'project',
+      title: 'deep planning scope',
+      bootstrap_content: 'plan',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
     });
-    const app = createRuntimeApplication({projectRoot,processIdentity:{pid:42,startedAt:clock.wall},config,workflows,providerRegistry:registry,configAuthority:createTestConfigAuthority(projectRoot),cardStore,freshness,processRunner,runtimeProcessRootScope:runtimeRoot,analystProcessRootScope:analystRoot,mcpToolInvocation:unusedMcpToolInvocation,restartCapability:{available:false},fatalPort:testApplicationFatalPort,analystSessionId:'agent:analyst:global',oversightClock:clock,onOversightOwnerFailure(error){throw error;}});
+    const leaf = cardStore.create({
+      type: 'code',
+      parent: goal.id,
+      title: 'deep active child',
+      bootstrap_content: 'execute',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    });
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (request, init) => {
+      requests.push(
+        String(init?.body ?? (request instanceof Request ? await request.clone().text() : '')),
+      );
+      const activationTarget =
+        requests.length === 1 ? goal.id : requests.length === 2 ? leaf.id : null;
+      if (activationTarget)
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: `activate-${activationTarget}`,
+                      type: 'function',
+                      function: {
+                        name: 'activate_card',
+                        arguments: JSON.stringify({ instructions: 'Complete the scoped child task with current evidence.', card_id: activationTarget }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
+      return await new Promise<Response>((_resolve, reject) =>
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
+    });
+    const app = createRuntimeApplication({
+      projectRoot,
+      processIdentity: { pid: 42, startedAt: clock.wall },
+      config,
+      workflows,
+      providerRegistry: registry,
+      configAuthority: createTestConfigAuthority(projectRoot),
+      cardStore,
+      freshness,
+      processRunner,
+      runtimeProcessRootScope: runtimeRoot,
+      analystProcessRootScope: analystRoot,
+      mcpToolInvocation: unusedMcpToolInvocation,
+      restartCapability: { available: false },
+      fatalPort: testApplicationFatalPort,
+      analystSessionId: 'agent:analyst:global',
+      oversightClock: clock,
+      onOversightOwnerFailure(error) {
+        throw error;
+      },
+    });
     await app.runtimeApi.start();
     clock.advance(10_000);
     expect(requests).toHaveLength(0);
-    expect(app.getOversightStatus()).toMatchObject({state:'unavailable',eligibility_reason:'stopped',last_attempt:null});
-    const started = await app.runtimeApi.startProject(); expect(started.started).toBe(true);
+    expect(app.getOversightStatus()).toMatchObject({
+      state: 'unavailable',
+      eligibility_reason: 'stopped',
+      last_attempt: null,
+    });
+    const started = await app.runtimeApi.startProject();
+    expect(started.started).toBe(true);
     await waitUntil(() => requests.length === 3);
     expect(app.captureExecutingLlmSnapshots().has(`agent:executor:${leaf.id}`)).toBe(true);
-    const analyst = app.analystRuntime.submit({userContent:'Inspect independently while project work runs.'});
+    const analyst = app.analystRuntime.submit({
+      userContent: 'Inspect independently while project work runs.',
+    });
     await waitUntil(() => requests.length === 4);
-    clock.advance(999); expect(requests).toHaveLength(4);
-    clock.advance(1); await waitUntil(() => requests.length === 5);
+    clock.advance(999);
+    expect(requests).toHaveLength(4);
+    clock.advance(1);
+    await waitUntil(() => requests.length === 5);
     expect(app.getOversightStatus().state).toBe('checking');
-    expect([...app.captureExecutingLlmSnapshots().keys()]).toEqual(expect.arrayContaining(['agent:analyst:global','agent:oversight:global','agent:planner:project',`agent:planner:${goal.id}`,`agent:executor:${leaf.id}`]));
-    expect(requests.some((body) => body.includes('Saivage Oversight'))).toBe(true);
-    expect(requests.some((body) => body.includes('Saivage Analyst'))).toBe(true);
-    app.closeRuntimeAdmission();app.closeAnalystAdmission();app.closeOversightAdmission();processRunner.closeLaunchAdmission();
-    await Promise.all([app.cleanupRuntimeForApplicationStop(),app.cleanupAnalystForApplicationStop(),app.cleanupOversightForApplicationStop()]);
+    expect([...app.captureExecutingLlmSnapshots().keys()]).toEqual(
+      expect.arrayContaining([
+        'agent:analyst:global',
+        'agent:oversight:global',
+        'agent:planner:project',
+        `agent:planner:${goal.id}`,
+        `agent:executor:${leaf.id}`,
+      ]),
+    );
+    const menus = requests.map(body => JSON.parse(body).tools.map((tool:{function:{name:string}}) => tool.function.name) as string[]);
+    expect(menus.some(menu => menu.includes('queue_notification') && !menu.includes('show_config') && !menu.includes('emit_result'))).toBe(true);
+    expect(menus.some(menu => menu.includes('show_config'))).toBe(true);
+    app.closeRuntimeAdmission();
+    app.closeAnalystAdmission();
+    app.closeOversightAdmission();
+    processRunner.closeLaunchAdmission();
+    await Promise.all([
+      app.cleanupRuntimeForApplicationStop(),
+      app.cleanupAnalystForApplicationStop(),
+      app.cleanupOversightForApplicationStop(),
+    ]);
     await expect(analyst).rejects.toBeDefined();
   });
 
@@ -375,7 +567,9 @@ describe('current runtime composition', () => {
       mcpToolInvocation: unusedMcpToolInvocation,
       restartCapability: { available: false },
       fatalPort: testApplicationFatalPort,
-      onOversightOwnerFailure(error) { throw error; },
+      onOversightOwnerFailure(error) {
+        throw error;
+      },
       analystSessionId: 'agent:analyst:global',
     });
     let resolveFirst!: (response: Response) => void;

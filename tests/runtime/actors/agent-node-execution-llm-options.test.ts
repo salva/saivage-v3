@@ -11,7 +11,7 @@ import type { ToolDefinition as LlmToolDefinition } from '../../../src/contracts
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
-  prepareNodeInvocation(node: unknown, input: unknown, sessionId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown, nodePromptText: string): Omit<PreparedLlmInvocationInput, 'providerConversation'>;
+  prepareNodeInvocation(node: unknown, input: unknown, sessionId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown, nodePromptText: string): Omit<PreparedLlmInvocationInput, 'providerConversation'> & { recordContextSupplier: import('../../../src/runtime/actors/llm-invocation.js').RecordContextSupplier };
 };
 
 const roots: string[] = [];
@@ -56,7 +56,7 @@ describe('AgentNodeExecution LLM options', () => {
     const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
     const prepared = runner.prepareNodeInvocation(
       { nodeId: 'work', promptId: 'work', agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
-      { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
+      { card: { id: 'project', type: 'project', title: 'Project' }, activationId: '00000000-0000-4000-8000-000000000001', caller: { kind:'root' } },
       sessionId,
       'direct result contract',
       { agentName: 'planner', tools: new Map([['lookup', operationalTool]]), providers: [] },
@@ -80,9 +80,12 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.preparedContext.prefix.terminalToolNames).toEqual(['emit_result']);
     expect(prepared.preparedContext.compiledTools).toEqual(prepared.compiledToolContracts);
     expect(prepared.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
-    expect(prepared.preparedContext.dynamicBlocks).toHaveLength(2);
-    expect(prepared.preparedContext.dynamicBlocks[0]).toMatchObject({ id: 'card-activation:project', storage: 'activation_local', replacement: { kind: 'retain' } });
-    expect(prepared.preparedContext.dynamicBlocks[1]).toMatchObject({ id: 'node-activation:project:work', content: "Current workflow node 'work':\n\nselected node prompt body", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer' });
+    expect(prepared.preparedContext.stableBlocks).toHaveLength(2);
+    expect(prepared.preparedContext.stableBlocks[0]).toMatchObject({ id: 'card-activation:project', storage: 'activation_local', replacement: { kind: 'retain' } });
+    expect(prepared.preparedContext.stableBlocks[1]).toMatchObject({ id: 'node-activation:project:work', content: "Current workflow node 'work':\n\nselected node prompt body", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer' });
+    expect(JSON.parse(prepared.preparedContext.stableBlocks[0]!.content)).toEqual({ cardId: 'project', cardType: 'project', title: 'Project' });
+    expect(prepared.preparedContext.recordBlocks).toEqual([]);
+    expect(prepared.recordContextSupplier).toBeDefined();
     expect(prepared.preparedContext.preparedCompaction).toBe(prepared.preparedCompaction);
   expect(Object.keys(prepared)).not.toContain('providerConversation');
   expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });

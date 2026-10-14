@@ -120,9 +120,9 @@ describe('versioned conversation persistence', () => {
     const segmentPath = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
     const index = JSON.parse(readFileSync(indexPath, 'utf8'));
     const envelope = JSON.parse(readFileSync(segmentPath, 'utf8'));
-    expect(index.format_version).toBe(8);
-    expect(envelope.version).toBe(8);
-    expect(envelope.rows[0].format_version).toBe(8);
+    expect(index.format_version).toBe(9);
+    expect(envelope.version).toBe(9);
+    expect(envelope.rows[0].format_version).toBe(9);
     const path = part === 'index' ? indexPath : segmentPath;
     if (part === 'index') index.format_version = version;
     else if (part === 'envelope') envelope.version = version;
@@ -199,7 +199,7 @@ describe('versioned conversation persistence', () => {
     const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
     const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
     if (fault === 'complete-malformed') appendFileSync(path, '{"complete":"malformed"}\n');
-    else if (fault === 'semantic-invalid') appendFileSync(path, `${JSON.stringify({ version: 8, type: 'conversation-segment', rows: [text('first')] })}\nsuffix`);
+    else if (fault === 'semantic-invalid') appendFileSync(path, `${JSON.stringify({ version: 9, type: 'conversation-segment', rows: [text('first')] })}\nsuffix`);
     else if (fault === 'no-complete-prefix') writeFileSync(path, '{"unterminated":');
     else if (fault === 'missing-segment') unlinkSync(path);
     else if (fault === 'genesis-mismatch') {

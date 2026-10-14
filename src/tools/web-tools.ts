@@ -472,14 +472,15 @@ async function webfetchCore(
       if (params.save_as.startsWith('record:///')) {
         const result = RecordMutationResultSchema.parse(rawWrite);
         if (result.kind === 'rejected') return toolFailed(result.error, result.data);
-        return toolSucceeded(
-          WebfetchDataSchema.parse({
-            ...metadata,
-            saved_as: result.data.current_url,
-            write: { kind: 'record', data: result.data },
-            bytes: Buffer.byteLength(text, 'utf8'),
-          }),
-        );
+        const data = WebfetchDataSchema.parse({
+          ...metadata,
+          saved_as: result.data.current_url,
+          write: { kind: 'record', data: result.data },
+          bytes: Buffer.byteLength(text, 'utf8'),
+        });
+        return result.record_observations
+          ? toolRecordSucceeded(data, 'mutation', result.record_observations)
+          : toolSucceeded(data);
       }
       if (rawWrite.kind !== 'applied')
         throw new Error('Filesystem Webfetch save returned a record rejection.');
@@ -602,6 +603,7 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
               return {
                 kind: 'returned',
                 success: true,
+                record_observations: outcome.record_observations,
                 data: WebfetchDataSchema.parse({
                   ...prepared.metadata,
                   saved_as: result.data.current_url,
@@ -616,3 +618,4 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
       }),
   }),
 ]);
+import { toolRecordSucceeded } from '../contracts/index.js';

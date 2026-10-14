@@ -1,11 +1,9 @@
 import type { Page, Route } from '@playwright/test';
-import { createHash } from 'node:crypto';
 import { parseOperatorResponse } from '../../../../src/contracts/operator-api.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
-import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
-import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
 
 const now = '2026-05-19T12:00:00.000Z';
+export const publicToolPolicies = { call: { kind: 'tool_call' }, result: { kind: 'tool_result', settlement_origin: 'executed' } } as const;
 export const smokeCardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 const runtimeRunning = {
@@ -76,7 +74,7 @@ const codeDebugGraph = {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
-    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
+    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, record_prompts: [], model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
     edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
@@ -155,12 +153,12 @@ export const smokeServerAvailability = {
 } as const;
 
 function stampedText(sessionId: string, id: string, content: string) {
-  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
+  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', compactable: true }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
 
 export function retainedInstructionContext(sessionId: string) {
-  const instruction = { id: 'retained-smoke-instruction', session_id: sessionId, role: 'user', kind: 'text', content: 'Preserve this exact operator constraint.', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: false, compaction_key: 'smoke.constraint' }, round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: now };
-  return { kind: 'compacted', source_version: 1, covered_through_message_id: instruction.id, summary_text: 'Earlier work was compacted.', protected_prompts: [{ source: { segment_version: 1, row_index: 1 }, message: instruction }], required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null }, continuation: { kind: 'between_rounds' } };
+  const instruction = { id: 'retained-smoke-instruction', session_id: sessionId, role: 'user', kind: 'text', content: 'Preserve this exact operator constraint.', context_policy: { kind: 'content', compactable: false, compaction_key: 'smoke.constraint' }, round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: now };
+  return { kind: 'compacted', source_version: 1, covered_through_message_id: instruction.id, summary_text: 'Earlier work was compacted.', protected_prompts: [{ source: { segment_version: 1, row_index: 1 }, message: instruction }], required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, continuation: { kind: 'between_rounds' } };
 }
 
 function pagedObservationToolPair(sessionId: string) {
@@ -168,7 +166,7 @@ function pagedObservationToolPair(sessionId: string) {
   const sourceInputId = '00000000-0000-4000-8000-000000000002';
   const roundId = `r-assistant-${sourceInputId.replaceAll('-', '')}`;
   const resultContent = canonicalJson({ success: true, data: { section: 'messages', total_visible_entries: 12, messages: { total: 5, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: { item_index: 0, item_byte_offset: 2 }, items: [{ content_hex: '7b22', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 40 }] } } });
-  const policies = toolRowPolicies({ content: resultContent, template: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, evidence: { kind: 'observational_query', observedSha256: createHash('sha256').update(resultContent, 'utf8').digest('hex') } });
+  const policies = { call: { kind: 'tool_call' }, result: { kind: 'tool_result', settlement_origin: 'executed' } };
   return [
     { id: `${sourceInputId}:tool-call:${toolCallId}`, session_id: sessionId, role: 'assistant', kind: 'tool_call', tool: 'read_agent_session', tool_call_id: toolCallId, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'read_agent_session', arguments: JSON.stringify({ session_id: sessionId, last_n: 5 }) } }] }), context_policy: policies.call, round_id: roundId, message_index: 0, block_index: 0, timestamp: now },
     { id: `${sourceInputId}:tool-result:${toolCallId}`, session_id: sessionId, role: 'tool', kind: 'tool_result', tool: 'read_agent_session', tool_call_id: toolCallId, content: resultContent, context_policy: policies.result, round_id: roundId, message_index: 1, block_index: 0, timestamp: now },
@@ -439,7 +437,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         role: 'assistant' as const,
         kind: 'text' as const,
         content: `Synthetic analyst response to: ${visiblePrompt}`,
-        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } as const,
+        context_policy: { kind: 'content', compactable: true } as const,
         round_id: 'r-assistant-00000000000000000000000000000002',
         message_index: 1,
         block_index: 0,

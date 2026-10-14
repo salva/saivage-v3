@@ -72,7 +72,6 @@ export class CardProcessActor extends BaseActor {
   #activationSettled = false;
   #preJoinFailure: { readonly error: unknown } | null = null;
   #interruptionReason: unknown | null = null;
-  #retainedNotificationLlm: ConversationLLMActor | null = null;
   #finalLlmDisposalReason: unknown | null = null;
   #nodeControl: 'open' | 'result' | 'interrupt' | null = null;
   #retiringNode: {
@@ -93,7 +92,6 @@ export class CardProcessActor extends BaseActor {
     store: CardService;
     parentControl: PlannerChildControlPort;
     notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard'];
-    submitNotification: import('../runtime-api.js').NotificationSubmissionPort;
     provider: LLMProviderPort;
     conversations: ConversationFileContext;
     processRunner: ProcessRunner;
@@ -126,7 +124,6 @@ export class CardProcessActor extends BaseActor {
         store: args.store,
         parentControl: args.parentControl,
         notifyCard: args.notifyCard,
-        submitNotification: args.submitNotification,
         processRunner: args.processRunner,
         runtimeProcessRootScope: args.runtimeProcessRootScope,
         mcpToolInvocation: args.mcpToolInvocation,
@@ -149,20 +146,6 @@ export class CardProcessActor extends BaseActor {
           const promotion = transition.semantic.terminalBehavior.promotion;
           if (promotion.kind === 'latest-node' && !this.#acceptedByNode.has(promotion.nodeId))
             throw new Error(`Promoted node '${promotion.nodeId}' has no accepted result.`);
-        },
-        retainNotificationLlm: (llm) => {
-          if (this.#retainedNotificationLlm)
-            throw new Error(`Processor '${this.cardId}' already retains a notification LLM.`);
-          if (this.#currentExecutingLlm !== llm)
-            throw new Error(
-              `Processor '${this.cardId}' cannot retain a non-current notification LLM.`,
-            );
-          this.#retainedNotificationLlm = llm;
-        },
-        relinquishNotificationLlm: (llm) => {
-          if (this.#retainedNotificationLlm !== llm)
-            throw new Error(`Processor '${this.cardId}' does not retain this notification LLM.`);
-          this.#retainedNotificationLlm = null;
         },
         claimResultHandoff: (ordinal) => {
           // Result handoff and urgent claim compete for the same exact node control winner.
@@ -203,11 +186,7 @@ export class CardProcessActor extends BaseActor {
   }
 
   prepareForRuntimeHalt(reason: unknown): void {
-    if (
-      !this.#retiringNode &&
-      !this.#retainedNotificationLlm &&
-      this.#interruptionReason === null
-    ) {
+    if (!this.#retiringNode && this.#interruptionReason === null) {
       this.disposeActivation(reason);
       return;
     }
@@ -563,7 +542,6 @@ export class CardProcessActor extends BaseActor {
       const claim = this.#retiringNode;
       if (!claim || claim.ordinal !== accepted.ordinal)
         throw new Error(`Processor '${this.cardId}' received an unclaimed node interruption.`);
-      this.#retainedNotificationLlm = null;
       this.#currentExecutingLlm = null;
       if (this.#interruptionReason === null) {
         // The old consumer acknowledges by installing one guarded successor/event, not awaiting

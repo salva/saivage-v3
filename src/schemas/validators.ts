@@ -20,6 +20,7 @@ import { parseActivationOpenPayload } from './activation-instructions.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from './content-policy.js';
 import { canonicalJson } from './canonical-json.js';
 import { rowContextPolicySchema, type StructuralRowBehavior } from './context-policy.js';
+import { recordObservationSchema, recordObservationKey } from './record-observation.js';
 export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
 export const cardTypeSchema = cardTypeNameSchema;
@@ -203,6 +204,8 @@ const messageKindSchema = z.enum([
   'content_policy_refusal',
   'model_recovered',
   'provider_private',
+  'record_observation',
+  'record_prompt',
 ]);
 const entityLinkSchema = z
   .object({
@@ -238,6 +241,15 @@ export const agentMessageSchema = z
     requested_model_spec: z.string().optional(),
     provider_projection: providerProjectionSchema.optional(),
     instruction_origin: z.literal('workflow_prompt').optional(),
+    record_observations: z.array(recordObservationSchema).min(1).optional(),
+    record_prompt: z
+      .object({
+        reference: z.string().min(1),
+        node_id: z.string().min(1),
+        reason: z.enum(['initial', 'changed']),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((message, ctx) => {
@@ -250,7 +262,7 @@ export const agentMessageSchema = z
     if (
       message.instruction_origin !== undefined &&
       (message.role !== 'user' ||
-        !['text', 'model_repair'].includes(message.kind) ||
+        !['text', 'model_repair', 'record_prompt'].includes(message.kind) ||
         conversationSessionIdentity(message.session_id).cardId === null)
     )
       policyIssue(
@@ -258,6 +270,28 @@ export const agentMessageSchema = z
         ['instruction_origin'],
       );
     switch (message.kind) {
+      case 'record_observation':
+        if (
+          structuralBehavior !== 'record_observation' ||
+          message.role !== 'system' ||
+          message.content !== ''
+        )
+          policyIssue(
+            'Descriptor-only record observation requires empty structural system content.',
+          );
+        break;
+      case 'record_prompt':
+        if (
+          message.context_policy.kind !== 'content' ||
+          message.role !== 'user' ||
+          message.instruction_origin !== 'workflow_prompt' ||
+          !message.record_prompt ||
+          !message.content.trim()
+        )
+          policyIssue(
+            'Record prompt requires actual workflow-origin user text and declaration provenance.',
+          );
+        break;
       case 'text':
       case 'model_repair':
       case 'content_policy_retry':
@@ -353,7 +387,9 @@ export const agentMessageSchema = z
     if (message.context_policy.kind === 'content' && !message.context_policy.compactable) {
       if (
         message.role !== 'user' ||
-        (message.kind !== 'text' && message.kind !== 'model_repair') ||
+        (message.kind !== 'text' &&
+          message.kind !== 'model_repair' &&
+          message.kind !== 'record_prompt') ||
         message.context_policy.storage !== 'durable' ||
         message.context_policy.replacement.kind !== 'retain' ||
         message.context_policy.audience !== 'primary_and_summarizer' ||
@@ -408,6 +444,60 @@ export const agentMessageSchema = z
           code: z.ZodIssueCode.custom,
           message: 'content_policy_refusal rows forbid tool, link, and provider metadata.',
         });
+    }
+    if (message.record_prompt && message.kind !== 'record_prompt')
+      policyIssue('Record prompt provenance is allowed only on record_prompt rows.');
+    if (
+      ['record_prompt', 'record_observation'].includes(message.kind) &&
+      !message.record_observations
+    )
+      policyIssue('Record context requires owning observation descriptors.');
+    if (message.record_observations) {
+      if (!['tool_result', 'record_observation', 'record_prompt'].includes(message.kind))
+        policyIssue('Record observations require an owning result or record context row.');
+      const keys = message.record_observations.map((value) => recordObservationKey(value.observed));
+      if (new Set(keys).size !== keys.length)
+        policyIssue('One result/context row cannot repeat a record/view observation.');
+      for (const observation of message.record_observations) {
+        const source = observation.source;
+        if (message.kind === 'tool_result') {
+          if (source.kind !== 'read' && source.kind !== 'mutation')
+            policyIssue('Tool observations require owning read/mutation provenance.');
+          else if (
+            source.tool_call_id !== message.tool_call_id ||
+            source.tool_name !== message.tool ||
+            message.id !== `${source.input_id}:tool-result:${source.tool_call_id}`
+          )
+            policyIssue('Record observation provenance disagrees with exact tool result identity.');
+          let succeeded = false;
+          try {
+            succeeded = JSON.parse(message.content).success === true;
+          } catch {
+            /* Content grammar reports malformed bytes above. */
+          }
+          if (
+            message.context_policy.kind !== 'tool_result' ||
+            message.context_policy.settlement_origin !== 'executed' ||
+            !succeeded
+          )
+            policyIssue('Only successful executed results may carry record observations.');
+        } else if (message.kind === 'record_observation' && source.kind !== 'preparation')
+          policyIssue('Preparation descriptor requires preparation provenance.');
+        else if (
+          message.kind === 'record_prompt' &&
+          (source.kind !== 'prompt' ||
+            source.reference !== message.record_prompt?.reference ||
+            source.node_id !== message.record_prompt?.node_id)
+        )
+          policyIssue('Record prompt provenance disagrees with its observation source.');
+        if (message.kind !== 'tool_result' && observation.observed.selection_kind !== 'current')
+          policyIssue('Prepared record context must select current state.');
+        if (
+          message.kind !== 'tool_result' &&
+          observation.observed.card_id !== conversationSessionIdentity(message.session_id).cardId
+        )
+          policyIssue('Prepared record context requires the exact conversation card.');
+      }
     }
     if (message.provider_projection) {
       if (message.role !== 'assistant' || (message.kind !== 'text' && message.kind !== 'tool_call'))

@@ -353,11 +353,3 @@ export const plannerReopenCardInputSchema = z
 export const plannerReorderChildInputSchema = z
   .object({ orderedChildIds: z.array(z.string()) })
   .strict();
-export const plannerQueueNotificationInputSchema = z
-  .object({
-    card_id: cardIdSchema,
-    kind: z.string().min(1),
-    body: z.string().min(1),
-    urgency: notificationUrgencySchema,
-  })
-  .strict();

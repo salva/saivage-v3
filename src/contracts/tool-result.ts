@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { ImageDescriptorSchema } from './image.js';
+import {
+  recordSelectionObservationSchema,
+  type RecordSelectionObservation,
+} from '../schemas/index.js';
 
 const ToolResultContentBlockSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }).strict(),
@@ -32,6 +36,10 @@ export type ToolActionOutcome<Data = unknown> = (
       data?: Data;
       error?: never;
       content?: readonly ToolResultContentBlock[];
+      record_observations?: Readonly<{
+        kind: 'read' | 'mutation';
+        observations: readonly RecordSelectionObservation[];
+      }>;
     }>
   | Readonly<{ kind: 'failed'; error: string; data?: unknown }>
 ) &
@@ -59,6 +67,22 @@ export function toolFailed(error: string, data?: unknown): ToolActionOutcome<nev
       ? { kind: 'failed' as const, error }
       : { kind: 'failed' as const, error, data },
   );
+}
+
+/** Owner-local metadata, never interpreted from provider/MCP result data. */
+export function toolRecordSucceeded<Data>(
+  data: SuccessData<Data>,
+  kind: 'read' | 'mutation',
+  observations: readonly RecordSelectionObservation[],
+): ToolActionOutcome<Data> {
+  const validated = Object.freeze(
+    observations.map((value) => recordSelectionObservationSchema.parse(value)),
+  );
+  return brand({
+    kind: 'succeeded' as const,
+    data,
+    record_observations: Object.freeze({ kind, observations: validated }),
+  });
 }
 
 export function assertToolActionOutcome(value: ToolActionOutcome): void {

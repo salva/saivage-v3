@@ -14,6 +14,12 @@ function assertNever(value: never): never {
 
 type StructuralRowProjection =
   | Readonly<{
+      behavior: 'record_observation';
+      primaryVisible: false;
+      summaryEligible: false;
+      note: 'descriptor facts are projected separately, never historical body reconstruction';
+    }>
+  | Readonly<{
       behavior: 'activation_boundary';
       primaryVisible: false;
       summaryEligible: false;
@@ -69,6 +75,7 @@ type ConversationRowPolicy =
 export function classifyConversationRowPolicy(message: AgentMessage): ConversationRowPolicy {
   switch (message.kind) {
     case 'text':
+    case 'record_prompt':
       return {
         kind: 'content',
         row: message,
@@ -77,6 +84,17 @@ export function classifyConversationRowPolicy(message: AgentMessage): Conversati
           primaryVisible: true,
           summaryEligible: true,
           rendering: 'direct',
+        },
+      };
+    case 'record_observation':
+      return {
+        kind: 'structural',
+        row: message,
+        projection: {
+          behavior: 'record_observation',
+          primaryVisible: false,
+          summaryEligible: false,
+          note: 'descriptor facts are projected separately, never historical body reconstruction',
         },
       };
     case 'model_repair':

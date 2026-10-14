@@ -54,7 +54,9 @@ export type PreparedInvocationContext = Readonly<{
   prefix: StaticInvocationPrefix;
   compiledTools: readonly CompiledInvocationToolContract[];
   internalToolContractSha256: string;
-  dynamicBlocks: readonly ContextBlock[];
-  dynamicBlocksSha256: string;
+  stableBlocks: readonly ContextBlock[];
+  stableBlocksSha256: string;
+  recordBlocks: readonly ContextBlock[];
+  recordBlocksSha256: string;
   preparedCompaction: PreparedCompaction;
 }>;

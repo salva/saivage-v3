@@ -168,9 +168,11 @@ describe('global agent-session observation tools', () => {
     expect(JSON.stringify(contextData)).not.toContain('tool-context-key-secret');
     expect(Object.keys(segmentContext.required_model_facts).sort()).toEqual([
       'latestContentPolicyRefusal',
+      'latestRecordObservations',
       'latestRecovery',
     ]);
     expect(segmentContext.required_model_facts.latestRecovery).not.toBeNull();
+    expect(segmentContext.required_model_facts.latestRecordObservations).toEqual([]);
     expect(Object.keys(segmentContext.required_model_facts.latestRecovery!).sort()).toEqual([
       'activationInputId',
       'sourceMessageId',

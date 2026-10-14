@@ -1,5 +1,16 @@
 export { canonicalJson } from './canonical-json.js';
 export {
+  recordSelectionObservationSchema,
+  recordObservationKey,
+  sameRecordSelection,
+  publicRecordSelection,
+  publicRecordObservationSchema,
+  publicLatestRecordObservationSchema,
+  type RecordSelectionObservation,
+  type RecordObservation,
+  type LatestRecordObservation,
+} from './record-observation.js';
+export {
   parseActivationOpenPayload,
   type ActivationInstructions,
   type ActivationOpenPayload,

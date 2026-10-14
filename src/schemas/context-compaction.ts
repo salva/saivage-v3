@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { agentMessageSchema } from './validators.js';
+import { latestRecordObservationSchema, recordObservationKey } from './record-observation.js';
 
 const positiveSafeInteger = z.number().int().safe().positive();
 const nonNegativeSafeInteger = z.number().int().safe().nonnegative();
@@ -19,6 +20,7 @@ const protectedPromptSchema = z
 
 export const requiredModelFactSlotsSchema = z
   .object({
+    latestRecordObservations: z.array(latestRecordObservationSchema),
     latestRecovery: z
       .object({ sourceMessageId: z.string().min(1), activationInputId: canonicalUuidSchema })
       .strict()
@@ -30,6 +32,28 @@ export const requiredModelFactSlotsSchema = z
   })
   .strict()
   .superRefine((facts, ctx) => {
+    const keys = facts.latestRecordObservations.map((entry) =>
+      recordObservationKey(entry.observation.observed),
+    );
+    if (new Set(keys).size !== keys.length)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['latestRecordObservations'],
+        message: 'Latest observations must be unique per card/record/view.',
+      });
+    for (let index = 1; index < facts.latestRecordObservations.length; index++) {
+      const prior = facts.latestRecordObservations[index - 1]!.source;
+      const current = facts.latestRecordObservations[index]!.source;
+      if (
+        current.segmentVersion < prior.segmentVersion ||
+        (current.segmentVersion === prior.segmentVersion && current.rowIndex < prior.rowIndex)
+      )
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['latestRecordObservations', index],
+          message: 'Latest observation descriptors must retain actual source occurrence order.',
+        });
+    }
     if (
       facts.latestRecovery &&
       facts.latestRecovery.sourceMessageId !==

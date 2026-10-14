@@ -3,7 +3,8 @@ import type { AgentName, CardTypeName } from '../schemas/index.js';
 export type PromptHost =
   | Readonly<{ kind: 'global-agent' }>
   | Readonly<{ kind: 'workflow-agent'; cardType: CardTypeName }>
-  | Readonly<{ kind: 'process'; cardType: CardTypeName }>;
+  | Readonly<{ kind: 'process'; cardType: CardTypeName }>
+  | Readonly<{ kind: 'record-context'; cardType: CardTypeName }>;
 export type AgentPromptHost = Extract<PromptHost, { kind: 'global-agent' | 'workflow-agent' }>;
 export type ProcessPromptHost = Extract<PromptHost, { kind: 'process' }>;
 interface PromptTemplateVariables {
@@ -23,6 +24,7 @@ const PLACEHOLDERS: Readonly<Record<PromptHost['kind'], ReadonlySet<string>>> = 
   'global-agent': new Set(['vocabularySnippet']),
   'workflow-agent': new Set(['contractDescription']),
   process: new Set(['cardType']),
+  'record-context': new Set(['cardType', 'recordSelection', 'recordContent']),
 });
 const FRAGMENT_IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const hostContext = (host: PromptHost): string =>
@@ -178,6 +180,23 @@ export function compilePromptTemplate(
         options.path,
         'effective workflow-agent template contains an obsolete emit_result terminal directive',
       );
+  }
+  if (options.host.kind === 'record-context') {
+    for (const [key, minimum, maximum] of [
+      ['recordSelection', 1, 1],
+      ['recordContent', 0, 1],
+    ] as const) {
+      const count = effective.filter(
+        (token) => token.kind === 'placeholder' && token.key === key,
+      ).length;
+      if (count < minimum || count > maximum)
+        fail(
+          options.host,
+          options.name,
+          options.path,
+          `effective record-context template requires ${key} ${minimum}..${maximum} times; found ${count}`,
+        );
+    }
   }
   return Object.freeze({ tokens: Object.freeze(effective) });
 }

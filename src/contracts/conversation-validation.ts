@@ -15,6 +15,7 @@ import { parseToolCallMessageForModel } from './persisted-tool-call.js';
 import { ToolResultSchema } from './tool-result.js';
 import { assertViewImageResult } from './view-image.js';
 import { parsePrivateContent } from './responses-conversation.js';
+import { recordObservationKey, type LatestRecordObservation } from '../schemas/index.js';
 
 type SourceSegment = {
   readonly kind: 'initial' | 'repair';
@@ -46,6 +47,7 @@ type CanonicalConversationCall = {
 type CompactedGenesisIdentity = Readonly<{ id: string; timestamp: string }>;
 
 export type ValidatedConversation = {
+  readonly segmentVersion: number;
   readonly sourceSessionId: ConversationSessionId;
   readonly physicalRows: readonly AgentMessage[];
   readonly sourceRows: readonly AgentMessage[];
@@ -405,11 +407,12 @@ export function validateCompactedHistorySuccessor(args: {
     inherited: source.effectiveCompactedHistory?.requiredModelFacts ?? {
       latestRecovery: null,
       latestContentPolicyRefusal: null,
+      latestRecordObservations: [],
     },
     coveredRows: args.coveredRows,
     source,
   });
-  if (JSON.stringify(expectedFacts) !== JSON.stringify(successor.requiredModelFacts))
+  if (canonicalJson(expectedFacts) !== canonicalJson(successor.requiredModelFacts))
     throw new Error(
       'Successor required model facts do not match the newest covered canonical occurrences.',
     );
@@ -436,7 +439,42 @@ export function deriveRequiredModelFacts(args: {
       latestContentPolicyRefusal = { markerId: row.id, activationInputId: payload.source_input_id };
     }
   }
-  return { latestRecovery, latestContentPolicyRefusal };
+  return {
+    latestRecovery,
+    latestContentPolicyRefusal,
+    latestRecordObservations: deriveLatestRecordObservations(
+      args.inherited.latestRecordObservations,
+      args.coveredRows,
+      args.source.sourceRows,
+      args.source.segmentVersion,
+    ),
+  };
+}
+
+function deriveLatestRecordObservations(
+  inherited: readonly LatestRecordObservation[],
+  rows: readonly AgentMessage[],
+  sourceRows: readonly AgentMessage[],
+  segmentVersion: number,
+): LatestRecordObservation[] {
+  const latest = new Map(
+    inherited.map((entry) => [recordObservationKey(entry.observation.observed), entry]),
+  );
+  for (const row of rows) {
+    const rowIndex = sourceRows.findIndex((candidate) => candidate.id === row.id);
+    if (rowIndex < 0) throw new Error('Record observation row is not in its canonical source.');
+    for (const observation of row.record_observations ?? []) {
+      if (observation.observed.selection_kind !== 'current') continue;
+      const key = recordObservationKey(observation.observed);
+      // Delete/reinsert preserves actual newest source occurrence order, not revision order.
+      latest.delete(key);
+      latest.set(key, {
+        source: { segmentVersion, rowIndex, messageId: row.id, timestamp: row.timestamp },
+        observation,
+      });
+    }
+  }
+  return [...latest.values()];
 }
 
 function validateCoveredRecoveryRow(row: AgentMessage): void {
@@ -474,6 +512,16 @@ function validateSelfContainedCompactedHistory(
   seed: CompactedGenesisSeed,
 ): void {
   const history = seed.history;
+  for (const entry of history.requiredModelFacts.latestRecordObservations) {
+    if (entry.source.segmentVersion > seed.sourceVersion)
+      throw new Error('Compacted record observation source is later than its source segment.');
+    const origin = entry.observation.source;
+    if (
+      (origin.kind === 'read' || origin.kind === 'mutation') &&
+      entry.source.messageId !== `${origin.input_id}:tool-result:${origin.tool_call_id}`
+    )
+      throw new Error('Compacted record observation has mismatched tool source identity.');
+  }
   const ids = new Set<string>();
   let prior: ProtectedPrompt['source'] | null = null;
   for (const entry of history.protectedPrompts) {
@@ -569,6 +617,7 @@ function materializeValidatedConversation(
     ),
   );
   return Object.freeze({
+    segmentVersion: genesis ? genesis.sourceVersion + 1 : 1,
     sourceSessionId: state.sessionId,
     physicalRows: physical,
     sourceRows,
@@ -581,9 +630,17 @@ function materializeValidatedConversation(
       ? Object.freeze({ id: genesis.id, timestamp: genesis.timestamp })
       : null,
     effectiveCompactedHistory: genesis?.history ?? null,
-    effectiveRequiredModelFacts:
-      genesis?.history.requiredModelFacts ??
-      Object.freeze({ latestRecovery: null, latestContentPolicyRefusal: null }),
+    effectiveRequiredModelFacts: Object.freeze({
+      latestRecovery: genesis?.history.requiredModelFacts.latestRecovery ?? null,
+      latestContentPolicyRefusal:
+        genesis?.history.requiredModelFacts.latestContentPolicyRefusal ?? null,
+      latestRecordObservations: deriveLatestRecordObservations(
+        genesis ? genesis.history.requiredModelFacts.latestRecordObservations : [],
+        sourceRows,
+        sourceRows,
+        genesis ? genesis.sourceVersion + 1 : 1,
+      ),
+    }),
   });
 }
 

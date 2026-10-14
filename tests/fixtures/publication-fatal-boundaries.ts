@@ -35,7 +35,8 @@ import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvid
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { AgentNodeExecution } from '../../src/runtime/actors/agent-node-execution.js';
-import { ActivationOperationTracker } from '../../src/runtime/actors/invocation-lifecycle.js';
+import { ActivationOperationTracker, InvocationLifecycle } from '../../src/runtime/actors/invocation-lifecycle.js';
+import { bootstrapContextSupplier } from '../../src/runtime/records/bootstrap-context.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
@@ -60,6 +61,47 @@ const diagnosticOnlyBoundary = (action: () => void): void => {
   try { action(); }
   catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
 };
+
+if (mode === 'llm-bootstrap-preparation') {
+  if (!path) throw new Error('marker path required');
+  const root = dirname(path);
+  initProjectTree(root);
+  const store = new CardService(root);
+  const mark = (label: string) => appendFileSync(path, `${label}\n`);
+  const supplier = bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'plan', recordPrompts: [] });
+  const read = store.readRecordCurrent.bind(store);
+  store.readRecordCurrent = (...args) => { mark('record-read'); return read(...args); };
+  const check = InvocationLifecycle.prototype.assertCurrent;
+  InvocationLifecycle.prototype.assertCurrent = function (lease) { mark('lease-check'); return check.call(this, lease); };
+  const actor = new ConversationLLMActor({
+    purpose: { kind: 'autonomous-card', cardId: 'project' }, gate: new RuntimeGate(),
+    agentId: 'agent:planner:project', fatalPort,
+    conversations: { projectRoot: root, changes: {
+      // Inject the uncertainty sentinel at the actual preparation append surface.
+      // Bytes have been published in this synthetic fault; production must not inspect them.
+      conversationChanged() { mark('preparation-publication'); throw new PublicationOutcomeUnknownError(); },
+      agentMembershipChanged() { mark('membership'); },
+    } },
+    provider: {
+      ...scriptedAdmissionProvider(async () => { mark('provider'); throw new Error('Unexpected provider.'); }),
+      async preparePrimaryRequestAdmission() { mark('admission'); throw new Error('Unexpected admission.'); },
+    },
+    compactor: {
+      shouldCompact() { mark('compaction-check'); return false; },
+      async compact() { mark('compaction'); throw new Error('Unexpected compaction.'); },
+    },
+    summarizerProvider: unusedSummarizerProvider,
+  });
+  const preparedCompaction = prepareCompaction(testCompactionPolicy, 'system', [], 8_000, 2_000);
+  void actor.turn({
+    inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner',
+    sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] },
+    tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },
+    preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
+    capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] }, episodeContext: {},
+  }, undefined, () => mark('terminal'), (args) => { mark('supplier'); return supplier(args); })
+    .then(() => mark('after'), () => mark('rejected'));
+}
 
 if (mode === 'direct-mutation') {
   if (!path) throw new Error('project root required');
@@ -173,7 +215,7 @@ if (mode === 'llm-conversation' || mode === 'llm-segment-compaction') {
   });
   const policy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' as const };
   const preparedCompaction = prepareCompaction(policy, 'system', [], 8_000, 2_000);
-   void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: actualPublication ? providerConversationProjection(readConversation(root, sessionId), []) : { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
+   void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: actualPublication ? providerConversationProjection(readConversation(root, sessionId), []) : { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
 }
 
 if (mode === 'process-chunk') {

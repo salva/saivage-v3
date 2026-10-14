@@ -30,7 +30,9 @@ export function sourceInputIdFromToolResultMessageId(id: string, toolCallId?: st
   return id.slice(0, suffixIndex);
 }
 
-export function loggedToolCallIdentity(message: AgentMessage): LoggedToolMessageIdentity | null {
+export function loggedToolCallIdentity(
+  message: Pick<AgentMessage, 'kind' | 'tool_call_id' | 'session_id' | 'id'>,
+): LoggedToolMessageIdentity | null {
   if (message.kind !== 'tool_call' || !message.tool_call_id) return null;
   return {
     session_id: message.session_id,
@@ -39,7 +41,9 @@ export function loggedToolCallIdentity(message: AgentMessage): LoggedToolMessage
   };
 }
 
-export function loggedToolResultIdentity(message: AgentMessage): LoggedToolMessageIdentity | null {
+export function loggedToolResultIdentity(
+  message: Pick<AgentMessage, 'kind' | 'tool_call_id' | 'session_id' | 'id'>,
+): LoggedToolMessageIdentity | null {
   if (message.kind !== 'tool_result' || !message.tool_call_id) return null;
   return {
     session_id: message.session_id,

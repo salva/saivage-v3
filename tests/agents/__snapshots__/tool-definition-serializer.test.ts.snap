@@ -12,6 +12,10 @@ exports[`tool-definition-serializer snapshots Chat wire shape for a planner tool
           "card_id": {
             "type": "string",
           },
+          "instructions": {
+            "pattern": "\\S",
+            "type": "string",
+          },
         },
         "required": [],
         "type": "object",
@@ -87,6 +91,10 @@ exports[`tool-definition-serializer snapshots Codex wire shape for a planner too
       "additionalProperties": false,
       "properties": {
         "card_id": {
+          "type": "string",
+        },
+        "instructions": {
+          "pattern": "\\S",
           "type": "string",
         },
       },

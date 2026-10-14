@@ -3,6 +3,41 @@ import { OVERSIGHT_ALLOWED_TOOL_NAMES } from '../../contracts/index.js';
 
 const prompt = (reference: string) => ({ reference, compactable: true });
 
+/** Shipped graph declarations, materialized before the startup compiler owns them. */
+export function classicRecordContext(definition: CardTypesSource[string]): CardTypesSource[string] {
+  const bootstrap = Object.entries(definition.records).find(([, record]) => record.bootstrap)![0];
+  return {
+    ...definition,
+    workflow: {
+      ...definition.workflow,
+      nodes: Object.fromEntries(
+        Object.entries(definition.workflow.nodes).map(([id, node]) => [
+          id,
+          {
+            ...node,
+            record_prompts: [
+              {
+                record: bootstrap,
+                selection: 'accepted' as const,
+                presence: 'required' as const,
+                prompt: prompt('changed-record'),
+              },
+              ...Object.keys(node.records ?? {})
+                .filter((name) => name !== bootstrap)
+                .map((record) => ({
+                  record,
+                  selection: 'effective' as const,
+                  presence: 'optional' as const,
+                  prompt: prompt('changed-record-with-body'),
+                })),
+            ],
+          },
+        ]),
+      ),
+    },
+  };
+}
+
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const nested of Object.values(value)) deepFreeze(nested);
@@ -86,7 +121,6 @@ export function createClassicConfig(cardTypes: CardTypesSource): SaivageConfigSo
         'activate_card',
         'reopen_card',
         'reorder_child',
-        'queue_notification',
         'list_cards',
         'get_card',
         'get_tree',

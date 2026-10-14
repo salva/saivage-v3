@@ -254,7 +254,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
   it('preserves selected disclosures on same-identity refresh and resets on same-ordinal identity replacement', async () => {
     const context: NonNullable<AgentConversationResponse['segment_context']> = {
       kind: 'compacted', source_version: 1, covered_through_message_id: 'covered', summary_text: 'Actual selected summary final-Z',
-      protected_prompts: [], required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null }, continuation: { kind: 'between_rounds' },
+      protected_prompts: [], required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, continuation: { kind: 'between_rounds' },
     };
     let identity = '11111111-1111-4111-8111-111111111111';
     api.getAgentConversation.mockImplementation(async () => ({ ...response([]), segment_id: identity, segment_context: context }));

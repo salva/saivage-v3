@@ -138,7 +138,7 @@ describe('canonical conversation validation', () => {
   });
 
   it('rejects malformed required-model-fact slots', () => {
-    expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: { sourceMessageId: `${INPUT}:other`, activationInputId: INPUT }, latestContentPolicyRefusal: null } }))).toThrow(/activation-derived recovery identity/);
+    expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: { sourceMessageId: `${INPUT}:other`, activationInputId: INPUT }, latestContentPolicyRefusal: null, latestRecordObservations: [] } }))).toThrow(/activation-derived recovery identity/);
     expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: null, latestContentPolicyRefusal: { markerId: 'not-a-uuid', activationInputId: INPUT } } }))).toThrow();
   });
 
@@ -206,6 +206,7 @@ function validHistory(overrides: { requiredModelFactsOverride?: Record<string, u
     summaryText: 'accumulated prose',
     protectedPrompts: [],
     requiredModelFacts: {
+      latestRecordObservations: [],
       latestRecovery: { sourceMessageId: `${INPUT}:model-recovered`, activationInputId: INPUT },
       latestContentPolicyRefusal: { markerId: MARKER_ID, activationInputId: INPUT },
       ...overrides.requiredModelFactsOverride,

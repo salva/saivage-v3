@@ -23,6 +23,68 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Explicit activation and record context (2026-10-13)
+
+Exact source parent: `4933242451429396049631c11b3d61ea258808d4`, conversation 8.
+This coherent source unit freshly advances conversation index and ordinary/compacted
+genesis `format_version:8→9` and segment envelope `version:8→9`, retaining
+`type:conversation-segment`; the previous index shares its selector contract.
+Installed source applicability is unknown. No undeployed format-8 exception is assumed.
+
+The source contract adds owner-produced current/historical record selection
+and metadata/slice/full/reference exposure descriptors on exact successful tool
+settlements, descriptor-only preparation rows, and actual workflow-origin
+`record_prompt` text. Required compacted facts include a strict explicit
+`latestRecordObservations` array, initialized empty only for genuinely new history.
+Latest knowledge derives in canonical source order per conversation/card/record/view,
+including current reads and known mutation results, then merges retained suffix;
+immutable historical reads never advance it. Facts contain no body/template text
+and preserve source coordinates/time. Record prompts independently use existing
+keyed-latest or anonymous protection. Missing facts and old/mixed 8 data fail;
+no returned JSON parsing, inferred observations, backfill or compatibility path exists.
+
+Current bootstrap preparation now supplies the full accepted body afresh at each new
+logical operation, separately from stable card/node blocks. Its descriptor-only
+preparation occurrence records actual selection/full exposure, not historical body
+bytes, and deduplicates only against actual latest conversation knowledge. Same-operation
+maintenance and retries retain the captured snapshot. This is part of this same
+unpublished coherent 8→9 source unit, not another format family or record acceptance change.
+
+The same unpublished source unit now implements conditional prompt production:
+finite own-card declarations, accepted/effective same-read union with bootstrap,
+pre-batch actual-conversation comparison, opaque body substitution and one ordered
+prompt/descriptor envelope. Primary and summary project descriptor-only knowledge
+independently of protected text. This completes those format-9 producer meanings,
+not a second bump or a deployed cutover; record family remains unchanged.
+
+The same unpublished source unit now requires named prepared evidence for actual
+activation identity, stable card orientation, trusted root/parent/global caller and
+exact rendered parent direction (null for root/globals). Parent invocation provenance
+comes from the retained exact owner/lease, not caller-supplied authority or transcript
+reconstruction. Root caller is valid only for `project`; parent card/session must name
+the exact immediate parent. Role/node/orientation/parent text is positively projected and privacy
+filtered. Global non-model ingress remains explicitly not applicable; unrecorded
+text remains unavailable, never today's template. This nested incompatibility shares
+the already-started coherent 8→9 source unit; no unrelated family changes.
+
+Current/history/protected/fact public projections separately select descriptor
+identity/exposure/source and redact text and metadata, omitting internal raw hashes,
+tool-policy templates and evidence arguments. Actual conditional bytes and recorded
+role/node/parent orientation remain inspectable; prepared-bootstrap descriptors link
+immutable record evidence, not reconstructed historical request text. Source evidence
+is the owning schemas, synchronous supplier, exact result settlement, compaction
+derivation and shared public projector/timeline. This is one coherent source 8→9
+change, not an installed-release or delivery certification.
+Record/head/acceptance remain format 1. Card/mailbox, lifecycle lock,
+MCP definitions, provider/app-log envelopes and private diagnostic/privacy families
+are unchanged. Generic provider request/diagnostic bodies remain opaque.
+
+Source completion grants no deployment, reset, migration or Run. Adoption requires
+separately consented complete reset or explicitly requested external offline migration
+to a pinned matching release under the runbook/AGENTS gates. Historical read JSON
+cannot be converted into invented typed knowledge. Binary-only downgrade over 9 is
+unsupported; complete-state/matching-release rollback is separately authorized.
+
 ### Provider overload diagnostics (2026-10-12)
 
 Exact implementation parent: `2c9ed2ab7d0f2354f4281d2e65dd25925b0c0108`.
@@ -338,8 +400,8 @@ contains the schemas and direct publication/consumption owners.
 | Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:1`, `card-version` / `card-tombstone`; predecessor-linked ordinary/final payload, sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
 | Record head / accepted history | `records/record-<stem>.json`, `records/accepted/<UUID>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:1`, `record-head` / `accepted-record`; required head identity, sole current draft, accepted predecessor and ordinary card provenance. |
-| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:8`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. Protected messages preserve positive workflow-prompt provenance. |
-| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:8`, `type:conversation-segment`; required strict activation instruction evidence and optional positive workflow-prompt provenance alongside strict message/tool-result/private-context semantics. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
+| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:9`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. Protected messages preserve positive workflow-prompt provenance; required facts retain latest typed current record observations independently. |
+| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:9`, `type:conversation-segment`; strict activation instruction evidence, typed owning record observations and eligible actual record-prompt provenance alongside strict message/tool-result/private-context semantics. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; separate lifecycle-exclusion boundary, not generated-root migration state. |
 

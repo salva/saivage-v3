@@ -30,7 +30,7 @@ const SAMPLE: RuntimeToolEntry[] = [
   tool('skill', 'List or load a skill.', { name: { type: 'string' } }),
 ];
 
-const ACTIVATE_CARD = tool('activate_card', 'Activate one immediate child card.', { card_id: { type: 'string' } });
+const ACTIVATE_CARD = tool('activate_card', 'Activate one immediate child card.', { card_id: { type: 'string' }, instructions: { type: 'string', pattern: '\\S' } });
 
 const RUNTIME_STYLE = {
   type: 'function',

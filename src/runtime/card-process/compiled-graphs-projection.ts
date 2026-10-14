@@ -1,5 +1,6 @@
 import { DebugGraphsResponseSchema, type DebugGraphsResponse } from '../../contracts/index.js';
 import { effectiveCardNodeToolReferences } from '../../tools/tool-api.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 import { workflowEdge, workflowEntryTarget } from './workflow-topology.js';
 import {
   type CardProcessEntry,
@@ -25,11 +26,11 @@ function projectedPrompt(
   return declaration === null
     ? null
     : {
-        reference: declaration.promptId,
+        reference: redactTextForOutbound(declaration.promptId),
         compactable: declaration.compactable,
         ...(declaration.compactionKey === undefined
           ? {}
-          : { compaction_key: declaration.compactionKey }),
+          : { compaction_key: redactTextForOutbound(declaration.compactionKey) }),
       };
 }
 
@@ -97,6 +98,16 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           record_name: requirement.definition.name,
           mode: requirement.mode,
           gate: requirement.gate,
+        })),
+        record_prompts: node.recordPrompts.map((input) => ({
+          record: input.record,
+          selection: input.selection,
+          presence: input.presence,
+          prompt: projectedPrompt(input.prompt)!,
+          source: input.artifact.source,
+          placeholders: input.artifact.compiled.tokens.flatMap((token) =>
+            token.kind === 'placeholder' ? [token.key] : [],
+          ),
         })),
         descendant_context:
           node.descendantContext === null

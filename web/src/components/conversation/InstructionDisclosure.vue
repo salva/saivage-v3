@@ -1,13 +1,13 @@
 <template>
   <details class="instruction-disclosure">
     <summary>{{ label }}</summary>
-    <p>{{ explanation }} · privacy-filtered recorded instructions</p>
-    <CodeBlock :code="text" language="text" copyable wrap max-height="none" :aria-label="label" />
+    <p>{{ explanation }} · privacy-filtered recorded {{ metadata ? 'metadata' : 'instructions' }}</p>
+    <CodeBlock :code="text" :language="metadata ? 'json' : 'text'" copyable wrap max-height="none" :aria-label="label" />
   </details>
 </template>
 <script setup lang="ts">
 import CodeBlock from '../content/CodeBlock.vue';
-defineProps<{ label: string; text: string; explanation: string }>();
+defineProps<{ label: string; text: string; explanation: string; metadata?: boolean }>();
 </script>
 <style scoped>
 .instruction-disclosure { border-left:3px solid var(--accent-2); background:var(--surface-2); padding:8px 12px; color:var(--text); overflow-wrap:anywhere; }

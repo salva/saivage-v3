@@ -19,7 +19,9 @@ function withFixture(paths, testFn) {
       writeFileSync(destination, readFileSync(join(process.cwd(), path), 'utf8'));
     }
     testFn(root);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function rewrite(root, path, transform) {
@@ -34,25 +36,149 @@ function replaceChecked(root, path, target, replacement) {
   });
 }
 
-function failureTypes(result) { return result.failures.map((failure) => failure.type); }
+function failureTypes(result) {
+  return result.failures.map((failure) => failure.type);
+}
 
 describe('source-derived named-agent tool inventory', () => {
   it('discovers the exact default named-agent inventories', () => {
     const result = verifyAgentToolDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect(Object.fromEntries(result.expected)).toEqual({
-      planner: ['activate_card', 'cancel_card', 'create_card', 'diff_card_versions', 'edit', 'edit_card', 'get_card', 'get_card_version', 'get_tree', 'glob', 'grep', 'list_card_versions', 'list_cards', 'queue_notification', 'read', 'read_record_version', 'reopen_card', 'reorder_child', 'webfetch', 'websearch', 'write'],
-      reviewer: ['diff_card_versions', 'edit', 'get_card_version', 'glob', 'grep', 'list_card_versions', 'read', 'read_record_version', 'skill', 'view_image', 'webfetch', 'websearch', 'write'],
-      executor: ['apply_patch', 'diff_card_versions', 'edit', 'get_card_version', 'glob', 'grep', 'kill_process', 'list_card_versions', 'mcp_server_control', 'mcp_tool_call', 'mcp_tools', 'read', 'read_record_version', 'run_command', 'skill', 'view_image', 'wait_process', 'webfetch', 'websearch', 'write'],
-      analyst: ['apply_patch', 'cancel_card', 'create_card', 'delete_card', 'diff_card_versions', 'edit', 'get_card', 'get_card_version', 'get_status', 'get_tree', 'glob', 'grep', 'kill_process', 'list_agent_sessions', 'list_card_versions', 'list_cards', 'list_processes_tool', 'mcp_server_control', 'mcp_tool_call', 'mcp_tools', 'navigate_back', 'navigate_workspace', 'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_record_version', 'read_runtime_errors', 'read_runtime_events', 'reconfigure', 'reopen_card', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project', 'view_image', 'wait_process', 'webfetch', 'websearch', 'write'],
-      oversight: ['diff_card_versions', 'get_card', 'get_card_version', 'get_status', 'get_tree', 'glob', 'grep', 'list_agent_sessions', 'list_card_versions', 'list_cards', 'list_processes_tool', 'queue_notification', 'read', 'read_agent_session', 'read_record_version', 'read_runtime_errors', 'read_runtime_events'],
+      planner: [
+        'activate_card',
+        'cancel_card',
+        'create_card',
+        'diff_card_versions',
+        'edit',
+        'edit_card',
+        'get_card',
+        'get_card_version',
+        'get_tree',
+        'glob',
+        'grep',
+        'list_card_versions',
+        'list_cards',
+        'read',
+        'read_record_version',
+        'reopen_card',
+        'reorder_child',
+        'webfetch',
+        'websearch',
+        'write',
+      ],
+      reviewer: [
+        'diff_card_versions',
+        'edit',
+        'get_card_version',
+        'glob',
+        'grep',
+        'list_card_versions',
+        'read',
+        'read_record_version',
+        'skill',
+        'view_image',
+        'webfetch',
+        'websearch',
+        'write',
+      ],
+      executor: [
+        'apply_patch',
+        'diff_card_versions',
+        'edit',
+        'get_card_version',
+        'glob',
+        'grep',
+        'kill_process',
+        'list_card_versions',
+        'mcp_server_control',
+        'mcp_tool_call',
+        'mcp_tools',
+        'read',
+        'read_record_version',
+        'run_command',
+        'skill',
+        'view_image',
+        'wait_process',
+        'webfetch',
+        'websearch',
+        'write',
+      ],
+      analyst: [
+        'apply_patch',
+        'cancel_card',
+        'create_card',
+        'delete_card',
+        'diff_card_versions',
+        'edit',
+        'get_card',
+        'get_card_version',
+        'get_status',
+        'get_tree',
+        'glob',
+        'grep',
+        'kill_process',
+        'list_agent_sessions',
+        'list_card_versions',
+        'list_cards',
+        'list_processes_tool',
+        'mcp_server_control',
+        'mcp_tool_call',
+        'mcp_tools',
+        'navigate_back',
+        'navigate_workspace',
+        'pause_runtime',
+        'queue_notification',
+        'read',
+        'read_agent_session',
+        'read_control_actions',
+        'read_record_version',
+        'read_runtime_errors',
+        'read_runtime_events',
+        'reconfigure',
+        'reopen_card',
+        'reorder_child',
+        'restart_server',
+        'resume_runtime',
+        'run_command',
+        'show_config',
+        'skill',
+        'start_project',
+        'stop_project',
+        'view_image',
+        'wait_process',
+        'webfetch',
+        'websearch',
+        'write',
+      ],
+      oversight: [
+        'diff_card_versions',
+        'get_card',
+        'get_card_version',
+        'get_status',
+        'get_tree',
+        'glob',
+        'grep',
+        'list_agent_sessions',
+        'list_card_versions',
+        'list_cards',
+        'list_processes_tool',
+        'queue_notification',
+        'read',
+        'read_agent_session',
+        'read_record_version',
+        'read_runtime_errors',
+        'read_runtime_events',
+      ],
     });
   });
 
   it('derives literal catalog changes and rejects invalid catalog syntax', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'activate_card'", "'fixture_tool'");
-      expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).toContain('fixture_tool');
+      expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).toContain(
+        'fixture_tool',
+      );
     });
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'edit_card'", "'create_card'");
@@ -60,23 +186,39 @@ describe('source-derived named-agent tool inventory', () => {
     });
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, AGENTS, "'edit_card'", 'computedTool');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains a non-string entry');
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow(
+        'contains a non-string entry',
+      );
     });
   });
 
   it('rejects duplicate, unexpected, and malformed documentation rows', () => {
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `planner` .*$/m)[0];
-      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', `${row}\n<!-- saivage:agent-tools:end -->`);
+      replaceChecked(
+        root,
+        DOC,
+        '<!-- saivage:agent-tools:end -->',
+        `${row}\n<!-- saivage:agent-tools:end -->`,
+      );
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent');
     });
     withFixture([...AGENT_SOURCES, DOC], (root) => {
-      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/config/system-templates/classic/template.ts:1` |\n<!-- saivage:agent-tools:end -->");
-      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('unexpected-agent');
+      replaceChecked(
+        root,
+        DOC,
+        '<!-- saivage:agent-tools:end -->',
+        '| `supervisor` | `` | `src/config/system-templates/classic/template.ts:1` |\n<!-- saivage:agent-tools:end -->',
+      );
+      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain(
+        'unexpected-agent',
+      );
     });
     withFixture([...AGENT_SOURCES, DOC], (root) => {
       replaceChecked(root, DOC, '| `planner` | `activate_card', '| `planner` | activate_card');
-      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('malformed-agent-tool-row');
+      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain(
+        'malformed-agent-tool-row',
+      );
     });
   });
 
@@ -93,12 +235,23 @@ describe('source-derived named-agent tool inventory', () => {
       [AGENTS, '[...OVERSIGHT_ALLOWED_TOOL_NAMES]', '[...otherPolicy]', 'must spread only'],
       [AGENTS, '    planner: {', '    [computedRole]: {', 'Unsupported computed property'],
       [AGENTS, "'edit_card'", '...otherTools', 'contains a non-string entry'],
-      ['src/contracts/index.ts', "from './oversight-tool-policy.js'", "from './detached-policy.js'", 'must reexport'],
-      [AGENTS, "from '../../contracts/index.js'", "from '../../contracts/oversight-tool-policy.js'", 'must import'],
-    ]) withFixture([...AGENT_SOURCES, DOC], (root) => {
-      replaceChecked(root, path, before, after);
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow(error);
-    });
+      [
+        'src/contracts/index.ts',
+        "from './oversight-tool-policy.js'",
+        "from './detached-policy.js'",
+        'must reexport',
+      ],
+      [
+        AGENTS,
+        "from '../../contracts/index.js'",
+        "from '../../contracts/oversight-tool-policy.js'",
+        'must import',
+      ],
+    ])
+      withFixture([...AGENT_SOURCES, DOC], (root) => {
+        replaceChecked(root, path, before, after);
+        expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow(error);
+      });
   });
 });
 
@@ -107,52 +260,124 @@ describe('source-derived Config schema inventory', () => {
     const result = verifyConfigDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect([...result.expected.keys()]).toEqual([
-      'top-level', 'agents.entry', 'agents.entry.prompt', 'oversight', 'models', 'models.routes.entry', 'models.profiles.entry', 'providers.entry',
-      'providers.entry.capabilities', 'providers.entry.capabilities.responsesReasoning',
-      'providers.entry.modelCapabilities.entry', 'providers.entry.modelCapabilities.entry.responsesReasoning',
-      'providers.entry.accounts.entry', 'providers.entry.accounts.entry.capabilities',
-      'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'compaction', 'compaction.summarizer_candidate',
-      'card_types.entry', 'card_types.entry.records.entry', 'card_types.entry.workflow', 'card_types.entry.workflow.entries',
-      'card_types.entry.workflow.entries.BACKLOG', 'card_types.entry.workflow.entries.BACKLOG.prompt', 'card_types.entry.workflow.entries.CHANGED', 'card_types.entry.workflow.entries.CHANGED.prompt',
-      'card_types.entry.workflow.entries.BLOCKED', 'card_types.entry.workflow.entries.BLOCKED.prompt', 'card_types.entry.workflow.entries.STOPPED', 'card_types.entry.workflow.entries.STOPPED.prompt',
-      'card_types.entry.workflow.nodes.entry', 'card_types.entry.workflow.nodes.entry.prompt', 'card_types.entry.workflow.nodes.entry.correction_prompt', 'card_types.entry.workflow.nodes.entry.records.entry', 'card_types.entry.workflow.nodes.entry.descendant_context', 'card_types.entry.workflow.nodes.entry.edges.entry',
-      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant1', 'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2',
-      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2', 'card_types.entry.workflow.nodes.entry.edges.entry.prompt', 'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications', 'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications.prompt', 'mcpServers.entry.variant1', 'mcpServers.entry.variant2',
+      'top-level',
+      'agents.entry',
+      'agents.entry.prompt',
+      'oversight',
+      'models',
+      'models.routes.entry',
+      'models.profiles.entry',
+      'providers.entry',
+      'providers.entry.capabilities',
+      'providers.entry.capabilities.responsesReasoning',
+      'providers.entry.modelCapabilities.entry',
+      'providers.entry.modelCapabilities.entry.responsesReasoning',
+      'providers.entry.accounts.entry',
+      'providers.entry.accounts.entry.capabilities',
+      'providers.entry.accounts.entry.capabilities.responsesReasoning',
+      'server',
+      'compaction',
+      'compaction.summarizer_candidate',
+      'card_types.entry',
+      'card_types.entry.records.entry',
+      'card_types.entry.workflow',
+      'card_types.entry.workflow.entries',
+      'card_types.entry.workflow.entries.BACKLOG',
+      'card_types.entry.workflow.entries.BACKLOG.prompt',
+      'card_types.entry.workflow.entries.CHANGED',
+      'card_types.entry.workflow.entries.CHANGED.prompt',
+      'card_types.entry.workflow.entries.BLOCKED',
+      'card_types.entry.workflow.entries.BLOCKED.prompt',
+      'card_types.entry.workflow.entries.STOPPED',
+      'card_types.entry.workflow.entries.STOPPED.prompt',
+      'card_types.entry.workflow.nodes.entry',
+      'card_types.entry.workflow.nodes.entry.prompt',
+      'card_types.entry.workflow.nodes.entry.correction_prompt',
+      'card_types.entry.workflow.nodes.entry.record_prompts.item',
+      'card_types.entry.workflow.nodes.entry.record_prompts.item.prompt',
+      'card_types.entry.workflow.nodes.entry.records.entry',
+      'card_types.entry.workflow.nodes.entry.descendant_context',
+      'card_types.entry.workflow.nodes.entry.edges.entry',
+      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant1',
+      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2',
+      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2',
+      'card_types.entry.workflow.nodes.entry.edges.entry.prompt',
+      'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications',
+      'card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications.prompt',
+      'mcpServers.entry.variant1',
+      'mcpServers.entry.variant2',
     ]);
   });
 
   it('turns newly reachable objects into missing-row failures and fails closed for unsupported syntax', () => {
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z\n  .object({', 'const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,');
-      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('missing-config-section');
+      replaceChecked(
+        root,
+        CONFIG,
+        'export const saivageConfigSchema = z\n  .object({',
+        'const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,',
+      );
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain(
+        'missing-config-section',
+      );
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z\n  .object({', 'export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.string()),');
+      replaceChecked(
+        root,
+        CONFIG,
+        'export const saivageConfigSchema = z\n  .object({',
+        'export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.string()),',
+      );
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z\n  .object({', 'export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,');
-      expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unable to resolve unresolvedSchema');
+      replaceChecked(
+        root,
+        CONFIG,
+        'export const saivageConfigSchema = z\n  .object({',
+        'export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,',
+      );
+      expect(() => verifyConfigDocs({ projectRoot: root })).toThrow(
+        'Unable to resolve unresolvedSchema',
+      );
     });
   });
 
   it('rejects missing, unexpected, duplicate, and malformed documentation rows', () => {
     withFixture([CONFIG, DOC], (root) => {
       rewrite(root, DOC, (source) => source.replace(/^\| `models` .*\n/m, ''));
-      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('missing-config-section');
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain(
+        'missing-config-section',
+      );
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, DOC, '<!-- saivage:config-schema:end -->', "| `supervisor` | `` | `src/schemas/saivage-config.ts:1` |\n<!-- saivage:config-schema:end -->");
-      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('unexpected-config-section');
+      replaceChecked(
+        root,
+        DOC,
+        '<!-- saivage:config-schema:end -->',
+        '| `supervisor` | `` | `src/schemas/saivage-config.ts:1` |\n<!-- saivage:config-schema:end -->',
+      );
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain(
+        'unexpected-config-section',
+      );
     });
     withFixture([CONFIG, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `models` .*$/m)[0];
-      replaceChecked(root, DOC, '<!-- saivage:config-schema:end -->', `${row}\n<!-- saivage:config-schema:end -->`);
-      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('duplicate-config-section');
+      replaceChecked(
+        root,
+        DOC,
+        '<!-- saivage:config-schema:end -->',
+        `${row}\n<!-- saivage:config-schema:end -->`,
+      );
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain(
+        'duplicate-config-section',
+      );
     });
     withFixture([CONFIG, DOC], (root) => {
       replaceChecked(root, DOC, '| `models` | `equivalents', '| `models` | equivalents');
-      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('malformed-config-row');
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain(
+        'malformed-config-row',
+      );
     });
   });
 });

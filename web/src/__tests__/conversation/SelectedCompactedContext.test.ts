@@ -12,7 +12,7 @@ export function compactedContext(): NonNullable<AgentConversationResponse['segme
       source: { segment_version: 1, row_index: index },
       message: { ...entry(`protected-${index}`, 'text', `Complete instruction ${index} final-instruction-Z`), context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: false } },
     })),
-    required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null },
+    required_model_facts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] },
     continuation: { kind: 'inherited_open_round', activation: { marker_id: 'real-marker', input_id: '11111111-1111-4111-8111-111111111111' }, active_segment_kind: 'initial' },
   };
 }

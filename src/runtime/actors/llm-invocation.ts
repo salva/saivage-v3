@@ -8,6 +8,19 @@ import type {
   InvocationRoutePass,
 } from '../../contracts/index.js';
 import type { CapabilityRequest } from '../../contracts/index.js';
+import type { ContextBlock, ValidatedConversation } from '../../contracts/index.js';
+import type { AgentMessage } from '../../schemas/index.js';
+
+/** Transient node-bound synchronous preparation, never provider or durable data. */
+export type RecordContextSupplier = (
+  args: Readonly<{
+    inputId: string;
+    conversation: ValidatedConversation;
+  }>,
+) => Readonly<{
+  recordBlocks: readonly ContextBlock[];
+  rows: readonly AgentMessage[];
+}>;
 
 interface LlmInvocationInputBase {
   inputId: string;

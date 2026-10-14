@@ -110,7 +110,7 @@ function harness(args: {
   const removeNotifications=jest.fn((_ids: readonly string[]) => { events.push('remove-notifications'); });
   const input = {
     card,
-    activationId: 'activation-1',
+    activationId: '00000000-0000-4000-8000-000000000001',
     notificationDelivery: { hasPendingNotifications: () => selectNotifications().length > 0, selectNotifications, removeNotifications },
     claimResult: () => { events.push('claim-result'); },
   };
@@ -151,7 +151,7 @@ function harness(args: {
   internals.prepareNodeEntry = () => undefined;
   internals.prepareRecordRequirements = () => undefined;
   internals.captureRecordHead = () => 1;
-  internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: 'input-1', preparedContext: {prefix:{instructionText:'fixture role'},dynamicBlocks:[{content:'fixture card'},{content:'fixture node'}]} }; };
+  internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: '00000000-0000-4000-8000-000000000001', activationInstructions: { kind: 'prepared',activation_id:'00000000-0000-4000-8000-000000000001',caller:{kind:'root'},card:{cardId:'project',cardType:'project',title:'Synthetic project'},parent_direction:null, role_text: 'fixture role', node: { node_id: 'work', text: 'fixture node' } }, preparedContext: {prefix:{instructionText:'fixture role'},stableBlocks:[{content:'fixture card'},{content:'fixture node'}]} }; };
   internals.enterNodeConversation = (prepared) => ({ ...prepared, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } });
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
   if (!args.useRealCorrection) internals.correctionContext = (_process, _node, violations, remaining) => [{ role: 'user', content: `correction: ${violations.join('; ')}\nCorrective attempts remaining before this node fails: ${remaining}.` }];

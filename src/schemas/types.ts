@@ -167,6 +167,8 @@ export type MessageKind =
   | 'content_policy_retry'
   | 'content_policy_refusal'
   | 'model_recovered'
+  | 'record_prompt'
+  | 'record_observation'
   | 'provider_private';
 interface EntityLink {
   entity_type: 'card' | 'process' | 'artifact' | 'attachment';
@@ -180,6 +182,8 @@ interface OpenAIResponsesProviderProjection {
   projection_kind: 'assistant_message' | 'assistant_tool_call';
 }
 export interface AgentMessage {
+  record_observations?: import('./record-observation.js').RecordObservation[];
+  record_prompt?: { reference: string; node_id: string; reason: 'initial' | 'changed' };
   instruction_origin?: 'workflow_prompt';
   id: string;
   session_id: ConversationSessionId;

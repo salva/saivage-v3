@@ -106,6 +106,7 @@ export const rowContextPolicySchema = z
           'model_recovery_notice',
           'content_policy_refusal',
           'responses_private',
+          'record_observation',
         ]),
       })
       .strict(),
@@ -162,4 +163,5 @@ export const STRUCTURAL_ROW_POLICY: Record<
   model_recovery_notice: Object.freeze({ kind: 'structural', behavior: 'model_recovery_notice' }),
   content_policy_refusal: Object.freeze({ kind: 'structural', behavior: 'content_policy_refusal' }),
   responses_private: Object.freeze({ kind: 'structural', behavior: 'responses_private' }),
+  record_observation: Object.freeze({ kind: 'structural', behavior: 'record_observation' }),
 });

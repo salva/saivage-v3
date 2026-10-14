@@ -18,6 +18,7 @@ import {
   type RecordProjection,
 } from '../persistence/index.js';
 import type { AgentName } from '../schemas/index.js';
+import { observeRecordProjection } from '../persistence/index.js';
 
 interface RecordMutationRequest {
   path: string;
@@ -253,6 +254,16 @@ export function mutateRecord(
   }
   const success: RecordMutationSuccess = {
     kind: 'applied',
+    record_observations: (['effective', 'accepted'] as const).map((view) =>
+      observeRecordProjection({
+        cardId: parsed.cardId,
+        recordName: parsed.name,
+        projection: result,
+        view,
+        selectionKind: 'current',
+        exposure: { kind: 'metadata' },
+      }),
+    ),
     data: {
       card_id: parsed.cardId,
       name: parsed.name,

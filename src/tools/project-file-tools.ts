@@ -15,6 +15,8 @@ import { StringDecoder } from 'node:string_decoder';
 import type { z } from 'zod';
 
 import type { AgentName } from '../schemas/index.js';
+import type { RecordSelectionObservation } from '../schemas/index.js';
+import { observeRecordProjection } from '../persistence/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import {
@@ -387,10 +389,15 @@ function patchPaths(patch: string): string[] {
   return [...paths];
 }
 
+interface WorkspaceReadOutcome {
+  readonly data: unknown;
+  readonly record_observations: readonly RecordSelectionObservation[];
+}
+
 export async function readProject(
   ctx: WorkspaceContext,
   params: ReadProjectParams,
-): Promise<unknown> {
+): Promise<WorkspaceReadOutcome> {
   const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
   const collectionPosition = (): CollectionPosition => {
     if (params.position === undefined) return { item_index: 0, item_byte_offset: 0 };
@@ -429,7 +436,7 @@ export async function readProject(
           path: slice,
         }),
       });
-      return data;
+      return { data, record_observations: [] };
     }
     const items = listing.records.map((record) => ({
       name: record.name,
@@ -452,10 +459,37 @@ export async function readProject(
         records: page,
       }),
     });
-    return data;
+    return { data, record_observations: [] };
   }
 
   if (resolved.kind === 'record') {
+    const observations = (
+      exposure: RecordSelectionObservation['exposure'],
+    ): readonly RecordSelectionObservation[] => {
+      const effective = observeRecordProjection({
+        cardId: resolved.cardId,
+        recordName: resolved.filename,
+        projection: resolved.recordProjection,
+        view: 'effective',
+        selectionKind: resolved.currentSelection ? 'current' : 'historical',
+        exposure,
+      });
+      if (!resolved.currentSelection) return [effective];
+      return [
+        effective,
+        observeRecordProjection({
+          cardId: resolved.cardId,
+          recordName: resolved.filename,
+          projection: resolved.recordProjection,
+          view: 'accepted',
+          selectionKind: 'current',
+          exposure:
+            resolved.recordProjection?.draft || !resolved.recordProjection?.accepted
+              ? { kind: 'metadata' }
+              : exposure,
+        }),
+      ];
+    };
     const base = {
       record_url: resolved.recordUrl,
       card_id: resolved.cardId,
@@ -482,15 +516,27 @@ export async function readProject(
           path: slice,
         }),
       });
-      return data;
+      return { data, record_observations: observations({ kind: 'metadata' }) };
     }
-    const { data } = packTextSliceData({
+    const { data, slice: exposedSlice } = packTextSliceData({
       text: resolved.content,
       byteOffset: offset,
       cap,
       render: (slice: TextSlice) => ({ ...base, path: resolved.recordUrl, content: slice }),
     });
-    return data;
+    return {
+      data,
+      record_observations: observations(
+        exposedSlice.offset_bytes === 0 && exposedSlice.utf8_bytes === resolved.size
+          ? { kind: 'full_body' }
+          : {
+              kind: 'slice',
+              offset_bytes: exposedSlice.offset_bytes,
+              utf8_bytes: exposedSlice.utf8_bytes,
+              total_bytes: resolved.size,
+            },
+      ),
+    };
   }
 
   const { absolutePath, relativePath } = resolved;
@@ -521,7 +567,7 @@ export async function readProject(
         path: slice,
       }),
     });
-    return data;
+    return { data, record_observations: [] };
   }
 
   if (st.isDirectory()) {
@@ -539,7 +585,7 @@ export async function readProject(
         entries: page,
       }),
     });
-    return data;
+    return { data, record_observations: [] };
   }
 
   if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
@@ -549,12 +595,15 @@ export async function readProject(
     if (isBinarySample(sample))
       throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
     return {
-      ...baseRecord,
-      content: null,
-      total_bytes: st.size,
-      too_large: true,
-      max_bytes: MAX_READ_FILE_BYTES,
-      message: `File is larger than ${MAX_READ_FILE_BYTES} bytes and was not read inline. Use metadata_only to inspect file metadata, or grep/glob to find narrower text targets before reading.`,
+      data: {
+        ...baseRecord,
+        content: null,
+        total_bytes: st.size,
+        too_large: true,
+        max_bytes: MAX_READ_FILE_BYTES,
+        message: `File is larger than ${MAX_READ_FILE_BYTES} bytes and was not read inline. Use metadata_only to inspect file metadata, or grep/glob to find narrower text targets before reading.`,
+      },
+      record_observations: [],
     };
   }
   const buffer = readFileSync(absolutePath);
@@ -576,7 +625,7 @@ export async function readProject(
       content: slice,
     }),
   });
-  return data;
+  return { data, record_observations: [] };
 }
 
 export type WorkspaceMutationOutcome =

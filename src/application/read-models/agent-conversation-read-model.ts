@@ -1,4 +1,7 @@
-import { projectCanonicalConversationRow } from './canonical-conversation-outbound.js';
+import {
+  projectCanonicalConversationRow,
+  projectRecordObservation,
+} from './canonical-conversation-outbound.js';
 import { currentCoveredRequiredFactRows } from '../../runtime/runtime-api.js';
 import {
   ConversationHistoricalVersionNotFoundError,
@@ -8,12 +11,13 @@ import {
 } from '../../persistence/index.js';
 import { type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
 import type { ConversationSegmentContext } from '../../contracts/index.js';
+import type { AgentConversationEntry } from '../../contracts/index.js';
 import { projectToolInvocation } from '../../tools/tool-api.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 
 export interface FoldedConversation {
   readonly sessionId: ConversationSessionId;
-  readonly entries: readonly AgentMessage[];
+  readonly entries: readonly AgentConversationEntry[];
   readonly cursor: string | null;
   readonly totalEntries: number;
   readonly segmentVersion: number;
@@ -60,7 +64,7 @@ export function foldConversation(
     );
 
   const rows = [...coveredRequiredFactRows(segment), ...segment.rows];
-  const selected: AgentMessage[] = [];
+  const selected: AgentConversationEntry[] = [];
   let cursorFound = options.since === undefined;
   let cursor: string | null = options.since ?? null;
   let totalEntries = 0;
@@ -116,14 +120,21 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
                 : message,
           };
         }),
-        required_model_facts: genesis.compaction.requiredModelFacts,
+        required_model_facts: {
+          ...genesis.compaction.requiredModelFacts,
+          latestRecordObservations:
+            genesis.compaction.requiredModelFacts.latestRecordObservations.map((entry) => ({
+              source: { ...entry.source, messageId: redactTextForOutbound(entry.source.messageId) },
+              observation: projectRecordObservation(entry.observation),
+            })),
+        },
         continuation: genesis.continuation,
       });
 }
 
 export function foldHistoricalConversationRows(
   rows: readonly AgentMessage[],
-): readonly AgentMessage[] {
+): readonly AgentConversationEntry[] {
   return rows
     .filter((row) => row.kind !== 'provider_private')
     .map((row) => {

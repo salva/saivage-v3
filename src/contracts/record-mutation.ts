@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordSelectionObservationSchema } from '../schemas/index.js';
 
 import {
   cardIdSchema,
@@ -168,6 +169,7 @@ const propagationSchema = z.union([
 export const RecordMutationSuccessSchema = z
   .object({
     kind: z.literal('applied'),
+    record_observations: z.array(recordSelectionObservationSchema).min(1).optional(),
     data: z
       .object({
         ...commonIdentity,

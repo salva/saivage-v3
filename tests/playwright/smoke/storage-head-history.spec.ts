@@ -72,7 +72,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     return json(route, 'agents.conversation', {
       session_id: sessionId, segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, segment_context: null,
       entries: [{ id: 'delivered-notice', session_id: sessionId, role: 'user', kind: 'text', content: deliveredText,
-        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
+        context_policy: { kind: 'content', compactable: true },
         round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now }],
       cursor: { segment_id: '11111111-1111-4111-8111-111111111111', segment_version: 1, message_id: 'delivered-notice' },
     });

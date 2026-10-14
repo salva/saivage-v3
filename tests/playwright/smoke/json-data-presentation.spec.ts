@@ -3,8 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { TEST_SAIVAGE_CONFIG } from '../../helpers/test-saivage-config.js';
-import { toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
-import { installOperatorRestRoutes, retainedInstructionContext, smokeCardId } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, retainedInstructionContext, smokeCardId, publicToolPolicies } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 
@@ -28,7 +27,7 @@ const exchange = parseOperatorResponse('agents.llmExchange', 200, { session_id: 
 
 function pair(id: string, tool: string, args: object, result: object) {
   const content = JSON.stringify(result);
-  const policies = toolRowPolicies({ content });
+  const policies = publicToolPolicies;
   const base = { session_id: session, tool, tool_call_id: id, message_index: 0, block_index: 0, timestamp,
     round_id: `r-assistant-${segment.replaceAll('-', '')}` };
   return [
@@ -40,7 +39,7 @@ function pair(id: string, tool: string, args: object, result: object) {
 function prose(id: string, content: string) {
   return { id, session_id: session, role: 'assistant', kind: 'text', content, timestamp,
     round_id: `r-assistant-${segment.replaceAll('-', '')}`, message_index: 0, block_index: 0,
-    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } };
+    context_policy: { kind: 'content', compactable: true } };
 }
 const initialRows = [
   ...pair('config', 'show_config', { literal: malicious }, { success: true, data: { config: {

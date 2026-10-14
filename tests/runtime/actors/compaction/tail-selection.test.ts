@@ -79,7 +79,7 @@ async function run(root: string, tailBudget: number, snap: AutonomousCompactionP
   const input: PreparedLlmInvocationInput = {
     inputId: INPUT, agentId: SESSION, agentName: 'planner', sessionId: SESSION, systemPrompt: 'system',
     providerConversation: providerConversationProjection(conversation, []), tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction,
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
     capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
   };
   const result = await compact({ summaryRefusal, strategy, conversations: { projectRoot: root }, input, summarizerProvider: recorded.provider, signal: new AbortController().signal, progress: noCompactionProgress });

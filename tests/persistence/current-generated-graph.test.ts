@@ -560,6 +560,7 @@ function renamedCardAgentWorkflows(): CompiledProjectWorkflows {
 function renamedAnalystWorkflows(): CompiledProjectWorkflows {
   const value = config();
   value.agents['analyst-v2'] = { ...value.agents.analyst! };
+  value.agents.analyst!.tools = value.agents.analyst!.tools.filter(tool => tool !== 'queue_notification');
   value.analyst_agent = 'analyst-v2';
   return compileProjectWorkflows(value);
 }

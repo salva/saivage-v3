@@ -44,6 +44,7 @@ import { normalizeWorkspaceImage } from './image-decode.js';
 import { ImageInputError } from './image-input-error.js';
 import { publishConversationImage } from '../persistence/session-api.js';
 import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
+import { toolRecordSucceeded } from '../contracts/index.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;
@@ -83,13 +84,29 @@ async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolAct
   }
 }
 
+async function runWorkspaceRead(
+  ctx: WorkspaceProviderContext,
+  args: Parameters<typeof readProject>[1],
+): Promise<ToolActionOutcome> {
+  try {
+    const result = await readProject(ctx, args);
+    return toolRecordSucceeded(result.data, 'read', result.record_observations);
+  } catch (err) {
+    throwIfPublicationOutcomeUnknown(err);
+    if (!isExpectedWorkspaceFailure(err)) throw err;
+    return failureFromError(err);
+  }
+}
+
 async function runWorkspaceMutation(
   action: () => Promise<WorkspaceMutationOutcome>,
 ): Promise<ToolActionOutcome> {
   try {
     const outcome = await action();
     return outcome.kind === 'applied'
-      ? toolSucceeded(outcome.data)
+      ? 'record_observations' in outcome && outcome.record_observations
+        ? toolRecordSucceeded(outcome.data, 'mutation', outcome.record_observations)
+        : toolSucceeded(outcome.data)
       : toolFailed(outcome.error, outcome.data);
   } catch (err) {
     throwIfPublicationOutcomeUnknown(err);
@@ -207,7 +224,7 @@ export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext,
       description: readDescription,
       resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       inputSchema: () => readWorkspaceInputSchema,
-      executor: (ctx, args) => observational(() => runWorkspaceTool(() => readProject(ctx, args))),
+      executor: (ctx, args) => observational(() => runWorkspaceRead(ctx, args)),
     }),
     defineToolBinder({
       name: 'write',
@@ -258,8 +275,7 @@ const globalReadBinder = defineToolBinder<typeof readWorkspaceInputSchema, Globa
   description: readDescription,
   resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
   inputSchema: () => readWorkspaceInputSchema,
-  executor: (ctx, args) =>
-    observational(() => runWorkspaceTool(() => readProject(analystWorkspace(ctx), args))),
+  executor: (ctx, args) => observational(() => runWorkspaceRead(analystWorkspace(ctx), args)),
 });
 const globalImageBinder = defineToolBinder<typeof viewImageInputSchema, GlobalWorkspaceContext>({
   name: 'view_image',

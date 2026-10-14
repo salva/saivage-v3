@@ -365,7 +365,7 @@ describe('Stage-I versioned compaction', () => {
         inputId: '10000000-0000-4000-8000-000000000001', agentId: SESSION, agentName: 'planner', sessionId: SESSION,
         systemPrompt, providerConversation: providerConversationProjection(conversation, dynamicBlocks), tools, compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },
         preparedCompaction,
-        preparedContext: buildPreparedInvocationContext({ instructionText: systemPrompt, terminalToolNames: [], compiledTools: [], dynamicBlocks, preparedCompaction }),
+        preparedContext: buildPreparedInvocationContext({ instructionText: systemPrompt, terminalToolNames: [], compiledTools: [], stableBlocks: dynamicBlocks, preparedCompaction }),
         capabilityRequest: { requiresTools: true }, routePass: { kind: 'ordinary', candidateChain: [...plannerBinding.candidateChain] }, episodeContext: {},
       });
       const input = inputFor(before);
@@ -504,7 +504,7 @@ function appendProcessSettlement(root: string, ordinal: number, callId: string, 
   ]);
   return { process_id, stdout_url, stderr_url, content, resultId };
 }
-function invocationFor(sessionId: ConversationSessionId, messages: readonly ProviderConversationItem[]): PreparedLlmInvocationInput { const agentName = conversationSessionIdentity(sessionId).agentName; const preparedCompaction = prepareCompaction(config, 'system', [], 8_000, 2_000); return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [...messages] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [TEST_CANDIDATE] }, episodeContext: {} }; }
+function invocationFor(sessionId: ConversationSessionId, messages: readonly ProviderConversationItem[]): PreparedLlmInvocationInput { const agentName = conversationSessionIdentity(sessionId).agentName; const preparedCompaction = prepareCompaction(config, 'system', [], 8_000, 2_000); return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [...messages] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [TEST_CANDIDATE] }, episodeContext: {} }; }
 
 type ExpectedSourceComponent = Readonly<{ source: string; content: string; sourceRowIndex: number }>;
 type CapturedRange = Readonly<{ source: string; start: number; end: number; totalBytes: number; content: string }>;

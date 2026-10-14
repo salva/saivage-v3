@@ -38,6 +38,7 @@ import type {
   CanonicalLlmInvocationInput,
   LlmInvocationInput,
   PreparedLlmInvocationInput,
+  RecordContextSupplier,
 } from './llm-invocation.js';
 import {
   appendLlmTurnError,
@@ -62,7 +63,11 @@ import {
   type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import type { ToolSettlementInput } from '../../tools/tool-api.js';
-import { assertPreparedContextContinuity } from './context/context-blocks.js';
+import {
+  assertPreparedContextContinuity,
+  composedPreparedBlocks,
+  withPreparedRecordBlocks,
+} from './context/context-blocks.js';
 import { type ContextBlock } from '../../contracts/index.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
@@ -119,14 +124,10 @@ export class LastChanceSummaryProviderUnavailableError extends Error {
   }
 }
 
-function requiredPreparedDynamicBlocks(
-  input: CanonicalLlmInvocationInput,
-): readonly ContextBlock[] {
+function requiredPreparedBlocks(input: CanonicalLlmInvocationInput): readonly ContextBlock[] {
   if (!input.preparedCompaction)
-    throw new Error(
-      `Persisted LLM invocation '${input.inputId}' has no prepared dynamic context blocks.`,
-    );
-  return input.preparedContext.dynamicBlocks;
+    throw new Error(`Persisted LLM invocation '${input.inputId}' has no prepared context blocks.`);
+  return composedPreparedBlocks(input.preparedContext);
 }
 
 export interface LLMProviderPort {
@@ -179,7 +180,10 @@ export type LlmTerminalHandoff = (
   }>,
 ) => void;
 
-type Callbacks = Readonly<{ terminal: LlmTerminalHandoff }>;
+type Callbacks = Readonly<{
+  terminal: LlmTerminalHandoff;
+  recordContextSupplier?: RecordContextSupplier;
+}>;
 type WaitingToolCall = Readonly<{
   sourceInputId: string;
   toolCallId: string;
@@ -328,6 +332,7 @@ export class ConversationLLMActor {
     input: PreparedLlmInvocationInput,
     signal: AbortSignal | undefined,
     terminal: LlmTerminalHandoff,
+    recordContextSupplier?: RecordContextSupplier,
   ): Promise<LLMActorOutcome> {
     if (!input.preparedCompaction)
       return rejected(new Error(`LLMActor '${this.agentId}' requires prepared compaction.`));
@@ -343,7 +348,7 @@ export class ConversationLLMActor {
     const disposition = phase.kind === 'idle' ? phase.disposition : phase.operation.disposition;
     if (disposition.kind !== 'open')
       return rejected(new Error(`LLMActor '${this.agentId}' invocation admission is closed.`));
-    return this.#arm(input, signal, { terminal }, disposition);
+    return this.#arm(input, signal, { terminal, recordContextSupplier }, disposition);
   }
 
   waitingToolArguments(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): string {
@@ -513,14 +518,19 @@ export class ConversationLLMActor {
         ...input,
         providerConversation: providerConversationProjection(
           readConversation(this.conversations.projectRoot, input.sessionId),
-          requiredPreparedDynamicBlocks(input),
+          requiredPreparedBlocks(input),
         ),
         episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
       };
       this.#assertContinuationPreparedContext(retained.input, next);
       this.#assertRepairOpen(repair);
       repair.settlement.resolve();
-      const nested = this.#arm(next, signal, { terminal }, repair.disposition);
+      const nested = this.#arm(
+        next,
+        signal,
+        { ...retained.callbacks, terminal },
+        repair.disposition,
+      );
       nested.then(repair.result.resolve, (error: unknown) => repair.result.reject(asError(error)));
     } catch (error) {
       this.#deliverPublicationFatal(error);
@@ -730,9 +740,10 @@ export class ConversationLLMActor {
     const lease = this.#invocations.begin(operation.signal);
     operation.lease = lease;
     this.#phase = { kind: 'invoking', operation };
-    const raw = this.#invocations.runExternal(lease, (signal) =>
-      this.#runProvider(operation, signal),
-    );
+    const raw = this.#invocations.runExternal(lease, (signal) => {
+      this.#invocations.assertCurrent(lease);
+      return this.#runProvider(operation, signal);
+    });
     void this.#invocations.trackConsumer(async () => {
       try {
         await this.#completeInvocation(operation, await raw);
@@ -753,6 +764,34 @@ export class ConversationLLMActor {
         `LLMActor '${this.agentId}' admitted an invocation without prepared compaction.`,
       );
     this.#assertPersistenceOwnership(input);
+    if (operation.callbacks.recordContextSupplier) {
+      try {
+        const conversation = readConversation(this.conversations.projectRoot, input.sessionId);
+        const prepared = operation.callbacks.recordContextSupplier({
+          inputId: input.inputId,
+          conversation,
+        });
+        if (prepared.rows.length) appendConversationBatch(this.conversations, [...prepared.rows]);
+        const preparedContext = withPreparedRecordBlocks(
+          input.preparedContext,
+          prepared.recordBlocks,
+        );
+        input = {
+          ...input,
+          preparedContext,
+          providerConversation: providerConversationProjection(
+            prepared.rows.length
+              ? readConversation(this.conversations.projectRoot, input.sessionId)
+              : conversation,
+            composedPreparedBlocks(preparedContext),
+          ),
+        };
+        operation.input = input;
+      } catch (error) {
+        this.#deliverPublicationFatal(error);
+        throw error;
+      }
+    }
     if (this.compactor.shouldCompact(input)) {
       const compacted = await this.#compact(operation, 'preventive', input, signal);
       signal.throwIfAborted();
@@ -1112,7 +1151,7 @@ export class ConversationLLMActor {
         ...continuationInput,
         providerConversation: providerConversationProjection(
           readConversation(this.conversations.projectRoot, continuationInput.sessionId),
-          requiredPreparedDynamicBlocks(continuationInput),
+          requiredPreparedBlocks(continuationInput),
         ),
       };
       this.#releaseChild(operation.parked);
@@ -1454,7 +1493,7 @@ export class ConversationLLMActor {
       ...input,
       providerConversation: providerConversationProjection(
         readConversation(this.conversations.projectRoot, input.sessionId),
-        requiredPreparedDynamicBlocks(input),
+        requiredPreparedBlocks(input),
       ),
       routePass: { kind: 'pinned-content-policy-retry', candidate: firstFailure.candidate },
     };

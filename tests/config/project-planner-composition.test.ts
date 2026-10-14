@@ -200,7 +200,6 @@ describe('shipped project Planner semantic composition', () => {
         cardId,
         cardType,
         title: cardType === 'project' ? 'Complete owner objective' : 'Coordinated delivery',
-        brief: cardType === 'project' ? 'Deliver the complete objective against stable acceptance.' : 'Own this delegated outcome and its acceptance.',
       });
 
       expect(JSON.parse(cardContext)).toMatchObject({ cardId, cardType });

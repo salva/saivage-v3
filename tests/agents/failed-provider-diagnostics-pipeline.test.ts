@@ -1099,7 +1099,7 @@ describe('failed diagnostics through real invocation owners', () => {
         instructionText: 'system',
         terminalToolNames: [],
         compiledTools: [],
-        dynamicBlocks: [],
+        stableBlocks: [],
         preparedCompaction,
       }),
       capabilityRequest: {},
@@ -1242,7 +1242,7 @@ describe('failed diagnostics through real invocation owners', () => {
       inheritedHistory: {
         summaryText: 'Inherited summary text',
         protectedPrompts: [],
-        requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null },
+        requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] },
       },
       preparedBlocks: [
         {
@@ -1396,7 +1396,7 @@ describe('failed diagnostics through real invocation owners', () => {
               instructionText: 'system',
               terminalToolNames: [],
               compiledTools: [],
-              dynamicBlocks: [],
+              stableBlocks: [],
               preparedCompaction,
             }),
             capabilityRequest: {},

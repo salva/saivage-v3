@@ -5,6 +5,29 @@ This in-depth companion to [System architecture](./system-architecture.md) and [
 ::: v-pre
 ## Purposes and layout
 
+| Channel | Owner and lifetime | Authority / evidence |
+| --- | --- | --- |
+| Role, generated outcome/tools, node, card orientation | Startup compiler and node preparation; stable through this node | Present method/task and permitted effects, not init-only memory |
+| Parent direction | Exact Supervisor parent relationship; entire actual child activation | Advisory direction with trusted invocation provenance; no grandchild inheritance |
+| Current accepted bootstrap / declared record inputs | Synchronous node-bound supplier at each new logical primary operation | Same-read current requirement snapshot; retained through that operation's maintenance/retries |
+| Conditional record prompt | Same supplier, compared against pre-existing conversation record/view knowledge | Actual rendered occurrence; declaration-controlled instruction retention |
+| Entries, accepted edges, correction, notifications | Existing event/result/recipient owner; once per actual occurrence | Attributed facts, immutable evidence and scoped direction, not current-node selection |
+| Latest record observations | Canonical source-order fact derivation plus retained suffix | Descriptor-only selection/exposure knowledge, not a subscription, body recall or write authority |
+| Global/non-model ingress | Existing Analyst/Oversight owners | Actual explicit read observations only; no synthetic card/parent feed; confirmation-only is model-free |
+
+Parent activation direction is a retained activation-local system block alongside
+stable card orientation and the current node, supplied to both primary and summary.
+It is advisory under accepted requirements, workflow, permissions and acceptance.
+`activate_card` requires explicit preserved non-whitespace `instructions`. The
+Supervisor captures them with trusted exact parent invocation provenance. An exact
+lease join does not replace them; another lease cannot overwrite an owned child.
+New activations use new direction, root/global ingress has none, and grandchildren
+receive only their own parent's direction. Historical markers record the named
+role/node/card/caller/activation/parent fields, never positional block guesses or
+current-template reconstruction. Public notifications are configured-global advice,
+not a second Planner task-direction channel; internal notifications and recipients
+retain their ordinary behavior.
+
 Agent prompts become provider static instructions. Process prompts are startup-compiled operational context: the actual current node's prompt is frozen as prepared request context, while lifecycle-entry, correction, configured non-terminal-edge, and pending-notification prompts remain durable conversation context at their producer-owned positions. Each consuming declaration owns its compaction policy; shared prompt text remains policy-free. Fragments are not prompts; they are directly included pieces compiled under the host prompt's policy.
 
 Bundled defaults and project overrides use the same tree:
@@ -108,6 +131,48 @@ The closed `PromptHost` variants select both artifact scope and placeholder poli
 - global agent: `vocabularySnippet`
 - workflow agent: `contractDescription`
 - process: `cardType`
+- record-context: `cardType`, exactly one `recordSelection`, and zero or one `recordContent` (counts after fragment expansion)
+
+Nodes may declare an ordered finite `record_prompts` array. Each strict entry names
+an exact configured own-card `record`, `selection: accepted | effective`,
+`presence: required | optional`, and a durable `prompt` declaration. Duplicate
+record/view pairs and foreign records reject compilation. The record-context host
+uses the same process paths, overrides and direct fragments, but retains frozen
+tokens at the workflow owner for runtime substitution. `recordSelection` is a
+JSON descriptor with the observed selection, prior known selection or null, and
+`initial | changed` reason. `recordContent` is the complete selected body as a JSON
+string, or null for optional absence/empty selection. Substituted bytes are opaque:
+template-looking record data is never retokenized. Required missing selection
+fails; no trimming, alternate prompt or body-to-reference fallback exists.
+
+The supplier reads the union of mandatory accepted bootstrap and declared inputs
+once per distinct record. All views, descriptors and bodies derive from those
+same reads. Conditional comparison uses the pre-batch actual conversation facts
+keyed by card/record/view, not node or prompt site. Unknown or changed semantic
+selection fires; metadata/slice knowledge of B suppresses a false A→B prompt, and
+historical A does not regress B. Same-agent new nodes do not force first prompts;
+distinct conversations have independent knowledge. Head-only changes do not
+change semantic selection. Actual prompt bytes and needed preparation descriptors
+publish in one ordered envelope, with no record reread after comparison.
+
+Both shipped templates declare reference-only accepted-bootstrap guidance and
+effective/optional body-bearing inputs for each node's own record requirements.
+These inputs are data, not write permission or acceptance. Template changes do not
+constitute record changes or replay old prompt occurrences; indispensable new-node
+procedure belongs in the always-prepared node text.
+
+Typed record observation descriptors are separate from prompt text: owning current
+metadata/slice/full reads and known mutation results can advance selection knowledge
+without preserving a body. Immutable historical reads do not advance that knowledge.
+Conversation 9 required facts retain the latest descriptor per card/record/view in
+source order, independently of instruction protection. Durable `record_prompt` rows
+retain actual rendered text and declaration provenance; false without a key retains
+every occurrence, while an exact key selects the latest occurrence even in a newer
+suffix. Descriptor-only `record_observation` rows are structural evidence, not a
+protected copy or reconstruction of a prepared body.
+Primary composition and summary orientation separately project latest descriptor
+facts with actual source/exposure attribution, independently of protected prompt
+text. This claims neither retained body bytes nor delivery, recall or currentness.
 
 Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion and passes obsolete fixed-result-directive validation. The Analyst and process hosts reject that value. Old `toolList`, `projectContext`, `cardId`, `cardTitle`, and `cardBrief` placeholders do not exist: tools, project orientation, and card data are typed dynamic context, never rendered prompt variables.
 
@@ -117,7 +182,9 @@ Unknown or host-inapplicable placeholders fail startup. Every effective workflow
 
 `PromptTemplateRegistry` stores the selected global Analyst and Oversight entries and card-type workflow entries structurally separately and substitutes runtime variables into already-compiled agent tokens without re-tokenization. The rendered agent instruction is the singular static instruction prefix of the prepared invocation; its generated node outcome contract is supplied through `contractDescription`, and provider tool-definition bytes plus terminal names complete the immutable prefix. Both global hosts supply the selected compiled card-type vocabulary through `vocabularySnippet`; Analyst's bounded project orientation is a typed activation-local context block, not prompt content.
 
-For a card node, preparation first retains the existing system-role card block byte-for-byte as canonical `{cardId,cardType,title,brief}` JSON, with the complete accepted configured bootstrap brief. It then adds one system-role retained block containing a minimal current-node label followed by the unaltered full process text selected from the actual compiled workflow and node. That selected node text is read once before record, notification, or conversation-ingress effects. Both completed blocks are frozen through the initial request and every tool, notification, repair, retry, compaction, admission, and recovery continuation, and prepared anew for the next node. The compiled state-machine node—not prior transcript placement, lifecycle status, or summary prose—selects the current step. Role instruction and generated outcome contract remain in the static instruction position, and the current node's compiled tools remain the tool contract; neither is copied into the node block.
+Card-node preparation separates `stableBlocks` from per-logical-operation `recordBlocks`; their ordered accessor composes stable blocks first, then record blocks, without storing another combined array. Stable context contains canonical `{cardId,cardType,title}` orientation and the complete selected current-node prompt, never a frozen bootstrap body. Prefix, tools and stable blocks remain continuous across the node's continuations. Named role/node fields produce the historical activation evidence without positional block lookup. The compiled node—not prior transcript placement, lifecycle status or summary prose—selects the current step.
+
+At each newly armed initial, tool or corrective logical operation, the deferred raw callback first checks its exact captured invocation lease. Then the LLM owner consumes current conversation knowledge and calls the node-bound synchronous bootstrap supplier. One exact owning record read selects the complete current accepted bootstrap, identity and full-body exposure; required missing acceptance fails before compaction/admission/provider work. Descriptor-only preparation evidence is appended when the latest actual observation does not already represent that exact identity/exposure. No body is stored in that row. Current bootstrap is supplied outside historical compaction on every operation even when the descriptor append is deduplicated. A new operation may replace A with B; preventive/local/authoritative compaction, pinned retry and admitted-byte transport retain that operation's captured blocks unchanged. There is no refresh during recovery or current-at-transport guarantee. Globals retain their ordinary stable preparation with no automatic bootstrap supplier.
 
 Current-node text is request context and is not appended as an ordinary conversation row. The existing activation marker records the rendered role instruction and exact frozen full node block once as structural evidence, not context fed back to the model. Existing unmarked node-looking rows remain unchanged ordinary history and are neither recognized nor suppressed. Lifecycle-entry, configured edge/pending-notification and correction prompt producers positively mark their existing user text/model-repair rows with `instruction_origin:'workflow_prompt'`. This display provenance changes no role, content, delivery, protection or append count; transition preludes, notification bodies and diagnostics remain unmarked. Summary prose never inherits this tag. Lifecycle-entry, edge, transition-handoff, correction, notification, and recovery context keeps its existing durable producer position. A transition handoff is delivered once, but its accepted facts, immutable record URLs, and still-applicable requirements do not expire merely because delivery is not repeated.
 
@@ -143,6 +210,11 @@ Summary instructions request replacement history from inherited history and labe
 
 The authenticated Debug Graphs projection exposes each resolved workflow declaration and each selected global agent declaration with explicit `reference`, `compactable`, and an allowed optional exact `compaction_key`, plus one of `override-card | override-shared | bundled-card | bundled-shared`. Selected globals are projected separately from card graphs with their exact global session identity and installed model/tool binding. The projection omits bodies and paths and is computed from the installed immutable workflow artifact, not recorded state.
 
+Nodes additionally project ordered record-prompt inputs and compiled placeholder
+metadata, never selected record bodies or literal template tokens.
+Process/record declaration reference and key metadata is privacy-filtered for this
+operator projection; displayed keys never select retained instruction authority.
+
 ## Runtime invariants and operator cutover
 
 - Prompt/config reads happen only during startup structural compilation.
@@ -152,7 +224,7 @@ The authenticated Debug Graphs projection exposes each resolved workflow declara
 - Old path forms and agent-name-keyed overrides are not read, moved, warned about, or normalized.
 - A fresh `saivage init [--profile <name>]` on a config-absent project materializes the selected template's complete closure; a materialized instance is upgrade-independent by construction because its override tree resolves every reference at the override tier. Hand-authored typed-graph configs carry their typed-only prompt files in `.saivage/config/prompts` (one-time copy from the classic-typed template's tree) because the bundled root contains only the classic template's compiled source closure.
 - Operators stop the service, manually reconcile the selected materialized overrides while preserving customizations, then start a genuinely new server process. Project Stop/Run, pause/resume, and browser refresh do not compile prompt changes.
-- Producer-declared compaction policy uses strict object declarations and current conversation format 8, with the fresh [7→8 historical-instruction-evidence cutover](./durable-format-changes.md#historical-instruction-evidence-2026-10-11). Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations); no runtime converter or adoption permission follows source completion. Earlier cutovers are historical provenance, not supported formats. Declaration-based protection still applies only to eligible durable entry, edge, pending-notification and correction occurrences. Structural prepared role/node evidence adds no durable model-context occurrence, changes no static/node delivery according to a declaration flag, and is not carried into compacted genesis; inspect its exact indexed source history instead.
+- Producer-declared compaction policy uses strict object declarations and current conversation format 9, with the fresh [8→9 record-context cutover](./durable-format-changes.md#explicit-activation-and-record-context-2026-10-13). Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations); no runtime converter or adoption permission follows source completion. Earlier cutovers are historical provenance, not supported formats. Declaration-based protection applies to eligible durable entry, edge, pending-notification, correction and record-prompt occurrences. Structural prepared role/node evidence adds no durable model-context occurrence, changes no static/node delivery according to a declaration flag, and is not carried into compacted genesis; inspect its exact indexed source history instead. Record observation facts retain descriptors independently, never those historical instruction strings.
 
 ## Key source files
 

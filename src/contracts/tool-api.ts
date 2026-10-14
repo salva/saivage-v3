@@ -8,7 +8,12 @@ import {
 } from '../schemas/index.js';
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from './tool-result.js';
 
-export const activateCardArgumentsSchema = z.object({ card_id: cardIdSchema }).strict();
+export const activateCardArgumentsSchema = z
+  .object({
+    card_id: cardIdSchema,
+    instructions: z.string().regex(/\S/u),
+  })
+  .strict();
 
 export type ActivateCardArguments = z.infer<typeof activateCardArgumentsSchema>;
 

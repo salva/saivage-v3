@@ -55,7 +55,7 @@ async function inspect(page: Page, flow: Flow, source: Session, historical = fal
     await role.locator('summary').click();
     await expect(role.locator('pre')).toHaveText(start.role);
     expect(start.role).toContain(start.contract);
-    const node = marker.locator('.instruction-disclosure').last();
+    const node = marker.locator('.instruction-disclosure').filter({ has: page.locator('summary', { hasText: `Node ${start.node} instructions` }) });
     await expect(node.locator('summary')).toHaveText(`Node ${start.node} instructions`);
     await node.locator('summary').click();
     await expect(node.locator('pre')).toHaveText(start.nodeText);
@@ -129,8 +129,9 @@ test('A: actual Executor red → green → green → refactor keeps four boundar
       const marker = page.locator(`.conversation-timeline [data-entry-id="${start.markerId}"]`);
       await marker.locator('.instruction-disclosure').first().locator('summary').click();
       await expect(marker.locator('.instruction-disclosure').first().locator('pre')).toHaveText(start.role);
-      await marker.locator('.instruction-disclosure').last().locator('summary').click();
-      await expect(marker.locator('.instruction-disclosure').last().locator('pre')).toHaveText(start.nodeText);
+      const node = marker.locator('.instruction-disclosure').filter({ has: page.locator('summary', { hasText: `Node ${start.node} instructions` }) });
+      await node.locator('summary').click();
+      await expect(node.locator('pre')).toHaveText(start.nodeText);
     }
     guard();
   } finally { await flow.cleanup(); }

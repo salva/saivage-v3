@@ -84,7 +84,16 @@ export type {
 } from './operator-api-runtime-cards.js';
 export { ProcessListResponseSchema, ProcessViewSchema } from './operator-api-processes.js';
 export type { ProcessView } from './operator-api-processes.js';
-export const operatorApiContracts = {
+export const operatorApiContracts: typeof workflowOperatorApiContracts &
+  typeof authOperatorApiContracts &
+  typeof runtimeCardsOperatorApiContracts &
+  typeof mcpOperatorApiContracts &
+  typeof agentOperatorApiContracts &
+  typeof chatOperatorApiContracts &
+  typeof filesDebugOperatorApiContracts &
+  typeof processesOperatorApiContracts &
+  typeof eventsOperatorApiContracts &
+  typeof configOperatorApiContracts = {
   ...workflowOperatorApiContracts,
   ...authOperatorApiContracts,
   ...runtimeCardsOperatorApiContracts,

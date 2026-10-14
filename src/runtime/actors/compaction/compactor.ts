@@ -26,6 +26,7 @@ import type { ProviderConversationProjection, ToolDefinition } from '../../../co
 import type { PreparedLlmInvocationInput } from '../llm-invocation.js';
 import type { PreparedCompaction } from '../../../contracts/index.js';
 import { providerConversationProjection } from '../conversation-session.js';
+import { composedPreparedBlocks } from '../context/context-blocks.js';
 import { classifyConversationRounds, estimateMessageTokens } from './round-classifier.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import {
@@ -280,7 +281,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     : createSequentialRefineAccumulator({
         conversation,
         inheritedHistory,
-        preparedBlocks: args.input.preparedContext.dynamicBlocks,
+        preparedBlocks: composedPreparedBlocks(args.input.preparedContext),
         summarizerProvider: args.summarizerProvider,
         budget: { contextUtilizationFraction: budget.contextUtilizationFraction },
         signal: args.signal,
@@ -329,7 +330,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     const prospective = validateConversation(sessionId, tail, inherited, seed);
     const providerConversation = providerConversationProjection(
       prospective,
-      args.input.preparedContext.dynamicBlocks,
+      composedPreparedBlocks(args.input.preparedContext),
     );
     const estimatedProviderMessageTokens = estimateProviderConversationTokens(providerConversation);
     smallestCandidateEstimatedProviderMessageTokens =
@@ -483,7 +484,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   }
   const providerConversation = providerConversationProjection(
     published,
-    args.input.preparedContext.dynamicBlocks,
+    composedPreparedBlocks(args.input.preparedContext),
   );
   return {
     kind: 'compacted',
@@ -683,7 +684,10 @@ function assertFreshCompactionProjection(
   input: PreparedLlmInvocationInput,
   conversation: ValidatedConversation,
 ): void {
-  const fresh = providerConversationProjection(conversation, input.preparedContext.dynamicBlocks);
+  const fresh = providerConversationProjection(
+    conversation,
+    composedPreparedBlocks(input.preparedContext),
+  );
   if (
     providerConversationFingerprint(fresh) !==
     providerConversationFingerprint(input.providerConversation)
@@ -765,6 +769,7 @@ function buildSuccessorHistory(args: {
       inherited: args.conversation.effectiveCompactedHistory?.requiredModelFacts ?? {
         latestRecovery: null,
         latestContentPolicyRefusal: null,
+        latestRecordObservations: [],
       },
       coveredRows: args.coveredRows,
       source: args.conversation,

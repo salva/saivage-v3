@@ -9,7 +9,6 @@ import {
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import type { CardRecord, CardTypeName, Urgency } from '../schemas/index.js';
-import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
 import {
   defineToolBinder,
   executeToolAction,
@@ -23,7 +22,6 @@ import {
   plannerCancelCardInputSchema,
   plannerCreateCardInputSchema,
   plannerEditCardInputSchema,
-  plannerQueueNotificationInputSchema,
   plannerReopenCardInputSchema,
   plannerReorderChildInputSchema,
   type ToolActionOutcome,
@@ -31,7 +29,6 @@ import {
 import type { LlmToolInvocationContext } from '../runtime/runtime-api.js';
 import type { PlannerChildControlPort } from '../runtime/runtime-api.js';
 import { cardParentId, parseAgentName } from '../schemas/index.js';
-import { submitNotificationTool } from './notification-tool.js';
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
@@ -51,7 +48,6 @@ export interface PlannerControlProviderContext {
   readonly sessionId: string;
   readonly store: PlannerControlStore;
   readonly parentControl: PlannerChildControlPort;
-  readonly submitNotification: NotificationSubmissionPort;
   readonly childCreationTypes: ReadonlySet<CardTypeName>;
   readonly childActivationTypes: ReadonlySet<CardTypeName>;
   readonly cardTypeVocabulary: readonly CardTypeName[];
@@ -106,15 +102,6 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => plannerReorderChildInputSchema,
       executor: (ctx, args) => executeToolAction('none', async () => reorderChild(ctx, args)),
-    }),
-    defineToolBinder({
-      name: 'queue_notification',
-      description:
-        'Queue context on a notification-capable card for its designated recipient. Urgent may interrupt exact active work or only queue without an active eligible ancestor; a self-in-scope receipt is pending, not completed. Enqueue is not delivery; pending context is not readable.',
-      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-      inputSchema: () => plannerQueueNotificationInputSchema,
-      executor: (ctx, args, signal) =>
-        executeToolAction('none', async () => queueNotificationTool(ctx, args, signal)),
     }),
   ]);
 
@@ -178,14 +165,6 @@ function reorderChild(
   return toolSucceeded({ parent_id: ctx.parentCardId, changed: result.changed });
 }
 
-async function queueNotificationTool(
-  ctx: PlannerControlProviderContext,
-  record: z.infer<typeof plannerQueueNotificationInputSchema>,
-  signal: AbortSignal,
-): Promise<ToolActionOutcome> {
-  return submitNotificationTool(record, ctx.submitNotification, signal);
-}
-
 async function cancelCard(
   ctx: PlannerControlProviderContext,
   record: z.infer<typeof plannerCancelCardInputSchema>,
@@ -238,6 +217,7 @@ async function activateCard(
   try {
     const activation = await ctx.parentControl.activateChild({
       childCardId: record.card_id,
+      instructions: record.instructions,
       invocation: lease,
     });
     return formatActivateCardResult(record.card_id, activation);

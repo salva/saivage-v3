@@ -67,7 +67,6 @@ export interface CardToolBindingContext {
   readonly childActivationTypes: ReadonlySet<CardTypeName>;
   readonly cardTypeVocabulary: readonly CardTypeName[];
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly submitNotification: import('../runtime/runtime-api.js').NotificationSubmissionPort;
   readonly processRunner: ProcessRunner;
   readonly processScope?: ManagedProcessScope;
   readonly processOwnerId?: string;
@@ -222,7 +221,6 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
           sessionId: value.sessionId,
           store: value.store,
           parentControl: value.parentControl,
-          submitNotification: value.submitNotification,
           childCreationTypes: value.childCreationTypes,
           childActivationTypes: value.childActivationTypes,
           cardTypeVocabulary: value.cardTypeVocabulary,

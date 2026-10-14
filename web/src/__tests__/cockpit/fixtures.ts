@@ -164,6 +164,7 @@ export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][
     nodes: [
       {
         node_id: 'execute',
+        record_prompts: [],
         agent_name: 'executor',
         session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' },
         prompt: { source: 'bundled-card', declaration: prompt, process: prompt, correction: prompt },
@@ -180,6 +181,7 @@ export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][
       },
       {
         node_id: 'repair',
+        record_prompts: [],
         agent_name: 'executor',
         session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' },
         prompt: { source: 'bundled-card', declaration: prompt, process: prompt, correction: prompt },

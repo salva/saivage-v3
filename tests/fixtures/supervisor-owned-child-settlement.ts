@@ -24,7 +24,7 @@ const owner = new CardActivationOwner({ card: card('project'), processor: rootPr
 const lease = new ChildInvocationLease({ sessionId: 'agent:planner:project', sourceInputId: 'input-1', toolCallId: 'call-1', toolName: 'activate_card' }, 'card-a');
 void lease.activation.catch(() => undefined);
 lease.markAdmitted();
-const child = new CardActivationOwner({ card: card('card-a'), processor: childProcessor, activationId: 'child-activation', entry: 'BACKLOG', phase: 'child_admission', parentRelationship: { parentCardId: 'project', invocation: lease } });
+const child = new CardActivationOwner({ card: card('card-a'), processor: childProcessor, activationId: 'child-activation', entry: 'BACKLOG', phase: 'child_admission', parentRelationship: { parentCardId: 'project', instructions:'Complete the child task.', invocation: lease } });
 owner.phase = 'active';
 owner.childCardId = child.cardId;
 child.phase = 'active';

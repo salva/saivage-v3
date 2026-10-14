@@ -7,7 +7,8 @@ const realFsPromises = await import('node:fs/promises');
 const readdir = jest.fn(realFsPromises.readdir);
 jest.unstable_mockModule('node:fs/promises', () => ({ ...realFsPromises, readdir }));
 
-const { globProject, grepProject, readProject } = await import('../../src/tools/project-file-tools.js');
+const { globProject, grepProject, readProject: readWithObservations } = await import('../../src/tools/project-file-tools.js');
+const readProject = async (...args: Parameters<typeof readWithObservations>) => (await readWithObservations(...args)).data;
 
 type Page<T> = { matches: { total: number; items: T[]; next: { item_index: number; item_byte_offset: number } | null } };
 type GrepMatch = { path: string; line: number; preview: string };

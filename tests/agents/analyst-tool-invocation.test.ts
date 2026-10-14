@@ -116,11 +116,11 @@ describe('Analyst parsed tool invocation', () => {
     const markers = readConversation(test.projectRoot, 'agent:analyst:global').physicalRows.filter(row => row.kind === 'activity' && parseActivationOpenPayload(row.content,row.session_id,row.timestamp));
     expect(markers).toHaveLength(1);
     expect(parseActivationOpenPayload(markers[0]!.content,markers[0]!.session_id,markers[0]!.timestamp)?.instructions).toEqual({
-      kind:'prepared',role_text:test.completeTurn.mock.calls[0]![0].preparedContext!.prefix.instructionText,node:null,
+      kind:'prepared',activation_id:null,caller:{kind:'global'},card:null,parent_direction:null,role_text:test.completeTurn.mock.calls[0]![0].preparedContext!.prefix.instructionText,node:null,
     });
     expect(markers[0]!.content).not.toContain('analyst.workspace_focus');
-    const initialFocus = test.completeTurn.mock.calls[0]![0].preparedContext!.dynamicBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content;
-    expect(test.completeTurn.mock.calls[1]![0].preparedContext!.dynamicBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content).toBe(initialFocus);
+    const initialFocus = test.completeTurn.mock.calls[0]![0].preparedContext!.stableBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content;
+    expect(test.completeTurn.mock.calls[1]![0].preparedContext!.stableBlocks.find((block) => block.id === 'analyst.workspace_focus')!.content).toBe(initialFocus);
     expect(JSON.parse(initialFocus).focus).toBe('no_focus');
     expect(test.list).toHaveBeenCalledTimes(1);
     await expect(test.session.submit({ userContent: 'later' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
@@ -406,5 +406,5 @@ describe('Analyst parsed tool invocation', () => {
 });
 
 function appendRaw(path: string, row: unknown): void {
-  appendFileSync(path, `${JSON.stringify({ version: 8, type: 'conversation-segment', rows: [row] })}\n`);
+  appendFileSync(path, `${JSON.stringify({ version: 9, type: 'conversation-segment', rows: [row] })}\n`);
 }

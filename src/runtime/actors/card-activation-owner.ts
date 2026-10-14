@@ -16,7 +16,15 @@ export interface CardActivationInput {
 
 type CardActivationCaller =
   | { readonly kind: 'root' }
-  | { readonly kind: 'parent'; readonly cardId: string; readonly sessionId: string };
+  | {
+      readonly kind: 'parent';
+      readonly cardId: string;
+      readonly sessionId: import('../../schemas/index.js').ConversationSessionId;
+      readonly sourceInputId: string;
+      readonly toolCallId: string;
+      readonly toolName: 'activate_card';
+      readonly instructions: string;
+    };
 interface CardNotificationDeliveryPort {
   hasPendingNotifications(): boolean;
   selectNotifications(): CardNotification[];
@@ -39,6 +47,7 @@ export interface PlannerChildReopenResult {
 export interface PlannerChildControlPort {
   activateChild(request: {
     childCardId: string;
+    instructions: string;
     invocation: ChildInvocationLease;
   }): Promise<CardActivationOutcome>;
   cancelChild(request: { childCardId: string; reason: string }): Promise<CardCancellationResult>;
@@ -50,6 +59,7 @@ type TerminalWinner = 'open' | 'result' | 'cancel' | 'interrupt';
 
 interface ParentActivationRelationship {
   readonly parentCardId: string;
+  readonly instructions: string;
   readonly invocation: ChildInvocationLease;
 }
 

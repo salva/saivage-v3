@@ -262,7 +262,8 @@ async function compactFixture(root: string) {
         kind: 'activity',
         context_policy: ACTIVITY_ROW_POLICY,
         content: JSON.stringify({
-          event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' },
+          event: 'activation_open',
+          instructions: { kind: 'unavailable', reason: 'not_recorded' },
           agent_name: 'planner',
           card_id: 'project',
           input_id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -301,7 +302,8 @@ async function compactFixture(root: string) {
     8000,
     2000,
   );
-  const result = await compact({ summaryRefusal: null,
+  const result = await compact({
+    summaryRefusal: null,
     strategy: 'preventive',
     conversations: { projectRoot: root },
     input: {
@@ -320,7 +322,7 @@ async function compactFixture(root: string) {
         instructionText: 'system',
         terminalToolNames: [],
         compiledTools: [],
-        dynamicBlocks: [],
+        stableBlocks: [],
         preparedCompaction,
       }),
       capabilityRequest: {},
@@ -331,7 +333,9 @@ async function compactFixture(root: string) {
       candidate,
       contextWindowTokens: 100000,
       maxOutputTokens: 10000,
-      materializeImage: async () => { throw new Error('Unexpected image materialization.'); },
+      materializeImage: async () => {
+        throw new Error('Unexpected image materialization.');
+      },
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async () => ({
         result: { kind: 'message' as const, content: 'summary' },
@@ -449,7 +453,7 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
       } else if (tools.includes('activate_card')) {
         planner++;
         if (planner === 1)
-          sendToolCall(res, 'failed-direct', 'activate_card', { card_id: childId });
+          sendToolCall(res, 'failed-direct', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: childId });
         else if (planner === 2) {
           expect(JSON.stringify(body.messages)).toContain('not activatable');
           expect(cards.read(childId)!.lifecycle.status).toBe('failed');
@@ -460,7 +464,7 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
         } else if (planner === 3) {
           expect(cards.read(childId)!.lifecycle.status).toBe('changed');
           expect(brief(cards, childId)).toEqual(placeholder);
-          sendToolCall(res, 'activate-reopened', 'activate_card', { card_id: childId });
+          sendToolCall(res, 'activate-reopened', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: childId });
         } else
           sendToolCall(res, 'parent-blocked', 'emit_result', {
             outcome: 'blocked',

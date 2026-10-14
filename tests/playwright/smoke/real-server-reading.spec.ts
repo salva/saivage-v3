@@ -9,17 +9,17 @@ import type { App } from '../../../src/boot/app.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../../src/config/system-templates/registry.js';
 import { createResolvedConfigAuthority } from '../../../src/config/index.js';
 import { CardService } from '../../../src/cards/card-service.js';
-import { appendConversationBatch, readConversationCatalog } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversationCatalog, readConversation } from '../../../src/persistence/conversation-file.js';
 import { publishConversationImage } from '../../../src/persistence/session-api.js';
 import { projectNativeMcpResult } from '../../../src/tools/mcp-native-result.js';
 import { settleToolActionOutcome } from '../../../src/tools/tool-result-settlement.js';
-import { agentMessageSchema, STRUCTURAL_ROW_POLICY, type ConversationSessionId } from '../../../src/schemas/index.js';
+import { agentMessageSchema, cardParentId, canonicalJson, sha256Hex, STRUCTURAL_ROW_POLICY, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { ToolResultSchema } from '../../../src/contracts/tool-result.js';
 import { ViewImageDataSchema } from '../../../src/contracts/view-image.js';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
 import { appendActivationMarker, buildGlobalAgentIngressRows, buildUserContextMessage } from '../../../src/runtime/actors/conversation-session.js';
-import { buildModelRepairMessage } from '../../../src/runtime/actors/llm-delivery-log.js';
+import { buildModelRepairMessage, buildSettledToolResult } from '../../../src/runtime/actors/llm-delivery-log.js';
 import { describeNodeResultContract } from '../../../src/runtime/runtime-api.js';
 import { formatVocabularySnippet } from '../../../src/tools/prompt-api.js';
 import { redactTextForOutbound } from '../../../src/redaction/index.js';
@@ -30,6 +30,8 @@ import { toolRowPolicies, TEXT_ROW_POLICY } from '../../helpers/row-policy-fixtu
 import { seedTokenBeforeNavigation } from '../smoke/fixtures/operator-preview-sync.js';
 import { currentConversationSegmentPath } from '../../helpers/current-conversation-segment-path.js';
 import { cardHeadFile } from '../../../src/persistence/layout.js';
+import { bootstrapContextSupplier } from '../../../src/runtime/records/bootstrap-context.js';
+import { workspaceToolBinders } from '../../../src/tools/workspace-provider.js';
 
 // Reuse the existing smoke harness's asset build/preview bootstrap. Every page
 // navigation below targets the independently owned startApp origin, not preview.
@@ -144,7 +146,7 @@ function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code
     const sourceId = `11111111-1111-4111-8111-${String(ordinal + 1).padStart(12, '0')}`;
     if (session === analyst) {
       const role = registry.render({ kind: 'global-agent' }, 'analyst', { vocabularySnippet: formatVocabularySnippet(workflows.cardTypeVocabulary) });
-      const ingress = buildGlobalAgentIngressRows(session, sourceId, 'Synthetic operator question', { kind: 'prepared', role_text: role, node: null });
+      const ingress = buildGlobalAgentIngressRows(session, sourceId, 'Synthetic operator question', { kind: 'prepared', activation_id:null,caller:{kind:'global'},card:null,parent_direction:null,role_text: role, node: null });
       appendConversationBatch({ projectRoot: root }, ingress);
       markers.push(ingress[0].id);
       continue;
@@ -154,9 +156,11 @@ function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code
     const role = registry.render({ kind: 'workflow-agent', cardType }, node.agent.name, { contractDescription: describeNodeResultContract(process, `node:${name}`) });
     const compiledPrompt = process.processPrompts.get(node.prompt.promptId)!;
     const nodeText = `Current workflow node '${name}':\n\n${compiledPrompt.text}`;
+    const cardId = session.split(':')[2]!;
+    const parentId = cardParentId(cardId);
     const marker = appendActivationMarker({ projectRoot: root }, session, {
       event: 'activation_open', agent_name: node.agent.name, card_id: session.split(':')[2]!, input_id: sourceId,
-      instructions: { kind: 'prepared', role_text: role, node: { node_id: name, text: nodeText } },
+      instructions: { kind: 'prepared',activation_id:sourceId,caller:parentId===null?{kind:'root'}:{kind:'parent',cardId:parentId,sessionId:`agent:planner:${parentId}` as ConversationSessionId,sourceInputId:sourceId,toolCallId:`synthetic-parent-${ordinal}`,toolName:'activate_card'},card:{cardId,cardType,title:'Synthetic card'},parent_direction:parentId===null?null:{text:'Synthetic parent direction for this explicitly authored reading fixture.'}, role_text: role, node: { node_id: name, text: nodeText } },
     });
     markers.push(marker.id);
     const entryRoute = process.states.get('entry:BACKLOG')!.on.values().next().value!;
@@ -186,6 +190,86 @@ function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code
   return { markers, promptRows };
 }
 const instructionFixtures = new Map<ConversationSessionId, ReturnType<typeof seedInstructionEvidence>>();
+let recordEvidence: { session: ConversationSessionId; rows: string[]; parent: string };
+
+async function seedRecordEvidence() {
+  const store = new CardService(root, workflows);
+  const card = store.create({ type: 'code', parent: 'project', title: 'Record observation fixture', bootstrap_content: 'Accepted A', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+  const session = `agent:executor:${card.id}` as ConversationSessionId;
+  const workflow = workflows.cardTypes.get('code')!;
+  const node = workflow.states.get('node:execute')!;
+  if (node.kind !== 'node') throw new Error('Expected execute node.');
+  const parent = 'Inspect these accepted requirements; token=parent-egress-canary\nFINAL-PARENT-DIRECTION-Z';
+  const registry = createPromptTemplateRegistry(workflows);
+  appendActivationMarker({ projectRoot: root }, session, { event: 'activation_open', agent_name: 'executor', card_id: card.id, input_id: inputId,
+    instructions: { kind: 'prepared', activation_id: inputId, caller: { kind: 'parent', cardId: 'project', sessionId: planner, sourceInputId: inputId, toolCallId: 'activate-record-fixture', toolName: 'activate_card' }, card: { cardId: card.id, cardType: 'code', title: card.title }, parent_direction: { text: parent }, role_text: registry.render({ kind: 'workflow-agent', cardType: 'code' }, 'executor', { contractDescription: describeNodeResultContract(workflow, 'node:execute') }), node: { node_id: node.nodeId, text: workflow.processPrompts.get(node.prompt.promptId)!.text } } });
+  const supplier = bootstrapContextSupplier(store, card, node);
+  store.acceptRecord(card.id, 'status.md', 'Full optional record body token=body-egress-canary FINAL-BODY-Z', 'analyst');
+  const initial = supplier({ inputId, conversation: readConversation(root, session) });
+  appendConversationBatch({ projectRoot: root }, initial.rows);
+  store.acceptRecord(card.id, 'brief.md', 'Accepted B token=record-egress-canary FINAL-RECORD-B-Z', 'analyst');
+  const tool = workspaceToolBinders.find(tool => tool.name === 'read')!.bind({ projectRoot: root, store, agentName: 'executor', cardId: card.id });
+  const args = { path: `record:///brief.md?card=${card.id}`, metadata_only: true };
+  const execution = await tool.executor(args, new AbortController().signal);
+  const template = OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE;
+  const templateBytes = canonicalJson(template);
+  const call = agentMessageSchema.parse({ id: `${inputId}:tool-call:record-metadata`, session_id: session, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'record-metadata', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'record-metadata', type: 'function', function: { name: 'read', arguments: JSON.stringify(args) } }] }), context_policy: { kind: 'tool_call', template, template_bytes: templateBytes, template_sha256: sha256Hex(templateBytes) }, round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp });
+  const result = buildSettledToolResult({ session_id: session, source_input_id: inputId, tool_call_id: 'record-metadata', tool_name: 'read', resultPolicy: { resultPolicyTemplate: template, resultPolicyTemplateBytes: templateBytes, resultPolicyTemplateSha256: sha256Hex(templateBytes) }, settlement: { kind: 'executed', execution } }).message;
+  appendConversationBatch({ projectRoot: root }, [call, result]);
+  const knownB = supplier({ inputId, conversation: readConversation(root, session) });
+  expect(knownB.rows.every(row => row.kind !== 'record_prompt')).toBe(true);
+  appendConversationBatch({ projectRoot: root }, knownB.rows);
+  store.acceptRecord(card.id, 'brief.md', 'Accepted C', 'analyst');
+  const changed = supplier({ inputId, conversation: readConversation(root, session) });
+  appendConversationBatch({ projectRoot: root }, changed.rows);
+  recordEvidence = { session, rows: [...initial.rows, call, result, ...knownB.rows, ...changed.rows].map(row => row.id), parent: redactTextForOutbound(parent) };
+}
+
+test('production timeline preserves conditional chronology, parent safe copy and descriptor-only record evidence', async ({ page }) => {
+  await seedTokenBeforeNavigation(page, token);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  await page.goto(`${origin}/agents/${recordEvidence.session}?segment=1`);
+  const response = await page.request.get(`${origin}/api/agents/${encodeURIComponent(recordEvidence.session)}/conversation/versions/1`, { headers: { authorization: `Bearer ${token}` } });
+  const dto = parseOperatorResponse('agents.conversationVersions.get', 200, await response.json());
+  expect(JSON.stringify(dto)).not.toMatch(/egress-canary|content_sha256|template_sha256|result_content_sha256/);
+  const timeline = page.locator('.conversation-container .conversation-timeline');
+  const parent = timeline.locator('.instruction-disclosure').filter({ has: page.locator('summary', { hasText: 'Parent activation direction' }) });
+  await parent.locator('summary').click();
+  await expect(parent.locator('pre')).toHaveText(recordEvidence.parent);
+  await parent.getByRole('button', { name: 'copy', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(recordEvidence.parent);
+  const actual = dto.entries.filter(row => recordEvidence.rows.includes(row.id));
+  expect(actual.map(row => row.id)).toEqual(recordEvidence.rows);
+  const readExchange = timeline.locator(`[data-tool-entry-id="${inputId}:tool-call:record-metadata"]`);
+  await expect(readExchange).toHaveCount(1);
+  await readExchange.locator('.tool-chip-toggle').click();
+  expect(await timeline.locator('[data-entry-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-entry-id')))).toEqual([dto.entries[0]!.id, ...recordEvidence.rows]);
+  for (const row of actual.filter(row => row.kind === 'record_prompt')) {
+    const instruction = timeline.locator(`[data-entry-id="${row.id}"] .instruction-disclosure`);
+    await instruction.locator('summary').click();
+    await expect(instruction.locator('pre')).toHaveText(row.content);
+    await instruction.getByRole('button', { name: 'copy', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(row.content);
+  }
+  const observationGroups = await timeline.getByTestId('record-observations').all();
+  const expectedGroups = actual.filter(row => row.record_observations);
+  expect(observationGroups).toHaveLength(expectedGroups.length);
+  for (const [index, observation] of observationGroups.entries()) {
+    await observation.locator(':scope > summary').click();
+    await expect(observation).toContainText('not delivery, body recall');
+    for (const item of expectedGroups[index]!.record_observations!) {
+      await expect(observation).toContainText(`Source: ${item.source.kind}`);
+      await expect(observation).toContainText(`Selection: ${item.observed.selection.kind} · Exposure: ${item.observed.exposure.kind}`);
+    }
+  }
+  await expect(timeline).toContainText('Descriptor only: no historical full prepared record text was recorded.');
+  await expect(timeline.getByRole('button', { name: /Inspect immutable record evidence/ }).first()).toBeVisible();
+  expect(await timeline.textContent()).not.toContain('Accepted B token=record-egress-canary');
+  expect(providerRequests).toEqual([]);
+  const recordEvidenceDirectory = fileURLToPath(new URL('../../../docs/working/2026-10-13-explicit-activation-context/evidence/browser/', import.meta.url));
+  mkdirSync(recordEvidenceDirectory, { recursive: true });
+  await page.screenshot({ path: join(recordEvidenceDirectory, 'record-context-timeline.png'), fullPage: true });
+});
 
 test('production API historical prepared/workflow evidence stays source-local, safely copyable and independent of current config', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -214,7 +298,7 @@ test('production API historical prepared/workflow evidence stays source-local, s
       await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(instructions.role_text);
       expect(instructions.role_text).not.toContain('{{contractDescription}}');
       if (instructions.node) {
-        const node = marker.locator('.instruction-disclosure').last();
+        const node = marker.locator('.instruction-disclosure').filter({ has: page.locator('summary', { hasText: `Node ${instructions.node.node_id} instructions` }) });
         await expect(node.locator('summary')).toHaveText(`Node ${instructions.node.node_id} instructions`);
         await node.locator('summary').click();
         await expect(node.locator('pre')).toHaveText(instructions.node.text);
@@ -315,6 +399,7 @@ test.beforeAll(async () => {
   workflows = createResolvedConfigAuthority({ path: join(root, '.saivage/saivage.yaml'), projectRoot: root, interpolationEnvironment: {} }).loadEffective().workflows;
   const child = new CardService(root, workflows).create({ type: 'code', parent: 'project', title: 'Synthetic reader child', bootstrap_content: 'Synthetic brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
   executor = `agent:executor:${child.id}` as ConversationSessionId;
+  await seedRecordEvidence();
   await seed(executor); await seed(analyst);
   for (const [session, cardType] of [[executor, 'code'], [analyst, 'code'], [planner, 'project']] as const)
     instructionFixtures.set(session, seedInstructionEvidence(session, cardType));

@@ -49,6 +49,8 @@ const recoveryVisibilityByKind = {
   content_policy_refusal: 'visible',
   model_recovered: 'visible',
   provider_private: 'ignored',
+  record_observation: 'ignored',
+  record_prompt: 'visible',
 } as const satisfies Record<MessageKind, RecoveryVisibility>;
 
 function classifyConversation(

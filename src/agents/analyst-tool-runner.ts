@@ -165,7 +165,9 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       });
     } else {
       result = outcome.success
-        ? toolSucceeded(outcome.data)
+        ? outcome.record_observations
+          ? toolRecordSucceeded(outcome.data, 'mutation', outcome.record_observations)
+          : toolSucceeded(outcome.data)
         : toolFailed(outcome.error, outcome.data);
       const classifiedDenied =
         outcome.success === false &&
@@ -196,3 +198,4 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
   }
   return executedToolOutcome('none', result);
 }
+import { toolRecordSucceeded } from '../contracts/index.js';

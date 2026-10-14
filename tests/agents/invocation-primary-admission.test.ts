@@ -47,7 +47,7 @@ function request(chain: readonly Candidate[]): InvocationRequest {
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction: preparedCompactionFixture(),
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction: preparedCompactionFixture() }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction: preparedCompactionFixture() }),
     capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     routePass: { kind: 'ordinary', candidateChain: [...chain] },
   };
@@ -93,7 +93,7 @@ describe('ordinary primary-request local admission', () => {
     const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [block], uncoveredRows: [] }));
     const base = request([A]);
     if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
-    const invocation: InvocationRequest = { ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [block], preparedCompaction: base.preparedCompaction }) };
+    const invocation: InvocationRequest = { ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [block], preparedCompaction: base.preparedCompaction }) };
 
     const admission = service([A]).preparePrimaryRequestAdmission(invocation);
     expect(admission.kind).toBe('admitted');
@@ -118,7 +118,7 @@ describe('ordinary primary-request local admission', () => {
     expect(providerConversation.messages).toEqual([expect.objectContaining({ kind: 'synthetic_context', content: full })]);
     const base = request([A]);
     if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
-    const admission = service([A], { 'cand-a': { contextWindowTokens: 3000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [block], preparedCompaction: base.preparedCompaction }) });
+    const admission = service([A], { 'cand-a': { contextWindowTokens: 3000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [block], preparedCompaction: base.preparedCompaction }) });
     expect(admission.kind).toBe('local_compaction_required');
     if (admission.kind !== 'local_compaction_required') throw new Error('unreachable');
     expect(admission.candidates[0]).toMatchObject({ kind: 'projection_too_large' });

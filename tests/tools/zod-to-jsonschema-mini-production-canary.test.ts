@@ -141,7 +141,6 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       childActivationTypes: new Set(vocabulary.filter((type) => type !== 'project')),
       cardTypeVocabulary: vocabulary,
       notifyCard: (cardId) => ({ ok: false, reason: 'missing_card', cardId }),
-      submitNotification: async (cardId) => ({ queued: false, reason: 'missing_card', cardId }),
       processRunner,
       processScope: cardProcessScope,
       processOwnerId: 'activation-schema-canary',

@@ -26,14 +26,14 @@ import {
 } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ConversationLLMActor } from './llm-actor.js';
-import type { PreparedLlmInvocationInput } from './llm-invocation.js';
+import type { PreparedLlmInvocationInput, RecordContextSupplier } from './llm-invocation.js';
 import {
   appendConversationBatch,
   readConversation,
   type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
-import { cardBootstrapForPrompt } from '../records/card-bootstrap.js';
+import { bootstrapContextSupplier } from '../records/bootstrap-context.js';
 import {
   appendActivationMarker,
   appendUserContextMessage,
@@ -55,6 +55,7 @@ import {
 import {
   buildPreparedInvocationContext,
   compileInvocationToolContract,
+  composedPreparedBlocks,
 } from './context/context-blocks.js';
 import { type ContextBlock } from '../../contracts/index.js';
 import {
@@ -130,8 +131,6 @@ interface AgentNodeExecutionHost {
   freshInputId(): string;
   assertCurrentActivation(input: CardActivationInput): void;
   assertPromotionAvailable(transition: CompiledProcessTransition): void;
-  retainNotificationLlm(llm: ConversationLLMActor): void;
-  relinquishNotificationLlm(llm: ConversationLLMActor): void;
   claimResultHandoff(ordinal: number): void;
   claimedNodeInterruption(ordinal: number): boolean;
 }
@@ -145,7 +144,6 @@ export interface AgentNodeExecutionDeps {
     cardId: string,
     notification: import('../../schemas/index.js').CardNotification,
   ) => import('../runtime-api.js').NotifyCardResult;
-  submitNotification: import('../runtime-api.js').NotificationSubmissionPort;
   processRunner: ProcessRunner;
   runtimeProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
@@ -222,11 +220,7 @@ export class AgentNodeExecution {
         sessionId,
         prepared.inputId,
         reviewerPair,
-        {
-          kind: 'prepared',
-          role_text: prepared.preparedContext.prefix.instructionText,
-          node: { node_id: node.nodeId, text: prepared.preparedContext.dynamicBlocks[1]!.content },
-        },
+        prepared.activationInstructions,
       );
       const baseline = new Map(
         node.requirements.map((record) => [
@@ -252,7 +246,12 @@ export class AgentNodeExecution {
         }
         throw new NodeCorrectiveBudgetExceededError(node.nodeId, correctiveRearmCount);
       };
-      let outcome = await llm.turn(preparedInput, signal, terminalHandoff);
+      let outcome = await llm.turn(
+        preparedInput,
+        signal,
+        terminalHandoff,
+        prepared.recordContextSupplier,
+      );
       for (;;) {
         if (
           signal.aborted &&
@@ -525,40 +524,27 @@ export class AgentNodeExecution {
           primaryCompletion = { kind: 'success', value: accepted };
           break;
         }
-        const retainedNotification =
-          outcome.toolName === 'queue_notification' && surface.tools.has(outcome.toolName);
-        if (retainedNotification) this.host.retainNotificationLlm(llm);
-        let toolSettlement: ToolSettlementInput;
-        try {
-          toolSettlement = surface.tools.has(outcome.toolName)
-            ? await invokeToolForLlm(
-                surface,
-                outcome.toolName,
-                outcome.args,
-                llm.toolInvocationContext(outcome),
-                signal,
-              )
-            : syntheticToolSettlement(
-                'unsupported_tool',
-                `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`,
-              );
-        } catch (error) {
-          if (retainedNotification && !signal.aborted) this.host.relinquishNotificationLlm(llm);
-          throw error;
-        }
+        const toolSettlement: ToolSettlementInput = surface.tools.has(outcome.toolName)
+          ? await invokeToolForLlm(
+              surface,
+              outcome.toolName,
+              outcome.args,
+              llm.toolInvocationContext(outcome),
+              signal,
+            )
+          : syntheticToolSettlement(
+              'unsupported_tool',
+              `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`,
+            );
         if (signal.aborted && isCardInterruptedError(signal.reason)) {
           await llm.settleToolResultWithoutContinuation(outcome.toolCallId, toolSettlement);
           throw signal.reason;
         }
         if (signal.aborted && isRuntimeStoppedInterruption(signal.reason)) {
-          if (retainedNotification && toolSettlement.kind === 'executed') {
-            await llm.settleToolResultWithoutContinuation(outcome.toolCallId, toolSettlement);
-          }
           throw signal.reason;
         }
         signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
-        if (retainedNotification) this.host.relinquishNotificationLlm(llm);
         outcome = (
           await llm.appendToolResult(
             outcome.toolCallId,
@@ -731,8 +717,10 @@ export class AgentNodeExecution {
     terminalToolDefinition: LlmToolDefinition,
     binding: import('../card-process/card-process-config.js').BoundAgentContract,
     nodePromptText: string,
-  ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
-    const cardBrief = cardBootstrapForPrompt(this.deps.store, input.card);
+  ): Omit<PreparedLlmInvocationInput, 'providerConversation'> & {
+    activationInstructions: import('../../schemas/index.js').ActivationInstructions;
+    recordContextSupplier: RecordContextSupplier;
+  } {
     const systemPrompt = this.deps.promptTemplates.render(
       { kind: 'workflow-agent', cardType: input.card.type },
       node.agent.name,
@@ -750,14 +738,35 @@ export class AgentNodeExecution {
       binding.routeUsableInputTokens,
       binding.contract.model.maxTokens,
     );
+    const blocks = this.nodeStableBlocks(input, node, nodePromptText);
     const preparedContext = buildPreparedInvocationContext({
       instructionText: systemPrompt,
       terminalToolNames: [TERMINAL_RESULT_TOOL_NAME],
       compiledTools: compiledToolContracts,
-      dynamicBlocks: this.nodeDynamicBlocks(input, cardBrief, node, nodePromptText),
+      stableBlocks: [blocks.card, blocks.node, ...(blocks.parent ? [blocks.parent] : [])],
       preparedCompaction,
     });
     return {
+      activationInstructions: {
+        kind: 'prepared',
+        role_text: systemPrompt,
+        node: { node_id: node.nodeId, text: blocks.node.content },
+        activation_id: input.activationId,
+        caller:
+          input.caller.kind === 'root'
+            ? { kind: 'root' }
+            : {
+                kind: 'parent',
+                cardId: input.caller.cardId,
+                sessionId: input.caller.sessionId,
+                sourceInputId: input.caller.sourceInputId,
+                toolCallId: input.caller.toolCallId,
+                toolName: input.caller.toolName,
+              },
+        card: { cardId: input.card.id, cardType: input.card.type, title: input.card.title },
+        parent_direction: blocks.parent ? { text: blocks.parent.content } : null,
+      },
+      recordContextSupplier: bootstrapContextSupplier(this.deps.store, input.card, node),
       inputId: this.host.freshInputId(),
       agentId: sessionId,
       agentName: node.agent.name,
@@ -784,12 +793,11 @@ export class AgentNodeExecution {
     };
   }
 
-  private nodeDynamicBlocks(
+  private nodeStableBlocks(
     input: CardActivationInput,
-    cardBrief: string,
     node: CompiledNodeContract,
     nodePromptText: string,
-  ): readonly ContextBlock[] {
+  ): Readonly<{ card: ContextBlock; node: ContextBlock; parent: ContextBlock | null }> {
     const cardBlock: ContextBlock = {
       id: `card-activation:${input.card.id}`,
       role: 'system',
@@ -797,7 +805,6 @@ export class AgentNodeExecution {
         cardId: input.card.id,
         cardType: input.card.type,
         title: input.card.title,
-        brief: cardBrief,
       }),
       storage: 'activation_local',
       replacement: { kind: 'retain' },
@@ -813,17 +820,37 @@ export class AgentNodeExecution {
       audience: 'primary_and_summarizer',
       evidence: { kind: 'none' },
     };
-    return [Object.freeze(cardBlock), Object.freeze(nodeBlock)];
+    const parent: ContextBlock | null =
+      input.caller.kind === 'root'
+        ? null
+        : Object.freeze({
+            id: `parent-direction:${input.activationId}`,
+            role: 'system',
+            content: `Parent activation direction (advisory; current accepted requirements, workflow, permissions and acceptance gates govern):\n${canonicalJson({ instructions: input.caller.instructions })}`,
+            storage: 'activation_local',
+            replacement: { kind: 'retain' as const },
+            audience: 'primary_and_summarizer',
+            evidence: { kind: 'none' as const },
+          });
+    return { card: Object.freeze(cardBlock), node: Object.freeze(nodeBlock), parent };
   }
 
   private enterNodeConversation(
-    prepared: Omit<PreparedLlmInvocationInput, 'providerConversation'>,
+    prepared: Omit<PreparedLlmInvocationInput, 'providerConversation'> & {
+      activationInstructions: import('../../schemas/index.js').ActivationInstructions;
+      recordContextSupplier: RecordContextSupplier;
+    },
   ): PreparedLlmInvocationInput {
+    const {
+      activationInstructions: _instructions,
+      recordContextSupplier: _supplier,
+      ...invocation
+    } = prepared;
     return {
-      ...prepared,
+      ...invocation,
       providerConversation: providerConversationProjection(
         readConversation(this.deps.conversations.projectRoot, prepared.sessionId),
-        prepared.preparedContext.dynamicBlocks,
+        composedPreparedBlocks(prepared.preparedContext),
       ),
     };
   }
@@ -846,7 +873,6 @@ export class AgentNodeExecution {
       store: this.deps.store,
       parentControl: this.deps.parentControl,
       notifyCard: this.deps.notifyCard,
-      submitNotification: this.deps.submitNotification,
       childCreationTypes: node.childCreationTypes,
       childActivationTypes: node.childActivationTypes,
       cardTypeVocabulary: this.deps.workflows.cardTypeVocabulary,

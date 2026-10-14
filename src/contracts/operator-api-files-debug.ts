@@ -220,6 +220,18 @@ const DebugGraphNodeSchema = z
         })
         .strict(),
     ),
+    record_prompts: z.array(
+      z
+        .object({
+          record: recordNameSchema,
+          selection: z.enum(['accepted', 'effective']),
+          presence: z.enum(['required', 'optional']),
+          prompt: ResolvedPromptDeclarationSchema,
+          source: DebugGraphPromptSourceSchema,
+          placeholders: z.array(z.enum(['cardType', 'recordSelection', 'recordContent'])),
+        })
+        .strict(),
+    ),
     descendant_context: z
       .object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() })
       .strict()

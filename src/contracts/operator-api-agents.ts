@@ -21,6 +21,10 @@ import {
 } from './operator-api-core.js';
 import { CardNotFoundErrorSchema } from './operator-api-runtime-cards.js';
 import { ConversationHistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
+import {
+  publicRecordObservationSchema,
+  publicLatestRecordObservationSchema,
+} from '../schemas/index.js';
 
 const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema }).strict();
 const ConversationImageLocatorQuerySchema = z
@@ -120,7 +124,46 @@ function requireMatchingIdentity(
     });
 }
 export const AgentSessionSummarySchema = agentSessionBase.superRefine(requireMatchingIdentity);
-const AgentConversationEntrySchema = agentMessageSchema;
+export const AgentConversationEntrySchema = agentMessageSchema
+  .innerType()
+  .omit({ model_spec: true, requested_model_spec: true, provider_projection: true })
+  .extend({
+    record_observations: z.array(publicRecordObservationSchema).min(1).optional(),
+    context_policy: z.discriminatedUnion('kind', [
+      z
+        .object({
+          kind: z.literal('structural'),
+          behavior: z.enum([
+            'activation_boundary',
+            'provider_failure',
+            'model_recovery_notice',
+            'content_policy_refusal',
+            'responses_private',
+            'record_observation',
+          ]),
+        })
+        .strict(),
+      z.object({ kind: z.literal('tool_call') }).strict(),
+      z
+        .object({
+          kind: z.literal('tool_result'),
+          settlement_origin: z.enum([
+            'executed',
+            'rejected_before_execution',
+            'unsupported_tool',
+            'execution_failed',
+          ]),
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('content'),
+          compactable: z.boolean(),
+          compaction_key: z.string().optional(),
+        })
+        .strict(),
+    ]),
+  });
 const continuationSchema = z.union([
   z.object({ kind: z.literal('between_rounds') }).strict(),
   z
@@ -146,11 +189,13 @@ const ConversationSegmentContextSchema = z
               row_index: z.number().int().safe().nonnegative(),
             })
             .strict(),
-          message: agentMessageSchema,
+          message: AgentConversationEntrySchema,
         })
         .strict(),
     ),
-    required_model_facts: requiredModelFactSlotsSchema,
+    required_model_facts: requiredModelFactSlotsSchema
+      .innerType()
+      .extend({ latestRecordObservations: z.array(publicLatestRecordObservationSchema) }),
     continuation: continuationSchema,
   })
   .strict()

@@ -27,6 +27,7 @@ import { appendConversationBatch } from '../../src/persistence/conversation-file
 import { readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
+import { TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -400,7 +401,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Retained child', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const session = `agent:executor:${child.id}` as const;
-    appendConversationBatch({ projectRoot: root }, [entry(session) as never]);
+    appendConversationBatch({ projectRoot: root }, [{ ...entry(session), context_policy: TEXT_ROW_POLICY } as never]);
     cards.deleteSubtrees([child.id], () => true);
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() });
     const fastify = Fastify({ logger: false });
@@ -515,7 +516,7 @@ function entry(session_id: string) {
     role: 'user',
     kind: 'text',
     content: 'hello',
-    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
+    context_policy: { kind: 'content', compactable: true },
     round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     message_index: 0,
     block_index: 0,
@@ -619,5 +620,5 @@ function projectRoot(prefix = 'saivage-operator-agent-handler-'): string {
 }
 
 function populatePlannerConversation(root: string): void {
-  appendConversationBatch({ projectRoot: root }, [entry('agent:planner:project') as never]);
+  appendConversationBatch({ projectRoot: root }, [{ ...entry('agent:planner:project'), context_policy: TEXT_ROW_POLICY } as never]);
 }

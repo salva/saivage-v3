@@ -13,27 +13,63 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import {
+  scriptedAdmissionProvider,
+  testAutonomousCompaction,
+} from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
-afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
+afterEach(() => {
+  while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
+});
 
-function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { result, provider_exchanges: [] }; }
-function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
-async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
+function complete(result: LlmCompleteResult): ProviderTurnCompletion {
+  return { result, provider_exchanges: [] };
+}
+function tool(id: string, name: string, args: object): LlmCompleteResult {
+  return {
+    kind: 'tool_calls',
+    tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+  };
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error('condition not reached');
+}
 async function settleWithin(promise: Promise<void>, label: string): Promise<void> {
   let timer!: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}.`)), 2_000); });
-  try { await Promise.race([promise, timeout]); } finally { clearTimeout(timer); }
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}.`)), 2_000);
+  });
+  try {
+    await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): ReturnType<typeof createSupervisorRuntimeApi> {
+function runtime(
+  projectRoot: string,
+  cards: CardService,
+  processRunner: ProcessRunner,
+  runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope,
+  provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort,
+): ReturnType<typeof createSupervisorRuntimeApi> {
   return createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
@@ -55,9 +91,36 @@ describe('dependency-completion activation admission E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Run dependency order', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Complete first', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [] });
-    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Complete second', priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id] });
+    const parent = cards.create({
+      type: 'goal',
+      parent: 'project',
+      title: 'Parent',
+      bootstrap_content: 'Run dependency order',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    });
+    const dependency = cards.create({
+      type: 'code',
+      parent: parent.id,
+      title: 'A',
+      bootstrap_content: 'Complete first',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    });
+    const dependent = cards.create({
+      type: 'code',
+      parent: parent.id,
+      title: 'B',
+      bootstrap_content: 'Complete second',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [dependency.id],
+    });
     cards.setStatus('project', 'running');
 
     const bRejected = deferred<void>();
@@ -74,57 +137,119 @@ describe('dependency-completion activation admission E2E', () => {
     let projectCalls = 0;
     let firstDependentToolResult: unknown;
 
-    const provider = scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
-        if (input.sessionId === 'agent:planner:project') {
-          projectCalls += 1;
-          if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
-          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project', content: 'Dependency workflow complete.' }));
-          return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete.' }));
-        }
-        if (input.sessionId === `agent:planner:${parent.id}`) {
-          parentCalls += 1;
-          if (parentCalls === 1) return complete(tool('activate-b-first', 'activate_card', { card_id: dependent.id }));
-          if (parentCalls === 2) {
-            const row = [...input.providerConversation.messages].reverse().find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-b-first');
-            firstDependentToolResult = row ? JSON.parse(row.content) : null;
-            bRejected.resolve();
-            await allowDependency.promise;
-            return complete(tool('activate-a', 'activate_card', { card_id: dependency.id }));
+    const provider = scriptedAdmissionProvider(
+      jest.fn(
+        async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
+          if (input.sessionId === 'agent:planner:project') {
+            projectCalls += 1;
+            if (projectCalls === 1)
+              return complete(tool('activate-parent', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: parent.id }));
+            if (projectCalls === 2)
+              return complete(
+                tool('write-project-status', 'write', {
+                  path: 'record:///status.md?card=project',
+                  content: 'Dependency workflow complete.',
+                }),
+              );
+            return complete(
+              tool('complete-project', 'emit_result', {
+                outcome: 'complete_direct',
+                summary: 'Project complete.',
+              }),
+            );
           }
-          if (parentCalls === 3) {
-            if (cards.read(dependency.id)?.lifecycle.status !== 'done') throw new Error('Dependency A was not durably done before the next planner request.');
-            dependencyDoneBeforeSecondRequest.resolve();
-            await allowDependent.promise;
-            return complete(tool('activate-b-second', 'activate_card', { card_id: dependent.id }));
+          if (input.sessionId === `agent:planner:${parent.id}`) {
+            parentCalls += 1;
+            if (parentCalls === 1)
+              return complete(tool('activate-b-first', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: dependent.id }));
+            if (parentCalls === 2) {
+              const row = [...input.providerConversation.messages]
+                .reverse()
+                .find(
+                  (message) =>
+                    message.kind === 'tool_result' && message.tool_call_id === 'activate-b-first',
+                );
+              firstDependentToolResult = row ? JSON.parse(row.content) : null;
+              bRejected.resolve();
+              await allowDependency.promise;
+              return complete(tool('activate-a', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: dependency.id }));
+            }
+            if (parentCalls === 3) {
+              if (cards.read(dependency.id)?.lifecycle.status !== 'done')
+                throw new Error(
+                  'Dependency A was not durably done before the next planner request.',
+                );
+              dependencyDoneBeforeSecondRequest.resolve();
+              await allowDependent.promise;
+              return complete(
+                tool('activate-b-second', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: dependent.id }),
+              );
+            }
+            if (parentCalls === 4)
+              return complete(
+                tool('write-parent-status', 'write', {
+                  path: `record:///status.md?card=${parent.id}`,
+                  content: 'Dependencies complete.',
+                }),
+              );
+            return complete(
+              tool('complete-parent', 'emit_result', {
+                outcome: 'complete_direct',
+                summary: 'Parent complete.',
+              }),
+            );
           }
-          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}`, content: 'Dependencies complete.' }));
-          return complete(tool('complete-parent', 'emit_result', { outcome: 'complete_direct', summary: 'Parent complete.' }));
-        }
-        if (input.sessionId === `agent:executor:${dependency.id}`) {
-          dependencyCalls += 1;
-          if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: `record:///status.md?card=${dependency.id}`, content: 'A completed first.' }));
-          return complete(tool('done-a', 'emit_result', { outcome: 'done', summary: 'A complete.' }));
-        }
-        if (input.sessionId === `agent:executor:${dependent.id}`) {
-          dependentCalls += 1;
-          if (dependentCalls === 1) {
-            dependentProviderStarted.resolve();
-            await allowDependentTool.promise;
-            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${dependent.id}`, content: 'B admitted after A.' }));
+          if (input.sessionId === `agent:executor:${dependency.id}`) {
+            dependencyCalls += 1;
+            if (dependencyCalls === 1)
+              return complete(
+                tool('write-a', 'write', {
+                  path: `record:///status.md?card=${dependency.id}`,
+                  content: 'A completed first.',
+                }),
+              );
+            return complete(
+              tool('done-a', 'emit_result', { outcome: 'done', summary: 'A complete.' }),
+            );
           }
-          if (dependentCalls === 2) {
-            dependentToolCompleted.resolve();
-            await allowDependentCompletion.promise;
-            return complete(tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }));
+          if (input.sessionId === `agent:executor:${dependent.id}`) {
+            dependentCalls += 1;
+            if (dependentCalls === 1) {
+              dependentProviderStarted.resolve();
+              await allowDependentTool.promise;
+              return complete(
+                tool('write-b', 'write', {
+                  path: `record:///status.md?card=${dependent.id}`,
+                  content: 'B admitted after A.',
+                }),
+              );
+            }
+            if (dependentCalls === 2) {
+              dependentToolCompleted.resolve();
+              await allowDependentCompletion.promise;
+              return complete(
+                tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }),
+              );
+            }
+            throw new Error('Dependent executor received an unexpected extra turn.');
           }
-          throw new Error('Dependent executor received an unexpected extra turn.');
-        }
-        throw new Error(`Unexpected provider session '${input.sessionId}'.`);
-      }));
+          throw new Error(`Unexpected provider session '${input.sessionId}'.`);
+        },
+      ),
+    );
     const registry = new ManagedProcessGroupRegistry();
-    const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
+    const runtimeProcessRootScope = registry.createContainerScope(
+      registry.rootScope,
+      'runtime-cards',
+    );
     const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
-    const supervisor = runtime(projectRoot, cards, processRunner, runtimeProcessRootScope, provider);
+    const supervisor = runtime(
+      projectRoot,
+      cards,
+      processRunner,
+      runtimeProcessRootScope,
+      provider,
+    );
     const ownership = supervisor as unknown as RuntimeOwnership;
     const started = await supervisor.startProject();
     if (!started.started) throw new Error('Run was not accepted.');
@@ -134,30 +259,49 @@ describe('dependency-completion activation admission E2E', () => {
       success: false,
       error: `Child card '${dependent.id}' has incomplete dependencies: ${dependency.id} (backlog).`,
     });
-    expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'backlog' }, version_seq: 1 });
+    expect(cards.read(dependent.id)).toMatchObject({
+      lifecycle: { status: 'backlog' },
+      version_seq: 1,
+    });
     expect(ownership.activationOwners.has(dependent.id)).toBe(false);
     expect([...ownership.activationOwners.keys()]).toEqual(['project', parent.id]);
-    expect(supervisor.getActorRuntimeReadModel().cards.some(({ cardId }) => cardId === dependent.id)).toBe(false);
+    expect(
+      supervisor.getActorRuntimeReadModel().cards.some(({ cardId }) => cardId === dependent.id),
+    ).toBe(false);
     expect(supervisor.getActorRuntimeReadModel()).not.toHaveProperty('agents');
     expect(supervisor.getStatus().currentCardId).toBe(parent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
-    expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual([]);
-    expect(cards.readRecordCurrent(dependent.id,'status.md')).toMatchObject({kind:'found',value:{projection:null}});
+    expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual(
+      [],
+    );
+    expect(cards.readRecordCurrent(dependent.id, 'status.md')).toMatchObject({
+      kind: 'found',
+      value: { projection: null },
+    });
     expect(processRunner.list({ cardId: dependent.id })).toEqual([]);
 
     allowDependency.resolve();
     await settleWithin(dependencyDoneBeforeSecondRequest.promise, 'A completion');
-    expect(cards.read(dependency.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'A complete.' } } });
-    expect(cards.readRecordCurrent(dependency.id,'status.md')).toMatchObject({kind:'found',value:{projection:{accepted:{content:'A completed first.'}}}});
+    expect(cards.read(dependency.id)).toMatchObject({
+      lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'A complete.' } },
+    });
+    expect(cards.readRecordCurrent(dependency.id, 'status.md')).toMatchObject({
+      kind: 'found',
+      value: { projection: { accepted: { content: 'A completed first.' } } },
+    });
     expect(dependencyCalls).toBe(2);
     expect(cards.read(dependent.id)?.lifecycle.status).toBe('backlog');
 
     allowDependent.resolve();
     await settleWithin(dependentProviderStarted.promise, 'admitted B provider start');
     expect(cards.read(dependent.id)?.lifecycle.status).toBe('running');
-    expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id, dependent.id]);
+    expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual([
+      'project',
+      parent.id,
+      dependent.id,
+    ]);
     expect(supervisor.getStatus().currentCardId).toBe(dependent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(dependent.id);
     expect(ownership.activationOwners.get(dependent.id)?.cardId).toBe(dependent.id);
@@ -165,16 +309,26 @@ describe('dependency-completion activation admission E2E', () => {
 
     allowDependentTool.resolve();
     await settleWithin(dependentToolCompleted.promise, 'B tool completion');
-    expect(cards.readRecordCurrent(dependent.id,'status.md')).toMatchObject({kind:'found',value:{projection:{draft:{content:'B admitted after A.'}}}});
-    expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'tool_call', tool: 'write', tool_call_id: 'write-b' }),
-      expect.objectContaining({ kind: 'tool_result', tool: 'write', tool_call_id: 'write-b' }),
-    ]));
+    expect(cards.readRecordCurrent(dependent.id, 'status.md')).toMatchObject({
+      kind: 'found',
+      value: { projection: { draft: { content: 'B admitted after A.' } } },
+    });
+    expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'tool_call', tool: 'write', tool_call_id: 'write-b' }),
+        expect.objectContaining({ kind: 'tool_result', tool: 'write', tool_call_id: 'write-b' }),
+      ]),
+    );
 
     allowDependentCompletion.resolve();
     await waitUntil(() => cards.read(dependent.id)?.lifecycle.status === 'done');
-    expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'B complete.' } } });
-    expect(cards.readRecordCurrent(dependent.id,'status.md')).toMatchObject({kind:'found',value:{projection:{accepted:{content:'B admitted after A.'}}}});
+    expect(cards.read(dependent.id)).toMatchObject({
+      lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'B complete.' } },
+    });
+    expect(cards.readRecordCurrent(dependent.id, 'status.md')).toMatchObject({
+      kind: 'found',
+      value: { projection: { accepted: { content: 'B admitted after A.' } } },
+    });
     expect(dependentCalls).toBe(2);
     expect(ownership.activationOwners.has(dependent.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');

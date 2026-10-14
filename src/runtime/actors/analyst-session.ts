@@ -63,7 +63,10 @@ import {
   PreparedCompactionCapacityError,
   type AutonomousCompactionPolicy,
 } from './compaction/compactor.js';
-import { buildPreparedInvocationContext } from './context/context-blocks.js';
+import {
+  buildPreparedInvocationContext,
+  composedPreparedBlocks,
+} from './context/context-blocks.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
@@ -318,6 +321,10 @@ export class AnalystSession {
         {
           kind: 'prepared',
           role_text: preparedInput.preparedContext.prefix.instructionText,
+          activation_id: null,
+          caller: { kind: 'global' },
+          card: null,
+          parent_direction: null,
           node: null,
         },
       ),
@@ -328,7 +335,7 @@ export class AnalystSession {
       ...preparedInput,
       providerConversation: providerConversationProjection(
         readConversation(this.#conversations.projectRoot, this.#sessionId),
-        preparedInput.preparedContext.dynamicBlocks,
+        composedPreparedBlocks(preparedInput.preparedContext),
       ),
     };
     operation.step = { kind: 'nested', input: invocationInput };
@@ -577,7 +584,7 @@ export class AnalystSession {
         instructionText: systemPrompt,
         terminalToolNames: [],
         compiledTools: compiledToolContracts,
-        dynamicBlocks: [this.projectTreeBlock(orientation), this.workspaceFocusBlock(focus)],
+        stableBlocks: [this.projectTreeBlock(orientation), this.workspaceFocusBlock(focus)],
         preparedCompaction,
       }),
       capabilityRequest: this.#capabilityRequest,

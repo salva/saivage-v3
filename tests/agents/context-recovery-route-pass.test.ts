@@ -51,7 +51,7 @@ function request(chain: readonly Candidate[], messages = [message('m1', 'x'.repe
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction: preparedCompactionFixture(),
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction: preparedCompactionFixture() }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction: preparedCompactionFixture() }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [...chain] },
   };

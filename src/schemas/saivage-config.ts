@@ -259,6 +259,18 @@ const processNodeSchema = z
     agent: agentNameSchema,
     prompt: staticPromptDeclarationSchema,
     correction_prompt: durablePromptDeclarationSchema,
+    record_prompts: z
+      .array(
+        z
+          .object({
+            record: recordNameSchema,
+            selection: z.enum(['accepted', 'effective']),
+            presence: z.enum(['required', 'optional']),
+            prompt: durablePromptDeclarationSchema,
+          })
+          .strict(),
+      )
+      .optional(),
     records: z
       .record(
         recordNameSchema,

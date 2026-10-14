@@ -113,7 +113,7 @@ function invocation(conversation: ValidatedConversation): PreparedLlmInvocationI
       instructionText: 'system',
       terminalToolNames: [],
       compiledTools: [],
-      dynamicBlocks: [],
+      stableBlocks: [],
       preparedCompaction,
     }),
     capabilityRequest: {},

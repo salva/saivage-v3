@@ -36,9 +36,10 @@ disposable context, lost on stop/active cancellation. Pixels cannot be certified
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
-Conversation index/genesis/envelope now use strict **format 8** for once-recorded
-historical instruction evidence, retaining loss-tolerant maintenance and ordered content.
-Format 7 or earlier/mixed
+Conversation index/genesis/envelope now use strict **format 9** for typed owning
+record observations and descriptor-only required facts, retaining historical
+instruction evidence, loss-tolerant maintenance and ordered content.
+Format 8 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;
@@ -47,11 +48,22 @@ there is no GC. Installing Sharp requires optional native dependencies (see the
 
 Conversation activation boundaries expose **Prepared instructions**: privacy-filtered
 historical rendered role and node text, not a delivery receipt or complete wire request.
+Format-9 prepared evidence also records stable card orientation, actual activation
+identity and caller, and exact rendered parent direction where present. Parent
+`activate_card({card_id,instructions})` requires explicit non-whitespace direction;
+its bytes belong to that actual child activation, not a mailbox or future Run.
+Public `queue_notification` is selected only by configured Analyst/Oversight roles;
+card recipients and internal notifications remain.
+Conditional instructions retain actual bytes in source order; record descriptors
+distinguish accepted/draft selections and metadata/slice/full/reference exposure.
+Compacted descriptors preserve original coordinates/time, not body recall or new
+occurrences. Immutable links inspect record evidence, never reconstructed requests;
+public copies omit internal hashes and independently redact text and source metadata.
 Owned durable prompts are **Recorded workflow instruction** at their original rows;
 compacted activation text is inspected through explicit indexed source history.
 Unavailable history is never filled from current templates. **Currently configured
 instructions** remains independent. Source completion authorizes no adoption or
-deployment; binary-only downgrade after format-8 publication is unsupported.
+deployment; binary-only downgrade after format-9 publication is unsupported.
 
 Conversation maintenance first preserves useful ordinary summaries. If bounded
 construction cannot produce a qualifying candidate, it may publish a fixed notice
@@ -226,6 +238,11 @@ them.
 
 For prompt customization, see the canonical [shipped project-guidance authoring guide](docs/architecture/prompts.md#authoring-shipped-project-guidance).
 
+Card operations supply fresh accepted bootstrap context and may declare finite
+record-conditioned prompts. Triggers use actual conversation record/view knowledge,
+not node re-entry; latest descriptor facts do not imply body recall. See
+[record-context compilation](docs/architecture/prompts.md#one-compiler-and-one-discriminated-host-contract).
+
 ## Notable current behaviors
 
 - Codex uses stable owner-session cache affinity; reuse remains provider-dependent,
@@ -278,7 +295,7 @@ For prompt customization, see the canonical [shipped project-guidance authoring 
   eligible completed-summary reuse or local omission, never an identical policy retry.
   Exhausted safe maintenance blocks the owning card without exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-  Conversation index/genesis/segment format **8** retains summary, protected
+   Conversation index/genesis/segment format **9** retains summary, protected
   instructions, required model facts, and continuation without compaction
   checksums or accumulated accounting. Adoption from earlier formats is a
   **incompatible cutover** across all four generated roots: separately consented

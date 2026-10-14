@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { sha256Hex, canonicalValueSha256 } from '../../../../src/schemas/index.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
-import { assertPreparedContextContinuity, buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, internalToolContractSha256, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { assertPreparedContextContinuity, buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, composedPreparedBlocks, withPreparedRecordBlocks, internalToolContractSha256, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
 import { type CompiledInvocationToolContract, type ContextBlock, type ProviderToolDefinition } from '../../../../src/contracts/index.js';
 import type { PreparedCompaction } from '../../../../src/contracts/index.js';
 
@@ -80,7 +80,7 @@ describe('context contracts', () => {
     expect(buildStaticInvocationPrefix('instruction', ['other'], tools).immutablePrefixBytes).not.toBe(prefix.immutablePrefixBytes);
     expect(buildStaticInvocationPrefix('instruction', ['emit_result'], [...tools, tools[0]!]).immutablePrefixBytes).not.toBe(prefix.immutablePrefixBytes);
   });
-  it('hashes dynamic blocks canonically and order-sensitively', () => {
+  it('hashes stable blocks canonically and order-sensitively', () => {
     const first = snapshotBlock('a', 'k', 'v1');
     const second = block('b', { audience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { cardId: 'card-1' }, observed_sha256: '0'.repeat(64) } });
     expect(canonicalValueSha256([first, second])).toBe(sha256Hex(canonicalJson([first, second])));
@@ -89,35 +89,42 @@ describe('context contracts', () => {
   it('builds one frozen prepared invocation context from its exact inputs', () => {
     const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
     const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
-    const prepared = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
+    const prepared = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
     expect(prepared.prefix).toEqual(buildStaticInvocationPrefix('instruction', ['emit_result'], compiledTools));
     expect(prepared.compiledTools).toEqual(compiledTools);
     expect(prepared.internalToolContractSha256).toBe(internalToolContractSha256(compiledTools));
-    expect(prepared.dynamicBlocksSha256).toBe(canonicalValueSha256([snapshotBlock('a', 'k', 'v1')]));
+    expect(prepared.stableBlocksSha256).toBe(canonicalValueSha256([snapshotBlock('a', 'k', 'v1')]));
     expect(prepared.preparedCompaction).toBe(preparedCompaction);
     expect(Object.isFrozen(prepared)).toBe(true);
     expect(Object.isFrozen(prepared.compiledTools)).toBe(true);
-    expect(Object.isFrozen(prepared.dynamicBlocks)).toBe(true);
+    expect(Object.isFrozen(prepared.stableBlocks)).toBe(true);
   });
   it('accepts byte-identical prepared contexts and rejects every frozen-contract drift across continuations', () => {
     const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
     const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
-    const base = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
-    expect(() => assertPreparedContextContinuity(base, buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }), 'actor-x')).not.toThrow();
+    const base = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
+    const operationA = withPreparedRecordBlocks(base, [snapshotBlock('record', 'record', 'A')]);
+    const operationB = withPreparedRecordBlocks(operationA, [snapshotBlock('record', 'record', 'B')]);
+    expect(() => assertPreparedContextContinuity(operationA, operationB, 'actor-x')).not.toThrow();
+    expect(operationB.recordBlocksSha256).not.toBe(operationA.recordBlocksSha256);
+    expect(operationB.stableBlocks).toBe(operationA.stableBlocks);
+    expect(composedPreparedBlocks(operationB)).toEqual([...base.stableBlocks, ...operationB.recordBlocks]);
+    expect(base.recordBlocks).toEqual([]);
+    expect(() => assertPreparedContextContinuity(base, buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }), 'actor-x')).not.toThrow();
     expect(() => assertPreparedContextContinuity(
       base,
-      buildPreparedInvocationContext({ instructionText: 'changed', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
+      buildPreparedInvocationContext({ instructionText: 'changed', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
       "agent:planner:project 'call-1'",
     )).toThrow(/Prepared invocation prefix changed across agent:planner:project 'call-1' continuation/u);
     expect(() => assertPreparedContextContinuity(
       base,
-      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools: [compileInvocationToolContract(providerDefinition, retainTemplate)], dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
+      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools: [compileInvocationToolContract(providerDefinition, retainTemplate)], stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
       'actor-x',
     )).toThrow(/Prepared internal tool contract changed across actor-x continuation/u);
     expect(() => assertPreparedContextContinuity(
       base,
-      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v2')], preparedCompaction }),
+      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v2')], preparedCompaction }),
       'actor-x',
-    )).toThrow(/Prepared dynamic context blocks changed across actor-x continuation/u);
+    )).toThrow(/Prepared stable context blocks changed across actor-x continuation/u);
   });
 });

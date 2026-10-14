@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { bindRuntimeWorkflows, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import {
+  bindRuntimeWorkflows,
+  compileProjectWorkflows,
+} from '../../src/runtime/card-process/card-process-config.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
@@ -15,41 +18,120 @@ import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import {
+  scriptedAdmissionProvider,
+  testAutonomousCompaction,
+} from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 
-const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
-function tool(id:string,name:string,args:object){return {result:{kind:'tool_calls' as const,tool_calls:[{id,type:'function' as const,function:{name,arguments:JSON.stringify(args)}}]},provider_exchanges:[]};}
-function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>((done)=>{resolve=done;});return{promise,resolve};}
+const roots: string[] = [];
+afterEach(() => {
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
+function tool(id: string, name: string, args: object) {
+  return {
+    result: {
+      kind: 'tool_calls' as const,
+      tool_calls: [
+        { id, type: 'function' as const, function: { name, arguments: JSON.stringify(args) } },
+      ],
+    },
+    provider_exchanges: [],
+  };
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
-describe('custom card type execution admission',()=>{
-  it('compiles, creates, activates, and enters a custom execute node',async()=>{
-    const root=mkdtempSync(join(tmpdir(),'custom-card-execution-'));roots.push(root);initProjectTree(root);
-    const config:SaivageConfig=structuredClone(TEST_SAIVAGE_CONFIG);
-    const project=structuredClone(config.card_types.project!);project.permitted_child_types=['initiative'];
-    const initiative=structuredClone(config.card_types.goal!);initiative.permitted_child_types=['task'];
-    const task=structuredClone(config.card_types.code!);task.permitted_child_types=[];
-    config.card_types={project,initiative,task};
-    const structural=compileProjectWorkflows(config);
-    const providerRegistry=new ProviderRegistry(config);const workflows=bindRuntimeWorkflows(structural,new ModelRouter(providerRegistry),providerRegistry,config.compaction.context_utilization_fraction);
-    const cards=new ProductionCardService(root,structural);
-    const initiativeCard=cards.create({type:'initiative',parent:'project',title:'Initiative',bootstrap_content:'plan',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
-    const taskCard=cards.create({type:'task',parent:initiativeCard.id,title:'Task',bootstrap_content:'execute',priority:0,urgency:'normal',created_by:'planner',depends_on:[]});
-    expect([initiativeCard.type,taskCard.type]).toEqual(['initiative','task']);
-    const admitted=deferred<LlmInvocationInput>();
-    const provider=scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput,signal:AbortSignal)=>{
-      if(input.sessionId==='agent:planner:project')return tool('activate-initiative','activate_card',{card_id:initiativeCard.id});
-      if(input.sessionId===`agent:planner:${initiativeCard.id}`)return tool('activate-task','activate_card',{card_id:taskCard.id});
-      if(input.sessionId===`agent:executor:${taskCard.id}`){admitted.resolve(input);return new Promise<never>((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}
-      throw new Error(`Unexpected session '${input.sessionId}'.`);
-    }));
-    const registry=new ManagedProcessGroupRegistry();const processRunner=new ProcessRunner(root,registry,testApplicationFatalPort);const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
-    const supervisor=createSupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider,conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner,runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
-    const started=await supervisor.startProject();expect(started.started).toBe(true);
-    const input=await admitted.promise;
+describe('custom card type execution admission', () => {
+  it('compiles, creates, activates, and enters a custom execute node', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'custom-card-execution-'));
+    roots.push(root);
+    initProjectTree(root);
+    const config: SaivageConfig = structuredClone(TEST_SAIVAGE_CONFIG);
+    const project = structuredClone(config.card_types.project!);
+    project.permitted_child_types = ['initiative'];
+    const initiative = structuredClone(config.card_types.goal!);
+    initiative.permitted_child_types = ['task'];
+    const task = structuredClone(config.card_types.code!);
+    task.permitted_child_types = [];
+    config.card_types = { project, initiative, task };
+    const structural = compileProjectWorkflows(config);
+    const providerRegistry = new ProviderRegistry(config);
+    const workflows = bindRuntimeWorkflows(
+      structural,
+      new ModelRouter(providerRegistry),
+      providerRegistry,
+      config.compaction.context_utilization_fraction,
+    );
+    const cards = new ProductionCardService(root, structural);
+    const initiativeCard = cards.create({
+      type: 'initiative',
+      parent: 'project',
+      title: 'Initiative',
+      bootstrap_content: 'plan',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    });
+    const taskCard = cards.create({
+      type: 'task',
+      parent: initiativeCard.id,
+      title: 'Task',
+      bootstrap_content: 'execute',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    });
+    expect([initiativeCard.type, taskCard.type]).toEqual(['initiative', 'task']);
+    const admitted = deferred<LlmInvocationInput>();
+    const provider = scriptedAdmissionProvider(
+      jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+        if (input.sessionId === 'agent:planner:project')
+          return tool('activate-initiative', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: initiativeCard.id });
+        if (input.sessionId === `agent:planner:${initiativeCard.id}`)
+          return tool('activate-task', 'activate_card', { instructions: 'Complete the scoped child task with current evidence.', card_id: taskCard.id });
+        if (input.sessionId === `agent:executor:${taskCard.id}`) {
+          admitted.resolve(input);
+          return new Promise<never>((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          );
+        }
+        throw new Error(`Unexpected session '${input.sessionId}'.`);
+      }),
+    );
+    const registry = new ManagedProcessGroupRegistry();
+    const processRunner = new ProcessRunner(root, registry, testApplicationFatalPort);
+    const runtimeProcessRootScope = registry.createContainerScope(
+      registry.rootScope,
+      'runtime-cards',
+    );
+    const supervisor = createSupervisorRuntimeApi({
+      ...testAutonomousCompaction,
+      workflows,
+      projectRoot: root,
+      actorStore: cards,
+      provider,
+      conversations: { projectRoot: root },
+      freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+      processRunner,
+      runtimeProcessRootScope,
+      promptTemplates: createPromptTemplateRegistry(workflows),
+      runtimeGate: new RuntimeGate(),
+      fatalPort: testApplicationFatalPort,
+    });
+    const started = await supervisor.startProject();
+    expect(started.started).toBe(true);
+    const input = await admitted.promise;
     expect(input.sessionId).toBe(`agent:executor:${taskCard.id}`);
-    expect(input.episodeContext).toMatchObject({cardId:taskCard.id});
-    expect(input.tools.map((definition)=>definition.function.name)).toContain('emit_result');
+    expect(input.episodeContext).toMatchObject({ cardId: taskCard.id });
+    expect(input.tools.map((definition) => definition.function.name)).toContain('emit_result');
     await supervisor.stopProject();
     expect(supervisor.getStatus().status).toBe('stopped');
   });

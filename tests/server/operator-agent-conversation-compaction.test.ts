@@ -25,7 +25,6 @@ import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixt
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
 import { appendConversationBatch, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
-import { sha256Hex } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 
@@ -95,7 +94,7 @@ describe('mounted operator compacted Agent conversations', () => {
       expect(tail.map(row => row.id)).toEqual([call!.id, 'interleaved-correction', result!.id]);
       expect(JSON.parse(JSON.parse(tail[0]!.content).tool_calls[0].function.arguments)).toEqual({ url: 'https://example.test/path?[REDACTED]' });
       expect(JSON.parse(tail[2]!.content)).toEqual({ success: false, error: 'token=[REDACTED]', data: { partial_effect: 'retained', token: '[REDACTED]' } });
-      expect(tail[2]!.context_policy).toMatchObject({ result_content_sha256: sha256Hex(tail[2]!.content) });
+      expect(tail[2]!.context_policy).toEqual({ kind: 'tool_result', settlement_origin: 'execution_failed' });
       expect(stored.map(segment => readHistoricalConversationSegment(projectRoot, sessionId, segment.entry.version).rows))
         .toEqual(stored.map(segment => segment.rows));
     } finally {
@@ -263,6 +262,7 @@ function assertCompactedContext(
   }
   expect(Object.keys(context.required_model_facts).sort()).toEqual([
     'latestContentPolicyRefusal',
+    'latestRecordObservations',
     'latestRecovery',
   ]);
   expect(context.required_model_facts.latestRecovery).not.toBeNull();

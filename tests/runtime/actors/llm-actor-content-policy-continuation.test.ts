@@ -33,7 +33,8 @@ import {
   OPERATIONAL_RESULT_POLICY_TEMPLATE,
   syntheticToolSettlement,
 } from '../../../src/tools/invocation.js';
-import { initProjectTree } from '../../helpers/canonical-project.js';
+import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
+import { bootstrapContextSupplier } from '../../../src/runtime/records/bootstrap-context.js';
 import {
   chatSuccess,
   invocationProviderRegistry,
@@ -106,6 +107,8 @@ function fixture(
         event: 'activation_open',
         instructions: {
           kind: 'prepared',
+          activation_id: inputId, caller: { kind: 'root' },
+          card: { cardId: 'project', cardType: 'project', title: 'Synthetic project' }, parent_direction: null,
           role_text: 'system',
           node: { node_id: 'synthetic-probe', text: 'bounded synthetic probe instructions' },
         },
@@ -162,7 +165,7 @@ function fixture(
       instructionText: 'system',
       terminalToolNames,
       compiledTools: [contract],
-      dynamicBlocks: [],
+      stableBlocks: [],
       preparedCompaction,
     }),
     capabilityRequest: { requiresTools: true },
@@ -217,6 +220,38 @@ function fixture(
     rows,
   };
 }
+
+it('freezes current bootstrap through real pinned admission and exact serialized retry, then refreshes on correction', async () => {
+  let store!: CardService;
+  const f = fixture([
+    () => { store.acceptRecord('project', 'brief.md', 'NEW B DURING REFUSAL', 'analyst'); return refusal(); },
+    () => chatSuccess('pinned result'),
+    () => chatSuccess('corrected result'),
+  ]);
+  store = new CardService(f.root);
+  store.acceptRecord('project', 'brief.md', 'CAPTURED A', 'analyst');
+  const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'synthetic-probe', recordPrompts: [] }));
+  const read = jest.spyOn(store, 'readRecordCurrent');
+  try {
+    await expect(f.actor.turn(f.input, undefined, f.handoff, supplier)).resolves.toMatchObject({ type: 'result' });
+    expect(supplier).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(f.pinned.mock.calls[0]![0].preparedContext!.recordBlocks)
+      .toBe(f.admission.mock.calls[0]![0].preparedContext!.recordBlocks);
+    for (const request of f.requests) {
+      expect(JSON.stringify(request)).toContain('CAPTURED A');
+      expect(JSON.stringify(request)).not.toContain('NEW B DURING REFUSAL');
+    }
+    await f.actor.continueAfterPlainText([{ role: 'user', content: 'Correct the result.' }], undefined, f.handoff);
+    expect(supplier).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(f.requests[2])).toContain('NEW B DURING REFUSAL');
+    expect(f.rows().filter(row => row.kind === 'record_observation')).toHaveLength(2);
+  } finally {
+    f.actor.suppressContinuation(new Error('test complete'));
+    await f.actor.join();
+  }
+});
 
 function expectFreshOrdinary(f: ReturnType<typeof fixture>) {
   expect(f.admission).toHaveBeenCalledTimes(2);
@@ -283,16 +318,37 @@ describe('content-policy successful pin continuation ownership', () => {
 
   it('retries a real admitted pin through overload then retries fresh ordinary tool continuation without replay', async () => {
     jest.useFakeTimers();
-    const overload = () => new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 });
+    let store!: CardService;
+    let changedDuringPin = false;
+    let changedDuringContinuation = false;
+    const overload = () => {
+      if (!changedDuringPin) {
+        store.acceptRecord('project', 'brief.md', 'B AFTER PIN ADMISSION', 'analyst');
+        changedDuringPin = true;
+      } else if (f.requests.length >= 10 && !changedDuringContinuation) {
+        store.acceptRecord('project', 'brief.md', 'C AFTER CONTINUATION ADMISSION', 'analyst');
+        changedDuringContinuation = true;
+      }
+      return new Response(JSON.stringify({ error: { code: 'server_is_overloaded' } }), { status: 503 });
+    };
     const f = fixture([() => refusal(), ...Array.from({ length: 7 }, () => overload), toolResponse,
       ...Array.from({ length: 5 }, () => overload), () => chatSuccess('done')]);
+    store = new CardService(f.root);
+    store.acceptRecord('project', 'brief.md', 'A BEFORE PIN ADMISSION', 'analyst');
+    const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'synthetic-probe', recordPrompts: [] }));
+    const read = jest.spyOn(store, 'readRecordCurrent');
     f.availability.markFailed(SECOND, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 7_200_000, reason: 'rate_limit' });
-    const first = f.actor.turn(f.input, undefined, f.handoff);
+    const first = f.actor.turn(f.input, undefined, f.handoff, supplier);
     await jest.advanceTimersByTimeAsync(2_130_000);
     const outcome = await first;
     if (outcome.type !== 'tool_call') throw new Error('Expected probe call.');
     expect(f.pinned).toHaveBeenCalledTimes(1);
     expect(f.requests.slice(1, 9)).toEqual(Array(8).fill(f.requests[1]));
+    expect(supplier).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(f.requests.slice(0, 9))).toContain('A BEFORE PIN ADMISSION');
+    expect(JSON.stringify(f.requests.slice(0, 9))).not.toContain('B AFTER PIN ADMISSION');
+    expect(f.fetch.mock.calls.slice(1, 9).map(call => call[1]?.body)).toEqual(Array(8).fill(f.fetch.mock.calls[1]![1]?.body));
     expect(f.rows().filter(row => row.kind === 'content_policy_retry')).toHaveLength(1);
     expect(f.projection).toHaveBeenCalledTimes(1);
     expect(f.projection.mock.calls[0]![3].map(attempt => attempt.attempt_index)).toEqual(Array.from({ length: 9 }, (_, i) => i));
@@ -307,7 +363,14 @@ describe('content-policy successful pin continuation ownership', () => {
     const next = f.admission.mock.calls[1]![0];
     expect(next.inputId).not.toBe(f.input.inputId);
     expect(next.routePass).toEqual({ kind: 'ordinary', candidateChain: CHAIN });
-    expect(next.preparedContext).toBe(f.input.preparedContext);
+    expect(next.preparedContext!.stableBlocks).toBe(f.input.preparedContext.stableBlocks);
+    expect(next.preparedContext!.recordBlocks).not.toBe(f.admission.mock.calls[0]![0].preparedContext!.recordBlocks);
+    expect(supplier).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(f.rows().filter(row => row.kind === 'record_observation')).toHaveLength(2);
+    expect(JSON.stringify(f.requests.slice(9))).toContain('B AFTER PIN ADMISSION');
+    expect(JSON.stringify(f.requests.slice(9))).not.toContain('C AFTER CONTINUATION ADMISSION');
+    expect(f.fetch.mock.calls.slice(9).map(call => call[1]?.body)).toEqual(Array(6).fill(f.fetch.mock.calls[9]![1]?.body));
     expect(f.requests.slice(9)).toEqual(Array(6).fill(f.requests[9]));
     expect(f.projection).toHaveBeenCalledTimes(2);
     expect(f.projection.mock.calls[1]![3]).toHaveLength(6);

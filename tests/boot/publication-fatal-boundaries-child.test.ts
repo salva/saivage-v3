@@ -36,6 +36,15 @@ function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
 }
 
 describe('publication fatal owner boundaries', () => {
+  it('exits synchronous bootstrap preparation publication before any later lease check, compaction, admission or settlement', () => {
+    const root = mkdtempSync(join(tmpdir(), 'publication-bootstrap-preparation-')); roots.push(root);
+    const marker = join(root, 'marker'); writeFileSync(marker, '');
+    const result = child('llm-bootstrap-preparation', marker);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(diagnostic);
+    expect(readFileSync(marker, 'utf8')).toBe('lease-check\nsupplier\nrecord-read\npreparation-publication\n');
+  });
   it.each(['read-owned-provider', 'read-owned-conversation', 'read-owned-log', 'log-append-torn'])('exits real REST %s ownership before response, diagnostic, or later effects', (mode) => {
     expectFatalOwner(mode, diagnosticWithCause('truncate uncertain'));
   });

@@ -1,4 +1,5 @@
 export { appendAppLogEntry, readAppLogEntries } from './app-log.js';
+export { observeRecordProjection } from './record-observation.js';
 export { publishFreshFile } from './replace-file.js';
 export type { AppLogPublicationContext } from './app-log.js';
 export {

@@ -29,7 +29,7 @@ test('browser sends frozen card focus to real shared Analyst while inspected con
     let release!: () => void;
     const paused = new Promise<void>((resolve) => { release = resolve; });
     const provider = scriptedAdmissionProvider(async (input) => {
-      const block = input.preparedContext!.dynamicBlocks.find((item) => item.id === 'analyst.workspace_focus')!;
+      const block = input.preparedContext!.stableBlocks.find((item) => item.id === 'analyst.workspace_focus')!;
       observed.push({ content: block.content, focus: JSON.parse(block.content) });
       if (observed.length === 1) await paused;
       return { result: { kind: 'message' as const, content: 'acknowledged' }, provider_exchanges: [] };

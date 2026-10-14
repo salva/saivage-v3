@@ -1,5 +1,29 @@
 # Operator UI: Exact Contracts Register
 
+Prepared format-9 activation evidence uses named `activation_id`, `caller`, `card`,
+`parent_direction`, `role_text` and `node` fields. Root/card ingress records its actual
+activation and stable orientation; global preparation has null activation/card/parent
+and a global caller. Parent callers record exact parent card/session/source-input/call/
+tool provenance, with separately recorded rendered parent direction. Privacy applies
+independently to text and metadata. Non-model ingress stays `not_applicable`; unrecorded
+instructions stay `unavailable`. History is never filled from current configuration.
+
+At prepared boundaries, **Parent activation direction** and **Caller and card
+orientation** disclose complete privacy-filtered recorded values with safe full copy.
+Root/global callers explicitly have no parent direction. Conditional `record_prompt`
+bytes render as **Recorded workflow instruction** in actual source order, with
+initial/changed provenance. **Recorded record observations** identifies owning
+read/mutation/preparation/prompt, selection kind/view, accepted/draft/absence and
+metadata/slice/full_body/reference_only exposure. Slice byte coordinates remain exact.
+Compacted latest descriptors retain original source coordinates/time and are not
+inserted into the timeline as fresh observations. **Inspect immutable record evidence**
+selects only the recorded accepted locator (including draft backing), not today's
+record/template or historical request bytes. Preparation descriptors explicitly state
+that full prepared record text was not recorded. Public row policy omits internal
+hashes, templates and evidence arguments; descriptor hashes are omitted independently
+from text redaction, including protected copies and required facts. Existing tool
+pairing, exact anchors, inline scrolling and current-config/Debug Graph views remain.
+
 Outstanding named-agent execution includes provider overload/backoff, not just
 active wire consumption. Existing provider-resource refresh reports advisory
 cooling/reason/deadline, not an exact send countdown. Compaction in-flight means

@@ -14,6 +14,7 @@ function visible(entry: AgentConversationEntry): boolean {
   return entry.kind === 'tool_call' || entry.kind === 'tool_result' || entry.kind === 'content_policy_refusal'
     || (entry.kind === 'text' && entry.content.trim().length > 0)
     || ['model_issue', 'model_repair', 'model_recovered'].includes(entry.kind)
+    || entry.kind === 'record_prompt' || entry.kind === 'record_observation'
     || activationEntry(entry) !== null;
 }
 export function entriesToTimeline(entries: readonly AgentConversationEntry[]): AgentTimeline {

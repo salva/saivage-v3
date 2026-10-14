@@ -114,6 +114,17 @@ export type CompiledPromptDeclaration = Readonly<{
   compactable: boolean;
   compactionKey?: string;
 }>;
+type CompiledRecordPrompt = Readonly<{
+  record: RecordName;
+  selection: 'accepted' | 'effective';
+  presence: 'required' | 'optional';
+  prompt: CompiledPromptDeclaration;
+  artifact: Readonly<{
+    source: PromptArtifactSource;
+    path: string;
+    compiled: CompiledPromptTemplate;
+  }>;
+}>;
 type ProcessTransitionSemantic =
   | Readonly<{ kind: 'activation' }>
   | Readonly<{ kind: 'entry-route'; prompt: CompiledPromptDeclaration | null }>
@@ -148,6 +159,7 @@ export type CompiledNodeContract = ProcessStateBase &
     selectedAgentPrompt: CompiledAgentPrompt;
     prompt: CompiledPromptDeclaration;
     correctionPrompt: CompiledPromptDeclaration;
+    recordPrompts: readonly CompiledRecordPrompt[];
     requirements: readonly CompiledRecordRequirement[];
     descendantContext: CompiledDescendantContext | null;
     childCreationTypes: ReadonlySet<CardTypeName>;
@@ -513,6 +525,14 @@ function compileAgents(config: SaivageConfig): ReadonlyMap<AgentName, CompiledAg
     const duplicate = new Set<string>();
     const tools: CompiledToolReference[] = [];
     for (const tool of source.tools) {
+      if (
+        tool === 'queue_notification' &&
+        (source.session !== 'global' ||
+          (name !== config.analyst_agent && name !== config.oversight.agent))
+      )
+        throw new Error(
+          `agents.${name}.tools may select queue_notification only for the configured Analyst or Oversight.`,
+        );
       if (duplicate.has(tool))
         throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);
       duplicate.add(tool);
@@ -581,6 +601,7 @@ type ProcessNodeDraft = Readonly<{
   selectedAgentPrompt: CompiledAgentPrompt;
   prompt: CompiledPromptDeclaration;
   correctionPrompt: CompiledPromptDeclaration;
+  recordPrompts: readonly CompiledRecordPrompt[];
   requirements: readonly CompiledRecordRequirement[];
   descendantContext: CompiledDescendantContext | null;
   edges: ReadonlyMap<string, ProcessEdgeDraft>;
@@ -774,12 +795,52 @@ function compileCardTypeInputs(
       agent,
       roots,
     );
+    const seenRecordViews = new Set<string>();
+    const recordPrompts = Object.freeze(
+      (node.record_prompts ?? []).map((input, index) => {
+        const name = parseRecordName(input.record);
+        if (!records.has(name))
+          throw new Error(
+            `${location}.workflow.nodes.${nodeId}.record_prompts references unknown record '${name}'.`,
+          );
+        const key = JSON.stringify([name, input.selection]);
+        if (seenRecordViews.has(key))
+          throw new Error(
+            `${location}.workflow.nodes.${nodeId}.record_prompts duplicates record/view '${name}/${input.selection}'.`,
+          );
+        seenRecordViews.add(key);
+        const declaration = compilePromptDeclaration(
+          input.prompt,
+          `${location}.workflow.nodes.${nodeId}.record_prompts.${index}.prompt`,
+        );
+        const host: PromptHost = { kind: 'record-context', cardType };
+        const selected = selectPrompt('process', host, declaration.promptId, roots);
+        const compiled = compilePromptTemplate({
+          host,
+          name: declaration.promptId,
+          path: selected.path,
+          text: selected.text,
+          resolveFragment: (id) => {
+            const fragment = selectPrompt('fragments', host, id, roots);
+            return { path: fragment.path, text: fragment.text };
+          },
+        });
+        return Object.freeze({
+          record: name,
+          selection: input.selection,
+          presence: input.presence,
+          prompt: declaration,
+          artifact: Object.freeze({ source: selected.source, path: selected.path, compiled }),
+        });
+      }),
+    );
     nodes.set(
       nodeId,
       Object.freeze({
         nodeId,
         agent,
         selectedAgentPrompt,
+        recordPrompts,
         prompt: compilePromptDeclaration(
           node.prompt,
           `${location}.workflow.nodes.${nodeId}.prompt`,
@@ -1046,6 +1107,7 @@ function buildCardTypeStateTable(
         selectedAgentPrompt: node.selectedAgentPrompt,
         prompt: node.prompt,
         correctionPrompt: node.correctionPrompt,
+        recordPrompts: node.recordPrompts,
         requirements: node.requirements,
         descendantContext: node.descendantContext,
         childCreationTypes: node.childCreationTypes,

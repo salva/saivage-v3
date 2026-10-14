@@ -156,7 +156,7 @@ describe('composition projector selection pass', () => {
     const node = dynamicBlock('node-activation:project:work', { role: 'system', content: "Current workflow node 'work':\n\nCURRENT-NODE" });
     const oldNode = row({ id: 'old-node-looking-row', role: 'user', kind: 'text', content: 'CURRENT-NODE' });
     const ownerRequirement = row({ id: 'owner-requirement', role: 'user', kind: 'text', content: 'Still-applicable owner requirement' });
-    const effectiveHistory = historyFacts({ summaryText: 'Draft proposal, not approval', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } });
+    const effectiveHistory = historyFacts({ summaryText: 'Draft proposal, not approval', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } });
 
     const provider = providerConversationFromComposedContext(compose([oldNode, ownerRequirement], { effectiveHistory, dynamicBlocks: [card, node] }));
     expect(provider.messages.map((item) => item.kind === 'synthetic_context' ? item.origin : item.id)).toEqual([
@@ -191,7 +191,7 @@ describe('composition projector selection pass', () => {
 
   it('omits activation boundaries and provider failures from both projections', () => {
     const composed = compose([
-      agentMessageSchema.parse(row({ id: 'act', role: 'system', kind: 'activity', content: JSON.stringify({event:'activation_open',agent_name:'planner',card_id:'project',input_id:INPUT_A,timestamp:TS,instructions:{kind:'prepared',role_text:'ROLE-EVIDENCE-NOT-CONTEXT',node:{node_id:'plan',text:'NODE-EVIDENCE-NOT-CONTEXT'}}}), context_policy: STRUCTURAL_ROW_POLICY.activation_boundary })),
+      agentMessageSchema.parse(row({ id: 'act', role: 'system', kind: 'activity', content: JSON.stringify({event:'activation_open',agent_name:'planner',card_id:'project',input_id:INPUT_A,timestamp:TS,instructions:{kind:'prepared',activation_id:INPUT_A,caller:{kind:'root'},card:{cardId:'project',cardType:'project',title:'Synthetic project'},parent_direction:null,role_text:'ROLE-EVIDENCE-NOT-CONTEXT',node:{node_id:'plan',text:'NODE-EVIDENCE-NOT-CONTEXT'}}}), context_policy: STRUCTURAL_ROW_POLICY.activation_boundary })),
       row({ id: 'issue', role: 'assistant', kind: 'model_issue', content: 'provider blew up', context_policy: STRUCTURAL_ROW_POLICY.provider_failure }),
       row({ id: 't1', role: 'user', kind: 'text', content: 'hello' }),
     ]);
@@ -221,6 +221,7 @@ describe('bounded repeated-event rule', () => {
     const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({
       summaryText: 'prior prose',
       requiredModelFacts: {
+        latestRecordObservations: [],
         latestRecovery: { sourceMessageId: `${INPUT_A}:model-recovered`, activationInputId: INPUT_A },
         latestContentPolicyRefusal: { markerId: refusalA.id, activationInputId: INPUT_A },
       },
@@ -244,7 +245,7 @@ describe('bounded repeated-event rule', () => {
     const markerId = refusalRow(INPUT_A).id;
     const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({
       summaryText: 'accumulated',
-      requiredModelFacts: { latestRecovery: recovery, latestContentPolicyRefusal: { markerId, activationInputId: INPUT_A } },
+      requiredModelFacts: { latestRecovery: recovery, latestContentPolicyRefusal: { markerId, activationInputId: INPUT_A }, latestRecordObservations: [] },
     });
     const composed = compose([], { effectiveHistory });
     const rows = canonicalRows(composed);
@@ -256,7 +257,7 @@ describe('bounded repeated-event rule', () => {
   });
 
   it('rejects an inherited recovery slot that does not match its activation identity', () => {
-    const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({ summaryText: 'x', requiredModelFacts: { latestRecovery: { sourceMessageId: 'not-the-identity', activationInputId: INPUT_A }, latestContentPolicyRefusal: null } });
+    const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({ summaryText: 'x', requiredModelFacts: { latestRecovery: { sourceMessageId: 'not-the-identity', activationInputId: INPUT_A }, latestContentPolicyRefusal: null, latestRecordObservations: [] } });
     expect(() => compose([], { effectiveHistory })).toThrow(/does not match its activation identity/);
   });
 
@@ -369,7 +370,7 @@ describe('primary process-result projection', () => {
     const retained = agentMessageSchema.parse(row({ id: 'retained', role: 'user', kind: 'text', content: 'EXACT RETAINED INSTRUCTION' }));
     const prepared = Object.freeze(dynamicBlock('prepared', { role: 'system', content: 'EXACT PREPARED PREFIX' }));
     const effectiveHistory: EffectiveCompactedHistoryFacts = {
-      ...historyFacts({ summaryText: 'prior', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } }),
+      ...historyFacts({ summaryText: 'prior', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } }),
       protectedPrompts: [{ source: { segmentVersion: 2, rowIndex: 7 }, message: retained }],
     };
     const composed = compose(rows, { effectiveHistory, dynamicBlocks: [prepared] });

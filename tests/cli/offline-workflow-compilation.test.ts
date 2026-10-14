@@ -1,30 +1,80 @@
-import { afterEach,describe,expect,it,jest } from '@jest/globals';
-import { existsSync,mkdirSync,mkdtempSync,readFileSync,readdirSync,rmSync,writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname,join,relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import * as YAML from 'yaml';
 import { run } from '../../src/cli.js';
-import { DEFAULT_SAIVAGE_CONFIG,resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
+import {
+  DEFAULT_SAIVAGE_CONFIG,
+  resolveSystemTemplate,
+} from '../../src/config/system-templates/registry.js';
 import { SAIVAGE_VERSION } from '../../src/version.js';
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
-import { createProjectIdentity,readProjectIdentity } from '../../src/persistence/project-identity.js';
+import {
+  createProjectIdentity,
+  readProjectIdentity,
+} from '../../src/persistence/project-identity.js';
 import { readCard } from '../../src/persistence/card-files.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
-import { cardConversationVersionIndexFile, globalAgentConversationRoot, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import {
+  cardConversationVersionIndexFile,
+  globalAgentConversationRoot,
+  runtimeProcessLockFile,
+} from '../../src/persistence/layout.js';
 
-const roots:string[]=[];const cwd=process.cwd();afterEach(()=>{process.chdir(cwd);jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
-function root(){const value=mkdtempSync(join(tmpdir(),'offline-workflow-'));roots.push(value);return value;}
-function write(path:string,content:string){mkdirSync(dirname(path),{recursive:true});writeFileSync(path,content);}
-function walkFiles(rootValue:string,current=rootValue):string[]{const files:string[]=[];for(const entry of readdirSync(current,{withFileTypes:true})){const path=join(current,entry.name);if(entry.isDirectory())files.push(...walkFiles(rootValue,path));else if(entry.isFile())files.push(relative(rootValue,path));}return files.sort();}
-function assertTreeEqual(sourceRoot:string,actualRoot:string){expect(walkFiles(actualRoot)).toEqual(walkFiles(sourceRoot));for(const file of walkFiles(sourceRoot))expect(readFileSync(join(actualRoot,file))).toEqual(readFileSync(join(sourceRoot,file)));}
-async function command(projectRoot:string,name:string,...args:string[]){process.chdir(projectRoot);await run(['node','saivage',name,...args]);}
+const roots: string[] = [];
+const cwd = process.cwd();
+afterEach(() => {
+  process.chdir(cwd);
+  jest.restoreAllMocks();
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
+function root() {
+  const value = mkdtempSync(join(tmpdir(), 'offline-workflow-'));
+  roots.push(value);
+  return value;
+}
+function write(path: string, content: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+function walkFiles(rootValue: string, current = rootValue): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(current, { withFileTypes: true })) {
+    const path = join(current, entry.name);
+    if (entry.isDirectory()) files.push(...walkFiles(rootValue, path));
+    else if (entry.isFile()) files.push(relative(rootValue, path));
+  }
+  return files.sort();
+}
+function assertTreeEqual(sourceRoot: string, actualRoot: string) {
+  expect(walkFiles(actualRoot)).toEqual(walkFiles(sourceRoot));
+  for (const file of walkFiles(sourceRoot))
+    expect(readFileSync(join(actualRoot, file))).toEqual(readFileSync(join(sourceRoot, file)));
+}
+async function command(projectRoot: string, name: string, ...args: string[]) {
+  process.chdir(projectRoot);
+  await run(['node', 'saivage', name, ...args]);
+}
 
-describe('offline workflow compilation and publication',()=>{
+describe('offline workflow compilation and publication', () => {
   it('reports safe warnings for its successful offline load without disclosing environment values', async () => {
     const projectRoot = root();
     const fixture = structuredClone(TEST_SAIVAGE_CONFIG);
-    fixture.providers.test!.apiKey = '${BATCH_F_SYNTHETIC_VALUE}${BATCH_F_MISSING}${ghp_SyntheticWarningName123}';
-    const env: NodeJS.ProcessEnv = { ...process.env, BATCH_F_SYNTHETIC_VALUE: 'distinctive-synthetic-cli-env-value' };
+    fixture.providers.test!.apiKey =
+      '${BATCH_F_SYNTHETIC_VALUE}${BATCH_F_MISSING}${ghp_SyntheticWarningName123}';
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      BATCH_F_SYNTHETIC_VALUE: 'distinctive-synthetic-cli-env-value',
+    };
     delete env['BATCH_F_MISSING'];
     delete env['ghp_SyntheticWarningName123'];
     jest.replaceProperty(process, 'env', env);
@@ -37,60 +87,306 @@ describe('offline workflow compilation and publication',()=>{
       ["Configuration warning: Environment variable 'BATCH_F_MISSING' is not set."],
       ["Configuration warning: Environment variable 'ghp-[REDACTED]' is not set."],
     ]);
-    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain('distinctive-synthetic-cli-env-value');
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain(
+      'distinctive-synthetic-cli-env-value',
+    );
     diagnostics.mockClear();
     const invalidRoot = root();
-    write(join(invalidRoot, '.saivage', 'saivage.yaml'), YAML.stringify({ ...fixture, unknown_contract: true }));
+    write(
+      join(invalidRoot, '.saivage', 'saivage.yaml'),
+      YAML.stringify({ ...fixture, unknown_contract: true }),
+    );
     await expect(command(invalidRoot, 'init')).rejects.toThrow(/Configuration validation failed/);
     expect(diagnostics).not.toHaveBeenCalled();
     expect(readProjectIdentity(invalidRoot)).toBeNull();
   });
 
-  it('init materializes prompts and marker before the config YAML and validates before identity/card publication',async()=>{const projectRoot=root();const log=jest.spyOn(console,'log').mockImplementation(()=>{});await command(projectRoot,'init');const configPath=join(projectRoot,'.saivage','saivage.yaml');const promptsRoot=join(projectRoot,'.saivage','config','prompts');const fragmentPath=join(promptsRoot,'fragments','_shared','project-guidance-common.md');const bytes=readFileSync(configPath);const source=YAML.parse(bytes.toString()) as Record<string,unknown>;expect(source).not.toHaveProperty('card_type_set');expect(source.card_types).toEqual(resolveSystemTemplate('classic').config.card_types);expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic',saivage_version:SAIVAGE_VERSION});assertTreeEqual(resolveSystemTemplate('classic').promptRoot,promptsRoot);expect(readFileSync(fragmentPath)).toEqual(readFileSync(join(resolveSystemTemplate('classic').promptRoot,'fragments','_shared','project-guidance-common.md')));const effective=createResolvedConfigAuthority({path:configPath,interpolationEnvironment:{},projectRoot}).loadEffective();expect(effective.config).toEqual(DEFAULT_SAIVAGE_CONFIG);expect(readCard(projectRoot,'project')).toMatchObject({id:'project',type:'project'});expect(existsSync(globalAgentConversationRoot(projectRoot,'oversight'))).toBe(false);const markerPath=join(projectRoot,'.saivage','config','template.json');const markerBytes=readFileSync(markerPath);writeFileSync(fragmentPath,'operator edited guidance');log.mockClear();await command(projectRoot,'init','--profile','classic-typed');expect(log.mock.calls.map(([line])=>line)).toEqual([`Project layout already exists at ${projectRoot}`,'Existing configuration preserved']);expect(readFileSync(configPath)).toEqual(bytes);expect(readFileSync(markerPath)).toEqual(markerBytes);expect(readFileSync(fragmentPath,'utf8')).toBe('operator edited guidance');
-    log.mockClear();const invalidRoot=root();write(join(invalidRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(DEFAULT_SAIVAGE_CONFIG),unknown_old_contract:true}));await expect(command(invalidRoot,'init')).rejects.toThrow(/Configuration validation failed/);expect(log).not.toHaveBeenCalled();expect(readProjectIdentity(invalidRoot)).toBeNull();expect(existsSync(join(invalidRoot,'.saivage','cards'))).toBe(false);
+  it('init materializes prompts and marker before the config YAML and validates before identity/card publication', async () => {
+    const projectRoot = root();
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await command(projectRoot, 'init');
+    const configPath = join(projectRoot, '.saivage', 'saivage.yaml');
+    const promptsRoot = join(projectRoot, '.saivage', 'config', 'prompts');
+    const fragmentPath = join(promptsRoot, 'fragments', '_shared', 'project-guidance-common.md');
+    const bytes = readFileSync(configPath);
+    const source = YAML.parse(bytes.toString()) as Record<string, unknown>;
+    expect(source).not.toHaveProperty('card_type_set');
+    expect(source.card_types).toEqual(resolveSystemTemplate('classic').config.card_types);
+    expect(
+      JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
+    ).toEqual({ template: 'classic', saivage_version: SAIVAGE_VERSION });
+    assertTreeEqual(resolveSystemTemplate('classic').promptRoot, promptsRoot);
+    expect(readFileSync(fragmentPath)).toEqual(
+      readFileSync(
+        join(
+          resolveSystemTemplate('classic').promptRoot,
+          'fragments',
+          '_shared',
+          'project-guidance-common.md',
+        ),
+      ),
+    );
+    const effective = createResolvedConfigAuthority({
+      path: configPath,
+      interpolationEnvironment: {},
+      projectRoot,
+    }).loadEffective();
+    expect(effective.config).toEqual(DEFAULT_SAIVAGE_CONFIG);
+    expect(readCard(projectRoot, 'project')).toMatchObject({ id: 'project', type: 'project' });
+    expect(existsSync(globalAgentConversationRoot(projectRoot, 'oversight'))).toBe(false);
+    const markerPath = join(projectRoot, '.saivage', 'config', 'template.json');
+    const markerBytes = readFileSync(markerPath);
+    writeFileSync(fragmentPath, 'operator edited guidance');
+    log.mockClear();
+    await command(projectRoot, 'init', '--profile', 'classic-typed');
+    expect(log.mock.calls.map(([line]) => line)).toEqual([
+      `Project layout already exists at ${projectRoot}`,
+      'Existing configuration preserved',
+    ]);
+    expect(readFileSync(configPath)).toEqual(bytes);
+    expect(readFileSync(markerPath)).toEqual(markerBytes);
+    expect(readFileSync(fragmentPath, 'utf8')).toBe('operator edited guidance');
+    log.mockClear();
+    const invalidRoot = root();
+    write(
+      join(invalidRoot, '.saivage', 'saivage.yaml'),
+      YAML.stringify({ ...structuredClone(DEFAULT_SAIVAGE_CONFIG), unknown_old_contract: true }),
+    );
+    await expect(command(invalidRoot, 'init')).rejects.toThrow(/Configuration validation failed/);
+    expect(log).not.toHaveBeenCalled();
+    expect(readProjectIdentity(invalidRoot)).toBeNull();
+    expect(existsSync(join(invalidRoot, '.saivage', 'cards'))).toBe(false);
   });
 
-  it('init --profile classic-typed reports new materialization and same-template rematerialization around retained generated state',async()=>{const projectRoot=root();const log=jest.spyOn(console,'log').mockImplementation(()=>{});await command(projectRoot,'init','--profile','classic-typed');expect(log.mock.calls.map(([line])=>line)).toEqual([`Project layout initialized at ${projectRoot}`,'Configuration materialized from template classic-typed']);const template=resolveSystemTemplate('classic-typed');const configPath=join(projectRoot,'.saivage','saivage.yaml');const promptsRoot=join(projectRoot,'.saivage','config','prompts');const source=YAML.parse(readFileSync(configPath).toString()) as Record<string,unknown>;expect(source.card_types).toEqual(template.config.card_types);expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic-typed',saivage_version:SAIVAGE_VERSION});expect(walkFiles(promptsRoot)).toHaveLength(walkFiles(template.promptRoot).length);expect(existsSync(join(promptsRoot,'fragments','_shared','project-guidance-analyst.md'))).toBe(true);assertTreeEqual(template.promptRoot,promptsRoot);const effective=createResolvedConfigAuthority({path:configPath,interpolationEnvironment:{},projectRoot}).loadEffective();expect([...effective.workflows.cardTypes.get('code')!.states.keys()]).toContain('node:green');
-    const cardPath=join(projectRoot,'.saivage','cards','project','card-head.json');const briefPath=join(projectRoot,'.saivage','cards','project','records','record-brief.json');const cardBytes=readFileSync(cardPath);const briefBytes=readFileSync(briefPath);rmSync(join(projectRoot,'.saivage','config'),{recursive:true,force:true});rmSync(configPath);log.mockClear();await command(projectRoot,'init','--profile','classic-typed');expect(log.mock.calls.map(([line])=>line)).toEqual([`Project layout already exists at ${projectRoot}`,'Configuration materialized from template classic-typed']);expect(readFileSync(cardPath)).toEqual(cardBytes);expect(readFileSync(briefPath)).toEqual(briefBytes);expect((YAML.parse(readFileSync(configPath,'utf8')) as Record<string,unknown>).card_types).toEqual(template.config.card_types);assertTreeEqual(template.promptRoot,promptsRoot);expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic-typed',saivage_version:SAIVAGE_VERSION});
+  it('init --profile classic-typed reports new materialization and same-template rematerialization around retained generated state', async () => {
+    const projectRoot = root();
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await command(projectRoot, 'init', '--profile', 'classic-typed');
+    expect(log.mock.calls.map(([line]) => line)).toEqual([
+      `Project layout initialized at ${projectRoot}`,
+      'Configuration materialized from template classic-typed',
+    ]);
+    const template = resolveSystemTemplate('classic-typed');
+    const configPath = join(projectRoot, '.saivage', 'saivage.yaml');
+    const promptsRoot = join(projectRoot, '.saivage', 'config', 'prompts');
+    const source = YAML.parse(readFileSync(configPath).toString()) as Record<string, unknown>;
+    expect(source.card_types).toEqual(template.config.card_types);
+    expect(
+      JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
+    ).toEqual({ template: 'classic-typed', saivage_version: SAIVAGE_VERSION });
+    expect(walkFiles(promptsRoot)).toHaveLength(walkFiles(template.promptRoot).length);
+    expect(
+      existsSync(join(promptsRoot, 'fragments', '_shared', 'project-guidance-analyst.md')),
+    ).toBe(true);
+    assertTreeEqual(template.promptRoot, promptsRoot);
+    const effective = createResolvedConfigAuthority({
+      path: configPath,
+      interpolationEnvironment: {},
+      projectRoot,
+    }).loadEffective();
+    expect([...effective.workflows.cardTypes.get('code')!.states.keys()]).toContain('node:green');
+    const cardPath = join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json');
+    const briefPath = join(
+      projectRoot,
+      '.saivage',
+      'cards',
+      'project',
+      'records',
+      'record-brief.json',
+    );
+    const cardBytes = readFileSync(cardPath);
+    const briefBytes = readFileSync(briefPath);
+    rmSync(join(projectRoot, '.saivage', 'config'), { recursive: true, force: true });
+    rmSync(configPath);
+    log.mockClear();
+    await command(projectRoot, 'init', '--profile', 'classic-typed');
+    expect(log.mock.calls.map(([line]) => line)).toEqual([
+      `Project layout already exists at ${projectRoot}`,
+      'Configuration materialized from template classic-typed',
+    ]);
+    expect(readFileSync(cardPath)).toEqual(cardBytes);
+    expect(readFileSync(briefPath)).toEqual(briefBytes);
+    expect(
+      (YAML.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>).card_types,
+    ).toEqual(template.config.card_types);
+    assertTreeEqual(template.promptRoot, promptsRoot);
+    expect(
+      JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
+    ).toEqual({ template: 'classic-typed', saivage_version: SAIVAGE_VERSION });
   });
 
-  it('rejects identity-changing template rematerialization while retaining generated bytes and materialized inputs',async()=>{
-    const projectRoot=root();
-    const custom=structuredClone(DEFAULT_SAIVAGE_CONFIG);
-    custom.agents['planner-v2']={...custom.agents.planner!};
-    for(const node of Object.values(custom.card_types.project!.workflow.nodes))if(node.agent==='planner')node.agent='planner-v2';
-    if(custom.card_types.project!.workflow.notification_recipient==='planner')custom.card_types.project!.workflow.notification_recipient='planner-v2';
-    const configPath=join(projectRoot,'.saivage','saivage.yaml');
-    write(configPath,YAML.stringify(custom));
-    const log=jest.spyOn(console,'log').mockImplementation(()=>{});
-    await command(projectRoot,'init');
-    const cardPath=join(projectRoot,'.saivage','cards','project','card-head.json');
-    const briefPath=join(projectRoot,'.saivage','cards','project','records','record-brief.json');
-    const oldIndex=cardConversationVersionIndexFile(projectRoot,'project','planner-v2');
-    const retained=new Map([[cardPath,readFileSync(cardPath)],[briefPath,readFileSync(briefPath)],[oldIndex,readFileSync(oldIndex)]]);
+  it('rejects identity-changing template rematerialization while retaining generated bytes and materialized inputs', async () => {
+    const projectRoot = root();
+    const custom = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+    custom.agents['planner-v2'] = { ...custom.agents.planner! };
+    for (const node of Object.values(custom.card_types.project!.workflow.nodes))
+      if (node.agent === 'planner') node.agent = 'planner-v2';
+    if (custom.card_types.project!.workflow.notification_recipient === 'planner')
+      custom.card_types.project!.workflow.notification_recipient = 'planner-v2';
+    const configPath = join(projectRoot, '.saivage', 'saivage.yaml');
+    write(configPath, YAML.stringify(custom));
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await command(projectRoot, 'init');
+    const cardPath = join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json');
+    const briefPath = join(
+      projectRoot,
+      '.saivage',
+      'cards',
+      'project',
+      'records',
+      'record-brief.json',
+    );
+    const oldIndex = cardConversationVersionIndexFile(projectRoot, 'project', 'planner-v2');
+    const retained = new Map([
+      [cardPath, readFileSync(cardPath)],
+      [briefPath, readFileSync(briefPath)],
+      [oldIndex, readFileSync(oldIndex)],
+    ]);
     rmSync(configPath);
     log.mockClear();
 
-    await expect(command(projectRoot,'init')).rejects.toThrow("Required conversation index for current configured session 'agent:planner:project' is missing from initialized generated state.");
+    await expect(command(projectRoot, 'init')).rejects.toThrow(
+      "Required conversation index for current configured session 'agent:planner:project' is missing from initialized generated state.",
+    );
 
     expect(log).not.toHaveBeenCalled();
-    for(const [path,bytes] of retained)expect(readFileSync(path)).toEqual(bytes);
-    expect(existsSync(cardConversationVersionIndexFile(projectRoot,'project','planner'))).toBe(false);
-    expect((YAML.parse(readFileSync(configPath,'utf8')) as Record<string,unknown>).card_types).toEqual(resolveSystemTemplate('classic').config.card_types);
-    expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic',saivage_version:SAIVAGE_VERSION});
+    for (const [path, bytes] of retained) expect(readFileSync(path)).toEqual(bytes);
+    expect(existsSync(cardConversationVersionIndexFile(projectRoot, 'project', 'planner'))).toBe(
+      false,
+    );
+    expect(
+      (YAML.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>).card_types,
+    ).toEqual(resolveSystemTemplate('classic').config.card_types);
+    expect(
+      JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
+    ).toEqual({ template: 'classic', saivage_version: SAIVAGE_VERSION });
     expect(existsSync(runtimeProcessLockFile(projectRoot))).toBe(false);
   });
 
-  it('init --profile with an unknown name fails before any write',async()=>{const projectRoot=root();jest.spyOn(console,'log').mockImplementation(()=>{});await expect(command(projectRoot,'init','--profile','nope')).rejects.toThrow(/Unknown template 'nope'. Available templates: classic, classic-typed/);expect(existsSync(join(projectRoot,'.saivage','saivage.yaml'))).toBe(false);expect(existsSync(join(projectRoot,'.saivage','config','prompts'))).toBe(false);expect(existsSync(join(projectRoot,'.saivage','config','template.json'))).toBe(false);expect(readProjectIdentity(projectRoot)).toBeNull();expect(existsSync(join(projectRoot,'.saivage','cards'))).toBe(false);
+  it('init --profile with an unknown name fails before any write', async () => {
+    const projectRoot = root();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    await expect(command(projectRoot, 'init', '--profile', 'nope')).rejects.toThrow(
+      /Unknown template 'nope'. Available templates: classic, classic-typed/,
+    );
+    expect(existsSync(join(projectRoot, '.saivage', 'saivage.yaml'))).toBe(false);
+    expect(existsSync(join(projectRoot, '.saivage', 'config', 'prompts'))).toBe(false);
+    expect(existsSync(join(projectRoot, '.saivage', 'config', 'template.json'))).toBe(false);
+    expect(readProjectIdentity(projectRoot)).toBeNull();
+    expect(existsSync(join(projectRoot, '.saivage', 'cards'))).toBe(false);
   });
 
-  it('config-absent re-init completes a partial tree without clobbering operator overrides',async()=>{const projectRoot=root();jest.spyOn(console,'log').mockImplementation(()=>{});const operatorOverride='OPERATOR ANALYST {{vocabularySnippet}}';write(join(projectRoot,'.saivage','config','prompts','agents','_shared','analyst.md'),operatorOverride);write(join(projectRoot,'.saivage','config','prompts','operators-extra.md'),'operator file');await command(projectRoot,'init');const template=resolveSystemTemplate('classic');const promptsRoot=join(projectRoot,'.saivage','config','prompts');expect(readFileSync(join(promptsRoot,'agents','_shared','analyst.md'),'utf8')).toBe(operatorOverride);expect(readFileSync(join(promptsRoot,'operators-extra.md'),'utf8')).toBe('operator file');expect(existsSync(join(promptsRoot,'fragments','_shared','project-guidance-executor.md'))).toBe(true);const materialized=new Set(walkFiles(promptsRoot));for(const file of walkFiles(template.promptRoot))expect(materialized.has(file)).toBe(true);expect(walkFiles(promptsRoot)).toHaveLength(walkFiles(template.promptRoot).length+1);
-    rmSync(join(projectRoot,'.saivage','saivage.yaml'));rmSync(join(promptsRoot,'process','_shared'),{recursive:true,force:true});writeFileSync(join(promptsRoot,'agents','_shared','analyst.md'),'operator edited');await command(projectRoot,'init');expect(readFileSync(join(promptsRoot,'agents','_shared','analyst.md'),'utf8')).toBe('operator edited');expect(existsSync(join(promptsRoot,'process','_shared','plan.md'))).toBe(true);expect(existsSync(join(projectRoot,'.saivage','saivage.yaml'))).toBe(true);expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic',saivage_version:SAIVAGE_VERSION});expect(createResolvedConfigAuthority({path:join(projectRoot,'.saivage','saivage.yaml'),interpolationEnvironment:{},projectRoot}).loadEffective().config).toEqual(DEFAULT_SAIVAGE_CONFIG);
+  it('config-absent re-init completes a partial tree without clobbering operator overrides', async () => {
+    const projectRoot = root();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const operatorOverride = 'OPERATOR ANALYST {{vocabularySnippet}}';
+    write(
+      join(projectRoot, '.saivage', 'config', 'prompts', 'agents', '_shared', 'analyst.md'),
+      operatorOverride,
+    );
+    write(
+      join(projectRoot, '.saivage', 'config', 'prompts', 'operators-extra.md'),
+      'operator file',
+    );
+    await command(projectRoot, 'init');
+    const template = resolveSystemTemplate('classic');
+    const promptsRoot = join(projectRoot, '.saivage', 'config', 'prompts');
+    expect(readFileSync(join(promptsRoot, 'agents', '_shared', 'analyst.md'), 'utf8')).toBe(
+      operatorOverride,
+    );
+    expect(readFileSync(join(promptsRoot, 'operators-extra.md'), 'utf8')).toBe('operator file');
+    expect(
+      existsSync(join(promptsRoot, 'fragments', '_shared', 'project-guidance-executor.md')),
+    ).toBe(true);
+    const materialized = new Set(walkFiles(promptsRoot));
+    for (const file of walkFiles(template.promptRoot)) expect(materialized.has(file)).toBe(true);
+    expect(walkFiles(promptsRoot)).toHaveLength(walkFiles(template.promptRoot).length + 1);
+    rmSync(join(projectRoot, '.saivage', 'saivage.yaml'));
+    rmSync(join(promptsRoot, 'process', '_shared'), { recursive: true, force: true });
+    writeFileSync(join(promptsRoot, 'agents', '_shared', 'analyst.md'), 'operator edited');
+    await command(projectRoot, 'init');
+    expect(readFileSync(join(promptsRoot, 'agents', '_shared', 'analyst.md'), 'utf8')).toBe(
+      'operator edited',
+    );
+    expect(existsSync(join(promptsRoot, 'process', '_shared', 'plan.md'))).toBe(true);
+    expect(existsSync(join(projectRoot, '.saivage', 'saivage.yaml'))).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(projectRoot, '.saivage', 'config', 'template.json'), 'utf8')),
+    ).toEqual({ template: 'classic', saivage_version: SAIVAGE_VERSION });
+    expect(
+      createResolvedConfigAuthority({
+        path: join(projectRoot, '.saivage', 'saivage.yaml'),
+        interpolationEnvironment: {},
+        projectRoot,
+      }).loadEffective().config,
+    ).toEqual(DEFAULT_SAIVAGE_CONFIG);
   });
 
-  it('preserves exact pre-existing explicit-map bytes and uses their custom bootstrap definition',async()=>{const projectRoot=root();const config=structuredClone(DEFAULT_SAIVAGE_CONFIG);config.card_types.project!.records['charter.md']={...config.card_types.project!.records['brief.md']!,bootstrap:true};delete config.card_types.project!.records['brief.md'];const configPath=join(projectRoot,'.saivage','saivage.yaml');write(configPath,YAML.stringify(config));const bytes=readFileSync(configPath);const log=jest.spyOn(console,'log').mockImplementation(()=>{});await command(projectRoot,'init');expect(log.mock.calls.map(([line])=>line)).toEqual([`Project layout initialized at ${projectRoot}`,'Existing configuration preserved']);expect(readFileSync(configPath)).toEqual(bytes);expect(existsSync(join(projectRoot,'.saivage','cards','project','records','record-charter.json'))).toBe(true);expect(existsSync(join(projectRoot,'.saivage','cards','project','records','record-brief.json'))).toBe(false);expect(existsSync(join(projectRoot,'.saivage','config','prompts'))).toBe(false);expect(existsSync(join(projectRoot,'.saivage','config','template.json'))).toBe(false);
-    const cardPath=join(projectRoot,'.saivage','cards','project','card-head.json');const charterPath=join(projectRoot,'.saivage','cards','project','records','record-charter.json');const cardBytes=readFileSync(cardPath);const charterBytes=readFileSync(charterPath);rmSync(configPath);log.mockClear();await expect(command(projectRoot,'init')).rejects.toThrow();expect(log).not.toHaveBeenCalled();expect(readFileSync(cardPath)).toEqual(cardBytes);expect(readFileSync(charterPath)).toEqual(charterBytes);expect(existsSync(configPath)).toBe(true);expect(existsSync(join(projectRoot,'.saivage','config','template.json'))).toBe(true);
+  it('preserves exact pre-existing explicit-map bytes and uses their custom bootstrap definition', async () => {
+    const projectRoot = root();
+    const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+    config.card_types.project!.records['charter.md'] = {
+      ...config.card_types.project!.records['brief.md']!,
+      bootstrap: true,
+    };
+    delete config.card_types.project!.records['brief.md'];
+    for (const node of Object.values(config.card_types.project!.workflow.nodes))
+      for (const input of node.record_prompts ?? [])
+        if (input.record === 'brief.md') input.record = 'charter.md';
+    const configPath = join(projectRoot, '.saivage', 'saivage.yaml');
+    write(configPath, YAML.stringify(config));
+    const bytes = readFileSync(configPath);
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await command(projectRoot, 'init');
+    expect(log.mock.calls.map(([line]) => line)).toEqual([
+      `Project layout initialized at ${projectRoot}`,
+      'Existing configuration preserved',
+    ]);
+    expect(readFileSync(configPath)).toEqual(bytes);
+    expect(
+      existsSync(
+        join(projectRoot, '.saivage', 'cards', 'project', 'records', 'record-charter.json'),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'records', 'record-brief.json')),
+    ).toBe(false);
+    expect(existsSync(join(projectRoot, '.saivage', 'config', 'prompts'))).toBe(false);
+    expect(existsSync(join(projectRoot, '.saivage', 'config', 'template.json'))).toBe(false);
+    const cardPath = join(projectRoot, '.saivage', 'cards', 'project', 'card-head.json');
+    const charterPath = join(
+      projectRoot,
+      '.saivage',
+      'cards',
+      'project',
+      'records',
+      'record-charter.json',
+    );
+    const cardBytes = readFileSync(cardPath);
+    const charterBytes = readFileSync(charterPath);
+    rmSync(configPath);
+    log.mockClear();
+    await expect(command(projectRoot, 'init')).rejects.toThrow();
+    expect(log).not.toHaveBeenCalled();
+    expect(readFileSync(cardPath)).toEqual(cardBytes);
+    expect(readFileSync(charterPath)).toEqual(charterBytes);
+    expect(existsSync(configPath)).toBe(true);
+    expect(existsSync(join(projectRoot, '.saivage', 'config', 'template.json'))).toBe(true);
   });
 
-  it('reset and start --create-runtime reject absent config before deleting or publishing generated state',async()=>{const projectRoot=root();createProjectIdentity(projectRoot,'offline-test');const marker=join(projectRoot,'.saivage','cards','retained.bin');write(marker,'retained');jest.spyOn(console,'log').mockImplementation(()=>{});await expect(command(projectRoot,'reset')).rejects.toThrow(/Configuration not found/);expect(readFileSync(marker,'utf8')).toBe('retained');const startRoot=root();createProjectIdentity(startRoot,'start-test');await expect(command(startRoot,'start','--project-root',startRoot,'--create-runtime')).rejects.toThrow(/Configuration validation failed/);expect(existsSync(join(startRoot,'.saivage','cards'))).toBe(false);});
+  it('reset and start --create-runtime reject absent config before deleting or publishing generated state', async () => {
+    const projectRoot = root();
+    createProjectIdentity(projectRoot, 'offline-test');
+    const marker = join(projectRoot, '.saivage', 'cards', 'retained.bin');
+    write(marker, 'retained');
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    await expect(command(projectRoot, 'reset')).rejects.toThrow(/Configuration not found/);
+    expect(readFileSync(marker, 'utf8')).toBe('retained');
+    const startRoot = root();
+    createProjectIdentity(startRoot, 'start-test');
+    await expect(
+      command(startRoot, 'start', '--project-root', startRoot, '--create-runtime'),
+    ).rejects.toThrow(/Configuration validation failed/);
+    expect(existsSync(join(startRoot, '.saivage', 'cards'))).toBe(false);
+  });
 });

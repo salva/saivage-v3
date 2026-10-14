@@ -73,7 +73,8 @@ export function buildPreparedInvocationContext(
     instructionText: string;
     terminalToolNames: readonly string[];
     compiledTools: readonly CompiledInvocationToolContract[];
-    dynamicBlocks: readonly ContextBlock[];
+    stableBlocks: readonly ContextBlock[];
+    recordBlocks?: readonly ContextBlock[];
     preparedCompaction: PreparedCompaction;
   }>,
 ): PreparedInvocationContext {
@@ -85,8 +86,10 @@ export function buildPreparedInvocationContext(
     ),
     compiledTools: Object.freeze([...input.compiledTools]),
     internalToolContractSha256: internalToolContractSha256(input.compiledTools),
-    dynamicBlocks: Object.freeze([...input.dynamicBlocks]),
-    dynamicBlocksSha256: canonicalValueSha256(input.dynamicBlocks),
+    stableBlocks: Object.freeze([...input.stableBlocks]),
+    stableBlocksSha256: canonicalValueSha256(input.stableBlocks),
+    recordBlocks: Object.freeze([...(input.recordBlocks ?? [])]),
+    recordBlocksSha256: canonicalValueSha256(input.recordBlocks ?? []),
     preparedCompaction: input.preparedCompaction,
   });
 }
@@ -103,6 +106,24 @@ export function assertPreparedContextContinuity(
     throw new Error(`Prepared invocation prefix changed across ${identity} continuation.`);
   if (before.internalToolContractSha256 !== after.internalToolContractSha256)
     throw new Error(`Prepared internal tool contract changed across ${identity} continuation.`);
-  if (before.dynamicBlocksSha256 !== after.dynamicBlocksSha256)
-    throw new Error(`Prepared dynamic context blocks changed across ${identity} continuation.`);
+  if (before.stableBlocksSha256 !== after.stableBlocksSha256)
+    throw new Error(`Prepared stable context blocks changed across ${identity} continuation.`);
+}
+
+/** Ordered request context; no stored duplicate combined array. */
+export function composedPreparedBlocks(
+  context: PreparedInvocationContext,
+): readonly ContextBlock[] {
+  return [...context.stableBlocks, ...context.recordBlocks];
+}
+
+export function withPreparedRecordBlocks(
+  context: PreparedInvocationContext,
+  recordBlocks: readonly ContextBlock[],
+): PreparedInvocationContext {
+  return Object.freeze({
+    ...context,
+    recordBlocks: Object.freeze([...recordBlocks]),
+    recordBlocksSha256: canonicalValueSha256(recordBlocks),
+  });
 }

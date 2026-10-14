@@ -66,7 +66,7 @@ function invocation(conversation: ValidatedConversation, overrides: Partial<Prep
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction,
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
     episodeContext: {},
@@ -128,7 +128,7 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
-  it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 6 %s beneath a current format 7 index without rewriting bytes', async part => {
+  it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 8 %s beneath a current format 9 index without rewriting bytes', async part => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-old-history-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -137,11 +137,11 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toEqual(old.rows);
       const path = cardConversationVersionFile(root, 'project', 'planner', old.entry.filename);
       const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
-      if (part === 'envelope') envelopes[0].version = 6;
-      else envelopes[0].rows[0].format_version = 6;
+      if (part === 'envelope') envelopes[0].version = 8;
+      else envelopes[0].rows[0].format_version = 8;
       writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
       const before = readFileSync(path);
-      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(8);
+      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(9);
       expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
       expect(readFileSync(path)).toEqual(before);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -158,7 +158,7 @@ describe('compaction fallback, successor identity, and internal summary identity
           return { result: { kind: 'message', content: 'S'.repeat(stage === 'endpoint' ? 6_000 : 40_000) }, provider_exchanges: [] };
         });
         const preparedCompaction = prepareCompaction({ ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
-        const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+        const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction });
         await expect(compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION), { preparedCompaction, preparedContext }), summarizerProvider: { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), completeTurn }, signal: new AbortController().signal })).rejects.toBe(failure);
         expect(completeTurn).toHaveBeenCalledTimes(stage === 'endpoint' ? 2 : 3);
         expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
@@ -176,7 +176,7 @@ describe('compaction fallback, successor identity, and internal summary identity
           if (projectProviderExchanges.mock.calls.length === (stage === 'endpoint' ? 2 : 3)) throw misleading;
         });
         const preparedCompaction = prepareCompaction({ ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
-        const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+        const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction });
         await expect(compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION), { preparedCompaction, preparedContext }), summarizerProvider: { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), completeTurn, projectProviderExchanges }, signal: new AbortController().signal })).rejects.toMatchObject({ name: 'SummaryEvidencePublicationError', cause: misleading });
         expect(completeTurn).toHaveBeenCalledTimes(stage === 'endpoint' ? 2 : 3);
         expect(projectProviderExchanges).toHaveBeenCalledTimes(stage === 'endpoint' ? 2 : 3);
@@ -199,7 +199,7 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('uses strict format 7 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
+  it('uses strict format 9 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -209,10 +209,12 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(8);
-      expect(segment.genesis.format_version).toBe(8);
+      expect(segment.index.format_version).toBe(9);
+      expect(segment.genesis.format_version).toBe(9);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(8);
+      expect(envelope.version).toBe(9);
+      expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 8 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 8 }).success).toBe(false);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 6 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 6 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 6 }, ...segment.rows] }).success).toBe(false);
@@ -276,7 +278,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const preparedCompaction = prepareCompaction(localPolicy, 'system', [], 8_000, 2_000);
       const result = compact({ summaryRefusal: null, strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation, {
         preparedCompaction,
-        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
       }), summarizerProvider: summarizer({
         calls,
         summaryOf: (call) => (call.contents.some((content) => content.includes('T3-PLAIN')) ? '   ' : 'Q'.repeat(200)),
@@ -323,7 +325,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const preparedCompaction = prepareCompaction(restrictivePolicy, 'system', [], 8_000, 2_000);
       const input = invocation(conversation, {
         preparedCompaction,
-        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
       });
       const calls: SummaryCall[] = [];
       await expect(compact({ summaryRefusal: null,
@@ -378,7 +380,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const conversation = readConversation(root, SESSION);
       const policy = { ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 };
       const preparedCompaction = prepareCompaction(policy, 'system', [], 8_000, 2_000);
-      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction });
       const operation = compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation, { preparedCompaction, preparedContext }), summarizerProvider: provider, signal: new AbortController().signal });
       if (allowsFallback) {
         await expect(operation).resolves.toMatchObject({ kind: 'compacted' });
@@ -406,7 +408,7 @@ describe('compaction fallback, successor identity, and internal summary identity
         return { result: { kind: 'message', content: 'R'.repeat(6_000) }, provider_exchanges: [] };
       });
       const preparedCompaction = prepareCompaction({ ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
-      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
+      const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction });
       const result = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(readConversation(root, SESSION), { preparedCompaction, preparedContext }), summarizerProvider: { ...summarizer({ calls: [], summaryOf: constantSummary('unused') }), contextWindowTokens: 6_000, completeTurn }, signal: new AbortController().signal });
       expect(result).toMatchObject({ kind: 'compacted', summaryRefusal: { summaryInputId: expect.any(String) } });
       expect(laterFolds).toBe(2);
@@ -533,7 +535,7 @@ describe('compaction fallback, successor identity, and internal summary identity
         sessionId: agentSession,
         agentId: agentSession,
         agentName: 'compaction-summarizer',
-        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
       };
       const calls: SummaryCall[] = [];
       const projectedSessions: string[] = [];

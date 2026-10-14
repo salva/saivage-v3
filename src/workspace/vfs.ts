@@ -62,6 +62,9 @@ export type VfsResolved =
           acceptedVersionUrl: string | null;
           recordUrl: string;
           currentSelection: boolean;
+          recordProjection:
+            | import('../persistence/authored-record-files.js').RecordProjection
+            | null;
           content: string;
           committedAt: string | null;
           size: number;
@@ -313,6 +316,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
       size: 0,
       recordUrl: target.currentUrl,
       currentSelection: true,
+      recordProjection: null,
       isRoot: false,
     };
   }
@@ -350,6 +354,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
       ? target.parsed.currentUrl
       : `${target.parsed.currentUrl}&v=${target.parsed.version}`,
     currentSelection,
+    recordProjection: projection,
     isRoot: false,
   };
 }

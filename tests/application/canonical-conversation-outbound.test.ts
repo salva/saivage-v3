@@ -11,8 +11,9 @@ import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
 import { responsesBundle, RESPONSES_A } from '../helpers/responses-producer-fixture.js';
-import { sha256Hex } from '../../src/schemas/index.js';
 import { agentMessageSchema, parseActivationOpenPayload, STRUCTURAL_ROW_POLICY } from '../../src/schemas/index.js';
+import { AgentConversationEntrySchema } from '../../src/contracts/operator-api-agents.js';
+import { OUTBOUND_URL, OUTBOUND_REDACTED_URL, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
@@ -38,15 +39,45 @@ const classifiedProjector: ToolInvocationProjector = (input) => {
 };
 
 describe('canonical conversation outbound row projection', () => {
+  it('keeps tool-owned safe URL projection while independently redacting embedded and row call identity metadata', () => {
+    const callId = 'token=identity-canary';
+    const row = agentMessageSchema.parse({ ...call(), id: `${source}:tool-call:${callId}`, tool_call_id: callId,
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'webfetch', arguments: JSON.stringify({ url: OUTBOUND_URL }) } }] }),
+    });
+    const projected = projectCanonicalConversationRow(row, projectToolInvocation);
+    const embedded = JSON.parse(projected.content).tool_calls[0];
+    expect(JSON.parse(embedded.function.arguments).url).toBe(OUTBOUND_REDACTED_URL);
+    expect(embedded.id).toBe(projected.tool_call_id);
+    expect(projected.tool_call_id).toBe('token=[REDACTED]');
+    expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify(projected)).not.toContain('identity-canary');
+  });
+  it('projects record prompt text and source metadata independently without exposing internal selection or policy hashes', () => {
+    const reference = 'token=metadata-canary';
+    const row = agentMessageSchema.parse({ ...ordinary(), role: 'user', kind: 'record_prompt',
+      content: 'Actual rendered instruction token=text-canary FINAL-Z', instruction_origin: 'workflow_prompt',
+      record_prompt: { reference, node_id: 'execute', reason: 'initial' },
+      context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: 'token=key-canary' },
+      record_observations: [{ observed: { card_id: 'project', record_name: 'status.md', view: 'effective', selection_kind: 'current', head: { head_id: source, revision: 3 }, selection: { kind: 'draft', content_sha256: 'a'.repeat(64), accepted_backing: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1', content_sha256: 'b'.repeat(64) } }, exposure: { kind: 'full_body' } }, source: { kind: 'prompt', input_id: source, node_id: 'execute', reference } }],
+    });
+    const before = structuredClone(row);
+    const publicRow = projectCanonicalConversationRow(row, identityProjector);
+    expect(publicRow.content).toBe('Actual rendered instruction token=[REDACTED] FINAL-Z');
+    expect(publicRow.record_observations![0]!.source).toMatchObject({ reference: 'token=[REDACTED]' });
+    expect(publicRow.record_observations![0]!.observed.selection).toEqual({ kind: 'draft', accepted_backing: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1' } });
+    for (const hidden of ['canary', 'content_sha256', 'a'.repeat(64), 'b'.repeat(64)]) expect(JSON.stringify(publicRow)).not.toContain(hidden);
+    expect(row).toEqual(before);
+    expect(() => AgentConversationEntrySchema.parse({ ...publicRow, record_observations: row.record_observations })).toThrow();
+  });
   it('positively projects separate role/node instruction strings and rejects private nested fields', () => {
     const payload = {
       event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp,
-      instructions: {kind: 'prepared', role_text: 'ROLE-SENTINEL token=tok_secret', node: {node_id:'plan',text:'NODE-SENTINEL token=tok_secret'}},
+      instructions: {kind: 'prepared',activation_id:'11111111-1111-4111-8111-111111111111',caller:{kind:'root'},card:{cardId:'project',cardType:'project',title:'token=tok_secret'},parent_direction:null, role_text: 'ROLE-SENTINEL token=tok_secret', node: {node_id:'plan',text:'NODE-SENTINEL token=tok_secret'}},
     };
     const marker = { ...ordinary(), role:'system', kind:'activity', context_policy:STRUCTURAL_ROW_POLICY.activation_boundary, content:JSON.stringify(payload) };
     const projected = projectCanonicalConversationRow(marker, identityProjector);
     const parsed = parseActivationOpenPayload(projected.content, sessionId, timestamp)!;
-    expect(parsed.instructions).toEqual({kind:'prepared',role_text:'ROLE-SENTINEL token=[REDACTED]',node:{node_id:'plan',text:'NODE-SENTINEL token=[REDACTED]'}});
+    expect(parsed.instructions).toEqual({kind:'prepared',activation_id:'11111111-1111-4111-8111-111111111111',caller:{kind:'root'},card:{cardId:'project',cardType:'project',title:'token=[REDACTED]'},parent_direction:null,role_text:'ROLE-SENTINEL token=[REDACTED]',node:{node_id:'plan',text:'NODE-SENTINEL token=[REDACTED]'}});
     expect(JSON.stringify(projected)).not.toContain('tok_secret');
     expect(projected).not.toHaveProperty('model_spec');
     for (const instructions of [
@@ -81,7 +112,7 @@ describe('canonical conversation outbound row projection', () => {
     const argumentsJson = JSON.parse(projected[0]!.content).tool_calls[0].function.arguments;
     expect(JSON.parse(argumentsJson).url).toBe('https://example.test/?[REDACTED]');
     expect(JSON.parse(projected[2]!.content)).toMatchObject({ success: false, error: 'failed tok-[REDACTED]' });
-    expect(projected[2]!.context_policy).toMatchObject({ result_content_sha256: sha256Hex(projected[2]!.content) });
+    expect(projected[2]!.context_policy).toEqual({ kind: 'tool_result', settlement_origin: 'executed' });
     expect(rows).toEqual(stored);
   });
 

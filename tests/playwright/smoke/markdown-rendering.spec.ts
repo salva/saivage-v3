@@ -83,7 +83,7 @@ test('conversation and full record content share sanitized GFM and real Cards na
     const url = new URL(route.request().url());
     if (decodeURIComponent(url.pathname) !== `/api/agents/${session}/conversation`) return route.fallback();
     const entry = { id: 'markdown-prose', session_id: session, role: 'assistant', kind: 'text', content: source,
-      context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true },
+      context_policy: { kind: 'content', compactable: true },
       round_id: 'r-assistant-11111111111141118111111111111111', message_index: 0, block_index: 0, timestamp };
     const body = parseOperatorResponse('agents.conversation', 200, { session_id: session, segment_id: segment,
       segment_version: 1, segment_context: null, entries: url.searchParams.has('since') ? [] : [entry],

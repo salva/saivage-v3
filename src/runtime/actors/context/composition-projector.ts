@@ -1,6 +1,7 @@
 import {
   agentMessageSchema,
   canonicalJson,
+  publicRecordSelection,
   CONTENT_POLICY_RETRY_TEXT,
   contentPolicyRefusalProjectionText,
   DURABLE_PRIMARY_CONTENT_POLICY,
@@ -15,6 +16,7 @@ import {
   type LoggedToolMessageIdentity,
 } from '../../../schemas/index.js';
 import { deterministicRoundId } from '../../../schemas/round-id-server.js';
+import { recordObservationKey, type LatestRecordObservation } from '../../../schemas/index.js';
 import { validateResponsesPairs } from '../../../contracts/index.js';
 import type {
   ProviderConversationItem,
@@ -41,6 +43,7 @@ const CONVERSATION_CONTEXT_BOUNDARY =
 const HISTORICAL_SUMMARY_PREFIX = 'Historical summary:';
 
 type EffectiveRequiredModelFacts = Readonly<{
+  latestRecordObservations: readonly import('../../../schemas/index.js').LatestRecordObservation[];
   latestRecovery: Readonly<{ sourceMessageId: string; activationInputId: string }> | null;
   latestContentPolicyRefusal: Readonly<{ markerId: string; activationInputId: string }> | null;
 }>;
@@ -124,6 +127,42 @@ export function composeContextProjection(args: {
   const primary: PrimaryContextEntry[] = [];
   const summarizer: SummarizerContextItem[] = [];
   for (const block of dynamic) primary.push({ origin: 'dynamic', block });
+  const records = new Map<string, ModelRecordObservation>(
+    (args.effectiveHistory?.requiredModelFacts.latestRecordObservations ?? []).map(
+      (entry) => [recordObservationKey(entry.observation.observed), entry] as const,
+    ),
+  );
+  for (const row of args.uncoveredRows)
+    for (const observation of row.record_observations ?? []) {
+      if (observation.observed.selection_kind !== 'current') continue;
+      records.set(recordObservationKey(observation.observed), {
+        observation,
+        source: { messageId: row.id, timestamp: row.timestamp },
+      });
+    }
+  if (records.size) {
+    const content = recordObservationFactsText([...records.values()]);
+    primary.push({
+      origin: 'dynamic',
+      block: {
+        id: 'latest-record-observations',
+        role: 'system',
+        content,
+        storage: 'activation_local',
+        replacement: { kind: 'retain' },
+        audience: 'primary_and_summarizer',
+        evidence: { kind: 'none' },
+      },
+    });
+    summarizer.push({
+      kind: 'message',
+      sourceId: 'latest-record-observations',
+      role: 'system',
+      content,
+      semantic: 'direct',
+      responsesPrivateMessageId: null,
+    });
+  }
   if (args.effectiveHistory) {
     primary.push({
       origin: 'history_summary',
@@ -286,6 +325,16 @@ export function composeContextProjection(args: {
     refusalNoticeMessageId: refusalNoticeId(selection, args.effectiveHistory),
     summarizer: Object.freeze(summarizer),
   });
+}
+
+type ModelRecordObservation = Readonly<{
+  source: Pick<LatestRecordObservation['source'], 'messageId' | 'timestamp'>;
+  observation: LatestRecordObservation['observation'];
+}>;
+export function recordObservationFactsText(
+  observations: readonly ModelRecordObservation[],
+): string {
+  return `Latest actual record-selection observations in this conversation (descriptors only). Exposure records what the source exposed then, not body recall, delivery, present freshness or acceptance. These facts neither reconstruct omitted text nor authorize writes. Historical reads do not replace current-selection knowledge.\n${canonicalJson(observations.map((entry) => ({ source: entry.source, observation: { source: entry.observation.source, observed: publicRecordSelection(entry.observation.observed) } })))}`;
 }
 
 export function providerConversationFromComposedContext(

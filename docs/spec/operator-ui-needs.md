@@ -1,5 +1,20 @@
 # Operator UI: Functional Needs Specification
 
+Format-9 historical preparation must distinguish actual activation identity and
+root/parent/global caller, stable card orientation and exact recorded parent direction
+from current configured instructions. Parent text is advisory and privacy-filtered,
+not acceptance, wire delivery or evidence of model recall. Globals have no synthetic
+card/parent context; non-model ingress is not applicable, unrecorded text unavailable.
+No current-template or current-record reconstruction fills missing historical bytes.
+
+Operators need actual conditional record instructions in source order and separate
+descriptors for metadata, slice, full-body preparation and reference-only exposure.
+Accepted selections, effective drafts and accepted backing evidence stay distinct.
+Latest compacted descriptors show their original coordinates/time, not new occurrences
+or body recall. Inspecting an immutable selection is **record evidence**, never a
+reconstructed prepared request. Safe full copy applies independently to recorded
+instruction text and positively projected/redacted metadata; internal hashes are not public.
+
 ## Historical instructions at their recorded boundaries
 
 Operators need historical rendered role/node instructions in actual node chronology,
@@ -630,8 +645,8 @@ Publication-fatal operator behavior, and system-specification Sections 7–12.
 - Notification queues remain private. Known enqueue/interruption facts prove neither
   delivery nor action; chronology cannot manufacture queue membership or receipts.
 - Analyst may queue normal steering while work runs without Pausing. Urgent results
-  distinguish queued-only, interrupted exact work, suppressed interruption, and
-  self-tool settlement still pending; none certifies delivery or compliance.
+  distinguish queued-only, interrupted exact work and suppressed interruption;
+  none certifies delivery or compliance.
   Pause needs explicit Resume; without an eligible active owner, execution needs
   explicit Run and may still never reach the target. No new queue panel or
   receipt-update timeline exists.

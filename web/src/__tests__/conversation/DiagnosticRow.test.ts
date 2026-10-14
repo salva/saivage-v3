@@ -9,7 +9,7 @@ describe('diagnostic evidence', () => {
     ['model_repair', 'Return the required valid node result. FINAL-Z', 'Repair instruction recorded'],
     ['model_recovered', MODEL_RECOVERY_NOTICE_TEXT, 'Interrupted activation · effects uncertain'],
   ] as const)('keeps %s truthful closed and preserves full body/provenance', async (kind, content, label) => {
-    const source = entry('diagnostic', kind, content, { role: kind === 'model_repair' ? 'user' : 'system', context_policy: kind === 'model_repair' ? { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, compactable: true } : { kind: 'structural', behavior: kind === 'model_issue' ? 'provider_failure' : 'model_recovery_notice' } });
+    const source = entry('diagnostic', kind, content, { role: kind === 'model_repair' ? 'user' : 'system', context_policy: kind === 'model_repair' ? { kind: 'content', compactable: true } : { kind: 'structural', behavior: kind === 'model_issue' ? 'provider_failure' : 'model_recovery_notice' } });
     const wrapper = mount(DiagnosticRow, { props: { entry: source } });
     const details = wrapper.get('details').element as HTMLDetailsElement;
     expect(details.open).toBe(false);

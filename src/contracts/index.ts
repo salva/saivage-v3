@@ -173,6 +173,7 @@ export { candidatesEqual } from './provider-candidate.js';
 export {
   toolFailed,
   toolSucceeded,
+  toolRecordSucceeded,
   toolContentSucceeded,
   assertToolActionOutcome,
 } from './tool-result.js';
@@ -254,7 +255,6 @@ export {
   plannerCancelCardInputSchema,
   plannerCreateCardInputSchema,
   plannerEditCardInputSchema,
-  plannerQueueNotificationInputSchema,
   plannerReopenCardInputSchema,
   plannerReorderChildInputSchema,
   killProcessInputSchema,
@@ -332,7 +332,8 @@ export {
   ConversationVersionContentResponseSchema,
   ConversationVersionListResponseSchema,
 } from './operator-api-agents.js';
-export type { AgentSessionSummary } from './operator-api-agents.js';
+export { AgentConversationEntrySchema } from './operator-api-agents.js';
+export type { AgentSessionSummary, AgentConversationEntry } from './operator-api-agents.js';
 export { NO_FRESHNESS_EFFECTS } from './freshness-effects.js';
 export type {
   FreshnessEffects,

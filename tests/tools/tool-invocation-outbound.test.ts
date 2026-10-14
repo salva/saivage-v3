@@ -76,7 +76,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   mcp_tools: { serverName: 'ghu_server', toolName: 'rt_tool' },
   mcp_server_control: { serverName: 'ghu_server', action: 'start' },
   edit_card: { card_id: 'card-a', title: marker },
-  activate_card: { card_id: 'card-a' },
+  activate_card: { card_id: 'card-a', instructions: marker },
   emit_result: { outcome: 'tok_primary', summary: marker },
 };
 

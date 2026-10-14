@@ -17,8 +17,8 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js'
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort, type LlmTerminalHandoff } from '../../../src/runtime/actors/llm-actor.js';
 import { compact, CompactionSummaryConstructionError, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
-import { SummaryPolicyRefusalError } from '../../../src/runtime/actors/compaction/summarizer.js';
-import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
+import { SummaryPolicyRefusalError, type SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { buildPreparedInvocationContext, composedPreparedBlocks, withPreparedRecordBlocks } from '../../../src/runtime/actors/context/context-blocks.js';
 import { compileInvocationToolContract } from '../../../src/runtime/actors/context/context-blocks.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
@@ -28,7 +28,10 @@ import { createInvocationServiceProvider } from '../../../src/application/invoca
 import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { providerExchangeFile } from '../../../src/persistence/layout.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
-import { initProjectTree } from '../../helpers/canonical-project.js';
+import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
+import { bootstrapContextSupplier } from '../../../src/runtime/records/bootstrap-context.js';
+import { executedToolOutcome } from '../../../src/tools/invocation.js';
+import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { scriptedBindings, scriptedOrdinaryAdmission } from '../../helpers/llm-test-helpers.js';
 import { invocationProviderRegistry, contextExhausted } from '../../helpers/invocation-provider-fixture.js';
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
@@ -168,7 +171,10 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     seedMarkerLedRounds(root);
     const cardBlock = Object.freeze({ id: 'card-activation:project', role: 'system' as const, content: '{"card":"frozen"}', storage: 'activation_local' as const, replacement: { kind: 'retain' as const }, audience: 'primary_and_summarizer' as const, evidence: { kind: 'none' as const } });
     const nodeBlock = Object.freeze({ id: 'node-activation:project:work', role: 'system' as const, content: "Current workflow node 'work':\n\nFROZEN-COMPILED-NODE", storage: 'activation_local' as const, replacement: { kind: 'retain' as const }, audience: 'primary_and_summarizer' as const, evidence: { kind: 'none' as const } });
-    const input = realCompactionInvocation(root, [cardBlock, nodeBlock]);
+    const base = realCompactionInvocation(root, [cardBlock, nodeBlock]);
+    const recordBlock = Object.freeze({ ...cardBlock, id: 'current-bootstrap:project', content: 'EXACT OPERATION BOOTSTRAP SNAPSHOT' });
+    const preparedContext = withPreparedRecordBlocks(base.preparedContext, [recordBlock]);
+    const input = { ...base, preparedContext, providerConversation: providerConversationProjection(readConversation(root, base.sessionId), composedPreparedBlocks(preparedContext)) };
     expect(readCurrentConversationSegment(root, input.sessionId)!.entry.version).toBe(1);
     expect(shouldCompact(input)).toBe(false);
     const candidate = input.routePass.kind === 'ordinary' ? input.routePass.candidateChain[0]! : CANDIDATE;
@@ -202,7 +208,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
         return result;
       },
     };
-    const summaryCompletion = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'stable canonical summary '.repeat(8).trim() }, provider_exchanges: [] }));
+    const summaryCompletion = jest.fn<SummarizerProviderPort['completeTurn']>(async () => ({ result: { kind: 'message' as const, content: 'stable canonical summary '.repeat(8).trim() }, provider_exchanges: [] }));
     const summaryProjection = jest.fn();
     const sentBodies: string[] = [];
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
@@ -221,10 +227,15 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     expect(p1).not.toBe(input);
     expect(p1.providerConversation).not.toEqual(input.providerConversation);
     expect(p1).toEqual({ ...input, providerConversation: p1.providerConversation });
-    expect(p1.preparedContext.dynamicBlocks).toEqual([cardBlock, nodeBlock]);
-    expect(p1.preparedContext.dynamicBlocks[0]).toBe(cardBlock);
-    expect(p1.preparedContext.dynamicBlocks[1]).toBe(nodeBlock);
-    expect(p1.preparedContext.dynamicBlocksSha256).toBe(input.preparedContext.dynamicBlocksSha256);
+    expect(p1.preparedContext.stableBlocks).toEqual([cardBlock, nodeBlock]);
+    expect(p1.preparedContext.stableBlocks[0]).toBe(cardBlock);
+    expect(p1.preparedContext.stableBlocks[1]).toBe(nodeBlock);
+    expect(p1.preparedContext.stableBlocksSha256).toBe(input.preparedContext.stableBlocksSha256);
+    expect(p1.preparedContext.recordBlocks).toBe(input.preparedContext.recordBlocks);
+    expect(sentBodies[0]).toContain(recordBlock.content);
+    expect(summaryCompletion).toHaveBeenCalled();
+    for (const [summaryInput] of summaryCompletion.mock.calls)
+      expect(summaryInput.providerConversation.messages.some(row => row.content.includes(recordBlock.content))).toBe(true);
     expect(strategies).toEqual(['local_exact_admission', 'authoritative_context_recovery']);
     expect(compactionInputs[0]).toBe(input);
     expect(compactionInputs[1]).toBe(p1);
@@ -529,6 +540,177 @@ it.each(['primary', 'recomposed', 'recovery'] as const)('fences a disposed owner
   expect(terminal).not.toHaveBeenCalled();
 });
 
+describe('deferred raw invocation entry authority', () => {
+  it.each(['abort', 'revoke'] as const)('rejects %s between arm and raw microtask before compaction or admission', async (mode) => {
+    const f = actorFixture();
+    const signal = new AbortController();
+    const store = new CardService(f.root);
+    const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'work', recordPrompts: [] }));
+    const recordRead = jest.spyOn(store, 'readRecordCurrent');
+    const reason = new Error(`interrupted before raw entry: ${mode}`);
+    const before = readConversation(f.root, f.input.sessionId).physicalRows;
+    const terminal = jest.fn<LlmTerminalHandoff>();
+    const enteredLeases: unknown[] = [];
+    const checkedLeases: unknown[] = [];
+    const runExternal = InvocationLifecycle.prototype.runExternal;
+    const assertCurrent = InvocationLifecycle.prototype.assertCurrent;
+    const rawEntry = jest.spyOn(InvocationLifecycle.prototype, 'runExternal').mockImplementation(function (this: InvocationLifecycle, lease, run) {
+      return runExternal.call(this, lease, (composedSignal) => {
+        enteredLeases.push(lease);
+        return run(composedSignal);
+      });
+    });
+    const check = jest.spyOn(InvocationLifecycle.prototype, 'assertCurrent').mockImplementation(function (this: InvocationLifecycle, lease) {
+      checkedLeases.push(lease);
+      return assertCurrent.call(this, lease);
+    });
+    try {
+      const pending = f.actor.turn(f.input, signal.signal, terminal, supplier);
+      expect(enteredLeases).toEqual([]);
+      if (mode === 'abort') signal.abort(reason);
+      else f.actor.dispose(reason);
+      await expect(pending).rejects.toBe(reason);
+      if (mode === 'abort') f.actor.suppressContinuation(reason);
+      await f.actor.join();
+      // ContainedOperations really executes the scheduled raw callback even after
+      // wrapper rejection. It must check that callback's captured lease first.
+      expect(enteredLeases).toHaveLength(1);
+      expect(checkedLeases[0]).toBe(enteredLeases[0]);
+      expect(supplier).not.toHaveBeenCalled();
+      expect(recordRead).not.toHaveBeenCalled();
+      expect(f.shouldCompact).not.toHaveBeenCalled();
+      expect(f.compact).not.toHaveBeenCalled();
+      expect(f.prepare).not.toHaveBeenCalled();
+      expect(f.execute).not.toHaveBeenCalled();
+      expect(f.prepareRecovery).not.toHaveBeenCalled();
+      expect(f.resume).not.toHaveBeenCalled();
+      expect(f.plannerProjection).not.toHaveBeenCalled();
+      expect(f.summaryProjection).not.toHaveBeenCalled();
+      expect(terminal).not.toHaveBeenCalled();
+      expect(readConversation(f.root, f.input.sessionId).physicalRows).toEqual(before);
+    } finally {
+      rawEntry.mockRestore();
+      check.mockRestore();
+      recordRead.mockRestore();
+    }
+  });
+});
+
+describe('fresh logical bootstrap preparation and retained operation snapshots', () => {
+  it('rejects missing required accepted bootstrap before compaction, admission, turn-start or provider work', async () => {
+    const f = actorFixture();
+    const store = new CardService(f.root);
+    const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'work', recordPrompts: [] }));
+    const read = jest.spyOn(store, 'readRecordCurrent').mockReturnValue({ kind: 'found', value: { projection: null } } as never);
+    const before = readConversation(f.root, f.input.sessionId).physicalRows;
+    try {
+      await expect(f.actor.turn(f.input, undefined, jest.fn(), supplier)).rejects.toThrow(/Bootstrap record.*unavailable/);
+      expect(supplier).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(f.shouldCompact).not.toHaveBeenCalled();
+      expect(f.compact).not.toHaveBeenCalled();
+      expect(f.prepare).not.toHaveBeenCalled();
+      expect(f.execute).not.toHaveBeenCalled();
+      expect(readConversation(f.root, f.input.sessionId).physicalRows).toEqual(before);
+    } finally {
+      read.mockRestore();
+      f.actor.suppressContinuation(new Error('test complete'));
+      await f.actor.join();
+    }
+  });
+
+  it.each(['tool', 'correction'] as const)('replaces A with current accepted B only at a fresh %s input', async (continuation) => {
+    const f = actorFixture(withTool(invocation()));
+    const store = new CardService(f.root);
+    store.acceptRecord('project', 'brief.md', 'A ACCEPTED BODY', 'analyst');
+    const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'work', recordPrompts: [] }));
+    const read = jest.spyOn(store, 'readRecordCurrent');
+    const terminal = jest.fn<LlmTerminalHandoff>();
+    f.execute.mockResolvedValueOnce({ result: continuation === 'tool'
+      ? { kind: 'tool_calls', tool_calls: [{ id: 'call-new', type: 'function', function: { name: 'lookup', arguments: '{"query":"x"}' } }] }
+      : { kind: 'message', content: 'needs correction' }, provider_exchanges: [] });
+    f.execute.mockResolvedValueOnce({ result: { kind: 'message', content: 'second logical result' }, provider_exchanges: [] });
+    try {
+      await f.actor.turn(f.input, undefined, terminal, supplier);
+      const first = f.prepare.mock.calls[0]![0];
+      expect(first.preparedContext.recordBlocks[0]!.content).toContain('A ACCEPTED BODY');
+      expect(supplier).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(1);
+      const recordedA = readConversation(f.root, f.input.sessionId).physicalRows.find(row => row.kind === 'record_observation')!;
+      expect(recordedA.record_observations![0]!.observed.exposure).toEqual({ kind: 'full_body' });
+      expect(recordedA.content).toBe('');
+      store.acceptRecord('project', 'brief.md', 'B ACCEPTED BODY {{opaque-data}}', 'analyst');
+      if (continuation === 'tool')
+        await f.actor.appendToolResult('call-new', { kind: 'executed', execution: executedToolOutcome('observational_query', toolSucceeded('known tool observation')) });
+      else
+        await f.actor.continueAfterPlainText([{ role: 'user', content: 'Correct the result.' }], undefined, terminal);
+      const second = f.prepare.mock.calls[1]![0];
+      expect(second.inputId).not.toBe(first.inputId);
+      expect(second.preparedContext.prefix).toBe(first.preparedContext.prefix);
+      expect(second.preparedContext.stableBlocks).toBe(first.preparedContext.stableBlocks);
+      expect(second.preparedContext.internalToolContractSha256).toBe(first.preparedContext.internalToolContractSha256);
+      expect(second.preparedContext.recordBlocks[0]!.content).toContain('B ACCEPTED BODY {{opaque-data}}');
+      expect(second.preparedContext.recordBlocks[0]!.content).not.toContain('A ACCEPTED BODY');
+      expect(first.preparedContext.recordBlocks[0]!.content).toContain('A ACCEPTED BODY');
+      expect(Object.isFrozen(second.preparedContext.recordBlocks)).toBe(true);
+      expect(f.input.preparedContext.recordBlocks).toEqual([]);
+      expect(supplier).toHaveBeenCalledTimes(2);
+      expect(read).toHaveBeenCalledTimes(2);
+      const conversation = readConversation(f.root, f.input.sessionId);
+      expect(conversation.physicalRows.find(row => row.id === recordedA.id)).toEqual(recordedA);
+      expect(conversation.effectiveRequiredModelFacts.latestRecordObservations[0]!.observation.observed.selection).toMatchObject({ kind: 'accepted', version: 3 });
+      const fullCurrent = second.providerConversation.messages.filter(row => row.kind === 'synthetic_context' && row.origin === 'dynamic' && row.block_identity === 'current-bootstrap:project');
+      expect(fullCurrent).toHaveLength(1);
+      expect(fullCurrent[0]!.content).toBe(second.preparedContext.recordBlocks[0]!.content);
+      expect(second).not.toHaveProperty('recordContextSupplier');
+    } finally {
+      read.mockRestore();
+      f.actor.suppressContinuation(new Error('test complete'));
+      await f.actor.join();
+    }
+  });
+
+  it.each(['preventive', 'local_exact_admission', 'authoritative_context_recovery'] as const)('keeps A through %s when the record mutates during the same operation', async (strategy) => {
+    const f = actorFixture();
+    const store = new CardService(f.root);
+    store.acceptRecord('project', 'brief.md', 'RETAINED A', 'analyst');
+    const supplier = jest.fn(bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'work', recordPrompts: [] }));
+    const read = jest.spyOn(store, 'readRecordCurrent');
+    if (strategy === 'preventive') f.shouldCompact.mockReturnValue(true);
+    if (strategy === 'local_exact_admission') f.prepare.mockResolvedValueOnce(rejectedCompactionAdmission());
+    if (strategy !== 'authoritative_context_recovery')
+      f.execute.mockResolvedValue({ result: { kind: 'message', content: 'ordinary result' }, provider_exchanges: [] });
+    f.prepareRecovery.mockResolvedValue({ kind: 'recovery_prepared' } as never);
+    f.resume.mockResolvedValue({ result: { kind: 'message', content: 'recovered result' }, provider_exchanges: [] });
+    f.compact.mockImplementation(async ({ input }) => {
+      store.acceptRecord('project', 'brief.md', 'LATER B', 'analyst');
+      // Real canonical composition with the operation's exact captured blocks.
+      return { kind: 'compacted', summaryRefusal: null, providerConversation: providerConversationProjection(
+        readConversation(f.root, input.sessionId), composedPreparedBlocks(input.preparedContext)), estimatedProviderMessageTokens: 1 };
+    });
+    try {
+      await expect(f.actor.turn(f.input, undefined, jest.fn(), supplier)).resolves.toMatchObject({ type: 'result' });
+      const captured = f.compact.mock.calls[0]![0].input;
+      expect(captured.preparedContext.recordBlocks[0]!.content).toContain('RETAINED A');
+      expect(captured.preparedContext.recordBlocks[0]!.content).not.toContain('LATER B');
+      const projections = [...f.prepare.mock.calls.map(([input]) => input), ...f.prepareRecovery.mock.calls.map(([args]) => args.input)];
+      for (const prepared of projections) {
+        expect(prepared.preparedContext.recordBlocks).toBe(captured.preparedContext.recordBlocks);
+        expect(prepared.inputId).toBe(captured.inputId);
+        expect(prepared.providerConversation.messages.some(row => row.content.includes('LATER B'))).toBe(false);
+        expect(prepared.providerConversation.messages.some(row => row.content.includes('RETAINED A'))).toBe(true);
+      }
+      expect(supplier).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(readConversation(f.root, f.input.sessionId).sourceRows.filter(row => row.kind === 'record_observation')).toHaveLength(1);
+    } finally {
+      read.mockRestore();
+      f.actor.suppressContinuation(new Error('test complete'));
+      await f.actor.join();
+    }
+  });
+});
+
 function compactedProjectionOf(fixture: ReturnType<typeof actorFixture>): PreparedLlmInvocationInput['providerConversation'] {
   return copyProjection(fixture.input.providerConversation);
 }
@@ -606,7 +788,7 @@ function withTool(input: PreparedLlmInvocationInput): PreparedLlmInvocationInput
     ...input,
     tools: [contract.providerDefinition],
     compiledToolContracts: [contract],
-    preparedContext: buildPreparedInvocationContext({ instructionText: input.systemPrompt, terminalToolNames: [], compiledTools: [contract], dynamicBlocks: [], preparedCompaction: input.preparedCompaction! }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: input.systemPrompt, terminalToolNames: [], compiledTools: [contract], stableBlocks: [], preparedCompaction: input.preparedCompaction! }),
     capabilityRequest: { requiresTools: true },
   };
 }
@@ -622,12 +804,12 @@ function seedMarkerLedRounds(root: string): void {
   }
 }
 
-function realCompactionInvocation(root: string, dynamicBlocks: Parameters<typeof buildPreparedInvocationContext>[0]['dynamicBlocks']): PreparedLlmInvocationInput {
+function realCompactionInvocation(root: string, stableBlocks: Parameters<typeof buildPreparedInvocationContext>[0]['stableBlocks']): PreparedLlmInvocationInput {
   const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.01, snap: 'compact_straddler' }, 'system', [], 80_000, 500);
-  const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks, preparedCompaction });
+  const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks, preparedCompaction });
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system',
-    providerConversation: providerConversationProjection(readConversation(root, 'agent:planner:project'), preparedContext.dynamicBlocks),
+    providerConversation: providerConversationProjection(readConversation(root, 'agent:planner:project'), preparedContext.stableBlocks),
     tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext, capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [{ provider: 'real-fixture', account: null, model: 'real-model' }] }, episodeContext: {},
   };
@@ -640,7 +822,7 @@ function invocation(): PreparedLlmInvocationInput {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId,
     systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },
     preparedCompaction,
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
     capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
   };
 }

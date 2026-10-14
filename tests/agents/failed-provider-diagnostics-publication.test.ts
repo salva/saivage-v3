@@ -392,7 +392,7 @@ describe('diagnostic publication uses existing fatal primitive boundary', () => 
             instructionText: 'system',
             terminalToolNames: [],
             compiledTools: [],
-            dynamicBlocks: [],
+            stableBlocks: [],
             preparedCompaction,
           }),
           capabilityRequest: {},

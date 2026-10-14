@@ -154,7 +154,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       expect(checked[1]!.preparedContext).toBe(first.preparedContext);
       expect(checked[1]!.preparedContext!.prefix.immutablePrefixSha256).toBe(checked[0]!.preparedContext!.prefix.immutablePrefixSha256);
       expect(checked[1]!.preparedContext!.internalToolContractSha256).toBe(checked[0]!.preparedContext!.internalToolContractSha256);
-      expect(checked[1]!.preparedContext!.dynamicBlocksSha256).toBe(checked[0]!.preparedContext!.dynamicBlocksSha256);
+      expect(checked[1]!.preparedContext!.stableBlocksSha256).toBe(checked[0]!.preparedContext!.stableBlocksSha256);
       expect(checked[1]!.providerConversation.messages.length).toBeGreaterThan(checked[0]!.providerConversation.messages.length);
       expect(providerInputs[1]!.providerConversation).not.toBe(providerInputs[0]!.providerConversation);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -184,7 +184,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       expect(checked[1]!.preparedContext).toBe(first.preparedContext);
       expect(checked[1]!.preparedContext!.prefix.immutablePrefixSha256).toBe(checked[0]!.preparedContext!.prefix.immutablePrefixSha256);
       expect(checked[1]!.preparedContext!.internalToolContractSha256).toBe(checked[0]!.preparedContext!.internalToolContractSha256);
-      expect(checked[1]!.preparedContext!.dynamicBlocksSha256).toBe(checked[0]!.preparedContext!.dynamicBlocksSha256);
+      expect(checked[1]!.preparedContext!.stableBlocksSha256).toBe(checked[0]!.preparedContext!.stableBlocksSha256);
       expect(checked[1]!.providerConversation.messages.length).toBeGreaterThan(checked[0]!.providerConversation.messages.length);
       expect(checked[1]!.providerConversation).not.toBe(checked[0]!.providerConversation);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -236,7 +236,7 @@ describe('ConversationLLMActor compaction ownership', () => {
         ...input(),
         providerConversation: providerConversationProjection(conversation, []),
         preparedCompaction,
-        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
       };
       const failure = failureFactory();
       const serializeSummaryRequest = jest.fn(deterministicSummarySerialization);
@@ -283,7 +283,7 @@ describe('ConversationLLMActor compaction ownership', () => {
         ...input(),
         providerConversation: providerConversationProjection(conversation, []),
         preparedCompaction,
-        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
       };
       const providerFailure = new ProviderTurnFailure({
         failure_phase: 'provider_attempt',
@@ -316,7 +316,7 @@ const terminalHandoff = (): void => undefined;
 
 function input(): PreparedLlmInvocationInput {
   const preparedCompaction = prepareCompaction(compactionConfig, 'system', [], 8_000, 2_000);
-  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} };
 }
 
 function summarizer(completeTurn: SummarizerProviderPort['completeTurn']): SummarizerProviderPort {

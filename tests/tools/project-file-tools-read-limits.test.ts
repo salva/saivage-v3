@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson } from '../../src/schemas/index.js';
-import { globProject, grepProject, MAX_GREP_LINE_CHARS, MAX_READ_FILE_BYTES, readProject } from '../../src/tools/project-file-tools.js';
+import { globProject, grepProject, MAX_GREP_LINE_CHARS, MAX_READ_FILE_BYTES, readProject as readWithObservations } from '../../src/tools/project-file-tools.js';
+const readProject = async (...args: Parameters<typeof readWithObservations>): Promise<unknown> => (await readWithObservations(...args)).data;
 import { DISCOVERY_RESPONSE_MAX_BYTES } from '../../src/contracts/builtin-tool-inputs.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
