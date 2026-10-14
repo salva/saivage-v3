@@ -23,6 +23,19 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Native absolute command cwd — no durable impact (2026-10-14)
+
+Exact implementation parent: `c48a9e57a953cfb8817c3ce332edd75b59e3bc44`.
+The process provider now admits native absolute cwd for future command invocations,
+with the same execution authority as the equivalent system URL. The strict optional
+string input shape, retained tool-call/result interpretation and raw work outputs
+are unchanged; historical arguments/results are not replayed or reclassified.
+No discriminator changes: conversation index/genesis format 9 and envelope version 9,
+work outputs and all card/record families retain their contracts. This is not part
+of the earlier 8→9 cutover and requires no migration/reset by itself. The parent is
+source evidence, not installation evidence; unrelated release differences still need
+their own adoption decisions, and no installation compatibility is certified.
+
 ### Explicit activation and record context (2026-10-13)
 
 Exact source parent: `4933242451429396049631c11b3d61ea258808d4`, conversation 8.

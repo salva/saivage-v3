@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import {
   buildScopedPathUrl,
   parseScopedPathUrl,
@@ -143,6 +143,7 @@ function scopedCwd(projectRoot: string, raw: string | undefined): string {
     return resolved.absolutePath;
   }
   if (scheme !== null) throw new Error(`Scoped URL scheme '${scheme}' is not supported for cwd.`);
+  if (isAbsolute(raw)) return resolve(raw);
   const resolved = resolveContainedProjectPath(projectRoot, raw);
   if (!resolved.safe)
     throw new Error(resolved.reason ?? 'cwd must resolve inside the project root.');
@@ -231,6 +232,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
     defineToolBinder({
       name: 'run_command',
       description:
+        'cwd defaults to the project root; plain relative paths and project:/// URLs stay project-contained, while native absolute paths and system:/// URLs select system destinations. Scoped URLs are parsed first and reject queries/fragments; native filenames are not URL-decoded. ' +
         'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results include independently bounded stdout/stderr text heads, complete/partial flags, raw byte counts, and durable work:/// stdout_url/stderr_url references. Use a complete inline head directly; read or grep its returned URL when the stream is partial or when more artifact context is needed. A terminal result is consumed after this tool forms it and its process ID is no longer available for wait, kill, or current-process listing; returned output URLs remain independently readable while their files remain available. Set wait=false to start a background process that remains available for later wait_process or kill_process until one consumes its terminal result or the owning scope closes.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => runCommandInputSchema,

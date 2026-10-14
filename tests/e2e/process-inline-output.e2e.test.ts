@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { App } from '../../src/boot/app.js';
@@ -43,8 +42,12 @@ async function operatorGet(app: App, path: string): Promise<{ status: number; bo
 
 describe('process inline output production composition', () => {
   it('projects real process heads to primary requests while retaining durable URLs and readable retired logs', async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-inline-e2e-'));
-    roots.push(projectRoot);
+    const parent = mkdtempSync('/home/salva/g/ml/tmp/saivage-process-inline-e2e-');
+    roots.push(parent);
+    const projectRoot = join(parent, 'project');
+    const sibling = join(parent, 'sibling');
+    mkdirSync(projectRoot);
+    mkdirSync(sibling);
     const providerRequests: ChatCompletionRequest[] = [];
     const observedPrimaryResults: Record<string, unknown>[] = [];
     let fixtureFailure: Error | null = null;
@@ -124,7 +127,14 @@ describe('process inline output production composition', () => {
           expect(result).toMatchObject({ process_id: killProcessId, status: 'killed', stdout_complete: true, stderr_complete: true });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).not.toHaveProperty('stderr_url');
-          sendToolCall(response, 'root-terminal', 'emit_result', { outcome: 'done', summary: 'Process lifecycle verified.' });
+          sendToolCall(response, 'outside-project-pwd', 'run_command', { command: 'timeout --kill-after=1s 5s pwd', cwd: sibling, timeout_ms: 10_000 });
+        } else if (executorCalls === 9) {
+          const result = toolResult(body).data;
+          observedPrimaryResults.push(result);
+          expect(result).toMatchObject({ status: 'exited', exit_code: 0, stdout: `${sibling}\n`, stderr: '', stdout_complete: true, stderr_complete: true });
+          expect(result).not.toHaveProperty('stdout_url');
+          expect(result).not.toHaveProperty('stderr_url');
+          sendToolCall(response, 'root-terminal', 'emit_result', { outcome: 'done', summary: 'Process lifecycle and outside-project cwd verified.' });
         } else throw new Error(`Unexpected executor request ${executorCalls}.`);
       } catch (error) {
         fixtureFailure = error as Error;
@@ -180,9 +190,12 @@ describe('process inline output production composition', () => {
       expect(durableRows.indexOf(marker)).toBeLessThan(durableRows.indexOf(entryPrompt));
       expect(providerRequests.every(request => !JSON.stringify(request).includes('instruction_origin'))).toBe(true);
       const processResults = durableRows.filter((row) => row.kind === 'tool_result' && ['run_command', 'wait_process', 'kill_process'].includes(row.tool ?? '')).map((row) => JSON.parse(row.content).data as Record<string, unknown>);
-      expect(processResults).toHaveLength(6);
+      expect(processResults).toHaveLength(7);
       expect(processResults.every((result) => typeof result.stdout_url === 'string' && typeof result.stderr_url === 'string')).toBe(true);
       expect(processResults[0]).toMatchObject({ stdout: 'short-out', stdout_complete: true, stderr_complete: false });
+      const outsideResult = processResults.at(-1)!;
+      expect(outsideResult).toMatchObject({ status: 'exited', exit_code: 0, stdout: `${sibling}\n`, stdout_url: `work:///cards/project/processes/${outsideResult.process_id}/stdout.log` });
+      expect(readFileSync(join(projectRoot, '.saivage', 'work', 'cards', 'project', 'processes', String(outsideResult.process_id), 'stdout.log'), 'utf8')).toBe(`${sibling}\n`);
       expect(processResults.find((result) => result.process_id === waitProcessId && result.status === 'exited')).toMatchObject({ stdout_url: waitStdoutUrl, stdout: 'wait-start-wait-end' });
 
       const sessionId = encodeURIComponent('agent:executor:project');
@@ -236,9 +249,9 @@ describe('process inline output production composition', () => {
       expect(apiProcessResults).toEqual(processResults);
       const processesResponse = await operatorGet(app, '/api/processes');
       expect(processesResponse).toEqual({ status: 200, body: { processes: [] } });
-      expect(observedPrimaryResults).toHaveLength(6);
+      expect(observedPrimaryResults).toHaveLength(7);
       expect(providerRequests.length).toBe(analystCalls + executorCalls);
-      expect({ analystCalls, executorCalls }).toEqual({ analystCalls: 2, executorCalls: 8 });
+      expect({ analystCalls, executorCalls }).toEqual({ analystCalls: 2, executorCalls: 9 });
       apps.delete(app); await app.stop();
       const overrideDirectory = join(projectRoot,'.saivage','config','prompts','agents','_shared');
       mkdirSync(overrideDirectory,{recursive:true});

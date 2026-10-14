@@ -1,7 +1,6 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 
@@ -12,7 +11,7 @@ import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRun
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { cardProcessOutputRoot, cardWorkRoot, nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
-import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { buildScopedPathUrl, PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
@@ -43,7 +42,7 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
 }
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
+  const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-process-provider-');
   return fn(root).finally(async () => { await cleanupTestProcessRunners(root); rmSync(root, { recursive: true, force: true }); });
 }
 
@@ -412,30 +411,63 @@ describe('process provider', () => {
     expect(processRunner.processRunner.list()).toEqual([]);
   }));
 
-  it('runs commands in canonical project and system cwd URLs', async () => withRoot(async (root) => {
+  it('completes pwd for native, relative and scoped cwd without moving ownership or capture', async () => {
+    const parent = mkdtempSync('/home/salva/g/ml/tmp/saivage-command-cwd-');
+    const root = join(parent, 'project');
+    const sibling = join(parent, 'sibling');
+    mkdirSync(root);
+    mkdirSync(sibling);
     mkdirSync(join(root, 'packages', 'api'), { recursive: true });
+    for (const name of ['name:part', 'system:/path', 'name:/part', 'literal:%?#']) mkdirSync(join(root, name), { recursive: true });
+    const literal = join(sibling, 'literal:%?#');
+    mkdirSync(literal);
     const processRunner = createTestProcessRunner(root);
     const spawn = jest.spyOn(processRunner.processRunner, 'spawn');
-    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
+    const directScope = processRunner.processRunner.createDirectScope(processRunner.runtimeProcessRootScope, 'test:cwd', 'runtime_card');
+    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('process', processToolBinders, { projectRoot: root, processRunner: processRunner.processRunner, directScope, category: 'runtime_card', ownerId: 'activation-1', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' })]);
     const cases = [
+      [undefined, root],
+      ['', root],
       ['project:///', root],
       ['project:///packages/api', join(root, 'packages', 'api')],
       ['packages/api', join(root, 'packages', 'api')],
-      ['system:///', '/'],
-      ['system:///tmp', '/tmp'],
+      [join(root, 'packages', 'api'), join(root, 'packages', 'api')],
+      [sibling, sibling],
+      [`${sibling}/../sibling`, sibling],
+      [buildScopedPathUrl('system', sibling.split('/').filter(Boolean)), sibling],
+      [literal, literal],
+      ['name:part', join(root, 'name:part')],
+      ['system:/path', join(root, 'system:/path')],
+      ['./name://part', join(root, 'name:/part')],
+      ['literal:%?#', join(root, 'literal:%?#')],
     ] as const;
 
-    for (const [cwd, expected] of cases) {
-      const result = await invokeTestTool(surface, 'run_command', { command: 'exit 0', cwd, timeout_ms: 1000 });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(spawn).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: expected }));
+    try {
+      for (const [cwd, expected] of cases) {
+        const result = await invokeTestTool(surface, 'run_command', { command: 'timeout --kill-after=1s 5s pwd', ...(cwd === undefined ? {} : { cwd }), timeout_ms: 10_000 });
+        expect(result).toMatchObject({ success: true, data: { status: 'exited', exit_code: 0, stdout: `${expected}\n`, stderr: '', stdout_complete: true, stderr_complete: true } });
+        if (!result.success) throw new Error(result.error);
+        const data = result.data as { process_id: string; stdout_url: string };
+        const outputRoot = cardProcessOutputRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', data.process_id);
+        expect(readFileSync(join(outputRoot, 'stdout.log'), 'utf8')).toBe(`${expected}\n`);
+        expect(data.stdout_url).toBe(`work:///cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/${data.process_id}/stdout.log`);
+        expect(spawn).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: expected, ownerId: 'activation-1', ownerKind: 'agent', category: 'runtime_card', directScope, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa') } }));
+        expect(processRunner.processRunner.list()).toEqual([]);
       }
+    } finally {
+      await cleanupTestProcessRunners(root);
+      rmSync(parent, { recursive: true, force: true });
     }
-  }));
+  });
 
-  it('rejects malformed and unsupported scoped cwd values before launch', async () => withRoot(async (root) => {
+  it('rejects malformed and unsupported scoped cwd values before launch', async () => withRoot(async (parent) => {
+    const root = join(parent, 'project');
+    const sibling = join(parent, 'sibling');
+    mkdirSync(root);
+    mkdirSync(sibling);
     const processRunner = createTestProcessRunner(root);
+    const spawn = jest.spyOn(processRunner.processRunner, 'spawn');
+    symlinkSync(sibling, join(root, 'escape'));
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const cases = [
       ['record:///', 'not supported for cwd'],
@@ -446,14 +478,25 @@ describe('process provider', () => {
       ['project://host/path', 'expected project:///'],
       ['project:///packages?mode=test', 'Invalid project cwd'],
       ['project:///packages#fragment', 'Invalid project cwd'],
+      ['system:///tmp?mode=test', 'Invalid system cwd'],
+      ['system:///tmp#fragment', 'Invalid system cwd'],
+      ['system://host/path', 'expected system:///'],
+      ['project:///../outside', 'traversal or separator'],
+      ['escape', 'outside'],
+      ['project:///escape', 'outside'],
       ['../outside', 'Path traversal detected'],
     ] as const;
 
-    for (const [cwd, message] of cases) {
-      const result = await invokeTestTool(surface, 'run_command', { command: 'exit 0', cwd });
-      expect(result.success).toBe(false);
-      if (!result.success) expect(result.error).toContain(message);
-      expect(processRunner.processRunner.list()).toEqual([]);
+    try {
+      for (const [cwd, message] of cases) {
+        const result = await invokeTestTool(surface, 'run_command', { command: 'timeout --kill-after=1s 5s pwd', cwd, timeout_ms: 10_000 });
+        expect(result.success).toBe(false);
+        if (!result.success) expect(result.error).toContain(message);
+        expect(processRunner.processRunner.list()).toEqual([]);
+        expect(spawn).not.toHaveBeenCalled();
+      }
+    } finally {
+      await cleanupTestProcessRunners(root);
     }
   }));
 
