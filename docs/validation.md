@@ -178,7 +178,10 @@ command invocation.
 
 The push-only `master` workflow in
 [`.github/workflows/validation.yml`](../.github/workflows/validation.yml) uses
-least-privilege, secret-free Node 24 jobs and cancels superseded runs.
+top-level least-privilege `contents: read` defaults and cancels superseded runs.
+Validation jobs use Node 24 without GitHub secrets; the separate Pages deployment
+job retains its job-local `pages: write` and `id-token: write` permissions and
+does not require Node setup.
 
 - `routine-docs` (always run) clean-installs root and web dependencies, then
   runs `validate:routine` once. Its included `docs:verify` is the job's sole
@@ -205,6 +208,19 @@ requires the root install. Chromium and host browser dependencies are installed
 before browser smoke, and artifact upload follows smoke. Independent installs
 and browser setup operations need no relative order; harmless extra steps do
 not change this contract.
+
+The guard reads and parses each workflow once with strict duplicate-key rejection.
+That parsed YAML is the sole structural authority for permissions, concurrency,
+jobs, steps and decoded run scalars; quoted keys, flow mappings and block-scalar
+formatting do not change policy ownership. Steps and commands are enumerated once
+within their owning jobs, never ordered by unrelated jobs' source positions.
+Command recognition remains bounded: blank/comment lines, backslash continuations,
+environment assignments and established command-segment splitting are supported,
+not arbitrary shell control flow. Independent file-scoped lexical secret-safety
+checks retain their existing prohibited forms; they are not a universal prose ban.
+Diagnostics use parsed source ranges and job/step identity (a run scalar's start
+line for folded/escaped commands), while lexical checks retain match source lines.
+Required coverage, fail-closed test gates and prerequisite relations are unchanged.
 
 ## Browser and E2E profiles
 

@@ -240,6 +240,135 @@ function validFiles(overrides = {}) {
 }
 
 describe('validation cadence guard', () => {
+  describe('single parsed workflow authority', () => {
+    const routineRun = '        run: npm run validate:routine';
+    const representations = [
+      ['quoted', '        "run": "npm run validate:routine" # benign comment'],
+      ['escaped', '        "run": "npm run validate\\u003aroutine"'],
+      ['flow step', '        "run": "npm run validate:routine"'],
+      ['literal/chomped', '        run: |-\n          # ignored shell comment\n          npm run validate:routine'],
+      ['folded', '        run: >-\n          npm run\n          validate:routine'],
+      ['continued', '        run: |\n          NODE_ENV=test npm run \\\n            validate:routine'],
+    ];
+    it.each(representations)('accepts decoded %s coverage once', (label, replacement) => {
+      let workflow = mutateWorkflow(routineRun, replacement)
+        .replace('permissions:\n  contents: read', '"permissions": {"contents": read} # defaults')
+        .replace('concurrency:\n  group: ${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: true',
+          '"concurrency": {"group": "${{ github.workflow }}-${{ github.ref }}", "cancel-in-progress": true}');
+      if (label === 'flow step') workflow = workflow.replace('      - name: Routine validation profile\n' + replacement,
+        '      - {"name": Routine validation profile, "run": "npm run validate:routine"}');
+      withFixture(validFiles({ '.github/workflows/validation.yml': workflow }), (root) => {
+        const result = verifyValidationCadence({ root });
+        expect(result.failures).toEqual([]);
+        expect(result.workflowCommandsChecked.filter((entry) => entry.includes('npm run validate:routine'))).toHaveLength(1);
+      });
+    });
+
+    it.each([
+      ['npm run nonexistent', 'has no "nonexistent" script'],
+      ['node scripts/nonexistent.js', 'script file does not exist'],
+      ['npm run test:direct -- --passWithNoTests', 'must not use --passWithNoTests'],
+      ['npm run test:allow-empty', 'must not reference allow-empty script'],
+    ])('rejects decoded flow command %s at its owning scalar', (command, expected) => {
+      const workflow = mutateWorkflow('      - name: Routine validation profile\n' + routineRun,
+        `      - {"name": Routine validation profile, "run": "${command}"}`);
+      withFixture(validFiles({ '.github/workflows/validation.yml': workflow }), (root) => {
+        const result = verifyValidationCadence({ root, packageScripts: { ...PACKAGE_SCRIPTS, 'test:allow-empty': 'jest --passWithNoTests' } });
+        expect(result.failures).toContainEqual(expect.stringMatching(new RegExp(`^\\.github/workflows/validation\\.yml:\\d+ routine-docs step \\d+: .*${expected}`)));
+      });
+    });
+
+    it.each([
+      ['missing permissions', undefined, 'top-level least-privilege permissions'],
+      ['wrong contents', { contents: 'write' }, 'must include contents: read'],
+      ['write default', { contents: 'read', checks: 'write' }, 'must not request write permissions'],
+      ['read-all', 'read-all', 'must not use broad workflow permissions'],
+    ])('rejects %s without conflating Pages permissions', (_label, permissions, expected) => {
+      const workflow = parse(VALID_WORKFLOW);
+      workflow.permissions = permissions;
+      expectWorkflowFailure(stringify(workflow), expected);
+    });
+    it.each([
+      undefined, { group: 'fixture', 'cancel-in-progress': false },
+      { group: 'fixture' }, { group: ' ', 'cancel-in-progress': true },
+      { group: 'fixture', 'cancel-in-progress': 'true' },
+    ])('rejects incomplete concurrency %j', (concurrency) => {
+      const workflow = parse(VALID_WORKFLOW);
+      workflow.concurrency = concurrency;
+      expectWorkflowFailure(stringify(workflow), 'concurrency');
+    });
+
+    it.each([24, '24'])('accepts Node version %j on the setup step and reordered jobs', (version) => {
+      const workflow = parse(VALID_WORKFLOW);
+      workflow.jobs['routine-docs'].steps[1].with['node-version'] = version;
+      workflow.jobs = { note: { steps: [{ run: 'npm run validate:docs' }] }, ...Object.fromEntries(Object.entries(workflow.jobs).reverse()) };
+      withFixture(validFiles({ '.github/workflows/validation.yml': stringify(workflow) }), (root) => {
+        expect(verifyValidationCadence({ root }).failures).toEqual([]);
+      });
+    });
+    it.each(['wrong value', 'wrong action', 'unrelated input', 'missing cache'])('rejects %s setup ownership', (mutation) => {
+      const workflow = parse(VALID_WORKFLOW);
+      const steps = workflow.jobs['routine-docs'].steps;
+      const node = steps[1];
+      if (mutation === 'wrong value') node.with['node-version'] = 20;
+      if (mutation === 'wrong action') node.uses = 'actions/setup-node@v3';
+      if (mutation === 'unrelated input') {
+        delete node.with['node-version'];
+        steps.unshift({ uses: 'example/unrelated@v1', with: { 'node-version': 24 } });
+      }
+      if (mutation === 'missing cache') delete node.with.cache;
+      expectWorkflowFailure(stringify(workflow), mutation === 'missing cache' ? 'Node setup must retain npm caching' : 'routine-docs must set up Node 24');
+    });
+
+    it('does not borrow missing coverage from names, comments or another job', () => {
+      const workflow = parse(VALID_WORKFLOW);
+      const steps = workflow.jobs['routine-docs'].steps;
+      steps[steps.length - 1] = { name: 'npm run validate:routine', run: '# npm run validate:routine\necho complete' };
+      workflow.jobs.note = { steps: [{ run: 'npm run validate:routine' }] };
+      expectWorkflowFailure(stringify(workflow), 'routine-docs must run npm run validate:routine');
+    });
+    it('does not join web install evidence across steps', () => {
+      const workflow = parse(VALID_WORKFLOW);
+      workflow.jobs['routine-docs'].steps.splice(3, 1, { run: 'cd web' }, { run: 'npm ci' });
+      expectWorkflowFailure(stringify(workflow), 'routine-docs must run cd web && npm ci');
+    });
+    it('checks continued missing commands once after decoding', () => {
+      const workflow = mutateWorkflow(routineRun, '        run: |-\n          npm run \\\n            nonexistent');
+      withFixture(validFiles({ '.github/workflows/validation.yml': workflow }), (root) => {
+        const result = verifyValidationCadence({ root });
+        expect(result.failures.filter((entry) => entry.includes('has no "nonexistent" script'))).toHaveLength(1);
+      });
+    });
+    it('keeps benign explanatory prose outside bounded secret forms admissible', () => {
+      const workflow = '# Credential policy: validation needs no private credentials.\n' + VALID_WORKFLOW;
+      withFixture(validFiles({ '.github/workflows/validation.yml': workflow }), (root) => {
+        expect(verifyValidationCadence({ root }).failures).toEqual([]);
+      });
+    });
+    it('rejects duplicate quoted permission keys before semantic checking', () => {
+      expectWorkflowFailure(mutateWorkflow('permissions:\n  contents: read',
+        '"permissions": {"contents": read, contents: read}'), 'Map keys must be unique');
+    });
+    it.each([
+      ['root', (workflow) => { workflow.env = { API_TOKEN: 'fixture' }; }, 'must not assign'],
+      ['job', (workflow) => { workflow.jobs['routine-docs'].env = { SAIVAGE_API_TOKEN: 'fixture' }; }, 'must not set or reference'],
+      ['step', (workflow) => { workflow.jobs['routine-docs'].steps[0].env = { API_KEY: 'fixture' }; }, 'must not assign'],
+      ['action input', (workflow) => { workflow.jobs['routine-docs'].steps[0].with = { input: '${{ secrets.EXAMPLE }}' }; }, 'must not reference GitHub secrets'],
+      ['run', (workflow) => { workflow.jobs['routine-docs'].steps.push({ run: 'echo password' }); }, 'must not echo'],
+    ])('retains bounded lexical secret checks at %s locations', (_label, mutate, expected) => {
+      const workflow = parse(VALID_WORKFLOW);
+      mutate(workflow);
+      withFixture(validFiles({ '.github/workflows/validation.yml': stringify(workflow) }), (root) => {
+        expect(verifyValidationCadence({ root }).failures).toContainEqual(expect.stringMatching(new RegExp(`^\\.github/workflows/validation\\.yml:\\d+ ${expected}`)));
+      });
+    });
+    it.each([
+      ['root', '[]', 'workflow must be a mapping'],
+      ['jobs', VALID_WORKFLOW.replace('jobs:', 'jobs: []\nunused:'), 'must define a jobs mapping'],
+      ['step', mutateWorkflow(routineRun, '        run: 24'), 'run must be a string'],
+    ])('fails clearly on invalid %s structure', (_label, workflow, expected) => expectWorkflowFailure(workflow, expected));
+  });
+
   it('allows representation changes and independent check ordering without changing shell decisions', () => {
     const workflow = parse(VALID_WORKFLOW);
     const classifier = workflow.jobs['classify-changes'];
@@ -474,7 +603,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutNode24 }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml must use actions/setup-node@v4 with node-version: 24');
+      expect(result.failures).toContainEqual(expect.stringContaining('routine-docs must set up Node 24 with actions/setup-node@v4'));
     });
   });
 

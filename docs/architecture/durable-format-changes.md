@@ -23,6 +23,16 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### F06 workflow-YAML structural authority — no durable impact (2026-10-15)
+
+Exact implementation parent: `1b710d2a834fd21af2cb340c547f427e05f0cb65`.
+The cadence guard consumes repository CI source through one YAML parse and
+job-local step enumeration. No Saivage retained shape, interpretation, selection,
+provenance, layout or discriminator changes; no adoption, reset, migration or
+unreleased cutover is involved. Installed applicability is unknown and uninspected;
+this tooling change certifies no whole-release compatibility or deployment action.
+External migration remains separately owner-requested and offline.
+
 ### F10 dead MCP health and aggregate API deletion — no durable impact (2026-10-14)
 
 Exact implementation parent: `6295ef852d39407c70c5aa66fb5e3fe5af07abfb`.

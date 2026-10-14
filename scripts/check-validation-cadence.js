@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseDocument } from 'yaml';
+import { LineCounter, parseDocument } from 'yaml';
 
 const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'README.md',
@@ -237,50 +237,6 @@ function validateCanonicalWebTestNamespace({ scripts }) {
   return { checked, failures };
 }
 
-function workflowRunCommands(content) {
-  const commands = [];
-  const lines = content.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const rawLine = lines[index];
-    const trimmed = rawLine.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-    const inlineRun = trimmed.match(/^(?:-\s*)?run:\s*(.+)$/);
-    if (inlineRun && !/[|>]\s*$/.test(inlineRun[1].trim())) {
-      const command = inlineRun[1].trim().replace(/^['"]|['"]$/g, '');
-      commands.push({ command: normalizeCommandLine(command), line: index + 1 });
-      continue;
-    }
-    if (/^(?:-\s*)?run:\s*[|>]$/.test(trimmed)) {
-      const blockIndent = rawLine.match(/^\s*/)?.[0].length ?? 0;
-      let pending = '';
-      for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
-        const blockLine = lines[blockIndex];
-        const indent = blockLine.match(/^\s*/)?.[0].length ?? 0;
-        if (blockLine.trim() && indent <= blockIndent) {
-          break;
-        }
-        const blockTrimmed = blockLine.trim();
-        if (!blockTrimmed || blockTrimmed.startsWith('#')) {
-          continue;
-        }
-        pending = pending ? `${pending} ${blockTrimmed}` : blockTrimmed;
-        if (/\\\s*$/.test(blockTrimmed)) {
-          pending = pending.replace(/\\\s*$/, '').trim();
-          continue;
-        }
-        commands.push({ command: normalizeCommandLine(pending), line: blockIndex + 1 });
-        pending = '';
-      }
-      if (pending) {
-        commands.push({ command: normalizeCommandLine(pending), line: index + 1 });
-      }
-    }
-  }
-  return commands;
-}
-
 function splitCommandSegments(command) {
   return command
     .split(/\s+(?:&&|;)\s+/)
@@ -410,68 +366,44 @@ function lineNumberForPattern(content, pattern) {
   return 1;
 }
 
-function topLevelBlockLines(content, key) {
-  const lines = content.split('\n');
-  const start = lines.findIndex((line) => new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line));
-  if (start === -1) {
-    return [];
-  }
-  const block = [];
-  for (let index = start; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (index > start && /^\S/.test(line)) {
-      break;
-    }
-    block.push({ line, number: index + 1 });
-  }
-  return block;
+function isMapping(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function workflowNodeVersion(content) {
-  if (!/uses:\s*actions\/setup-node@v4\b/.test(content)) {
-    return null;
-  }
-  const match = content.match(/^\s*node-version:\s*['"]?([^'"\s]+)['"]?\s*$/m);
-  return match?.[1] ?? null;
-}
-
-function workflowUsesExpectedNode(content) {
-  return workflowNodeVersion(content) === EXPECTED_NODE_MAJOR;
-}
-
-function validateWorkflowPermissions({ file, content, failures }) {
-  if (/^permissions:\s*(?:write-all|read-all)\s*$/im.test(content)) {
-    failures.push(`${file}:${lineNumberForPattern(content, /^permissions:\s*(?:write-all|read-all)\s*$/i)} must not use broad workflow permissions; use least-privilege contents: read`);
+function validateWorkflowPermissions({ workflow, locate, failures }) {
+  const permissions = workflow.permissions;
+  const location = locate(['permissions']);
+  if (permissions === 'write-all' || permissions === 'read-all') {
+    failures.push(`${location} must not use broad workflow permissions; use least-privilege contents: read`);
     return;
   }
 
-  const block = topLevelBlockLines(content, 'permissions');
-  if (block.length === 0) {
-    failures.push(`${file} must declare top-level least-privilege permissions with contents: read`);
+  if (!isMapping(permissions)) {
+    failures.push(`${location} must declare top-level least-privilege permissions with contents: read`);
     return;
   }
 
-  if (!block.some(({ line }) => /^\s+contents:\s*read\s*$/.test(line))) {
-    failures.push(`${file}:${block[0].number} permissions block must include contents: read`);
+  if (permissions.contents !== 'read') {
+    failures.push(`${location} permissions block must include contents: read`);
   }
 
-  const writePermission = block.find(({ line }) => /^\s+[A-Za-z0-9_-]+:\s*write\s*$/.test(line));
-  if (writePermission) {
-    failures.push(`${file}:${writePermission.number} permissions block must not request write permissions for validation`);
+  for (const [name, value] of Object.entries(permissions)) {
+    if (value === 'write') failures.push(`${locate(['permissions', name])} permissions block must not request write permissions for validation`);
   }
 }
 
-function validateWorkflowConcurrency({ file, content, failures }) {
-  const block = topLevelBlockLines(content, 'concurrency');
-  if (block.length === 0) {
-    failures.push(`${file} must declare top-level concurrency with a group and cancel-in-progress: true`);
+function validateWorkflowConcurrency({ workflow, locate, failures }) {
+  const concurrency = workflow.concurrency;
+  const location = locate(['concurrency']);
+  if (!isMapping(concurrency)) {
+    failures.push(`${location} must declare top-level concurrency with a group and cancel-in-progress: true`);
     return;
   }
-  if (!block.some(({ line }) => /^\s+group:\s*\S+/.test(line))) {
-    failures.push(`${file}:${block[0].number} concurrency block must include a stable group`);
+  if (typeof concurrency.group !== 'string' || !concurrency.group.trim()) {
+    failures.push(`${location} concurrency block must include a stable group`);
   }
-  if (!block.some(({ line }) => /^\s+cancel-in-progress:\s*true\s*$/.test(line))) {
-    failures.push(`${file}:${block[0].number} concurrency block must set cancel-in-progress: true`);
+  if (concurrency['cancel-in-progress'] !== true) {
+    failures.push(`${location} concurrency block must set cancel-in-progress: true`);
   }
 }
 
@@ -489,31 +421,12 @@ function validateWorkflowSecretSafety({ file, content, failures }) {
   }
 }
 
-function validateWorkflowHardening({ file, content, commands, failures }) {
-  validateWorkflowPermissions({ file, content, failures });
-  validateWorkflowConcurrency({ file, content, failures });
-  validateWorkflowSecretSafety({ file, content, failures });
-
-  if (!workflowUsesExpectedNode(content)) {
-    failures.push(`${file} must use actions/setup-node@v4 with node-version: ${EXPECTED_NODE_MAJOR}`);
-  }
-
-  const npmCi = commands.find(({ command }) => command === 'npm ci');
-  if (!npmCi) {
-    failures.push(`${file} must install dependencies with npm ci before validation profiles`);
-  }
-
-  const firstValidation = commands.find(({ command }) => /^npm\s+run\s+validate:/.test(command));
-  if (npmCi && firstValidation && npmCi.line > firstValidation.line) {
-    failures.push(`${file}:${npmCi.line} npm ci must run before validation profiles`);
-  }
-}
-
 function validateWorkflowCommands({ root, scripts, workflowFiles }) {
   const failures = [];
   const checked = [];
   const profileCommands = new Set();
-  const workflowDocuments = new Map();
+  const contractChecked = [];
+  const setupChecked = [];
   const files = workflowFiles ?? listWorkflowFiles(root);
 
   for (const file of files) {
@@ -523,7 +436,8 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
       continue;
     }
     const content = readFileSync(fullPath, 'utf8');
-    const document = parseDocument(content, { uniqueKeys: true });
+    const lineCounter = new LineCounter();
+    const document = parseDocument(content, { uniqueKeys: true, lineCounter });
     if (document.errors.length > 0) {
       for (const error of document.errors) {
         failures.push(`${file} has invalid YAML: ${error.message}`);
@@ -531,27 +445,13 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
       continue;
     }
     const workflow = document.toJS();
-    workflowDocuments.set(file, { content, workflow });
-    const commands = workflowRunCommands(content);
-    validateWorkflowHardening({ file, content, commands, failures });
-    for (const { command, line } of commands) {
-      for (const segment of splitCommandSegments(command)) {
-        const location = `${file}:${line}: ${segment}`;
-        if (checkNpmRun({ scripts, segment, location, failures })) {
-          checked.push(location);
-          const match = segment.match(/^npm\s+run\s+(validate:[^\s]+)/);
-          if (match) {
-            profileCommands.add(match[1]);
-          }
-          continue;
-        }
-        if (checkDirectScript({ root, segment, location, failures })) {
-          checked.push(location);
-          continue;
-        }
-        checked.push(location);
-      }
-    }
+    const locate = (keys) => {
+      const node = document.getIn(keys, true);
+      return `${file}:${lineCounter.linePos(node?.range?.[0] ?? document.contents?.range?.[0] ?? 0).line}`;
+    };
+    validateWorkflowSecretSafety({ file, content, failures });
+    validateValidationWorkflowContract({ file, content, workflow, locate, root, scripts,
+      failures, checked: contractChecked, commandChecked: checked, setupChecked, profileCommands });
   }
 
   if (files.length === 0) {
@@ -564,7 +464,7 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
     }
   }
 
-  return { checked, failures, workflowFilesChecked: files, workflowDocuments };
+  return { checked, failures, workflowFilesChecked: files, contractChecked, setupChecked };
 }
 
 function expressionBody(value) {
@@ -575,19 +475,22 @@ function expressionBody(value) {
   return (match?.[1] ?? value).replace(/\s+/g, ' ').trim();
 }
 
-function scalarRunSteps(job) {
-  return Array.isArray(job?.steps)
-    ? job.steps.filter((step) => step && typeof step === 'object' && typeof step.run === 'string')
-    : [];
-}
-
 function workflowStepCommands(run) {
-  const segments = run.split(/\r?\n/).flatMap((line) => splitCommandSegments(normalizeCommandLine(line)));
-  return segments.flatMap((segment, index) => {
-    if (segment === 'cd web' && segments[index + 1] === 'npm ci') return ['cd web && npm ci'];
-    if (segment === 'npm ci' && segments[index - 1] === 'cd web') return [];
-    return [segment];
-  });
+  const commands = [];
+  let pending = '';
+  for (const line of run.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    pending = pending ? `${pending} ${trimmed}` : trimmed;
+    if (/\\\s*$/.test(trimmed)) {
+      pending = pending.replace(/\\\s*$/, '').trim();
+      continue;
+    }
+    commands.push(normalizeCommandLine(pending));
+    pending = '';
+  }
+  if (pending) commands.push(normalizeCommandLine(pending));
+  return commands;
 }
 
 function exactSet(actual, expected) {
@@ -647,7 +550,7 @@ function validatePushOnlyTrigger({ file, workflow, failures, checked }) {
   }
 }
 
-function validateClassifier({ file, jobs, failures, checked }) {
+function validateClassifier({ file, jobs, classifyStep, failures, checked }) {
   const job = jobs?.['classify-changes'];
   if (!job || typeof job !== 'object') {
     failures.push(`${file} validation workflow must define classify-changes`);
@@ -658,7 +561,6 @@ function validateClassifier({ file, jobs, failures, checked }) {
       || Object.entries(CLASSIFIER_OUTPUTS).some(([name, value]) => job.outputs[name] !== value)) {
     failures.push(`${file} classify-changes must publish exactly backend, ui, browser, docs_only, package_or_workflow, run_all, and summary from steps.classify.outputs`);
   }
-  const classifyStep = Array.isArray(job.steps) ? job.steps.find((step) => step?.id === 'classify') : null;
   const shell = classifyStep?.run;
   if (typeof shell !== 'string') {
     failures.push(`${file} classify-changes must contain the inline classify shell step`);
@@ -670,7 +572,7 @@ function validateClassifier({ file, jobs, failures, checked }) {
   }
 }
 
-function validateAggregate({ file, jobs, failures, checked }) {
+function validateAggregate({ file, jobs, enforceStep, failures, checked }) {
   const aggregate = jobs?.['validation-required'];
   if (!aggregate || typeof aggregate !== 'object') {
     failures.push(`${file} validation workflow must define validation-required`);
@@ -684,7 +586,6 @@ function validateAggregate({ file, jobs, failures, checked }) {
   if (expressionBody(aggregate.if) !== 'always()') {
     failures.push(`${file} validation-required must retain if: \${{ always() }}`);
   }
-  const enforceStep = scalarRunSteps(aggregate).find((step) => step.name === 'Enforce required validation conclusions') ?? scalarRunSteps(aggregate)[0];
   const env = enforceStep?.env;
   const shell = enforceStep?.run;
   if (!env || typeof env !== 'object' || typeof shell !== 'string') {
@@ -717,87 +618,142 @@ function validateAggregate({ file, jobs, failures, checked }) {
   }
 }
 
-function validateValidationWorkflowContract({ workflowDocuments }) {
-  const failures = [];
-  const checked = [];
-  for (const [file, { content, workflow }] of workflowDocuments) {
-    validatePushOnlyTrigger({ file, workflow, failures, checked });
-    const executable = JSON.stringify(workflow);
-    for (const token of ['schedule', 'workflow_dispatch', 'pull_request', 'run_full_sweep', 'scheduled-release-backstop']) {
-      if (executable.includes(token)) failures.push(`${file} validation workflow must not retain obsolete event/backstop token ${token}`);
-    }
-    const jobs = workflow?.jobs;
-    if (!jobs || typeof jobs !== 'object' || Array.isArray(jobs)) {
-      failures.push(`${file} validation workflow must define a jobs mapping`);
+function validateValidationWorkflowContract({ file, content, workflow, locate, root, scripts,
+  failures, checked, commandChecked, setupChecked, profileCommands }) {
+  if (!isMapping(workflow)) {
+    failures.push(`${file}:1 validation workflow must be a mapping`);
+    return;
+  }
+  validateWorkflowPermissions({ workflow, locate, failures });
+  validateWorkflowConcurrency({ workflow, locate, failures });
+  validatePushOnlyTrigger({ file, workflow, failures, checked });
+  const executable = JSON.stringify(workflow);
+  for (const token of ['schedule', 'workflow_dispatch', 'pull_request', 'run_full_sweep', 'scheduled-release-backstop']) {
+    if (executable.includes(token)) failures.push(`${file} validation workflow must not retain obsolete event/backstop token ${token}`);
+  }
+  const jobs = workflow?.jobs;
+  if (!jobs || typeof jobs !== 'object' || Array.isArray(jobs)) {
+    failures.push(`${file} validation workflow must define a jobs mapping`);
+    return;
+  }
+  const requiredConsumers = {
+    'routine-docs': ['npm run validate:routine'],
+    'backend-jest-build': ['npm run build', 'npm test'],
+    'backend-e2e': ['npm run test:e2e'],
+    'browser-smoke': ['npm run web:test:e2e:install', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'],
+  };
+  let classifyStep;
+  let enforceStep;
+  let artifactCount = 0;
+  const browserArtifacts = [];
+  let smokeIndex = -1;
+  for (const [jobName, job] of Object.entries(jobs)) {
+    const jobLocation = `${locate(['jobs', jobName])} ${jobName}`;
+    if (!isMapping(job) || !Array.isArray(job.steps)) {
+      failures.push(`${jobLocation} must define a steps sequence`);
       continue;
     }
-    validateClassifier({ file, jobs, failures, checked });
-    validateAggregate({ file, jobs, failures, checked });
-
-    for (const [jobName, consumers] of Object.entries({
-      'routine-docs': ['npm run validate:routine'],
-      'backend-jest-build': ['npm run build', 'npm test'],
-      'backend-e2e': ['npm run test:e2e'],
-      'browser-smoke': ['npm run web:test:e2e:install', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'],
-    })) {
-      const steps = Array.isArray(jobs[jobName]?.steps) ? jobs[jobName].steps : [];
-      // Positions include command segments within a step, not fixed step indices.
-      const commands = steps.flatMap((step, index) => typeof step?.run === 'string'
-        ? workflowStepCommands(step.run).map((command, part) => ({ command, position: [index, part] })) : []);
-      const position = (command) => commands.find((entry) => entry.command === command)?.position;
-      const before = (first, second, label) => {
-        if (!first || !second || !(first[0] < second[0] || (first[0] === second[0] && first[1] < second[1]))) {
-          failures.push(`${file} ${jobName} must run ${label}`);
+    const commands = [];
+    let checkoutIndex = -1;
+    let nodeIndex = -1;
+    let node;
+    for (const [index, step] of job.steps.entries()) {
+      const keys = ['jobs', jobName, 'steps', index];
+      const stepLocation = `${locate(keys)} ${jobName} step ${index + 1}`;
+      if (!isMapping(step)) {
+        failures.push(`${stepLocation} must be a step mapping`);
+        continue;
+      }
+      if (step.uses === 'actions/checkout@v4' && checkoutIndex < 0) checkoutIndex = index;
+      if (step.uses === 'actions/setup-node@v4') {
+        setupChecked.push(`${stepLocation} setup-node ${step.with?.['node-version'] ?? 'missing'}`);
+        if (nodeIndex < 0) { nodeIndex = index; node = step; }
+      }
+      if (step.uses === 'actions/upload-artifact@v4') {
+        artifactCount += 1;
+        if (jobName === 'browser-smoke') browserArtifacts.push({ step, index });
+      }
+      if (Object.hasOwn(step, 'run') && typeof step.run !== 'string') {
+        failures.push(`${stepLocation} run must be a string`);
+        continue;
+      }
+      if (typeof step.run !== 'string') continue;
+      if (jobName === 'classify-changes' && step.id === 'classify' && !classifyStep) classifyStep = step;
+      if (jobName === 'validation-required' && (!enforceStep
+          || (enforceStep.name !== 'Enforce required validation conclusions' && step.name === 'Enforce required validation conclusions'))) enforceStep = step;
+      const runLocation = `${locate([...keys, 'run'])} ${jobName} step ${index + 1}`;
+      let part = 0;
+      for (const command of workflowStepCommands(step.run)) {
+        const segments = splitCommandSegments(command);
+        for (const [segmentIndex, segment] of segments.entries()) {
+          const location = `${runLocation}: ${segment}`;
+          commandChecked.push(location);
+          if (!checkNpmRun({ scripts, segment, location, failures })) checkDirectScript({ root, segment, location, failures });
+          validateWorkflowFailClosedCommand({ segment, location, failures });
+          const match = segment.match(/^npm\s+run\s+(validate:[^\s]+)/);
+          if (match) profileCommands.add(match[1]);
+          // The web install remains one prerequisite within this command, never across steps.
+          const prerequisite = segment === 'cd web' && segments[segmentIndex + 1] === 'npm ci'
+            ? 'cd web && npm ci' : segment;
+          if (!(segment === 'npm ci' && segments[segmentIndex - 1] === 'cd web')) {
+            commands.push({ command: prerequisite, position: [index, part] });
+          }
+          if (jobName === 'browser-smoke' && segment === 'npm run web:test:e2e:smoke' && smokeIndex < 0) smokeIndex = index;
+          part += 1;
         }
-      };
-      const checkoutIndex = steps.findIndex((step) => step?.uses === 'actions/checkout@v4');
-      const nodeIndex = steps.findIndex((step) => step?.uses === 'actions/setup-node@v4');
-      const node = steps[nodeIndex];
-      checked.push(`${file} ${jobName} required coverage and prerequisites`);
-      if (`${node?.with?.['node-version']}` !== EXPECTED_NODE_MAJOR) failures.push(`${file} ${jobName} must set up Node 24 with actions/setup-node@v4`);
-      if (node?.with?.cache !== 'npm') failures.push(`${file} ${jobName} Node setup must retain npm caching`);
-      before(checkoutIndex < 0 ? null : [checkoutIndex, 0], nodeIndex < 0 ? null : [nodeIndex, 0], 'checkout before cached Node setup');
-      const installs = jobName === 'backend-e2e' ? ['npm ci'] : ['npm ci', 'cd web && npm ci'];
-      for (const command of [...installs, ...consumers]) {
-        if (!position(command)) failures.push(`${file} ${jobName} must run ${command}`);
-      }
-      for (const install of installs) {
-        before(nodeIndex < 0 ? null : [nodeIndex, 0], position(install), `Node setup before ${install}`);
-        for (const consumer of consumers) before(position(install), position(consumer), `${install} before ${consumer}`);
-      }
-      if (jobName === 'browser-smoke') {
-        for (const setup of consumers.slice(0, 2)) before(position(setup), position(consumers[2]), `${setup} before ${consumers[2]}`);
       }
     }
-
-    const browserSteps = Array.isArray(jobs['browser-smoke']?.steps) ? jobs['browser-smoke'].steps : [];
-    const smokeIndex = browserSteps.findIndex((step) => typeof step?.run === 'string'
-      && splitCommandSegments(normalizeCommandLine(step.run)).includes('npm run web:test:e2e:smoke'));
-    const artifactSteps = browserSteps.filter((step) => step?.uses === 'actions/upload-artifact@v4');
-    const workflowArtifactSteps = Object.values(jobs).flatMap((job) => Array.isArray(job?.steps) ? job.steps : []).filter((step) => step?.uses === 'actions/upload-artifact@v4');
-    checked.push(`${file} browser failure/cancellation artifact semantics and order`);
-    if (artifactSteps.length !== 1 || workflowArtifactSteps.length !== 1) {
-      failures.push(`${file} validation workflow must contain exactly one actions/upload-artifact@v4 step, in browser-smoke`);
-    } else {
-      const artifact = artifactSteps[0];
-      if (smokeIndex < 0 || browserSteps.indexOf(artifact) <= smokeIndex) failures.push(`${file} browser artifact upload must follow the browser smoke command`);
-      if (expressionBody(artifact.if) !== 'failure() || cancelled()') failures.push(`${file} browser artifact upload condition must be exactly failure() || cancelled()`);
-      const artifactPaths = typeof artifact.with?.path === 'string' ? artifact.with.path.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) : [];
-      if (!exactSet(artifactPaths, ['tmp/playwright-report', 'tmp/playwright-results'])) failures.push(`${file} browser artifact upload paths must be exactly tmp/playwright-report and tmp/playwright-results`);
-      if (artifact.with?.['if-no-files-found'] !== 'warn') failures.push(`${file} browser artifact upload must set if-no-files-found: warn`);
-      if (Object.hasOwn(artifact, 'continue-on-error')) failures.push(`${file} browser artifact upload must not set continue-on-error`);
+    if (jobName === 'dependency-hygiene') {
+      checked.push(`${file} path-aware dependency audit gate`);
+      for (const command of ['npm ci', 'cd web && npm ci', 'npm run audit:security']) {
+        if (!commands.some((entry) => entry.command === command)) failures.push(`${jobLocation} must run ${command}`);
+      }
     }
-    if (content.includes('web:test:live-getrich-v2') || content.includes('live-getrich-v2.config.ts')) failures.push(`${file} validation workflow must exclude the external live GetRich v2 suite`);
-
-    const dependency = jobs['dependency-hygiene'];
-    checked.push(`${file} path-aware dependency audit gate`);
-    const dependencyRuns = scalarRunSteps(dependency).map(({ run }) => run);
-    for (const command of ['npm ci', 'cd web && npm ci', 'npm run audit:security']) {
-      if (!dependencyRuns.includes(command)) failures.push(`${file} dependency-hygiene must run ${command}`);
+    const consumers = requiredConsumers[jobName];
+    if (!consumers) continue;
+    const position = (command) => commands.find((entry) => entry.command === command)?.position;
+    const before = (first, second, label) => {
+      if (!first || !second || !(first[0] < second[0] || (first[0] === second[0] && first[1] < second[1]))) {
+        failures.push(`${jobLocation} must run ${label}`);
+      }
+    };
+    checked.push(`${file} ${jobName} required coverage and prerequisites`);
+    if (`${node?.with?.['node-version']}` !== EXPECTED_NODE_MAJOR) failures.push(`${jobLocation} must set up Node 24 with actions/setup-node@v4`);
+    if (node?.with?.cache !== 'npm') failures.push(`${jobLocation} Node setup must retain npm caching`);
+    before(checkoutIndex < 0 ? null : [checkoutIndex, 0], nodeIndex < 0 ? null : [nodeIndex, 0], 'checkout before cached Node setup');
+    const installs = jobName === 'backend-e2e' ? ['npm ci'] : ['npm ci', 'cd web && npm ci'];
+    for (const command of [...installs, ...consumers]) {
+      if (!position(command)) failures.push(`${jobLocation} must run ${command}`);
     }
-    if (content.includes('npm run deps:review')) failures.push(`${file} dependency-hygiene must not run the local-only deps:review command in CI`);
+    for (const install of installs) {
+      before(nodeIndex < 0 ? null : [nodeIndex, 0], position(install), `Node setup before ${install}`);
+      for (const consumer of consumers) before(position(install), position(consumer), `${install} before ${consumer}`);
+    }
+    if (jobName === 'browser-smoke') {
+      for (const setup of consumers.slice(0, 2)) before(position(setup), position(consumers[2]), `${setup} before ${consumers[2]}`);
+    }
   }
-  return { checked, failures };
+
+  for (const jobName of Object.keys(requiredConsumers)) {
+    if (!Object.hasOwn(jobs, jobName)) failures.push(`${file} validation workflow must define ${jobName} with required coverage and prerequisites`);
+  }
+  validateClassifier({ file, jobs, classifyStep, failures, checked });
+  validateAggregate({ file, jobs, enforceStep, failures, checked });
+  checked.push(`${file} browser failure/cancellation artifact semantics and order`);
+  if (browserArtifacts.length !== 1 || artifactCount !== 1) {
+    failures.push(`${file} validation workflow must contain exactly one actions/upload-artifact@v4 step, in browser-smoke`);
+  } else {
+    const { step: artifact, index } = browserArtifacts[0];
+    if (smokeIndex < 0 || index <= smokeIndex) failures.push(`${file} browser artifact upload must follow the browser smoke command`);
+    if (expressionBody(artifact.if) !== 'failure() || cancelled()') failures.push(`${file} browser artifact upload condition must be exactly failure() || cancelled()`);
+    const artifactPaths = typeof artifact.with?.path === 'string' ? artifact.with.path.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) : [];
+    if (!exactSet(artifactPaths, ['tmp/playwright-report', 'tmp/playwright-results'])) failures.push(`${file} browser artifact upload paths must be exactly tmp/playwright-report and tmp/playwright-results`);
+    if (artifact.with?.['if-no-files-found'] !== 'warn') failures.push(`${file} browser artifact upload must set if-no-files-found: warn`);
+    if (Object.hasOwn(artifact, 'continue-on-error')) failures.push(`${file} browser artifact upload must not set continue-on-error`);
+  }
+  if (content.includes('web:test:live-getrich-v2') || content.includes('live-getrich-v2.config.ts')) failures.push(`${file} validation workflow must exclude the external live GetRich v2 suite`);
+
+  if (content.includes('npm run deps:review')) failures.push(`${file} dependency-hygiene must not run the local-only deps:review command in CI`);
 }
 
 function validatePlaywrightOwnership({ root, scripts }) {
@@ -900,7 +856,17 @@ function npmRunScriptName(segment) {
   return (runMatch ?? shorthandMatch)?.[1] ?? null;
 }
 
-function validateFailClosedJestGates({ scripts, workflowCommands }) {
+function validateWorkflowFailClosedCommand({ segment, location, failures }) {
+  if (commandUsesPassWithNoTests(segment)) {
+    failures.push(`${location} must not use ${PASS_WITH_NO_TESTS_FLAG}; CI validation gates must fail when no tests are discovered`);
+  }
+  const referencedScript = npmRunScriptName(segment);
+  if (referencedScript && isAllowEmptyScriptName(referencedScript)) {
+    failures.push(`${location} must not reference allow-empty script ${referencedScript}; CI validation gates must fail when no tests are discovered`);
+  }
+}
+
+function validateFailClosedJestGates({ scripts }) {
   const failures = [];
   const checked = [];
 
@@ -932,19 +898,6 @@ function validateFailClosedJestGates({ scripts, workflowCommands }) {
       const referencedScript = npmRunScriptName(segment);
       if (referencedScript && isAllowEmptyScriptName(referencedScript)) {
         failures.push(`package.json validation profile ${name} must not reference allow-empty script ${referencedScript}; release validation must fail when no tests are discovered`);
-      }
-    }
-  }
-
-  for (const location of workflowCommands) {
-    const command = location.replace(/^[^:]+:\d+:\s*/, '');
-    for (const segment of splitCommandSegments(command)) {
-      if (commandUsesPassWithNoTests(segment)) {
-        failures.push(`${location} must not use ${PASS_WITH_NO_TESTS_FLAG}; CI validation gates must fail when no tests are discovered`);
-      }
-      const referencedScript = npmRunScriptName(segment);
-      if (referencedScript && isAllowEmptyScriptName(referencedScript)) {
-        failures.push(`${location} must not reference allow-empty script ${referencedScript}; CI validation gates must fail when no tests are discovered`);
       }
     }
   }
@@ -1137,7 +1090,7 @@ function validateExportConsumerCadence({ scripts }) {
 }
 
 
-function validateRuntimeEngines({ root, workflowFiles = [] }) {
+function validateRuntimeEngines({ root }) {
   const failures = [];
   const checked = [];
   const packages = [
@@ -1159,15 +1112,6 @@ function validateRuntimeEngines({ root, workflowFiles = [] }) {
     if (data.engines?.npm !== EXPECTED_NPM_ENGINE) {
       failures.push(`${pkg.file} engines.npm must be "${EXPECTED_NPM_ENGINE}" for the supported npm range, but is ${JSON.stringify(data.engines?.npm)}`);
     }
-  }
-
-  for (const file of workflowFiles) {
-    const fullPath = path.join(root, file);
-    if (!existsSync(fullPath)) {
-      continue;
-    }
-    const content = readFileSync(fullPath, 'utf8');
-    checked.push(`${file} setup-node ${workflowNodeVersion(content) ?? 'missing'}`);
   }
 
   return { checked, failures };
@@ -1212,7 +1156,6 @@ export function verifyValidationCadence(options = {}) {
     scripts,
     workflowFiles: options.workflowFiles,
   });
-  const validationWorkflowContract = validateValidationWorkflowContract({ workflowDocuments: workflow.workflowDocuments });
   const requiredScripts = validateRequiredValidationScripts({
     scripts,
     documentedCommands: documented.checked,
@@ -1224,26 +1167,26 @@ export function verifyValidationCadence(options = {}) {
   const exportConsumerCadence = validateExportConsumerCadence({ scripts });
   const forbiddenDocumentedWebTestNamespace = validateForbiddenDocumentedWebTestNamespace({ root, files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES });
   const canonicalWebTestNamespace = validateCanonicalWebTestNamespace({ scripts });
-  const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked });
+  const runtimeEngines = validateRuntimeEngines({ root });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
-  const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
+  const failClosedJest = validateFailClosedJestGates({ scripts });
   const terminalChildJest = validateTerminalChildJestContract({ root, pkg, scripts });
   const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
   const playwrightDocumentation = validatePlaywrightDocumentation({ root });
-  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...exportConsumerCadence.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
+  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...exportConsumerCadence.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
   return {
     ok: failures.length === 0,
     failures,
     documentedCommandsChecked: documented.checked,
     workflowCommandsChecked: workflow.checked,
-    validationWorkflowContractEntriesChecked: validationWorkflowContract.checked,
+    validationWorkflowContractEntriesChecked: workflow.contractChecked,
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,
     exportConsumerCadenceEntriesChecked: exportConsumerCadence.checked,
     forbiddenDocumentedWebTestNamespaceEntriesChecked: forbiddenDocumentedWebTestNamespace.checked,
     canonicalWebTestNamespaceEntriesChecked: canonicalWebTestNamespace.checked,
-    runtimeEngineEntriesChecked: runtimeEngines.checked,
+    runtimeEngineEntriesChecked: [...runtimeEngines.checked, ...workflow.setupChecked],
     docsVerifyEntriesChecked: docsVerify.checked,
     failClosedJestGateEntriesChecked: failClosedJest.checked,
     terminalChildJestContractEntriesChecked: terminalChildJest.checked,
