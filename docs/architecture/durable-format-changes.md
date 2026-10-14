@@ -23,6 +23,27 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### F10 dead MCP health and aggregate API deletion — no durable impact (2026-10-14)
+
+Exact implementation parent: `6295ef852d39407c70c5aa66fb5e3fe5af07abfb`.
+Deleted manager aggregate catalogs and health API, runtime health, HTTP health
+producer and exclusive `mcp-health` purpose are process-local only. Evidence is
+their source ownership in `mcp-manager.ts`, `server-runtime.ts` and
+`streamable-http-transport.ts`, the explicitly transient `contracts/outbound-http.ts`
+contract and the operational Fastify sink. No retained bytes, interpretation,
+provenance, selections, layout or serializers change; external journal retention
+does not create a Saivage durable family.
+
+No discriminator changes: MCP definitions remain format 1; conversation
+index/genesis remain format 9 and segments version 9; app-log/provider evidence
+retain shared `version:1/type:rows`; card/record remain format 1; private diagnostics
+remain format 3/privacy policy 2. All other durable contracts are unchanged.
+This source-only deletion needs no retained-state adoption, reset or migration and
+uses no unreleased cutover exception. Installed applicability is unknown and
+uninspected; this entry certifies no whole-release compatibility and authorizes no
+deployment or runtime action. External migration remains separately owner-requested
+and offline.
+
 ### B01 prepared-context attestation deletion — no durable impact (2026-10-14)
 
 Exact implementation parent: `b4337558725dfa23e69c4defd9446867d513be17`.

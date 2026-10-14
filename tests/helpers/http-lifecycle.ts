@@ -27,7 +27,7 @@ export function assertPrivateMetadata(records: OutboundHttpEvent[], secrets: str
   for (const record of records) {
     for (const key of Object.keys(record)) expect(allowed.has(key)).toBe(true);
     expect(['provider', 'auth', 'mcp', 'web']).toContain(record.service);
-    expect(['primary', 'internal-summary', 'auth-refresh', 'mcp-initialize', 'mcp-notification', 'mcp-list', 'mcp-invoke', 'mcp-health', 'websearch', 'webfetch']).toContain(record.purpose);
+    expect(['primary', 'internal-summary', 'auth-refresh', 'mcp-initialize', 'mcp-notification', 'mcp-list', 'mcp-invoke', 'websearch', 'webfetch']).toContain(record.purpose);
     expect(['provider.responses', 'provider.codex', 'provider.chat', 'provider.route', 'auth.codex-token', 'auth.copilot-token', 'mcp.remote', 'web.public', 'web.search']).toContain(record.endpoint);
     expect(['GET', 'POST', 'HEAD']).toContain(record.method);
     if (record.event === 'outbound_http_terminal') {

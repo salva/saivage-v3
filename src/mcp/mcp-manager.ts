@@ -196,9 +196,6 @@ export class McpManager implements McpReconciliationPort {
   getServerStatus(name: string): McpServerStatus | undefined {
     return this.getStatus().find((status) => status.name === name);
   }
-  getTools(): McpToolDefinition[] {
-    return [...this.#runtimes.values()].flatMap((runtime) => runtime.getTools() ?? []);
-  }
   getServerTools(name: string): McpToolDefinition[] | undefined {
     const runtime = this.#runtimes.get(name);
     if (!runtime) throw new McpLifecycleError(`Unknown MCP server '${name}'.`, 404);
@@ -295,11 +292,6 @@ export class McpManager implements McpReconciliationPort {
     if (runtime) await runtime.stop();
     return { serverName: name, unregistered: true, status: 'stopped' };
   }
-  getToolServers(): string[] {
-    return [...this.#runtimes.values()]
-      .filter((runtime) => runtime.getTools() !== undefined)
-      .map((runtime) => runtime.name);
-  }
 
   async invokeTool(
     serverName: string,
@@ -320,10 +312,6 @@ export class McpManager implements McpReconciliationPort {
     if (runtime.bindingId !== bindingId)
       throw new McpLifecycleError('Stale MCP binding; discover tools again before invoking.', 409);
     return runtime.invokeTool(toolName, args, options);
-  }
-
-  async healthCheck(name: string): Promise<boolean> {
-    return this.#runtimes.get(name)?.healthCheck() ?? false;
   }
 
   getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> {

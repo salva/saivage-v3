@@ -36,7 +36,6 @@ import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { buildMcpServerStatus } from './status-projection.js';
 import {
   discoverStreamableHttpTools,
-  healthStreamableHttpServer,
   invokeStreamableHttpTool,
 } from './streamable-http-transport.js';
 import { StdioMcpConnection } from './stdio-transport.js';
@@ -391,25 +390,6 @@ export class McpServerRuntime {
         throw error;
       },
     );
-  }
-
-  healthCheck(): Promise<boolean> {
-    return this.admit(async (_generation, signal) => {
-      const cfg = this.config;
-      if (cfg.disabled || !this.ready) return false;
-      if (cfg.transport === 'stdio')
-        return Boolean(
-          this.handle?.processId &&
-          this.#processRunner.get(this.handle.processId)?.status === 'running',
-        );
-      return healthStreamableHttpServer({
-        outboundHttp: this.#outboundHttp,
-        serverName: this.name,
-        config: cfg,
-        handle: this.handle,
-        signal,
-      });
-    });
   }
 
   getStatus(): McpServerStatus {

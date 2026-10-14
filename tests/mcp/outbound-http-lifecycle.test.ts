@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
-import { healthStreamableHttpServer, invokeStreamableHttpTool } from '../../src/mcp/streamable-http-transport.js';
+import { invokeStreamableHttpTool } from '../../src/mcp/streamable-http-transport.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
@@ -37,10 +37,10 @@ function fixture(autostart = false) {
   return { manager, surface, ...capture };
 }
 describe('MCP owner-local observations through installed real tool surface', () => {
-  it('agent start attributes initialize/notification/all pages; concurrent callers remain distinct and later health is ownerless', async () => {
+  it('agent start attributes initialize/notification/all pages; concurrent callers remain distinct', async () => {
     const f = fixture(); const calls: RequestInit[] = []; const pendingCalls: Array<{ id: number; headers: ReturnType<typeof deferred<Response>>; signal: AbortSignal }> = [];
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-      calls.push(init!); if (init!.method === 'HEAD') return new Response(null);
+      calls.push(init!);
       const body = JSON.parse(String(init!.body));
       if (body.method === 'initialize') return rpc(body.id, {}, true);
       if (body.method === 'notifications/initialized') return new Response('secret-notification-body', { status: 202 });
@@ -69,11 +69,7 @@ describe('MCP owner-local observations through installed real tool surface', () 
       const phases = f.records.filter(r => 'request_id' in r && r.request_id === dispatched[i]!.request_id);
       expect(phases).toHaveLength(3); for (const r of phases) expect(r).toMatchObject(projectOutboundSource(owners[i]!.sessionId, owners[i]!.sourceInputId));
     }
-    const before = f.records.length;
-    expect(await f.manager.healthCheck('secret-server')).toBe(true);
-    const health = f.records.slice(before); expect(health.length).toBeGreaterThan(0);
-    for (const r of health) { expect(r.purpose).toBe('mcp-health'); expect(r).not.toHaveProperty('source_session'); expect(r).not.toHaveProperty('source_card'); expect(r).not.toHaveProperty('input_id'); }
-    assertLifecycles(f.records, 7);
+    assertLifecycles(f.records, 6);
     for (const call of calls) expect(call.redirect).toBeUndefined();
     assertPrivateMetadata(f.records, ['secret-host', 'secret-path', 'secret-query', 'secret-fragment', 'secret-server', 'secret-tool', 'secret-cursor', 'secret-mcp-session', 'secret-cookie', 'secret-notification-body', 'secret-tool-argument', 'secret-result']);
     await f.manager.cleanupForApplicationStop();
@@ -121,12 +117,6 @@ describe('MCP owner-local observations through installed real tool surface', () 
     await jest.advanceTimersByTimeAsync(0); expect(capture.records.map(r => r.event)).toEqual(['outbound_http_dispatch', 'outbound_http_headers']);
     await jest.advanceTimersByTimeAsync(1000); expect(await pending).toMatchObject({ code: 'TIMEOUT' });
     expect(capture.records.at(-1)).toMatchObject({ status: 200, outcome: 'timeout', error_code: 'deadline', body_disposition: 'incomplete' }); expect(jest.getTimerCount()).toBe(0);
-  });
-  it('health HEAD→GET emits separate header-only lifecycles and preserves native redirects', async () => {
-    const capture = capturedHttp(); const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 405 })).mockResolvedValueOnce(new Response('secret-unread-health'));
-    expect(await healthStreamableHttpServer({ config, serverName: 's', handle: { abortController: new AbortController() }, signal: new AbortController().signal, outboundHttp: capture.sink })).toBe(true);
-    assertLifecycles(capture.records, 2); expect(fetch.mock.calls.map(c => c[1]!.method)).toEqual(['HEAD', 'GET']);
-    expect(capture.records.filter(r => r.event === 'outbound_http_terminal').map(r => [r.outcome, r.body_disposition])).toEqual([['http_error', 'not_consumed'], ['completed', 'not_consumed']]);
   });
   it('native tool isError is a failed terminal, while throwing ordinary sink preserves results and error behavior', async () => {
     const capture = capturedHttp(); const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => rpc(1, { isError: true, content: [{ type: 'text', text: 'secret-native-failure' }] }));

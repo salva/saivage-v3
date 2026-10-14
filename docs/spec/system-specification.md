@@ -1405,8 +1405,8 @@ tool paths, including agent-requested MCP start/discovery and Analyst record-fet
 preparation. Configured agent names and model identities use SHA-256 references;
 canonical card IDs and valid input UUIDs remain identifiable. `invocation_session`
 keeps internal-summary execution distinct from its canonical source session.
-Legitimate ownerless startup and health omit source identity; later health never
-inherits the start caller. URLs/hosts/paths, headers, credentials, payloads, tool
+Legitimate ownerless startup/autostart/reconciliation omit source identity.
+URLs/hosts/paths, headers, credentials, payloads, tool
 names/arguments/results and raw errors are excluded, not sanitized into log text.
 
 Wait metadata describes the actual selected delay and, where finite, availability

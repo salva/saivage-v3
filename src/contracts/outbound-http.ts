@@ -14,7 +14,6 @@ export interface OutboundHttpContext extends OutboundObservationSource {
     | 'mcp-notification'
     | 'mcp-list'
     | 'mcp-invoke'
-    | 'mcp-health'
     | 'websearch'
     | 'webfetch';
   readonly endpoint:

@@ -806,8 +806,8 @@ The actual consuming owner emits dispatch immediately before fetch, headers befo
 parsing and terminal on existing response handling, before later canonical
 publication. Coverage is provider Chat/Responses/Codex in `consumeProviderRequest`,
 Codex/Copilot refresh in `consumeRefreshRequest`, MCP initialize and
-initialized notification, every tools/list page, tools/call, health HEAD/conditional
-GET, and web `fetchPublic` for search, ordinary/metadata/bounded fetch and Analyst
+initialized notification, every tools/list page, tools/call, and web `fetchPublic`
+for search, ordinary/metadata/bounded fetch and Analyst
 record preparation. Each owned fetch is one lifecycle: retries and existing manual
 web redirects get fresh UUIDs; provider/auth/MCP native automatic redirect hops
 remain hidden within their single fetch. No transport/redirect algorithm changes
@@ -816,7 +816,7 @@ disposition without teeing, cloning, draining or reading for observation.
 
 Tool binders project only the initiating session/input into observation source.
 MCP invocation and start options forward it through installation, manager, runtime
-and all discovery calls; later ownerless health and reconciliation omit it.
+and all discovery calls; ownerless startup/autostart/reconciliation omit it.
 No server handle remembers its last caller. Websearch/Webfetch pass the same source
 through every fetch variant and recursive manual redirect. Analyst's audited
 record-preparation `fetchText` closure captures that invocation's source, not the
@@ -1190,6 +1190,7 @@ Runtime halt, Analyst cleanup, and MCP cleanup start owned termination before ag
 Project Stop and App runtime cleanup share the same supervisor halt and cannot overlap duplicate runtime-root work.
 
 The public `McpManager` retains its runner, injected MCP root, runtime collection, and invocation-statistics recorder as implementation dependencies without exposing registry/root object references or undeclared broad process access.
+Tool catalogs are exact-server; MCP availability derives from status, not independent health probing.
 The configuration schema's factored strict `stdio` and `streamable-http` connection variants serve operator YAML and the MCP-owned lazy `.saivage/config/mcp-servers.json` format-1 definitions. Stateless synchronous exact-file reads and fresh-temp/fsync replacement publish register/remove changes without a store, queue, previous selector or remembered write authority. Absence is empty; malformed data and source collisions fail strictly. Dynamic definitions persist across reset/restart but never autostart; YAML policy remains unchanged.
 
 Unregister captures the runtime, publishes removal and enters its existing stop fence without an intervening await. Failed containment retains that closed owner even without a definition; no compensating publication or replacement occurs. Publication uncertainty escapes before any further operation. Startup reconciliation and application root/direct-scope joins remain the existing owners. Selected dynamic start requires prior containment before constructing a fresh owner.

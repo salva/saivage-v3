@@ -556,7 +556,7 @@ Interpret the phases at the actual owner:
 
 Coverage is provider Chat/Responses/Codex (including configured custom endpoints),
 Codex/Copilot auth refresh, remote HTTP MCP initialize/initialized notification/every
-tools/list page/invocation/health HEAD or conditional GET, and Websearch/Webfetch
+tools/list page/invocation, and Websearch/Webfetch
 including Analyst record preparation, metadata-only and bounded reads. There is **one lifecycle per owned
 fetch invocation**, not per physical HTTP hop. Each retry and manually dispatched
 web redirect gets a fresh request UUID with the same source attribution. Native
@@ -572,7 +572,7 @@ identity with a SHA-256 configured-agent reference and card/global component;
 hashes the model identity, not request content. `invocation_session` distinguishes
 an internal-summary invocation from its canonical source owner. Tool owners omit
 model/attempt fields they do not possess. Ownerless startup/autostart/reconciliation
-and later health omit source fields; health never inherits an earlier start caller.
+omit source fields.
 
 Only fixed service/purpose/endpoint/method labels and explicit identity/status/
 timing/outcome fields are emitted. No URL/hostname/path/query/fragment/redirect

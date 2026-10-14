@@ -566,38 +566,3 @@ export async function invokeStreamableHttpTool(
     }
   }
 }
-
-export async function healthStreamableHttpServer(
-  input: HttpObservationOptions & {
-    serverName: string;
-    config: StreamableHttpMcpServerConfig;
-    handle?: McpServerHandle;
-    signal: AbortSignal;
-  },
-): Promise<boolean> {
-  const { config: cfg, handle, signal } = input;
-  if (!handle || handle.abortController?.signal.aborted) return false;
-  try {
-    let resp = await consumeMcpHttp(
-      cfg.url,
-      { method: 'HEAD', signal },
-      input,
-      'mcp-health',
-      'HEAD',
-      async (resp) => resp,
-    );
-    if (resp.status === 405 || resp.status === 501)
-      resp = await consumeMcpHttp(
-        cfg.url,
-        { method: 'GET', signal },
-        input,
-        'mcp-health',
-        'GET',
-        async (resp) => resp,
-      );
-    return resp.ok;
-  } catch (error) {
-    throwIfPublicationOutcomeUnknown(error);
-    return false;
-  }
-}
