@@ -135,7 +135,10 @@ export function composeContextProjection(args: {
   for (const row of args.uncoveredRows)
     for (const observation of row.record_observations ?? []) {
       if (observation.observed.selection_kind !== 'current') continue;
-      records.set(recordObservationKey(observation.observed), {
+      const key = recordObservationKey(observation.observed);
+      // Order surviving newest occurrences, not first insertion of each key.
+      records.delete(key);
+      records.set(key, {
         observation,
         source: { messageId: row.id, timestamp: row.timestamp },
       });

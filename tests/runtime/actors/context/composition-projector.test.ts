@@ -9,6 +9,9 @@ import {
   DURABLE_PRIMARY_CONTENT_POLICY,
   MODEL_RECOVERY_NOTICE_TEXT,
   STRUCTURAL_ROW_POLICY,
+  compactedHistorySchema,
+  publicRecordSelection,
+  type RecordSelectionObservation,
   type AgentMessage,
   type ConversationSessionId,
   type SettledToolEvidence,
@@ -28,6 +31,8 @@ import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TE
 import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
 import { settledSuccessBytes } from '../../../../src/tools/tool-result-settlement.js';
 import { buildAnalystOrientationSnapshot } from '../../../../src/application/read-models/analyst-orientation.js';
+import { deriveRequiredModelFacts, selectConversationProtection, validateConversation, validateCompactedHistorySuccessor } from '../../../../src/contracts/conversation-validation.js';
+import { providerConversationProjection } from '../../../../src/runtime/actors/conversation-session.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -211,6 +216,84 @@ describe('composition projector selection pass', () => {
       { kind: 'message', sourceId: 'so', role: 'user', content: 'hidden from primary? no', semantic: 'direct', responsesPrivateMessageId: null },
       { kind: 'evidence', sourceId: 'eo', evidence: { kind: 'canonical_locator', locator: 'card://project/version/1', sha256: 'b'.repeat(64) } },
     ]);
+  });
+});
+
+describe('latest record observation source order', () => {
+  it.each([false, true])('preserves surviving newest occurrences in production primary and summarizer (compacted=%s)', (compacted) => {
+    const selection = (record: string, revision: number, view: 'accepted' | 'effective' = 'accepted'): RecordSelectionObservation => ({
+      card_id: 'project', record_name: record, view, selection_kind: 'current',
+      head: { head_id: INPUT_A, revision },
+      selection: { kind: 'accepted', entry_id: INPUT_B, version: revision,
+        locator: `record:///${record}?card=project&v=${revision}`, content_sha256: 'a'.repeat(64) },
+      exposure: { kind: 'metadata' },
+    });
+    const descriptor = (id: string, observed: RecordSelectionObservation[]) => agentMessageSchema.parse(row({
+      id, role: 'system', kind: 'record_observation', content: '',
+      context_policy: STRUCTURAL_ROW_POLICY.record_observation,
+      record_observations: observed.map((observed) => ({ observed, source: { kind: 'preparation', input_id: INPUT_A, node_id: 'plan' } })),
+    }));
+    const a1 = descriptor('A1', [selection('brief.md', 9)]);
+    // Within-row order and accepted/effective keys remain distinct.
+    const b1 = descriptor('B1', [selection('status.md', 4), selection('brief.md', 7, 'effective')]);
+    const instruction = agentMessageSchema.parse(row({
+      id: 'protected-instruction', role: 'user', kind: 'text', content: 'Retained owner requirement: verify the actual source.',
+      context_policy: { ...DURABLE_PRIMARY_CONTENT_POLICY, compactable: false },
+    }));
+    const prefix = [instruction, a1, b1];
+    // All timestamps are equal, and the later revision is lower: neither is a sort key.
+    const a2 = descriptor('A2', [selection('brief.md', 1)]);
+    const call = agentMessageSchema.parse(callRow(INPUT_A, 'historical', 'read'));
+    const historicalContent = canonicalJson({ success: true, data: { body: 'Historical body is not a descriptor fact.' } });
+    const result = agentMessageSchema.parse({
+      ...resultRow(INPUT_A, 'historical', 'read', historicalContent, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, { kind: 'observational_query', observedSha256: sha256Hex(historicalContent) }),
+      record_observations: [{
+        observed: { ...selection('status.md', 99), selection_kind: 'historical', head: null },
+        source: { kind: 'read', input_id: INPUT_A, tool_call_id: 'historical', tool_name: 'read' },
+      }],
+    });
+    const suffix = [a2, call, result];
+    const prefixSource = validateConversation(SESSION, prefix);
+    const history = compactedHistorySchema.parse({
+      summaryText: 'Prior investigation, not approval.',
+      requiredModelFacts: deriveRequiredModelFacts({
+        inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] },
+        coveredRows: prefix, source: prefixSource,
+      }),
+      protectedPrompts: selectConversationProtection({ inherited: [], rows: prefix, sourceVersion: 1, cutoffCount: prefix.length }).protectedPrompts,
+    });
+    validateCompactedHistorySuccessor({ source: prefixSource, sourceVersion: 1, successor: history, coveredRows: prefix });
+    const original = structuredClone({ prefix, suffix, history });
+    const conversation = compacted
+      ? validateConversation(SESSION, suffix, undefined, { id: INPUT_B, timestamp: TS, sourceVersion: 1, history })
+      : validateConversation(SESSION, [...prefix, ...suffix]);
+    const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations;
+    expect(facts.map((fact) => [fact.observation.observed.record_name, fact.observation.observed.view, fact.source.messageId])).toEqual([
+      ['status.md', 'accepted', 'B1'], ['brief.md', 'effective', 'B1'], ['brief.md', 'accepted', 'A2'],
+    ]);
+    expect(facts.slice(0, 2)).toEqual(history.requiredModelFacts.latestRecordObservations.slice(1));
+    expect(facts[2]).toEqual({ source: { segmentVersion: compacted ? 2 : 1, rowIndex: compacted ? 0 : 3, messageId: 'A2', timestamp: TS }, observation: a2.record_observations![0] });
+    const composed = compose(conversation.sourceRows, {
+      effectiveHistory: compacted ? { ...history, historyMessageId: `${INPUT_B}:compacted-history`, historyTimestamp: TS } : null,
+      dynamicBlocks: [dynamicBlock('current-node', { role: 'system', content: 'Current task: verify the actual source before deciding.' })],
+    });
+    const primary = providerConversationProjection(conversation, [dynamicBlock('current-node', { role: 'system', content: 'Current task: verify the actual source before deciding.' })]);
+    const primaryFact = primary.messages.find((item) => item.kind === 'synthetic_context' && item.block_identity === 'latest-record-observations');
+    const summaryFact = composed.summarizer.find((item) => item.kind === 'message' && item.sourceId === 'latest-record-observations');
+    if (!primaryFact || !summaryFact || summaryFact.kind !== 'message') throw new Error('Missing production descriptor projections.');
+    expect(primaryFact.content).toBe(summaryFact.content);
+    const payload = JSON.parse(primaryFact.content.slice(primaryFact.content.indexOf('\n') + 1));
+    expect(payload).toEqual(facts.map((fact) => ({
+      source: compacted && fact.source.messageId === 'B1' ? fact.source : { messageId: fact.source.messageId, timestamp: fact.source.timestamp },
+      observation: { source: fact.observation.source, observed: publicRecordSelection(fact.observation.observed) },
+    })));
+    expect(payload.map((fact: { source: { messageId: string } }) => fact.source.messageId)).toEqual(['B1', 'B1', 'A2']);
+    expect(primaryFact.content).not.toContain('content_sha256');
+    expect(primaryFact.content).not.toContain('a'.repeat(64));
+    expect(primaryFact.content).not.toContain('Historical body');
+    expect(primaryFact.content).not.toContain(instruction.content);
+    expect(primary.messages.some((item) => item.content === instruction.content)).toBe(true);
+    expect({ prefix, suffix, history }).toEqual(original);
   });
 });
 

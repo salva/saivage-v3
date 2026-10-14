@@ -128,6 +128,9 @@ without follow-up reads or changes to acceptance. Conversation facts fold inheri
 descriptors and actual source observations in append order, then merge the retained
 suffix; immutable historical selections cannot replace current knowledge. These
 facts contain no protected instruction/body copy and confer no write authority.
+Surviving newest occurrences determine fact order, not first-key insertion:
+the common primary/summarizer `composeContextProjection` moves a replaced key
+after still-surviving inherited and earlier suffix observations.
 Canonical observation coordinates use a per-derivation source-ID index, discarded
 after the fold, eliminating repeated per-row source searches without weakening
 strict fresh consumption.

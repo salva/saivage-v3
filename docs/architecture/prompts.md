@@ -180,7 +180,10 @@ suffix. Descriptor-only `record_observation` rows are structural evidence, not a
 protected copy or reconstruction of a prepared body.
 Primary composition and summary orientation separately project latest descriptor
 facts with actual source/exposure attribution, independently of protected prompt
-text. This claims neither retained body bytes nor delivery, recall or currentness.
+text. Primary, summary orientation and summary-source projection preserve the
+surviving newest-occurrence order, including inherited facts overridden by the
+suffix (A1, B1, A2 becomes B1, A2), not first-key insertion or revision/time order.
+This claims neither retained body bytes nor delivery, recall or currentness.
 
 Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion and passes obsolete fixed-result-directive validation. The Analyst and process hosts reject that value. Old `toolList`, `projectContext`, `cardId`, `cardTitle`, and `cardBrief` placeholders do not exist: tools, project orientation, and card data are typed dynamic context, never rendered prompt variables.
 

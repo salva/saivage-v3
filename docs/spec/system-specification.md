@@ -742,6 +742,9 @@ without a follow-up read. Immutable historical reads never advance current knowl
 The strict `latestRecordObservations` required-fact array starts explicitly empty
 for new history and derives newest actual occurrences in source order per
 conversation/card/record/view, including inherited facts and retained suffix.
+The surviving latest occurrences determine array order: A1, B1, A2 yields B1,
+A2, including when A1 and B1 are inherited and A2 is in the suffix. Primary and
+summarizer descriptor facts preserve that order, not revision or timestamp order.
 Descriptors retain provenance/coordinates/time, not bodies, templates, delivery or
 recall claims. Actual `record_prompt` text uses existing declaration-based keyed or
 anonymous protection independently; structural `record_observation` descriptors
