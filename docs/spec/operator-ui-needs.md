@@ -194,6 +194,12 @@ error, and current-card blocking/failure evidence from ordinary orientation with
 requiring transcript search. Check each supplied problem fixture and a missing-data
 fixture; absence of loaded errors must not be presented as “no project problems.”
 Provider cooling is advisory availability, not a failed card or successful progress.
+Runtime current identity must remain distinct from retained last-known card problem
+detail, including after departure to another card or no current work and return to
+the prior identity. Detail loading, authoritative card-not-found, ordinary failed
+observation and unauthorized access have distinct meanings; a failed detail read
+does not prove runtime work disappeared. Unauthorized observations suppress retained
+problem text rather than exposing it as last-known evidence.
 
 ### B. Understand the work, not just individual cards
 

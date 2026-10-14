@@ -1897,6 +1897,20 @@ Agent conversation APIs never return raw canonical compaction JSON. They project
 
 `createOwnedFetch()` owns only an instance-local current request, AbortController and pending ref. Replacement/cancellation invalidates the owner before abort; superseded success, failure and finally publish nothing. Acceptance faults propagate rather than becoming transport errors. Domain values, errors and last-good/reset semantics stay local. Its ten consumers are MCP tools; System configuration, providers and actions; Debug errors, processes and Doctor; file content; exact session route resolution; and current-card orientation. Disposal and departing route/selection cancel those reads. Cards, graph reads, directory listings, session inventory and conversation/lease freshness owners retain their separate contracts.
 
+Current-card orientation locally separates retained successful detail (its own `id`)
+from the current runtime-identity admission outcome: idle, loading, observed,
+not-found, failed or unauthorized. Each identity/admission transition cancels the
+departing read and resets its outcome; an admitted non-null identity starts one
+exact read, including return to a retained same-ID detail after another card or null.
+Unchanged identity/admission does not refresh. Runtime loaded/unauthorized state gates
+admission, without a separate auth owner. GlobalStrip qualifies retained problems as
+last-known unless detail matches runtime identity and succeeded for this admission;
+runtime/detail unauthorized suppresses retained text. Fixed notices distinguish
+loading, authoritative 404 and ordinary failure without displaying raw errors.
+This is independent observation, not atomic synchronization or continuous freshness;
+selected CardStore remains unrelated inspection authority. No new request coordinator,
+cache, poller, persistence or backend contract is introduced.
+
 ## 12. Reset And Failure Model
 
 `readCanonicalLinkedCardHistoryTree()` follows committed membership and each reached ordinary predecessor chain, including retained tombstones, and stops below tombstones.

@@ -1,14 +1,13 @@
-import { computed, ref, watch, onScopeDispose, type ComputedRef, type Ref } from 'vue';
+import { computed, ref, watch, onScopeDispose, type ComputedRef } from 'vue';
 import { createOwnedFetch } from '../stores/owned-fetch';
 import type { CardDetail } from '../api/types';
 import { OperatorApiError, getCard } from '../api/client';
-import { createLogger } from '../utils/logger';
 
-const log = createLogger('orientation:current-card');
+export type CurrentCardOutcome = 'idle' | 'loading' | 'observed' | 'not-found' | 'failed' | 'unauthorized';
 
 interface CurrentCardOrientation {
   detail: ComputedRef<CardDetail | null>;
-  unavailable: Ref<boolean>;
+  outcome: ComputedRef<CurrentCardOutcome>;
 }
 
 /**
@@ -21,22 +20,22 @@ export function useCurrentCardOrientation(
   observationAccepted: () => boolean,
 ): CurrentCardOrientation {
   const detail = ref<CardDetail | null>(null);
-  const unavailable = ref(false);
-  const observedIdentity = ref<string | null>(null);
+  const outcome = ref<CurrentCardOutcome>('idle');
   const request = createOwnedFetch();
   onScopeDispose(request.cancel);
 
   async function observe(cardId: string): Promise<void> {
     await request.run((signal) => getCard(cardId, signal), (response) => {
       detail.value = response.card;
-      unavailable.value = false;
-      observedIdentity.value = cardId;
+      outcome.value = 'observed';
     }, (error) => {
       if (error instanceof OperatorApiError && error.isNotFound) {
-        unavailable.value = true;
-        return;
+        outcome.value = 'not-found';
+      } else if (error instanceof OperatorApiError && error.isUnauthorized) {
+        outcome.value = 'unauthorized';
+      } else {
+        outcome.value = 'failed';
       }
-      log.error('current-card orientation read failed', error);
     });
   }
 
@@ -44,12 +43,13 @@ export function useCurrentCardOrientation(
     () => [currentCardId(), observationAccepted()] as const,
     ([cardId, accepted]) => {
       request.cancel();
+      outcome.value = 'idle';
       if (!accepted || cardId === null) return;
-      if (cardId === observedIdentity.value && detail.value) return;
+      outcome.value = 'loading';
       void observe(cardId);
     },
     { immediate: true },
   );
 
-  return { detail: computed(() => detail.value), unavailable };
+  return { detail: computed(() => detail.value), outcome: computed(() => outcome.value) };
 }

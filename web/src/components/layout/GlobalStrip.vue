@@ -5,7 +5,7 @@
         <span class="strip-project" data-testid="strip-project">{{ projectId ?? 'saivage' }}</span>
         <span class="strip-chip" :class="`lifecycle-${statusLabel}`" data-testid="strip-lifecycle">{{ runtimeModeLabel }}</span>
         <span v-if="currentWorkLabel" class="strip-current" data-testid="strip-current-work">
-          <router-link v-if="currentCardId" :to="{ name: 'card-detail', params: { id: currentCardId } }">{{ currentWorkLabel }}</router-link>
+          <router-link v-if="loaded && !unauthorized && currentCardId" :to="{ name: 'card-detail', params: { id: currentCardId } }">{{ currentWorkLabel }}</router-link>
           <template v-else>{{ currentWorkLabel }}</template>
         </span>
       </div>
@@ -103,8 +103,8 @@ const socketLabel = computed(() => selectSocketLabel(connectionStateLabel.value)
 const socketDetail = computed(() => selectSocketDetail(connectionStateLabel.value));
 
 const currentWorkLabel = computed(() => {
-  if (!loaded.value) return 'Current work unknown';
   if (unauthorized.value) return 'Current work unavailable';
+  if (!loaded.value) return 'Current work unknown';
   return currentCardId.value ?? 'No current work';
 });
 
@@ -155,17 +155,33 @@ const problemNotices = computed<string[]>(() => {
   if (loaded.value && status.value !== 'error' && availabilityDetail && availabilityDetail !== 'Runtime snapshot comes from the latest accepted REST response.' && !unauthorized.value) {
     notices.push(availabilityDetail);
   }
+  if (currentCardNotice.value) notices.push(currentCardNotice.value);
   if (currentCardProblem.value) notices.push(currentCardProblem.value);
   return notices;
 });
 
-const currentCardOrientation = useCurrentCardOrientation(() => currentCardId.value, () => loaded.value);
+const currentCardOrientation = useCurrentCardOrientation(() => currentCardId.value, () => loaded.value && !unauthorized.value);
+const detailUnauthorized = computed(() => unauthorized.value || currentCardOrientation.outcome.value === 'unauthorized');
+const currentCardNotice = computed<string | null>(() => {
+  if (detailUnauthorized.value) return 'Current card details unavailable (unauthorized).';
+  if (!loaded.value || currentCardId.value === null) return null;
+  const prefix = `Current card ${currentCardId.value} details`;
+  switch (currentCardOrientation.outcome.value) {
+    case 'loading': return `${prefix} loading.`;
+    case 'not-found': return `${prefix} unavailable (card not found).`;
+    case 'failed': return `${prefix} could not be loaded.`;
+    default: return null;
+  }
+});
 const currentCardProblem = computed<string | null>(() => {
+  if (detailUnauthorized.value) return null;
   const detail = currentCardOrientation.detail.value;
   if (!detail) return null;
-  if (detail.lifecycle.error) return `Current card ${detail.id}: ${detail.lifecycle.error}`;
+  const attribution = loaded.value && currentCardId.value === detail.id && currentCardOrientation.outcome.value === 'observed'
+    ? 'Current card' : 'Last-known card';
+  if (detail.lifecycle.error) return `${attribution} ${detail.id}: ${detail.lifecycle.error}`;
   if (['failed', 'blocked', 'cancelled'].includes(detail.lifecycle.status)) {
-    return `Current card ${detail.id} is ${detail.lifecycle.status}.`;
+    return `${attribution} ${detail.id} is ${detail.lifecycle.status}.`;
   }
   return null;
 });

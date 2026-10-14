@@ -221,6 +221,27 @@ contracts the current Card Cockpit implements.
   retain their last successful labels. Age-based staleness is never inferred.
 - Terminal socket **Unauthorized** appears only on a validated ticket-endpoint
   401 or close code 1008; every other failure is an ordinary reconnect.
+- Current-work identity/link comes only from the accepted runtime observation:
+  **Current work unknown** before acceptance, **Current work unavailable** on runtime
+  unauthorized (no retained identity link), the observed card ID, or **No current
+  work** for accepted null. Selected-card inspection never supplies this identity.
+  Current-card detail has a separate admission-local outcome. Exact notice copy is:
+
+  | Detail/runtime condition | Strip notice and problem attribution |
+  | --- | --- |
+  | B loading | `Current card B details loading.`; retained A problem is `Last-known card A: <error>` or `Last-known card A is <status>.` |
+  | B authoritative 404 | `Current card B details unavailable (card not found).`; retained problem stays last-known, primary identity stays B |
+  | B transport/server/parse failure | `Current card B details could not be loaded.`; retained problem stays last-known |
+  | B successfully observed with matching detail | `Current card B: <error>` or `Current card B is <status>.`, when a lifecycle problem exists |
+  | Accepted null or unknown runtime | Retained problems are last-known; no current-detail loading/missing claim |
+  | Return A, pending or failed new read | Retained A remains last-known even though IDs match |
+  | Runtime or detail unauthorized | `Current card details unavailable (unauthorized).`; no retained lifecycle problem text |
+
+  `<status>` is failed, blocked or cancelled when there is no lifecycle error.
+  Notices use fixed safe wording, never raw request errors; authorized server-filtered
+  lifecycle errors use text interpolation, not HTML. Healthy retained detail creates
+  no historical notice. “Current” requires matching runtime identity and success for
+  this admission, not atomic synchronization, continuous freshness or socket liveness.
 - Restart availability comes solely from the `restart_server_available`
   boolean. The confirmation dialog explains shutdown versus project halt,
   requires exact text `RESTART SERVER`, supports Cancel, traps/restores
@@ -302,7 +323,7 @@ contracts the current Card Cockpit implements.
   then **Parent and related work**. Detailed workflow mechanics remain
   available from the shared header rather than leading the reading order.
 
-Plain resource reads cancel their pending request when their owner departs. Superseded success or failure cannot change the current view or clear newer loading. System resources and diagnostic/MCP refreshes retain last-good values on failure; file selection and exact-session resolution clear departed content, while current-card orientation retains its last accepted detail and reports authoritative 404 unavailability. These request-lifetime rules do not replace Cards freshness or conversation lease contracts.
+Plain resource reads cancel their pending request when their owner departs. Superseded success or failure cannot change the current view or clear newer loading. System resources and diagnostic/MCP refreshes retain last-good values on failure; file selection and exact-session resolution clear departed content. Current-card orientation retains its last accepted detail, identified by that detail's own ID, separately from its current admission outcome (`idle`, `loading`, `observed`, `not-found`, `failed`, `unauthorized`). Each accepted non-null identity/admission transition starts one exact read and clears the prior outcome; return to the prior card after another identity, null or revoked admission always reads again. Null/unaccepted/runtime-unauthorized observations cancel pending work and set idle without erasing detail. Unchanged identity/admission adds no refresh trigger. Only an owned success replaces retained detail; owned failures classify the current acquisition without proving deletion, and cancelled/late callbacks publish nothing. These request-lifetime rules do not replace Cards freshness or conversation lease contracts, nor change runtime refresh-failure retention.
 
 ## 4. Card tree and hierarchy
 

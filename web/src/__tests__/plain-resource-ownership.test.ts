@@ -103,7 +103,7 @@ describe('semantic plain resource owners', () => {
     expect(state.detail.value).toEqual({ id: 'card-a' });
     id.value = 'card-missing';
     await flushPromises();
-    expect(state.unavailable.value).toBe(true);
+    expect(state.outcome.value).toBe('not-found');
     expect(state.detail.value).toEqual({ id: 'card-a' });
     const late = deferred<unknown>();
     api.getCard.mockReturnValueOnce(late.promise);
