@@ -9,7 +9,8 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { readAuthProfiles, replaceAuthProfiles, type AuthProfile } from '../../src/auth/index.js';
-import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
+import { NO_FRESHNESS_EFFECTS, PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { capturedHttp, microtasks, assertLifecycles, assertPrivateMetadata } from '../helpers/http-lifecycle.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { controlledResponse, pendingHeaders } from '../helpers/provider-inactivity.js';
@@ -25,6 +26,67 @@ afterEach(() => {
 });
 
 describe.each<RefreshProvider>(['openai-codex', 'github-copilot'])('%s OAuth refresh', (provider) => {
+  it('ordinary throwing sink does not prevent token publication or add refresh requests', async () => {
+    const fixture = setup(provider); const token = provider === 'openai-codex' ? codexToken('new') : 'secret-access';
+    const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(refreshSuccess(provider, token)); const sink = jest.fn(() => { throw new Error('observer'); });
+    expect((await resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', undefined,
+      { context: { service: 'provider', purpose: 'primary', endpoint: 'provider.chat', method: 'POST' }, emitter: sink })).apiKey).toBe(token);
+    expect(readAuthProfiles(fixture.projectRoot)?.profiles.profile?.accessToken).toBe(token); expect(fetch).toHaveBeenCalledTimes(1); expect(sink).toHaveBeenCalledTimes(3);
+  });
+  it('emits deferred refresh phases before credentials are published and preserves native redirect behavior', async () => {
+    const fixture = setup(provider); const capture = capturedHttp(); const headers = deferredResponse();
+    const fetch = jest.spyOn(globalThis, 'fetch').mockReturnValue(headers.promise);
+    let terminalBeforePublication = false;
+    const pending = resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', undefined, {
+      context: { service: 'provider', purpose: 'primary', endpoint: 'provider.chat', method: 'POST' },
+      emitter: event => {
+        capture.sink(event);
+        if (event.event === 'outbound_http_terminal') {
+          expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+          terminalBeforePublication = true;
+        }
+      },
+    });
+    await microtasks(); expect(capture.records.map(r => r.event)).toEqual(['outbound_http_dispatch']);
+    const stream = controlledResponse(fetch.mock.calls[0]![1]!.signal!);
+    Object.defineProperty(stream.response, 'redirected', { value: true });
+    headers.resolve(stream.response); await microtasks();
+    expect(capture.records.map(r => r.event)).toEqual(['outbound_http_dispatch', 'outbound_http_headers']);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile);
+    const token = provider === 'openai-codex' ? codexToken('private-account') : 'secret-access-token';
+    stream.send(await refreshSuccess(provider, token).text()); stream.close();
+    expect((await pending).apiKey).toBe(token); expect(terminalBeforePublication).toBe(true);
+    assertLifecycles(capture.records, 1);
+    expect(capture.records.at(-1)).toMatchObject({ service: 'auth', purpose: 'auth-refresh', status: 200, outcome: 'completed', body_disposition: 'consumed' });
+    expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0]![1]!.redirect).toBeUndefined();
+    assertPrivateMetadata(capture.records, [token, 'synthetic-refresh', 'synthetic-replacement-refresh', 'private-account', 'profile']);
+  });
+  it('terminal publication-unknown sink prevents auth publication and all later emission', async () => {
+    jest.useFakeTimers(); const fixture = setup(provider); const capture = capturedHttp(); const fatal = new PublicationOutcomeUnknownError();
+    const remove = jest.spyOn(AbortSignal.prototype, 'removeEventListener');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(refreshSuccess(provider, provider === 'openai-codex' ? codexToken('new') : 'secret-token'));
+    await expect(resolveLlmTransportConfig(fixture.projectRoot, fixture.registry, fixture.candidate, 'standard', new AbortController().signal, {
+      context: { service: 'provider', purpose: 'primary', endpoint: 'provider.chat', method: 'POST' },
+      emitter: e => { capture.sink(e); if (e.event === 'outbound_http_terminal') throw fatal; },
+    })).rejects.toBe(fatal);
+    expect(readAuthProfiles(fixture.projectRoot)).toEqual(fixture.authFile); assertLifecycles(capture.records, 1);
+    expect(remove).not.toHaveBeenCalled();
+  });
+  it('real refresh failure schedules finite recovery with no model dispatch', async () => {
+    jest.useFakeTimers({ now: 0 }); const fixture = setup(provider); const capture = capturedHttp();
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('secret-refresh-body', { status: 503 }));
+    const service = new InvocationService({ projectRoot: fixture.projectRoot, registry: fixture.registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS, outboundHttp: capture.sink });
+    const request: InvocationRequest = { ...invocationRequest(fixture.candidate), inputId: '11111111-1111-4111-8111-111111111111', sessionId: 'agent:planner:card-a', providerConversation: { sourceSessionId: 'agent:planner:card-a', messages: [] }, routePass: { kind: 'ordinary', candidateChain: [fixture.candidate] } };
+    const admission = service.preparePrimaryRequestAdmission(request); if (admission.kind !== 'admitted') throw new Error('Expected admission');
+    const pending = service.executeAdmittedWithRecovery(admission).catch(e => e);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(capture.records.at(-1)).toMatchObject({ event: 'outbound_http_retry_wait', delay_ms: 60000, attempt_index: 0 });
+    expect(capture.records.filter(r => r.event === 'outbound_http_dispatch')).toHaveLength(1);
+    await jest.advanceTimersByTimeAsync(180000); expect(await pending).toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [] });
+    expect(fetch).toHaveBeenCalledTimes(4); assertLifecycles(capture.records, 4);
+    expect(capture.records.filter(r => r.event === 'outbound_http_dispatch').map(r => [r.service, r.attempt_index])).toEqual([['auth', 0], ['auth', 0], ['auth', 0], ['auth', 0]]);
+    assertPrivateMetadata(capture.records, ['secret-refresh-body', 'synthetic-refresh']);
+  });
   it('bounds continuously received refresh bytes at 15 minutes without writing auth or sending the model request', async () => {
     jest.useFakeTimers({ now: 0 });
     const fixture = setup(provider);

@@ -65,7 +65,7 @@ describe('active stdio cancellation ownership', () => {
       return new Response(new ReadableStream({ start(controller) { controller.error(failure); } }));
     }) as typeof fetch;
     try {
-      await expect(runtime.start(caller.signal)).rejects.toBe(failure);
+      await expect(runtime.start({ signal: caller.signal })).rejects.toBe(failure);
       expect(failure).not.toBeInstanceOf(TransportError);
       expect(terminate).toHaveBeenCalledTimes(mode === 'publication' ? 0 : 1);
       expect(events.appendEventPrepared).not.toHaveBeenCalled();

@@ -23,7 +23,7 @@ describe('independent configured MCP admissions', () => {
     const terminate = jest.fn(async () => ({ failed: [] }));
     const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: {} as never });
     const installation = createMcpToolInvocationInstallation();
-    installation.installer.install({ ...unusedMcpToolInvocation, startServer: async (name, signal) => { await runtime.start(signal); return { serverName: name, status: 'running', toolCount: runtime.getTools()!.length }; } });
+    installation.installer.install({ ...unusedMcpToolInvocation, startServer: async (name, options) => { await runtime.start(options); return { serverName: name, status: 'running', toolCount: runtime.getTools()!.length }; } });
     globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => init?.method === 'HEAD' ? new Response(null, { status: 200 }) : new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32004, message: 'secret-remote-text'.repeat(1000) } }))) as typeof fetch;
     try {
       const outcome = await invokeToolForLlm(surface(['mcp_server_control'], installation.port), 'mcp_server_control', { serverName: 'one', action: 'start' }, testLlmToolInvocationContext({ toolName: 'mcp_server_control' }));
@@ -43,7 +43,7 @@ describe('independent configured MCP admissions', () => {
     const originalFetch = globalThis.fetch;
     const caller = new AbortController(); const reason = new TypeError('exact unknown/caller failure');
     const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: async () => ({ failed: [] }) } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: {} as never });
-    const port = { ...unusedMcpToolInvocation, startServer: async (name: string, signal?: AbortSignal) => { await runtime.start(signal); return { serverName: name, status: 'running' as const, toolCount: 0 }; } };
+    const port = { ...unusedMcpToolInvocation, startServer: async (name: string, options?: Parameters<McpServerRuntime['start']>[0]) => { await runtime.start(options); return { serverName: name, status: 'running' as const, toolCount: 0 }; } };
     globalThis.fetch = jest.fn(async () => { if (mode === 'cancellation') caller.abort(reason); throw reason; }) as typeof fetch;
     try {
       const invoked = invokeToolForLlm(surface(['mcp_server_control'], port), 'mcp_server_control', { serverName: 'one', action: 'start' }, testLlmToolInvocationContext({ toolName: 'mcp_server_control' }), caller.signal);

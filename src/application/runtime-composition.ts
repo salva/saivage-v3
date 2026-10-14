@@ -1,4 +1,5 @@
 import type { SaivageConfig } from '../schemas/index.js';
+import type { OutboundHttpEmitter } from '../contracts/index.js';
 import {
   buildProviderRoutingReadModel,
   type ProviderRoutingReadModel,
@@ -81,6 +82,7 @@ export interface RuntimeApplication {
 }
 
 interface RuntimeApplicationServices {
+  outboundHttp?: OutboundHttpEmitter;
   failedProviderDiagnostics?: string;
   projectRoot: string;
   processIdentity: RuntimeProcessIdentity;
@@ -120,6 +122,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   )
     throw new Error('Image-enabled agents require an image-compatible summary candidate.');
   const invocationService = new InvocationService({
+    outboundHttp: services.outboundHttp,
     failedProviderDiagnostics: services.failedProviderDiagnostics,
     projectRoot,
     registry,
@@ -211,6 +214,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
   const oversightBinding = runtimeAgentBinding(workflows, workflows.oversight.name);
   const runtimeSupervisor = createSupervisorRuntimeApi({
+    outboundHttp: services.outboundHttp,
     projectRoot,
     processIdentity: services.processIdentity,
     actorStore: cardStore,
@@ -289,6 +293,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
             ?.processState ?? null,
       };
       return analystBinding.toolSet.bind({
+        outboundHttp: services.outboundHttp,
         scope: 'global',
         agentName: analystBinding.contract.name,
         projectRoot,
@@ -400,6 +405,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
             ?.processState ?? null,
       };
       const surface = oversightBinding.toolSet.bind({
+        outboundHttp: services.outboundHttp,
         scope: 'global',
         agentName: workflows.oversight.name,
         projectRoot,

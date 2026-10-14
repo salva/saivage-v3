@@ -42,7 +42,7 @@ export function createMcpToolInvocationInstallation(): McpToolInvocationInstalla
     unregisterServer: (name) => authority().unregisterServer(name),
     getStatus: () => authority().getStatus(),
     getServerStatus: (name) => authority().getServerStatus(name),
-    startServer: (name, signal) => authority().startServer(name, signal),
+    startServer: (name, options) => authority().startServer(name, options),
     stopServer: (name) => authority().stopServer(name),
     getServerTools: (name) => authority().getServerTools(name),
     findToolCapability: (serverName, toolName) =>

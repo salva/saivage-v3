@@ -102,6 +102,7 @@ export class CardProcessActor extends BaseActor {
     fatalPort: ApplicationFatalPort;
     gate: RuntimeGate;
     mcpToolInvocation: McpToolInvocationPort;
+    outboundHttp?: import('../../contracts/index.js').OutboundHttpEmitter;
     compactor: CompactorPort;
     compactionConfig: AutonomousCompactionPolicy;
     summarizerProvider: SummarizerProviderPort;
@@ -127,6 +128,7 @@ export class CardProcessActor extends BaseActor {
         processRunner: args.processRunner,
         runtimeProcessRootScope: args.runtimeProcessRootScope,
         mcpToolInvocation: args.mcpToolInvocation,
+        outboundHttp: args.outboundHttp,
         promptTemplates: args.promptTemplates,
         conversations: args.conversations,
         compactionConfig: args.compactionConfig,

@@ -479,6 +479,113 @@ outage and interruption may lose it. Completed tools/results never replay merely
 because their continuation overloads. Publication failure never triggers a resend.
 This procedure explains behavior, not incident recovery or deployment authorization.
 
+## Outbound HTTP lifecycle
+
+The ordinary process logger emits `info` observations continuously, independently
+of `--failed-provider-diagnostics`: that opt-in flag enables finite private content
+captures, not lifecycle logging. Settled provider exchange evidence and those dumps
+cannot show the current in-flight phase. Lifecycle metadata is not app-log Events,
+API output or UI Debug, and creates no Saivage log file or durable format.
+
+Process stdout is structured JSON by default (`NODE_ENV` absent/empty selects
+production). `NODE_ENV=development` uses `pino-pretty` when available, otherwise
+JSON; pretty output is presentation, not a JSONL storage contract. `LOG_LEVEL`
+absent/empty defaults to `info`. Exact lowercase `info`, `debug` and `trace` enable
+these `info` events; `warn`, `error`, `fatal` and `silent` suppress them. Other values
+fail environment loading; there is no case/whitespace normalization or CLI level
+flag. Change the actual service environment using the ordinary configuration
+procedure, not an assumed live reload.
+
+For systemd deployments, inspect the actual unit's journal. This is illustrative
+read-only guidance with a placeholder, not an instruction to inspect a deployment
+or a claim about its unit name or retention:
+
+```bash
+SERVICE_UNIT='<actual-service-unit>'
+timeout --kill-after=2s 10s journalctl --unit "$SERVICE_UNIT" --since '15 minutes ago' --no-pager --output=cat
+```
+
+For JSON output, filter on `event` (`outbound_http_dispatch`,
+`outbound_http_headers`, `outbound_http_terminal`, `outbound_http_retry_wait`), then
+an exact `request_id` or `input_id` to correlate concurrent work. For example, on
+an already-authorized local JSON stdout capture (which may also contain non-JSON
+startup text):
+
+```bash
+timeout --kill-after=2s 10s jq -R 'fromjson? | select(.event == "outbound_http_terminal" and .request_id == "<request-UUID>")' '<local-process-log>'
+```
+
+Saivage has **no stdout rotation/retention policy**. Journald/service-manager or
+operator redirection owns retention, rate limiting and possible drops. No deployed
+policy has been inspected or certified for this feature. Emission is best effort:
+no fsync, flush acknowledgment, retry, lossless delivery or terminal-after-crash
+guarantee. A dispatch without headers/terminal shows missing observed settlement,
+not proof that the request is still live, especially after restart. Log suppression
+or dropping likewise cannot establish absence of requests.
+
+Interpret the phases at the actual owner:
+
+- Dispatch is local intent immediately before a Saivage-owned fetch, after existing
+  admission/auth/pre-abort checks, not evidence of server receipt. Token reuse,
+  rejected admission, pre-cancelled work and sleeping retries emit no dispatch.
+  Auth refresh can dispatch and fail before any model request exists.
+- Headers carry the returned numeric HTTP status and monotonic `elapsed_ms`, not
+  actual headers or success. An HTTP-200 SSE failure can end with `outcome:failed`
+  and `error_code:provider_failure`; it is not a completed provider response.
+- Terminal describes existing response handling, before later credential/evidence/
+  record publication, not logical invocation completion or known remote effects.
+  `body_disposition:consumed` means EOF was read; `not_consumed` covers header-only
+  owners (such as HEAD/early error handling). `cancelled_by_policy` covers metadata,
+  bounded truncation and intentional parser cancellation, not user cancellation.
+  `incomplete` means unfinished consumption. Outcomes/codes are closed typed values,
+  never raw exception or server text.
+- Retry-wait is the scheduler actually choosing to sleep, not bytes in flight.
+  `delay_ms` is the selected sleep duration. Optional `deadline_ms` is the finite
+  invocation availability deadline as Unix epoch milliseconds, not request
+  inactivity/absolute timeout or a promised send time; overload waits omit it.
+  `waiting_candidate_ref` is the hashed candidate selected for this wait, **not a
+  guaranteed next dispatch**: eligibility is recomputed after waking. An eligible
+  alternative can run without waiting for another candidate's backoff. A prior
+  request ID/attempt index is associated where known (including refresh); a shared
+  availability wait can lack a prior request. Cancellation while sleeping sends
+  nothing, and there are no countdown/timer-tick events.
+
+Coverage is provider Chat/Responses/Codex (including configured custom endpoints),
+Codex/Copilot auth refresh, remote HTTP MCP startup/discovery/notification/every
+list page/invocation/health, and Websearch/Webfetch including Analyst record
+preparation, metadata-only and bounded reads. There is **one lifecycle per owned
+fetch invocation**, not per physical HTTP hop. Each retry and manually dispatched
+web redirect gets a fresh request UUID with the same source attribution. Native
+automatic provider/auth/MCP redirect hops are not individually logged; headers
+describe the response returned to the owner. Native redirect behavior is unchanged.
+
+Tool source is the initiating agent's session/input and owning card, not its MCP
+server or Webfetch destination card. It stays call-local through agent-requested
+MCP start/probe/discovery, concurrent invocations, manual redirects and Analyst's
+audited record-preparation closure. `source_session` projects validated canonical
+identity with a SHA-256 configured-agent reference and card/global component;
+`source_card` is omitted for globals, `input_id` retains a valid UUID. `model_ref`
+hashes the model identity, not request content. `invocation_session` distinguishes
+an internal-summary invocation from its canonical source owner. Tool owners omit
+model/attempt fields they do not possess. Ownerless startup/autostart/reconciliation
+and later health omit source fields; health never inherits an earlier start caller.
+
+Only fixed service/purpose/endpoint/method labels and explicit identity/status/
+timing/outcome fields are emitted. No URL/hostname/path/query/fragment/redirect
+Location, credentials, headers, payload/prompts/images, tool name/arguments/results,
+configured account/profile/MCP name or raw error is logged. Endpoint labels therefore
+do not distinguish arbitrary custom hosts. CLI control HTTP to Saivage and browser
+API/live-sync clients are excluded. Shell/package/target-program traffic, stdio MCP,
+browser subresources and remote MCP peers' own external requests are not observed.
+
+Ordinary observational sink failure preserves the transport result/error and retry
+policy, without fallback logging. Publication uncertainty remains fatal before any
+follow-up observation, retry, read, write or cleanup; an earlier HTTP terminal is
+not evidence of successful later publication. This source-only feature changes no
+discriminator and needs no state adoption/reset/migration by itself. It authorizes
+no deployment, service action, provider probe or Run. Unrelated release differences
+and explicitly requested external offline migrations retain their separate gates.
+
 ## Private failed-provider request diagnostics
 
 New captures use diagnostic format 3, adding strict `server_overloaded`; privacy

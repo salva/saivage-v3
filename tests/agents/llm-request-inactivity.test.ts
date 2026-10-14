@@ -9,7 +9,7 @@ describe('best-effort request body consumption', () => {
   it('returns the consumed text unchanged', async () => {
     const response = new Response('body');
     const readText = jest.fn(async (_response: Response) => 'body');
-    await expect(readBodyTextBestEffort({ signal: new AbortController().signal, onData() {}, readText }, response)).resolves.toBe('body');
+    await expect(readBodyTextBestEffort({ signal: new AbortController().signal, onData() {}, onBodyDisposition() {}, readText }, response)).resolves.toBe('body');
     expect(readText).toHaveBeenCalledWith(response);
     expect(readText).toHaveBeenCalledTimes(1);
   });
@@ -29,6 +29,7 @@ describe('best-effort request body consumption', () => {
     const pending = readBodyTextBestEffort({
       signal: controller.signal,
       onData() {},
+      onBodyDisposition() {},
       async readText() { throw error; },
     }, new Response(null));
     if (rethrow) await expect(pending).rejects.toBe(error);

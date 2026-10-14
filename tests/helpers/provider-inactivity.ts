@@ -23,6 +23,11 @@ export function controlledResponse(signal: AbortSignal, status = 200) {
   });
   return {
     response: new Response(body, { status }),
+    error(reason: unknown) {
+      signal.removeEventListener('abort', abort);
+      ended = true;
+      controller.error(reason);
+    },
     send(text: string | Uint8Array) {
       controller.enqueue(typeof text === 'string' ? new TextEncoder().encode(text) : text);
     },

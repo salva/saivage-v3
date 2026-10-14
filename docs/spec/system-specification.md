@@ -1380,6 +1380,51 @@ Its strict 200 union has exactly one cards check: `ok` contains the passing `car
 The bounded handler catch first rethrows `PublicationOutcomeUnknownError`; `ContractRuntime` delivers that identical value to the application fatal port before an ordinary diagnostic or response, so publication uncertainty produces no Doctor response.
 Content supervision, its scanner configuration, routes, storage lane, and UI are absent.
 
+### Outbound HTTP lifecycle observations
+
+The process operational logger emits continuous `info` metadata at each owned
+external fetch dispatch, returned response headers and terminal response handling,
+plus the invocation scheduler's actual retry/availability wait boundary. This is
+local transport observation, not a logical-turn completion, server-receipt proof,
+tool-effect receipt or canonical event. Provider Chat/Responses/Codex, Codex/Copilot
+auth refresh, remote HTTP MCP and Websearch/Webfetch are covered. Each retry and
+manually dispatched web redirect has a fresh `request_id`; native automatic
+redirect hops within provider/auth/MCP fetches are not individually observed.
+
+Closed metadata includes service/purpose/endpoint labels, method, request identity,
+monotonic elapsed milliseconds, numeric status, typed outcome/error code and body
+disposition. Headers alone are not completion: an HTTP-200 stream can terminate
+with `failed`. `consumed`, `not_consumed`, `cancelled_by_policy` and `incomplete`
+distinguish complete reading, header-only handling, intentional bounded/metadata
+cancellation and unfinished consumption. Policy cancellation is not caller abort.
+Terminal completion describes the transport owner's existing handling, not later
+evidence, credential or record publication.
+
+Available source session/card/input identity is call-local on provider and agent
+tool paths, including agent-requested MCP start/discovery and Analyst record-fetch
+preparation. Configured agent names and model identities use SHA-256 references;
+canonical card IDs and valid input UUIDs remain identifiable. `invocation_session`
+keeps internal-summary execution distinct from its canonical source session.
+Legitimate ownerless startup and health omit source identity; later health never
+inherits the start caller. URLs/hosts/paths, headers, credentials, payloads, tool
+names/arguments/results and raw errors are excluded, not sanitized into log text.
+
+Wait metadata describes the actual selected delay and, where finite, availability
+deadline; `waiting_candidate_ref` identifies the wait's selected candidate, not a
+guaranteed next dispatch. Eligibility is recomputed after waking, and an available
+alternative can run without waiting. A shared availability wait need not have a
+preceding request ID. No dispatch is fabricated for admission rejection, reused
+tokens, pre-cancelled work or sleeping retries.
+
+These observations are independent of opt-in finite content diagnostics and absent
+from app-log/provider evidence, API and UI Debug. There is no new durable family,
+replay, heartbeat, request registry, delivery/retention guarantee or crash-terminal
+reconstruction. Ordinary sink failure does not change transport results or retry
+policy and has no fallback sink. Publication uncertainty remains fatal before any
+further observation or cleanup. CLI control HTTP to Saivage, browser API clients,
+stdio/subprocess/package traffic and remote peers' own requests are excluded.
+See the [operational interpretation](../runbook/index.md#outbound-http-lifecycle).
+
 ### Private failed-provider request diagnostics
 
 `saivage start --failed-provider-diagnostics <UUID>` explicitly enables one finite,

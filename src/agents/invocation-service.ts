@@ -59,6 +59,13 @@ import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
 import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
 import { FailedProviderRequestDiagnostics } from './failed-provider-request-diagnostics.js';
 import type { ProviderAttemptDiagnosticContext } from '../contracts/index.js';
+import type { OutboundHttpEmitter } from '../contracts/index.js';
+import {
+  emitOutboundHttp,
+  projectOutboundSource,
+  outboundSessionReference,
+  outboundIdentityReference,
+} from '../observability/index.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -101,6 +108,7 @@ export type InvocationRequest = InvocationRequestBase &
   );
 
 interface InvocationServiceConfig {
+  outboundHttp?: OutboundHttpEmitter;
   failedProviderDiagnostics?: string;
   projectRoot: string;
   registry: ProviderRegistry;
@@ -109,6 +117,8 @@ interface InvocationServiceConfig {
 }
 
 type MutableAdmittedRecord = {
+  lastHttpRequestId?: string;
+  lastHttpAttemptIndex?: number;
   readonly identity: Candidate;
   readonly routeIndex: number;
   state: AdmittedCandidateAttemptState;
@@ -141,6 +151,7 @@ type AdmittedExecutionRun = {
 );
 
 export class InvocationService {
+  private readonly outboundHttp?: OutboundHttpEmitter;
   private readonly diagnostics: FailedProviderRequestDiagnostics | undefined;
   private readonly projectRoot: string;
   private readonly candidateAvailability: CandidateAvailability;
@@ -150,6 +161,7 @@ export class InvocationService {
   private readonly freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 
   constructor(config: InvocationServiceConfig) {
+    this.outboundHttp = config.outboundHttp;
     this.diagnostics =
       config.failedProviderDiagnostics === undefined
         ? undefined
@@ -561,6 +573,7 @@ export class InvocationService {
     options: LlmCompleteOptions,
     capabilityRequest: Readonly<CapabilityRequest>,
     attemptContext: ProviderAttemptDiagnosticContext,
+    onHttpFinished?: (requestId: string) => void,
   ): Promise<ProviderTurnCompletion> {
     return executeLlmProviderAttempt({
       projectRoot: this.projectRoot,
@@ -570,6 +583,8 @@ export class InvocationService {
       capabilityRequest,
       attemptContext,
       diagnostics: this.diagnostics,
+      outboundHttp: this.outboundHttp,
+      onHttpFinished,
     });
   }
 
@@ -615,6 +630,42 @@ export class InvocationService {
           });
         }
         if (next.kind === 'wait') {
+          throwIfAborted(signal);
+          const waiting = next.record;
+          const state = waiting?.state;
+          const plan = waiting ? run.plans.get(waiting.routeIndex) : undefined;
+          emitOutboundHttp(this.outboundHttp, {
+            ...projectOutboundSource(run.bindings.sourceSessionId, run.bindings.inputId),
+            invocation_session: outboundSessionReference(run.bindings.sessionId),
+            service: 'provider',
+            purpose: run.purpose,
+            endpoint: !plan
+              ? 'provider.route'
+              : plan.capabilities.transportProtocol === 'openai-responses'
+                ? 'provider.responses'
+                : plan.capabilities.transportProtocol === 'openai-codex-backend'
+                  ? 'provider.codex'
+                  : 'provider.chat',
+            method: 'POST',
+            event: 'outbound_http_retry_wait',
+            request_id: waiting?.lastHttpRequestId,
+            attempt_index:
+              waiting?.lastHttpAttemptIndex ?? run.diagnosticOffset + run.settled.length,
+            retry_reason: state?.kind === 'retry_waiting' ? state.wait : 'availability',
+            delay_ms: next.waitMs,
+            ...(state?.kind === 'retry_waiting' && state.wait === 'overload'
+              ? {}
+              : { deadline_ms: run.deadlineMs }),
+            // This is the selected wait owner, not a promise of the next dispatch:
+            // the existing scheduler recomputes route eligibility after waking.
+            ...(waiting
+              ? {
+                  waiting_candidate_ref: outboundIdentityReference(
+                    JSON.stringify(waiting.identity),
+                  ),
+                }
+              : {}),
+          });
           await delayWithAbort(next.waitMs, signal);
           continue;
         }
@@ -679,6 +730,10 @@ export class InvocationService {
             inputId: run.bindings.inputId,
             purpose: run.purpose,
             attemptIndex: run.diagnosticOffset + run.settled.length,
+          },
+          (requestId) => {
+            record.lastHttpRequestId = requestId;
+            record.lastHttpAttemptIndex = run.diagnosticOffset + run.settled.length;
           },
         );
         run.settled.push(
@@ -830,14 +885,14 @@ export class InvocationService {
     mode: 'ordinary' | 'pinned',
   ):
     | { kind: 'attempt'; record: MutableAdmittedRecord }
-    | { kind: 'wait'; waitMs: number }
+    | { kind: 'wait'; waitMs: number; record?: MutableAdmittedRecord }
     | { kind: 'timeout' }
     | { kind: 'none' } {
     const now = Date.now();
     if (mode === 'pinned') {
       const record = records[0]!;
       if (record.state.kind === 'retry_waiting')
-        return { kind: 'wait', waitMs: Math.max(0, record.state.untilMs - now) };
+        return { kind: 'wait', waitMs: Math.max(0, record.state.untilMs - now), record };
       return { kind: 'attempt', record };
     }
     const overloads = records.filter((record) => isLocalOverload(record.state));
@@ -873,7 +928,17 @@ export class InvocationService {
             dueTimes.push(Math.min(entry.untilMs, deadlineMs));
         }
       }
-      return { kind: 'wait', waitMs: Math.max(0, Math.min(...dueTimes) - now) };
+      const due = Math.min(...dueTimes);
+      return {
+        kind: 'wait',
+        waitMs: Math.max(0, due - now),
+        record: records.find(
+          (record) =>
+            (record.state.kind === 'retry_waiting' ||
+              record.state.kind === 'temporarily_unavailable') &&
+            record.state.untilMs === due,
+        ),
+      };
     }
     const untried = records.find(
       (record) =>
@@ -884,7 +949,7 @@ export class InvocationService {
     );
     if (standardWaiting && standardWaiting.state.kind === 'retry_waiting') {
       if (untried) return { kind: 'attempt', record: untried };
-      return waitUntil(standardWaiting.state.untilMs, now, deadlineMs);
+      return waitUntil(standardWaiting.state.untilMs, now, deadlineMs, standardWaiting);
     }
     const standardReady = records.find(
       (record) => record.state.kind === 'retry_ready' && record.state.wait === 'standard',
@@ -903,13 +968,21 @@ export class InvocationService {
       )
       .filter((untilMs): untilMs is number => untilMs !== undefined)
       .sort((a, b) => a - b)[0];
-    if (rateWaiting !== undefined) return waitUntil(rateWaiting, now, deadlineMs);
+    if (rateWaiting !== undefined)
+      return waitUntil(
+        rateWaiting,
+        now,
+        deadlineMs,
+        records.find(
+          (record) => record.state.kind === 'retry_waiting' && record.state.untilMs === rateWaiting,
+        ),
+      );
     for (const record of records) {
       if (record.state.kind === 'exhausted') continue;
       const entry = this.candidateAvailability.getEntry(record.identity);
       if (!entry || entry.state === 'HEALTHY') continue;
       if (entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason))
-        return waitUntil(entry.untilMs, now, deadlineMs);
+        return waitUntil(entry.untilMs, now, deadlineMs, record);
     }
     return now >= deadlineMs ? { kind: 'timeout' } : { kind: 'none' };
   }
@@ -1141,10 +1214,11 @@ function waitUntil(
   untilMs: number,
   now: number,
   deadlineMs: number,
-): { kind: 'wait'; waitMs: number } | { kind: 'timeout' } {
+  record?: MutableAdmittedRecord,
+): { kind: 'wait'; waitMs: number; record?: MutableAdmittedRecord } | { kind: 'timeout' } {
   const remainingMs = deadlineMs - now;
   if (remainingMs <= 0) return { kind: 'timeout' };
-  return { kind: 'wait', waitMs: Math.min(Math.max(0, untilMs - now), remainingMs) };
+  return { kind: 'wait', waitMs: Math.min(Math.max(0, untilMs - now), remainingMs), record };
 }
 
 function delayWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {

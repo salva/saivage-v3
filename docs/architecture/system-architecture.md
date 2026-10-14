@@ -787,6 +787,62 @@ The operator LLM-exchange handler is a separate external operator response/non-d
 It reuses the same idempotent typed provider-exchange projector on the latest strictly read canonical payload and parses that projection before response without rewriting persistence.
 Its failure path emits only a stable generic API body and a stable log event containing the validated session and operation identifiers; no exception object, diagnostic message, malformed value, stack, or project path crosses either operator sink.
 
+### Process-owned outbound HTTP observations
+
+Server composition binds the declarative `contracts/outbound-http.ts` closed event
+union to the already-created `fastify.log`, before runtime/MCP construction.
+`server/composition/outbound-http-logger.ts` projects explicit metadata fields into
+one synchronous `info` call with fixed message text. The emitter passes explicitly
+through application/invocation composition, MCP manager/runtime and web-tool
+composition; downstream packages do not import Fastify. `observability/outbound-http.ts`
+supplies call-local request UUIDs, monotonic elapsed time and safe identity
+projection, not a global interceptor, ambient context, bus, queue or registry.
+Agent/model identities are SHA-256 references, canonical session components supply
+the owning card, and valid input UUIDs survive. Internal-summary invocation identity
+remains separate from canonical source identity; arbitrary configured endpoint,
+account/profile/MCP names and request/error content never reach this sink.
+
+The actual consuming owner emits dispatch immediately before fetch, headers before
+parsing and terminal on existing response handling, before later canonical
+publication. Coverage is provider Chat/Responses/Codex in `consumeProviderRequest`,
+Codex/Copilot refresh in `consumeRefreshRequest`, MCP startup HEAD, initialize and
+initialized notification, every tools/list page, tools/call, health HEAD/conditional
+GET, and web `fetchPublic` for search, ordinary/metadata/bounded fetch and Analyst
+record preparation. Each owned fetch is one lifecycle: retries and existing manual
+web redirects get fresh UUIDs; provider/auth/MCP native automatic redirect hops
+remain hidden within their single fetch. No transport/redirect algorithm changes
+or packet-level coverage are implied. Existing parsers/readers report body
+disposition without teeing, cloning, draining or reading for observation.
+
+Tool binders project only the initiating session/input into observation source.
+MCP invocation and start options forward it through installation, manager, runtime,
+probe and all discovery calls; later ownerless health and reconciliation omit it.
+No server handle remembers its last caller. Websearch/Webfetch pass the same source
+through every fetch variant and recursive manual redirect. Analyst's audited
+record-preparation `fetchText` closure captures that invocation's source, not the
+destination record card. Owners lacking model/attempt/source facts do not recover
+them from history or guess a global identity.
+
+`InvocationService` emits retry/availability metadata only where its scheduler
+actually awaits. `waiting_candidate_ref` hashes the selected wait owner, not the
+next-dispatch promise; route eligibility is recomputed on wake. Optional preceding
+request/attempt attribution includes auth refresh, while shared availability can
+have no preceding request. Delay is the selected sleep duration; the optional
+deadline is the finite invocation availability deadline, not a transport deadline.
+Overload waits omit that deadline. No timer ticks or new scheduling policy exist.
+
+This process output is separate from `createEventLog`, app-log rows, settled provider
+exchange evidence, private finite diagnostics and UI Debug. It creates no Saivage
+file or durable reader/discriminator. Retention belongs to deployment stdout/journal
+handling, with no flush, acknowledgment, retry or lossless promise. Only the emitter
+call tolerates an ordinary sink exception, without logging it or using a fallback;
+publication-unknown is never swallowed. Relevant catches check the fatal signal
+before emission; existing unknown-publication cleanup exclusions remain. There is
+no outer publication `finally` emission. CLI control requests to Saivage, browser
+API/live-sync requests, stdio/process/browser-peer network and dependency tooling
+are not external-owner coverage. See the
+[runbook](../runbook/index.md#outbound-http-lifecycle) for interpretation and output.
+
 ## 5. Stable Sessions And Full-Chain Recovery
 
 ### Tool outcome and settlement boundary
@@ -1458,7 +1514,7 @@ Invocation Service retains ordinary retry/failover and chronological indexing.
 On normal actor completion, the admitted raw `InvocationLifecycle.runExternal()` callback rechecks currentness, persists actor output, and publishes each indexed redacted provider exchange with its post-append canonical-session hint before the callback returns, wrapper settlement occurs, and the consumer delivers.
 Abort may reject the containment wrapper while raw work remains unresolved.
 Such work may never settle, or may later settle and aggregate internally, but lifecycle currentness fences it from actor persistence, provider-evidence publication, read-model hints, actor-level retry/reconciliation, and delivery.
-The runner uses the agents-local `consumeProviderRequest` callback scope for fetch and awaited HTTP classification/protocol consumption. That scope alone owns one request-local AbortController and one fixed 120,000-ms inactivity timer, armed immediately before fetch; it forwards the original owner reason without aborting the caller's controller. Its required `LlmResponseConsumption` adapter context exposes only effective `signal`, `onData()` and `readText(response)`, not public completion options or an alternate untimed adapter contract.
+The runner uses the agents-local `consumeProviderRequest` callback scope for fetch and awaited HTTP classification/protocol consumption. That scope alone owns one request-local AbortController and one fixed 120,000-ms inactivity timer, armed immediately before fetch; it forwards the original owner reason without aborting the caller's controller. Its required `LlmResponseConsumption` adapter context exposes effective `signal`, `onData()`, `readText(response)` and `onBodyDisposition(disposition)`, not public completion options or an alternate untimed adapter contract. The disposition callback lets the existing Codex parser report EOF versus intentional terminal-event cancellation without an observational body reader.
 Headers do not renew the window. Chat/public Responses and non-OK provider bodies use `readText` on the exact original response reader, renewing on nonempty byte chunks and decoding with Response.text-compatible UTF-8 replacement/BOM semantics; the reader lock is released in finally. Codex reports activity at its existing ordered SSE data-output consumer, before JSON handling, for both push and EOF finish outputs; comments, unknown fields, event-only frames and partial framing do not count, and valid completion stops consumption immediately. No tee, reconstructed Response, body wrapper, second framing parser or raw capture is introduced.
 Expiry aborts the effective request signal with fixed-safe `ProviderInactivityTimeoutError`. The scope normalizes only abort-associated outcomes, preserving the exact owner reason when it races with timeout; unrelated errors keep their authority. Timer/listener cleanup occurs on every exit, owner abort clears the timer immediately, and activity after abort/settlement cannot rearm it. Known success has no post-consumption abort/timeout check and ends timed ownership before recorder settlement. The runner records raw timeout evidence before the classifier maps the explicit error class to existing `timeout`; Invocation Service retains retry/cooling, budgets, alternatives and availability waits. Recorder/auth persistence and recovery waits are never inside this timer.
 The same scope also arms an absolute 900,000-ms HTTP-consumption timer immediately before fetch, never renewed by activity. Its safe `ProviderRequestDeadlineError` maps to finite `timeout`; continuous bytes/nonterminal SSE cannot keep an attempt alive indefinitely. Both timers/listeners end on every exit before recorder work. OAuth refresh and model request own separate scopes; auth publication, evidence and recovery waits are outside them. Deadlines are event-loop scheduled, not hard real-time or semantic-progress guarantees, with no configuration knob. The runner owns no containment tracker, app-log, publication projection, or read-model effect.

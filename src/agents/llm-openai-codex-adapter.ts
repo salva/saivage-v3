@@ -87,6 +87,7 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
         consumption.signal,
         consumption.onData,
         imageBearing,
+        consumption.onBodyDisposition,
       ),
     };
   },

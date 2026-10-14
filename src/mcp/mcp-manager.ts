@@ -1,5 +1,9 @@
 import { canonicalValueSha256, mcpConnectionSchema, type McpConnection } from '../schemas/index.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import {
+  throwIfPublicationOutcomeUnknown,
+  type OutboundHttpEmitter,
+  type OutboundObservationSource,
+} from '../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { EventLog } from '../observability/index.js';
 import type { ProcessRunner } from '../runtime/runtime-api.js';
@@ -26,7 +30,10 @@ export interface McpToolInvocationPort {
   ): Promise<{ serverName: string; unregistered: true; status: 'stopped' }>;
   getStatus(): McpServerStatus[];
   getServerStatus(name: string): McpServerStatus | undefined;
-  startServer(name: string, signal?: AbortSignal): Promise<McpLifecycleResult>;
+  startServer(
+    name: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpLifecycleResult>;
   stopServer(name: string): Promise<McpLifecycleResult>;
   getServerTools(name: string): McpToolDefinition[] | undefined;
   findToolCapability(serverName: string, toolName: string): McpToolCapability | null;
@@ -35,7 +42,11 @@ export interface McpToolInvocationPort {
     bindingId: string,
     toolName: string,
     args: Record<string, unknown>,
-    options?: { timeoutMs?: number; signal?: AbortSignal },
+    options?: {
+      timeoutMs?: number;
+      signal?: AbortSignal;
+      observationSource?: OutboundObservationSource;
+    },
   ): Promise<unknown>;
 }
 
@@ -59,6 +70,7 @@ interface McpReconciliationPort {
   reconcilePersistedConfig(): Promise<McpReconciliationReport>;
 }
 interface McpManagerOptions {
+  outboundHttp?: OutboundHttpEmitter;
   configAuthority: ResolvedConfigAuthority;
   processRunner: ProcessRunner;
   mcpProcessRootScope: ManagedProcessScope;
@@ -77,6 +89,7 @@ function revisionOf(config: McpServerConfig): string {
 }
 
 export class McpManager implements McpReconciliationPort {
+  private readonly outboundHttp?: OutboundHttpEmitter;
   readonly #processRunner: ProcessRunner;
   readonly #mcpProcessRootScope: ManagedProcessScope;
   readonly #runtimes = new Map<string, McpServerRuntime>();
@@ -92,8 +105,10 @@ export class McpManager implements McpReconciliationPort {
     processRunner,
     mcpProcessRootScope,
     eventLogger,
+    outboundHttp,
   }: McpManagerOptions) {
     this.configAuthority = configAuthority;
+    this.outboundHttp = outboundHttp;
     this.#processRunner = processRunner;
     this.#mcpProcessRootScope = mcpProcessRootScope;
     this.invocationStats = new McpInvocationStatsRecorder(eventLogger);
@@ -190,7 +205,11 @@ export class McpManager implements McpReconciliationPort {
     return runtime.getTools();
   }
 
-  async startServer(name: string, signal?: AbortSignal): Promise<McpLifecycleResult> {
+  async startServer(
+    name: string,
+    options?: { signal?: AbortSignal; observationSource?: OutboundObservationSource },
+  ): Promise<McpLifecycleResult> {
+    const signal = options?.signal;
     signal?.throwIfAborted();
     this.assertAdmission();
     const dynamic = readMcpServerDefinitions(this.#processRunner.projectRoot);
@@ -222,7 +241,7 @@ export class McpManager implements McpReconciliationPort {
       runtime = this.createRuntime({ name, config, revision, shouldRun: true });
       this.#runtimes.set(name, runtime);
     }
-    await runtime.start(signal);
+    await runtime.start(options);
     if (!runtime.isReady()) throw new ServerNotRunningError(name);
     return { serverName: name, status: 'running', toolCount: runtime.getTools()!.length };
   }
@@ -287,7 +306,11 @@ export class McpManager implements McpReconciliationPort {
     bindingId: string,
     toolName: string,
     args: Record<string, unknown>,
-    options?: { timeoutMs?: number; signal?: AbortSignal },
+    options?: {
+      timeoutMs?: number;
+      signal?: AbortSignal;
+      observationSource?: OutboundObservationSource;
+    },
   ): Promise<unknown> {
     options?.signal?.throwIfAborted();
     if (!this.admissionOpen) throw new ServerNotRunningError(serverName);
@@ -457,6 +480,7 @@ export class McpManager implements McpReconciliationPort {
 
   private createRuntime(target: DesiredServer): McpServerRuntime {
     return new McpServerRuntime({
+      outboundHttp: this.outboundHttp,
       name: target.name,
       config: target.config,
       revision: target.revision,

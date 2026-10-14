@@ -60,6 +60,7 @@ import type { NotificationUrgency } from '../../contracts/index.js';
 import { CardInterruptedError } from './card-interrupted-error.js';
 
 interface SupervisorRuntimeApiOptions {
+  outboundHttp?: import('../../contracts/index.js').OutboundHttpEmitter;
   projectRoot: string;
   now?: () => string;
   actorStore: CardService;
@@ -820,6 +821,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       fatalPort: this.behavior.fatalPort,
       gate: this.runtimeGate,
       mcpToolInvocation: this.behavior.mcpToolInvocation,
+      outboundHttp: this.behavior.outboundHttp,
       compactor: this.behavior.compactor,
       compactionConfig: this.behavior.compactionConfig,
       summarizerProvider: this.behavior.summarizerProvider,

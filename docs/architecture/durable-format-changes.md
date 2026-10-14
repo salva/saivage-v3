@@ -23,6 +23,26 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Outbound HTTP lifecycle — no durable impact (2026-10-14)
+
+Exact implementation parent: `04b66d24153a66e394be90335f02d189bf6c9952`.
+Owner-local external fetch and scheduler wait observations use the existing process
+operational logger, not Saivage retained application state. Evidence is the closed
+outbound HTTP contract, safe source projection, Fastify sink and transport/scheduler
+owners. No canonical request IDs, event kinds, payloads, layout or interpretation
+change, and no discriminator changes: app-log/provider evidence retain shared
+`version:1/type:rows`; conversation index/genesis remain format 9 and segments
+version 9; private diagnostics remain format 3/privacy policy 2. Card, record, auth,
+MCP, configuration, lock and work contracts are unchanged. External journal retention
+does not create a Saivage durable family.
+
+This isolated source-only change needs no state adoption, reset or migration and
+reuses no prior cutover. Installed applicability is unknown; no deployment or
+retention policy was inspected/certified. Source reversion of instrumentation is
+not permission for binary downgrade across unrelated formats. Source completion
+authorizes no deployment or runtime action; external migration remains separately
+owner-requested and offline.
+
 ### Current-record UI settlement ownership — no durable impact (2026-10-14)
 
 Implementation parent: `e0c55a5ff3fef058622a94753738e8475867dc17`.

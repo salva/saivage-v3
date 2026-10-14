@@ -56,6 +56,7 @@ import {
 type RuntimeToolScope = 'global' | 'card';
 
 export interface CardToolBindingContext {
+  readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
   readonly scope: 'card';
   readonly agentName: AgentName;
   readonly projectRoot: string;
@@ -75,6 +76,7 @@ export interface CardToolBindingContext {
 }
 
 export interface GlobalToolBindingContext {
+  readonly outboundHttp?: import('../contracts/index.js').OutboundHttpEmitter;
   readonly scope: 'global';
   readonly agentName: AgentName;
   readonly projectRoot: string;
@@ -148,6 +150,7 @@ const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => 
   };
 };
 const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({
+  outboundHttp: runtime.outboundHttp,
   projectRoot: runtime.projectRoot,
   agentName: runtime.agentName,
   store: runtime.store,

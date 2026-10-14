@@ -5,6 +5,8 @@ import {
   type Candidate,
   type LlmCredentialRequirement,
   type LlmTransportConfig,
+  type OutboundHttpObservation,
+  throwIfPublicationOutcomeUnknown,
 } from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
@@ -26,6 +28,7 @@ export async function resolveLlmTransportConfig(
   candidate: Candidate,
   credentialRequirement: LlmCredentialRequirement,
   abortSignal?: AbortSignal,
+  observation?: OutboundHttpObservation,
 ): Promise<LlmTransportConfig> {
   const provider = registry.get(candidate.provider);
   if (!provider) {
@@ -76,7 +79,7 @@ export async function resolveLlmTransportConfig(
   const resolver = new CredentialSourceResolver({
     loadAuthProfiles: async () => readAuthProfiles(projectRoot),
     usableProfileAccessToken: (profileName, profile, ownerSignal) =>
-      usableProfileAccessToken(projectRoot, profileName, profile, ownerSignal),
+      usableProfileAccessToken(projectRoot, profileName, profile, ownerSignal, observation),
   });
   const resolved = await resolver.resolve(provider, account, abortSignal);
 
@@ -92,6 +95,7 @@ async function usableProfileAccessToken(
   profileName: string,
   profile: AuthProfile,
   abortSignal?: AbortSignal,
+  observation?: OutboundHttpObservation,
 ): Promise<string | undefined> {
   if (profile.provider === 'openai-codex' && isProfileExpired(profile) && profile.refreshToken) {
     const refreshed = await refreshOpenAICodexProfile(
@@ -99,6 +103,7 @@ async function usableProfileAccessToken(
       profileName,
       profile,
       abortSignal,
+      observation,
     );
     return refreshed?.accessToken ?? profile.accessToken;
   }
@@ -108,6 +113,7 @@ async function usableProfileAccessToken(
       profileName,
       profile,
       abortSignal,
+      observation,
     );
     return refreshed?.accessToken ?? profile.accessToken;
   }
@@ -119,6 +125,7 @@ async function refreshOpenAICodexProfile(
   profileName: string,
   profile: AuthProfile,
   abortSignal?: AbortSignal,
+  observation?: OutboundHttpObservation,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
   const data = await consumeRefreshRequest(
@@ -138,6 +145,7 @@ async function refreshOpenAICodexProfile(
       }).toString(),
     },
     abortSignal,
+    observation,
   );
   abortSignal?.throwIfAborted();
   if (typeof data?.access_token !== 'string') return null;
@@ -158,6 +166,7 @@ async function refreshGitHubCopilotProfile(
   profileName: string,
   profile: AuthProfile,
   abortSignal?: AbortSignal,
+  observation?: OutboundHttpObservation,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
   const data = await consumeRefreshRequest(
@@ -172,6 +181,7 @@ async function refreshGitHubCopilotProfile(
       },
     },
     abortSignal,
+    observation,
   );
   abortSignal?.throwIfAborted();
   if (typeof data?.token !== 'string') return null;
@@ -192,20 +202,39 @@ async function consumeRefreshRequest(
   url: string,
   init: Omit<RequestInit, 'signal'>,
   ownerSignal?: AbortSignal,
+  observation?: OutboundHttpObservation,
 ): Promise<Record<string, unknown> | null> {
-  return consumeProviderRequest(url, init, ownerSignal, async (response, context) => {
-    ownerSignal?.throwIfAborted();
-    if (response.status >= 500 && response.status <= 599)
-      throw refreshServerTransient(provider, response.status);
-    if (response.status === 429) throw refreshRateLimit(provider, response);
-    if (!response.ok) return null;
-    const text = await readBodyTextBestEffort(context, response);
-    try {
-      return JSON.parse(text) as Record<string, unknown> | null;
-    } catch {
-      return null;
-    }
-  }).catch((error: unknown) => {
+  return consumeProviderRequest(
+    url,
+    init,
+    ownerSignal,
+    async (response, context) => {
+      ownerSignal?.throwIfAborted();
+      if (response.status >= 500 && response.status <= 599)
+        throw refreshServerTransient(provider, response.status);
+      if (response.status === 429) throw refreshRateLimit(provider, response);
+      if (!response.ok) return null;
+      const text = await readBodyTextBestEffort(context, response);
+      try {
+        return JSON.parse(text) as Record<string, unknown> | null;
+      } catch {
+        return null;
+      }
+    },
+    observation
+      ? {
+          ...observation,
+          context: {
+            ...observation.context,
+            service: 'auth',
+            purpose: 'auth-refresh',
+            endpoint: provider === 'openai-codex' ? 'auth.codex-token' : 'auth.copilot-token',
+            method: provider === 'openai-codex' ? 'POST' : 'GET',
+          },
+        }
+      : undefined,
+  ).catch((error: unknown) => {
+    throwIfPublicationOutcomeUnknown(error);
     if (ownerSignal?.aborted && error === ownerSignal.reason) throw error;
     if (error instanceof LlmRequestError) throw error;
     throw refreshServerTransient(provider, 0);

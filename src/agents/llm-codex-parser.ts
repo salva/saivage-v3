@@ -1,8 +1,11 @@
 import {
   LlmRequestError,
+  PublicationOutcomeUnknownError,
+  throwIfPublicationOutcomeUnknown,
   type LlmCompleteResult,
   type LlmUsage,
   type ToolCall,
+  type OutboundBodyDisposition,
 } from '../contracts/index.js';
 import { extractResponsesUsage } from './llm-usage.js';
 import { redactTextForOutbound } from '../redaction/index.js';
@@ -20,9 +23,12 @@ export async function readOpenAICodexStream(
   signal?: AbortSignal,
   onData: () => void = () => {},
   suppressBodyPreview = false,
+  onBodyDisposition: (value: OutboundBodyDisposition) => void = () => {},
 ): Promise<LlmCompleteResult> {
   const reader = body.getReader();
+  onBodyDisposition('incomplete');
   let naturalEOF = false;
+  let publicationUnknown = false;
   const sse = new IncrementalSseReader();
   let message: string | undefined;
   let usage: LlmUsage | undefined;
@@ -41,6 +47,7 @@ export async function readOpenAICodexStream(
       const { done, value } = await reader.read();
       if (done) {
         naturalEOF = true;
+        onBodyDisposition('consumed');
         if (
           consumeCodexEvents(
             sse.finish(),
@@ -71,10 +78,13 @@ export async function readOpenAICodexStream(
           suppressBodyPreview,
         )
       ) {
+        onBodyDisposition('cancelled_by_policy');
         return completedCodexResult(toolCalls, message, usage);
       }
     }
   } catch (err) {
+    publicationUnknown = err instanceof PublicationOutcomeUnknownError;
+    throwIfPublicationOutcomeUnknown(err);
     if (
       (signal?.aborted && err === signal.reason) ||
       ((err instanceof Error || err instanceof DOMException) && err.name === 'AbortError')
@@ -90,9 +100,11 @@ export async function readOpenAICodexStream(
           : `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`,
     });
   } finally {
-    // Cancellation may never settle; cleanup must not replace the known result or failure.
-    if (!naturalEOF) void reader.cancel().catch(() => {});
-    reader.releaseLock();
+    if (!publicationUnknown) {
+      // Cancellation may never settle; cleanup must not replace the known result or failure.
+      if (!naturalEOF) void reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 }
 

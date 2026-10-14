@@ -21,6 +21,7 @@ import { ProviderRegistry, ModelRouter } from '../../agents/execution-api.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
+import { bindOutboundHttpLogger } from './outbound-http-logger.js';
 
 interface ServerServices {
   projectRoot: string;
@@ -69,6 +70,7 @@ export async function createServerServices(input: {
   const analystSessionId = globalAgentSessionId(workflows.analyst.name);
 
   const fastify = await createFastifyApp(environment, input.fatalPort);
+  const outboundHttp = bindOutboundHttpLogger(fastify.log);
   terminal.registerCleanupLeaf('fastify', () => fastify.close());
   fastify.addHook('onRequest', async (_request, reply) => {
     if (terminal.isApplicationClosing())
@@ -97,6 +99,7 @@ export async function createServerServices(input: {
   const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
   const runtimeApplication = createRuntimeApplication({
+    outboundHttp,
     failedProviderDiagnostics: environment.failedProviderDiagnostics,
     projectRoot,
     processIdentity: input.processIdentity,
@@ -132,6 +135,7 @@ export async function createServerServices(input: {
   );
 
   const mcpManager = new McpManager({
+    outboundHttp,
     configAuthority: environment.configAuthority,
     processRunner,
     mcpProcessRootScope,

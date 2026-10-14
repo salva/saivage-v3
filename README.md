@@ -124,6 +124,13 @@ For an AI-guided LXC installation, use the subordinate
 contracts linked below; it is not an independent product or operations
 authority.
 
+Outbound HTTP lifecycle metadata is continuously emitted at `info` to the process
+log, independently of finite private diagnostic captures; it is not UI Debug or
+provider exchange evidence. See [pending requests, waits and journal filtering](docs/runbook/index.md#outbound-http-lifecycle).
+This source-only instrumentation changes no durable format and needs no state
+adoption, reset or migration by itself; source completion authorizes no deployment
+or runtime action, and unrelated release changes retain their own adoption rules.
+
 ## Quick start
 
 Saivage is designed for an externally isolated LXC container in which trusted

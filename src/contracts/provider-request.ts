@@ -70,6 +70,7 @@ interface LlmAdapterSuccess {
 }
 
 export interface LlmResponseConsumption {
+  onBodyDisposition(disposition: import('./outbound-http.js').OutboundBodyDisposition): void;
   signal: AbortSignal;
   onData(): void;
   readText(response: Response): Promise<string>;

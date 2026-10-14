@@ -147,6 +147,7 @@ export interface AgentNodeExecutionDeps {
   processRunner: ProcessRunner;
   runtimeProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
+  outboundHttp?: import('../../contracts/index.js').OutboundHttpEmitter;
   promptTemplates: PromptTemplateRegistry;
   conversations: ConversationFileContext;
   compactionConfig: AutonomousCompactionPolicy;
@@ -881,6 +882,7 @@ export class AgentNodeExecution {
         ? { processScope: scope, processOwnerId: `${input.activationId}:node:${nodeOrdinal}` }
         : {}),
       mcpToolInvocation: this.deps.mcpToolInvocation,
+      outboundHttp: this.deps.outboundHttp,
       onRecordWritten: (name) => writtenRecords.add(name),
     });
   }

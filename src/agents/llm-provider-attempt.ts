@@ -18,6 +18,12 @@ import { createProviderExchangeRecorder } from './provider-exchange-recorder.js'
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { consumeProviderRequest, readBodyTextBestEffort } from './llm-request-inactivity.js';
 import type { FailedProviderRequestDiagnostics } from './failed-provider-request-diagnostics.js';
+import type { OutboundHttpEmitter, OutboundHttpObservation } from '../contracts/index.js';
+import {
+  projectOutboundSource,
+  outboundSessionReference,
+  outboundIdentityReference,
+} from '../observability/index.js';
 
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;
@@ -27,6 +33,8 @@ export async function executeLlmProviderAttempt(args: {
   capabilityRequest: CapabilityRequest;
   attemptContext: ProviderAttemptDiagnosticContext;
   diagnostics?: FailedProviderRequestDiagnostics;
+  outboundHttp?: OutboundHttpEmitter;
+  onHttpFinished?: (requestId: string) => void;
 }): Promise<ProviderTurnCompletion> {
   const { plan, options } = args;
   options.signal?.throwIfAborted();
@@ -46,12 +54,32 @@ export async function executeLlmProviderAttempt(args: {
     throw new AdmissionIntegrityError(
       `Admitted candidate request plan for ${plan.candidate.provider}/${plan.candidate.account ?? '_implicit'}/${plan.candidate.model} no longer supports its bound capability request: ${match.reasons.join(', ')}.`,
     );
+  const observation: OutboundHttpObservation = {
+    emitter: args.outboundHttp,
+    onFinished: args.onHttpFinished,
+    context: {
+      ...projectOutboundSource(args.attemptContext.sourceSessionId, args.attemptContext.inputId),
+      invocation_session: outboundSessionReference(args.attemptContext.invocationSessionId),
+      model_ref: outboundIdentityReference(plan.candidate.model),
+      attempt_index: args.attemptContext.attemptIndex,
+      service: 'provider',
+      purpose: args.attemptContext.purpose,
+      endpoint:
+        plan.capabilities.transportProtocol === 'openai-responses'
+          ? 'provider.responses'
+          : plan.capabilities.transportProtocol === 'openai-codex-backend'
+            ? 'provider.codex'
+            : 'provider.chat',
+      method: 'POST',
+    },
+  };
   const transport = await resolveLlmTransportConfig(
     args.projectRoot,
     args.registry,
     plan.candidate,
     plan.adapter.credentialRequirement,
     options.signal,
+    observation,
   );
   const wire = plan.adapter.deriveWire(plan.candidate, transport, plan.request.body, options);
   const recorder = createProviderExchangeRecorder();
@@ -133,6 +161,7 @@ export async function executeLlmProviderAttempt(args: {
         );
         return { response, parsed };
       },
+      observation,
     );
     exchangeRecorded = true;
     if (parsed.finishReason === 'content_filter') capture('provider_refusal_finish_reason', null);

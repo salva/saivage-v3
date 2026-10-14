@@ -24,6 +24,7 @@ import { projectNativeMcpResult } from './mcp-native-result.js';
 import { ImageInputError } from './image-input-error.js';
 import { projectDynamicForOutbound } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
+import { projectOutboundSource } from '../observability/index.js';
 
 const MCP_ERROR_MAX_BYTES = 512;
 
@@ -125,12 +126,17 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
       'Start/install/discover or stop one operator or agent-defined MCP server. Start has one 180-second budget. Stop/cancel may lose the shared browser context; effects are not undone.',
     resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
     inputSchema: () => McpServerControlArgumentsSchema,
-    executor: async (ctx: McpProviderContext, args, signal) => {
+    executor: async (ctx: McpProviderContext, args, signal, invocation) => {
       signal.throwIfAborted();
       try {
         const result =
           args.action === 'start'
-            ? await ctx.mcpToolInvocation.startServer(args.serverName, signal)
+            ? await ctx.mcpToolInvocation.startServer(args.serverName, {
+                signal,
+                observationSource: invocation
+                  ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+                  : undefined,
+              })
             : await ctx.mcpToolInvocation.stopServer(args.serverName);
         signal.throwIfAborted();
         return executedToolOutcome('none', toolSucceeded(result));
@@ -209,7 +215,13 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
           args.bindingId,
           args.toolName,
           args.args ?? {},
-          { signal },
+          {
+            signal,
+            observationSource: projectOutboundSource(
+              invocation.sessionId,
+              invocation.sourceInputId,
+            ),
+          },
         );
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);

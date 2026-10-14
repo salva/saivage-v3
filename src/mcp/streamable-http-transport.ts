@@ -1,7 +1,10 @@
-import { TimeoutError, TransportError } from './errors.js';
+import { TimeoutError, TransportError, McpInvokeError } from './errors.js';
 import {
   PublicationOutcomeUnknownError,
   throwIfPublicationOutcomeUnknown,
+  type OutboundHttpEmitter,
+  type OutboundObservationSource,
+  type OutboundHttpContext,
 } from '../contracts/index.js';
 import type { StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import {
@@ -15,12 +18,82 @@ import {
 import type { McpServerHandle } from './server-registry.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
 import type { NativeMcpResult } from './native-result.js';
+import { beginOutboundHttp } from '../observability/index.js';
+
+interface HttpObservationOptions {
+  outboundHttp?: OutboundHttpEmitter;
+  observationSource?: OutboundObservationSource;
+}
+type HttpObservation = ReturnType<typeof beginOutboundHttp>;
+async function consumeMcpHttp<T>(
+  url: string,
+  init: RequestInit,
+  options: HttpObservationOptions,
+  purpose: OutboundHttpContext['purpose'],
+  method: 'POST' | 'HEAD' | 'GET',
+  consume: (response: Response, http: HttpObservation) => Promise<T>,
+  fetchFailure?: (error: unknown) => never,
+  isProtocolFailure?: (value: T) => boolean,
+): Promise<T> {
+  init.signal?.throwIfAborted();
+  const http = beginOutboundHttp({
+    emitter: options.outboundHttp,
+    context: {
+      ...options.observationSource,
+      service: 'mcp',
+      endpoint: 'mcp.remote',
+      purpose,
+      method,
+    },
+  });
+  let response: Response | undefined;
+  try {
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (fetchFailure) fetchFailure(error);
+      throw error;
+    }
+    http.headers(response);
+    http.body('not_consumed');
+    const value = await consume(response, http);
+    const failed = isProtocolFailure?.(value) === true;
+    http.terminal(
+      !response.ok ? 'http_error' : failed ? 'failed' : 'completed',
+      !response.ok ? 'http_status' : failed ? 'protocol' : 'none',
+    );
+    return value;
+  } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
+    const reason = init.signal?.aborted ? init.signal.reason : error;
+    if (init.signal?.aborted) {
+      http.body('incomplete');
+      http.terminal(
+        reason instanceof TimeoutError ? 'timeout' : 'cancelled',
+        reason instanceof TimeoutError ? 'deadline' : 'owner_abort',
+      );
+    } else
+      http.terminal(
+        response && !response.ok ? 'http_error' : 'failed',
+        !response
+          ? 'network'
+          : !response.ok
+            ? 'http_status'
+            : error instanceof TransportError || error instanceof McpInvokeError
+              ? 'protocol'
+              : 'unknown',
+      );
+    throw error;
+  }
+}
 
 interface StreamableHttpReadContext {
   serverName: string;
   operation: string;
   expectedId: number | string;
   signal?: AbortSignal;
+  http?: HttpObservation;
 }
 interface MessageIdSource {
   next(): number | string;
@@ -89,13 +162,17 @@ async function readBoundedJson(
 ): Promise<Record<string, unknown>> {
   if (!resp.body) throw new TransportError(context.serverName, 'MCP JSON response had no body');
   const reader = resp.body.getReader();
+  context.http?.body('incomplete');
   const chunks: Uint8Array[] = [];
   let bytes = 0;
   let publicationUnknown = false;
   try {
     for (;;) {
       const { value, done } = await readChunkWithAbort(reader, context.signal);
-      if (done) break;
+      if (done) {
+        context.http?.body('consumed');
+        break;
+      }
       bytes += value.byteLength;
       if (bytes > MCP_WIRE_RESPONSE_LIMIT_BYTES)
         throw new TransportError(context.serverName, 'MCP JSON response exceeded 48 MiB');
@@ -143,6 +220,7 @@ export async function readStreamableHttpJsonRpcResponse(
       `Streamable HTTP ${context.operation} response had no body`,
     );
   const reader = resp.body.getReader();
+  context.http?.body('incomplete');
   const decoder = new TextDecoder();
   let buffer = '';
   let receivedBytes = 0;
@@ -150,7 +228,10 @@ export async function readStreamableHttpJsonRpcResponse(
   try {
     for (;;) {
       const { value, done } = await readChunkWithAbort(reader, context.signal);
-      if (done) break;
+      if (done) {
+        context.http?.body('consumed');
+        break;
+      }
       receivedBytes += value.byteLength;
       if (receivedBytes > MCP_WIRE_RESPONSE_LIMIT_BYTES)
         throw new TransportError(context.serverName, 'MCP SSE response exceeded 48 MiB');
@@ -177,7 +258,10 @@ export async function readStreamableHttpJsonRpcResponse(
             `Malformed Streamable HTTP SSE data for ${context.operation}`,
           );
         }
-        if (isJsonRpcResponseForId(parsed, context.expectedId)) return parsed;
+        if (isJsonRpcResponseForId(parsed, context.expectedId)) {
+          context.http?.body('cancelled_by_policy');
+          return parsed;
+        }
         boundary = buffer.search(/\r?\n\r?\n/);
       }
     }
@@ -204,6 +288,7 @@ async function consumeStreamableHttpInitializedNotification(
   resp: Response,
   serverName: string,
   signal: AbortSignal,
+  http: HttpObservation,
 ): Promise<void> {
   if (resp.status === 202 || resp.status === 204) return;
   const contentType = getContentType(resp);
@@ -212,6 +297,7 @@ async function consumeStreamableHttpInitializedNotification(
       serverName,
       operation: 'notifications/initialized',
       signal,
+      http,
     });
     if (body.error) throw discoveryRejection(serverName, 'notifications/initialized', body.error);
   }
@@ -225,13 +311,15 @@ function sessionHeaders(handle?: McpServerHandle): Record<string, string> {
     : {};
 }
 
-export async function discoverStreamableHttpTools(input: {
-  serverName: string;
-  config: StreamableHttpMcpServerConfig;
-  handle?: McpServerHandle;
-  ids: MessageIdSource;
-  signal: AbortSignal;
-}): Promise<McpToolDefinition[]> {
+export async function discoverStreamableHttpTools(
+  input: HttpObservationOptions & {
+    serverName: string;
+    config: StreamableHttpMcpServerConfig;
+    handle?: McpServerHandle;
+    ids: MessageIdSource;
+    signal: AbortSignal;
+  },
+): Promise<McpToolDefinition[]> {
   const { serverName: name, config: cfg, handle, ids, signal } = input;
   signal.throwIfAborted();
   const discoveryAbort = new AbortController();
@@ -255,49 +343,67 @@ export async function discoverStreamableHttpTools(input: {
         clientInfo: { name: CLIENT_NAME, version: CLIENT_VERSION },
       },
     };
-    const initResp = await fetch(cfg.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
+    await consumeMcpHttp(
+      cfg.url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify(initReq),
+        signal: discoveryAbort.signal,
       },
-      body: JSON.stringify(initReq),
-      signal: discoveryAbort.signal,
-    });
-    if (!initResp.ok)
-      throw new TransportError(name, `initialize HTTP POST returned status ${initResp.status}`);
-    const sessionId =
-      initResp.headers?.get?.('Mcp-Session-Id') ?? initResp.headers?.get?.('mcp-session-id');
-    if (sessionId && handle) handle.streamableHttpSessionId = sessionId;
-    const initBody = await readStreamableHttpJsonRpcResponse(initResp, {
-      serverName: name,
-      operation: 'initialize',
-      expectedId: initId,
-      signal: discoveryAbort.signal,
-    });
-    if (initBody.error) {
-      throw discoveryRejection(name, 'initialize', initBody.error);
-    }
+      input,
+      'mcp-initialize',
+      'POST',
+      async (initResp, http) => {
+        if (!initResp.ok)
+          throw new TransportError(name, `initialize HTTP POST returned status ${initResp.status}`);
+        const sessionId =
+          initResp.headers?.get?.('Mcp-Session-Id') ?? initResp.headers?.get?.('mcp-session-id');
+        if (sessionId && handle) handle.streamableHttpSessionId = sessionId;
+        const initBody = await readStreamableHttpJsonRpcResponse(initResp, {
+          serverName: name,
+          operation: 'initialize',
+          expectedId: initId,
+          signal: discoveryAbort.signal,
+          http,
+        });
+        if (initBody.error) {
+          throw discoveryRejection(name, 'initialize', initBody.error);
+        }
+      },
+    );
 
-    const notificationResp = await fetch(cfg.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        ...sessionHeaders(handle),
+    await consumeMcpHttp(
+      cfg.url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          ...sessionHeaders(handle),
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+        signal: discoveryAbort.signal,
       },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
-      signal: discoveryAbort.signal,
-    });
-    if (!notificationResp.ok)
-      throw new TransportError(
-        name,
-        `notifications/initialized HTTP POST returned status ${notificationResp.status}`,
-      );
-    await consumeStreamableHttpInitializedNotification(
-      notificationResp,
-      name,
-      discoveryAbort.signal,
+      input,
+      'mcp-notification',
+      'POST',
+      async (notificationResp, http) => {
+        if (!notificationResp.ok)
+          throw new TransportError(
+            name,
+            `notifications/initialized HTTP POST returned status ${notificationResp.status}`,
+          );
+        await consumeStreamableHttpInitializedNotification(
+          notificationResp,
+          name,
+          discoveryAbort.signal,
+          http,
+        );
+      },
     );
 
     let cursor: string | undefined;
@@ -307,34 +413,46 @@ export async function discoverStreamableHttpTools(input: {
       const listReq: McpJsonRpcRequest = { jsonrpc: '2.0', id: listId, method: 'tools/list' };
       if (!firstPage && cursor) listReq.params = { cursor };
       firstPage = false;
-      const listResp = await fetch(cfg.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
-          ...sessionHeaders(handle),
+      await consumeMcpHttp(
+        cfg.url,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            ...sessionHeaders(handle),
+          },
+          body: JSON.stringify(listReq),
+          signal: discoveryAbort.signal,
         },
-        body: JSON.stringify(listReq),
-        signal: discoveryAbort.signal,
-      });
-      if (!listResp.ok)
-        throw new TransportError(name, `tools/list HTTP POST returned status ${listResp.status}`);
-      const listBody = await readStreamableHttpJsonRpcResponse(listResp, {
-        serverName: name,
-        operation: 'tools/list',
-        expectedId: listId,
-        signal: discoveryAbort.signal,
-      });
-      if (listBody.error) {
-        throw discoveryRejection(name, 'tools/list', listBody.error);
-      }
-      const result = listBody.result as
-        | (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string })
-        | undefined;
-      if (result && Array.isArray(result.tools)) {
-        tools.push(...result.tools);
-        cursor = result.nextCursor;
-      } else cursor = undefined;
+        input,
+        'mcp-list',
+        'POST',
+        async (listResp, http) => {
+          if (!listResp.ok)
+            throw new TransportError(
+              name,
+              `tools/list HTTP POST returned status ${listResp.status}`,
+            );
+          const listBody = await readStreamableHttpJsonRpcResponse(listResp, {
+            serverName: name,
+            operation: 'tools/list',
+            expectedId: listId,
+            signal: discoveryAbort.signal,
+            http,
+          });
+          if (listBody.error) {
+            throw discoveryRejection(name, 'tools/list', listBody.error);
+          }
+          const result = listBody.result as
+            | (Record<string, unknown> & { tools?: McpToolDefinition[]; nextCursor?: string })
+            | undefined;
+          if (result && Array.isArray(result.tools)) {
+            tools.push(...result.tools);
+            cursor = result.nextCursor;
+          } else cursor = undefined;
+        },
+      );
     } while (cursor);
     return tools;
   } catch (err) {
@@ -350,16 +468,18 @@ export async function discoverStreamableHttpTools(input: {
   }
 }
 
-export async function invokeStreamableHttpTool(input: {
-  serverName: string;
-  toolName: string;
-  args: Record<string, unknown>;
-  config: StreamableHttpMcpServerConfig;
-  handle?: McpServerHandle;
-  timeoutMs: number;
-  ids: MessageIdSource;
-  signal: AbortSignal;
-}): Promise<NativeMcpResult> {
+export async function invokeStreamableHttpTool(
+  input: HttpObservationOptions & {
+    serverName: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    config: StreamableHttpMcpServerConfig;
+    handle?: McpServerHandle;
+    timeoutMs: number;
+    ids: MessageIdSource;
+    signal: AbortSignal;
+  },
+): Promise<NativeMcpResult> {
   const {
     serverName,
     toolName,
@@ -391,9 +511,9 @@ export async function invokeStreamableHttpTool(input: {
       method: 'tools/call',
       params: { name: toolName, arguments: args },
     };
-    let resp: Response;
-    try {
-      resp = await fetch(cfg.url, {
+    return await consumeMcpHttp(
+      cfg.url,
+      {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -402,31 +522,39 @@ export async function invokeStreamableHttpTool(input: {
         },
         body: JSON.stringify(request),
         signal: invokeAbort.signal,
-      });
-    } catch (err) {
-      throwIfPublicationOutcomeUnknown(err);
-      if (invokeAbort.signal.aborted) throw invokeAbort.signal.reason;
-      throw new TransportError(
-        serverName,
-        `HTTP POST failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    if (!resp.ok)
-      throw new TransportError(serverName, `tools/call HTTP POST returned status ${resp.status}`);
-    let body: Record<string, unknown>;
-    try {
-      body = await readStreamableHttpJsonRpcResponse(resp, {
-        serverName,
-        operation: 'tools/call',
-        expectedId: requestId,
-        signal: invokeAbort.signal,
-      });
-    } catch (err) {
+      },
+      input,
+      'mcp-invoke',
+      'POST',
+      async (resp, http) => {
+        if (!resp.ok)
+          throw new TransportError(
+            serverName,
+            `tools/call HTTP POST returned status ${resp.status}`,
+          );
+        const body = await readStreamableHttpJsonRpcResponse(resp, {
+          serverName,
+          operation: 'tools/call',
+          expectedId: requestId,
+          signal: invokeAbort.signal,
+          http,
+        });
+        return mapToolsCallResponse(body, serverName, toolName);
+      },
+      (err) => {
+        throwIfPublicationOutcomeUnknown(err);
+        if (invokeAbort.signal.aborted) throw invokeAbort.signal.reason;
+        throw new TransportError(
+          serverName,
+          `HTTP POST failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+      (value) => value.isError === true,
+    ).catch((err) => {
       throwIfPublicationOutcomeUnknown(err);
       if (invokeAbort.signal.aborted) throw invokeAbort.signal.reason;
       throw err;
-    }
-    return mapToolsCallResponse(body, serverName, toolName);
+    });
   } catch (error) {
     publicationUnknown = error instanceof PublicationOutcomeUnknownError;
     throw error;
@@ -439,35 +567,62 @@ export async function invokeStreamableHttpTool(input: {
   }
 }
 
-export async function healthStreamableHttpServer(input: {
-  serverName: string;
-  config: StreamableHttpMcpServerConfig;
-  handle?: McpServerHandle;
-  signal: AbortSignal;
-}): Promise<boolean> {
+export async function healthStreamableHttpServer(
+  input: HttpObservationOptions & {
+    serverName: string;
+    config: StreamableHttpMcpServerConfig;
+    handle?: McpServerHandle;
+    signal: AbortSignal;
+  },
+): Promise<boolean> {
   const { config: cfg, handle, signal } = input;
   if (!handle || handle.abortController?.signal.aborted) return false;
   try {
-    let resp = await fetch(cfg.url, { method: 'HEAD', signal });
+    let resp = await consumeMcpHttp(
+      cfg.url,
+      { method: 'HEAD', signal },
+      input,
+      'mcp-health',
+      'HEAD',
+      async (resp) => resp,
+    );
     if (resp.status === 405 || resp.status === 501)
-      resp = await fetch(cfg.url, { method: 'GET', signal });
+      resp = await consumeMcpHttp(
+        cfg.url,
+        { method: 'GET', signal },
+        input,
+        'mcp-health',
+        'GET',
+        async (resp) => resp,
+      );
     return resp.ok;
-  } catch {
+  } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     return false;
   }
 }
 
-export async function probeStreamableHttpStartup(input: {
-  serverName: string;
-  config: StreamableHttpMcpServerConfig;
-  signal: AbortSignal;
-}): Promise<void> {
+export async function probeStreamableHttpStartup(
+  input: HttpObservationOptions & {
+    serverName: string;
+    config: StreamableHttpMcpServerConfig;
+    signal: AbortSignal;
+  },
+): Promise<void> {
   const { serverName, config: cfg, signal } = input;
   signal.throwIfAborted();
   try {
-    const resp = await fetch(cfg.url, { method: 'HEAD', signal });
-    if (!resp.ok)
-      throw new TransportError(serverName, `startup HEAD returned status ${resp.status}`);
+    await consumeMcpHttp(
+      cfg.url,
+      { method: 'HEAD', signal },
+      input,
+      'mcp-startup',
+      'HEAD',
+      async (resp) => {
+        if (!resp.ok)
+          throw new TransportError(serverName, `startup HEAD returned status ${resp.status}`);
+      },
+    );
   } catch (err) {
     throwIfPublicationOutcomeUnknown(err);
     if (signal.aborted) throw signal.reason;

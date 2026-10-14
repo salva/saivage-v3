@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import {
   PublicationOutcomeUnknownError,
   throwIfPublicationOutcomeUnknown,
+  type OutboundHttpEmitter,
+  type OutboundObservationSource,
 } from '../contracts/index.js';
 import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/index.js';
 import { sanitizedCommandEnv } from '../runtime/runtime-api.js';
@@ -46,6 +48,7 @@ interface McpJsonRpcIdProvider {
 }
 
 interface McpServerRuntimeOptions {
+  outboundHttp?: OutboundHttpEmitter;
   name: string;
   config: McpServerConfig;
   revision: string;
@@ -57,6 +60,7 @@ interface McpServerRuntimeOptions {
 }
 
 export class McpServerRuntime {
+  readonly #outboundHttp?: OutboundHttpEmitter;
   readonly bindingId = randomUUID();
   readonly #processRunner: ProcessRunner;
   readonly #processScope: ManagedProcessScope;
@@ -94,8 +98,10 @@ export class McpServerRuntime {
     ids,
     invocationStats,
     projectRoot,
+    outboundHttp,
   }: McpServerRuntimeOptions) {
     this.#name = name;
+    this.#outboundHttp = outboundHttp;
     this.#config = config;
     this.#revision = revision;
     this.#processRunner = processRunner;
@@ -124,7 +130,11 @@ export class McpServerRuntime {
     return this.admissionOpen;
   }
 
-  start(callerSignal?: AbortSignal): Promise<void> {
+  start(options?: {
+    signal?: AbortSignal;
+    observationSource?: OutboundObservationSource;
+  }): Promise<void> {
+    const callerSignal = options?.signal;
     if (callerSignal?.aborted) return Promise.reject(callerSignal.reason);
     if (this.operations.size || this.handle)
       return Promise.reject(new McpLifecycleError(`MCP server '${this.name}' is busy.`, 409));
@@ -145,9 +155,9 @@ export class McpServerRuntime {
         if (cfg.disabled) return;
         this.statusOverride = undefined;
         if (cfg.transport === 'stdio') this.startStdio(cfg, generation, signal);
-        else await this.startStreamableHttp(cfg, generation, signal);
+        else await this.startStreamableHttp(cfg, generation, signal, options?.observationSource);
         this.assertCurrent(generation, signal);
-        const tools = await this.discoverTools(signal);
+        const tools = await this.discoverTools(signal, options?.observationSource);
         this.assertCurrent(generation, signal);
         this.tools = tools;
         this.argumentValidatorCache.clear();
@@ -261,7 +271,11 @@ export class McpServerRuntime {
   invokeTool(
     toolName: string,
     args: Record<string, unknown>,
-    options?: { timeoutMs?: number; signal?: AbortSignal },
+    options?: {
+      timeoutMs?: number;
+      signal?: AbortSignal;
+      observationSource?: OutboundObservationSource;
+    },
   ): Promise<unknown> {
     let joinStop = false;
     const inner = this.admit(async (generation, signal, controller) => {
@@ -334,6 +348,8 @@ export class McpServerRuntime {
                 }
               })
             : await invokeStreamableHttpTool({
+                outboundHttp: this.#outboundHttp,
+                observationSource: options?.observationSource,
                 serverName: this.name,
                 toolName,
                 args,
@@ -388,6 +404,7 @@ export class McpServerRuntime {
           this.#processRunner.get(this.handle.processId)?.status === 'running',
         );
       return healthStreamableHttpServer({
+        outboundHttp: this.#outboundHttp,
         serverName: this.name,
         config: cfg,
         handle: this.handle,
@@ -589,11 +606,14 @@ export class McpServerRuntime {
     cfg: StreamableHttpMcpServerConfig,
     generation: number,
     signal: AbortSignal,
+    observationSource?: OutboundObservationSource,
   ): Promise<void> {
     const abortController = new AbortController();
     this.handle = { abortController };
     this.startedAt = new Date().toISOString();
     await probeStreamableHttpStartup({
+      outboundHttp: this.#outboundHttp,
+      observationSource,
       serverName: this.name,
       config: cfg,
       signal,
@@ -601,10 +621,15 @@ export class McpServerRuntime {
     this.assertCurrent(generation, signal);
   }
 
-  private discoverTools(signal: AbortSignal): Promise<McpToolDefinition[]> {
+  private discoverTools(
+    signal: AbortSignal,
+    observationSource?: OutboundObservationSource,
+  ): Promise<McpToolDefinition[]> {
     return this.config.transport === 'stdio'
       ? this.stdioConnection!.discover(signal)
       : discoverStreamableHttpTools({
+          outboundHttp: this.#outboundHttp,
+          observationSource,
           serverName: this.name,
           config: this.config,
           handle: this.handle,

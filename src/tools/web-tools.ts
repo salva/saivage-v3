@@ -21,6 +21,8 @@ import {
   type ToolActionOutcome,
   type WebfetchInvocation,
   type WebfetchMetadata,
+  type OutboundHttpEmitter,
+  type OutboundObservationSource,
 } from '../contracts/index.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
@@ -45,6 +47,7 @@ import {
 } from '../application/index.js';
 import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
+import { beginOutboundHttp, projectOutboundSource } from '../observability/index.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -56,6 +59,7 @@ const WEBFETCH_TEXT_RESULT_MAX_BYTES = 1_000_000;
 type ReadMode = 'auto' | 'text';
 
 export interface WebProviderContext extends WorkspaceContext {
+  readonly outboundHttp?: OutboundHttpEmitter;
   readonly agentName: AgentName;
   readonly analystToolContext?: ToolContext;
 }
@@ -148,29 +152,39 @@ type BoundedFetchPolicy =
   | { kind: 'bounded'; maxBytes: number; overflow: 'reject' }
   | { kind: 'bounded'; maxBytes: number; overflow: 'successful-no-save-text'; readMode: ReadMode };
 type FetchBodyPolicy = { kind: 'metadata' } | BoundedFetchPolicy;
+interface WebHttpObservation {
+  emitter?: OutboundHttpEmitter;
+  source?: OutboundObservationSource;
+  purpose: 'websearch' | 'webfetch';
+}
+class WebBodyLimitError extends Error {}
 
 async function fetchPublic(
   url: URL,
   policy: { kind: 'metadata' },
   signal: AbortSignal,
+  observation: WebHttpObservation,
   redirects?: number,
 ): Promise<MetadataFetchResult>;
 async function fetchPublic(
   url: URL,
   policy: BoundedFetchPolicy,
   signal: AbortSignal,
+  observation: WebHttpObservation,
   redirects?: number,
 ): Promise<ContentFetchResult>;
 async function fetchPublic(
   url: URL,
   policy: FetchBodyPolicy,
   signal: AbortSignal,
+  observation: WebHttpObservation,
   redirects?: number,
 ): Promise<MetadataFetchResult | ContentFetchResult>;
 async function fetchPublic(
   url: URL,
   policy: FetchBodyPolicy,
   signal: AbortSignal,
+  observation: WebHttpObservation,
   redirects = 0,
 ): Promise<MetadataFetchResult | ContentFetchResult> {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects.');
@@ -179,60 +193,101 @@ async function fetchPublic(
     throw signal.reason instanceof Error
       ? signal.reason
       : new Error('Tool invocation was interrupted.');
-  const response = await fetch(url, {
-    redirect: 'manual',
-    signal: combinedSignal(signal),
-    headers: { 'User-Agent': 'Saivage/0.1 agent-web-tool' },
+  const requestSignal = combinedSignal(signal);
+  requestSignal.throwIfAborted();
+  const http = beginOutboundHttp({
+    emitter: observation.emitter,
+    context: {
+      ...observation.source,
+      service: 'web',
+      purpose: observation.purpose,
+      endpoint: observation.purpose === 'websearch' ? 'web.search' : 'web.public',
+      method: 'GET',
+    },
   });
-  if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel();
-    const location = response.headers.get('location');
-    if (!location) throw new Error('Redirect response did not include Location.');
-    const next = parseHttpUrl(new URL(location, url).toString());
-    return fetchPublic(next, policy, signal, redirects + 1);
-  }
-  if (policy.kind === 'metadata') {
-    await response.body?.cancel();
-    return { kind: 'metadata', url, response };
-  }
-  const reader = response.body?.getReader();
-  if (!reader)
-    return { kind: 'content', url, response, body: new Uint8Array(), exceededMaxBytes: false };
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let exceededMaxBytes = false;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value.byteLength === 0) continue;
-    const remaining = policy.maxBytes - total;
-    if (value.byteLength <= remaining) {
-      total += value.byteLength;
-      chunks.push(value);
-      continue;
+  let received = false;
+  try {
+    const response = await fetch(url, {
+      redirect: 'manual',
+      signal: requestSignal,
+      headers: { 'User-Agent': 'Saivage/0.1 agent-web-tool' },
+    });
+    received = true;
+    http.headers(response);
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      http.body(response.body ? 'cancelled_by_policy' : 'not_consumed');
+      const location = response.headers.get('location');
+      if (!location) throw new Error('Redirect response did not include Location.');
+      const next = parseHttpUrl(new URL(location, url).toString());
+      http.terminal('completed', 'none');
+      return fetchPublic(next, policy, signal, observation, redirects + 1);
     }
-    if (
-      policy.overflow === 'reject' ||
-      !response.ok ||
-      !isTextResponse(response, policy.readMode)
-    ) {
-      throw new Error(`Response exceeded max_bytes (${policy.maxBytes}).`);
+    if (policy.kind === 'metadata') {
+      await response.body?.cancel();
+      http.body(response.body ? 'cancelled_by_policy' : 'not_consumed');
+      http.terminal(response.ok ? 'completed' : 'http_error', response.ok ? 'none' : 'http_status');
+      return { kind: 'metadata', url, response };
     }
-    if (remaining > 0) {
-      chunks.push(value.subarray(0, remaining));
-      total += remaining;
+    const reader = response.body?.getReader();
+    if (!reader) {
+      http.body('not_consumed');
+      http.terminal(response.ok ? 'completed' : 'http_error', response.ok ? 'none' : 'http_status');
+      return { kind: 'content', url, response, body: new Uint8Array(), exceededMaxBytes: false };
     }
-    exceededMaxBytes = true;
-    await reader.cancel();
-    break;
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    let exceededMaxBytes = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength === 0) continue;
+      const remaining = policy.maxBytes - total;
+      if (value.byteLength <= remaining) {
+        total += value.byteLength;
+        chunks.push(value);
+        continue;
+      }
+      if (
+        policy.overflow === 'reject' ||
+        !response.ok ||
+        !isTextResponse(response, policy.readMode)
+      ) {
+        throw new WebBodyLimitError(`Response exceeded max_bytes (${policy.maxBytes}).`);
+      }
+      if (remaining > 0) {
+        chunks.push(value.subarray(0, remaining));
+        total += remaining;
+      }
+      exceededMaxBytes = true;
+      await reader.cancel();
+      break;
+    }
+    const body = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    http.body(exceededMaxBytes ? 'cancelled_by_policy' : 'consumed');
+    http.terminal(response.ok ? 'completed' : 'http_error', response.ok ? 'none' : 'http_status');
+    return { kind: 'content', url, response, body, exceededMaxBytes };
+  } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
+    http.terminal(
+      requestSignal.aborted ? (signal.aborted ? 'cancelled' : 'timeout') : 'failed',
+      requestSignal.aborted
+        ? signal.aborted
+          ? 'owner_abort'
+          : 'deadline'
+        : error instanceof WebBodyLimitError
+          ? 'body_limit'
+          : received
+            ? 'protocol'
+            : 'network',
+    );
+    throw error;
   }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return { kind: 'content', url, response, body, exceededMaxBytes };
 }
 
 function headersObject(headers: Headers): Record<string, string> {
@@ -377,6 +432,7 @@ async function websearchCore(
   params: { query: string; max_results?: number },
   signal: AbortSignal = new AbortController().signal,
   wait?: <T>(promise: Promise<T>) => Promise<T>,
+  observation: WebHttpObservation = { purpose: 'websearch' },
 ): Promise<ToolActionOutcome> {
   try {
     const query = params.query.trim();
@@ -387,6 +443,7 @@ async function websearchCore(
       url,
       { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES, overflow: 'reject' },
       signal,
+      observation,
     );
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     if (!fetched.response.ok)
@@ -394,6 +451,7 @@ async function websearchCore(
     const html = Buffer.from(fetched.body).toString('utf8');
     return toolSucceeded({ query, results: ddgResults(html, fetched.url, max) });
   } catch (err) {
+    throwIfPublicationOutcomeUnknown(err);
     if (isAbortError(err, signal)) throw err;
     return toolFailed(err instanceof Error ? err.message : String(err));
   }
@@ -404,6 +462,7 @@ async function webfetchCore(
   params: WebfetchInvocation,
   signal: AbortSignal = new AbortController().signal,
   wait?: <T>(promise: Promise<T>) => Promise<T>,
+  observation: WebHttpObservation = { purpose: 'webfetch' },
 ): Promise<ToolActionOutcome> {
   try {
     const url = parseHttpUrl(params.url);
@@ -427,7 +486,7 @@ async function webfetchCore(
       }
     }
     if (params.metadata_only) {
-      const fetchPromise = fetchPublic(url, { kind: 'metadata' }, signal);
+      const fetchPromise = fetchPublic(url, { kind: 'metadata' }, signal, observation);
       const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
       const headers = headersObject(fetched.response.headers);
       const metadata: WebfetchMetadata = {
@@ -444,6 +503,7 @@ async function webfetchCore(
         ? { kind: 'bounded', maxBytes, overflow: 'reject' }
         : { kind: 'bounded', maxBytes, overflow: 'successful-no-save-text', readMode: mode },
       signal,
+      observation,
     );
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
@@ -516,10 +576,16 @@ async function webfetchCore(
 async function fetchAnalystRecord(
   input: { url: string; read_mode?: ReadMode; max_bytes?: number },
   signal: AbortSignal,
+  observation: WebHttpObservation,
 ): Promise<PreparedFetchedRecord> {
   const url = parseHttpUrl(input.url);
   const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
-  const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes, overflow: 'reject' }, signal);
+  const fetched = await fetchPublic(
+    url,
+    { kind: 'bounded', maxBytes, overflow: 'reject' },
+    signal,
+    observation,
+  );
   const headers = headersObject(fetched.response.headers);
   const metadata: WebfetchMetadata = {
     redacted_url: redactUrl(fetched.url.toString()),
@@ -544,8 +610,16 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
     description: 'Search the public web for documentation and data sources.',
     resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: () => websearchSchema,
-    executor: (_ctx, args, signal, invocation) =>
-      executeToolAction('none', () => websearchCore(args, signal, invocation?.waits.waitExternal)),
+    executor: (ctx, args, signal, invocation) =>
+      executeToolAction('none', () =>
+        websearchCore(args, signal, invocation?.waits.waitExternal, {
+          emitter: ctx.outboundHttp,
+          source: invocation
+            ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+            : undefined,
+          purpose: 'websearch',
+        }),
+      ),
   }),
   defineToolBinder({
     name: 'webfetch',
@@ -555,16 +629,23 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
     inputSchema: () => webfetchSchema,
     executor: (ctx, args, signal, invocation) =>
       executeToolAction('none', async () => {
+        const observation: WebHttpObservation = {
+          emitter: ctx.outboundHttp,
+          source: invocation
+            ? projectOutboundSource(invocation.sessionId, invocation.sourceInputId)
+            : undefined,
+          purpose: 'webfetch',
+        };
         const analyst = ctx.analystToolContext;
         if (!analyst || !args.save_as?.startsWith('record:///'))
-          return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
+          return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal, observation);
         const preparedContext: ToolContext = {
           ...analyst,
           analystPreparation: {
             records: analyst.analystMutations!.recordMutations,
             web: {
               fetchText: (input) => {
-                const pending = fetchAnalystRecord(input, signal);
+                const pending = fetchAnalystRecord(input, signal, observation);
                 return invocation ? invocation.waits.waitExternal(pending) : pending;
               },
             },

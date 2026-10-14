@@ -349,3 +349,13 @@ export type {
   AppTerminalRegistration,
 } from './application-lifecycle.js';
 export { OVERSIGHT_ALLOWED_TOOL_NAMES } from './oversight-tool-policy.js';
+export type {
+  OutboundObservationSource,
+  OutboundHttpContext,
+  OutboundHttpOutcome,
+  OutboundHttpCode,
+  OutboundBodyDisposition,
+  OutboundHttpEvent,
+  OutboundHttpEmitter,
+  OutboundHttpObservation,
+} from './outbound-http.js';
