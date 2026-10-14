@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
 import { createAnalystMutationServices } from '../../../src/application/analyst-mutation-services.js';
 import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
+import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
@@ -25,7 +26,7 @@ import {
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
-import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
+import type { CardActivationInput, CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { ProviderTurnFailure } from '../../../src/contracts/index.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
@@ -190,6 +191,57 @@ function refusal(inputId: string, raw: string): ProviderTurnFailure {
 }
 
 describe('Supervisor notification admission at terminal ownership', () => {
+  it('selects through the strict pending reader without a callback-local card preflight and admits the exact unfrozen owner first', async () => {
+    const entered = deferred();
+    const h = harness(scriptedAdmissionProvider(async (_input, signal) => {
+      entered.resolve();
+      return await new Promise<never>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
+    }));
+    let captured!: CardActivationInput;
+    const activate = CardProcessActor.prototype.activate;
+    jest.spyOn(CardProcessActor.prototype, 'activate').mockImplementation(function (this: CardProcessActor, input, signal) {
+      captured = input;
+      return activate.call(this, input, signal);
+    });
+    expect((await h.supervisor.startProject()).started).toBe(true);
+    await entered.promise;
+    const current = owner(h.supervisor);
+    const message = notification();
+    h.cards.enqueueNotification('project', message);
+    const read = jest.spyOn(h.cards, 'read');
+    const pending = jest.spyOn(h.cards, 'readPendingNotifications');
+
+    expect(captured.notificationDelivery.selectNotifications()).toEqual([message]);
+    expect(pending).toHaveBeenCalledTimes(1);
+    expect(pending).toHaveBeenCalledWith('project');
+    expect(read).not.toHaveBeenCalled();
+
+    const internals = h.supervisor as unknown as {
+      activationOwners: Map<string, CardActivationOwner>;
+      halt: { owners: CardActivationOwner[]; interruption: Error } | null;
+    };
+    pending.mockClear();
+    internals.activationOwners.delete('project');
+    try {
+      expect(() => captured.notificationDelivery.selectNotifications()).toThrow(/no longer current/);
+      expect(pending).not.toHaveBeenCalled();
+    } finally {
+      internals.activationOwners.set('project', current);
+    }
+    const frozen = new RuntimeStoppedInterruption();
+    internals.halt = { owners: [current], interruption: frozen };
+    try {
+      expect(() => captured.notificationDelivery.selectNotifications()).toThrow(frozen);
+      expect(pending).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      internals.halt = null;
+    }
+    await h.supervisor.stopProject();
+  });
+
   it('freshly rejects a stored cancel target changed after the Analyst subtree observation', async () => {
     const provider = scriptedAdmissionProvider(async () => { throw new Error('Unexpected provider call.'); });
     const h = harness(provider);

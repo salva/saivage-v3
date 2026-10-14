@@ -864,7 +864,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
         },
         selectNotifications: () => {
           this.requireOwnerAuthority(owner);
-          this.requireKnownCard(owner);
           return this.behavior.actorStore.readPendingNotifications(owner.cardId);
         },
         removeNotifications: (ids: readonly string[]) => {

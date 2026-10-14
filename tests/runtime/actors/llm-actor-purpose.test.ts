@@ -137,6 +137,35 @@ describe('ConversationLLMActor purpose authority',()=>{
     expect(completeTurn).toHaveBeenCalledTimes(1);
   });
 
+  it('delivers notification removal uncertainty after append to fatal ownership without continuation or follow-up',async()=>{
+    const {projectRoot,input}=cardFixture();
+    const completeTurn=jest.fn(async()=>({result:{kind:'message' as const,content:'plain'},provider_exchanges:[]}));
+    const publication=new PublicationOutcomeUnknownError(new Error('uncertain notification removal'));
+    const delivered=new Error('fatal delivery');
+    const effects:string[]=[];
+    let armed=false;
+    const removeNotifications=jest.fn((ids:readonly string[])=>{
+      expect(ids).toEqual(['00000000-0000-4000-8000-000000000002']);
+      effects.push('remove');
+      throw publication;
+    });
+    const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:()=>{if(armed)effects.push('append');},agentMembershipChanged:()=>undefined}};
+    const actor=new ConversationLLMActor({...common,provider:scriptedAdmissionProvider(completeTurn),conversations,fatalPort:{publicationOutcomeUnknown(error):never{expect(error).toBe(publication);effects.push('fatal');throw delivered;}},agentId:'agent:planner:project',purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate()});
+    await actor.turn(input,undefined,jest.fn());
+    armed=true;
+
+    expect(()=>actor.continueAfterPlainText([
+      {role:'user',content:'configured correction',protection:{compactable:false}},
+    ],undefined,jest.fn(),()=>({
+      messages:[{role:'user',content:'ordinary notification'}],
+      afterAppend:()=>{removeNotifications(['00000000-0000-4000-8000-000000000002']);effects.push('after-removal');},
+    }))).toThrow(delivered);
+
+    expect(effects).toEqual(['append','remove','fatal']);
+    expect(removeNotifications).toHaveBeenCalledTimes(1);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves Analyst content refusal terminal with one ordinary provider call',async()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'analyst-purpose-'));roots.push(projectRoot);initProjectTree(projectRoot);
     const timestamp='2026-07-26T00:00:00.000Z';appendConversationBatch({projectRoot},[agentMessageSchema.parse({id:'activation',session_id:'agent:analyst:global',role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',instructions:{kind:'unavailable',reason:'not_recorded'},agent_name:'analyst',input_id:'00000000-0000-4000-8000-000000000001',timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);

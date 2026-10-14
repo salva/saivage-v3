@@ -195,6 +195,11 @@ describe('card immutable history and pending-only mailbox', () => {
     expect(new CardService(root).read(child.id)).toMatchObject({ version_seq: 4, title: 'after' });
   });
 
+  it('rejects a missing card at pending notification consumption', () => {
+    const { cards } = fixture();
+    expect(() => cards.readPendingNotifications('card-z')).toThrow();
+  });
+
   it('reads message bodies only on consumption and removes only exact selected IDs', () => {
     const { root, cards, child } = fixture(); const first = notice(); const later = { ...first, id: randomUUID() };
     cards.enqueueNotification(child.id, first); const selected = cards.readPendingNotifications(child.id);
