@@ -10,7 +10,6 @@ export interface OutboundHttpContext extends OutboundObservationSource {
     | 'primary'
     | 'internal-summary'
     | 'auth-refresh'
-    | 'mcp-startup'
     | 'mcp-initialize'
     | 'mcp-notification'
     | 'mcp-list'

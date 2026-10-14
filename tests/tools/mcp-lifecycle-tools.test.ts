@@ -24,7 +24,7 @@ describe('independent configured MCP admissions', () => {
     const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: {} as never });
     const installation = createMcpToolInvocationInstallation();
     installation.installer.install({ ...unusedMcpToolInvocation, startServer: async (name, options) => { await runtime.start(options); return { serverName: name, status: 'running', toolCount: runtime.getTools()!.length }; } });
-    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => init?.method === 'HEAD' ? new Response(null, { status: 200 }) : new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32004, message: 'secret-remote-text'.repeat(1000) } }))) as typeof fetch;
+    globalThis.fetch = jest.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32004, message: 'secret-remote-text'.repeat(1000) } }))) as typeof fetch;
     try {
       const outcome = await invokeToolForLlm(surface(['mcp_server_control'], installation.port), 'mcp_server_control', { serverName: 'one', action: 'start' }, testLlmToolInvocationContext({ toolName: 'mcp_server_control' }));
       expect(outcome).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'failed', error: expect.stringContaining('initialize rejected (code -32004)') } } });

@@ -182,6 +182,10 @@ mcp_server_unregister({serverName:"local"})
 ```
 
 For HTTP use `connection:{transport:"streamable-http",url:"https://example.com/mcp"}`.
+Startup uses initialize, the initialized notification and every tools/list page
+within the single 180-second start budget; it does not require HEAD support.
+Rejection of the actual protocol exchange still fails start, with the existing
+local containment and stop join before reporting the failure.
 Registration persists only a connection in `.saivage/config/mcp-servers.json`;
 it neither launches nor rewrites YAML. Duplicate names reject. Definitions survive
 normal reset and host restart, but dynamic connections never autostart. Preserve
@@ -551,9 +555,9 @@ Interpret the phases at the actual owner:
   nothing, and there are no countdown/timer-tick events.
 
 Coverage is provider Chat/Responses/Codex (including configured custom endpoints),
-Codex/Copilot auth refresh, remote HTTP MCP startup/discovery/notification/every
-list page/invocation/health, and Websearch/Webfetch including Analyst record
-preparation, metadata-only and bounded reads. There is **one lifecycle per owned
+Codex/Copilot auth refresh, remote HTTP MCP initialize/initialized notification/every
+tools/list page/invocation/health HEAD or conditional GET, and Websearch/Webfetch
+including Analyst record preparation, metadata-only and bounded reads. There is **one lifecycle per owned
 fetch invocation**, not per physical HTTP hop. Each retry and manually dispatched
 web redirect gets a fresh request UUID with the same source attribution. Native
 automatic provider/auth/MCP redirect hops are not individually logged; headers
@@ -561,7 +565,7 @@ describe the response returned to the owner. Native redirect behavior is unchang
 
 Tool source is the initiating agent's session/input and owning card, not its MCP
 server or Webfetch destination card. It stays call-local through agent-requested
-MCP start/probe/discovery, concurrent invocations, manual redirects and Analyst's
+MCP start/discovery, concurrent invocations, manual redirects and Analyst's
 audited record-preparation closure. `source_session` projects validated canonical
 identity with a SHA-256 configured-agent reference and card/global component;
 `source_card` is omitted for globals, `input_id` retains a valid UUID. `model_ref`

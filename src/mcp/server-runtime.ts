@@ -8,7 +8,7 @@ import {
   type OutboundHttpEmitter,
   type OutboundObservationSource,
 } from '../contracts/index.js';
-import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../schemas/index.js';
+import type { StdioMcpServerConfig } from '../schemas/index.js';
 import { sanitizedCommandEnv } from '../runtime/runtime-api.js';
 import {
   compileMcpArgumentValidator,
@@ -38,7 +38,6 @@ import {
   discoverStreamableHttpTools,
   healthStreamableHttpServer,
   invokeStreamableHttpTool,
-  probeStreamableHttpStartup,
 } from './streamable-http-transport.js';
 import { StdioMcpConnection } from './stdio-transport.js';
 import type { NativeMcpResult } from './native-result.js';
@@ -155,7 +154,7 @@ export class McpServerRuntime {
         if (cfg.disabled) return;
         this.statusOverride = undefined;
         if (cfg.transport === 'stdio') this.startStdio(cfg, generation, signal);
-        else await this.startStreamableHttp(cfg, generation, signal, options?.observationSource);
+        else this.startStreamableHttp();
         this.assertCurrent(generation, signal);
         const tools = await this.discoverTools(signal, options?.observationSource);
         this.assertCurrent(generation, signal);
@@ -602,23 +601,10 @@ export class McpServerRuntime {
     void tracked.catch(() => undefined);
   }
 
-  private async startStreamableHttp(
-    cfg: StreamableHttpMcpServerConfig,
-    generation: number,
-    signal: AbortSignal,
-    observationSource?: OutboundObservationSource,
-  ): Promise<void> {
+  private startStreamableHttp(): void {
     const abortController = new AbortController();
     this.handle = { abortController };
     this.startedAt = new Date().toISOString();
-    await probeStreamableHttpStartup({
-      outboundHttp: this.#outboundHttp,
-      observationSource,
-      serverName: this.name,
-      config: cfg,
-      signal,
-    });
-    this.assertCurrent(generation, signal);
   }
 
   private discoverTools(

@@ -59,8 +59,7 @@ describe('active stdio cancellation ownership', () => {
     const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: new McpInvocationStatsRecorder(events as never) });
     const cancel = jest.spyOn(ReadableStreamDefaultReader.prototype, 'cancel');
     const release = jest.spyOn(ReadableStreamDefaultReader.prototype, 'releaseLock');
-    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
-      if (init?.method === 'HEAD') return new Response(null, { status: 200 });
+    globalThis.fetch = jest.fn(async () => {
       if (mode === 'caller') { caller.abort(failure); throw new Error('fetch aborted'); }
       return new Response(new ReadableStream({ start(controller) { controller.error(failure); } }));
     }) as typeof fetch;

@@ -35,6 +35,69 @@ afterEach(async () => {
 });
 
 describe('MCP tool invocation production composition', () => {
+  it('starts a HEAD-405 HTTP peer only through complete paginated protocol discovery', async () => {
+    const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-http-admission-');
+    roots.push(projectRoot);
+    const calls: Array<{ method: string; operation?: string; session?: string; cursor?: string }> = [];
+    let finishFinalPage: (() => void) | undefined;
+    let fixtureFailure: unknown;
+    const peer = createServer(async (req, res) => {
+      try {
+        if (req.method === 'HEAD') {
+          calls.push({ method: 'HEAD' }); res.statusCode = 405; res.end(); return;
+        }
+        if (req.method !== 'POST') {
+          calls.push({ method: req.method! }); throw new Error('Unexpected non-POST startup request');
+        }
+        const body = await readJsonRequest(req);
+        calls.push({ method: req.method, operation: body.method, session: req.headers['mcp-session-id'] as string | undefined, cursor: body.params?.cursor });
+        if (body.method === 'notifications/initialized') {
+          res.statusCode = 202; res.end(); return;
+        }
+        res.setHeader('content-type', 'application/json');
+        if (body.method === 'initialize') {
+          res.setHeader('Mcp-Session-Id', 'loopback-session');
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'offline-peer', version: '1' } } }));
+        } else if (body.method === 'tools/list' && !body.params?.cursor) {
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'first', inputSchema: { type: 'object' } }], nextCursor: 'page-two' } }));
+        } else if (body.method === 'tools/list' && body.params?.cursor === 'page-two') {
+          // Headers alone must not publish either readiness or a partial catalog.
+          res.flushHeaders();
+          finishFinalPage = () => res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'second', inputSchema: { type: 'object' } }] } }));
+        } else throw new Error('Unexpected MCP startup operation');
+      } catch (error) { fixtureFailure = error; res.statusCode = 500; res.end(); }
+    });
+    let manager: McpManager | undefined;
+    try {
+      const port = await listen(peer);
+      mkdirSync(join(projectRoot, '.saivage'));
+      writeFileSync(join(projectRoot, '.saivage/saivage.yaml'), YAML.stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { offline: { transport: 'streamable-http', url: `http://127.0.0.1:${port}`, autostart: false } } }));
+      const registry = new ManagedProcessGroupRegistry();
+      const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
+      manager = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner: runner, mcpProcessRootScope: registry.createContainerScope(registry.rootScope, 'mcp'), eventLogger: { appendEventPrepared() {} } as never });
+      let settled = false;
+      const start = manager.startServer('offline', { signal: AbortSignal.timeout(5_000) }).then(result => { settled = true; return result; }, error => { settled = true; throw error; });
+      // Attach a rejection observer while the bounded final-page wait is pending.
+      void start.catch(() => undefined);
+      await waitFor(() => finishFinalPage !== undefined || settled, 'final HTTP discovery page');
+      if (fixtureFailure) throw fixtureFailure;
+      expect(finishFinalPage).toBeDefined(); expect(settled).toBe(false);
+      expect(manager.getServerStatus('offline')).toMatchObject({ status: 'starting', processId: null, startedAt: expect.any(String) });
+      expect(manager.getServerTools('offline')).toBeUndefined();
+      expect(calls.map(call => [call.method, call.operation])).toEqual([['POST', 'initialize'], ['POST', 'notifications/initialized'], ['POST', 'tools/list'], ['POST', 'tools/list']]);
+      expect(calls[0]!.session).toBeUndefined();
+      expect(calls.slice(1).map(call => call.session)).toEqual(['loopback-session', 'loopback-session', 'loopback-session']);
+      expect(calls.map(call => call.cursor)).toEqual([undefined, undefined, undefined, 'page-two']);
+      finishFinalPage!();
+      await expect(start).resolves.toMatchObject({ status: 'running', toolCount: 2 });
+      expect(manager.getServerTools('offline')!.map(tool => tool.name)).toEqual(['first', 'second']);
+      expect(manager.getServerStatus('offline')).toMatchObject({ status: 'running', processId: null });
+      expect(calls).toHaveLength(4);
+    } finally {
+      try { await manager?.cleanupForApplicationStop(); }
+      finally { await closeServer(peer); }
+    }
+  }, 20_000);
   it.each(['stdio', 'streamable-http'] as const)(
     'selected agent dynamically registers, discovers, calls and removes %s without changing its frozen gateway or another owner',
     async (transport) => {
@@ -58,10 +121,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       );
       const wireCalls: unknown[] = [];
       const peer = createServer(async (req, res) => {
-        if (req.method === 'HEAD') {
-          res.end();
-          return;
-        }
         const body = await readJsonRequest(req);
         if (body.method === 'notifications/initialized') {
           res.statusCode = 202;
@@ -461,7 +520,6 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     let corrected = false; let providerCalls = 0; let fixtureFailure: unknown;
     const mcp = createServer(async (request, response) => {
       try {
-        if (request.method === 'HEAD') { methods.push('HEAD'); response.end(); return; }
         const body = await readJsonRequest(request); methods.push(body.method);
         response.setHeader('content-type', 'application/json');
         if (body.method === 'initialize') response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, ...(corrected ? { result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } } } : { error: { code: -32006, message: 'secret external discovery detail' } }) }));
@@ -483,7 +541,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           expect(last).toMatchObject({ role: 'tool', tool_call_id: failedId });
           expect(JSON.parse(last!.content)).toMatchObject({ success: false, error: expect.stringContaining('initialize rejected (code -32006)') });
           expect(last!.content).not.toContain('secret external discovery detail');
-          expect(methods).toEqual(['HEAD', 'initialize']);
+          expect(methods).toEqual(['initialize']);
           corrected = true;
           sendToolCall(response, correctedId, 'mcp_server_control', { serverName: SERVER_NAME, action: 'start' });
         } else if (providerCalls === 3) {
@@ -508,7 +566,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       expect(response.status).toBe(200);
       expect(body).toMatchObject({ toolInvocations: [expect.objectContaining({ result: expect.objectContaining({ success: false }) }), expect.objectContaining({ result: expect.objectContaining({ success: true }) })] });
       expect(providerCalls).toBe(3);
-      expect(methods).toEqual(['HEAD', 'initialize', 'HEAD', 'initialize', 'notifications/initialized', 'tools/list']);
+      expect(methods).toEqual(['initialize', 'initialize', 'notifications/initialized', 'tools/list']);
       const rows = readConversation(projectRoot, 'agent:analyst:global').physicalRows;
       const lifecycleRows = rows.filter(row => row.tool === 'mcp_server_control');
       expect(lifecycleRows.map(row => [row.kind, row.tool_call_id])).toEqual([['tool_call', failedId], ['tool_result', failedId], ['tool_call', correctedId], ['tool_result', correctedId]]);
@@ -533,7 +591,6 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     let fixtureFailure: Error | null = null;
     const mcp = createServer(async (request, response) => {
       try {
-        if (request.method === 'HEAD') { mcpMethods.push('HEAD'); response.statusCode = 200; response.end(); return; }
         if (request.method !== 'POST') throw new Error(`Unexpected MCP method '${request.method}'.`);
         const body = await readJsonRequest(request);
         mcpMethods.push(body.method);
@@ -631,7 +688,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       }
 
       if (fixtureFailure) throw fixtureFailure;
-      expect(mcpMethods).toEqual(['HEAD', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
+      expect(mcpMethods).toEqual(['initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
       expect(toolCalls).toEqual([{ name: 'echo_marker', arguments: { marker: MARKER } }]);
       const mappedMcpResult = [{ type: 'text', text: `echo:${MARKER}` }];
       const wrappedMcpResult = {

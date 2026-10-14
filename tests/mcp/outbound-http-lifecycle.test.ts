@@ -37,7 +37,7 @@ function fixture(autostart = false) {
   return { manager, surface, ...capture };
 }
 describe('MCP owner-local observations through installed real tool surface', () => {
-  it('agent start attributes HEAD/initialize/notification/all pages; concurrent callers remain distinct and later health is ownerless', async () => {
+  it('agent start attributes initialize/notification/all pages; concurrent callers remain distinct and later health is ownerless', async () => {
     const f = fixture(); const calls: RequestInit[] = []; const pendingCalls: Array<{ id: number; headers: ReturnType<typeof deferred<Response>>; signal: AbortSignal }> = [];
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       calls.push(init!); if (init!.method === 'HEAD') return new Response(null);
@@ -50,8 +50,9 @@ describe('MCP owner-local observations through installed real tool surface', () 
     });
     const startOwner = testLlmToolInvocationContext({ sessionId: 'agent:executor:card-a', sourceInputId: '11111111-1111-4111-8111-111111111111', toolName: 'mcp_server_control' });
     await invokeToolForLlm(f.surface, 'mcp_server_control', { serverName: 'secret-server', action: 'start' }, startOwner);
-    assertLifecycles(f.records, 5);
-    expect(f.records.filter(r => r.event === 'outbound_http_dispatch').map(r => r.purpose)).toEqual(['mcp-startup', 'mcp-initialize', 'mcp-notification', 'mcp-list', 'mcp-list']);
+    assertLifecycles(f.records, 4);
+    expect(f.records.filter(r => r.event === 'outbound_http_dispatch').map(r => r.purpose)).toEqual(['mcp-initialize', 'mcp-notification', 'mcp-list', 'mcp-list']);
+    expect(calls.map(call => call.method)).toEqual(['POST', 'POST', 'POST', 'POST']);
     for (const r of f.records) expect(r).toMatchObject(projectOutboundSource(startOwner.sessionId, startOwner.sourceInputId));
     expect(f.records.filter(r => r.event === 'outbound_http_terminal' && r.purpose === 'mcp-notification')[0]).toMatchObject({ body_disposition: 'not_consumed' });
     const bindingId = f.manager.getServerStatus('secret-server')!.bindingId!;
@@ -72,17 +73,16 @@ describe('MCP owner-local observations through installed real tool surface', () 
     expect(await f.manager.healthCheck('secret-server')).toBe(true);
     const health = f.records.slice(before); expect(health.length).toBeGreaterThan(0);
     for (const r of health) { expect(r.purpose).toBe('mcp-health'); expect(r).not.toHaveProperty('source_session'); expect(r).not.toHaveProperty('source_card'); expect(r).not.toHaveProperty('input_id'); }
-    assertLifecycles(f.records, 8);
+    assertLifecycles(f.records, 7);
     for (const call of calls) expect(call.redirect).toBeUndefined();
     assertPrivateMetadata(f.records, ['secret-host', 'secret-path', 'secret-query', 'secret-fragment', 'secret-server', 'secret-tool', 'secret-cursor', 'secret-mcp-session', 'secret-cookie', 'secret-notification-body', 'secret-tool-argument', 'secret-result']);
     await f.manager.cleanupForApplicationStop();
   });
   it('autostart has no fabricated tool caller on any discovery request', async () => {
     const f = fixture(true); jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-      if (init?.method === 'HEAD') return new Response(null);
       const body = JSON.parse(String(init!.body)); return body.method === 'notifications/initialized' ? new Response(null, { status: 202 }) : rpc(body.id, body.method === 'tools/list' ? { tools: [] } : {});
     });
-    expect(await f.manager.reconcilePersistedConfig()).toMatchObject({ converged: true }); assertLifecycles(f.records, 4);
+    expect(await f.manager.reconcilePersistedConfig()).toMatchObject({ converged: true }); assertLifecycles(f.records, 3);
     for (const r of f.records) { expect(r).not.toHaveProperty('source_session'); expect(r).not.toHaveProperty('input_id'); }
     await f.manager.cleanupForApplicationStop();
   });

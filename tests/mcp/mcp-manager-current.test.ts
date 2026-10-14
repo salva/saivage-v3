@@ -23,7 +23,7 @@ afterEach(()=>{jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{re
 function root():string{const value=mkdtempSync(join(tmpdir(),'mcp-current-'));roots.push(value);mkdirSync(join(value,'.saivage'),{recursive:true});return value;}
 function writeConfig(projectRoot:string,mcpServers:Record<string,unknown>):void{writeFileSync(join(projectRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(TEST_SAIVAGE_CONFIG),mcpServers}));}
 function response(id:number,result:unknown):Response{const bytes=JSON.stringify({jsonrpc:'2.0',id,result});const value=new Response(bytes,{status:200,headers:{'content-type':'application/json'}});value.json=async()=>JSON.parse(bytes);return value;}
-function successfulFetch(){return jest.fn(async(_url:string|URL,init?:RequestInit)=>{if(init?.method==='HEAD')return new Response(null,{status:200});const request=JSON.parse(String(init?.body)) as {id:number;method:string};if(request.method==='notifications/initialized')return new Response(null,{status:202});if(request.method==='initialize')return response(request.id,{protocolVersion:'2025-06-18'});if(request.method==='tools/list')return response(request.id,{tools:[{name:'ping',inputSchema:{type:'object',properties:{}}}]});return response(request.id,{content:['pong']});});}
+function successfulFetch(){return jest.fn(async(_url:string|URL,init?:RequestInit)=>{const request=JSON.parse(String(init?.body)) as {id:number;method:string};if(request.method==='notifications/initialized')return new Response(null,{status:202});if(request.method==='initialize')return response(request.id,{protocolVersion:'2025-06-18'});if(request.method==='tools/list')return response(request.id,{tools:[{name:'ping',inputSchema:{type:'object',properties:{}}}]});return response(request.id,{content:['pong']});});}
 function manager(projectRoot:string){const registry=new ManagedProcessGroupRegistry();const scope=registry.createContainerScope(registry.rootScope,'mcp-servers');const runner=new ProcessRunner(projectRoot,registry,testApplicationFatalPort);return{value:new McpManager({configAuthority:testConfigAuthority(projectRoot),processRunner:runner,mcpProcessRootScope:scope,eventLogger:{appendEvent(){}} as never}),runner,scope};}
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: unknown) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 const emptyReport: ProcessStopReport = { selected: [], stopped: [], failed: [] };
@@ -34,7 +34,6 @@ describe('current named-agent MCP manager contract',()=>{
     const originalFetch = globalThis.fetch;
     const methods: string[] = [];
     globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
-      if (init?.method === 'HEAD') return new Response(null, { status: 200 });
       const request = JSON.parse(String(init?.body)); methods.push(request.method);
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32003, message: 'secret discovery detail' } }));
     }) as typeof fetch;
@@ -144,7 +143,7 @@ describe('current named-agent MCP manager contract',()=>{
     expect(other.value.getStatus()).toHaveLength(1);
   });
 
-  it('uses one install-inclusive 180-second budget, not ten seconds or a timer per phase', async () => {
+  it('uses one 180-second initialize-and-discovery budget, not ten seconds or a timer per phase', async () => {
     jest.useFakeTimers();
     const originalFetch = globalThis.fetch;
     try {
@@ -155,14 +154,33 @@ describe('current named-agent MCP manager contract',()=>{
         signal.addEventListener('abort', abort, { once: true });
       });
       const successful = successfulFetch();
-      globalThis.fetch = jest.fn(async (url: string | URL, options?: RequestInit) => options?.method === 'HEAD'
-        ? delayed(11_000, options.signal as AbortSignal, new Response(null, { status: 200 })) : successful(url, options)) as typeof fetch;
+      globalThis.fetch = jest.fn(async (url: string | URL, options?: RequestInit) => {
+        const request = JSON.parse(String(options?.body));
+        return request.method === 'initialize'
+          ? delayed(11_000, options!.signal as AbortSignal, response(request.id, { protocolVersion: '2025-06-18' }))
+          : successful(url, options);
+      }) as typeof fetch;
       const first = manager(projectRoot); const start = first.value.startServer('one');
-      await jest.advanceTimersByTimeAsync(11_000); await expect(start).resolves.toMatchObject({ status: 'running' });
+      await jest.advanceTimersByTimeAsync(10_001);
+      expect(first.value.getServerStatus('one')).toMatchObject({ status: 'starting' });
+      expect(first.value.getServerTools('one')).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(999); await expect(start).resolves.toMatchObject({ status: 'running', toolCount: 1 });
       await first.value.cleanupForApplicationStop();
-      globalThis.fetch = jest.fn(async (_url, options?: RequestInit) => delayed(options?.method === 'HEAD' ? 100_000 : 90_000, options!.signal as AbortSignal, new Response(null, { status: 200 }))) as typeof fetch;
-      const second = manager(projectRoot); const exhausted = second.value.startServer('one').catch(error => error);
-      await jest.advanceTimersByTimeAsync(180_000);
+      const methods: string[] = [];
+      globalThis.fetch = jest.fn(async (_url, options?: RequestInit) => {
+        const request = JSON.parse(String(options?.body)); methods.push(request.method);
+        if (request.method === 'initialize') return delayed(100_000, options!.signal as AbortSignal, response(request.id, { protocolVersion: '2025-06-18' }));
+        if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
+        expect(request.method).toBe('tools/list');
+        return delayed(90_000, options!.signal as AbortSignal, response(request.id, { tools: [] }));
+      }) as typeof fetch;
+      let settled = false;
+      const second = manager(projectRoot); const exhausted = second.value.startServer('one').catch(error => { settled = true; return error; });
+      await jest.advanceTimersByTimeAsync(100_000);
+      expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
+      expect(settled).toBe(false); expect(second.value.getServerTools('one')).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(79_999); expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
       expect(await exhausted).toMatchObject({ code: 'TIMEOUT' });
       expect(second.value.getServerStatus('one')).toMatchObject({ status: 'stopped' });
       await second.value.cleanupForApplicationStop();
@@ -187,7 +205,7 @@ describe('current named-agent MCP manager contract',()=>{
     }));
     const installedStatus = value.getStatus();
     const initializeRequests = () => fetchMock.mock.calls.filter(([, init]) =>
-      init?.method !== 'HEAD' && JSON.parse(String(init?.body)).method === 'initialize',
+      JSON.parse(String(init?.body)).method === 'initialize',
     );
     expect(initializeRequests()).toHaveLength(1);
 

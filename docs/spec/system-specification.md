@@ -1772,6 +1772,8 @@ still require application restart. Stop immediately fences the exact retained ow
 and joins startup/calls/containment, never waiting behind global reconciliation.
 One 180-second start budget includes package fetch, matched browser installation,
 launch, initialize and every discovery page. No per-phase ten-second timeout remains.
+Streamable HTTP admission uses initialize, the initialized notification and complete
+tools/list discovery, with no separate HEAD prerequisite.
 Cancellation/deadline closes admission, awaits direct containment within inner startup
 and joins stop only from untracked outer completion, avoiding self-join. Failed start
 and containment are errors, not installed/ready stubs; no retry or implicit restart.

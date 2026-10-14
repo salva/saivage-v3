@@ -167,15 +167,12 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       let hold = true;
       let callCount = 0;
       globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
-        if (init?.method === 'HEAD') {
-          if (phase === 'startup' && hold) {
-            entered.resolve();
-            await release.promise;
-            init.signal!.throwIfAborted();
-          }
-          return new Response(null);
-        }
         const request = JSON.parse(String(init?.body));
+        if (request.method === 'initialize' && phase === 'startup' && hold) {
+          entered.resolve();
+          await release.promise;
+          init!.signal!.throwIfAborted();
+        }
         if (request.method === 'notifications/initialized')
           return new Response(null, { status: 202 });
         if (request.method === 'tools/call') {
@@ -240,7 +237,6 @@ describe('dynamic MCP exact definitions and owner fences', () => {
     const { manager } = setup();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
-      if (init?.method === 'HEAD') return new Response(null);
       const request = JSON.parse(String(init?.body));
       if (request.method === 'notifications/initialized')
         return new Response(null, { status: 202 });
@@ -310,15 +306,12 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       const entered = deferred();
       const release = deferred();
       globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
-        if (init?.method === 'HEAD') {
-          if (phase === 'startup') {
-            entered.resolve();
-            await release.promise;
-            init.signal!.throwIfAborted();
-          }
-          return new Response(null);
-        }
         const body = JSON.parse(String(init?.body));
+        if (body.method === 'initialize' && phase === 'startup') {
+          entered.resolve();
+          await release.promise;
+          init!.signal!.throwIfAborted();
+        }
         if (body.method === 'notifications/initialized') return new Response(null, { status: 202 });
         if (body.method === 'tools/call') {
           entered.resolve();
@@ -376,10 +369,6 @@ describe('dynamic MCP exact definitions and owner fences', () => {
   it('fresh runtime binding rejects A with zero wire calls to identical B; restart preserves stopped dynamic definitions and YAML autostart', async () => {
     const calls: unknown[] = [];
     const peer = createServer(async (req, res) => {
-      if (req.method === 'HEAD') {
-        res.end();
-        return;
-      }
       const body = await readJsonRequest(req);
       if (body.method === 'notifications/initialized') {
         res.statusCode = 202;

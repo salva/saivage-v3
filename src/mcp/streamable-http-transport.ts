@@ -601,31 +601,3 @@ export async function healthStreamableHttpServer(
     return false;
   }
 }
-
-export async function probeStreamableHttpStartup(
-  input: HttpObservationOptions & {
-    serverName: string;
-    config: StreamableHttpMcpServerConfig;
-    signal: AbortSignal;
-  },
-): Promise<void> {
-  const { serverName, config: cfg, signal } = input;
-  signal.throwIfAborted();
-  try {
-    await consumeMcpHttp(
-      cfg.url,
-      { method: 'HEAD', signal },
-      input,
-      'mcp-startup',
-      'HEAD',
-      async (resp) => {
-        if (!resp.ok)
-          throw new TransportError(serverName, `startup HEAD returned status ${resp.status}`);
-      },
-    );
-  } catch (err) {
-    throwIfPublicationOutcomeUnknown(err);
-    if (signal.aborted) throw signal.reason;
-    throw err;
-  }
-}

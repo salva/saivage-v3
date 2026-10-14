@@ -37,8 +37,8 @@ describe('offline server outbound sink composition', () => {
     createProjectIdentity(root, 'Offline composition'); replaceConfigYaml(join(root, '.saivage/saivage.yaml'), config);
     publishInitialProjectRuntime(root, compileProjectWorkflows(config));
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-      if (init!.method === 'HEAD') return headers.promise;
       const body = JSON.parse(String(init!.body));
+      if (body.method === 'initialize') return headers.promise;
       if (body.method === 'notifications/initialized') return new Response(null, { status: 202 });
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: body.method === 'tools/list' ? { tools: [] } : {} }), { headers: { 'content-type': 'application/json' } });
     });
@@ -48,11 +48,15 @@ describe('offline server outbound sink composition', () => {
       const pending = createServerServices({ environment, terminal, processIdentity: { pid: 42, startedAt: '2026-10-14T00:00:00.000Z' }, fatalPort: testApplicationFatalPort, onOversightOwnerFailure: error => { throw error; } }).then(value => { settled = true; return value; });
       for (let i = 0; i < 100 && fetch.mock.calls.length === 0; i++) await setImmediate();
       expect(fetch).toHaveBeenCalledTimes(1); expect(settled).toBe(false);
-      expect(records).toHaveLength(1); expect(records[0]).toMatchObject({ event: 'outbound_http_dispatch', service: 'mcp', purpose: 'mcp-startup' });
-      headers.resolve(new Response(null)); const services = await pending;
-      expect(services.fastify.server.listening).toBe(false); assertLifecycles(records, 4);
-      for (const r of records) { expect(r).not.toHaveProperty('source_session'); expect(r).not.toHaveProperty('input_id'); }
-      expect(fetch).toHaveBeenCalledTimes(4); assertPrivateMetadata(records, ['secret-server', 'secret-host', 'secret-path', 'secret-query', 'secret-fragment']);
+      expect(records).toHaveLength(1); expect(records[0]).toMatchObject({ event: 'outbound_http_dispatch', service: 'mcp', purpose: 'mcp-initialize', method: 'POST' });
+      const initialize = JSON.parse(String(fetch.mock.calls[0]![1]!.body));
+      expect(initialize.method).toBe('initialize');
+      headers.resolve(new Response(JSON.stringify({ jsonrpc: '2.0', id: initialize.id, result: { protocolVersion: '2025-06-18' } }), { headers: { 'content-type': 'application/json' } })); const services = await pending;
+      expect(services.fastify.server.listening).toBe(false); assertLifecycles(records, 3);
+      for (const r of records) { expect(r).not.toHaveProperty('source_session'); expect(r).not.toHaveProperty('source_card'); expect(r).not.toHaveProperty('input_id'); }
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch.mock.calls.map(([, init]) => [init!.method, JSON.parse(String(init!.body)).method])).toEqual([['POST', 'initialize'], ['POST', 'notifications/initialized'], ['POST', 'tools/list']]);
+      assertPrivateMetadata(records, ['secret-server', 'secret-host', 'secret-path', 'secret-query', 'secret-fragment']);
     } finally { await terminal.stop(); jest.restoreAllMocks(); rmSync(root, { recursive: true, force: true }); }
   });
 });

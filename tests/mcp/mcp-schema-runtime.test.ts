@@ -44,7 +44,6 @@ describe('MCP schema validation at runtime use', () => {
       },
     ];
     globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
-      if (init?.method === 'HEAD') return new Response(null);
       const request = JSON.parse(String(init?.body));
       if (request.method === 'notifications/initialized')
         return new Response(null, { status: 202 });
@@ -140,7 +139,6 @@ describe('MCP schema validation at runtime use', () => {
       writeFileSync(callsPath, '');
       const httpCalls: unknown[] = [];
       globalThis.fetch = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-        if (init?.method === 'HEAD') return new Response(null, { status: 200 });
         const request = JSON.parse(String(init?.body));
         if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
         let result;

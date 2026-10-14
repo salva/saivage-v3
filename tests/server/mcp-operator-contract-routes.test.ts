@@ -33,7 +33,7 @@ describe('MCP operator contract routes', () => {
     const startServer = async (name: string) => { await runtime.start(); return { serverName: name, status: 'running' as const, toolCount: 0 }; };
     const handlers = buildMcpOperatorContractHandlers({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) }, mcpLifecycle: { ...unusedMcpToolInvocation, startServer } });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'test-token' }), eventLogger: { appendEventPrepared() {} } as never, fatalPort: testApplicationFatalPort }).mount(fastify, mcpOperatorApiContracts, handlers);
-    const fetchMock = jest.fn(async (_url, init?: RequestInit) => init?.method === 'HEAD' ? new Response(null, { status: 200 }) : new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'secret remote REST text' } })));
+    const fetchMock = jest.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'secret remote REST text' } })));
     globalThis.fetch = fetchMock as typeof fetch;
     try {
       const url = '/api/mcp/servers/browser/start';

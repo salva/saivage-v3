@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { discoverStreamableHttpTools, invokeStreamableHttpTool, readStreamableHttpJsonRpcResponse, probeStreamableHttpStartup } from '../../src/mcp/streamable-http-transport.js';
+import { discoverStreamableHttpTools, invokeStreamableHttpTool, readStreamableHttpJsonRpcResponse } from '../../src/mcp/streamable-http-transport.js';
 import { TransportError } from '../../src/mcp/errors.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { MCP_WIRE_RESPONSE_LIMIT_BYTES } from '../../src/mcp/protocol.js';
@@ -64,17 +64,14 @@ describe('Streamable HTTP MCP transport', () => {
       expect(methods.at(-1)).toBe(stage);
     }
   });
-  it('probe classifies only observed non-OK status and preserves unknown/cancellation identity', async () => {
-    globalThis.fetch = jest.fn(async () => new Response(null, { status: 503 })) as typeof fetch;
-    await expect(probeStreamableHttpStartup({ serverName: 'srv', config, signal: new AbortController().signal })).rejects.toMatchObject({ code: 'TRANSPORT_ERROR', message: expect.stringContaining('startup HEAD returned status 503') });
+  it('discovery preserves unknown fetch and exact cancellation identity', async () => {
     for (const failure of [new TypeError('unknown fetch'), new PublicationOutcomeUnknownError()]) {
       globalThis.fetch = jest.fn(async () => { throw failure; }) as typeof fetch;
-      await expect(probeStreamableHttpStartup({ serverName: 'srv', config, signal: new AbortController().signal })).rejects.toBe(failure);
       await expect(discovery()).rejects.toBe(failure);
     }
-    const caller = new AbortController(); const reason = { exact: 'probe cancellation' };
+    const caller = new AbortController(); const reason = { exact: 'discovery cancellation' };
     globalThis.fetch = jest.fn(async () => { caller.abort(reason); throw new TypeError('fetch aborted'); }) as typeof fetch;
-    await expect(probeStreamableHttpStartup({ serverName: 'srv', config, signal: caller.signal })).rejects.toBe(reason);
+    await expect(discovery(caller.signal)).rejects.toBe(reason);
   });
   it.each(['application/json', 'text/event-stream'])('preserves unknown %s body-read errors and skips all cleanup on publication uncertainty', async contentType => {
     for (const failure of [new Error('unknown reader'), new PublicationOutcomeUnknownError()]) {
@@ -106,6 +103,10 @@ describe('Streamable HTTP MCP transport', () => {
       expect(error).toBeInstanceOf(TransportError);
       expect(error.message).not.toContain('secret-malformed-wire');
       expect(response.body?.locked).toBe(false);
+      const fetch = jest.fn(async () => new Response(bytes));
+      globalThis.fetch = fetch as typeof globalThis.fetch;
+      await expect(discovery()).rejects.toBeInstanceOf(TransportError);
+      expect(fetch).toHaveBeenCalledTimes(1);
     }
   });
   it.each(['application/json', 'text/event-stream'])('preserves %s lock-release invariant identity', async contentType => {

@@ -805,7 +805,7 @@ account/profile/MCP names and request/error content never reach this sink.
 The actual consuming owner emits dispatch immediately before fetch, headers before
 parsing and terminal on existing response handling, before later canonical
 publication. Coverage is provider Chat/Responses/Codex in `consumeProviderRequest`,
-Codex/Copilot refresh in `consumeRefreshRequest`, MCP startup HEAD, initialize and
+Codex/Copilot refresh in `consumeRefreshRequest`, MCP initialize and
 initialized notification, every tools/list page, tools/call, health HEAD/conditional
 GET, and web `fetchPublic` for search, ordinary/metadata/bounded fetch and Analyst
 record preparation. Each owned fetch is one lifecycle: retries and existing manual
@@ -815,8 +815,8 @@ or packet-level coverage are implied. Existing parsers/readers report body
 disposition without teeing, cloning, draining or reading for observation.
 
 Tool binders project only the initiating session/input into observation source.
-MCP invocation and start options forward it through installation, manager, runtime,
-probe and all discovery calls; later ownerless health and reconciliation omit it.
+MCP invocation and start options forward it through installation, manager, runtime
+and all discovery calls; later ownerless health and reconciliation omit it.
 No server handle remembers its last caller. Websearch/Webfetch pass the same source
 through every fetch variant and recursive manual redirect. Analyst's audited
 record-preparation `fetchText` closure captures that invocation's source, not the
@@ -1203,7 +1203,7 @@ Browser totals derive from that hierarchy.
 Manager admission and cleanup ownership remain unchanged.
 For streamable HTTP, JSON responses use bounded body reading before JSON parsing; the shared JSON/SSE readers await body cancellation before releasing the reader lock. Invocation and discovery share these readers. Only actual malformed JSON parsing is classified, not arbitrary body-read or lock-release failures. Ordinary cancellation failure does not replace the original response or error; publication uncertainty propagates immediately without subsequent cleanup. No drain, retry, or separate body-cleanup owner exists.
 
-Transport response owners classify explicit discovery JSON-RPC rejection, unsuccessful discovery HTTP status and premature stdio response closure as `TransportError`. The startup HEAD probe similarly throws for observed non-OK status, preserves exact cancellation reasons, and leaves unknown fetch failures unchanged. Safe diagnostics use fixed stages/reasons and numeric status or finite codes only. Runtime start closes admission, awaits direct containment, then its outer completion joins stop before rethrowing the original classified failure. The narrow binder converts it to an executed failed result with evidence `none`; containment failure supersedes it and blocks replacement. A subsequent explicit new start may replace a successfully contained owner; there is no retry/replay. REST still maps only lifecycle admission errors to 404/409: discovery rejection follows the existing internal-failure response. Autostart reconciliation still fails startup.
+Streamable HTTP startup admission uses initialize, the initialized notification and complete tools/list pagination, with no separate HEAD prerequisite. The single 180-second startup budget and ready-after-discovery publication remain unchanged. Transport response owners classify explicit discovery JSON-RPC rejection, unsuccessful discovery HTTP status and premature stdio response closure as `TransportError`, preserve exact cancellation reasons, and leave unknown fetch/reader failures unchanged. Safe diagnostics use fixed stages/reasons and numeric status or finite codes only. Runtime start closes admission, awaits direct containment, then its outer completion joins stop before rethrowing the original classified failure. The narrow binder converts it to an executed failed result with evidence `none`; containment failure supersedes it and blocks replacement. A subsequent explicit new start may replace a successfully contained owner; there is no retry/replay. REST still maps only lifecycle admission errors to 404/409: discovery rejection follows the existing internal-failure response. Autostart reconciliation still fails startup.
 
 Runtime and Analyst mechanics receive one required immutable `McpToolInvocationPort` facade.
 Server composition retains the only installer, reconciles the concrete manager, installs it once, and starts runtime only afterward.
