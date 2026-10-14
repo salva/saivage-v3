@@ -6,9 +6,7 @@ import {
 } from '../../src/agents/tool-definition-serializer.js';
 import type { ToolDefinition } from '../../src/contracts/index.js';
 
-type RuntimeToolEntry = ToolDefinition;
-
-function tool(name: string, description: string, properties: Record<string, unknown> = {}): RuntimeToolEntry {
+function tool(name: string, description: string, properties: Record<string, unknown> = {}): ToolDefinition {
   return {
     type: 'function',
     function: {
@@ -21,10 +19,10 @@ function tool(name: string, description: string, properties: Record<string, unkn
         additionalProperties: false,
       },
     },
-  } as RuntimeToolEntry;
+  };
 }
 
-const SAMPLE: RuntimeToolEntry[] = [
+const SAMPLE: ToolDefinition[] = [
   tool('glob', 'Search files by glob pattern.', { pattern: { type: 'string' } }),
   tool('create_card', 'Create a direct child card.', { title: { type: 'string' } }),
   tool('skill', 'List or load a skill.', { name: { type: 'string' } }),
@@ -32,7 +30,7 @@ const SAMPLE: RuntimeToolEntry[] = [
 
 const ACTIVATE_CARD = tool('activate_card', 'Activate one immediate child card.', { card_id: { type: 'string' }, instructions: { type: 'string', pattern: '\\S' } });
 
-const RUNTIME_STYLE = {
+const RUNTIME_STYLE: ToolDefinition & { roles: string[]; action: string } = {
   type: 'function',
   function: {
     name: 'runtime_demo',
@@ -46,7 +44,7 @@ const RUNTIME_STYLE = {
   },
   roles: ['planner', 'executor'],
   action: 'plan',
-} as unknown as RuntimeToolEntry;
+};
 
 describe('tool-definition-serializer', () => {
   it('snapshots Chat wire shape for a planner tool (activate_card)', () => {
@@ -67,89 +65,56 @@ describe('tool-definition-serializer', () => {
 
   it('projects runtime entries and strips roles/action for Chat', () => {
     const [wire] = serializeToolsForChat([RUNTIME_STYLE]);
-    const raw = wire as unknown as Record<string, unknown>;
     expect(Object.keys(wire).sort()).toEqual(['function', 'type']);
     expect(Object.keys(wire.function).sort()).toEqual(['description', 'name', 'parameters']);
-    expect(raw.roles).toBeUndefined();
-    expect(raw.action).toBeUndefined();
+    expect(wire).not.toHaveProperty('roles');
+    expect(wire).not.toHaveProperty('action');
   });
 
   it('projects runtime entries and strips roles/action for Codex', () => {
     const [wire] = serializeToolsForCodex([RUNTIME_STYLE]);
-    const raw = wire as unknown as Record<string, unknown>;
     expect(Object.keys(wire).sort()).toEqual(['description', 'name', 'parameters', 'type']);
-    expect(raw.roles).toBeUndefined();
-    expect(raw.action).toBeUndefined();
-    expect(raw.function).toBeUndefined();
-  });
-
-  it('rejects empty arrays', () => {
-    expect(() => serializeToolsForChat([])).toThrow(/must not be empty/);
-    expect(() => serializeToolsForCodex([])).toThrow(/must not be empty/);
-  });
-
-  it('rejects malformed entries (missing name) with a clear message', () => {
-    expect(() =>
-      serializeToolsForChat([
-        { type: 'function', function: { description: 'd', parameters: {} } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/name must be a non-empty string/);
-    expect(() =>
-      serializeToolsForCodex([
-        { type: 'function', function: { description: 'd', parameters: {} } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/name must be a non-empty string/);
-  });
-
-  it('rejects empty name / missing description / non-object parameters', () => {
-    expect(() =>
-      serializeToolsForChat([
-        { type: 'function', function: { name: '', description: 'd', parameters: {} } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/name must be a non-empty string/);
-    expect(() =>
-      serializeToolsForChat([
-        { type: 'function', function: { name: 'n', description: '', parameters: {} } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/description must be a non-empty string/);
-    expect(() =>
-      serializeToolsForCodex([
-        { type: 'function', function: { name: 'n', description: 'd', parameters: null } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/parameters must be a JSON-schema object/);
-    expect(() =>
-      serializeToolsForCodex([
-        { type: 'function', function: { name: 'n', description: 'd', parameters: [] } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/parameters must be a JSON-schema object/);
-  });
-
-  it('rejects non-function type', () => {
-    expect(() =>
-      serializeToolsForChat([
-        { type: 'custom', function: { name: 'n', description: 'd', parameters: {} } } as unknown as RuntimeToolEntry,
-      ]),
-    ).toThrow(/type must be 'function'/);
+    expect(wire).not.toHaveProperty('roles');
+    expect(wire).not.toHaveProperty('action');
+    expect(wire).not.toHaveProperty('function');
   });
 
   it('deep-freezes Chat wire wrapper, function envelope, and parameters subtree', () => {
-    const [first] = serializeToolsForChat(SAMPLE);
+    const properties = { x: { type: 'string', enum: ['a', 'b'] } };
+    const input = tool('fresh', 'Fresh schema', properties);
+    const wire = serializeToolsForChat([input]);
+    const [first] = wire;
+    expect(Object.isFrozen(wire)).toBe(true);
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.function)).toBe(true);
+    expect(first.function.parameters).toBe(input.function.parameters);
     expect(Object.isFrozen(first.function.parameters)).toBe(true);
-    const props = (first.function.parameters as { properties?: Record<string, unknown> }).properties;
-    if (props) expect(Object.isFrozen(props)).toBe(true);
+    expect(Object.isFrozen(properties)).toBe(true);
+    expect(Object.isFrozen(properties.x)).toBe(true);
+    expect(Object.isFrozen(properties.x.enum)).toBe(true);
+    expect(Object.isFrozen(input)).toBe(false);
+    expect(Object.isFrozen(input.function)).toBe(false);
     expect(() => {
-      (first.function.parameters as Record<string, unknown>).injected = 'x';
+      input.function.parameters.injected = 'x';
     }).toThrow(TypeError);
   });
 
   it('deep-freezes Codex wire entries', () => {
-    const [firstCodex] = serializeToolsForCodex(SAMPLE);
+    const properties = { x: { type: 'string', enum: ['a', 'b'] } };
+    const input = tool('fresh', 'Fresh schema', properties);
+    const wire = serializeToolsForCodex([input]);
+    const [firstCodex] = wire;
+    expect(Object.isFrozen(wire)).toBe(true);
     expect(Object.isFrozen(firstCodex)).toBe(true);
+    expect(firstCodex.parameters).toBe(input.function.parameters);
     expect(Object.isFrozen(firstCodex.parameters)).toBe(true);
+    expect(Object.isFrozen(properties)).toBe(true);
+    expect(Object.isFrozen(properties.x)).toBe(true);
+    expect(Object.isFrozen(properties.x.enum)).toBe(true);
+    expect(Object.isFrozen(input)).toBe(false);
+    expect(Object.isFrozen(input.function)).toBe(false);
     expect(() => {
-      (firstCodex.parameters as unknown as Record<string, unknown>).injected = 'x';
+      input.function.parameters.injected = 'x';
     }).toThrow(TypeError);
   });
 });

@@ -1504,6 +1504,15 @@ Chat emits `max_tokens`, public Responses emits `max_output_tokens`, and Codex e
 Invocation Service captures one required invocation-local `CandidateRequestPlan` per candidate: the structured candidate, one effective-capability snapshot, the one adapter selected by a closed exhaustive protocol switch, and the canonical body/bytes/estimate/hash.
 That plan is the sole wire-request authority.
 
+Selected source-owned binder definitions and the compiled node's `emit_result` definition
+are projected directly into explicit frozen wire layouts: Chat nests the function fields,
+while Responses and Codex flatten them. Projection selects only name, description and
+parameters, preserves tool order and the original parameter reference, and freezes that
+schema subtree and the wire wrappers/array. Empty surfaces remain omitted by the adapters.
+Model arguments and external MCP schemas retain validation at their invocation/discovery
+owners; exact admitted-request integrity and capability checks remain separate from this
+typed projection.
+
 `agents/llm-options-factory.ts::buildLlmOptions` requires `{projectRoot, sessionId}` and derives transient required `LlmCompleteOptions.providerSessionId` with the existing SHA-256 helper over `JSON.stringify(['saivage-provider-session', projectRoot, sessionId])`. InvocationService supplies its application-owned absolute project root and actual request owner; `application/runtime-composition.ts` supplies the same owner inputs for production summary probing. Internal-summary session identity, not `providerConversation.sourceSessionId`, keeps summaries distinct from primary owners. Fresh input IDs do not change the label; turns, retries, activations, compaction and reconstruction at the same root/owner retain it. No persistence, registry, fallback identity, realpath resolution or alias discovery is involved. Moving roots changes the label, and coincident root/session names in separate installations are not globally unique. The opaque digest is not encryption, a secret, authentication or private-replay authority.
 
 Only `llm-openai-codex-adapter.ts` emits body `prompt_cache_key` before the unchanged request-plan serialization/hash/measurement/admission path. Wire derivation reads that already-built body's key for `session-id` and rejects a missing, non-string or empty key at use. Probing, admission and send include the same body bytes, including summaries; no field is appended at fetch time. Chat/public Responses ignore the internal option and retain their wire contracts. Context ordering, tools, routing and account-specific replay are unchanged. This client affinity contract makes no provider cache-hit, retention or economic guarantee; exchange/API/UI/log metadata does not expose the label, headers or raw requests.

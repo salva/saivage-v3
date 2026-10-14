@@ -7,6 +7,14 @@ import type { ToolDefinition } from '../../src/contracts/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
+import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
+import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
+import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { compileProjectWorkflows, nodeResultToolDefinition } from '../../src/runtime/card-process/card-process-config.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { makeCodexJwt, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import type { EffectiveProviderCapabilities, ProviderConversationProjection } from '../../src/contracts/index.js';
+import { sha256Hex } from '../../src/schemas/index.js';
 
 const CANDIDATE: Candidate = { provider: 'openai-chat', account: null, model: 'gpt-5' };
 const ADAPTER = selectLlmProtocolAdapter('openai-chat-completions');
@@ -48,6 +56,40 @@ const SAMPLE_TOOL: ToolDefinition = {
 afterEach(() => { jest.restoreAllMocks(); });
 
 describe('OpenAI Chat adapter request shape', () => {
+  it.each<[string, Candidate, EffectiveProviderCapabilities]>([
+    ['Chat', CANDIDATE, CAPABILITIES],
+    ['Codex', { provider: 'openai-codex', account: null, model: 'gpt-5' }, { transportProtocol: 'openai-codex-backend', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', quirks: ['openai-codex-backend'] }],
+    ['Responses', { provider: 'openai', account: null, model: 'gpt-5' }, { transportProtocol: 'openai-responses', imageInput: false, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] }],
+  ])('preserves complete %s request bytes and hash for selected real binders and compiled emit_result', async (_protocol, candidate, capabilities) => {
+    // Reverse catalog order deliberately: selection order, not provider-group order, owns the wire.
+    const selected = ['mcp_tool_call', 'mcp_tools'];
+    const surface = new BoundAgentToolSet(selected.map((name) => resolveRuntimeTool('card', name))).bind({
+      scope: 'card', agentName: 'planner', projectRoot: '/unused', mcpToolInvocation: unusedMcpToolInvocation,
+    } as never);
+    const process = compileProjectWorkflows(structuredClone(TEST_SAIVAGE_CONFIG)).cardTypes.get('project')!;
+    const terminal = nodeResultToolDefinition(process, 'node:plan');
+    const tools = [...surfaceToolDefinitions(surface), terminal];
+    const opts = { ...options(), tools, terminalToolOffered: ['emit_result'] };
+    const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
+    const providerConversation: ProviderConversationProjection = { sourceSessionId: 'agent:analyst:global', messages: MESSAGES };
+    const plan = buildCandidateRequest({ candidate, capabilities, adapter, systemPrompt: SYSTEM, providerConversation, options: opts });
+    expect(tools.map((tool) => tool.function.name)).toEqual([...selected, 'emit_result']);
+    expect(JSON.stringify(plan.request.body)).not.toContain('mcp_server_register');
+    expect(terminal.function.parameters).toMatchObject({ required: ['outcome', 'summary'], additionalProperties: false });
+    expect({ bodyBytes: JSON.stringify(plan.request.body), serializedBody: plan.request.serializedBody, requestHash: plan.request.requestHash }).toMatchSnapshot();
+    let dispatchedBytes: string | undefined;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      dispatchedBytes = String(init?.body);
+      if (capabilities.transportProtocol === 'openai-codex-backend') {
+        return new Response('data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}\n\ndata: {"type":"response.completed","response":{"id":"response-1"}}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], choices: [{ message: { content: 'done' }, finish_reason: 'stop' }] }), { status: 200 });
+    });
+    await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: candidate.provider === 'openai-codex' ? makeCodexJwt('account') : 'key', capabilities }).complete(candidate, SYSTEM, providerConversation, opts);
+    expect(dispatchedBytes).toBe(plan.request.serializedBody);
+    expect(sha256Hex(dispatchedBytes!)).toBe(plan.request.requestHash);
+  });
+
   it.each<[string, Candidate, string, string, boolean]>([
     ['canonical Copilot URL', { provider: 'github-copilot', account: null, model: 'gpt-5' }, 'https://api.individual.githubcopilot.com', 'https://api.individual.githubcopilot.com/chat/completions', true],
     ['custom Copilot URL', { provider: 'github-copilot', account: null, model: 'gpt-5' }, 'https://proxy.example.test/copilot', 'https://proxy.example.test/copilot/chat/completions', true],
