@@ -145,6 +145,14 @@ string, or null for optional absence/empty selection. Substituted bytes are opaq
 template-looking record data is never retokenized. Required missing selection
 fails; no trimming, alternate prompt or body-to-reference fallback exists.
 
+Public record-prompt projection lifts the existing seven text-redaction rules through
+exactly this one supplier JSON-string layer, then filters ordinary surrounding prose.
+Matched syntax alone is decoded and its shared replacement re-encoded; safe original
+bytes and supplier quoting remain. The outbound conversation owner opts in only for
+`record_prompt`, including indexed history and retained protected instructions.
+Canonical/model-context text stays opaque and unchanged, with no current-template
+reconstruction, general decoder or prompt-language restriction.
+
 The supplier reads the union of mandatory accepted bootstrap and declared inputs
 once per distinct record. All views, descriptors and bodies derive from those
 same reads. Conditional comparison uses the pre-batch actual conversation facts

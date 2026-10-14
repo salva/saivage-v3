@@ -2,6 +2,7 @@ export {
   SECRET_REDACTION_PLACEHOLDER,
   redactSnippetForOutbound,
   redactTextForOutbound,
+  redactRecordPromptForOutbound,
   redactTextWithStablePrefixesForOutbound,
   redactUrl,
 } from './text.js';

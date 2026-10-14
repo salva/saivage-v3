@@ -42,6 +42,12 @@ record evidence** opens the selected accepted artifact, not a reconstructed requ
 The prepared-bootstrap descriptor records no historical full-body text. Public copy
 omits internal commitments and independently redacts source metadata and text.
 
+The same server projection filters recognized secrets through the supplier's one
+JSON-string layer before current, history or retained-protected display/full copy.
+Safe encoded quoting remains; disclosure does not decode a raw record body. This
+source-only outbound correction rewrites no stored history and requires no migration,
+reset or operator procedure. It authorizes no deployment or service action.
+
 Current conversation index/genesis/envelope are format **9**, freshly 8→9 from
 `4933242451429396049631c11b3d61ea258808d4`: typed owning record observations and
 strict descriptor-only required facts, retaining activation evidence and protected

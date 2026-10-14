@@ -19,7 +19,7 @@ import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
 } from '../../schemas/index.js';
-import { redactTextForOutbound } from '../../redaction/index.js';
+import { redactRecordPromptForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { publicRecordSelection, type RecordObservation } from '../../schemas/index.js';
 import {
   AgentConversationEntrySchema,
@@ -192,7 +192,10 @@ function projectRow(value: unknown, projectInvocation: ToolInvocationProjector):
   }
   return agentMessageSchema.parse({
     ...row,
-    content: redactTextForOutbound(row.content),
+    content:
+      row.kind === 'record_prompt'
+        ? redactRecordPromptForOutbound(row.content)
+        : redactTextForOutbound(row.content),
     ...(row.links
       ? {
           links: row.links.map((link) => ({

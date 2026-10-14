@@ -75,6 +75,19 @@ immutable record evidence, not reconstructed historical request text. Source evi
 is the owning schemas, synchronous supplier, exact result settlement, compaction
 derivation and shared public projector/timeline. This is one coherent source 8→9
 change, not an installed-release or delivery certification.
+
+Later source-only correction (2026-10-14): public `record_prompt` projection preserves
+existing redaction coverage through the supplier's one JSON-string layer, using finite
+encoded rules in `redaction/text.ts` selected by `canonical-conversation-outbound.ts`.
+Current/history/protected reads filter retained text without rewrite or historical
+reconstruction. Canonical rows, nested descriptors/provenance, private model context,
+layout and strict consumers are unchanged: conversation index/previous index/genesis
+remain format 9, segment envelope remains version 9, and record/head/acceptance remain
+format 1; no family discriminator changes. This later presentation correction is not
+part of the historical unpublished 8→9 source unit above. Installed applicability
+remains unknown; no unreleased-cutover exception, migration, reset or deployment is
+needed or authorized by this correction. External migration remains separately
+owner-requested and offline under AGENTS/runbook gates.
 Record/head/acceptance remain format 1. Card/mailbox, lifecycle lock,
 MCP definitions, provider/app-log envelopes and private diagnostic/privacy families
 are unchanged. Generic provider request/diagnostic bodies remain opaque.

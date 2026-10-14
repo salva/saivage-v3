@@ -49,6 +49,12 @@ facts reach primary and summary independently of retained prompt text; they impl
 neither body recall, delivery, acceptance nor write authority. Existing requirement
 and Reviewer gates remain unchanged. See [prompt handling](../architecture/prompts.md).
 
+Public `record_prompt` reads preserve existing text-redaction coverage through the
+supplier's one JSON-string encoding layer. Current, exact-history and retained-protected
+instructions share this server projection; safe quoting and opaque template-looking
+data remain text. Canonical bytes, hashes and private primary/summarizer context are
+unchanged. This is pattern-based filtering, not arbitrary-encoding secret detection.
+
 ## Historical instruction evidence
 
 Conversation index, ordinary/compacted genesis and segment envelopes use strict

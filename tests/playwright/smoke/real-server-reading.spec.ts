@@ -191,6 +191,8 @@ function seedInstructionEvidence(session: ConversationSessionId, cardType: 'code
 }
 const instructionFixtures = new Map<ConversationSessionId, ReturnType<typeof seedInstructionEvidence>>();
 let recordEvidence: { session: ConversationSessionId; rows: string[]; parent: string };
+let protectedRecordId: string;
+const quotedRecordBody = 'Notes\napi_key: body-egress-canary\nSafe "quote" \\ path {{recordSelection}} {{> never-expand}}\nFINAL-BODY-Z';
 
 async function seedRecordEvidence() {
   const store = new CardService(root, workflows);
@@ -204,7 +206,7 @@ async function seedRecordEvidence() {
   appendActivationMarker({ projectRoot: root }, session, { event: 'activation_open', agent_name: 'executor', card_id: card.id, input_id: inputId,
     instructions: { kind: 'prepared', activation_id: inputId, caller: { kind: 'parent', cardId: 'project', sessionId: planner, sourceInputId: inputId, toolCallId: 'activate-record-fixture', toolName: 'activate_card' }, card: { cardId: card.id, cardType: 'code', title: card.title }, parent_direction: { text: parent }, role_text: registry.render({ kind: 'workflow-agent', cardType: 'code' }, 'executor', { contractDescription: describeNodeResultContract(workflow, 'node:execute') }), node: { node_id: node.nodeId, text: workflow.processPrompts.get(node.prompt.promptId)!.text } } });
   const supplier = bootstrapContextSupplier(store, card, node);
-  store.acceptRecord(card.id, 'status.md', 'Full optional record body token=body-egress-canary FINAL-BODY-Z', 'analyst');
+  store.acceptRecord(card.id, 'status.md', quotedRecordBody, 'analyst');
   const initial = supplier({ inputId, conversation: readConversation(root, session) });
   appendConversationBatch({ projectRoot: root }, initial.rows);
   store.acceptRecord(card.id, 'brief.md', 'Accepted B token=record-egress-canary FINAL-RECORD-B-Z', 'analyst');
@@ -231,6 +233,9 @@ test('production timeline preserves conditional chronology, parent safe copy and
   await page.goto(`${origin}/agents/${recordEvidence.session}?segment=1`);
   const response = await page.request.get(`${origin}/api/agents/${encodeURIComponent(recordEvidence.session)}/conversation/versions/1`, { headers: { authorization: `Bearer ${token}` } });
   const dto = parseOperatorResponse('agents.conversationVersions.get', 200, await response.json());
+  const current = parseOperatorResponse('agents.conversation', 200, await (await page.request.get(`${origin}/api/agents/${encodeURIComponent(recordEvidence.session)}/conversation`, { headers: { authorization: `Bearer ${token}` } })).json());
+  expect(JSON.stringify(current)).not.toContain('body-egress-canary');
+  expect(JSON.stringify(current)).toContain('FINAL-BODY-Z');
   expect(JSON.stringify(dto)).not.toMatch(/egress-canary|content_sha256|template_sha256|result_content_sha256/);
   const timeline = page.locator('.conversation-container .conversation-timeline');
   const parent = timeline.locator('.instruction-disclosure').filter({ has: page.locator('summary', { hasText: 'Parent activation direction' }) });
@@ -250,6 +255,11 @@ test('production timeline preserves conditional chronology, parent safe copy and
     await expect(instruction.locator('pre')).toHaveText(row.content);
     await instruction.getByRole('button', { name: 'copy', exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(row.content);
+    if (row.content.includes('FINAL-BODY-Z')) {
+      expect(row.content).toContain('{{recordSelection}} {{> never-expand}}');
+      expect(row.content).toContain('\\napi_key: [REDACTED]\\n');
+      expect(await instruction.textContent()).not.toContain('body-egress-canary');
+    }
   }
   const observationGroups = await timeline.getByTestId('record-observations').all();
   const expectedGroups = actual.filter(row => row.record_observations);
@@ -352,12 +362,13 @@ test('production API historical prepared/workflow evidence stays source-local, s
   await context.locator(':scope > summary').click();
   const protectedContext = context.getByTestId('retained-instruction-context');
   await protectedContext.locator(':scope > summary').click();
-  await protectedContext.locator('li > details > summary').click();
+  const retainedWorkflow = protectedContext.locator('li').filter({ hasText: 'final-protected-Z' });
+  await retainedWorkflow.locator(':scope > details > summary').click();
   await expect(protectedContext).toContainText('Recorded workflow instruction');
   await expect(protectedContext).toContainText('final-protected-Z');
-  await protectedContext.locator('.instruction-disclosure > summary').click();
-  const protectedText = await protectedContext.locator('.instruction-disclosure pre').textContent();
-  await protectedContext.getByRole('button', { name: 'copy', exact: true }).click();
+  await retainedWorkflow.locator('.instruction-disclosure > summary').click();
+  const protectedText = await retainedWorkflow.locator('.instruction-disclosure pre').textContent();
+  await retainedWorkflow.getByRole('button', { name: 'copy', exact: true }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(protectedText);
   await reader.getByRole('button', { name: 'Inspect source segment 2', exact: true }).click();
   await expect(reader).toContainText('Conversation · exact segment 2');
@@ -366,6 +377,34 @@ test('production API historical prepared/workflow evidence stays source-local, s
   await expect(reader.getByTestId('conversation-segment-context')).toHaveCount(0);
   expect(providerRequests).toEqual([]);
   await page.close();
+});
+
+test('compacted supplier record prompt keeps safe retained disclosure and full clipboard bytes', async ({ page }) => {
+  await seedTokenBeforeNavigation(page, token);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  const response = await page.request.get(`${origin}/api/agents/${encodeURIComponent(planner)}/conversation`, { headers: { authorization: `Bearer ${token}` } });
+  const dto = parseOperatorResponse('agents.conversation', 200, await response.json());
+  expect(JSON.stringify(dto)).not.toContain('body-egress-canary');
+  const retained = dto.segment_context!.protected_prompts.find(entry => entry.message.id === protectedRecordId)!;
+  expect(retained.message.content).toContain('FINAL-BODY-Z');
+  expect(retained.message.content).toContain('\\napi_key: [REDACTED]\\n');
+  expect(retained.message.instruction_origin).toBe('workflow_prompt');
+  expect(retained.message.record_observations![0]!.observed.selection).toMatchObject({ kind: 'accepted', locator: expect.stringContaining('record:///status.md?card=project&v=') });
+  const history = parseOperatorResponse('agents.conversationVersions.get', 200, await (await page.request.get(`${origin}/api/agents/${encodeURIComponent(planner)}/conversation/versions/${retained.source.segment_version}`, { headers: { authorization: `Bearer ${token}` } })).json());
+  expect(history.entries.find(entry => entry.id === protectedRecordId)).toEqual(retained.message);
+  await page.goto(`${origin}/agents/${planner}`);
+  const context = page.getByTestId('conversation-segment-context');
+  await context.locator(':scope > summary').click();
+  const protectedContext = context.getByTestId('retained-instruction-context');
+  await protectedContext.locator(':scope > summary').click();
+  const record = protectedContext.locator('li').filter({ hasText: 'FINAL-BODY-Z' });
+  await record.locator(':scope > details > summary').click();
+  await record.locator('.instruction-disclosure > summary').click();
+  await expect(record.locator('.instruction-disclosure pre')).toHaveText(retained.message.content);
+  await record.getByRole('button', { name: 'copy', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(retained.message.content);
+  expect(await record.textContent()).not.toContain('body-egress-canary');
+  expect(providerRequests).toEqual([]);
 });
 
 test.beforeAll(async () => {
@@ -403,11 +442,19 @@ test.beforeAll(async () => {
   await seed(executor); await seed(analyst);
   for (const [session, cardType] of [[executor, 'code'], [analyst, 'code'], [planner, 'project']] as const)
     instructionFixtures.set(session, seedInstructionEvidence(session, cardType));
+  const store = new CardService(root, workflows);
+  store.acceptRecord('project', 'status.md', quotedRecordBody, 'analyst');
+  const node = workflows.cardTypes.get('project')!.states.get('node:plan')!;
+  if (node.kind !== 'node') throw new Error('Expected plan node.');
+  const protectedNode = { ...node, recordPrompts: node.recordPrompts.map(input => ({ ...input, prompt: { ...input.prompt, compactable: false } })) };
+  const prepared = bootstrapContextSupplier(store, store.read('project')!, protectedNode)({ inputId, conversation: readConversation(root, planner) });
+  protectedRecordId = prepared.rows.find(row => row.kind === 'record_prompt' && row.content.includes('FINAL-BODY-Z'))!.id;
+  appendConversationBatch({ projectRoot: root }, prepared.rows);
   await publishThreeGenerationCompactedConversation(root, `${longText}\nfinal-summary-Z`, {
     first: { content: `${longText}\nfirst-protected-Z`, key: 'reader-protected', instruction_origin: 'workflow_prompt' },
     replacement: { content: `${longText}\nfinal-protected-Z`, key: 'reader-protected', instruction_origin: 'workflow_prompt' },
   });
-  for (const path of [cardHeadFile(root, 'project'), cardHeadFile(root, child.id), ...[executor, analyst, planner].map(session => currentConversationSegmentPath(root, session))]) unchangedSelections.set(path, readFileSync(path));
+  for (const path of [cardHeadFile(root, 'project'), cardHeadFile(root, child.id), ...[executor, analyst, planner, recordEvidence.session].map(session => currentConversationSegmentPath(root, session))]) unchangedSelections.set(path, readFileSync(path));
   // Capture precedes a genuinely different loaded template observation. The
   // historical API must keep its old strings while current configuration changes.
   for (const name of ['executor', 'analyst']) {

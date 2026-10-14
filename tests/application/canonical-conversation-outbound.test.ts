@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { projectCanonicalConversationRow } from '../../src/application/read-models/canonical-conversation-outbound.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
 import type {
   ToolInvocationProjectionInput,
   ToolInvocationProjector,
@@ -39,6 +40,97 @@ const classifiedProjector: ToolInvocationProjector = (input) => {
 };
 
 describe('canonical conversation outbound row projection', () => {
+  it.each([
+    'Notes\n  api_key: "SYNTHETIC_CANARY"\r\nFINAL-SAFE-Z',
+    '{"api_key"\t:\n"SYNTHETIC_CANARY\\\\path\\"quote"}\nFINAL-SAFE-Z',
+    '\tghp_SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    '\nsk-SYNTHETIC_CANARY.\nFINAL-SAFE-Z',
+    '\nsk-SYNTHETIC_CANARY\b\nFINAL-SAFE-Z',
+    '\nBearer\tSYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    String.raw`\"api_key\": \"SYNTHETIC_CANARY\"` + '\nFINAL-SAFE-Z',
+    '\tapi_key="SYNTHETIC_CANARY"\nFINAL-SAFE-Z',
+    'https://example.test/?api_key=SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    'Notes\\\napi_key: SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    "api_key='SYNTHETIC_CANARY'\nFINAL-SAFE-Z",
+    'api_key=SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    'https://example.test/?custom-token-key=SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+  ])('preserves ordinary confidentiality through exactly one supplier layer: %s', (body) => {
+    expect(redactTextForOutbound(body)).not.toContain('SYNTHETIC_CANARY');
+    const content = `Data: ${JSON.stringify(body)}`;
+    const row = agentMessageSchema.parse({
+      ...ordinary(),
+      role: 'user',
+      kind: 'record_prompt',
+      content,
+      ...recordContextMetadata(),
+    });
+    const projected = projectCanonicalConversationRow(row, identityProjector);
+    expect(projected.content).not.toContain('SYNTHETIC_CANARY');
+    expect(projected.content).toContain('FINAL-SAFE-Z');
+    expect(() => JSON.parse(projected.content.slice('Data: '.length))).not.toThrow(
+      projected.content,
+    );
+    expect(row.content).toBe(content);
+    expect(foldHistoricalConversationRows([row])[0]!.content).toBe(projected.content);
+  });
+
+  it('keeps safe encoded bytes, literal backslash-n and exemptions without global decoding', () => {
+    for (const body of [
+      String.raw`Notes\napi_key: ordinary-example`,
+      'api_key: "${NAME} ${OTHER}"\nFINAL-SAFE-Z',
+      '{"api_key":"${NAME} ${OTHER}"}',
+      'Safe "quotes" \\ path {{recordSelection}} {{> never-expand}}',
+    ]) {
+      const content = `Data: ${JSON.stringify(body)}`;
+      const row = agentMessageSchema.parse({
+        ...ordinary(),
+        role: 'user',
+        kind: 'record_prompt',
+        content,
+        ...recordContextMetadata(),
+      });
+      expect(projectCanonicalConversationRow(row, identityProjector).content).toBe(content);
+    }
+    const content = JSON.stringify('Notes\napi_key: SYNTHETIC_CANARY\nFINAL-SAFE-Z');
+    expect(
+      projectCanonicalConversationRow({ ...ordinary(), content }, identityProjector).content,
+    ).toContain('SYNTHETIC_CANARY');
+  });
+
+  it('filters local descriptor string leaves while keeping safe identities and malformed surrounding prose as text', () => {
+    const descriptor = {
+      current: {
+        card_id: 'project',
+        entry_id: source,
+        locator: 'record:///status.md?card=project&v=1',
+        note: 'Notes\napi_key: SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+      },
+      prior: null,
+      reason: 'initial',
+    };
+    const content = `Unmatched prose " and invalid JSON {\nSelection: ${JSON.stringify(descriptor)}\nPlain api_key=prose-canary FINAL-PROSE-Z`;
+    const row = agentMessageSchema.parse({
+      ...ordinary(),
+      role: 'user',
+      kind: 'record_prompt',
+      content,
+      ...recordContextMetadata(),
+    });
+    const projected = projectCanonicalConversationRow(row, identityProjector);
+    expect(projected.content).not.toMatch(/SYNTHETIC_CANARY|prose-canary/);
+    expect(projected.content).toContain('Unmatched prose " and invalid JSON {');
+    expect(projected.content).toContain('FINAL-PROSE-Z');
+    const publicDescriptor = JSON.parse(
+      projected.content.split('\n')[1]!.slice('Selection: '.length),
+    );
+    expect(publicDescriptor.current).toMatchObject({
+      card_id: 'project',
+      entry_id: source,
+      locator: descriptor.current.locator,
+      note: 'Notes\napi_key: [REDACTED]\nFINAL-SAFE-Z',
+    });
+    expect(row.content).toBe(content);
+  });
   it('keeps tool-owned safe URL projection while independently redacting embedded and row call identity metadata', () => {
     const callId = 'token=identity-canary';
     const row = agentMessageSchema.parse({ ...call(), id: `${source}:tool-call:${callId}`, tool_call_id: callId,
@@ -239,6 +331,14 @@ describe('canonical conversation outbound row projection', () => {
     );
   });
 });
+
+function recordContextMetadata() {
+  return {
+    instruction_origin: 'workflow_prompt',
+    record_prompt: { reference: 'changed-record-with-body', node_id: 'plan', reason: 'initial' },
+    record_observations: [{ observed: { card_id: 'project', record_name: 'status.md', view: 'effective', selection_kind: 'current', head: { head_id: source, revision: 1 }, selection: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1', content_sha256: 'a'.repeat(64) }, exposure: { kind: 'full_body' } }, source: { kind: 'prompt', input_id: source, node_id: 'plan', reference: 'changed-record-with-body' } }],
+  };
+}
 
 function call(
   options: {

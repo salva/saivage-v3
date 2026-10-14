@@ -59,6 +59,10 @@ distinguish accepted/draft selections and metadata/slice/full/reference exposure
 Compacted descriptors preserve original coordinates/time, not body recall or new
 occurrences. Immutable links inspect record evidence, never reconstructed requests;
 public copies omit internal hashes and independently redact text and source metadata.
+Recognized secrets in supplier JSON-quoted record text are filtered by the same server
+projection before current/history/protected display and full copy. Safe encoded text
+remains quoted, not decoded; stored history and private model context are unchanged.
+This outbound correction needs no migration or operational step.
 Owned durable prompts are **Recorded workflow instruction** at their original rows;
 compacted activation text is inspected through explicit indexed source history.
 Unavailable history is never filled from current templates. **Currently configured

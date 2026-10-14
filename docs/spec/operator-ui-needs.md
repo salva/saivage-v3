@@ -15,6 +15,11 @@ or body recall. Inspecting an immutable selection is **record evidence**, never 
 reconstructed prepared request. Safe full copy applies independently to recorded
 instruction text and positively projected/redacted metadata; internal hashes are not public.
 
+Safe current/history/retained-protected instruction copy must also filter recognized
+secrets in JSON-quoted record text using the shared server projection. Operators see
+privacy-filtered encoded text, not decoded or raw original bodies; safe quotation and
+source evidence remain useful without rewriting stored history.
+
 ## Historical instructions at their recorded boundaries
 
 Operators need historical rendered role/node instructions in actual node chronology,

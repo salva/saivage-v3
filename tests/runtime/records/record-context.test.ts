@@ -16,6 +16,7 @@ import {
   appendConversationBatch,
   readConversation,
   readConversationCatalog,
+  readHistoricalConversationSegment,
 } from '../../../src/persistence/conversation-file.js';
 import { cardConversationVersionFile } from '../../../src/persistence/layout.js';
 import { compilePromptTemplate } from '../../../src/utils/prompt-api.js';
@@ -32,6 +33,19 @@ import { providerConversationProjection } from '../../../src/runtime/actors/conv
 import { selectConversationProtection } from '../../../src/contracts/conversation-validation.js';
 import { projectCompiledGraphs } from '../../../src/runtime/card-process/compiled-graphs-projection.js';
 import { TEST_RUNTIME_WORKFLOWS } from '../../helpers/canonical-project.js';
+import {
+  foldConversation,
+  foldHistoricalConversationRows,
+} from '../../../src/application/read-models/agent-conversation-read-model.js';
+import { projectCanonicalConversationRow } from '../../../src/application/read-models/canonical-conversation-outbound.js';
+import { projectToolInvocation } from '../../../src/tools/tool-invocation-outbound.js';
+import { redactTextForOutbound } from '../../../src/redaction/index.js';
+import { publishThreeGenerationCompactedConversation } from '../../helpers/compacted-conversation-fixture.js';
+import {
+  globalObservationToolBinders,
+  type GlobalObservationToolContext,
+} from '../../../src/tools/global-observation-tools.js';
+import { executingLlmSnapshots } from '../../helpers/executing-llm-snapshot.js';
 
 const roots: string[] = [];
 const SESSION = 'agent:planner:project' as const;
@@ -146,6 +160,174 @@ async function readIntoConversation(
 }
 
 describe('closed record-context compiler and same-read supplier', () => {
+  it('keeps safe canonical spelling, placeholders, optional null and reference-only prompts useful', () => {
+    const f = fixture([
+      input('brief.md', 'accepted', 'required', false),
+      input('status.md', 'effective'),
+    ]);
+    const absent = f.prepare();
+    for (const row of prompts(absent.rows)) {
+      expect(projectCanonicalConversationRow(row, projectToolInvocation).content).toBe(row.content);
+    }
+    const selection = prompts(absent.rows)[0]!.record_observations![0]!.observed.selection;
+    if (selection.kind !== 'accepted') throw new Error('Expected accepted fixture.');
+    expect(prompts(absent.rows)[0]!.content).toContain(selection.locator);
+    expect(prompts(absent.rows)[0]!.content).not.toContain('A {{recordSelection}}');
+    expect(prompts(absent.rows)[1]!.content).toContain(
+      'Selected record data (JSON string or null): null',
+    );
+    f.publish(absent.rows);
+    f.store.openRecord('project', 'status.md');
+    for (const body of [
+      String.raw`Notes\napi_key: ordinary-example`,
+      'api_key: "${NAME} ${OTHER}"\nFINAL-SAFE-Z',
+      '{"api_key":"${NAME} ${OTHER}"}',
+      'Safe "quotes" \\ path {{recordSelection}} {{> never-expand}}\n\u0000\ud800\udfff\t\b\f\r\n😀',
+    ]) {
+      expect(redactTextForOutbound(body)).toBe(body);
+      f.store.editRecord('project', 'status.md', body);
+      const prepared = f.prepare();
+      const row = prompts(prepared.rows)[0]!;
+      expect(row.content).toContain(canonicalJson(body));
+      expect(projectCanonicalConversationRow(row, projectToolInvocation).content).toBe(row.content);
+      f.publish(prepared.rows);
+    }
+  });
+
+  it.each([
+    'Notes\n  api_key: "SYNTHETIC_CANARY"\r\nFINAL-SAFE-Z',
+    '{"api_key"\t:\n"SYNTHETIC_CANARY\\\\path\\"quote"}\nFINAL-SAFE-Z',
+    '\tghp_SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    '\nsk-SYNTHETIC_CANARY.\nFINAL-SAFE-Z',
+    '\nsk-SYNTHETIC_CANARY\b\nFINAL-SAFE-Z',
+    '\nBearer\tSYNTHETIC_CANARY\nFINAL-SAFE-Z',
+    String.raw`\"api_key\": \"SYNTHETIC_CANARY\"` + '\nFINAL-SAFE-Z',
+    '\tapi_key="SYNTHETIC_CANARY"\nFINAL-SAFE-Z',
+    'https://example.test/?api_key=SYNTHETIC_CANARY\nFINAL-SAFE-Z',
+  ])('filters shipped supplier output without changing accepted/private bytes: %s', (body) => {
+    expect(redactTextForOutbound(body)).not.toContain('SYNTHETIC_CANARY');
+    const f = fixture([input('brief.md', 'accepted', 'required')]);
+    f.store.acceptRecord('project', 'brief.md', body, 'analyst');
+    const prepared = f.prepare();
+    const row = prompts(prepared.rows)[0]!;
+    expect(row.content).toContain(canonicalJson(body));
+    expect(prepared.recordBlocks[0]!.content).toContain(canonicalJson(body));
+    const publicRow = projectCanonicalConversationRow(row, projectToolInvocation);
+    expect(publicRow.content).not.toContain('SYNTHETIC_CANARY');
+    expect(publicRow.content).toContain('FINAL-SAFE-Z');
+    const encodedBody = publicRow.content
+      .split('\n')[1]!
+      .slice('Selected record data (JSON string or null): '.length);
+    expect(JSON.parse(encodedBody)).toContain('FINAL-SAFE-Z');
+    expect(publicRow.content).toContain('record:///brief.md?card=project&v=');
+    f.publish(prepared.rows);
+    expect(readConversation(f.root, SESSION).sourceRows.find((r) => r.id === row.id)).toEqual(row);
+    expect(foldConversation(f.root, SESSION).entries.find((r) => r.id === row.id)).toEqual(
+      publicRow,
+    );
+  });
+
+  it.each([0, 1, 2, 3, 'unmatched-quote'] as const)(
+    'keeps compiler literal adjacency %s opaque and confidential for initial/changed draft bodies',
+    (adjacency) => {
+      const f = fixture([input('status.md', 'effective')]);
+      const body = `${adjacency === 'unmatched-quote' ? '' : 'Notes\n'}api_key: SYNTHETIC_CANARY\nSafe "quote" \\ path \\n {{recordSelection}} {{> never-expand}}\nFINAL-SAFE-Z`;
+      const text = `Selection: {{recordSelection}}\nData: ${adjacency === 'unmatched-quote' ? '"label\\' : '\\'.repeat(adjacency)}{{recordContent}}`;
+      const node = f.node();
+      const declaration = node.recordPrompts[0]!;
+      const compiled = compilePromptTemplate({
+        host: { kind: 'record-context', cardType: 'project' },
+        name: declaration.prompt.promptId,
+        path: 'test-only.md',
+        text,
+        resolveFragment: () => {
+          throw new Error('No fragments.');
+        },
+      });
+      const customNode = {
+        ...node,
+        recordPrompts: [{ ...declaration, artifact: { ...declaration.artifact, compiled } }],
+      };
+      const prepare = () =>
+        bootstrapContextSupplier(
+          f.store,
+          f.card,
+          customNode,
+        )({ inputId: randomUUID(), conversation: readConversation(f.root, SESSION) });
+      expect(
+        projectCanonicalConversationRow(prompts(prepare().rows)[0]!, projectToolInvocation).content,
+      ).toContain('null');
+      f.store.openRecord('project', 'status.md');
+      f.store.editRecord('project', 'status.md', body);
+      for (const reason of ['initial', 'changed']) {
+        const prepared = prepare();
+        const row = prompts(prepared.rows)[0]!;
+        expect(row.record_prompt!.reason).toBe(reason);
+        const original = structuredClone(prepared);
+        const projected = projectCanonicalConversationRow(row, projectToolInvocation);
+        expect(projected.content).not.toContain('SYNTHETIC_CANARY');
+        expect(projected.content).toContain('FINAL-SAFE-Z');
+        expect(projected.content).toContain('{{recordSelection}} {{> never-expand}}');
+        const prefix = text.slice(text.indexOf('Data: '), text.indexOf('{{recordContent}}'));
+        const quoted = projected.content.slice(projected.content.indexOf(prefix) + prefix.length);
+        expect(JSON.parse(quoted)).toContain('FINAL-SAFE-Z');
+        expect(
+          row.content.endsWith(canonicalJson(reason === 'initial' ? body : `${body}\nchanged`)),
+        ).toBe(true);
+        expect(prepared).toEqual(original);
+        f.publish(prepared.rows);
+        if (reason === 'initial') f.store.editRecord('project', 'status.md', `${body}\nchanged`);
+      }
+    },
+  );
+
+  it('projects supplier evidence identically in current, indexed history, protected genesis and session-tail reads', async () => {
+    const declaration = input('brief.md', 'accepted', 'required');
+    declaration.prompt.compactable = false;
+    const f = fixture([declaration]);
+    const body =
+      'Notes\napi_key: SYNTHETIC_CANARY\n{{recordSelection}} {{> never-expand}}\nFINAL-SAFE-Z';
+    f.store.acceptRecord('project', 'brief.md', body, 'analyst');
+    const prepared = f.prepare();
+    const row = prompts(prepared.rows)[0]!;
+    const before = structuredClone(row);
+    f.publish(prepared.rows);
+    const safe = projectCanonicalConversationRow(row, projectToolInvocation);
+    const binder = globalObservationToolBinders.find((tool) => tool.name === 'read_agent_session')!;
+    const bound = binder.bind({
+      projectRoot: f.root,
+      store: f.store,
+      captureExecutingLlmSnapshots: () => executingLlmSnapshots([SESSION]),
+    } as unknown as GlobalObservationToolContext);
+    const tail = await bound.executor(
+      bound.inputSchema.parse({ session_id: SESSION, section: 'messages', last_n: 10 }),
+      new AbortController().signal,
+    );
+    expect(JSON.stringify(tail)).not.toContain('SYNTHETIC_CANARY');
+    expect(JSON.stringify(tail)).toContain('FINAL-SAFE-Z');
+    await publishThreeGenerationCompactedConversation(f.root);
+    const history = readHistoricalConversationSegment(f.root, SESSION, 1);
+    expect(foldHistoricalConversationRows(history.rows).find((r) => r.id === row.id)).toEqual(safe);
+    expect(history.rows.find((r) => r.id === row.id)).toEqual(before);
+    const current = foldConversation(f.root, SESSION);
+    if (current.segmentContext?.kind !== 'compacted')
+      throw new Error('Expected compacted fixture.');
+    const retained = current.segmentContext.protected_prompts.find(
+      (entry) => entry.message.id === row.id,
+    )!;
+    expect(retained.message).toEqual(safe);
+    expect(retained.source.segment_version).toBe(1);
+    expect(retained.source.row_index).toBe(history.rows.findIndex((r) => r.id === row.id));
+    expect(retained.message.record_observations![0]!.observed.selection).toMatchObject({
+      kind: 'accepted',
+      locator: expect.stringContaining('record:///brief.md?card=project&v='),
+    });
+    expect(retained.message.record_observations![0]!.observed.selection).not.toHaveProperty(
+      'content_sha256',
+    );
+    expect(row).toEqual(before);
+  });
+
   it('reads the union once per record; compares both views before the batch; substitutes opaque same-read bodies', () => {
     const f = fixture([input('brief.md', 'accepted', 'required'), input('brief.md', 'effective')]);
     f.store.openRecord('project', 'brief.md');

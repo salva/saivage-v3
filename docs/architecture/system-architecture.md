@@ -111,6 +111,13 @@ card/record/provider evidence versions are unchanged. Earlier/mixed contracts bl
 startup, with separately consented complete reset or explicitly requested external
 offline migration only. No core conversion or implicit deployment is authorized.
 
+`canonical-conversation-outbound.ts` alone selects the redaction owner's one-layer
+record-prompt operation for public current/history/protected text. Seven finite
+encoded counterparts reuse ordinary replacement policy, then ordinary text filtering
+handles surrounding prose. Only local matched syntax is decoded/re-encoded; no quoted
+region scanner, whole-body decoding or historical template/record reconstruction is
+used. Canonical persistence, supplier bytes and private model context remain unchanged.
+
 `schemas/record-observation.ts` owns typed selection/exposure/source descriptors;
 the pure persistence projection consumes an existing `RecordProjection` without I/O.
 VFS retains the exact owning projection and `readProject` returns bounded display

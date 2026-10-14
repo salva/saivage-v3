@@ -24,6 +24,12 @@ hashes, templates and evidence arguments; descriptor hashes are omitted independ
 from text redaction, including protected copies and required facts. Existing tool
 pairing, exact anchors, inline scrolling and current-config/Debug Graph views remain.
 
+Current, exact-history and retained-protected record instruction disclosures and full
+copy use the same server-filtered string, including recognized secrets inside the
+supplier's JSON-quoted record text. Display/copy preserves safe encoded spelling; it
+is neither a decoded record body nor raw original bytes. The browser adds no decoding
+or redaction owner, and canonical stored history remains unchanged.
+
 Outstanding named-agent execution includes provider overload/backoff, not just
 active wire consumption. Existing provider-resource refresh reports advisory
 cooling/reason/deadline, not an exact send countdown. Compaction in-flight means

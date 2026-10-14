@@ -2,12 +2,8 @@ import { isSecretKey } from './secret-key.js';
 
 export const SECRET_REDACTION_PLACEHOLDER = '[REDACTED]';
 
-const JSON_SECRET_VALUE_RE = /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
-const YAML_SECRET_VALUE_RE =
-  /(^[ \t]*([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*)([^\n#][^\n]*)(?=$|\n)/gim;
-const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
-const INLINE_SECRET_ASSIGNMENT_RE =
-  /\b([A-Za-z][A-Za-z0-9_-]*(?:(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
+const SECRET_NAME_SYNTAX =
+  'credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie';
 const CREDENTIAL_FAMILIES = [
   { prefix: 'sk-', body: '[^\\s"\\\\]+', label: 'sk' },
   { prefix: 'tid=', body: '[^\\s"\\\\]+', label: 'tid' },
@@ -19,13 +15,6 @@ const CREDENTIAL_FAMILIES = [
   { prefix: 'AKIA', body: '[A-Z0-9]{16}(?![A-Za-z0-9_])', label: 'AKIA' },
   { prefix: 'xox[bpars]-', body: '[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', label: 'xox' },
 ] as const;
-const CREDENTIAL_LITERAL_RE = new RegExp(
-  `\\b(?:${CREDENTIAL_FAMILIES.map(({ prefix, body }) => `(${prefix}(?!\\[REDACTED\\])${body})`).join('|')})\\b`,
-  'g',
-);
-const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
-const URL_SECRET_QUERY_PARAM_RE =
-  /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
 const CREDENTIAL_LITERAL_BOUNDARY_RE = new RegExp(
   `\\b(?:${CREDENTIAL_FAMILIES.map(
     ({ prefix, body, label }) => `${label}-\\[REDACTED\\]|${prefix}${body}`,
@@ -33,6 +22,190 @@ const CREDENTIAL_LITERAL_BOUNDARY_RE = new RegExp(
   'g',
 );
 const CONVERSION_FAILURE = '[unserializable dynamic value]';
+
+// One layer of the canonical JSON string spelling used by record-context substitution.
+// These fragments describe represented characters, never enclosing quoted regions.
+const ENCODED_UNICODE_ESCAPE = String.raw`u(?:00(?:0[0-7be-f]|1[0-9a-f])|d[89abcdef][0-9a-f]{2})`;
+const ENCODED_ESCAPE = String.raw`\\(?:["\\bfnrt]|${ENCODED_UNICODE_ESCAPE})`;
+const ENCODED_FINAL_ESCAPE_RE = new RegExp(`${ENCODED_ESCAPE}$`);
+const encodedUnit = (plainClass: string, escapes = ENCODED_ESCAPE): string =>
+  `(?:${plainClass}|${escapes})`;
+const ENCODED_UNIT = encodedUnit(String.raw`[^"\\\x00-\x1f]`);
+const ENCODED_NON_LF = encodedUnit(
+  String.raw`[^"\\\x00-\x1f]`,
+  String.raw`\\(?:["\\bfrt]|${ENCODED_UNICODE_ESCAPE})`,
+);
+const ENCODED_SPACE = String.raw`(?:[^\S\x00-\x1f]|\\[fnrt]|\\u000b)`;
+const ENCODED_NON_SPACE = encodedUnit(
+  String.raw`[^"\\\s\x00-\x1f]`,
+  String.raw`\\(?:["\\b]|u(?:00(?:0[0-7e-f]|1[0-9a-f])|d[89abcdef][0-9a-f]{2}))`,
+);
+const ENCODED_CREDENTIAL_VALUE = encodedUnit(
+  String.raw`[^"\\\s\x00-\x1f]`,
+  String.raw`\\(?:b|u(?:00(?:0[0-7e-f]|1[0-9a-f])|d[89abcdef][0-9a-f]{2}))`,
+);
+const ENCODED_NON_QUOTE = encodedUnit(
+  String.raw`[^"\\\x00-\x1f]`,
+  String.raw`\\(?:[\\bfnrt]|${ENCODED_UNICODE_ESCAPE})`,
+);
+const ENCODED_NON_QUOTE_OR_SLASH = encodedUnit(
+  String.raw`[^"\\\x00-\x1f]`,
+  String.raw`\\(?:[bfnrt]|${ENCODED_UNICODE_ESCAPE})`,
+);
+const ENCODED_JSON_CHARACTER = `(?:${String.raw`\\\\`}${ENCODED_UNIT}|${ENCODED_NON_QUOTE_OR_SLASH})`;
+const ENCODED_JSON_STRING = `${String.raw`\\"`}${ENCODED_JSON_CHARACTER}*${String.raw`\\"`}`;
+const JSON_SECRET_VALUE_RE = /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
+const ENCODED_JSON_SECRET_VALUE_RE = new RegExp(
+  `${ENCODED_JSON_STRING}${ENCODED_SPACE}*:${ENCODED_SPACE}*${ENCODED_JSON_STRING}`,
+  'gi',
+);
+const YAML_SECRET_VALUE_RE =
+  /(^[ \t]*([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*)([^\n#][^\n]*)(?=$|\n)/gim;
+const ENCODED_YAML_SECRET_VALUE_RE = new RegExp(
+  `(?: |${String.raw`\\t`})*[A-Za-z][A-Za-z0-9_-]*(?: |${String.raw`\\t`})*:(?: |${String.raw`\\t`})*(?!#)${ENCODED_NON_LF}+`,
+  'gi',
+);
+const CREDENTIAL_LITERAL_RE = new RegExp(
+  `\\b(?:${CREDENTIAL_FAMILIES.map(({ prefix, body }) => `(${prefix}(?!\\[REDACTED\\])${body})`).join('|')})\\b`,
+  'g',
+);
+const ENCODED_CREDENTIAL_LITERAL_RE = new RegExp(
+  `(?:${CREDENTIAL_FAMILIES.map(({ prefix, body }) => `(${prefix}(?!\\[REDACTED\\])${body === '[^\\s"\\\\]+' ? `${ENCODED_CREDENTIAL_VALUE}+` : body})`).join('|')})(?<=[A-Za-z0-9_])(?<!${ENCODED_ESCAPE})(?![A-Za-z0-9_])`,
+  'g',
+);
+const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
+const ENCODED_BEARER_CREDENTIAL_RE = new RegExp(
+  `Bearer${ENCODED_SPACE}+${ENCODED_CREDENTIAL_VALUE}+`,
+  'gi',
+);
+const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
+const ENCODED_ESCAPED_JSON_SECRET_VALUE_RE = new RegExp(
+  `${String.raw`\\\\\\"`}${ENCODED_NON_QUOTE_OR_SLASH}+${String.raw`\\\\\\"`}${ENCODED_SPACE}*:${ENCODED_SPACE}*${String.raw`\\\\\\"`}${ENCODED_NON_QUOTE_OR_SLASH}*${String.raw`\\\\\\"`}`,
+  'gi',
+);
+const INLINE_SECRET_ASSIGNMENT_RE = new RegExp(
+  String.raw`\b([A-Za-z][A-Za-z0-9_-]*(?:(?:${SECRET_NAME_SYNTAX})[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)`,
+  'gi',
+);
+const ENCODED_INLINE_SECRET_ASSIGNMENT_RE = new RegExp(
+  `[A-Za-z][A-Za-z0-9_-]*${ENCODED_SPACE}*=${ENCODED_SPACE}*(?:${String.raw`\\"`}${ENCODED_NON_QUOTE}*${String.raw`\\"`}|'${encodedUnit(String.raw`[^'"\\\x00-\x1f]`)}*'|${ENCODED_NON_SPACE}+)`,
+  'gi',
+);
+const URL_SECRET_QUERY_PARAM_RE = new RegExp(
+  String.raw`([?&][^=&#\s]*(?:${SECRET_NAME_SYNTAX})[^=&#\s]*=)([^&#\s]+)`,
+  'gi',
+);
+const ENCODED_URL_SECRET_QUERY_PARAM_RE = new RegExp(
+  `[?&](?:(?![=&#])${ENCODED_NON_SPACE})*(?:${SECRET_NAME_SYNTAX})(?:(?![=&#])${ENCODED_NON_SPACE})*=(?:(?![&#])${ENCODED_NON_SPACE})+`,
+  'gi',
+);
+
+function isEncodedUnitStart(text: string, offset: number): boolean {
+  let slashes = 0;
+  for (let i = offset - 1; i >= 0 && text[i] === '\\'; i--) slashes++;
+  return slashes % 2 === 0;
+}
+
+function representedPreviousCharacter(text: string, offset: number): string {
+  const prefix = text.slice(0, offset);
+  const escape = ENCODED_FINAL_ESCAPE_RE.exec(prefix);
+  return escape && isEncodedUnitStart(text, offset - escape[0].length)
+    ? (JSON.parse(`"${escape[0]}"`) as string)
+    : prefix.slice(-1);
+}
+
+function hasRepresentedWordBoundary(text: string, offset: number, next: string): boolean {
+  return /\w/.test(representedPreviousCharacter(text, offset)) !== /\w/.test(next);
+}
+
+function replaceEncodedPattern(
+  text: string,
+  pattern: RegExp,
+  ordinary: RegExp,
+  replacement: Replacement,
+  boundary: 'none' | 'word' | 'credential' | 'yaml' = 'none',
+): string {
+  // Exclude starts inside an escape before matching, so a rejected candidate cannot
+  // swallow a later legitimate start (for example the key after encoded tab).
+  const atUnitStart = new RegExp(
+    `${String.raw`(?<!(?<!\\)(?:\\\\)*\\)`}${pattern.source}`,
+    pattern.flags,
+  );
+  return text.replace(atUnitStart, (match: string, ...args: unknown[]) => {
+    const offset = args.at(-2) as number;
+    if (boundary === 'yaml') {
+      const previous = text[offset - 1];
+      if (
+        offset !== 0 &&
+        previous !== '"' &&
+        previous !== '\n' &&
+        representedPreviousCharacter(text, offset) !== '\n'
+      )
+        return match;
+    } else if (boundary !== 'none') {
+      if (!hasRepresentedWordBoundary(text, offset, match[0]!)) return match;
+      if (
+        boundary === 'credential' &&
+        !hasRepresentedWordBoundary(text, offset + match.length, text[offset + match.length] ?? '')
+      )
+        return match;
+    }
+    const decoded = JSON.parse(`"${match}"`) as string;
+    const changed = decoded.replace(cloneRegex(ordinary), replacement);
+    return changed === decoded ? match : JSON.stringify(changed).slice(1, -1);
+  });
+}
+
+/** Public record prompts alone carry one supplier-introduced JSON string layer. */
+export function redactRecordPromptForOutbound(text: string): string {
+  let result = replaceEncodedPattern(
+    text,
+    ENCODED_JSON_SECRET_VALUE_RE,
+    JSON_SECRET_VALUE_RE,
+    replaceJsonSecretValue,
+  );
+  result = replaceEncodedPattern(
+    result,
+    ENCODED_YAML_SECRET_VALUE_RE,
+    YAML_SECRET_VALUE_RE,
+    replaceYamlSecretValue,
+    'yaml',
+  );
+  result = replaceEncodedPattern(
+    result,
+    ENCODED_CREDENTIAL_LITERAL_RE,
+    CREDENTIAL_LITERAL_RE,
+    redactCredentialMatch,
+    'credential',
+  );
+  result = replaceEncodedPattern(
+    result,
+    ENCODED_BEARER_CREDENTIAL_RE,
+    BEARER_CREDENTIAL_RE,
+    replaceBearerCredential,
+    'word',
+  );
+  result = replaceEncodedPattern(
+    result,
+    ENCODED_ESCAPED_JSON_SECRET_VALUE_RE,
+    ESCAPED_JSON_SECRET_VALUE_RE,
+    replaceEscapedJsonSecretValue,
+  );
+  result = replaceEncodedPattern(
+    result,
+    ENCODED_INLINE_SECRET_ASSIGNMENT_RE,
+    INLINE_SECRET_ASSIGNMENT_RE,
+    replaceInlineSecretAssignment,
+    'word',
+  );
+  result = replaceEncodedPattern(
+    result,
+    ENCODED_URL_SECRET_QUERY_PARAM_RE,
+    URL_SECRET_QUERY_PARAM_RE,
+    replaceUrlSecretQueryParam,
+  );
+  return redactTextForOutbound(result);
+}
 
 type Replacement = (match: string, ...captures: unknown[]) => string;
 
