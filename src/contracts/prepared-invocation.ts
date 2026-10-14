@@ -39,7 +39,6 @@ export type ContextBlock = Readonly<{
 export type ProviderToolDefinition = ToolDefinition;
 export type CompiledInvocationToolContract = Readonly<{
   providerDefinition: ProviderToolDefinition;
-  providerDefinitionBytes: string;
   resultPolicyTemplate: ToolResultPolicyTemplate;
   resultPolicyTemplateBytes: string;
   resultPolicyTemplateSha256: string;
@@ -47,16 +46,11 @@ export type CompiledInvocationToolContract = Readonly<{
 export type StaticInvocationPrefix = Readonly<{
   instructionText: string;
   terminalToolNames: readonly string[];
-  immutablePrefixBytes: string;
-  immutablePrefixSha256: string;
 }>;
 export type PreparedInvocationContext = Readonly<{
   prefix: StaticInvocationPrefix;
   compiledTools: readonly CompiledInvocationToolContract[];
-  internalToolContractSha256: string;
   stableBlocks: readonly ContextBlock[];
-  stableBlocksSha256: string;
   recordBlocks: readonly ContextBlock[];
-  recordBlocksSha256: string;
   preparedCompaction: PreparedCompaction;
 }>;

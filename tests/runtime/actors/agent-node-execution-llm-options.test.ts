@@ -79,7 +79,7 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.preparedContext.prefix.instructionText).toBe('system');
     expect(prepared.preparedContext.prefix.terminalToolNames).toEqual(['emit_result']);
     expect(prepared.preparedContext.compiledTools).toEqual(prepared.compiledToolContracts);
-    expect(prepared.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(prepared.preparedContext.compiledTools.map((tool) => tool.providerDefinition)).toEqual(prepared.tools);
     expect(prepared.preparedContext.stableBlocks).toHaveLength(2);
     expect(prepared.preparedContext.stableBlocks[0]).toMatchObject({ id: 'card-activation:project', storage: 'activation_local', replacement: { kind: 'retain' } });
     expect(prepared.preparedContext.stableBlocks[1]).toMatchObject({ id: 'node-activation:project:work', content: "Current workflow node 'work':\n\nselected node prompt body", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer' });

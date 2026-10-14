@@ -63,11 +63,7 @@ import {
   type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import type { ToolSettlementInput } from '../../tools/tool-api.js';
-import {
-  assertPreparedContextContinuity,
-  composedPreparedBlocks,
-  withPreparedRecordBlocks,
-} from './context/context-blocks.js';
+import { composedPreparedBlocks, withPreparedRecordBlocks } from './context/context-blocks.js';
 import { type ContextBlock } from '../../contracts/index.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
@@ -521,7 +517,6 @@ export class ConversationLLMActor {
           requiredPreparedBlocks(input),
         ),
       };
-      this.#assertContinuationPreparedContext(retained.input, next);
       this.#assertRepairOpen(repair);
       repair.settlement.resolve();
       const nested = this.#arm(
@@ -1119,7 +1114,6 @@ export class ConversationLLMActor {
         ...operation.parked.input,
         inputId: randomUUID(),
       };
-      this.#assertContinuationPreparedContext(operation.parked.input, continuationInput);
       const continuation = hook?.(continuationInput.inputId);
       if (operation.disposal) {
         appendConversationBatch(this.conversations, [built.message]);
@@ -1316,21 +1310,6 @@ export class ConversationLLMActor {
         `Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`,
       );
   }
-  #assertContinuationPreparedContext(
-    before: CanonicalLlmInvocationInput,
-    after: CanonicalLlmInvocationInput,
-  ): void {
-    if (!before.preparedCompaction || !after.preparedCompaction)
-      throw new Error(
-        `LLMActor '${this.agentId}' continuation requires prepared invocation contexts.`,
-      );
-    assertPreparedContextContinuity(
-      before.preparedContext,
-      after.preparedContext,
-      `LLMActor '${this.agentId}'`,
-    );
-  }
-
   async #callProvider(
     operation: InvocationOperation,
     input: CanonicalLlmInvocationInput,

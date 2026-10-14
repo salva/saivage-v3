@@ -23,6 +23,26 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### B01 prepared-context attestation deletion — no durable impact (2026-10-14)
+
+Exact implementation parent: `b4337558725dfa23e69c4defd9446867d513be17`.
+Removed prefix serialization/digest, provider-definition serialization and aggregate
+tool/stable/record digests are transient preparation data only. Their exclusive
+consumers were deleted aggregate producers and same-reference continuity checks;
+record digest had no reader. Runtime composition and positive application mapping
+consume actual instructions, ordered blocks and provider definitions. Canonical
+activation evidence is independently selected, and tool-local policy bytes/hash,
+per-block commitments and admitted request bytes/hash remain unchanged.
+
+No discriminator, retained shape, interpretation or layout changes: conversation
+index/genesis remain format 9 and segments version 9; card/record remain format 1;
+app-log/provider evidence retain shared envelope version 1; private diagnostics
+remain format 3/privacy policy 2. All other durable contracts are unchanged.
+This separate source-only deletion needs no adoption, reset or migration and reuses
+no cutover. Installed applicability is unknown and uninspected; it authorizes no
+deployment, runtime action or whole-release compatibility claim. External migration
+remains separately owner-requested and offline.
+
 ### Dead invocation context deletion — no durable impact (2026-10-14)
 
 Exact implementation parent: `d689d4cdce9c62ac698b13caabff17893a28237f`.

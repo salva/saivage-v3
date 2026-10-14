@@ -37,7 +37,6 @@ import {
   createPromptTemplateRegistry,
   renderCompiledPrompt,
 } from '../../../src/utils/prompt-api.js';
-import { canonicalValueSha256 } from '../../../src/schemas/index.js';
 import { appendActivationMarker } from '../../../src/runtime/actors/conversation-session.js';
 import {
   appendLlmTurnToolCallBatch,
@@ -591,7 +590,6 @@ describe('AgentNodeExecution static preparation', () => {
     const input = (test.llm.turn.mock.calls as unknown as [[unknown]])[0][0] as {
       preparedContext: {
         stableBlocks: readonly { id: string; content: string }[];
-        stableBlocksSha256: string;
       };
       providerConversation: { messages: Array<{ content: string }> };
     };
@@ -601,9 +599,6 @@ describe('AgentNodeExecution static preparation', () => {
     ]);
     expect(input.preparedContext.stableBlocks[1].content).toBe(
       "Current workflow node 'work':\n\nnode prompt",
-    );
-    expect(input.preparedContext.stableBlocksSha256).toBe(
-      canonicalValueSha256(input.preparedContext.stableBlocks),
     );
     expect(
       input.providerConversation.messages.filter((item) => item.content.endsWith('node prompt')),

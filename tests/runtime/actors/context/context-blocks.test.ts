@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
-import { sha256Hex, canonicalValueSha256 } from '../../../../src/schemas/index.js';
+import { sha256Hex } from '../../../../src/schemas/index.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
-import { assertPreparedContextContinuity, buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, composedPreparedBlocks, withPreparedRecordBlocks, internalToolContractSha256, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
-import { type CompiledInvocationToolContract, type ContextBlock, type ProviderToolDefinition } from '../../../../src/contracts/index.js';
+import { buildPreparedInvocationContext, buildStaticInvocationPrefix, compileInvocationToolContract, composedPreparedBlocks, withPreparedRecordBlocks, selectLatestContextBlocks, type ToolResultPolicyTemplate } from '../../../../src/runtime/actors/context/context-blocks.js';
+import { type ContextBlock, type ProviderToolDefinition } from '../../../../src/contracts/index.js';
 import type { PreparedCompaction } from '../../../../src/contracts/index.js';
 
 const block = (id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): ContextBlock => ({
@@ -18,7 +18,6 @@ const block = (id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): C
 const snapshotBlock = (id: string, key: string, content: string): ContextBlock =>
   block(id, { content, storage: 'activation_local', replacement: { kind: 'latest_snapshot', key, contentSha256: sha256Hex(content) } });
 const providerDefinition: ProviderToolDefinition = { type: 'function', function: { name: 'lookup', description: 'Lookup', parameters: { type: 'object', properties: { query: { type: 'string' } }, additionalProperties: false } } };
-const retainTemplate: ToolResultPolicyTemplate = { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' };
 const observationalTemplate: ToolResultPolicyTemplate = { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidenceMode: 'observational_query' };
 
 describe('context contracts', () => {
@@ -44,87 +43,46 @@ describe('context contracts', () => {
   });
   it('compiles tool contracts with canonical bytes and matching hashes', () => {
     const contract = compileInvocationToolContract(providerDefinition, observationalTemplate);
-    expect(contract.providerDefinitionBytes).toBe(canonicalJson(providerDefinition));
+    expect(contract.providerDefinition).toBe(providerDefinition);
     expect(contract.resultPolicyTemplateBytes).toBe(canonicalJson(observationalTemplate));
     expect(contract.resultPolicyTemplateSha256).toBe(sha256Hex(canonicalJson(observationalTemplate)));
     expect(Object.isFrozen(contract)).toBe(true);
-    const reordered = compileInvocationToolContract(
-      { type: 'function', function: { parameters: providerDefinition.function.parameters, description: 'Lookup', name: 'lookup' } },
-      observationalTemplate,
-    );
-    expect(reordered.providerDefinitionBytes).toBe(contract.providerDefinitionBytes);
   });
-  it('commits the internal tool contract to the ordered provider/template byte pairs', () => {
-    const first = compileInvocationToolContract(providerDefinition, retainTemplate);
-    const second = compileInvocationToolContract(providerDefinition, observationalTemplate);
-    const ordered: readonly CompiledInvocationToolContract[] = [first, second];
-    expect(internalToolContractSha256(ordered)).toBe(sha256Hex(canonicalJson([
-      { providerDefinitionBytes: first.providerDefinitionBytes, resultPolicyTemplateBytes: first.resultPolicyTemplateBytes },
-      { providerDefinitionBytes: second.providerDefinitionBytes, resultPolicyTemplateBytes: second.resultPolicyTemplateBytes },
-    ])));
-    expect(internalToolContractSha256([second, first])).not.toBe(internalToolContractSha256(ordered));
-    expect(internalToolContractSha256([first, first])).not.toBe(internalToolContractSha256(ordered));
-  });
-  it('builds the static invocation prefix from exactly instructions, provider bytes, and terminal names', () => {
-    const tools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
-    const prefix = buildStaticInvocationPrefix('instruction', ['emit_result'], tools);
-    const expectedBytes = canonicalJson({ instructionText: 'instruction', providerToolDefinitionBytes: tools.map((tool) => tool.providerDefinitionBytes), terminalToolNames: ['emit_result'] });
-    expect(prefix.immutablePrefixBytes).toBe(expectedBytes);
-    expect(prefix.immutablePrefixSha256).toBe(sha256Hex(expectedBytes));
+  it('retains instructions and frozen terminal names', () => {
+    const prefix = buildStaticInvocationPrefix('instruction', ['emit_result']);
     expect(prefix.instructionText).toBe('instruction');
     expect(prefix.terminalToolNames).toEqual(['emit_result']);
     expect(Object.isFrozen(prefix)).toBe(true);
     expect(Object.isFrozen(prefix.terminalToolNames)).toBe(true);
-    expect(buildStaticInvocationPrefix('instruction', ['emit_result'], tools).immutablePrefixSha256).toBe(prefix.immutablePrefixSha256);
-    expect(buildStaticInvocationPrefix('changed', ['emit_result'], tools).immutablePrefixSha256).not.toBe(prefix.immutablePrefixSha256);
-    expect(buildStaticInvocationPrefix('instruction', ['other'], tools).immutablePrefixBytes).not.toBe(prefix.immutablePrefixBytes);
-    expect(buildStaticInvocationPrefix('instruction', ['emit_result'], [...tools, tools[0]!]).immutablePrefixBytes).not.toBe(prefix.immutablePrefixBytes);
-  });
-  it('hashes stable blocks canonically and order-sensitively', () => {
-    const first = snapshotBlock('a', 'k', 'v1');
-    const second = block('b', { audience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { cardId: 'card-1' }, observed_sha256: '0'.repeat(64) } });
-    expect(canonicalValueSha256([first, second])).toBe(sha256Hex(canonicalJson([first, second])));
-    expect(canonicalValueSha256([second, first])).not.toBe(canonicalValueSha256([first, second]));
   });
   it('builds one frozen prepared invocation context from its exact inputs', () => {
     const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
     const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
     const prepared = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
-    expect(prepared.prefix).toEqual(buildStaticInvocationPrefix('instruction', ['emit_result'], compiledTools));
+    expect(prepared.prefix).toEqual(buildStaticInvocationPrefix('instruction', ['emit_result']));
     expect(prepared.compiledTools).toEqual(compiledTools);
-    expect(prepared.internalToolContractSha256).toBe(internalToolContractSha256(compiledTools));
-    expect(prepared.stableBlocksSha256).toBe(canonicalValueSha256([snapshotBlock('a', 'k', 'v1')]));
+    expect(prepared.stableBlocks).toEqual([snapshotBlock('a', 'k', 'v1')]);
     expect(prepared.preparedCompaction).toBe(preparedCompaction);
     expect(Object.isFrozen(prepared)).toBe(true);
     expect(Object.isFrozen(prepared.compiledTools)).toBe(true);
     expect(Object.isFrozen(prepared.stableBlocks)).toBe(true);
   });
-  it('accepts byte-identical prepared contexts and rejects every frozen-contract drift across continuations', () => {
+  it('replaces frozen record blocks while sharing stable values and preserving composition order', () => {
     const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
     const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
     const base = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
     const operationA = withPreparedRecordBlocks(base, [snapshotBlock('record', 'record', 'A')]);
     const operationB = withPreparedRecordBlocks(operationA, [snapshotBlock('record', 'record', 'B')]);
-    expect(() => assertPreparedContextContinuity(operationA, operationB, 'actor-x')).not.toThrow();
-    expect(operationB.recordBlocksSha256).not.toBe(operationA.recordBlocksSha256);
+    expect(operationB).not.toBe(operationA);
+    expect(operationB.prefix).toBe(operationA.prefix);
+    expect(operationB.compiledTools).toBe(operationA.compiledTools);
+    expect(operationB.preparedCompaction).toBe(preparedCompaction);
+    expect(operationB.recordBlocks).toEqual([snapshotBlock('record', 'record', 'B')]);
+    expect(operationA.recordBlocks).toEqual([snapshotBlock('record', 'record', 'A')]);
+    expect(Object.isFrozen(operationB)).toBe(true);
+    expect(Object.isFrozen(operationB.recordBlocks)).toBe(true);
     expect(operationB.stableBlocks).toBe(operationA.stableBlocks);
     expect(composedPreparedBlocks(operationB)).toEqual([...base.stableBlocks, ...operationB.recordBlocks]);
     expect(base.recordBlocks).toEqual([]);
-    expect(() => assertPreparedContextContinuity(base, buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }), 'actor-x')).not.toThrow();
-    expect(() => assertPreparedContextContinuity(
-      base,
-      buildPreparedInvocationContext({ instructionText: 'changed', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
-      "agent:planner:project 'call-1'",
-    )).toThrow(/Prepared invocation prefix changed across agent:planner:project 'call-1' continuation/u);
-    expect(() => assertPreparedContextContinuity(
-      base,
-      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools: [compileInvocationToolContract(providerDefinition, retainTemplate)], stableBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
-      'actor-x',
-    )).toThrow(/Prepared internal tool contract changed across actor-x continuation/u);
-    expect(() => assertPreparedContextContinuity(
-      base,
-      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, stableBlocks: [snapshotBlock('a', 'k', 'v2')], preparedCompaction }),
-      'actor-x',
-    )).toThrow(/Prepared stable context blocks changed across actor-x continuation/u);
   });
 });

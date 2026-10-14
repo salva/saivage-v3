@@ -93,12 +93,10 @@ describe('Analyst project context', () => {
 
     await expect(buildSession(projectRoot, persisted, completeTurn, render).submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
 
-    const input = providerInputs[0] as { systemPrompt: string; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> }; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[]; immutablePrefixSha256: string }; stableBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown; internalToolContractSha256: string } };
+    const input = providerInputs[0] as { systemPrompt: string; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> }; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[] }; stableBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown } };
     expect(input.systemPrompt).toBe('rendered prompt');
     expect(input.preparedContext.prefix.instructionText).toBe('rendered prompt');
     expect(input.preparedContext.prefix.terminalToolNames).toEqual([]);
-    expect(input.preparedContext.prefix.immutablePrefixSha256).toMatch(/^[0-9a-f]{64}$/u);
-    expect(input.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(input.preparedContext.stableBlocks).toHaveLength(2);
     expect(input.preparedContext.stableBlocks[1]).toMatchObject({ id: 'analyst.workspace_focus', storage: 'activation_local', audience: 'primary_and_summarizer' });
     const focus = input.preparedContext.stableBlocks[1]!;

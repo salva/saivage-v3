@@ -80,6 +80,7 @@ function toolResponse(): Response {
   );
 }
 type WireRequest = {
+  tools?: unknown[];
   messages: Array<{
     role: string;
     content: string | null;
@@ -299,6 +300,17 @@ it('sends prepared context and canonical repair/tool results through real admiss
       expect(admission.bindings.terminalToolNamesSha256).toBe(sha256Hex(canonicalJson(input.terminalToolNames)));
       expect(admission.bindings.preparedCompactionSha256).toBe(sha256Hex(canonicalJson(input.preparedCompaction)));
       expect(call[0].tools).toBe(input.tools);
+      const body = f.requests[index]!;
+      expect(body.tools).toEqual(input.tools);
+      const contents = body.messages.map((message) => message.content);
+      const stablePositions = stableBlocks.map((block) => contents.indexOf(block.content));
+      expect(stablePositions).toEqual([...stablePositions].sort((a, b) => a - b));
+      for (const block of stableBlocks)
+        expect(contents.filter((content) => content === block.content)).toHaveLength(1);
+      expect(contents.findIndex((content) => content?.includes('ACCEPTED RECORD FOR REAL COMPOSITION'))).toBeGreaterThan(stablePositions[2]!);
+      expect(bytes).not.toContain('resultPolicyTemplate');
+      expect(bytes).not.toContain('settledAudience');
+      expect(bytes).not.toContain('evidenceMode');
       for (const block of stableBlocks) expect(bytes).toContain(block.content);
       expect(bytes).toContain('ACCEPTED RECORD FOR REAL COMPOSITION');
     }

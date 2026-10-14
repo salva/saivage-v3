@@ -230,7 +230,7 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     expect(p1.preparedContext.stableBlocks).toEqual([cardBlock, nodeBlock]);
     expect(p1.preparedContext.stableBlocks[0]).toBe(cardBlock);
     expect(p1.preparedContext.stableBlocks[1]).toBe(nodeBlock);
-    expect(p1.preparedContext.stableBlocksSha256).toBe(input.preparedContext.stableBlocksSha256);
+    expect(p1.preparedContext.stableBlocks).toBe(input.preparedContext.stableBlocks);
     expect(p1.preparedContext.recordBlocks).toBe(input.preparedContext.recordBlocks);
     expect(sentBodies[0]).toContain(recordBlock.content);
     expect(summaryCompletion).toHaveBeenCalled();
@@ -648,7 +648,7 @@ describe('fresh logical bootstrap preparation and retained operation snapshots',
       expect(second.inputId).not.toBe(first.inputId);
       expect(second.preparedContext.prefix).toBe(first.preparedContext.prefix);
       expect(second.preparedContext.stableBlocks).toBe(first.preparedContext.stableBlocks);
-      expect(second.preparedContext.internalToolContractSha256).toBe(first.preparedContext.internalToolContractSha256);
+      expect(second.preparedContext.compiledTools).toBe(first.preparedContext.compiledTools);
       expect(second.preparedContext.recordBlocks[0]!.content).toContain('B ACCEPTED BODY {{opaque-data}}');
       expect(second.preparedContext.recordBlocks[0]!.content).not.toContain('A ACCEPTED BODY');
       expect(first.preparedContext.recordBlocks[0]!.content).toContain('A ACCEPTED BODY');

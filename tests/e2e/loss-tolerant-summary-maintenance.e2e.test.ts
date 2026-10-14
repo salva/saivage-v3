@@ -82,8 +82,6 @@ import {
 import {
   agentMessageSchema,
   parseActivationOpenPayload,
-  canonicalValueSha256,
-  sha256Hex,
   type AgentMessage,
   type ConversationSessionId,
 } from '../../src/schemas/index.js';
@@ -697,12 +695,6 @@ describe('loss-tolerant maintenance through production invocation and persistenc
       expect(counts).toEqual({ summary: 2, primary: 1 });
       expect(f.strategies.map((value) => value.strategy)).toEqual([strategy]);
       expect(f.input.preparedContext).toEqual(frozen);
-      expect(f.input.preparedContext.stableBlocksSha256).toBe(
-        canonicalValueSha256(f.input.preparedContext.stableBlocks),
-      );
-      expect(f.input.preparedContext.prefix.immutablePrefixSha256).toBe(
-        sha256Hex(f.input.preparedContext.prefix.immutablePrefixBytes),
-      );
       expect(f.input.preparedContext.prefix.instructionText).toBe(f.input.systemPrompt);
       const primary = f.requests.find((request) => request.kind === 'primary')!.body;
       expect(admittedBodies).toContain(primary);

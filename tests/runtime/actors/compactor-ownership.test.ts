@@ -152,9 +152,6 @@ describe('ConversationLLMActor compaction ownership', () => {
       expect(checked[1]!.tools).toBe(checked[0]!.tools);
       expect(checked[1]!.inputId).not.toBe(checked[0]!.inputId);
       expect(checked[1]!.preparedContext).toBe(first.preparedContext);
-      expect(checked[1]!.preparedContext!.prefix.immutablePrefixSha256).toBe(checked[0]!.preparedContext!.prefix.immutablePrefixSha256);
-      expect(checked[1]!.preparedContext!.internalToolContractSha256).toBe(checked[0]!.preparedContext!.internalToolContractSha256);
-      expect(checked[1]!.preparedContext!.stableBlocksSha256).toBe(checked[0]!.preparedContext!.stableBlocksSha256);
       expect(checked[1]!.providerConversation.messages.length).toBeGreaterThan(checked[0]!.providerConversation.messages.length);
       expect(providerInputs[1]!.providerConversation).not.toBe(providerInputs[0]!.providerConversation);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -182,9 +179,6 @@ describe('ConversationLLMActor compaction ownership', () => {
       expect(checked[1]!.tools).toBe(checked[0]!.tools);
       expect(checked[1]!.inputId).not.toBe(checked[0]!.inputId);
       expect(checked[1]!.preparedContext).toBe(first.preparedContext);
-      expect(checked[1]!.preparedContext!.prefix.immutablePrefixSha256).toBe(checked[0]!.preparedContext!.prefix.immutablePrefixSha256);
-      expect(checked[1]!.preparedContext!.internalToolContractSha256).toBe(checked[0]!.preparedContext!.internalToolContractSha256);
-      expect(checked[1]!.preparedContext!.stableBlocksSha256).toBe(checked[0]!.preparedContext!.stableBlocksSha256);
       expect(checked[1]!.providerConversation.messages.length).toBeGreaterThan(checked[0]!.providerConversation.messages.length);
       expect(checked[1]!.providerConversation).not.toBe(checked[0]!.providerConversation);
     } finally { rmSync(root, { recursive: true, force: true }); }
