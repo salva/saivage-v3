@@ -7,7 +7,6 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { LocalExactAdmissionError, localAdmissionFailureReason, projectAdmissionDiagnostics } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
-import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
 import type { ContextBlock } from '../../src/contracts/index.js';
 import { agentMessageSchema, canonicalJson } from '../../src/schemas/index.js';
@@ -47,7 +46,6 @@ function request(chain: readonly Candidate[]): InvocationRequest {
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction: preparedCompactionFixture(),
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction: preparedCompactionFixture() }),
     capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     routePass: { kind: 'ordinary', candidateChain: [...chain] },
   };
@@ -66,7 +64,7 @@ function service(candidates: readonly Candidate[], overrides: Record<string, Sai
 describe('ordinary primary-request local admission', () => {
   it.each([undefined, .60, .90, 1])('uses absent .80 headroom or exactly supplied U=%s with retained bindings and real wire equality', (u) => {
     const prepared = request([A]);
-    const { preparedCompaction: _compaction, preparedContext: _context, ...common } = prepared;
+    const { preparedCompaction: _compaction, ...common } = prepared;
     const unprepared: InvocationRequest = { ...common, modelParams: { temperature: 0, maxTokens: 2000 }, ...(u === undefined ? {} : { contextUtilizationFraction: u }) };
     const baseline = service([A]).preparePrimaryRequestAdmission(unprepared);
     if (baseline.kind !== 'admitted' || baseline.candidates[0]?.kind !== 'admitted') throw new Error('fixture must fit');
@@ -92,8 +90,7 @@ describe('ordinary primary-request local admission', () => {
     const block = Object.freeze({ id: 'card-activation:project', role: 'system', content: full, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock);
     const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [block], uncoveredRows: [] }));
     const base = request([A]);
-    if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
-    const invocation: InvocationRequest = { ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [block], preparedCompaction: base.preparedCompaction }) };
+    const invocation: InvocationRequest = { ...base, providerConversation };
 
     const admission = service([A]).preparePrimaryRequestAdmission(invocation);
     expect(admission.kind).toBe('admitted');
@@ -117,8 +114,7 @@ describe('ordinary primary-request local admission', () => {
     const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [block], uncoveredRows: [] }));
     expect(providerConversation.messages).toEqual([expect.objectContaining({ kind: 'synthetic_context', content: full })]);
     const base = request([A]);
-    if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
-    const admission = service([A], { 'cand-a': { contextWindowTokens: 3000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [block], preparedCompaction: base.preparedCompaction }) });
+    const admission = service([A], { 'cand-a': { contextWindowTokens: 3000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation });
     expect(admission.kind).toBe('local_compaction_required');
     if (admission.kind !== 'local_compaction_required') throw new Error('unreachable');
     expect(admission.candidates[0]).toMatchObject({ kind: 'projection_too_large' });

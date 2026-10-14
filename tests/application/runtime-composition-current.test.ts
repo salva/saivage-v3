@@ -130,7 +130,6 @@ describe('current runtime composition', () => {
       modelParams: { temperature: 0, maxTokens: 100 },
       capabilityRequest: { requiresTools: true },
       routePass: { kind: 'ordinary', candidateChain },
-      episodeContext: {},
     };
     const admission = await provider.preparePrimaryRequestAdmission(input as never, signal);
     const request = prepareAdmission.mock.calls[0]![0];

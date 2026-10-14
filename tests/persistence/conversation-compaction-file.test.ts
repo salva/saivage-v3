@@ -776,6 +776,5 @@ function invocation(
     }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
-    episodeContext: {},
   };
 }

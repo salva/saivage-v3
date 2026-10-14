@@ -15,7 +15,6 @@ import {
 } from '../../src/contracts/index.js';
 import { ProviderTurnFailure } from '../../src/contracts/index.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
-import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/contracts/index.js';
@@ -51,7 +50,6 @@ function request(chain: readonly Candidate[], messages = [message('m1', 'x'.repe
     terminalToolNames: [],
     modelParams: { temperature: 0 },
     preparedCompaction: preparedCompactionFixture(),
-    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction: preparedCompactionFixture() }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [...chain] },
   };

@@ -781,16 +781,6 @@ export class AgentNodeExecution {
       preparedContext,
       capabilityRequest: binding.capabilityRequest,
       routePass: { kind: 'ordinary', candidateChain: binding.candidateChain },
-      episodeContext: {
-        cardId: input.card.id,
-        caller: input.caller,
-        children: this.directChildren(input.card.id).map((card) => ({
-          id: card.id,
-          status: card.lifecycle.status,
-          type: card.type,
-          title: card.title,
-        })),
-      },
     };
   }
 

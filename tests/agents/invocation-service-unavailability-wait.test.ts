@@ -19,7 +19,7 @@ import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
 
-function request(chain: Candidate[] = [candidate], signal?: AbortSignal): InvocationRequest {
+function request(chain: Candidate[] = [candidate]): InvocationRequest {
   return {
     inputId: 'agent:planner:card:1',
     agentName: 'planner',
@@ -31,16 +31,15 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
     modelParams: { temperature: 0, maxTokens: 2000 },
     capabilityRequest: {},
     routePass: {kind:'ordinary',candidateChain:chain},
-    abortSignal: signal,
   };
 }
 
 const roots: string[] = [];
 
-async function invoke(service: InvocationService, value: InvocationRequest): Promise<ProviderTurnCompletion> {
+async function invoke(service: InvocationService, value: InvocationRequest, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
   const admission = service.preparePrimaryRequestAdmission(value);
   if (admission.kind !== 'admitted') throw new Error('Unexpected local admission failure in unavailability-wait test.');
-  return service.executeAdmittedWithRecovery(admission, value.abortSignal);
+  return service.executeAdmittedWithRecovery(admission, signal);
 }
 
 function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvailability } = {}): InvocationService {
@@ -237,7 +236,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const availability = new MemoryCandidateAvailability();
     const failed = jest.spyOn(availability, 'markFailed');
     const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: { code: 'overloaded' } }), { status: 503 }));
-    const caught = invoke(service({ availability }), request([candidate], controller.signal)).catch(error => error);
+    const caught = invoke(service({ availability }), request([candidate]), controller.signal).catch(error => error);
     await jest.advanceTimersByTimeAsync(0);
     controller.abort(reason);
     expect(await caught).toBe(reason);
@@ -290,7 +289,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability,
       registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test-account') }) });
     let caught: unknown;
-    const pending = invoke(svc, request([codex], controller.signal)).catch((error: unknown) => { caught = error; });
+    const pending = invoke(svc, request([codex]), controller.signal).catch((error: unknown) => { caught = error; });
     await jest.advanceTimersByTimeAsync(0);
     expect(caught).toMatchObject({
       originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
@@ -332,7 +331,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     });
     const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability,
       registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test-account') }) });
-    const pending = invoke(svc, request([codex], controller.signal));
+    const pending = invoke(svc, request([codex]), controller.signal);
     const rejection = expect(pending).rejects.toMatchObject({ originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } }, provider_exchanges: [
       { attempt_index: 0, status: 'error', error: { status: 503 } },
       { attempt_index: 1, status: 'error', error: { name: 'Error', message: reason.message } },
@@ -360,7 +359,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     fetch.mockImplementation(() => new Promise((resolve) => { release = resolve; entered(); }));
     const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability, registry: invocationProviderRegistry([candidate], { p: { transportProtocol: 'openai-responses' } }) });
     let pending: Promise<ProviderTurnCompletion>;
-    if (route === 'ordinary') pending = invoke(svc, request([candidate], controller.signal));
+    if (route === 'ordinary') pending = invoke(svc, request([candidate]), controller.signal);
     else {
       const preflight = svc.preflightPinnedContentPolicyRequest({ ...request([candidate]), routePass: { kind: 'pinned-content-policy-retry', candidate } });
       if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned request.');
@@ -388,7 +387,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       controller.abort(reason);
       throw init?.signal?.reason;
     });
-    const invocation = invoke(service({ availability }), request([candidate], controller.signal));
+    const invocation = invoke(service({ availability }), request([candidate]), controller.signal);
 
     await expect(invocation).rejects.toMatchObject({
       originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
@@ -413,7 +412,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       controller.abort(reason);
       throw init?.signal?.reason;
     });
-    const invocation = invoke(service({ availability }), request([candidate], controller.signal));
+    const invocation = invoke(service({ availability }), request([candidate]), controller.signal);
 
     const rejection = expect(invocation).rejects.toMatchObject({
       provider_exchanges: [
@@ -440,7 +439,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       release = resolve;
       markStarted();
     }));
-    const pending = invoke(service({ availability }), request([candidate], controller.signal));
+    const pending = invoke(service({ availability }), request([candidate]), controller.signal);
     await started;
     controller.abort(new Error('owner stopped'));
     release(chatSuccess('late'));
@@ -613,7 +612,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     const controller = new AbortController();
     const reason = new Error('stop');
-    const invocation = invoke(service({ availability }), request([candidate], controller.signal));
+    const invocation = invoke(service({ availability }), request([candidate]), controller.signal);
 
     controller.abort(reason);
 

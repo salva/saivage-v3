@@ -401,7 +401,6 @@ it('pins a historical selection across real compaction and current advancement, 
       }),
       capabilityRequest: {},
       routePass: { kind: 'ordinary', candidateChain: [candidate] },
-      episodeContext: {},
     },
     summarizerProvider: {
       candidate,

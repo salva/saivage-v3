@@ -32,7 +32,6 @@ import {
   type CandidateRequestPlan,
   type InvocationRoutePass,
   type PreparedCompaction,
-  type PreparedInvocationContext,
   type AdmittedCandidateAttemptState,
   type AdmittedExecutionBindings,
   type AdmittedRecoveryPreparation,
@@ -87,7 +86,6 @@ interface InvocationRequestBase {
   tools: ToolDefinition[];
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
-  abortSignal?: AbortSignal;
   routePass: InvocationRoutePass;
 }
 
@@ -96,12 +94,10 @@ export type InvocationRequest = InvocationRequestBase &
     | {
         preparedCompaction: PreparedCompaction;
         contextUtilizationFraction?: never;
-        preparedContext: PreparedInvocationContext;
         modelParams: { temperature: number; maxTokens?: never };
       }
     | {
         preparedCompaction?: never;
-        preparedContext?: never;
         contextUtilizationFraction?: number;
         modelParams: { temperature: number; maxTokens: number };
       }

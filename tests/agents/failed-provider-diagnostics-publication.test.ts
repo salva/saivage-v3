@@ -397,7 +397,6 @@ describe('diagnostic publication uses existing fatal primitive boundary', () => 
           }),
           capabilityRequest: {},
           routePass: { kind: 'ordinary', candidateChain: [candidate] },
-          episodeContext: {},
         },
         controller.signal,
         () => {

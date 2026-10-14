@@ -130,7 +130,6 @@ describe('custom card type execution admission', () => {
     expect(started.started).toBe(true);
     const input = await admitted.promise;
     expect(input.sessionId).toBe(`agent:executor:${taskCard.id}`);
-    expect(input.episodeContext).toMatchObject({ cardId: taskCard.id });
     expect(input.tools.map((definition) => definition.function.name)).toContain('emit_result');
     await supervisor.stopProject();
     expect(supervisor.getStatus().status).toBe('stopped');

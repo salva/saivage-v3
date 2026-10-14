@@ -13,10 +13,10 @@ const alternate = { provider: 'other', account: null, model: 'other-model' };
 const inputId = '11111111-1111-4111-8111-111111111111';
 const source = 'agent:planner:card-a';
 const roots: string[] = [];
-function request(chain: Candidate[] = [primary], signal?: AbortSignal): InvocationRequest {
+function request(chain: Candidate[] = [primary]): InvocationRequest {
   return { inputId, agentName: 'planner', sessionId: source, systemPrompt: 'secret-prompt',
     providerConversation: { sourceSessionId: source, messages: [] }, tools: [], terminalToolNames: [],
-    modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: chain }, abortSignal: signal };
+    modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: chain } };
 }
 function setup(chain = [primary], throwing = false) {
   const capture = capturedHttp(); const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/http-scheduling-'); roots.push(projectRoot);
@@ -24,10 +24,10 @@ function setup(chain = [primary], throwing = false) {
     candidateAvailability: new MemoryCandidateAvailability(), outboundHttp: e => { capture.sink(e); if (throwing) throw new Error('sink'); } });
   return { service, ...capture };
 }
-function invoke(service: InvocationService, value: InvocationRequest, summary = false) {
+function invoke(service: InvocationService, value: InvocationRequest, summary = false, signal?: AbortSignal) {
   const admission = service.preparePrimaryRequestAdmission(value);
   if (admission.kind !== 'admitted') throw new Error('Expected admission');
-  return summary ? service.executeSummaryWithRecovery(admission, value.abortSignal) : service.executeAdmittedWithRecovery(admission, value.abortSignal);
+  return summary ? service.executeSummaryWithRecovery(admission, signal) : service.executeAdmittedWithRecovery(admission, signal);
 }
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 describe('actual invocation scheduler outbound observations', () => {
@@ -79,10 +79,11 @@ describe('actual invocation scheduler outbound observations', () => {
     expect(fetch).toHaveBeenCalledTimes(4); assertLifecycles(records, 4);
     expect(records.filter(r => r.event === 'outbound_http_retry_wait')).toHaveLength(3); expect(jest.getTimerCount()).toBe(0);
   });
-  it('cancels a sleeping retry without emitting a new dispatch', async () => {
+  it.each([false, true])('cancels a sleeping retry through the explicit signal without a new dispatch (summary=%s)', async summary => {
     jest.useFakeTimers(); const { service, records } = setup(); const owner = new AbortController(); const reason = { exact: 'stop' };
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 503 }));
-    const pending = invoke(service, request([primary], owner.signal)).catch(e => e); await jest.advanceTimersByTimeAsync(0);
+    const value = { ...request([primary]), ...(summary ? { sessionId: `internal:compaction-summary:${'a'.repeat(64)}` } : {}) };
+    const pending = invoke(service, value, summary, owner.signal).catch(e => e); await jest.advanceTimersByTimeAsync(0);
     expect(records.at(-1)!.event).toBe('outbound_http_retry_wait'); owner.abort(reason); expect(await pending).toBe(reason);
     const count = records.length; await jest.advanceTimersByTimeAsync(600000); expect(records).toHaveLength(count); expect(fetch).toHaveBeenCalledTimes(1);
   });

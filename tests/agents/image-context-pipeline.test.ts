@@ -340,7 +340,6 @@ function invocation(
     }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [candidate] },
-    episodeContext: {},
   };
 }
 

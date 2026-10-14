@@ -25,11 +25,11 @@ function service(availability = new MemoryCandidateAvailability(), overrides: Re
   return new InvocationService({ projectRoot, registry: invocationProviderRegistry([first, second], overrides), candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
 }
 
-function request(routePass: InvocationRequest['routePass'], signal?: AbortSignal): InvocationRequest {
+function request(routePass: InvocationRequest['routePass']): InvocationRequest {
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system',
     providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [],
-    modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: {}, routePass, abortSignal: signal,
+    modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: {}, routePass,
   };
 }
 
@@ -174,7 +174,7 @@ describe('content-policy route passes', () => {
     controller.abort(new Error('cancel before transport'));
     const fetch = jest.spyOn(globalThis, 'fetch');
     const svc = service();
-    const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }, controller.signal));
+    const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
     await expect(svc.executePinnedContentPolicyRequest(preflight, { attemptIndex: 0 }, controller.signal)).rejects.toBe(controller.signal.reason);
     expect(fetch).not.toHaveBeenCalled();

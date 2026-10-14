@@ -589,7 +589,6 @@ export class AnalystSession {
       }),
       capabilityRequest: this.#capabilityRequest,
       routePass: { kind: 'ordinary', candidateChain: this.#candidateChain },
-      episodeContext: { surface: 'web-chat' },
     };
   }
 

@@ -11,7 +11,7 @@ import {
   ConversationLLMActor,
   type LlmTerminalHandoff,
 } from '../../../src/runtime/actors/llm-actor.js';
-import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
+import { compact, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
 import {
   buildPreparedInvocationContext,
   compileInvocationToolContract,
@@ -27,6 +27,8 @@ import {
   agentMessageSchema,
   CONTENT_POLICY_RETRY_TEXT,
   parseCanonicalContentPolicyRefusal,
+  canonicalJson,
+  sha256Hex,
 } from '../../../src/schemas/index.js';
 import {
   executedNoneSettlement,
@@ -170,7 +172,6 @@ function fixture(
     }),
     capabilityRequest: { requiresTools: true },
     routePass: { kind: 'ordinary', candidateChain: CHAIN },
-    episodeContext: { synthetic: 'episode' },
   };
   const availability = new MemoryCandidateAvailability();
   const service = new InvocationService({
@@ -236,8 +237,6 @@ it('freezes current bootstrap through real pinned admission and exact serialized
     await expect(f.actor.turn(f.input, undefined, f.handoff, supplier)).resolves.toMatchObject({ type: 'result' });
     expect(supplier).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledTimes(1);
-    expect(f.pinned.mock.calls[0]![0].preparedContext!.recordBlocks)
-      .toBe(f.admission.mock.calls[0]![0].preparedContext!.recordBlocks);
     for (const request of f.requests) {
       expect(JSON.stringify(request)).toContain('CAPTURED A');
       expect(JSON.stringify(request)).not.toContain('NEW B DURING REFUSAL');
@@ -253,13 +252,78 @@ it('freezes current bootstrap through real pinned admission and exact serialized
   }
 });
 
+it('sends prepared context and canonical repair/tool results through real admission with retained commitments', async () => {
+  const f = fixture([() => chatSuccess('needs repair'), toolResponse, () => chatSuccess('done')]);
+  const stableBlocks = [
+    ['card-activation:project', 'CARD ORIENTATION: Synthetic project'],
+    ['node-activation:project:synthetic-probe', 'Current workflow node: synthetic-probe'],
+    ['parent-direction:activation', 'Parent activation direction: inspect the accepted brief'],
+  ].map(([id, content]) => Object.freeze({
+    id: id!, content: content!, role: 'system' as const, storage: 'activation_local' as const,
+    replacement: { kind: 'retain' as const }, audience: 'primary_and_summarizer' as const,
+    evidence: { kind: 'none' as const },
+  }));
+  const input = { ...f.input, preparedContext: buildPreparedInvocationContext({
+    instructionText: f.input.systemPrompt, terminalToolNames: f.input.terminalToolNames,
+    compiledTools: f.input.compiledToolContracts, stableBlocks, preparedCompaction: f.input.preparedCompaction,
+  }) };
+  const store = new CardService(f.root);
+  store.acceptRecord('project', 'brief.md', 'ACCEPTED RECORD FOR REAL COMPOSITION', 'analyst');
+  const supplier = bootstrapContextSupplier(store, store.read('project')!, { nodeId: 'synthetic-probe', recordPrompts: [] });
+  const actor = new ConversationLLMActor({
+    purpose: { kind: 'autonomous-card', cardId: 'project' }, gate: new RuntimeGate(), agentId: input.sessionId,
+    provider: createInvocationServiceProvider(f.service, f.root), conversations: { projectRoot: f.root },
+    compactor: { compact, shouldCompact }, summarizerProvider: unusedSummarizerProvider,
+    fatalPort: testApplicationFatalPort,
+  });
+  try {
+    await expect(actor.turn(input, undefined, f.handoff, supplier)).resolves.toMatchObject({ type: 'result' });
+    const tool = await actor.continueAfterPlainText([{ role: 'user', content: 'CONFIGURED REAL REPAIR' }], undefined, f.handoff);
+    if (tool.type !== 'tool_call') throw new Error('Expected probe call after repair.');
+    const settled = await actor.appendToolResult(tool.toolCallId, executedNoneSettlement(toolSucceeded({ probe: 'KNOWN SETTLED FACT' })));
+    expect(settled).toMatchObject({ outcome: { type: 'result' }, settled: {
+      providerResult: { success: true, data: { probe: 'KNOWN SETTLED FACT' } },
+      callPolicySha256: input.compiledToolContracts[0]!.resultPolicyTemplateSha256,
+    } });
+    expect(sha256Hex(settled.settled.settledResultBytes)).toBe(settled.settled.resultContentSha256);
+    expect(f.admission).toHaveBeenCalledTimes(3);
+    for (const [index, call] of f.admission.mock.calls.entries()) {
+      const admission = f.admission.mock.results[index]!.value as ReturnType<InvocationService['preparePrimaryRequestAdmission']>;
+      if (admission.kind !== 'admitted') throw new Error('Expected real admission.');
+      const verdict = admission.candidates[0];
+      if (verdict?.kind !== 'admitted') throw new Error('Expected admitted candidate.');
+      const bytes = String(f.fetch.mock.calls[index]![1]!.body);
+      expect(bytes).toBe(verdict.plan.request.serializedBody);
+      expect(sha256Hex(bytes)).toBe(verdict.plan.request.requestHash);
+      expect(admission.bindings.toolsSha256).toBe(sha256Hex(canonicalJson(input.tools)));
+      expect(admission.bindings.terminalToolNamesSha256).toBe(sha256Hex(canonicalJson(input.terminalToolNames)));
+      expect(admission.bindings.preparedCompactionSha256).toBe(sha256Hex(canonicalJson(input.preparedCompaction)));
+      expect(call[0].tools).toBe(input.tools);
+      for (const block of stableBlocks) expect(bytes).toContain(block.content);
+      expect(bytes).toContain('ACCEPTED RECORD FOR REAL COMPOSITION');
+    }
+    expect(JSON.stringify(f.requests[1])).toContain('CONFIGURED REAL REPAIR');
+    expect(f.requests[2]!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', tool_call_id: 'probe-call', content: expect.stringContaining('KNOWN SETTLED FACT') }),
+      expect.objectContaining({ role: 'assistant', tool_calls: expect.any(Array) }),
+      expect.objectContaining({ content: 'CONFIGURED REAL REPAIR' }),
+    ]));
+    expect(f.rows().filter(row => row.kind === 'model_repair')).toHaveLength(1);
+    expect(f.rows().filter(row => row.kind === 'tool_call')).toHaveLength(1);
+    expect(f.rows().filter(row => row.kind === 'tool_result')).toHaveLength(1);
+    expect(f.rows().filter(row => row.kind === 'tool_result')[0]!.content).toContain('KNOWN SETTLED FACT');
+  } finally {
+    actor.suppressContinuation(new Error('test complete'));
+    await actor.join();
+  }
+});
+
 function expectFreshOrdinary(f: ReturnType<typeof fixture>) {
   expect(f.admission).toHaveBeenCalledTimes(2);
   const next = f.admission.mock.calls[1]![0];
   expect(next.routePass).toEqual({ kind: 'ordinary', candidateChain: CHAIN });
   expect(next.inputId).not.toBe(f.input.inputId);
   expect(next.inputId).toMatch(/^[0-9a-f-]{36}$/);
-  expect(next.preparedContext).toBe(f.input.preparedContext);
   expect(next.preparedCompaction).toBe(f.input.preparedCompaction);
   expect(next.tools).toBe(f.input.tools);
   expect(next.modelParams).toBe(f.input.modelParams);
@@ -363,8 +427,6 @@ describe('content-policy successful pin continuation ownership', () => {
     const next = f.admission.mock.calls[1]![0];
     expect(next.inputId).not.toBe(f.input.inputId);
     expect(next.routePass).toEqual({ kind: 'ordinary', candidateChain: CHAIN });
-    expect(next.preparedContext!.stableBlocks).toBe(f.input.preparedContext.stableBlocks);
-    expect(next.preparedContext!.recordBlocks).not.toBe(f.admission.mock.calls[0]![0].preparedContext!.recordBlocks);
     expect(supplier).toHaveBeenCalledTimes(2);
     expect(read).toHaveBeenCalledTimes(2);
     expect(f.rows().filter(row => row.kind === 'record_observation')).toHaveLength(2);
@@ -402,7 +464,6 @@ describe('content-policy successful pin continuation ownership', () => {
     if (outcome.type !== 'tool_call') throw new Error('Expected probe call.');
     expect(f.actor.waitingToolInput(outcome)).toMatchObject({
       routePass: f.input.routePass,
-      episodeContext: f.input.episodeContext,
     });
     const execute = jest.fn(async (args: unknown) => {
       expect(args).toEqual({});

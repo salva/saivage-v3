@@ -24,7 +24,7 @@ export function createInvocationServiceProvider(
       );
       signal.throwIfAborted();
       return invocationService.preparePrimaryRequestAdmission(
-        invocationRequest({ ...input, providerConversation }, signal),
+        invocationRequest({ ...input, providerConversation }),
       );
     },
     executeAdmittedWithRecovery: (admission, signal) =>
@@ -38,7 +38,7 @@ export function createInvocationServiceProvider(
       signal.throwIfAborted();
       return invocationService.prepareAdmittedRecovery({
         suspension,
-        request: invocationRequest({ ...input, providerConversation }, signal),
+        request: invocationRequest({ ...input, providerConversation }),
       });
     },
     resumeAdmittedExecution: (preparation, signal) =>
@@ -51,7 +51,7 @@ export function createInvocationServiceProvider(
       );
       signal.throwIfAborted();
       return invocationService.preflightPinnedContentPolicyRequest(
-        invocationRequest({ ...input, providerConversation }, signal),
+        invocationRequest({ ...input, providerConversation }),
       );
     },
     executePinnedContentPolicyRequest: (preflight, diagnosticContext, signal) =>
@@ -74,7 +74,7 @@ export async function executeInternalSummaryTurn(
   packed: AdmittedSummaryRequest,
 ): Promise<ProviderTurnCompletion> {
   const admission = service.preparePrimaryRequestAdmission({
-    ...invocationRequestBase(input, signal),
+    ...invocationRequestBase(input),
     modelParams: {
       temperature: input.modelParams.temperature,
       maxTokens: input.modelParams.maxTokens!,
@@ -101,7 +101,7 @@ export async function executeInternalSummaryTurn(
   }
 }
 
-function invocationRequestBase(input: LlmInvocationInput, signal: AbortSignal) {
+function invocationRequestBase(input: LlmInvocationInput) {
   return {
     inputId: input.inputId,
     agentName: input.agentName,
@@ -111,7 +111,6 @@ function invocationRequestBase(input: LlmInvocationInput, signal: AbortSignal) {
     tools: input.tools,
     terminalToolNames: input.terminalToolNames,
     capabilityRequest: input.capabilityRequest,
-    abortSignal: signal,
     routePass:
       input.routePass.kind === 'ordinary'
         ? { kind: 'ordinary' as const, candidateChain: [...input.routePass.candidateChain] }
@@ -119,14 +118,13 @@ function invocationRequestBase(input: LlmInvocationInput, signal: AbortSignal) {
   };
 }
 
-function invocationRequest(input: LlmInvocationInput, signal: AbortSignal): InvocationRequest {
-  const common = invocationRequestBase(input, signal);
+function invocationRequest(input: LlmInvocationInput): InvocationRequest {
+  const common = invocationRequestBase(input);
   return input.preparedCompaction
     ? {
         ...common,
         modelParams: input.modelParams,
         preparedCompaction: input.preparedCompaction,
-        preparedContext: input.preparedContext,
       }
     : { ...common, modelParams: input.modelParams };
 }

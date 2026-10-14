@@ -94,7 +94,6 @@ function invocation(conversation: ValidatedConversation): PreparedLlmInvocationI
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
-    episodeContext: {},
   };
 }
 

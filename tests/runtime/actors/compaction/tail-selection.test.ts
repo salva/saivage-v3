@@ -80,7 +80,7 @@ async function run(root: string, tailBudget: number, snap: AutonomousCompactionP
     inputId: INPUT, agentId: SESSION, agentName: 'planner', sessionId: SESSION, systemPrompt: 'system',
     providerConversation: providerConversationProjection(conversation, []), tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction,
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
-    capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
+    capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
   };
   const result = await compact({ summaryRefusal, strategy, conversations: { projectRoot: root }, input, summarizerProvider: recorded.provider, signal: new AbortController().signal, progress: noCompactionProgress });
   return { result, conversation, ...recorded };

@@ -23,6 +23,23 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Dead invocation context deletion — no durable impact (2026-10-14)
+
+Exact implementation parent: `d689d4cdce9c62ac698b13caabff17893a28237f`.
+Removed runtime episode payload and agents-request prepared-context/signal fields
+are transient only. Positive adapter mappings, candidate serialization and explicit
+execution bindings never consumed them; canonical activation, record, repair and
+tool-result evidence remain independently produced. Model bytes and admitted
+request/tool commitments are unchanged. No discriminator changes: conversation
+index/genesis retain format 9 and segments `version:9/type:conversation-segment`;
+app-log/provider evidence retain shared `version:1/type:rows`. Card, record,
+private diagnostics and all other durable contracts are unchanged.
+
+This isolated deletion requires no adoption, reset or migration and reuses no
+cutover. Installed applicability is unknown and uninspected; no whole-release
+compatibility, binary downgrade, deployment or runtime action is authorized.
+External migration remains separately owner-requested and offline.
+
 ### Outbound HTTP lifecycle — no durable impact (2026-10-14)
 
 Exact implementation parent: `04b66d24153a66e394be90335f02d189bf6c9952`.

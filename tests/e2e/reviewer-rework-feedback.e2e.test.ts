@@ -202,6 +202,15 @@ describe('reviewer rework completion E2E', () => {
 
       reviewerCalls += 1;
       if (reviewerCalls === 1) {
+        const descendants = input.providerConversation.messages.find(
+          (row) => row.content.startsWith('Reviewed card project:') && row.content.includes('Descendant work:'),
+        );
+        expect(descendants?.content).toContain(`${child.id} (code, done, revision `);
+        expect(descendants?.content).toContain(child.title);
+        expect(descendants?.content).toContain('head ');
+        expect(readConversation(projectRoot, reviewerSession).sourceRows.some(
+          (row) => row.kind === 'text' && row.role === 'user' && row.content === descendants?.content,
+        )).toBe(true);
         const settled = input.providerConversation.messages.find(
           (row) => row.kind === 'tool_result' && row.tool_call_id === oldReviewerCallId,
         );
@@ -723,13 +732,8 @@ describe('reviewer rework completion E2E', () => {
       statusHistory.filter((status, index) => index === 0 || status !== statusHistory[index - 1]),
     ).toEqual(['backlog', 'running', 'done', 'changed', 'running', 'done']);
 
-    expect(correctedExecutorInput?.episodeContext.cardId).toBe(implementation.id);
+    expect(correctedExecutorInput?.sessionId).toBe(`agent:executor:${implementation.id}`);
     for (const input of implementationInputs) {
-      expect(input.episodeContext.caller).toMatchObject({
-        kind: 'parent',
-        cardId: goal.id,
-        sessionId: `agent:planner:${goal.id}`,
-      });
       expect(
         input.preparedContext!.stableBlocks.find((block) =>
           block.id.startsWith('parent-direction:'),
@@ -737,9 +741,16 @@ describe('reviewer rework completion E2E', () => {
       ).not.toContain(JSON.stringify('Coordinate the goal within its accepted brief.'));
     }
     expect(implementationInputs).toHaveLength(4);
-    expect(
-      new Set(implementationInputs.map(({ episodeContext }) => episodeContext.cardId)),
-    ).toEqual(new Set([implementation.id]));
+    const implementationActivations = readConversation(projectRoot, `agent:executor:${implementation.id}`).sourceRows
+      .filter(row => row.kind === 'activity')
+      .map(row => JSON.parse(row.content) as { event: string; instructions: unknown })
+      .filter(row => row.event === 'activation_open');
+    expect(implementationActivations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ instructions: expect.objectContaining({
+        kind: 'prepared', card: expect.objectContaining({ cardId: implementation.id }),
+        caller: expect.objectContaining({ kind: 'parent', cardId: goal.id, sessionId: `agent:planner:${goal.id}` }),
+      }) }),
+    ]));
     expect(new Set(implementationInputs.map(({ sessionId }) => sessionId))).toEqual(
       new Set([`agent:executor:${implementation.id}`]),
     );

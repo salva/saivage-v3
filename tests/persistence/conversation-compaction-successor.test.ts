@@ -69,7 +69,6 @@ function invocation(conversation: ValidatedConversation, overrides: Partial<Prep
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
-    episodeContext: {},
     ...overrides,
   };
 }

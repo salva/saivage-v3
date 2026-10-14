@@ -1311,7 +1311,6 @@ describe('Supervisor notification admission at terminal ownership', () => {
     let replacementInput = '';
     const provider = scriptedAdmissionProvider(async (input, signal) => {
       if (input.sessionId === 'agent:planner:project') {
-        expect(input.episodeContext.caller).toEqual({ kind: 'root' });
         expect(
           input.preparedContext!.stableBlocks.some((block) =>
             block.id.startsWith('parent-direction:'),

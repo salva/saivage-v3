@@ -47,7 +47,7 @@ describe('runtime ledger contract deletions', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const inputId = '00000000-0000-4000-8000-000000000001';
-    const invocation: CanonicalLlmInvocationInput = { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: '', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] }, episodeContext: {} };
+    const invocation: CanonicalLlmInvocationInput = { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: '', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] } };
     appendLlmTurnToolCallBatch({ projectRoot }, invocation, { id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }, selectInvocationResultPolicy(invocation, 'read'));
 
     const settled = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', resultPolicy: selectInvocationResultPolicy(invocation, 'read'), settlement: { kind: 'executed', execution: { providerOutcome: toolSucceeded(), evidence: { kind: 'none' } } } });

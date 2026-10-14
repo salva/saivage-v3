@@ -370,7 +370,6 @@ function fixture(
     }),
     capabilityRequest: { requiresTools: false },
     routePass: { kind: 'ordinary', candidateChain: [PRIMARY] },
-    episodeContext: {},
   };
   const strategies: Array<{ strategy: string; refusal: { summaryInputId: string } | null }> = [];
   const completedFolds: number[] = [];

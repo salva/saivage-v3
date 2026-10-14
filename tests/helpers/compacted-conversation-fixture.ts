@@ -118,7 +118,6 @@ function invocation(conversation: ValidatedConversation): PreparedLlmInvocationI
     }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
-    episodeContext: {},
   };
 }
 

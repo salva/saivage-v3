@@ -35,7 +35,6 @@ interface LlmInvocationInputBase {
   compiledToolContracts: readonly CompiledInvocationToolContract[];
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
-  episodeContext: Record<string, unknown>;
   routePass: InvocationRoutePass;
 }
 

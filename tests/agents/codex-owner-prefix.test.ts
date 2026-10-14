@@ -219,7 +219,7 @@ describe('actual composed Codex ordinary-turn requests', () => {
     const oldEstimate = Math.ceil(Buffer.byteLength(canonicalJson(withoutKey), 'utf8') / 4);
     expect(built.estimatedWireInputTokens).toBeGreaterThan(oldEstimate);
     const window = oldEstimate + 2000;
-    const rejected = service(ROOT, window).preparePrimaryRequestAdmission({ ...invocation, preparedCompaction: undefined, preparedContext: undefined, modelParams: { temperature: 0, maxTokens: 2000 }, contextUtilizationFraction: 1 });
+    const rejected = service(ROOT, window).preparePrimaryRequestAdmission({ ...invocation, preparedCompaction: undefined, modelParams: { temperature: 0, maxTokens: 2000 }, contextUtilizationFraction: 1 });
     expect(rejected.kind).toBe('local_compaction_required');
     expect(rejected.candidates[0]).toMatchObject({ kind: 'projection_too_large', estimatedInputTokens: built.estimatedWireInputTokens, usableInputTokens: oldEstimate });
     expect(fetch).not.toHaveBeenCalled();

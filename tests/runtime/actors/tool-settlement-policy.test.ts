@@ -39,7 +39,6 @@ function invocation(inputId: string, contracts: readonly InvocationContract[]): 
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: contracts, stableBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
-    episodeContext: {},
   };
 }
 type InvocationContract = ReturnType<typeof compileInvocationToolContract>;

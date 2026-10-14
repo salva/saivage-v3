@@ -327,7 +327,6 @@ async function compactFixture(root: string) {
       }),
       capabilityRequest: {},
       routePass: { kind: 'ordinary', candidateChain: [candidate] },
-      episodeContext: {},
     },
     summarizerProvider: {
       candidate,

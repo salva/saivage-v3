@@ -520,7 +520,6 @@ export class ConversationLLMActor {
           readConversation(this.conversations.projectRoot, input.sessionId),
           requiredPreparedBlocks(input),
         ),
-        episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
       };
       this.#assertContinuationPreparedContext(retained.input, next);
       this.#assertRepairOpen(repair);
@@ -1119,14 +1118,6 @@ export class ConversationLLMActor {
       let continuationInput = {
         ...operation.parked.input,
         inputId: randomUUID(),
-        episodeContext: {
-          ...operation.parked.input.episodeContext,
-          lastToolResult: {
-            toolCallId: operation.parked.waiting.toolCallId,
-            toolName: operation.parked.waiting.toolName,
-            result: facts.providerResult,
-          },
-        },
       };
       this.#assertContinuationPreparedContext(operation.parked.input, continuationInput);
       const continuation = hook?.(continuationInput.inputId);

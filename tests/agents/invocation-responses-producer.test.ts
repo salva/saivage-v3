@@ -81,7 +81,7 @@ describe('Responses producer through real ordinary invocation', () => {
     expect(readFileSync(currentConversationSegmentPath(root, SESSION))).toEqual(durableBefore);
     const sentInputs = fetch.mock.calls.map(call => JSON.parse(call[1]!.body as string).input);
     expect(sentInputs[1]).toEqual(sentInputs[0].filter((item: { type: string; encrypted_content?: string }) => !(item.type === 'reasoning' && Object.hasOwn(item, 'encrypted_content'))));
-    appendLlmTurnMessageBatch({ projectRoot: root }, { ...request, sessionId: SESSION, agentId: SESSION, compiledToolContracts: [], episodeContext: {} }, 'B visible completion', completion.provider_private_context);
+    appendLlmTurnMessageBatch({ projectRoot: root }, { ...request, sessionId: SESSION, agentId: SESSION, compiledToolContracts: [] }, 'B visible completion', completion.provider_private_context);
     const rows = readCurrentConversationSegment(root, SESSION)!.rows;
     expect(JSON.parse(rows.filter(row => row.kind === 'provider_private').at(-1)!.content).producer_account_id).toBe(responsesProducerAccountId(RESPONSES_B));
     service.projectProviderExchanges(SESSION, 'primary', INPUT, completion.provider_exchanges, { assistantOutputIds: [`${INPUT}:message`], terminalConversationOutputId: null });

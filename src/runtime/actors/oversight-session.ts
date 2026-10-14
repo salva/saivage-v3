@@ -183,7 +183,6 @@ export class OversightSession {
         }),
         capabilityRequest: this.#capabilityRequest,
         routePass: { kind: 'ordinary' as const, candidateChain: this.#candidateChain },
-        episodeContext: { surface: 'scheduled-oversight' },
       };
       signal.throwIfAborted();
       initializeMissingConversation(this.#conversations.projectRoot, this.#sessionId);

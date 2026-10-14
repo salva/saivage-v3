@@ -95,6 +95,6 @@ function invocation(contract: ReturnType<typeof compileInvocationToolContract>):
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId, systemPrompt: 'system',
     providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [contract.providerDefinition], compiledToolContracts: [contract], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction,
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [contract], stableBlocks: [], preparedCompaction }),
-    capabilityRequest: { requiresTools: true }, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
+    capabilityRequest: { requiresTools: true }, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
   };
 }

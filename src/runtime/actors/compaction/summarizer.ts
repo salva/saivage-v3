@@ -153,7 +153,6 @@ export function buildSummaryRequestInput(args: {
       ),
     },
     routePass: { kind: 'ordinary', candidateChain: [args.candidate] },
-    episodeContext: { compaction: true },
   };
 }
 

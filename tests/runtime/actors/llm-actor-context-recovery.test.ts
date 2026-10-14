@@ -811,7 +811,7 @@ function realCompactionInvocation(root: string, stableBlocks: Parameters<typeof 
     inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system',
     providerConversation: providerConversationProjection(readConversation(root, 'agent:planner:project'), preparedContext.stableBlocks),
     tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext, capabilityRequest: {},
-    routePass: { kind: 'ordinary', candidateChain: [{ provider: 'real-fixture', account: null, model: 'real-model' }] }, episodeContext: {},
+    routePass: { kind: 'ordinary', candidateChain: [{ provider: 'real-fixture', account: null, model: 'real-model' }] },
   };
 }
 
@@ -823,7 +823,7 @@ function invocation(): PreparedLlmInvocationInput {
     systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },
     preparedCompaction,
     preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], stableBlocks: [], preparedCompaction }),
-    capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
+    capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
   };
 }
 
