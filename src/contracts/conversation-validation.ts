@@ -457,12 +457,13 @@ function deriveLatestRecordObservations(
   sourceRows: readonly AgentMessage[],
   segmentVersion: number,
 ): LatestRecordObservation[] {
+  const sourceOrdinals = new Map(sourceRows.map((row, index) => [row.id, index]));
   const latest = new Map(
     inherited.map((entry) => [recordObservationKey(entry.observation.observed), entry]),
   );
   for (const row of rows) {
-    const rowIndex = sourceRows.findIndex((candidate) => candidate.id === row.id);
-    if (rowIndex < 0) throw new Error('Record observation row is not in its canonical source.');
+    const rowIndex = sourceOrdinals.get(row.id);
+    if (rowIndex === undefined) throw new Error('Record observation row is not in its canonical source.');
     for (const observation of row.record_observations ?? []) {
       if (observation.observed.selection_kind !== 'current') continue;
       const key = recordObservationKey(observation.observed);

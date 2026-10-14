@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { validateAtomicCoveredSourcePrefix, validateConversation } from '../../src/contracts/conversation-validation.js';
+import { deriveRequiredModelFacts, validateAtomicCoveredSourcePrefix, validateCompactedHistorySuccessor, validateConversation } from '../../src/contracts/conversation-validation.js';
 import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixture.js';
-import { agentMessageSchema, compactedHistorySchema, type AgentMessage, type CompactedHistory, type ConversationSessionId, type ToolSettlementOrigin } from '../../src/schemas/index.js';
+import { agentMessageSchema, compactedHistorySchema, STRUCTURAL_ROW_POLICY, type AgentMessage, type CompactedHistory, type ConversationSessionId, type LatestRecordObservation, type RecordObservation, type RequiredModelFactSlots, type ToolSettlementOrigin } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -180,6 +180,115 @@ const INPUT = '00000000-0000-4000-8000-000000000001';
 const OTHER_INPUT = '00000000-0000-4000-8000-000000000002';
 const GENESIS_ID = '11111111-1111-4111-8111-111111111111';
 const MARKER_ID = '22222222-2222-4222-8222-222222222222';
+
+const EMPTY_FACTS: RequiredModelFactSlots = { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] };
+
+describe('record observation source derivation', () => {
+  it.each([256, 1024])('bounds identity access linearly for %i canonical rows and selected subsets', (size) => {
+    // Count only accesses after valid, linearly constructed fixtures are ready.
+    // Dense coverage also rejects moving a quadratic search behind an observation filter.
+    for (const density of ['none', 'sparse', 'dense'] as const) {
+      let accesses = 0;
+      const rows = Array.from({ length: size }, (_, index) => {
+        const row = density === 'dense' || (density === 'sparse' && index % 64 === 0)
+          ? observationRow(`observed-${index}`, [observation('brief.md', index + 1)])
+          : text(`text-${index}`);
+        const id = row.id;
+        Object.defineProperty(row, 'id', { enumerable: true, get: () => { accesses++; return id; } });
+        return row;
+      });
+      const source = validateConversation(SESSION, rows);
+      expect(accesses).toBeLessThanOrEqual(32 * size);
+      expect(source.effectiveRequiredModelFacts.latestRecordObservations).toEqual(
+        density === 'none' ? [] : [fact(rows[density === 'dense' ? size - 1 : size - 64]!, density === 'dense' ? size - 1 : size - 64)],
+      );
+      const subset = rows.slice(size / 2);
+      accesses = 0;
+      const facts = deriveRequiredModelFacts({ inherited: EMPTY_FACTS, coveredRows: subset, source });
+      expect(accesses).toBeLessThanOrEqual(8 * size);
+      expect(facts).toEqual(source.effectiveRequiredModelFacts);
+    }
+  });
+
+  it('preserves zero and nonzero canonical coordinates for copied-ID subsets with private rows', () => {
+    const first = observationRow('first', [observation('brief.md', 1)]);
+    const bundle = responsesBundle(SESSION, INPUT, RESPONSES_A, '{"success":true,"data":"settled"}');
+    const last = agentMessageSchema.parse({ ...text('last'), role: 'user', kind: 'record_prompt',
+      instruction_origin: 'workflow_prompt', record_prompt: { reference: 'changed-record', node_id: 'plan', reason: 'changed' },
+      record_observations: [{ ...observation('status.md', 2), source: { kind: 'prompt', input_id: INPUT, node_id: 'plan', reference: 'changed-record' } }] });
+    const rows = [first, activation(), ...bundle, last];
+    const source = validateConversation(SESSION, rows);
+    expect(source.sourceRows.map(row => row.id)).toEqual(rows.map(row => row.id));
+    // Private rows remain canonical source rows, unlike provider-visible offsets.
+    const visibleOffset = providerConversationProjection(source, []).messages.filter(row => row.kind !== 'provider_private').findIndex(row => 'id' in row && row.id === last.id);
+    expect(visibleOffset).toBeGreaterThanOrEqual(0);
+    expect(visibleOffset).toBeLessThan(5);
+    const copiedLast = agentMessageSchema.parse({ ...last, timestamp: '2026-08-11T00:00:09.000Z',
+      record_observations: last.record_observations!.map(entry => ({ ...entry, observed: { ...entry.observed, exposure: { kind: 'reference_only' } } })) });
+    const facts = deriveRequiredModelFacts({ inherited: EMPTY_FACTS, coveredRows: [copiedLast, { ...first }], source });
+    expect(facts.latestRecordObservations).toEqual([fact(copiedLast, 5), fact(first, 0)]);
+    expect(facts.latestRecordObservations[0]!.observation).toBe(copiedLast.record_observations![0]);
+    for (const unknown of [text('unknown-empty'), observationRow('unknown-observed', [observation('brief.md', 1)])]) {
+      expect(() => deriveRequiredModelFacts({ inherited: EMPTY_FACTS, coveredRows: [unknown], source })).toThrow('Record observation row is not in its canonical source.');
+    }
+  });
+
+  it('preserves inherited coordinates, latest occurrence order, historical exclusion and covered successor facts', () => {
+    const inheritedA = fact(observationRow('inherited-a', [observation('brief.md', 9)]), 17, 1);
+    const inheritedB = fact(observationRow('inherited-b', [observation('status.md', 8)]), 23, 2);
+    const inherited = { ...EMPTY_FACTS, latestRecordObservations: [inheritedA, inheritedB] };
+    const history = compactedHistorySchema.parse({ summaryText: 'prior', protectedPrompts: [], requiredModelFacts: inherited });
+    const a = observationRow('a', [observation('brief.md', 2)]);
+    const b = observationRow('b', [observation('status.md', 3)]);
+    const ac = observationRow('ac', [observation('brief.md', 1), observation('review.md', 1)]);
+    const bundle = responsesBundle(SESSION, INPUT, RESPONSES_A, '{"success":true,"data":"historical"}');
+    const result = bundle[2]!;
+    result.record_observations = [{
+      ...observation('brief.md', 7),
+      observed: { ...observation('brief.md', 7).observed, selection_kind: 'historical', head: null },
+      source: { kind: 'read', input_id: INPUT, tool_call_id: result.tool_call_id!, tool_name: result.tool! },
+    }];
+    bundle[2] = agentMessageSchema.parse(result);
+    const rows = [a, b, ac, activation(), ...bundle];
+    const source = validateConversation(SESSION, rows, undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', sourceVersion: 3, history });
+    expect(source.segmentVersion).toBe(4);
+    expect(source.effectiveRequiredModelFacts.latestRecordObservations).toEqual([fact(b, 1, 4), fact(ac, 2, 4), fact(ac, 2, 4, 1)]);
+    const coveredRows = [a];
+    const facts = deriveRequiredModelFacts({ inherited, coveredRows, source });
+    expect(facts.latestRecordObservations).toEqual([inheritedB, fact(a, 0, 4)]);
+    expect(facts.latestRecordObservations[0]).toBe(inheritedB);
+    const successor = compactedHistorySchema.parse({ summaryText: 'covered', protectedPrompts: [], requiredModelFacts: facts });
+    expect(() => validateCompactedHistorySuccessor({ source, sourceVersion: 4, successor, coveredRows })).not.toThrow();
+    expect(deriveRequiredModelFacts({ inherited, coveredRows: rows, source })).toEqual(source.effectiveRequiredModelFacts);
+    expect(() => deriveRequiredModelFacts({ inherited, coveredRows: [{ ...bundle[2]!, id: 'unknown-historical' }], source })).toThrow('Record observation row is not in its canonical source.');
+  });
+
+  it('strictly consumes malformed and duplicate rows outside the observation selection', () => {
+    const selected = observationRow('selected', [observation('brief.md', 1)]);
+    const bundle = responsesBundle(SESSION, INPUT, RESPONSES_A, '{"success":true,"data":"settled"}');
+    expect(() => validateConversation(SESSION, [selected, text('duplicate'), text('duplicate')])).toThrow(/duplicate message ids/);
+    expect(() => validateConversation(SESSION, [selected, activation(), ...bundle.slice(0, 2), { ...bundle[2]!, content: '{malformed' }])).toThrow(/malformed content/);
+  });
+});
+
+function observation(recordName: string, version: number): RecordObservation {
+  return {
+    observed: { card_id: 'project', record_name: recordName, view: 'accepted', selection_kind: 'current',
+      head: { head_id: INPUT, revision: version },
+      selection: { kind: 'accepted', entry_id: GENESIS_ID, version, locator: `record:///${recordName}?card=project&v=${version}`, content_sha256: 'a'.repeat(64) },
+      exposure: { kind: 'metadata' } },
+    source: { kind: 'preparation', input_id: INPUT, node_id: 'plan' },
+  };
+}
+
+function observationRow(id: string, observations: RecordObservation[]): AgentMessage {
+  return agentMessageSchema.parse({ ...text(id), role: 'system', kind: 'record_observation', content: '',
+    context_policy: STRUCTURAL_ROW_POLICY.record_observation, record_observations: observations });
+}
+
+function fact(row: AgentMessage, rowIndex: number, segmentVersion = 1, observationIndex = 0): LatestRecordObservation {
+  return { source: { segmentVersion, rowIndex, messageId: row.id, timestamp: row.timestamp }, observation: row.record_observations![observationIndex]! };
+}
 
 function activation(id = 'activation', inputId = INPUT): AgentMessage { const timestamp = '2026-08-11T00:00:00.000Z'; return agentMessageSchema.parse({ id, context_policy: ACTIVITY_ROW_POLICY, session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: inputId, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
 

@@ -121,6 +121,9 @@ without follow-up reads or changes to acceptance. Conversation facts fold inheri
 descriptors and actual source observations in append order, then merge the retained
 suffix; immutable historical selections cannot replace current knowledge. These
 facts contain no protected instruction/body copy and confer no write authority.
+Canonical observation coordinates use a per-derivation source-ID index, discarded
+after the fold, eliminating repeated per-row source searches without weakening
+strict fresh consumption.
 
 `contracts/operator-api-agents.ts` owns a separate strict browser-safe entry/fact
 projection. Canonical owning reads validate durable commitments first; egress
