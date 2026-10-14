@@ -3,7 +3,7 @@ import { createOwnedFetch } from '../stores/owned-fetch';
 import type { CardDetail } from '../api/types';
 import { OperatorApiError, getCard } from '../api/client';
 
-export type CurrentCardOutcome = 'idle' | 'loading' | 'observed' | 'not-found' | 'failed' | 'unauthorized';
+type CurrentCardOutcome = 'idle' | 'loading' | 'observed' | 'not-found' | 'failed' | 'unauthorized';
 
 interface CurrentCardOrientation {
   detail: ComputedRef<CardDetail | null>;

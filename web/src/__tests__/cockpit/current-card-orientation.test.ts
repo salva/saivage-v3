@@ -12,7 +12,7 @@ import type { CardDetail } from '../../api/types';
 import { cardDetail, noCurrentRuntimeStatus, runtimeStatusSnapshot, serverAvailability } from './fixtures';
 
 const api = vi.hoisted(() => ({ getCard: vi.fn(), listCardRecords: vi.fn(), getRuntimeState: vi.fn(), getRuntimeStatus: vi.fn() }));
-vi.mock('../../api/client', async (original) => ({ ...(await original<typeof import('../../api/client')>()), ...api }));
+vi.mock('../../api/client', async (original) => ({ ...(await original<{ OperatorApiError: typeof OperatorApiError }>()), ...api }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
