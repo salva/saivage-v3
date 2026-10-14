@@ -570,19 +570,29 @@ export class CardService {
     );
   }
   private admitWrite(cardId: string, filename: string) {
-    const admitted = this.admittedRecord(cardId, filename);
-    if (!admitted) throw new AuthoredRecordNotFoundError();
-    return admitted;
+    const reached = readActiveCardPath(this.projectRoot, cardId);
+    if (!reached) throw new AuthoredRecordNotFoundError();
+    const projection: CanonicalCardProjection = {
+      card: reached.fold.current.card,
+      artifact: reached.fold.head,
+      headId: reached.fold.selection.head_id,
+    };
+    return { projection, definition: this.recordDefinitionFor(projection.card, filename) };
   }
   openRecord(cardId: string, filename: string): RecordProjection {
     const a = this.admitWrite(cardId, filename);
-    return openAuthoredRecord(this.projectRoot, a.card, a.definition, this.cardPublicationIo);
+    return openAuthoredRecord(
+      this.projectRoot,
+      a.projection.card,
+      a.definition,
+      this.cardPublicationIo,
+    );
   }
   editRecord(cardId: string, filename: string, content: string): RecordProjection {
     const a = this.admitWrite(cardId, filename);
     return editOpenAuthoredRecord(
       this.projectRoot,
-      a.card,
+      a.projection.card,
       a.definition,
       content,
       this.cardPublicationIo,
@@ -592,7 +602,7 @@ export class CardService {
     const a = this.admitWrite(cardId, filename);
     const closed = closeOpenAuthoredRecord(
       this.projectRoot,
-      a.card,
+      a.projection,
       a.definition,
       agentName,
       this.cardPublicationIo,
@@ -614,7 +624,7 @@ export class CardService {
     const a = this.admitWrite(cardId, filename);
     const accepted = acceptAuthoredRecord(
       this.projectRoot,
-      a.card,
+      a.projection,
       a.definition,
       content,
       agentName,
@@ -632,7 +642,7 @@ export class CardService {
     const a = this.admitWrite(cardId, filename);
     return discardOpenAuthoredRecord(
       this.projectRoot,
-      a.card,
+      a.projection.card,
       a.definition,
       this.cardPublicationIo,
     );

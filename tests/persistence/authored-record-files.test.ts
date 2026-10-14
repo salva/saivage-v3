@@ -18,12 +18,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   acceptAuthoredRecord,
+  AuthoredRecordNotFoundError,
   classifyCurrentAuthoredRecord,
   openAuthoredRecord,
   readAuthoredRecordVersionPair,
   inspectAuthoredRecordSelection,
   restoreAuthoredRecordSelection,
 } from '../../src/persistence/authored-record-files.js';
+import { readCanonicalCard } from '../../src/persistence/card-files.js';
 import {
   cardAcceptedRecordFile,
   cardAcceptedRecordsRoot,
@@ -33,7 +35,8 @@ import {
 } from '../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
-import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { CardService } from '../../src/cards/card-service.js';
+import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -44,7 +47,7 @@ function setup() {
   const root = mkdtempSync(join(tmpdir(), 'saivage-record-head-'));
   roots.push(root);
   initProjectTree(root);
-  const cards = new CardService(root);
+  const cards = new CardService(root, TEST_WORKFLOWS);
   const card = cards.create({
     type: 'code',
     parent: 'project',
@@ -66,6 +69,11 @@ function history(cards: CardService, cardId: string, name: string) {
   const result = cards.readRecordHistory(cardId, name);
   if (result.kind !== 'found') throw new Error('Missing test card.');
   return result.value.catalog.versions;
+}
+function projection(root: string, cardId: string) {
+  const result = readCanonicalCard(root, cardId);
+  if (result.kind !== 'found') throw new Error('Missing test card.');
+  return result.value;
 }
 const definition = {
   filename: 'status.md',
@@ -277,8 +285,15 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(existsSync(cardRecordHeadFile(root, card.id, dynamic))).toBe(true);
     expect(readFileSync(cardHeadFile(root, card.id))).toEqual(before);
   });
-  it('captures observed queue-only mutation revision and real ordinary UUID separately at acceptance', () => {
+  it.each(['accept', 'close'] as const)('captures queue-only revision and ordinary provenance on %s', (mutation) => {
     const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    const prior = history(cards, card.id, 'status.md')[0]!;
+    if (mutation === 'close') {
+      cards.openRecord(card.id, 'status.md');
+      cards.editRecord(card.id, 'status.md', 'accepted');
+    }
+    const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
     const notification = {
       id: randomUUID(),
       content: 'notice',
@@ -286,19 +301,34 @@ describe('exact record heads and accepted predecessor chains', () => {
     };
     cards.enqueueNotification(card.id, notification);
     cards.removeNotifications(card.id, [notification.id]);
-    const accepted = cards.acceptRecord(card.id, 'status.md', 'accepted', 'analyst');
-    const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
+    const accepted = mutation === 'accept'
+      ? cards.acceptRecord(card.id, 'status.md', 'accepted', 'analyst')
+      : cards.closeRecord(card.id, 'status.md', 'executor');
+    const expected = {
+      content: 'accepted',
+      writer_agent: mutation === 'accept' ? 'analyst' : 'executor',
+      card_version_seq: 3,
+      card_history: ordinary,
+    };
     expect(accepted).toMatchObject({
-      revision: 1,
-      accepted: { card_version_seq: 3, card_history: ordinary },
+      revision: mutation === 'accept' ? 2 : 4,
+      state: 'closed',
+      draft: null,
+      accepted: expected,
     });
     expect(ordinary.version).toBe(1);
+    expect(current(cards, card.id, 'status.md')).toEqual(accepted);
+    const stored = JSON.parse(readFileSync(cardAcceptedRecordFile(root, card.id, accepted.accepted!.source_entry_id), 'utf8'));
+    expect(stored).toMatchObject({
+      accepted: expected,
+      predecessor: { entry_id: prior.entry_id, version: prior.version },
+    });
   });
   it('preserves crash-left draft after owner recreation and rejects explicit Analyst acceptance', () => {
     const { root, cards, card } = setup();
     cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'unfinished');
-    const restarted = new CardService(root);
+    const restarted = new CardService(root, TEST_WORKFLOWS);
     expect(current(restarted, card.id, 'status.md')).toMatchObject({
       revision: 2,
       state: 'open',
@@ -311,6 +341,130 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(restarted.closeRecord(card.id, 'status.md', 'executor').accepted?.content).toBe(
       'unfinished',
     );
+  });
+  it.each(['accept', 'close', 'open', 'edit', 'discard'] as const)('rejects missing cards before parsing an invalid record name on %s', (mutation) => {
+    const { cards } = setup();
+    const missing = 'card-z';
+    const invalid = '../invalid.md';
+    const write = () => {
+      if (mutation === 'accept') return cards.acceptRecord(missing, invalid, '', 'analyst');
+      if (mutation === 'close') return cards.closeRecord(missing, invalid, 'executor');
+      if (mutation === 'edit') return cards.editRecord(missing, invalid, '');
+      if (mutation === 'discard') return cards.discardRecord(missing, invalid);
+      return cards.openRecord(missing, invalid);
+    };
+    expect(write).toThrow(AuthoredRecordNotFoundError);
+  });
+  it.each(['accept', 'close'] as const)('rejects malformed record heads before draft/content conditions on %s', (mutation) => {
+    const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.openRecord(card.id, 'status.md'); // Open draft would otherwise reject direct acceptance.
+    const path = cardRecordHeadFile(root, card.id, definition);
+    writeFileSync(path, '{broken');
+    const before = readFileSync(path);
+    expect(() => mutation === 'accept'
+      ? cards.acceptRecord(card.id, 'status.md', '', 'analyst')
+      : cards.closeRecord(card.id, 'status.md', 'executor')).toThrow(SyntaxError);
+    expect(readFileSync(path)).toEqual(before);
+  });
+  it('rejects direct acceptance of an open draft before consuming a corrupt accepted body', () => {
+    const { root, cards, card } = setup();
+    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.openRecord(card.id, 'status.md');
+    writeFileSync(cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id), '{broken');
+    const path = cardRecordHeadFile(root, card.id, definition);
+    const before = readFileSync(path);
+    expect(() => cards.acceptRecord(card.id, 'status.md', '', 'analyst')).toThrow('Record already has an open workflow draft.');
+    expect(readFileSync(path)).toEqual(before);
+  });
+  it.each(['', 'prior'])('consumes corrupt selected acceptance before checking requested content %j', (content) => {
+    const { root, cards, card } = setup();
+    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    writeFileSync(cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id), '{broken');
+    const path = cardRecordHeadFile(root, card.id, definition);
+    const before = readFileSync(path);
+    expect(() => cards.acceptRecord(card.id, 'status.md', content, 'analyst')).toThrow(SyntaxError);
+    expect(readFileSync(path)).toEqual(before);
+  });
+  it('rejects close without a draft before empty content and rejects an empty draft without publication', () => {
+    const { root, cards, card } = setup();
+    const path = cardRecordHeadFile(root, card.id, definition);
+    expect(() => cards.closeRecord(card.id, 'status.md', 'executor')).toThrow('Record is not open.');
+    expect(existsSync(path)).toBe(false);
+    const opened = cards.openRecord(card.id, 'status.md');
+    const before = readFileSync(path);
+    expect(() => cards.closeRecord(card.id, 'status.md', 'executor')).toThrow('Record content must not be empty.');
+    expect(readFileSync(path)).toEqual(before);
+    expect(current(cards, card.id, 'status.md')).toEqual(opened);
+    expect(history(cards, card.id, 'status.md')).toEqual([]);
+  });
+  it('closes a valid draft without consuming its broken prior accepted body', () => {
+    const { root, cards, card } = setup();
+    const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.openRecord(card.id, 'status.md');
+    cards.editRecord(card.id, 'status.md', 'replacement');
+    const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
+    const brokenPath = cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id);
+    writeFileSync(brokenPath, '{broken');
+    const closed = cards.closeRecord(card.id, 'status.md', 'executor');
+    const expected = { content: 'replacement', writer_agent: 'executor', card_version_seq: 1, card_history: ordinary };
+    expect(closed.accepted).toMatchObject(expected);
+    expect(current(cards, card.id, 'status.md')).toEqual(closed);
+    const stored = JSON.parse(readFileSync(cardAcceptedRecordFile(root, card.id, closed.accepted!.source_entry_id), 'utf8'));
+    expect(stored).toMatchObject({
+      accepted: expected,
+      predecessor: { entry_id: prior.accepted!.source_entry_id, version: prior.revision },
+    });
+    expect(readFileSync(brokenPath, 'utf8')).toBe('{broken');
+  });
+  it.each(['accept', 'close'] as const)('freshly admits later %s after queue and ordinary card changes', (mutation) => {
+    const { root, cards, card } = setup();
+    const first = cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
+    expect(first.accepted?.card_version_seq).toBe(1);
+    const notification = { id: randomUUID(), content: 'notice', created_at: new Date().toISOString() };
+    const observe = () => expect(cards.readRecordCurrent(card.id, 'status.md').kind).toBe('found');
+    const write = (content: string) => {
+      if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', content, 'analyst');
+      cards.openRecord(card.id, 'status.md');
+      cards.editRecord(card.id, 'status.md', content);
+      return cards.closeRecord(card.id, 'status.md', 'executor');
+    };
+    observe();
+    cards.enqueueNotification(card.id, notification);
+    const queueOrdinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
+    const second = write('second');
+    expect(second.accepted).toMatchObject({ card_version_seq: 2, card_history: queueOrdinary });
+    expect(queueOrdinary.version).toBe(1);
+    expect(current(cards, card.id, 'status.md')).toEqual(second);
+    observe();
+    cards.editCard(card.id, { title: 'changed ordinary selection' }, 'planner');
+    const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
+    expect(ordinary).not.toEqual(queueOrdinary);
+    const third = write('third');
+    expect(third.accepted).toMatchObject({ card_version_seq: 3, card_history: ordinary });
+    expect(current(cards, card.id, 'status.md')).toEqual(third);
+    expect(history(cards, card.id, 'status.md').at(-1)).toMatchObject({
+      predecessor: { entry_id: second.accepted!.source_entry_id, version: second.revision },
+    });
+  });
+  it.each(['accept', 'close', 'open', 'edit', 'discard'] as const)('does not reuse earlier observation to authorize %s after legitimate deletion', (mutation) => {
+    const { root, cards, card } = setup();
+    cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
+    cards.openRecord(card.id, 'status.md');
+    cards.editRecord(card.id, 'status.md', 'draft');
+    expect(cards.readRecordCurrent(card.id, 'status.md').kind).toBe('found');
+    cards.deleteSubtrees([card.id], () => true, 'analyst');
+    const path = cardRecordHeadFile(root, card.id, definition);
+    const before = readFileSync(path);
+    const write = () => {
+      if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', 'replacement', 'analyst');
+      if (mutation === 'close') return cards.closeRecord(card.id, 'status.md', 'executor');
+      if (mutation === 'edit') return cards.editRecord(card.id, 'status.md', 'replacement');
+      if (mutation === 'discard') return cards.discardRecord(card.id, 'status.md');
+      return cards.openRecord(card.id, 'status.md');
+    };
+    expect(write).toThrow(AuthoredRecordNotFoundError);
+    expect(readFileSync(path)).toEqual(before);
   });
   it('consumes selected current only and detects corrupt or missing predecessors at history use without fallback', () => {
     const { root, cards, card } = setup();
@@ -406,7 +560,8 @@ describe('exact record heads and accepted predecessor chains', () => {
         renameSync(from, to);
       },
     };
-    expect(() => acceptAuthoredRecord(root, card, definition, 'B', 'analyst', io)).toThrow(
+    const observed = projection(root, card.id);
+    expect(() => acceptAuthoredRecord(root, observed, definition, 'B', 'analyst', io)).toThrow(
       PublicationOutcomeUnknownError,
     );
     expect(calls.at(-1)).toBe('rename');
@@ -458,8 +613,9 @@ describe('exact record heads and accepted predecessor chains', () => {
         renameSync(from, to);
       },
     };
+    const observed = projection(root, card.id);
     expect(() =>
-      acceptAuthoredRecord(root, card, definition, 'new acceptance', 'analyst', io),
+      acceptAuthoredRecord(root, observed, definition, 'new acceptance', 'analyst', io),
     ).toThrow(
       fault.startsWith('parent-') || fault === 'rename' ? PublicationOutcomeUnknownError : error,
     );
@@ -520,7 +676,7 @@ describe('exact record heads and accepted predecessor chains', () => {
         rename: (from, to) => { hit('rename'); renameSync(from, to); },
       };
       const freshness = { cardProjectionChanged: jest.fn(), runtimeChanged: jest.fn(), agentMembershipChanged: jest.fn() };
-      const failing = new CardService(root, freshness, io);
+      const failing = new CardService(root, TEST_WORKFLOWS, freshness, io);
       let caught: unknown;
       try {
         if (mutation === 'accept') failing.acceptRecord(card.id, 'status.md', 'new accepted', 'analyst');

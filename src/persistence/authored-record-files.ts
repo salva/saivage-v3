@@ -31,7 +31,7 @@ import {
   type PublicationTemporaryIdFactory,
   type ReplacementFileIo,
 } from './replace-file.js';
-import { readCommittedCardCurrent } from './card-files.js';
+import type { CanonicalCardProjection } from './card-files.js';
 
 export interface RecordProjection {
   readonly cardId: string;
@@ -422,32 +422,32 @@ function publishAcceptance(
   publishHead(projectRoot, definition, head, prior === null, io, temporary);
   return project(definition, head, artifact.accepted);
 }
-function acceptanceCard(projectRoot: string, cardId: string) {
-  const current = readCommittedCardCurrent(projectRoot, cardId);
-  if (current.kind !== 'found' || current.value.artifact.kind !== 'card-version')
+function acceptanceCard(projection: CanonicalCardProjection) {
+  if (projection.artifact.kind !== 'card-version')
     throw new AuthoredRecordNotFoundError();
   return {
-    revision: current.value.card.version_seq,
-    history: { entry_id: current.value.artifact.entry_id, version: current.value.artifact.version },
+    revision: projection.card.version_seq,
+    history: { entry_id: projection.artifact.entry_id, version: projection.artifact.version },
   };
 }
 export function acceptAuthoredRecord(
   projectRoot: string,
-  card: CardRecord,
+  projection: CanonicalCardProjection,
   definition: RecordDefinition,
   content: string,
   writer: AgentName,
   io?: ReplacementFileIo,
   temporary?: PublicationTemporaryIdFactory,
 ): RecordProjection {
-  const prior = readHead(projectRoot, card.id, definition);
+  const cardId = projection.card.id;
+  const prior = readHead(projectRoot, cardId, definition);
   if (prior?.draft) throw new Error('Record already has an open workflow draft.');
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
   if (accepted?.content === content) throw new Error('Record content is unchanged.');
-  const observed = acceptanceCard(projectRoot, card.id);
+  const observed = acceptanceCard(projection);
   return publishAcceptance(
     projectRoot,
-    card.id,
+    cardId,
     definition,
     prior,
     content,
@@ -460,17 +460,18 @@ export function acceptAuthoredRecord(
 }
 export function closeOpenAuthoredRecord(
   projectRoot: string,
-  card: CardRecord,
+  projection: CanonicalCardProjection,
   definition: RecordDefinition,
   writer: AgentName,
   io?: ReplacementFileIo,
 ): RecordProjection {
-  const prior = readHead(projectRoot, card.id, definition);
+  const cardId = projection.card.id;
+  const prior = readHead(projectRoot, cardId, definition);
   if (!prior?.draft) throw new Error('Record is not open.');
-  const observed = acceptanceCard(projectRoot, card.id);
+  const observed = acceptanceCard(projection);
   return publishAcceptance(
     projectRoot,
-    card.id,
+    cardId,
     definition,
     prior,
     prior.draft.content,
