@@ -24,6 +24,30 @@ const gateCases: Array<['clean' | 'continue', 'exists' | 'updated']> = [
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('AgentNodeExecution authored-record absence handling', () => {
+  it('uses one inspection for pair capture and a separate fresh inspection for acceptance', () => {
+    const root = mkdtempSync(join(tmpdir(), 'review-pair-projection-'));
+    roots.push(root); initProjectTree(root);
+    const store = new CardService(root);
+    store.create({ type: 'code', parent: 'project', title: 'Displayed child', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const inspection = jest.spyOn(store, 'readCardInspectionTree');
+    const childListing = jest.spyOn(store, 'listChildren');
+    const runner = new AgentNodeExecution({ cardId: 'project', store } as never, {} as never) as unknown as {
+      captureReviewerPair(id: string, records: readonly string[]): { snapshot: unknown };
+      reviewerStaleReason(id: string, before: unknown, records: readonly string[]): string | null;
+    };
+    try {
+      const pair = runner.captureReviewerPair('project', ['status.md']);
+      expect(inspection).toHaveBeenCalledTimes(1);
+      expect(inspection).toHaveBeenLastCalledWith('project', 12);
+      expect(childListing).not.toHaveBeenCalled();
+      expect(runner.reviewerStaleReason('project', pair.snapshot, ['status.md'])).toBeNull();
+      expect(inspection).toHaveBeenCalledTimes(2);
+    } finally {
+      inspection.mockRestore();
+      childListing.mockRestore();
+    }
+  });
+
   it.each(['card', 'record'] as const)('rejects a fresh %s selection identity even with identical revision and payload', (target) => {
     const root = mkdtempSync(join(tmpdir(), 'review-head-identity-')); roots.push(root); initProjectTree(root);
     const store = new CardService(root);

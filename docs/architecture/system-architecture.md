@@ -379,6 +379,7 @@ App-log publication failure sends no event and makes Supervisor start the singul
 
 Every accepted edge uses one record-acceptance algorithm before transition.
 Node entry applies `clean` or `continue` only to exact requirements and captures head UUID/revision baselines after preparation. Updated acceptance requires both a different identity and a greater mutable revision. Reviewer snapshots carry each current subtree card's head UUID/revision and included records' head UUID/revision plus accepted entry/version; context stamps expose the card selection and final equality includes those identities.
+One synchronous root-inclusive subtree projection supplies initial or refreshed Reviewer display and comparison stamps; acceptance independently rereads current subtree and record selections. This is call-local reuse, not an atomic filesystem snapshot or retained admission authority.
 Acceptance checks non-empty `exists` or post-baseline `updated`, then closes required open records in declaration order followed by other activation-written open records in sorted name order, recording only close-return URLs.
 Direct tools and framework close are distinct capabilities under the same compiled name-glob authority.
 Graceful non-accepted settlement discards activation-written drafts before generic invocation-surface cleanup; correction loops retain them.

@@ -124,6 +124,7 @@ type ReviewerContextPair = {
   exactContext: ProviderVisibleUserContextMessage;
   snapshot: ReviewerSnapshot;
 };
+type ReviewerTreeRows = readonly { card: CardRecord; headId: string }[];
 
 interface AgentNodeExecutionHost {
   createLlm(agentId: string): ConversationLLMActor;
@@ -1059,39 +1060,37 @@ export class AgentNodeExecution {
       if (current?.state === 'open') this.deps.store.discardRecord(this.deps.cardId, filename);
     }
   }
-  private directChildren(cardId: string): CardRecord[] {
-    return this.deps.store
-      .listChildren(cardId)
-      .map((id) => this.deps.store.read(id))
-      .filter((card): card is CardRecord => card !== null);
-  }
-  private descendants(cardId: string): CardRecord[] {
-    return this.directChildren(cardId).flatMap((child) => [child, ...this.descendants(child.id)]);
-  }
   private captureReviewerPair(cardId: string, records: readonly string[]): ReviewerContextPair {
-    const snapshot = this.captureReviewerSnapshot(cardId, records);
-    return { exactContext: this.reviewerContext(cardId, snapshot), snapshot };
+    const rows = this.readReviewerTree(cardId);
+    const snapshot = this.reviewerSnapshot(rows, records);
+    return { exactContext: this.reviewerContext(cardId, rows, snapshot), snapshot };
   }
-  private captureReviewerSnapshot(cardId: string, records: readonly string[]): ReviewerSnapshot {
+  private readReviewerTree(cardId: string): ReviewerTreeRows {
     const selected = this.deps.store.readCardInspectionTree(cardId, 12);
     if (selected.kind === 'card-not-found') throw new Error(`Reviewed card '${cardId}' not found.`);
-    const descendants = selected.value.slice(1).map(({ card }) => card);
+    return selected.value;
+  }
+  private captureReviewerSnapshot(cardId: string, records: readonly string[]): ReviewerSnapshot {
+    return this.reviewerSnapshot(this.readReviewerTree(cardId), records);
+  }
+  private reviewerSnapshot(rows: ReviewerTreeRows, records: readonly string[]): ReviewerSnapshot {
     return {
-      cards: selected.value.map(({ card, headId }) => ({
+      cards: rows.map(({ card, headId }) => ({
         id: card.id,
         versionSeq: card.version_seq,
         headId,
       })),
-      includedRecordVersions: descendants.flatMap((card) =>
+      includedRecordVersions: rows.slice(1).flatMap(({ card }) =>
         records.map((record) => acceptedRecordVersion(this.deps.store, card.id, record)),
       ),
     };
   }
   private reviewerContext(
     cardId: string,
+    rows: ReviewerTreeRows,
     snapshot: ReviewerSnapshot,
   ): ProviderVisibleUserContextMessage {
-    const lines = this.descendants(cardId).map((card) => {
+    const lines = rows.slice(1).map(({ card }) => {
       const records = snapshot.includedRecordVersions
         .filter((entry) => entry.cardId === card.id)
         .map((entry) =>

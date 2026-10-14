@@ -30,6 +30,7 @@ import { canonicalJson, type CardConversationSessionId } from '../../src/schemas
 import { sha256Hex } from '../../src/schemas/index.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
+import { cardHeadFile } from '../../src/persistence/layout.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK_HANDOFF =
@@ -98,6 +99,179 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 describe('reviewer rework completion E2E', () => {
+  it.each(['empty', 'card', 'record'] as const)(
+    'composes exact selected subtree context and freshly accepts only the %s baseline',
+    async (change) => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-projection-e2e-'));
+      roots.push(projectRoot);
+      initProjectTree(projectRoot);
+      const cards = new CardService(projectRoot);
+      const create = (parent: string, type: 'goal' | 'code', title: string) => cards.create({
+        parent, type, title, bootstrap_content: `Deliver ${title}.`, priority: 0,
+        urgency: 'normal', created_by: 'planner', depends_on: [],
+      });
+      const descendants: Array<{ id: string; type: string; title: string }> = [];
+      const acceptedVersions = new Map<string, number>();
+      if (change !== 'empty') {
+        const branch = create('project', 'goal', 'Branch with nested evidence');
+        const nested = create(branch.id, 'code', 'Nested completed work');
+        const sibling = create('project', 'code', 'First displayed sibling');
+        const removed = create('project', 'goal', 'Tombstoned branch');
+        create(removed.id, 'code', 'Hidden nested work');
+        cards.deleteSubtrees([removed.id], () => true, 'analyst');
+        expect(cards.reorderChildren('project', [sibling.id, branch.id])).toMatchObject({ ok: true });
+        for (const card of [nested, branch, sibling]) {
+          cards.setStatus(card.id, 'running');
+          cards.commitActivationOutcome(card.id, {
+            status: 'done', summary: `${card.title} complete.`,
+            result: workflowResult('DONE', `${card.title} complete.`),
+          }, '2026-07-17T00:00:00.000Z');
+        }
+        for (const card of [sibling, nested]) {
+          const record = cards.acceptRecord(card.id, 'status.md', `${card.title} evidence.`, 'executor');
+          acceptedVersions.set(card.id, record.accepted!.source_version);
+        }
+        // Known fixture preorder, not the inspection/formatting implementation under test.
+        descendants.push(sibling, branch, nested);
+      }
+      const expectedContext = () => {
+        const stamp = (id: string) => {
+          const head = JSON.parse(readFileSync(cardHeadFile(projectRoot, id), 'utf8'));
+          return `revision ${cards.read(id)!.version_seq}, head ${head.head_id}`;
+        };
+        return `Reviewed card project: ${stamp('project')}\nDescendant work:\n${
+          descendants.length ? descendants.map((card) =>
+            `- ${card.id} (${card.type}, done, ${stamp(card.id)}): ${card.title}; ${
+              acceptedVersions.has(card.id)
+                ? `record:///status.md?card=${card.id}&v=${acceptedVersions.get(card.id)}`
+                : 'status.md=missing'
+            }`,
+          ).join('\n') : '(none)'
+        }`;
+      };
+      const reviewerSession = 'agent:reviewer:project' as const;
+      let plannerCalls = 0;
+      let reviewerCalls = 0;
+      let initialContext = '';
+      let refreshedContext = '';
+      const observedContexts: string[] = [];
+      const discard = jest.spyOn(cards, 'discardRecord');
+      const reopen = jest.spyOn(cards, 'openRecord');
+      const providerTurn = jest.fn(async (input: LlmInvocationInput) => {
+        if (input.agentName === 'planner') {
+          plannerCalls += 1;
+          if (plannerCalls === 1) return complete(tool('projection-status', 'write', {
+            path: 'record:///status.md?card=project', content: 'All selected work is complete.',
+          }));
+          if (plannerCalls === 2) return complete(tool('projection-admit', 'emit_result', {
+            outcome: 'admit_review', summary: 'Inspect completed work.',
+          }));
+          throw new Error(`Unexpected Planner call ${plannerCalls}.`);
+        }
+        reviewerCalls += 1;
+        const contexts = input.providerConversation.messages.filter(
+          (row) => row.kind === 'text' && row.role === 'user' &&
+            row.content.startsWith('Reviewed card project:'),
+        ).map((row) => row.content);
+        if (reviewerCalls === 1) {
+          initialContext = expectedContext();
+          expect(contexts).toEqual([initialContext]);
+          observedContexts.push(initialContext);
+          expect(readConversation(projectRoot, reviewerSession).sourceRows.filter(
+            (row) => row.kind === 'text' && row.role === 'user' && row.content === initialContext,
+          )).toHaveLength(1);
+          return complete(tool('projection-review-initial', 'write', {
+            path: 'record:///review.md?card=project', content: 'Initial review draft.',
+          }));
+        }
+        if (reviewerCalls === 2) {
+          if (change === 'card') {
+            const descendant = descendants[0]!;
+            cards.setStatus(descendant.id, 'changed');
+            descendant.title = 'Revised completed sibling';
+            cards.editCard(descendant.id, { title: descendant.title }, 'planner');
+            cards.setStatus(descendant.id, 'running');
+            cards.commitActivationOutcome(descendant.id, {
+              status: 'done', summary: 'Revised sibling complete.',
+              result: workflowResult('DONE', 'Revised sibling complete.'),
+            }, '2026-07-17T00:00:01.000Z');
+          } else if (change === 'record') {
+            const id = descendants[0]!.id;
+            const record = cards.acceptRecord(id, 'status.md', 'New independently accepted evidence.', 'executor');
+            acceptedVersions.set(id, record.accepted!.source_version);
+          }
+          if (change !== 'empty') {
+            refreshedContext = expectedContext();
+            expect(refreshedContext).not.toBe(initialContext);
+            discard.mockClear();
+            reopen.mockClear();
+          }
+          return complete(tool('projection-review-first-result', 'emit_result', {
+            outcome: 'approved', summary: 'Initial approval attempt.',
+          }));
+        }
+        if (reviewerCalls === 3 && change !== 'empty') {
+          expect(contexts).toEqual([initialContext, refreshedContext]);
+          observedContexts.push(refreshedContext);
+          const rejected = input.providerConversation.messages.find(
+            (row) => row.kind === 'tool_result' && row.tool_call_id === 'projection-review-first-result',
+          );
+          expect(JSON.parse(rejected!.content)).toMatchObject({
+            success: false, error: 'Review context is stale: reviewed subtree or included records changed during review.',
+          });
+          expect(discard).toHaveBeenCalledWith('project', 'review.md');
+          expect(reopen).toHaveBeenCalledWith('project', 'review.md');
+          expect(discard.mock.invocationCallOrder[0]).toBeLessThan(reopen.mock.invocationCallOrder[0]!);
+          expect(cards.readRecordCurrent('project', 'review.md')).toMatchObject({
+            kind: 'found', value: { projection: { state: 'open', accepted: null, draft: { content: '' } } },
+          });
+          expect(readConversation(projectRoot, reviewerSession).sourceRows.filter(
+            (row) => row.kind === 'text' && row.role === 'user' && row.content === refreshedContext,
+          )).toHaveLength(1);
+          return complete(tool('projection-review-refreshed', 'write', {
+            path: 'record:///review.md?card=project', content: 'Fresh review of changed evidence.',
+          }));
+        }
+        if (reviewerCalls === 4 && change !== 'empty') return complete(
+          tool('projection-review-fresh-result', 'emit_result', {
+            outcome: 'approved', summary: 'Fresh approval.',
+          }),
+        );
+        throw new Error(`Unexpected Reviewer call ${reviewerCalls}.`);
+      });
+      const processRegistry = new ManagedProcessGroupRegistry();
+      const runtime = createSupervisorRuntimeApi({
+        fatalPort: testApplicationFatalPort, ...testAutonomousCompaction,
+        runtimeGate: new RuntimeGate(), projectRoot, actorStore: cards,
+        provider: scriptedAdmissionProvider(providerTurn), conversations: { projectRoot },
+        freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+        processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
+        runtimeProcessRootScope: processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards'),
+        promptTemplates: { render: () => 'test prompt' },
+      });
+      try {
+        expect((await runtime.startProject()).started).toBe(true);
+        await waitUntil(() => runtime.getStatus().status === 'stopped');
+        expect(cards.read('project')).toMatchObject({ lifecycle: {
+          status: 'done', result: { summary: change === 'empty' ? 'Initial approval attempt.' : 'Fresh approval.' },
+        } });
+        expect(reviewerCalls).toBe(change === 'empty' ? 2 : 4);
+        expect(observedContexts).toEqual(change === 'empty' ? [initialContext] : [initialContext, refreshedContext]);
+        expect(cards.readRecordCurrent('project', 'review.md')).toMatchObject({
+          kind: 'found', value: { projection: { state: 'closed', accepted: {
+            content: change === 'empty' ? 'Initial review draft.' : 'Fresh review of changed evidence.',
+            writer_agent: 'reviewer',
+          } } },
+        });
+        const history = cards.readRecordHistory('project', 'review.md');
+        expect(history.kind === 'found' && history.value.catalog.versions).toHaveLength(1);
+      } finally {
+        discard.mockRestore();
+        reopen.mockRestore();
+      }
+    }, 30_000,
+  );
+
   it('delivers durable review feedback through ordinary planner projection and completes after one rework', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-rework-e2e-'));
     roots.push(projectRoot);
