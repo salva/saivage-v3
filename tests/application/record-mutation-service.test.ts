@@ -93,7 +93,10 @@ describe('card-agent record mutation', () => {
     const before = cards.readRecordCurrent('project', 'brief.md'); const cardBefore = cards.read('project');
     const open = jest.spyOn(cards, 'openRecord'); const edit = jest.spyOn(cards, 'editRecord'); const close = jest.spyOn(cards, 'closeRecord'); const propagate = jest.fn(() => ({ ok: true as const }));
     const operation = gate === 'edit' ? 'edit' : 'write';
-    expect(mutateRecord(cards, { ...analystPreflightRequest, operation, requiredTools: [operation], content: 'denied', oldString: 'Goal', newString: 'denied' }, propagate)).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: gate === 'cancelled' ? 'lifecycle_unsupported' : gate === 'writer' ? 'writer_not_authorized' : 'tool_not_authorized' } });
+    const request: Parameters<typeof mutateRecord>[1] = operation === 'edit'
+      ? { ...analystPreflightRequest, operation, requiredTools: [operation], oldString: 'Goal', newString: 'denied' }
+      : { ...analystPreflightRequest, operation, requiredTools: [operation], content: 'denied' };
+    expect(mutateRecord(cards, request, propagate)).toMatchObject({ kind: 'rejected', data: { code: 'record_mutation_denied', reason: gate === 'cancelled' ? 'lifecycle_unsupported' : gate === 'writer' ? 'writer_not_authorized' : 'tool_not_authorized' } });
     for (const spy of [open, edit, close, propagate]) expect(spy).not.toHaveBeenCalled();
     expect(cards.readRecordCurrent('project', 'brief.md')).toEqual(before); expect(cards.read('project')).toEqual(cardBefore);
   });
@@ -111,7 +114,9 @@ describe('card-agent record mutation', () => {
       ['record:///%ZZ?card=project', 'Invalid record URL encoding.'],
       ['record:///brief.md?card=project&v=1', 'Historical record URLs cannot be mutated.'],
     ]) {
-      const request = { ...analystPreflightRequest, path: path!, operation, content: 'changed', oldString: 'old', newString: 'new', onRecordWritten: written };
+      const request: Parameters<typeof mutateRecord>[1] = operation === 'edit'
+        ? { ...analystPreflightRequest, path: path!, operation, oldString: 'old', newString: 'new', onRecordWritten: written }
+        : { ...analystPreflightRequest, path: path!, operation, content: 'changed', onRecordWritten: written };
       for (const surface of ['analyst', 'card_agent'] as const) {
         expect(mutateRecord(cards, { ...request, surface, cardId: 'project' }, propagate)).toEqual({ kind: 'rejected', error, data: { code: 'record_mutation_invalid_target', operation } });
       }

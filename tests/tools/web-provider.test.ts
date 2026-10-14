@@ -23,6 +23,36 @@ const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webTool
 const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, context);
 
 describe('WebProvider', () => {
+  it('freshly denies the actual record write when its card is deleted during a deferred fetch', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'web-record-final-admission-')); initProjectTree(root);
+    const cards = new CardService(root);
+    const card = cards.create({ parent: 'project', type: 'goal', title: 'fetch target', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    let release!: (response: Response) => void;
+    const fetched = new Promise<Response>((resolve) => { release = resolve; });
+    let enterFetch!: () => void;
+    const fetchEntered = new Promise<void>((resolve) => { enterFetch = resolve; });
+    const classify = jest.spyOn(cards, 'classifyCurrentRecord');
+    const open = jest.spyOn(cards, 'openRecord'); const edit = jest.spyOn(cards, 'editRecord');
+    const written = jest.fn();
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(() => { enterFetch(); return fetched; });
+    try {
+      const context: WebProviderContext = { projectRoot: root, agentName: 'planner', cardId: card.id, store: cards, onRecordWritten: written };
+      const surface = buildInvocationSurfaceFixture('planner', [bindWeb(context)]);
+      const pending = invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as: `record:///brief.md?card=${card.id}` });
+      await fetchEntered;
+      expect(classify).toHaveBeenCalledTimes(1);
+      expect(open).not.toHaveBeenCalled(); expect(edit).not.toHaveBeenCalled();
+      cards.deleteSubtrees([card.id], (target) => target.lifecycle.status === 'backlog', 'analyst');
+      const read = jest.spyOn(cards, 'read');
+      release(new Response('fetched replacement', { status: 200, headers: { 'content-type': 'text/plain' } }));
+      await expect(pending).resolves.toMatchObject({ success: false, data: { code: 'record_mutation_denied', reason: 'card_not_active', operation: 'write' } });
+      expect(read).toHaveBeenCalledWith(card.id);
+      expect(classify).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      for (const spy of [open, edit, written]) expect(spy).not.toHaveBeenCalled();
+    } finally { jest.restoreAllMocks(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it.each(['accepted', 'no-write', 'no-webfetch', 'draft'] as const)('uses CHANGED admission and final propagation for prepared record saves: %s', async (condition) => {
     const root = mkdtempSync(join(tmpdir(), 'web-changed-record-')); initProjectTree(root);
     const config = structuredClone(TEST_SAIVAGE_CONFIG);

@@ -20,19 +20,21 @@ import {
 import type { AgentName } from '../schemas/index.js';
 import { observeRecordProjection } from '../persistence/index.js';
 
-interface RecordMutationRequest {
+interface RecordMutationAdmissionRequest {
   path: string;
   operation: 'write' | 'edit';
-  content?: string;
-  oldString?: string;
-  newString?: string;
-  replaceAll?: boolean;
   surface: 'card_agent' | 'analyst';
   agentName: AgentName;
   cardId?: string;
   requiredTools: readonly ('write' | 'edit' | 'webfetch')[];
-  onRecordWritten?: (name: string) => void;
 }
+
+type RecordMutationRequest = RecordMutationAdmissionRequest & {
+  onRecordWritten?: (name: string) => void;
+} & (
+  | { operation: 'write'; content: string }
+  | { operation: 'edit'; oldString: string; newString: string; replaceAll?: boolean }
+);
 
 type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordProjection | null };
 
@@ -67,7 +69,7 @@ function hasFailureCode<Code extends RecordMutationFailureCode>(
 
 export function admitRecordMutation(
   store: CardService,
-  request: RecordMutationRequest,
+  request: RecordMutationAdmissionRequest,
 ): Admission | RecordMutationFailure {
   let parsed: ReturnType<typeof parseRecordUrl>;
   try {
@@ -151,7 +153,7 @@ export function admitRecordMutation(
 
 export function preflightAnalystRecordWrite(
   store: CardService,
-  request: Omit<RecordMutationRequest, 'content' | 'oldString' | 'newString' | 'replaceAll'>,
+  request: RecordMutationAdmissionRequest,
 ): AnalystPreNetworkAdmission {
   const admitted = admitRecordMutation(store, request);
   if ('kind' in admitted) {
@@ -191,7 +193,7 @@ export function mutateRecord(
           current_head: currentHead,
         },
       });
-    const oldString = request.oldString!;
+    const oldString = request.oldString;
     const occurrences = effective.content.split(oldString).length - 1;
     if (occurrences === 0)
       return failure({
@@ -218,9 +220,9 @@ export function mutateRecord(
         },
       });
     nextContent = request.replaceAll
-      ? effective.content.split(oldString).join(request.newString!)
-      : effective.content.replace(oldString, request.newString!);
-  } else nextContent = request.content!;
+      ? effective.content.split(oldString).join(request.newString)
+      : effective.content.replace(oldString, request.newString);
+  } else nextContent = request.content;
   if (isEmptyRecordContent(nextContent))
     return failure({
       kind: 'rejected',

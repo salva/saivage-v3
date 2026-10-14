@@ -405,6 +405,7 @@ Supervisor alone claims active suffixes and publishes deepest-first while preser
 Analyst deletion instead preflights running members and survivor dependencies and publishes permanent tombstones; it is not cancellation.
 
 Generic record mutation likewise has conjunctive admission rather than tool-name authority.
+Application admission takes content-free authority inputs, while executable write/edit requests require their operation-specific payload.
 Application admission performs one active proof, then applies cross-card, writer-glob, required-tool, and Analyst lifecycle gates using only the reached card; denials perform no definition or record read.
 After success, reached-card definition/classification detects open conflict.
 The reached value is call-local data, and later public writes independently prove current authority.
