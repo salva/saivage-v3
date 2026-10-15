@@ -23,6 +23,20 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### C02 decision-relevant condensation — no durable impact (2026-10-15)
+
+Exact implementation parent: `00eb6d6572c87f978e951d17328e32051d55e221`.
+Only the shared ordinary/corrective replacement-summary condensation paragraph
+changes, prioritizing consequential facts over superseded attempt narration.
+This is transient quality guidance; retained prose, schemas, meaning, selection,
+provenance and layout remain unchanged. Conversation index/genesis/segments and
+selected raw PNG contract remain format 9; provider/app-log envelopes retain
+shared `version:1/type:rows`; every other discriminator is unchanged.
+No retained-state adoption, migration, reset or unreleased-cutover exception is
+involved. Installed applicability is unknown/uninspected; source completion
+authorizes no deployment. External migration remains separately owner-requested
+and offline.
+
 ### C05 whole-component packing — no durable impact (2026-10-15)
 
 Exact implementation parent: `a73cfdec43cd7e470c6ad56199f8592de19ccb32`.
