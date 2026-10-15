@@ -244,6 +244,7 @@ export function createSequentialRefineAccumulator(args: {
             provider: args.summarizerProvider,
             contextUtilizationFraction: args.budget.contextUtilizationFraction,
             invocationCount,
+            signal: args.signal,
           });
         } catch (error) {
           if (
@@ -344,192 +345,138 @@ function packNextActualRanges(args: {
   provider: SummarizerProviderPort;
   contextUtilizationFraction: number;
   invocationCount: number;
+  signal: AbortSignal;
 }): Readonly<{ group: AdmittedGroup; nextCursor: PackingCursor }> {
-  let current: Range[] = [];
+  const remainingCount = args.components.length - args.cursor.componentIndex;
+  let admittedWidth = 0;
+  let rejectedWidth = 0;
   let currentAdmission: AdmittedGroup | null = null;
-  for (
-    let componentIndex = args.cursor.componentIndex;
-    componentIndex < args.components.length;
-    componentIndex++
-  ) {
-    const prepared = args.components[componentIndex]!;
-    let startUtf16 = componentIndex === args.cursor.componentIndex ? args.cursor.startUtf16 : 0;
-    let startByte = componentIndex === args.cursor.componentIndex ? args.cursor.startByte : 0;
-    if (prepared.contentBlocks) {
-      const atomic: Range = {
-        component: prepared,
-        startByte: 0,
-        endByte: prepared.totalBytes,
-        startUtf16: 0,
-        endUtf16: prepared.content.length,
-      };
-      const admitted = admitRanges(args, [...current, atomic]);
-      if (!admitted) {
-        if (currentAdmission)
-          return {
-            group: currentAdmission,
-            nextCursor: { componentIndex, startUtf16: 0, startByte: 0 },
-          };
-        throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
-      }
-      current = [...current, atomic];
-      currentAdmission = admitted;
-      continue;
+  const wholeRanges = (width: number): Range[] => {
+    const ranges: Range[] = [];
+    for (let offset = 0; offset < width; offset++) {
+      args.signal.throwIfAborted();
+      const component = args.components[args.cursor.componentIndex + offset]!;
+      ranges.push({
+        component,
+        startByte: offset === 0 ? args.cursor.startByte : 0,
+        startUtf16: offset === 0 ? args.cursor.startUtf16 : 0,
+        endByte: component.totalBytes,
+        endUtf16: component.content.length,
+      });
     }
-    if (prepared.content.length === 0) {
-      const empty: Range = {
-        component: prepared,
-        startByte: 0,
-        endByte: 0,
-        startUtf16: 0,
-        endUtf16: 0,
-      };
-      const admitted = admitRanges(args, [...current, empty]);
-      if (!admitted) {
-        if (currentAdmission)
-          return {
-            group: currentAdmission,
-            nextCursor: { componentIndex, startUtf16: 0, startByte: 0 },
-          };
-        const alone = admitRanges(args, [empty]);
-        if (!alone)
-          throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
-        current = [empty];
-        currentAdmission = alone;
-      } else {
-        current = [...current, empty];
-        currentAdmission = admitted;
-      }
-      continue;
+    return ranges;
+  };
+  for (let width = 1; ; width = Math.min(width * 2, remainingCount)) {
+    const probe = admitRanges(args, wholeRanges(width));
+    if (!probe) {
+      rejectedWidth = width;
+      break;
     }
-    while (startUtf16 < prepared.content.length) {
-      const minimumEnd = advanceCodePoints(prepared.content, startUtf16, startByte, 1);
-      const minimum: Range = {
-        component: prepared,
-        startByte,
-        endByte: minimumEnd.byte,
-        startUtf16,
-        endUtf16: minimumEnd.utf16,
-      };
-      const admitted = admitRanges(args, [...current, minimum]);
-      if (!admitted && currentAdmission) {
-        return { group: currentAdmission, nextCursor: { componentIndex, startUtf16, startByte } };
-      }
-      if (!admitted)
-        throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
-
-      const remaining: Range = {
-        component: prepared,
-        startByte,
-        endByte: prepared.totalBytes,
-        startUtf16,
-        endUtf16: prepared.content.length,
-      };
-      const whole = admitRanges(args, [...current, remaining]);
-      if (whole) {
-        current = [...current, remaining];
-        currentAdmission = whole;
-        startUtf16 = prepared.content.length;
-        startByte = prepared.totalBytes;
-        continue;
-      }
-
-      let scannedEnd = minimumEnd;
-      let admittedEnd = minimumEnd;
-      let admittedGroup = admitted;
-      let admittedWidth = 1;
-      let rejectedEnd: ScannedEndpoint | null = null;
-      let rejectedWidth = 0;
-      for (let width = 2, scannedWidth = 1; ; width *= 2) {
-        const additionalWidth = width - scannedWidth;
-        const probeEnd = advanceCodePoints(
-          prepared.content,
-          scannedEnd.utf16,
-          scannedEnd.byte,
-          additionalWidth,
-        );
-        if (probeEnd.codePoints !== additionalWidth) {
-          const rest = advanceCodePoints(
-            prepared.content,
-            admittedEnd.utf16,
-            admittedEnd.byte,
-            Number.MAX_SAFE_INTEGER,
-          );
-          rejectedEnd = rest;
-          rejectedWidth = admittedWidth + rest.codePoints;
-          break;
-        }
-        const probeRange: Range = {
-          component: prepared,
-          startByte,
-          endByte: probeEnd.byte,
-          startUtf16,
-          endUtf16: probeEnd.utf16,
-        };
-        const probe = admitRanges(args, [...current, probeRange]);
-        if (!probe) {
-          rejectedEnd = probeEnd;
-          rejectedWidth = width;
-          break;
-        }
-        admittedEnd = probeEnd;
-        admittedGroup = probe;
-        admittedWidth = width;
-        scannedEnd = probeEnd;
-        scannedWidth = width;
-      }
-      if (!rejectedEnd)
-        throw new Error('Summary range growth ended without a rejected upper endpoint.');
-      while (rejectedWidth - admittedWidth > 1) {
-        const midpointWidth = admittedWidth + Math.floor((rejectedWidth - admittedWidth) / 2);
-        const midpointEnd = advanceCodePoints(
-          prepared.content,
-          admittedEnd.utf16,
-          admittedEnd.byte,
-          midpointWidth - admittedWidth,
-        );
-        const midpointRange: Range = {
-          component: prepared,
-          startByte,
-          endByte: midpointEnd.byte,
-          startUtf16,
-          endUtf16: midpointEnd.utf16,
-        };
-        const midpoint = admitRanges(args, [...current, midpointRange]);
-        if (midpoint) {
-          admittedEnd = midpointEnd;
-          admittedGroup = midpoint;
-          admittedWidth = midpointWidth;
-        } else {
-          rejectedEnd = midpointEnd;
-          rejectedWidth = midpointWidth;
-        }
-      }
-      const admittedRange: Range = {
-        component: prepared,
-        startByte,
-        endByte: admittedEnd.byte,
-        startUtf16,
-        endUtf16: admittedEnd.utf16,
-      };
+    currentAdmission = probe;
+    admittedWidth = width;
+    if (width === remainingCount)
       return {
-        group: {
-          ranges: [...current, admittedRange],
-          input: admittedGroup.input,
-          admitted: admittedGroup.admitted,
-        },
-        nextCursor:
-          admittedEnd.utf16 === prepared.content.length
-            ? { componentIndex: componentIndex + 1, startUtf16: 0, startByte: 0 }
-            : { componentIndex, startUtf16: admittedEnd.utf16, startByte: admittedEnd.byte },
+        group: probe,
+        nextCursor: { componentIndex: args.components.length, startUtf16: 0, startByte: 0 },
       };
+  }
+  while (rejectedWidth - admittedWidth > 1) {
+    const width = admittedWidth + Math.floor((rejectedWidth - admittedWidth) / 2);
+    const probe = admitRanges(args, wholeRanges(width));
+    if (probe) {
+      admittedWidth = width;
+      currentAdmission = probe;
+    } else rejectedWidth = width;
+  }
+
+  const componentIndex = args.cursor.componentIndex + admittedWidth;
+  const prepared = args.components[componentIndex]!;
+  const startUtf16 = admittedWidth === 0 ? args.cursor.startUtf16 : 0;
+  const startByte = admittedWidth === 0 ? args.cursor.startByte : 0;
+  const current = currentAdmission?.ranges ?? [];
+  const flush = () => {
+    if (!currentAdmission)
+      throw new SummaryConstructionLimitError('request_context_capacity', args.invocationCount);
+    return { group: currentAdmission, nextCursor: { componentIndex, startUtf16, startByte } };
+  };
+  if (prepared.contentBlocks || prepared.content.length === 0) return flush();
+
+  // The adjacent whole endpoint already rejected the complete text remainder.
+  args.signal.throwIfAborted();
+  const minimumEnd = advanceCodePoints(prepared.content, startUtf16, startByte, 1);
+  if (minimumEnd.utf16 === prepared.content.length) return flush();
+  const minimum: Range = {
+    component: prepared,
+    startByte,
+    endByte: minimumEnd.byte,
+    startUtf16,
+    endUtf16: minimumEnd.utf16,
+  };
+  let admittedGroup = admitRanges(args, [...current, minimum]);
+  if (!admittedGroup) return flush();
+  currentAdmission = null;
+
+  let admittedEnd = minimumEnd;
+  let admittedTextWidth = 1;
+  let rejectedTextWidth = 0;
+  for (let width = 2; ; width *= 2) {
+    args.signal.throwIfAborted();
+    const additionalWidth = width - admittedTextWidth;
+    const probeEnd = advanceCodePoints(
+      prepared.content,
+      admittedEnd.utf16,
+      admittedEnd.byte,
+      additionalWidth,
+    );
+    if (probeEnd.utf16 === prepared.content.length) {
+      rejectedTextWidth = admittedTextWidth + probeEnd.codePoints;
+      break;
+    }
+    const probeRange: Range = {
+      component: prepared,
+      startByte,
+      endByte: probeEnd.byte,
+      startUtf16,
+      endUtf16: probeEnd.utf16,
+    };
+    const probe = admitRanges(args, [...current, probeRange]);
+    if (!probe) {
+      rejectedTextWidth = width;
+      break;
+    }
+    admittedEnd = probeEnd;
+    admittedGroup = probe;
+    admittedTextWidth = width;
+  }
+  while (rejectedTextWidth - admittedTextWidth > 1) {
+    args.signal.throwIfAborted();
+    const midpointWidth =
+      admittedTextWidth + Math.floor((rejectedTextWidth - admittedTextWidth) / 2);
+    const midpointEnd = advanceCodePoints(
+      prepared.content,
+      admittedEnd.utf16,
+      admittedEnd.byte,
+      midpointWidth - admittedTextWidth,
+    );
+    const midpointRange: Range = {
+      component: prepared,
+      startByte,
+      endByte: midpointEnd.byte,
+      startUtf16,
+      endUtf16: midpointEnd.utf16,
+    };
+    const midpoint = admitRanges(args, [...current, midpointRange]);
+    if (midpoint) {
+      admittedEnd = midpointEnd;
+      admittedGroup = midpoint;
+      admittedTextWidth = midpointWidth;
+    } else {
+      rejectedTextWidth = midpointWidth;
     }
   }
-  if (!currentAdmission)
-    throw new Error('Summary range packer reached the end without an admitted group.');
   return {
-    group: currentAdmission,
-    nextCursor: { componentIndex: args.components.length, startUtf16: 0, startByte: 0 },
+    group: admittedGroup,
+    nextCursor: { componentIndex, startUtf16: admittedEnd.utf16, startByte: admittedEnd.byte },
   };
 }
 
@@ -540,9 +487,11 @@ function admitRanges(
     sourceSessionId: ConversationSessionId;
     provider: SummarizerProviderPort;
     contextUtilizationFraction: number;
+    signal: AbortSignal;
   },
   ranges: readonly Range[],
 ): AdmittedGroup | null {
+  args.signal.throwIfAborted();
   const input = requestInput(
     args.provider,
     args.sourceSessionId,
@@ -551,6 +500,7 @@ function admitRanges(
     ranges,
   );
   const serialization = args.provider.serializeSummaryRequest(input);
+  args.signal.throwIfAborted();
   const admitted = admitSummaryRequest({
     serialization,
     contextUtilizationFraction: args.contextUtilizationFraction,

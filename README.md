@@ -393,6 +393,13 @@ checks](docs/validation.md#development-tool-semantic-checks) for commands and
 evidence limits; these supplement, not replace, the build/UI/browser and audit
 profiles.
 
+Opt-in offline compaction packing characterization (250/500/1000 small rows and
+bounded mixed tool/evidence/Unicode/image source, real adapters, synthetic completions):
+`timeout --kill-after=10s 120s node --import tsx tests/scripts/compaction-packing-characterization.ts`.
+It prints JSONL probe/byte/fold and wall/CPU observations with synthetic waits
+reported separately; redirect results under workspace `tmp/`. This is not live
+latency, semantic-quality evidence or a timing gate.
+
 `npm run lint` currently runs the export-consumer guard, stamp-producer guard, ESLint,
 backend import-boundary checks, web-component boundary check, reachable-browser
 import guard (`node scripts/check-web-browser-imports.cjs`), then the

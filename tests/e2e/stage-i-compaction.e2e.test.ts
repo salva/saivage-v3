@@ -19,7 +19,10 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
-import { cardConversationVersionIndexFile } from '../../src/persistence/layout.js';
+import {
+  cardConversationVersionIndexFile,
+  cardConversationVersionFile,
+} from '../../src/persistence/layout.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { responsesProducerAccountId } from '../../src/agents/llm-openai-responses-account.js';
@@ -436,6 +439,22 @@ describe('Stage-I versioned compaction', () => {
       appendConversationBatch({ projectRoot: root }, fixture.rows);
       appendConversationBatch({ projectRoot: preventiveRoot }, fixture.rows);
       const before = readConversation(root, SESSION);
+      const originalSegment = readCurrentConversationSegment(root, SESSION)!;
+      const historicalPath = cardConversationVersionFile(
+        root,
+        'project',
+        'planner',
+        originalSegment.entry.filename,
+      );
+      const historicalBytes = readFileSync(historicalPath);
+      const preventiveSegment = readCurrentConversationSegment(preventiveRoot, SESSION)!;
+      const preventiveHistoricalPath = cardConversationVersionFile(
+        preventiveRoot,
+        'project',
+        'planner',
+        preventiveSegment.entry.filename,
+      );
+      const preventiveHistoricalBytes = readFileSync(preventiveHistoricalPath);
       const providerConversation = providerConversationProjection(before, dynamicBlocks);
       const actorTokens = actorProjectionTokens(providerConversation);
       expect(actorTokens).toBeGreaterThanOrEqual(preparedCompaction.triggerMessageThreshold);
@@ -510,6 +529,10 @@ describe('Stage-I versioned compaction', () => {
       expect(preventiveResult.kind).toBe('compacted');
       expect(readCurrentConversationSegment(preventiveRoot, SESSION)!.entry.genesis).toMatchObject({ covered_through_message_id: before.sourceRows[endpoints[0]! - 1]!.id });
       expect(preventiveRecords.every(({ correction }) => !correction)).toBe(true);
+      expect(readFileSync(preventiveHistoricalPath)).toEqual(preventiveHistoricalBytes);
+      expect(
+        Buffer.from(canonicalJson(readCurrentConversationSegment(preventiveRoot, SESSION)!.rows)),
+      ).toEqual(Buffer.from(canonicalJson(before.sourceRows.slice(preferred))));
 
       const wires: SummaryWireRecord[] = [];
       const summarizerProvider = summaryProvider({ root, registry, candidate: sol, records: wires, setTransport: (next) => { queued = next; }, correctionOnFirstNormal: true });
@@ -533,7 +556,14 @@ describe('Stage-I versioned compaction', () => {
       const correctionIndex = wires.findIndex(({ correction }) => correction);
       expect(correctionIndex).toBeGreaterThan(0);
       expect(wires[correctionIndex]!.input.providerConversation.messages).toEqual(wires[correctionIndex - 1]!.input.providerConversation.messages);
+      expect(wires[correctionIndex]!.input.inputId).not.toBe(
+        wires[correctionIndex - 1]!.input.inputId,
+      );
       expect(wires[correctionIndex]!.ranges).toEqual(wires[correctionIndex - 1]!.ranges);
+      for (let index = 1; index < wires.length; index++) {
+        if (!wires[index]!.correction)
+          expect(inheritedSummary(wires[index]!.input)).toBe(wires[index - 1]!.returnedSummary);
+      }
       const normalWires = wires.filter(({ correction }) => !correction);
       verifyExactSourceCoverage(normalWires.flatMap(({ ranges }) => ranges), fixture.expectedComponents);
       const preferredCutoffRow = endpoints[0]! - 1;
@@ -553,6 +583,13 @@ describe('Stage-I versioned compaction', () => {
       expect(current.rows.some(row => fixture.sampleAtomicIds.includes(row.id))).toBe(false);
       const cutoffId = current.genesis.source.covered_through_message_id;
       const coveredCount = before.sourceRows.findIndex(row => row.id === cutoffId) + 1;
+      expect(readFileSync(historicalPath)).toEqual(historicalBytes);
+      expect(Buffer.from(canonicalJson(current.rows))).toEqual(
+        Buffer.from(canonicalJson(before.sourceRows.slice(coveredCount))),
+      );
+      expect(
+        readHistoricalConversationSegment(root, SESSION, originalSegment.entry.version).rows,
+      ).toEqual(originalSegment.rows);
       validateCompactedHistorySuccessor({ source: before, sourceVersion: current.genesis.source.version, successor: current.genesis.compaction, coveredRows: before.sourceRows.slice(0, coveredCount) });
       expect(transportSends).toHaveLength(1 + preventiveRecords.length + wires.length);
       expect(transportSends.every(({ body, expectedBody, expectedHash }) => body === expectedBody && createHash('sha256').update(body, 'utf8').digest('hex') === expectedHash)).toBe(true);
@@ -567,6 +604,8 @@ describe('Stage-I versioned compaction', () => {
         primaryUsableInputTokens: plannerBinding.routeUsableInputTokens,
         summaryUsableInputTokens: 94_000,
         preventiveCalls: preventiveRecords.length,
+        packingProbes: wires.reduce((sum, wire) => sum + wire.probeCount, 0),
+        cumulativePackingBytes: wires.reduce((sum, wire) => sum + wire.probeBytes, 0),
         logicalCalls: wires.length,
         ordinarySummaryInstruction: normalWires[0]!.input.systemPrompt,
         correctiveSummaryInstruction: wires[correctionIndex]!.input.systemPrompt,
@@ -623,6 +662,8 @@ type SummaryWireRecord = Readonly<{
   correction: boolean;
   ranges: readonly CapturedRange[];
   returnedSummary: string;
+  probeCount: number;
+  probeBytes: number;
 }>;
 
 function auditSizedTools(targetBytes: number): ToolDefinition[] {
@@ -733,10 +774,21 @@ function summaryProvider(args: {
   const capabilities = args.registry.getEffectiveCapabilities(args.candidate);
   if (!capabilities.contextWindowTokens || !capabilities.maxOutputTokens) throw new Error('Summary fixture capabilities are incomplete.');
   let normalCalls = 0;
+  let probes: Array<{
+    input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0];
+    serialization: SummaryRequestSerialization;
+  }> = [];
   const serializeSummaryRequest = (input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0]): SummaryRequestSerialization => {
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
     const plan = buildCandidateRequest({ candidate: args.candidate, capabilities, adapter, systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { providerSessionId: 'synthetic-provider-session', inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
-    return { imageCount: plan.request.imageCount, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
+    const serialization = {
+      imageCount: plan.request.imageCount,
+      serializedRequest: plan.request.serializedBody,
+      requestSha256: plan.request.requestHash,
+      estimatedInputTokens: plan.request.estimatedWireInputTokens,
+    };
+    probes.push({ input, serialization });
+    return serialization;
   };
   return {
     candidate: args.candidate,
@@ -745,13 +797,26 @@ function summaryProvider(args: {
     serializeSummaryRequest,
     materializeImage: async () => { throw new Error('Unexpected image.'); },
     completeTurn: async (input, admitted, signal) => {
+      const winner = probes.find((probe) => probe.input === input);
+      expect(winner).toBeDefined();
+      expect(admitted).toMatchObject({
+        ...winner!.serialization,
+        contextUtilizationFraction: 0.8,
+        usableInputTokens: 94_000,
+      });
+      const probeCount = probes.length;
+      const probeBytes = probes.reduce(
+        (sum, probe) => sum + Buffer.byteLength(probe.serialization.serializedRequest),
+        0,
+      );
+      probes = [];
       const correction = input.systemPrompt.includes('6000 UTF-8 bytes');
       const response = args.correctionOnFirstNormal && !correction && normalCalls++ === 0 ? '   ' : `summary-${args.records.length + 1}: ${'S'.repeat(17_000)}`;
       args.setTransport({ model: args.candidate.model, body: admitted.serializedRequest, hash: admitted.requestSha256, response });
       const ranges = summaryRanges(input);
       const bodies = input.providerConversation.messages.map(summaryMessageBody);
       const completion = await executeInternalSummaryTurn(service, input, signal, admitted);
-      args.records.push(Object.freeze({ input, body: admitted.serializedRequest, hash: admitted.requestSha256, bytes: Buffer.byteLength(admitted.serializedRequest, 'utf8'), estimated: admitted.estimatedInputTokens, sourceBytes: ranges.reduce((sum, range) => sum + Buffer.byteLength(range.content, 'utf8'), 0), inheritedBytes: Buffer.byteLength(inheritedSummary(input) ?? '', 'utf8'), orientationBytes: input.providerConversation.messages.reduce((sum, message, index) => message.content.includes('[kind=prepared_context ') ? sum + Buffer.byteLength(bodies[index]!, 'utf8') : sum, 0), correction, ranges, returnedSummary: response.trim() }));
+      args.records.push(Object.freeze({ input, body: admitted.serializedRequest, hash: admitted.requestSha256, bytes: Buffer.byteLength(admitted.serializedRequest, 'utf8'), estimated: admitted.estimatedInputTokens, sourceBytes: ranges.reduce((sum, range) => sum + Buffer.byteLength(range.content, 'utf8'), 0), inheritedBytes: Buffer.byteLength(inheritedSummary(input) ?? '', 'utf8'), orientationBytes: input.providerConversation.messages.reduce((sum, message, index) => message.content.includes('[kind=prepared_context ') ? sum + Buffer.byteLength(bodies[index]!, 'utf8') : sum, 0), correction, ranges, returnedSummary: response.trim(), probeCount, probeBytes }));
       return completion;
     },
     projectProviderExchanges: (sessionId, purpose, sourceInputId, attempts, context) => service.projectProviderExchanges(sessionId, purpose, sourceInputId, attempts, context),

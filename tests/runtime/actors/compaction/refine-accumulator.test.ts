@@ -48,6 +48,115 @@ function parseSummaryMessages(input: SummaryInput): ParsedSummaryMessage[] {
 }
 
 describe('sequential contextual refine accumulator', () => {
+  it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)(
+    'packs many whole components geometrically with exact %s wire authority and monotone count labels',
+    async (protocol) => {
+      for (const count of [7, 8, 97, 98, 250, 500, 1000]) {
+        const probes: Array<{ input: SummaryInput; wire: SummaryRequestSerialization }> = [];
+        const sends: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
+        const provider = recordingProvider({
+          contextWindowTokens: 1_000_000,
+          serialize: (input) => {
+            parseSummaryMessages(input);
+            const wire = realSerialization(input, protocol);
+            probes.push({ input, wire });
+            return wire;
+          },
+          completeTurn: async (input, admitted) => {
+            sends.push({ input, admitted });
+            return {
+              result: { kind: 'message', content: `summary-${sends.length}` },
+              provider_exchanges: [],
+            };
+          },
+        });
+        const source = Array.from({ length: count }, (_, index) =>
+          text(`source-${index}`, `row ${index}: é🙂 \\"\n`),
+        );
+        const rows = [activation(), text('warmup', 'first genuine source'), ...source];
+        const accumulator = createSequentialRefineAccumulator({
+          conversation: validateConversation(SESSION, rows),
+          inheritedHistory: null,
+          preparedBlocks: [
+            {
+              id: 'orientation',
+              role: 'system',
+              content: 'fixed orientation',
+              storage: 'activation_local',
+              replacement: { kind: 'retain' },
+              audience: 'primary_and_summarizer',
+              evidence: { kind: 'none' },
+            },
+          ],
+          summarizerProvider: provider,
+          budget: BUDGET,
+          signal: new AbortController().signal,
+        });
+        await accumulator.materializeThrough(2);
+        probes.length = 0;
+        await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('summary-2');
+        expect(sends).toHaveLength(2);
+        expect(probes.length).toBeLessThanOrEqual(Math.ceil(Math.log2(count)) + 1);
+        const sent = sends[1]!;
+        const winner = probes.at(-1)!;
+        expect(sent.input).toBe(winner.input);
+        expect(sent.admitted).toMatchObject({
+          ...winner.wire,
+          contextUtilizationFraction: BUDGET.contextUtilizationFraction,
+        });
+        expect(createHash('sha256').update(sent.admitted.serializedRequest).digest('hex')).toBe(
+          sent.admitted.requestSha256,
+        );
+        expect(
+          sourceRanges(sent.input).map(({ source, content }) => ({ source, content })),
+        ).toEqual(source.map(({ id, content }) => ({ source: id, content })));
+        expect(
+          parseSummaryMessages(sent.input).find(
+            ({ label }) => label === '[kind=inherited_history]',
+          )!.body,
+        ).toBe('summary-1');
+        const bytes = probes.map(({ wire }) => Buffer.byteLength(wire.serializedRequest));
+        expect(bytes.reduce((sum, value) => sum + value, 0)).toBeLessThan(
+          4 * bytes.at(-1)! + probes.length * 4000,
+        );
+        for (let index = 1; index < probes.length; index++) {
+          expect(bytes[index]).toBeGreaterThanOrEqual(bytes[index - 1]!);
+          expect(probes[index]!.wire.estimatedInputTokens).toBeGreaterThanOrEqual(
+            probes[index - 1]!.wire.estimatedInputTokens,
+          );
+        }
+        // Explicitly compare adjacent total-item digit boundaries, not just geometric endpoints.
+        if (count === 8 || count === 98) {
+          const conversation = sent.input.providerConversation;
+          if (conversation.sourceSessionId === null)
+            throw new Error('summary request must have a source session');
+          const before = realSerialization(
+            {
+              ...sent.input,
+              providerConversation: {
+                ...conversation,
+                messages: conversation.messages.slice(0, -1).map((message, index, messages) => ({
+                  ...message,
+                  content: message.content.replace(
+                    /^\[order \d+\/\d+\]/u,
+                    `[order ${index + 1}/${messages.length}]`,
+                  ),
+                })),
+              },
+            },
+            protocol,
+          );
+          expect(Buffer.byteLength(winner.wire.serializedRequest)).toBeGreaterThan(
+            Buffer.byteLength(before.serializedRequest),
+          );
+          expect(winner.wire.estimatedInputTokens).toBeGreaterThanOrEqual(
+            before.estimatedInputTokens,
+          );
+        }
+      }
+    },
+  );
+
   it('carries full prepared orientation and the genuine returned accumulator while ranges reassemble multibyte source exactly', async () => {
     const snapshot = buildAnalystOrientationSnapshot([
       { id: 'project', parent: null, type: 'project', status: 'backlog', title: 'Project token=synthetic-orientation-secret', version_seq: 1, children: [] },
@@ -174,12 +283,90 @@ describe('sequential contextual refine accumulator', () => {
     expect(ranges.filter(({ content }) => content === '')).toHaveLength(12);
   });
 
+  it('brackets whole mixed components, flushes before a rejected minimum, and resumes split Unicode without gaps', async () => {
+    const long = `\"\\\n\té漢🙂\uD800x\uDC00`.repeat(12);
+    const rows = [
+      activation(),
+      ...['a', 'b', 'c', 'd'].map((id) => text(id, id.repeat(3))),
+      text('long', long),
+      ...settledToolRows('empty', 6, '', '{"success":true}'),
+    ];
+    const probes: Array<{ ranges: ParsedSourceRange[]; cost: number }> = [];
+    const sent: SummaryInput[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => {
+        const ranges = sourceRanges(input);
+        const cost = sourceByteCount(input) + ranges.length * 10;
+        probes.push({ ranges, cost });
+        return serialization(input, cost > 60 ? 10_000 : 1);
+      },
+      complete: async (input) => {
+        maxInFlight = Math.max(maxInFlight, ++inFlight);
+        sent.push(input);
+        await Promise.resolve();
+        inFlight--;
+        return `genuine-${sent.length}`;
+      },
+    });
+    await createSequentialRefineAccumulator({
+      conversation: validateConversation(SESSION, rows),
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: provider,
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    }).materializeThrough(rows.length);
+    expect(sourceRanges(sent[0]!).map(({ source }) => source)).toEqual(['a', 'b', 'c', 'd']);
+    expect(
+      probes.some(
+        ({ ranges, cost }) =>
+          ranges.length === 5 &&
+          ranges.at(-1)!.source === 'long' &&
+          ranges.at(-1)!.end === 1 &&
+          cost > 60,
+      ),
+    ).toBe(true);
+    const ranges = sent.flatMap(sourceRanges);
+    const expected = [
+      ...['a', 'b', 'c', 'd'].map((source) => ({ source, content: source.repeat(3) })),
+      { source: 'long', content: long },
+      { source: '11111111-1111-4111-8111-111111111111:empty:arguments', content: '' },
+      { source: '11111111-1111-4111-8111-111111111111:empty:result', content: '{"success":true}' },
+    ];
+    expect(
+      ranges
+        .filter((range, index) => index === 0 || range.source !== ranges[index - 1]!.source)
+        .map(({ source }) => source),
+    ).toEqual(expected.map(({ source }) => source));
+    for (const source of expected) {
+      const parts = ranges.filter((range) => range.source === source.source);
+      expect(parts[0]!.start).toBe(0);
+      expect(parts.at(-1)!.end).toBe(Buffer.byteLength(source.content));
+      expect(parts.map(({ content }) => content).join('')).toBe(source.content);
+      parts.forEach((part, index) => {
+        expect(part.end - part.start).toBe(Buffer.byteLength(part.content));
+        if (index) expect(part.start).toBe(parts[index - 1]!.end);
+      });
+    }
+    expect(ranges.filter(({ source }) => source === 'long').length).toBeGreaterThan(1);
+    sent.forEach((input, index) => {
+      const inherited = parseSummaryMessages(input).find(
+        ({ label }) => label === '[kind=inherited_history]',
+      );
+      expect(inherited?.body ?? null).toBe(index === 0 ? null : `genuine-${index}`);
+    });
+    expect(maxInFlight).toBe(1);
+  });
+
   it('stops at the first rejected growth probe, resumes at the admitted endpoint, and sends the exact admitted objects', async () => {
     const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization; range: string }> = [];
     const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
     const estimateForRange = (range: string): number => {
-      if (range === '0:9' || range === '0:4') return 10_000;
-      return 1;
+      const [start, end] = range.split(':').map(Number);
+      return end! - start! > 3 ? 10_000 : 1;
     };
     const provider = recordingProvider({
       contextWindowTokens: 10_000,
@@ -199,120 +386,180 @@ describe('sequential contextual refine accumulator', () => {
 
     await accumulator.materializeThrough(rows.length);
 
-    expect(attempts.map(({ range }) => range)).toEqual(['0:1', '0:9', '0:2', '0:4', '0:3', '3:4', '3:9']);
-    expect(estimateForRange('0:8')).toBe(1);
-    expect(completed).toHaveLength(2);
-    expect(completed[0]!.input).toBe(attempts[4]!.input);
-    expect(completed[0]!.admitted).toMatchObject({ ...attempts[4]!.serialization, contextUtilizationFraction: .8, usableInputTokens: 6000 });
-    expect(onlySourceRange(completed[0]!.input)).toBe('0:3');
-    expect(attempts.find(({ range }) => range === '0:4')!.serialization.estimatedInputTokens).toBeGreaterThan(8_000 - 2_000);
-    expect(completed[1]!.input).toBe(attempts[6]!.input);
-    expect(completed[1]!.admitted).toMatchObject({ ...attempts[6]!.serialization, contextUtilizationFraction: .8, usableInputTokens: 6000 });
-    expect(onlySourceRange(completed[1]!.input)).toBe('3:9');
-  });
-
-  it('refines actual JSON wire admission across escaping, supplementary characters, and range-label digit transitions until the next code point rejects', async () => {
-    const capabilities = { transportProtocol: 'openai-chat-completions' as const, imageInput: false, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, contextWindowTokens: 4_000, maxOutputTokens: 10_000, quirks: [] };
-    const attempts: Array<{ range: ParsedSourceRange; serialization: SummaryRequestSerialization }> = [];
-    const sent: SummaryInput[] = [];
-    const provider = recordingProvider({
-      contextWindowTokens: capabilities.contextWindowTokens,
-      serialize: (input) => {
-        const plan = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { providerSessionId: 'synthetic-provider-session', inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
-        const result = { imageCount: plan.request.imageCount, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
-        const ranges = sourceRanges(input);
-        if (ranges.length === 1) attempts.push({ range: ranges[0]!, serialization: result });
-        return result;
-      },
-      complete: async (input) => { sent.push(input); return `summary-${sent.length}`; },
-    });
-    const source = (`ASCII "quoted" \\ slash\ncontrol\té漢🙂-${'x'.repeat(31)}|`).repeat(180);
-    const rows = [activation(), text('source', source)];
-
-    await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
-
-    const admittedRanges = sent.flatMap(sourceRanges);
-    expect(admittedRanges.length).toBeGreaterThan(1);
-    expect(admittedRanges.map(({ content }) => content).join('')).toBe(source);
-    expect(attempts.some(({ range }) => range.start === 0 && range.end === 8)).toBe(true);
-    expect(attempts.some(({ range }) => range.start === 0 && range.end >= 10)).toBe(true);
-    const inputCapacity = Math.floor(0.8 * capabilities.contextWindowTokens) - 2_000;
-    for (const admitted of admittedRanges.slice(0, -1)) {
-      const prefix = Buffer.from(source, 'utf8').subarray(0, admitted.end).toString('utf8');
-      const nextPoint = source.codePointAt(prefix.length)!;
-      const nextEnd = admitted.end + Buffer.byteLength(String.fromCodePoint(nextPoint), 'utf8');
-      const rejection = attempts.find(({ range }) => range.start === admitted.start && range.end === nextEnd);
-      expect(rejection?.serialization.estimatedInputTokens).toBeGreaterThan(inputCapacity);
+    expect(completed).toHaveLength(3);
+    expect(completed.map(({ input }) => onlySourceRange(input))).toEqual(['0:3', '3:6', '6:9']);
+    for (const completion of completed) {
+      const winning = attempts.find(({ input }) => input === completion.input)!;
+      expect(winning).toBeDefined();
+      expect(completion.admitted).toMatchObject({
+        ...winning.serialization,
+        contextUtilizationFraction: 0.8,
+        usableInputTokens: 6000,
+      });
+      expect(createHash('sha256').update(completion.admitted.serializedRequest).digest('hex')).toBe(
+        winning.serialization.requestSha256,
+      );
     }
-    for (let index = 1; index < attempts.length; index++) {
-      const previous = attempts[index - 1]!;
-      const current = attempts[index]!;
-      if (previous.range.start === current.range.start && previous.range.end < current.range.end)
-        expect(current.serialization.estimatedInputTokens).toBeGreaterThanOrEqual(previous.serialization.estimatedInputTokens);
-    }
+    expect(
+      attempts.find(({ range }) => range === '0:4')!.serialization.estimatedInputTokens,
+    ).toBeGreaterThan(8_000 - 2_000);
   });
 
-  it('retains the distinct fitting whole-width doubling probe at an eight-code-point EOF', async () => {
-    const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
-    const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
-    const provider = recordingProvider({
-      contextWindowTokens: 10_000,
-      serialize: (input) => {
-        const result = serialization(input, attempts.length === 1 ? 10_000 : 1);
-        attempts.push({ input, serialization: result });
-        return result;
-      },
-      completeTurn: async (input, admitted) => {
-        completed.push({ input, admitted });
-        return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
-      },
-    });
-    const rows = [activation(), text('source', 'abcdefgh')];
+  it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)(
+    'refines actual %s JSON wire admission across escaping, supplementary characters, and range-label digit transitions until the next code point rejects',
+    async (protocol) => {
+      const capabilities = {
+        transportProtocol: protocol,
+        imageInput: false,
+        toolsMode: 'native' as const,
+        exclusiveToolChoiceSupport: 'native' as const,
+        contextWindowTokens: 4_000,
+        maxOutputTokens: 10_000,
+        quirks: [],
+      };
+      const attempts: Array<{
+        range: ParsedSourceRange;
+        serialization: SummaryRequestSerialization;
+      }> = [];
+      const sent: SummaryInput[] = [];
+      const provider = recordingProvider({
+        contextWindowTokens: capabilities.contextWindowTokens,
+        serialize: (input) => {
+          const plan = buildCandidateRequest({
+            candidate: CANDIDATE,
+            capabilities,
+            adapter: selectLlmProtocolAdapter(capabilities.transportProtocol),
+            systemPrompt: input.systemPrompt,
+            providerConversation: input.providerConversation,
+            options: {
+              providerSessionId: 'synthetic-provider-session',
+              inputId: input.inputId,
+              temperature: 0,
+              max_tokens: 2_000,
+              tools: [],
+              tool_choice: 'auto',
+              contract_id: 'internal-compaction-summary.v1',
+              contractName: 'internal-compaction-summary',
+              terminalToolOffered: [],
+            },
+          });
+          const result = {
+            imageCount: plan.request.imageCount,
+            serializedRequest: plan.request.serializedBody,
+            requestSha256: plan.request.requestHash,
+            estimatedInputTokens: plan.request.estimatedWireInputTokens,
+          };
+          const ranges = sourceRanges(input);
+          if (ranges.length === 1) attempts.push({ range: ranges[0]!, serialization: result });
+          return result;
+        },
+        complete: async (input) => {
+          sent.push(input);
+          return `summary-${sent.length}`;
+        },
+      });
+      const source = `ASCII "quoted" \\ slash\ncontrol\té漢🙂\uD800-${'x'.repeat(31)}|`.repeat(180);
+      const rows = [activation(), text('source', source)];
 
-    await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+      await createSequentialRefineAccumulator({
+        conversation: validateConversation(SESSION, rows),
+        inheritedHistory: null,
+        preparedBlocks: [],
+        summarizerProvider: provider,
+        budget: BUDGET,
+        signal: new AbortController().signal,
+      }).materializeThrough(rows.length);
 
-    expect(attempts.map(({ input }) => onlySourceRange(input))).toEqual(['0:1', '0:8', '0:2', '0:4', '0:8']);
-    expect(attempts[1]!.input).not.toBe(attempts[4]!.input);
-    expect(attempts[1]!.serialization).not.toBe(attempts[4]!.serialization);
-    expect(attempts[1]!.input.providerConversation.messages).toEqual(attempts[4]!.input.providerConversation.messages);
-    expect(sourceRanges(attempts[1]!.input)).toEqual([{
-      source: 'source',
-      sourceKind: 'message:direct',
-      start: 0,
-      end: 8,
-      totalBytes: 8,
-      role: 'user',
-      content: 'abcdefgh',
-    }]);
-    expect(completed).toHaveLength(1);
-    expect(completed[0]!.input).toBe(attempts[4]!.input);
-    expect(completed[0]!.admitted).toMatchObject({ ...attempts[4]!.serialization, contextUtilizationFraction: .8, usableInputTokens: 6000 });
-  });
+      const admittedRanges = sent.flatMap(sourceRanges);
+      expect(admittedRanges.length).toBeGreaterThan(1);
+      expect(admittedRanges.map(({ content }) => content).join('')).toBe(source);
+      expect(attempts.some(({ range }) => range.start === 0 && range.end === 8)).toBe(true);
+      expect(attempts.some(({ range }) => range.start === 0 && range.end >= 10)).toBe(true);
+      const inputCapacity = Math.floor(0.8 * capabilities.contextWindowTokens) - 2_000;
+      for (const admitted of admittedRanges.slice(0, -1)) {
+        const prefix = Buffer.from(source, 'utf8').subarray(0, admitted.end).toString('utf8');
+        const nextPoint = source.codePointAt(prefix.length)!;
+        const nextEnd = admitted.end + Buffer.byteLength(String.fromCodePoint(nextPoint), 'utf8');
+        const rejection = attempts.find(
+          ({ range }) => range.start === admitted.start && range.end === nextEnd,
+        );
+        expect(rejection?.serialization.estimatedInputTokens).toBeGreaterThan(inputCapacity);
+      }
+      for (const start of new Set(attempts.map(({ range }) => range.start))) {
+        const prefixes = attempts
+          .filter(({ range }) => range.start === start)
+          .sort((left, right) => left.range.end - right.range.end);
+        for (let index = 1; index < prefixes.length; index++) {
+          expect(prefixes[index]!.serialization.estimatedInputTokens).toBeGreaterThanOrEqual(
+            prefixes[index - 1]!.serialization.estimatedInputTokens,
+          );
+          expect(
+            Buffer.byteLength(prefixes[index]!.serialization.serializedRequest),
+          ).toBeGreaterThanOrEqual(
+            Buffer.byteLength(prefixes[index - 1]!.serialization.serializedRequest),
+          );
+        }
+      }
+    },
+  );
 
-  it('does not add a clamped width-eight probe at a seven-code-point EOF', async () => {
-    const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
-    const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
-    const provider = recordingProvider({
-      contextWindowTokens: 10_000,
-      serialize: (input) => {
-        const result = serialization(input, attempts.length === 1 ? 10_000 : 1);
-        attempts.push({ input, serialization: result });
-        return result;
-      },
-      completeTurn: async (input, admitted) => {
-        completed.push({ input, admitted });
-        return { result: { kind: 'message' as const, content: `summary-${completed.length}` }, provider_exchanges: [] };
-      },
-    });
-    const rows = [activation(), text('source', 'abcdefg')];
+  it.each([7, 8])(
+    'reuses the rejected whole endpoint at a %i-code-point EOF with deterministic admission',
+    async (length) => {
+      const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> =
+        [];
+      const completed: Array<{ input: SummaryInput; admitted: AdmittedSummaryRequest }> = [];
+      const provider = recordingProvider({
+        contextWindowTokens: 10_000,
+        serialize: (input) => {
+          const result = serialization(input, sourceByteCount(input) > length - 1 ? 10_000 : 1);
+          attempts.push({ input, serialization: result });
+          return result;
+        },
+        completeTurn: async (input, admitted) => {
+          completed.push({ input, admitted });
+          return {
+            result: { kind: 'message' as const, content: 'summary' },
+            provider_exchanges: [],
+          };
+        },
+      });
+      const source = 'abcdefgh'.slice(0, length);
+      const rows = [activation(), text('source', source)];
 
-    await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+      await createSequentialRefineAccumulator({
+        conversation: validateConversation(SESSION, rows),
+        inheritedHistory: null,
+        preparedBlocks: [],
+        summarizerProvider: provider,
+        budget: BUDGET,
+        signal: new AbortController().signal,
+      }).materializeThrough(rows.length);
 
-    expect(attempts.slice(0, 4).map(({ input }) => onlySourceRange(input))).toEqual(['0:1', '0:7', '0:2', '0:4']);
-    expect(onlySourceRange(completed[0]!.input)).toBe('0:6');
-    expect(onlySourceRange(completed[1]!.input)).toBe('6:7');
-    expect(attempts.map(({ input }) => onlySourceRange(input)).filter((range) => range === '0:7')).toHaveLength(1);
-  });
+      expect(completed).toHaveLength(2);
+      expect(completed.map(({ input }) => onlySourceRange(input))).toEqual([
+        `0:${length - 1}`,
+        `${length - 1}:${length}`,
+      ]);
+      expect(
+        completed
+          .flatMap(({ input }) => sourceRanges(input))
+          .map(({ content }) => content)
+          .join(''),
+      ).toBe(source);
+      expect(attempts.filter(({ input }) => onlySourceRange(input) === `0:${length}`)).toHaveLength(
+        1,
+      );
+      for (const completion of completed) {
+        const winning = attempts.find(({ input }) => input === completion.input)!;
+        expect(completion.admitted).toMatchObject({
+          ...winning.serialization,
+          contextUtilizationFraction: 0.8,
+          usableInputTokens: 6000,
+        });
+      }
+    },
+  );
 
   it('allows sixteen logical calls and rejects a needed seventeenth before invoking it', async () => {
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'a' }, provider_exchanges: [] }));
@@ -501,6 +748,37 @@ describe('sequential contextual refine accumulator', () => {
     expect(accumulator.invocationCount).toBe(0);
   });
 
+  it.each(['whole', 'fine'] as const)(
+    'propagates exact synchronous cancellation during a %s probe without another probe, send, or cutoff commit',
+    async (phase) => {
+      const controller = new AbortController();
+      const reason = new Error(`cancel during ${phase}`);
+      const serialize = jest.fn((input: SummaryInput) => {
+        if (phase === 'whole' || sourceByteCount(input) === 2) controller.abort(reason);
+        return serialization(input, sourceByteCount(input) > 3 ? 10_000 : 1);
+      });
+      const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>();
+      const rows = [activation(), text('source', 'abcdefghij')];
+      const accumulator = createSequentialRefineAccumulator({
+        conversation: validateConversation(SESSION, rows),
+        inheritedHistory: null,
+        preparedBlocks: [],
+        summarizerProvider: recordingProvider({
+          contextWindowTokens: 10_000,
+          serialize,
+          completeTurn,
+        }),
+        budget: BUDGET,
+        signal: controller.signal,
+      });
+      await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(reason);
+      expect(serialize).toHaveBeenCalledTimes(phase === 'whole' ? 1 : 3);
+      expect(completeTurn).not.toHaveBeenCalled();
+      expect(accumulator.materializedThrough).toBe(0);
+      expect(accumulator.invocationCount).toBe(0);
+    },
+  );
+
   it('does not resume packing after the first completed fold callback aborts', async () => {
     const reason = new Error('cancel from fold completion');
     const controller = new AbortController();
@@ -615,6 +893,45 @@ function recordingProvider(args: {
     serializeSummaryRequest: args.serialize ?? ((input) => serialization(input, Buffer.byteLength(JSON.stringify(input.providerConversation.messages), 'utf8') / 4)),
     completeTurn: args.completeTurn ?? (async (input) => ({ result: { kind: 'message' as const, content: await args.complete!(input) }, provider_exchanges: [] })),
     projectProviderExchanges: jest.fn(),
+  };
+}
+
+function realSerialization(
+  input: SummaryInput,
+  protocol: 'openai-chat-completions' | 'openai-responses' | 'openai-codex-backend',
+): SummaryRequestSerialization {
+  const capabilities = {
+    transportProtocol: protocol,
+    imageInput: protocol !== 'openai-chat-completions',
+    toolsMode: 'native' as const,
+    exclusiveToolChoiceSupport: 'native' as const,
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 10_000,
+    quirks: [],
+  };
+  const plan = buildCandidateRequest({
+    candidate: CANDIDATE,
+    capabilities,
+    adapter: selectLlmProtocolAdapter(protocol),
+    systemPrompt: input.systemPrompt,
+    providerConversation: input.providerConversation,
+    options: {
+      providerSessionId: 'fixed-summary-session',
+      inputId: input.inputId,
+      temperature: 0,
+      max_tokens: 2_000,
+      tools: [],
+      tool_choice: 'auto',
+      contract_id: 'internal-compaction-summary.v1',
+      contractName: 'internal-compaction-summary',
+      terminalToolOffered: [],
+    },
+  });
+  return {
+    imageCount: plan.request.imageCount,
+    serializedRequest: plan.request.serializedBody,
+    requestSha256: plan.request.requestHash,
+    estimatedInputTokens: plan.request.estimatedWireInputTokens,
   };
 }
 

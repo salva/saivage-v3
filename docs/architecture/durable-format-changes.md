@@ -23,6 +23,22 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### C05 whole-component packing — no durable impact (2026-10-15)
+
+Exact implementation parent: `a73cfdec43cd7e470c6ad56199f8592de19ccb32`.
+The accumulator replaces per-component growing-prefix probes with geometric
+whole-component bracketing and component bisection before text refinement. Only
+unpublished call-local probes change; source coverage, serial summary inheritance,
+exact winning admission/send authority and persisted contracts are unchanged.
+No stored shape, interpretation, selection, provenance or layout changes.
+Conversation index/genesis/segments and selected raw PNG contract remain format 9;
+provider/app-log envelopes retain shared `version:1/type:rows`; card/record, MCP,
+diagnostics and all other family discriminators are unchanged. No retained-state
+adoption, migration, reset or unreleased-cutover exception is involved.
+Installed-release applicability is unknown/uninspected. This source-only entry
+certifies no whole-release compatibility and authorizes no deployment or runtime
+action; external migration remains separately owner-requested and offline.
+
 ### C01 historical-prefix framing — no durable impact (2026-10-15)
 
 Exact implementation parent: `dd69aa145df85d8ac6c32d4f9a8fa9d5f3a6adc0`.

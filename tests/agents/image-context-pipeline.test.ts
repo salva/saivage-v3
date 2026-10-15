@@ -7,6 +7,7 @@ import { afterEach, expect, it, jest } from '@jest/globals';
 import { canonicalJson, type AgentMessage } from '../../src/schemas/index.js';
 import {
   imageAccountingBytes,
+  validateConversation,
   toolContentSucceeded,
   imageEstimatedTokens,
   rasterReservation,
@@ -652,6 +653,39 @@ it('wire cap is a local capacity verdict and summary refusal even with ample tok
       contextUtilizationFraction: 0.8,
     }).kind,
   ).toBe('too_large');
+  const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>();
+  const serializeSummaryRequest = jest.fn<SummarizerProviderPort['serializeSummaryRequest']>(
+    (request) => {
+      const exact = plan(request.providerConversation);
+      expect(exact.request.estimatedWireInputTokens).toBeLessThan(80_000_000 - 2000);
+      return {
+        serializedRequest: exact.request.serializedBody,
+        requestSha256: exact.request.requestHash,
+        estimatedInputTokens: exact.request.estimatedWireInputTokens,
+        imageCount: exact.request.imageCount,
+      };
+    },
+  );
+  const accumulator = createSequentialRefineAccumulator({
+    conversation: f.conversation,
+    inheritedHistory: null,
+    preparedBlocks: [],
+    summarizerProvider: {
+      ...summaryProvider(f.projectRoot, 'unused', []),
+      contextWindowTokens: 100_000_000,
+      materializeImage: async () => image,
+      serializeSummaryRequest,
+      completeTurn,
+    },
+    budget: { contextUtilizationFraction: 0.8 },
+    signal: new AbortController().signal,
+    progress: noCompactionProgress,
+  });
+  await expect(
+    accumulator.materializeThrough(f.conversation.sourceRows.length),
+  ).rejects.toMatchObject({ reason: 'request_context_capacity', invocationCount: 0 });
+  expect(serializeSummaryRequest).toHaveBeenCalledTimes(1);
+  expect(completeTurn).not.toHaveBeenCalled();
 });
 
 it.each(['local_exact_admission', 'preventive', 'authoritative_context_recovery'] as const)(
@@ -756,6 +790,304 @@ it('atomic visual summary refuses without splitting call/result or substituting 
   ).rejects.toBeInstanceOf(SummaryConstructionLimitError);
   expect(seen).toHaveLength(0);
 });
+
+it('propagates unsupported Chat summary images rather than treating the error as a searchable size rejection', async () => {
+  const f = await fixture(33, 65);
+  const base = summaryProvider(f.projectRoot, 'unused', []);
+  const completeTurn = jest.fn<SummarizerProviderPort['completeTurn']>();
+  const serializeSummaryRequest = jest.fn<SummarizerProviderPort['serializeSummaryRequest']>(
+    (input) => {
+      const built = plan(input.providerConversation, 'openai-chat-completions');
+      return {
+        serializedRequest: built.request.serializedBody,
+        requestSha256: built.request.requestHash,
+        estimatedInputTokens: built.request.estimatedWireInputTokens,
+        imageCount: built.request.imageCount,
+      };
+    },
+  );
+  const accumulator = createSequentialRefineAccumulator({
+    conversation: f.conversation,
+    inheritedHistory: null,
+    preparedBlocks: [],
+    summarizerProvider: { ...base, serializeSummaryRequest, completeTurn },
+    budget: { contextUtilizationFraction: 0.8 },
+    signal: new AbortController().signal,
+    progress: noCompactionProgress,
+  });
+  await expect(accumulator.materializeThrough(f.conversation.sourceRows.length)).rejects.toThrow(
+    'Chat image input is unsupported.',
+  );
+  expect(serializeSummaryRequest).toHaveBeenCalledTimes(1);
+  expect(completeTurn).not.toHaveBeenCalled();
+});
+
+it.each(['openai-responses', 'openai-codex-backend'] as const)(
+  'brackets a rejected atomic %s bundle after text, then sends the intact ordered bundle on the next fold',
+  async (protocol) => {
+    const f = await fixture(33, 65);
+    const source = rows(f.descriptor, true, [
+      { type: 'text', text: 'before pixels' },
+      { type: 'image', image: f.descriptor },
+      { type: 'text', text: 'between pixels' },
+      { type: 'image', image: f.descriptor },
+      { type: 'text', text: 'after pixels' },
+    ]);
+    const prefix: AgentMessage = {
+      ...source[0]!,
+      id: 'prefix',
+      kind: 'text',
+      role: 'user',
+      context_policy: TEXT_ROW_POLICY,
+      content: 'p'.repeat(4000),
+    };
+    const suffix: AgentMessage = { ...prefix, id: 'suffix', content: 'following observation' };
+    const conversation = validateConversation(SESSION, [
+      source[0]!,
+      prefix,
+      ...source.slice(1),
+      suffix,
+    ]);
+    const base = summaryProvider(f.projectRoot, 'summary', []);
+    const probes: Array<{
+      input: Parameters<SummarizerProviderPort['serializeSummaryRequest']>[0];
+      wire: ReturnType<SummarizerProviderPort['serializeSummaryRequest']>;
+    }> = [];
+    const serialize: SummarizerProviderPort['serializeSummaryRequest'] = (input) => {
+      const built = plan(input.providerConversation, protocol);
+      const wire = {
+        serializedRequest: built.request.serializedBody,
+        requestSha256: built.request.requestHash,
+        estimatedInputTokens: built.request.estimatedWireInputTokens,
+        imageCount: built.request.imageCount,
+      };
+      probes.push({ input, wire });
+      return wire;
+    };
+    // Exact adapter-based limit: the prefix and bundle each fit, but not together.
+    const image = await materializeConversationImage(f.projectRoot, SESSION, f.descriptor);
+    const limitProbe = buildSummaryRequestInput({
+      candidate,
+      sourceSessionId: SESSION,
+      instruction: 'summary',
+      items: [{ label: 'prefix', role: 'user', content: prefix.content }],
+    });
+    const capacity = serialize(limitProbe).estimatedInputTokens + 200;
+    probes.length = 0;
+    const completed: Array<Parameters<SummarizerProviderPort['completeTurn']>[0]> = [];
+    const provider: SummarizerProviderPort = {
+      ...base,
+      contextWindowTokens: capacity + 2000,
+      serializeSummaryRequest: serialize,
+      completeTurn: async (input, admitted) => {
+        const winner = probes.find((probe) => probe.input === input)!;
+        expect(winner).toBeDefined();
+        expect(admitted).toMatchObject({ ...winner.wire, contextUtilizationFraction: 1 });
+        expect(createHash('sha256').update(admitted.serializedRequest).digest('hex')).toBe(
+          admitted.requestSha256,
+        );
+        completed.push(input);
+        return { result: { kind: 'message', content: 'summary' }, provider_exchanges: [] };
+      },
+    };
+    await createSequentialRefineAccumulator({
+      conversation,
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: provider,
+      budget: { contextUtilizationFraction: 1 },
+      signal: new AbortController().signal,
+      progress: noCompactionProgress,
+    }).materializeThrough(conversation.sourceRows.length);
+    expect(completed).toHaveLength(2);
+    expect(
+      completed[0]!.providerConversation.messages.flatMap(providerItemImageDescriptors),
+    ).toEqual([]);
+    expect(
+      completed[1]!.providerConversation.messages.flatMap(providerItemImageDescriptors),
+    ).toEqual([f.descriptor, f.descriptor]);
+    const atomic = completed[1]!.providerConversation.messages.find(
+      (item) => item.kind === 'synthetic_context' && item.contentBlocks,
+    )!;
+    if (atomic.kind !== 'synthetic_context') throw new Error('Expected synthetic atomic source.');
+    expect(atomic.content).toContain('source_kind=tool_bundle:fixture_image_producer');
+    const body = atomic.content.slice(atomic.content.indexOf('\n') + 1);
+    expect(atomic.content).toContain(
+      `range=0:${Buffer.byteLength(body)} total_bytes=${Buffer.byteLength(body)}`,
+    );
+    expect(JSON.parse(body)).toMatchObject({
+      tool: 'fixture_image_producer',
+      arguments: '{}',
+      result: { success: true, data: { caption: 'fixture' } },
+    });
+    expect(atomic.contentBlocks).toEqual([
+      { type: 'text', text: 'before pixels' },
+      { type: 'image', image },
+      { type: 'text', text: 'between pixels' },
+      { type: 'image', image },
+      { type: 'text', text: 'after pixels' },
+    ]);
+    expect(completed[1]!.providerConversation.messages.at(-1)!.content).toContain(suffix.content);
+    const wholeProbes = probes.filter(
+      ({ input }) =>
+        !input.providerConversation.messages.some((item) =>
+          item.content.includes('[kind=inherited_history]'),
+        ),
+    );
+    expect(wholeProbes).toHaveLength(2);
+    expect(wholeProbes.map(({ wire }) => wire.imageCount)).toEqual([0, 2]);
+    expect(wholeProbes[1]!.wire.estimatedInputTokens).toBeGreaterThan(capacity);
+  },
+);
+
+it.each(['openai-responses', 'openai-codex-backend'] as const)(
+  'keeps %s whole endpoint accounting monotone through total-item digit boundaries and first-image activation',
+  async (protocol) => {
+    const f = await fixture(33, 65);
+    const image = await materializeConversationImage(f.projectRoot, SESSION, f.descriptor);
+    const items: Parameters<typeof buildSummaryRequestInput>[0]['items'][number][] = [
+      { label: '[kind=prepared_context]', role: 'system', content: 'orientation' },
+      { label: '[kind=inherited_history]', role: 'system', content: 'genuine history' },
+      ...Array.from({ length: 100 }, (_, index) => ({
+        label: `[source=${index} range=0:10]`,
+        role: 'user' as const,
+        content: 'é🙂"\\\n',
+        ...(index === 7 || index === 97
+          ? {
+              contentBlocks: [
+                { type: 'text' as const, text: 'before' },
+                { type: 'image' as const, image },
+                { type: 'text' as const, text: 'after' },
+              ],
+            }
+          : {}),
+      })),
+    ];
+    let previousBytes = 0;
+    let previousTokens = 0;
+    let previousImages = 0;
+    for (let count = 3; count <= items.length; count++) {
+      const input = buildSummaryRequestInput({
+        candidate,
+        sourceSessionId: SESSION,
+        instruction: 'summary',
+        items: items.slice(0, count),
+      });
+      const built = plan(input.providerConversation, protocol);
+      expect(Buffer.byteLength(built.request.serializedBody)).toBeGreaterThan(previousBytes);
+      expect(built.request.estimatedWireInputTokens).toBeGreaterThanOrEqual(previousTokens);
+      expect(built.request.imageCount).toBeGreaterThanOrEqual(previousImages);
+      expect(built.request.imageCount).toBe(count >= 100 ? 2 : count >= 10 ? 1 : 0);
+      previousBytes = Buffer.byteLength(built.request.serializedBody);
+      previousTokens = built.request.estimatedWireInputTokens;
+      previousImages = built.request.imageCount;
+    }
+  },
+);
+
+it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)(
+  'keeps %s fine-prefix accounting monotone at exact range-byte digit boundaries with fixed orientation/history and supported pixels',
+  async (protocol) => {
+    const f = await fixture(1, 1);
+    const image = await materializeConversationImage(f.projectRoot, SESSION, f.descriptor);
+    const points = Array.from(`${'x'.repeat(100)}é🙂"\\\n\uD800`);
+    let previousBytes = 0;
+    let previousTokens = 0;
+    for (const count of [9, 10, 99, 100, 101, 102, 103, 104, 105, 106]) {
+      const content = points.slice(0, count).join('');
+      const end = Buffer.byteLength(content);
+      if (count <= 100) expect(end).toBe(count);
+      const input = buildSummaryRequestInput({
+        candidate,
+        sourceSessionId: SESSION,
+        instruction: 'summary',
+        items: [
+          { label: '[kind=prepared_context]', role: 'system', content: 'orientation' },
+          { label: '[kind=inherited_history]', role: 'system', content: 'genuine history' },
+          ...(protocol === 'openai-chat-completions'
+            ? []
+            : [
+                {
+                  label: '[kind=new_source]',
+                  role: 'user' as const,
+                  content: 'fixed atomic image metadata',
+                  contentBlocks: [{ type: 'image' as const, image }],
+                },
+              ]),
+          {
+            label: `[kind=new_source range=0:${end} total_bytes=${Buffer.byteLength(points.join(''))}]`,
+            role: 'user',
+            content,
+          },
+        ],
+      });
+      const built = plan(input.providerConversation, protocol);
+      const bytes = Buffer.byteLength(built.request.serializedBody);
+      expect(bytes).toBeGreaterThan(previousBytes);
+      expect(built.request.estimatedWireInputTokens).toBeGreaterThanOrEqual(previousTokens);
+      expect(built.request.imageCount).toBe(protocol === 'openai-chat-completions' ? 0 : 1);
+      previousBytes = bytes;
+      previousTokens = built.request.estimatedWireInputTokens;
+    }
+  },
+);
+
+it.each(['openai-responses', 'openai-codex-backend'] as const)(
+  'activates the image wire-byte ceiling at the first %s image while token capacity still permits both endpoints',
+  async (protocol) => {
+    const f = await fixture(1, 1);
+    const image = await materializeConversationImage(f.projectRoot, SESSION, f.descriptor);
+    const items: Parameters<typeof buildSummaryRequestInput>[0]['items'][number][] = [
+      { label: '[kind=prepared_context]', role: 'system', content: 'orientation' },
+      { label: '[kind=inherited_history]', role: 'system', content: 'genuine history' },
+      { label: '[kind=new_source]', role: 'user', content: 'x'.repeat(MAX_IMAGE_REQUEST_BYTES) },
+      {
+        label: '[kind=new_source]',
+        role: 'user',
+        content: 'atomic pixels with metadata',
+        contentBlocks: [
+          { type: 'text', text: 'before' },
+          { type: 'image', image },
+          { type: 'text', text: 'after' },
+        ],
+      },
+    ];
+    const wires = [3, 4].map((count) => {
+      const input = buildSummaryRequestInput({
+        candidate,
+        sourceSessionId: SESSION,
+        instruction: 'summary',
+        items: items.slice(0, count),
+      });
+      const built = plan(input.providerConversation, protocol);
+      const serialization = {
+        serializedRequest: built.request.serializedBody,
+        requestSha256: built.request.requestHash,
+        estimatedInputTokens: built.request.estimatedWireInputTokens,
+        imageCount: built.request.imageCount,
+      };
+      expect(Buffer.byteLength(serialization.serializedRequest)).toBeGreaterThan(
+        MAX_IMAGE_REQUEST_BYTES,
+      );
+      const admission = admitSummaryRequest({
+        serialization,
+        contextWindowTokens: 100_000_000,
+        maxOutputTokens: 128_000,
+        contextUtilizationFraction: 0.8,
+      });
+      expect(serialization.estimatedInputTokens).toBeLessThan(80_000_000 - 2000);
+      return { serialization, admission };
+    });
+    expect(wires.map(({ serialization }) => serialization.imageCount)).toEqual([0, 1]);
+    expect(wires.map(({ admission }) => admission.kind)).toEqual(['admitted', 'too_large']);
+    expect(Buffer.byteLength(wires[1]!.serialization.serializedRequest)).toBeGreaterThan(
+      Buffer.byteLength(wires[0]!.serialization.serializedRequest),
+    );
+    expect(wires[1]!.serialization.estimatedInputTokens).toBeGreaterThanOrEqual(
+      wires[0]!.serialization.estimatedInputTokens,
+    );
+  },
+);
 
 it('keeps source-session ownership for retained images and rejects missing selected bodies at use', async () => {
   const f = await fixture();
