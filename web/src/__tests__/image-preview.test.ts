@@ -9,6 +9,15 @@ import { getConversationImage, getFileImage } from '../api/client';
 import { effectScope, nextTick, ref } from 'vue';
 import { useAgentTimeline } from '../composables/useAgentTimeline';
 import { call, result as toolResult } from './tool-presenters/fixtures';
+import { buildToolDisplay } from '../utils/tool-friendly';
+vi.mock('../utils/tool-friendly', async importOriginal => {
+  const original = await importOriginal<typeof import('../utils/tool-friendly')>();
+  return { ...original, buildToolDisplay: vi.fn(original.buildToolDisplay) };
+});
+vi.mock('../utils/conversation-images', async importOriginal => {
+  const original = await importOriginal<typeof import('../utils/conversation-images')>();
+  return { ...original, conversationImages: vi.fn(original.conversationImages) };
+});
 vi.mock('../api/client', () => ({ getConversationImage: vi.fn(), getFileImage: vi.fn(), OperatorApiError: class extends Error {} }));
 const context = { session_id: 'agent:analyst:global' as const, segment_version: 3, segment_id: '00000000-0000-4000-8000-000000000003' };
 const image = { id: '00000000-0000-4000-8000-000000000001', mime_type: 'image/png', width: 800, height: 1600, byte_length: 100, sha256: '0'.repeat(64) };
@@ -22,7 +31,64 @@ describe('caller-local selected image preview', () => {
     vi.mocked(getFileImage).mockResolvedValue(new Blob(['png']));
     HTMLElement.prototype.scrollTo = vi.fn();
   });
-  afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); document.body.innerHTML = ''; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); document.body.innerHTML = ''; });
+  it('derives each ordinary tool row once, reuses it on expansion/inspection and pins selection across reprojection', async () => {
+    const display = vi.mocked(buildToolDisplay);
+    const images = vi.mocked(conversationImages);
+    const c = call('synthetic_typed_producer');
+    const r = toolResult('synthetic_typed_producer', {}, { content: JSON.stringify(result) });
+    const unmatched = call('unmatched', {}, 'unmatched');
+    const orphan = { ...r, id: 'orphan:tool-result:orphan', tool_call_id: 'orphan' };
+    const timeline = entriesToTimeline([c, r, unmatched, orphan]);
+    timeline.rounds.push({ ...timeline.rounds[0], id: 'hidden', kind: 'compacted', entries: [] });
+    const wrapper = mount(ConversationTimeline, { props: { timeline, expandedIds: new Set<string>(), imageContext: context } });
+    expect(display).toHaveBeenCalledTimes(3);
+    expect(images).toHaveBeenCalledTimes(3);
+    expect(images.mock.calls.map(args => args[0])).toEqual([r, null, orphan]);
+    expect(wrapper.findAll('.tool-chip-detail, .semantic-section, .code-block')).toHaveLength(0);
+    expect(getConversationImage).not.toHaveBeenCalled();
+    const chips = wrapper.findAll('.tool-chip');
+    expect(chips.map(chip => chip.attributes('data-tool-entry-id'))).toEqual([c.id, unmatched.id, orphan.id]);
+    await wrapper.setProps({ expandedIds: new Set([c.id, unmatched.id, orphan.id]) });
+    expect(wrapper.findAll('[data-entry-id]').map(node => node.attributes('data-entry-id'))).toEqual([c.id, r.id, unmatched.id, orphan.id]);
+    expect(wrapper.text()).toContain('No result recorded');
+    expect(wrapper.text()).toContain('Requested context unavailable');
+    await chips[0].findAll('.image-actions button')[1].trigger('click'); await flushPromises();
+    expect(display).toHaveBeenCalledTimes(3); expect(images).toHaveBeenCalledTimes(3);
+    const oldLocator = { ...context, message_id: r.id, content_index: 3, image_id: image.id };
+    expect(getConversationImage).toHaveBeenLastCalledWith(oldLocator, expect.any(AbortSignal));
+    const newContext = { ...context, segment_version: 4, segment_id: '00000000-0000-4000-8000-000000000004' };
+    await wrapper.setProps({ imageContext: newContext });
+    expect(display).toHaveBeenCalledTimes(6); expect(images).toHaveBeenCalledTimes(6);
+    const replacement = { ...r, id: `replacement:tool-result:${r.tool_call_id}` };
+    await wrapper.setProps({ timeline: entriesToTimeline([replacement]) }); await flushPromises();
+    expect(display).toHaveBeenCalledTimes(7); expect(images).toHaveBeenCalledTimes(7);
+    expect(getConversationImage).toHaveBeenCalledTimes(1);
+    const refresh = [...document.querySelectorAll('button')].find(button => button.textContent === 'Refresh image')!;
+    refresh.click(); await flushPromises();
+    expect(getConversationImage).toHaveBeenLastCalledWith(oldLocator, expect.any(AbortSignal));
+    const close = [...document.querySelectorAll('button')].find(button => button.textContent?.startsWith('Close / Return'))!;
+    close.click(); await flushPromises();
+    await wrapper.findAll('.image-actions button')[0].trigger('click'); await flushPromises();
+    expect(getConversationImage).toHaveBeenLastCalledWith({ ...newContext, message_id: replacement.id, content_index: 1, image_id: image.id }, expect.any(AbortSignal));
+    expect(display).toHaveBeenCalledTimes(7); expect(images).toHaveBeenCalledTimes(7);
+    wrapper.unmount();
+  });
+  it('keeps strict typed admission independent of optional metadata and opaque image-looking values', async () => {
+    const values = [
+      result,
+      { ...result, data: { images: 'malformed optional metadata' } },
+      { success: false, error: 'failed', content: result.content },
+      { success: true, content: [{ type: 'image', image: { ...image, width: '800' } }] },
+      { success: true, data: { image, image_url: 'https://invalid' } },
+      { success: true, content: [{ type: 'text', text: JSON.stringify(image) }] },
+    ];
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(values.map((value, i) => ({ ...entry(value), id: `source:tool-result:orphan-${i}`, tool_call_id: `orphan-${i}` }))), expandedIds: new Set<string>(), imageContext: context } });
+    expect(wrapper.findAll('.tool-chip').map(chip => chip.findAll('.image-actions button').length)).toEqual([2, 2, 0, 0, 0, 0]);
+    await wrapper.setProps({ imageContext: undefined });
+    expect(wrapper.findAll('.image-actions button')).toHaveLength(0);
+    wrapper.unmount();
+  });
   it('uses actual ordered references without producer metadata, never nested JSON or URLs', async () => {
     const selections = conversationImages(entry(result), context, 'synthetic_typed_producer');
     expect(selections.map(s => s.locator)).toEqual([1, 3].map(content_index => ({ ...context, message_id: entry(result).id, content_index, image_id: image.id })));

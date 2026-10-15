@@ -2,7 +2,7 @@
   <div class="conversation-timeline">
     <p v-if="firstSourceEntry && !activationEntry(firstSourceEntry)">The activation start is outside this displayed segment or tail; this does not mean no instructions existed.</p>
     <section
-      v-for="(round, index) in timeline.rounds"
+      v-for="(round, index) in presentedRounds"
       :key="round.id"
       class="round-card"
       data-testid="round-card"
@@ -31,9 +31,9 @@
           </div>
           <DiagnosticRow v-else-if="['model_issue', 'model_repair', 'model_recovered'].includes(row.entry.kind)" :entry="row.entry" />
           <ToolChip
-            v-else-if="row.entry.kind === 'tool_call' || row.entry.kind === 'tool_result'"
+            v-else-if="row.tool"
             :entry-id="row.entry.id"
-            :display="buildToolDisplay(row)"
+            :display="row.tool.display"
             :call-content="row.entry.kind === 'tool_call' ? row.entry.content : null"
             :result-content="row.entry.kind === 'tool_result' ? row.entry.content : row.mate?.content ?? null"
             :result-entry-id="row.entry.kind === 'tool_result' ? row.entry.id : row.mate?.id"
@@ -42,8 +42,8 @@
             :intervening-entries="row.interveningEntries"
             :expanded="expandedIds.has(row.entry.id)"
             :details-id="`tool-${row.entry.id}`"
-            :images="imagesFor(row)"
-            @inspect="inspect(row, $event)"
+            :images="row.tool.images"
+            @inspect="inspect(row.tool.images, $event)"
             @toggle="emit('toggle', row.entry.id)"
           />
           <div v-if="row.entry.kind === 'record_observation'" :data-entry-id="row.entry.id" tabindex="-1">Preparation observation recorded · {{ provenance(row.entry) }}</div>
@@ -82,15 +82,21 @@ function preparedInstructions(entry: AgentConversationEntry) {
 function observationEntry(row: TimelineRow): AgentConversationEntry | null { return row.entry.kind === 'tool_call' ? row.mate : row.entry; }
 
 const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string>; imageContext?: ImageContext }>();
+const presentedRounds = computed(() => props.timeline.rounds.map(round => ({
+  ...round,
+  rows: round.kind === 'compacted' ? [] : round.rows.map(row => {
+    if (row.entry.kind !== 'tool_call' && row.entry.kind !== 'tool_result') return { ...row, tool: null };
+    const display = buildToolDisplay(row);
+    const result = row.entry.kind === 'tool_result' ? row.entry : row.mate;
+    return { ...row, tool: { display, images: conversationImages(result, props.imageContext, display.toolName) } };
+  }),
+})));
 const firstSourceEntry = computed(() => props.timeline.rounds.find(round => round.kind !== 'compacted')?.rows[0]?.entry);
 const emit = defineEmits<{ toggle: [id: string]; inspecting: [open: boolean] }>();
 const inspection = ref<{ images: ImageSelection[]; index: number } | null>(null);
 const previewSelection = computed(() => inspection.value ? { kind: 'conversation' as const, image: inspection.value.images[inspection.value.index] } : null);
-function imagesFor(row: TimelineRow): ImageSelection[] {
-  return conversationImages(row.entry.kind === 'tool_result' ? row.entry : row.mate, props.imageContext, buildToolDisplay(row).toolName);
-}
-function inspect(row: TimelineRow, index: number): void {
-  inspection.value = { images: imagesFor(row), index };
+function inspect(images: ImageSelection[], index: number): void {
+  inspection.value = { images, index };
   emit('inspecting', true);
 }
 function closeInspection(): void { inspection.value = null; emit('inspecting', false); }

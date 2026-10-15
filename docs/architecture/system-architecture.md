@@ -77,6 +77,11 @@ producer labels. Fit/1:1 geometry, same-result navigation and Dialog focus conve
 are shared; conversation arrivals cannot scroll the background during inspection.
 No image registry, persisted preview or durable change results.
 
+The shared `ConversationTimeline.vue` derives each displayed ordinary tool row's
+display once and reuses its resolved tool identity and image occurrences for actions
+and inspection. Independent strict image selection and exact server authority remain
+unchanged; an open inspection retains its selected occurrences across refresh.
+
 `application/conversation-image-materialization.ts` resolves selected snapshots
 sequentially and validates bytes/hash/decoded dimensions for invocation-local use.
 Application composition binds primary/recomposed/pinned preparation and the fixed

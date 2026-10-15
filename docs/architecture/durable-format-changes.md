@@ -659,6 +659,21 @@ needs no migration/reset, but unrelated release differences still require full
 source-contract comparison; it neither certifies adoption of current HEAD by
 that older installation nor authorizes deployment or any instance action.
 
+## Durable-preserving timeline-local presentation
+
+Against exact implementation parent `8cb426230de451de3091c7a068a61f7eb14e5237`,
+`web/src/components/conversation/ConversationTimeline.vue` derives tool display and
+image occurrences together for ordinary displayed rows. This changes ephemeral
+frontend evaluation only, not retained shape, interpretation, selection, provenance,
+layout, readers or producers. No family/discriminator changes: conversation
+index/genesis/segments remain **9**, and raw images remain selected by their existing
+owning descriptor contract. All other durable families are unchanged.
+
+Installed releases are unknown and uninspected. There is no unreleased-cutover
+exception, retained-state adoption, reset or migration requirement for this change,
+nor certification of whole-release compatibility or authorization for deployment.
+Any external migration remains separately owner-requested under the offline policy.
+
 ## Known incompatible changes
 
 These source boundaries are directly evidenced, not an exhaustive timeline.

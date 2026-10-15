@@ -32,13 +32,17 @@ test.describe.configure({ timeout: 180_000, retries: 0 });
 const token = 'synthetic-image-browser-token';
 let sessions: readonly ConversationSessionId[];
 const timestamp = '2026-10-08T00:00:00.000Z';
-const evidence = join(process.cwd(), 'docs/working/2026-10-09-fix-f04-tool-pairing/evidence/browser');
+const evidence = join(process.cwd(), 'docs/working/2026-10-15-todo-AR04-timeline-projection/evidence/browser');
 let root: string, app: App, origin: string, cards: CardService;
 let providerCalls = 0;
 const sink = createServer((_req, res) => { providerCalls++; res.writeHead(500); res.end('Forbidden synthetic provider invocation'); });
 const report: object[] = [];
 const selected = new Map<string, { descriptor: ImageDescriptor; requestId: string; messageId: string; segmentId: string; version: number }[]>();
 const failedRequests = new Map<string, string>();
+const publicStrings = new Map<string, { request: string; result: string }>();
+const admissionRows = new Map<string, { requestId: string; actions: number }[]>();
+const longRequest = `${'public-request-scope/'.repeat(200)}AR04-REQUEST-TAIL`;
+const longResult = `${'public-result-detail '.repeat(200)}AR04-RESULT-TAIL`;
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
 function append(session: ConversationSessionId, tool: string, result: ToolResult, name: string, label = name) {
@@ -47,9 +51,12 @@ function append(session: ConversationSessionId, tool: string, result: ToolResult
   const row = (id: string, role: 'system' | 'assistant' | 'tool', content: string) => ({ id, session_id: session, role, content, timestamp, round_id: `r-assistant-${input.replaceAll('-', '')}`, message_index: index++, block_index: 0 });
   const messageId = `${input}:tool-result:${name}`;
   const requestId = `${input}:tool-call:${name}`;
+  const args = tool === 'mcp_tool_call' ? { serverName: 'synthetic', toolName: 'screenshot', args: { path: label } } : { path: label };
+  const request = JSON.stringify({ role: 'assistant', tool_calls: [{ id: name, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] });
+  publicStrings.set(requestId, { request, result: content });
   appendConversationBatch({ projectRoot: root }, [
     { ...row(`${input}:activation`, 'system', JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: session.split(':')[1], ...(session.endsWith(':global') ? {} : { card_id: session.split(':')[2] }), input_id: input, timestamp })), kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary },
-    { ...row(requestId, 'assistant', JSON.stringify({ role: 'assistant', tool_calls: [{ id: name, type: 'function', function: { name: tool, arguments: JSON.stringify({ path: label }) } }] })), kind: 'tool_call', tool, tool_call_id: name, context_policy: policies.call },
+    { ...row(requestId, 'assistant', request), kind: 'tool_call', tool, tool_call_id: name, context_policy: policies.call },
     ...(label.endsWith('current') ? [{ ...row(`${input}:between`, 'assistant', 'Intervening public prose, before the result was known.'), kind: 'text', context_policy: TEXT_ROW_POLICY }] : []),
     { ...row(messageId, 'tool', content), kind: 'tool_result', tool, tool_call_id: name, context_policy: policies.result },
     { ...row(`${input}:tail`, 'assistant', 'Reading-position line\n'.repeat(200)), kind: 'text', context_policy: TEXT_ROW_POLICY },
@@ -64,10 +71,17 @@ async function seed(session: ConversationSessionId, suffix: string) {
   const locator = append(session, 'view_image', result, 'call_0', `view-${suffix}`);
   const small = await sharp({ create: { width: 12, height: 8, channels: 3, background: '#00ff00' } }).png().toBuffer();
   const blue = await sharp({ create: { width: 30, height: 20, channels: 3, background: '#0000ff' } }).png().toBuffer();
-  const native = settleToolActionOutcome(await projectNativeMcpResult({ content: [{ type: 'text', text: 'native-before' }, { type: 'image', data: small.toString('base64'), mimeType: 'image/png' }, { type: 'text', text: 'native-between' }, { type: 'image', data: blue.toString('base64'), mimeType: 'image/png' }] }, root, session, new AbortController().signal)).providerResult;
+  const native = settleToolActionOutcome(await projectNativeMcpResult({ content: [{ type: 'text', text: `native-before ${longResult}` }, { type: 'image', data: small.toString('base64'), mimeType: 'image/png' }, { type: 'text', text: 'native-between' }, { type: 'image', data: blue.toString('base64'), mimeType: 'image/png' }] }, root, session, new AbortController().signal)).providerResult;
   if (!native.success) throw new Error('Missing actual native MCP result');
-  const nativeLocator = append(session, 'mcp_tool_call', native, 'call_0', `native-${suffix}`);
+  const nativeLocator = append(session, 'mcp_tool_call', native, 'call_0', `native-${suffix}/${longRequest}`);
   failedRequests.set(`${session}:${suffix}`, append(session, 'view_image', { success: false, error: `Distinct failed ${suffix} snapshot` }, 'call_0', `failed-${suffix}`).requestId);
+  const admission: ToolResult[] = [
+    { success: true, content: [{ type: 'image', image: result.content[0].image }] },
+    { success: true, content: [{ type: 'image', image: result.content[0].image }], data: { images: 'invalid optional producer metadata' } },
+    { success: true, data: { image: result.content[0].image, image_url: 'https://example.invalid/opaque.png' } },
+    { success: true, content: [{ type: 'text', text: JSON.stringify(result.content[0].image) }] },
+  ];
+  admissionRows.set(`${session}:${suffix}`, admission.map((value, index) => ({ requestId: append(session, 'mcp_tool_call', value, `admission_${index}`, `admission-${suffix}`).requestId, actions: index < 2 ? 1 : 0 })));
   selected.set(`${session}:${suffix}`, [{ descriptor: result.content[0].image, ...locator }, ...native.content!.flatMap(block => block.type === 'image' ? [{ descriptor: block.image, ...nativeLocator }] : [])]);
 }
 async function advance(session: ConversationSessionId) {
@@ -136,7 +150,66 @@ async function geometry(page: Page, name: string) {
   for (const button of await dialog.getByRole('button').all()) { const bounds = (await button.boundingBox())!; expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual((await page.viewportSize())!.width); }
 }
 
-test('real local pixels/auth/history/Files/keyboard/return evidence', async ({ page }) => {
+// Exercise the actual shared timeline caller, real clipboard and production image
+// endpoint. End expanded so the existing history/anchor checks keep their meaning.
+async function timelineAcceptance(page: Page, reader: Locator, session: ConversationSessionId, suffix: string, imageUrls: string[], caller: string) {
+  const fixtures = selected.get(`${session}:${suffix}`)!;
+  for (const row of admissionRows.get(`${session}:${suffix}`)!) {
+    await expect(reader.locator(`[data-tool-entry-id="${row.requestId}"] .image-actions button`)).toHaveCount(row.actions);
+  }
+  for (const fixture of fixtures.slice(0, 2)) {
+    const chip = reader.locator(`[data-tool-entry-id="${fixture.requestId}"]`);
+    const toggle = chip.locator('.tool-chip-toggle');
+    if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
+    await expect(chip.locator('.tool-chip-detail, .semantic-section, .code-block')).toHaveCount(0);
+  }
+  const before = imageUrls.length;
+  const native = reader.locator(`[data-tool-entry-id="${fixtures[1].requestId}"]`);
+  await expect(native.locator('.image-actions button')).toHaveText(['Inspect image · content 2 · 12 × 8', 'Inspect image · content 4 · 30 × 20']);
+  expect(imageUrls.length).toBe(before); // no pixels from collapsing/rendering
+  const action = native.locator('.image-actions button').first();
+  await action.click();
+  const dialog = page.getByRole('dialog');
+  await pixels(dialog, fixtures[1].descriptor); assertImageUrl(imageUrls.at(-1)!, session, fixtures[1], 1);
+  await dialog.getByRole('button', { name: 'Next image' }).click();
+  await pixels(dialog, fixtures[2].descriptor); assertImageUrl(imageUrls.at(-1)!, session, fixtures[2], 3);
+  await dialog.getByRole('button', { name: 'Previous image' }).click(); await pixels(dialog, fixtures[1].descriptor);
+  if (suffix === 'current') {
+    const arrival = append(session, 'synthetic_arrival', { success: true, data: 'AR04 pinned public arrival' }, `ar04-${caller}`);
+    for (const socket of app.server.fastify.websocketServer.clients) socket.send(JSON.stringify({ t: 'invalidate', resource: 'conversation', id: session, segment_version: arrival.version, segment_id: arrival.segmentId, visible_message_id: arrival.messageId }));
+    await expect(reader.locator(`[data-tool-entry-id="${arrival.requestId}"]`)).toHaveCount(1);
+    await dialog.getByRole('button', { name: 'Refresh image' }).click();
+    await pixels(dialog, fixtures[1].descriptor); assertImageUrl(imageUrls.at(-1)!, session, fixtures[1], 1);
+  }
+  await dialog.getByLabel('Image viewport').focus();
+  await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(action).toBeFocused();
+  for (const fixture of fixtures.slice(0, 2)) {
+    const chip = reader.locator(`[data-tool-entry-id="${fixture.requestId}"]`);
+    if (await chip.locator('.tool-chip-toggle').getAttribute('aria-expanded') === 'false') await chip.locator('.tool-chip-toggle').click();
+    await expect(chip.locator('.tool-request')).toHaveCount(1);
+    const originals = publicStrings.get(fixture.requestId)!;
+    for (const half of ['request', 'result'] as const) {
+      const raw = chip.locator(`.tool-${half} .safe-original`);
+      await raw.locator('summary').click();
+      expect(await raw.locator('code').textContent()).toBe(originals[half]);
+      await raw.locator('button.code-block__copy').click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(originals[half]);
+      expect(originals[half]).not.toMatch(/data:image|base64|\/images\//);
+      expect(originals[half]).not.toContain(root);
+      expect(originals[half]).not.toContain(token);
+    }
+    await expect(chip.locator('a')).toHaveCount(0);
+  }
+  expect((await native.locator('.tool-request .semantic-section').allTextContents()).join('|')).toContain(longRequest);
+  await expect(native.locator('.tool-result')).toContainText(longResult);
+  expect(await native.locator('.tool-result .semantic-section').allTextContents()).toEqual(expect.arrayContaining([expect.stringContaining('native-before'), expect.stringContaining('native-between')]));
+  const sections = await native.locator('.tool-result .semantic-section').allTextContents();
+  expect(sections.join('|')).toMatch(/native-before.*Typed image descriptor · content 2.*native-between.*Typed image descriptor · content 4/s);
+  report.push({ caller, session, suffix, collapsedInspection: true, strictTypedAdmission: true, exactClipboard: true, longTails: true, orderedContentIndices: [1, 3] });
+}
+
+test('real local pixels/auth/history/Files/keyboard/return evidence', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(value => localStorage.setItem('saivage_api_token', value), token);
   const imageUrls: string[] = []; page.on('request', req => { if (req.url().includes('/images?') || req.url().includes('/files/image?')) imageUrls.push(req.url()); });
@@ -144,12 +217,15 @@ test('real local pixels/auth/history/Files/keyboard/return evidence', async ({ p
     for (const suffix of ['current', 'history']) {
       const fixtures = selected.get(`${session}:${suffix}`)!;
       const selectionQuery = suffix === 'history' ? `segment=${fixtures[0].version}&` : '';
+      const beforeVisit = imageUrls.length;
       await page.goto(`${origin}/agents/${encodeURIComponent(session)}?${selectionQuery}entry=${encodeURIComponent(fixtures[0].messageId)}`);
       const reader = page.locator('.conv-rounds');
       await expect(reader.locator('.targeted-conversation-entry')).toHaveAttribute('data-entry-id', fixtures[0].messageId);
       const viewChip = reader.locator(`[data-tool-entry-id="${fixtures[0].requestId}"]`);
       const nativeChip = reader.locator(`[data-tool-entry-id="${fixtures[1].requestId}"]`);
-      await nativeChip.locator('.tool-chip-toggle').click();
+      await expect(nativeChip.locator('.image-actions button')).toHaveCount(2);
+      expect(imageUrls.length).toBe(beforeVisit);
+      await timelineAcceptance(page, reader, session, suffix, imageUrls, 'AgentConversationView');
       for (const fixture of fixtures.slice(0, 2)) {
         await expect(reader.locator(`[data-entry-id="${fixture.requestId}"]`)).toHaveCount(1);
         await expect(reader.locator(`[data-entry-id="${fixture.messageId}"]`)).toHaveCount(1);
@@ -197,16 +273,27 @@ test('real local pixels/auth/history/Files/keyboard/return evidence', async ({ p
       await expect(page.getByRole('button', { name: 'Previous image' })).toBeDisabled(); await page.getByRole('button', { name: 'Next image' }).click();
       expect((await pixels(page.getByRole('dialog'), fixtures[2].descriptor)).left).toEqual([0, 0, 255, 255]); await expect(page.getByRole('button', { name: 'Next image' })).toBeDisabled(); await page.getByRole('button', { name: 'Previous image' }).click(); await pixels(page.getByRole('dialog'), fixtures[1].descriptor);
       await page.evaluate(() => localStorage.removeItem('saivage_api_token')); await page.getByRole('button', { name: 'Refresh image' }).click(); await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Unauthorized'); await expect(page.getByRole('dialog').locator('img')).toHaveCount(0); await page.keyboard.press('Escape'); await page.evaluate(value => localStorage.setItem('saivage_api_token', value), token);
+      await nativeAction.click(); await pixels(page.getByRole('dialog'), fixtures[1].descriptor);
+      const departure = suffix === 'current'
+        ? reader.getByRole('button', { name: `Inspect source segment ${selected.get(`${session}:history`)![0].version}`, exact: true })
+        : reader.getByRole('button', { name: 'Current segment', exact: true });
+      await departure.evaluate((element: HTMLButtonElement) => element.click());
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      report.push({ caller: 'AgentConversationView', session, suffix, segmentDepartureClosedInspector: true });
     }
   }
   // Actual shared Analyst panel caller, not just the global session route.
-  await page.goto(`${origin}/cards/project`);
+  const beforeChat = imageUrls.length;
+  await page.locator('a[href="/"]').first().click();
   const chat = page.locator('#analyst-chat-panel');
   const analystFixtures = selected.get(`${sessions[1]}:current`)!;
+  await expect(chat.locator(`[data-tool-entry-id="${analystFixtures[1].requestId}"] .image-actions button`)).toHaveCount(2);
+  expect(imageUrls.length).toBe(beforeChat);
+  await timelineAcceptance(page, chat, sessions[1], 'current', imageUrls, 'AnalystChatPanel');
   for (const [index, contentIndex, color] of [[0, 0, [255, 0, 0, 255]], [1, 1, [0, 255, 0, 255]]] as const) {
     const fixture = analystFixtures[index];
     const chip = chat.locator(`[data-tool-entry-id="${fixture.requestId}"]`);
-    await expect(chip).toBeVisible(); await chip.locator('.tool-chip-toggle').click();
+    await expect(chip).toBeVisible();
     await expect(chat.locator(`[data-entry-id="${fixture.requestId}"]`)).toHaveCount(1);
     await expect(chat.locator(`[data-entry-id="${fixture.messageId}"]`)).toHaveCount(1);
     await expect(chip.locator('.tool-request')).toContainText(index === 0 ? 'view-current' : 'native-current');
@@ -220,6 +307,13 @@ test('real local pixels/auth/history/Files/keyboard/return evidence', async ({ p
   await expect(analystFailure.locator('.tool-chip-status')).toContainText('Distinct failed current snapshot');
   await expect(analystFailure.locator('.image-actions button')).toHaveCount(0);
   report.push({ caller: 'AnalystChatPanel', repeatedCallId: 'call_0', uniqueAnchors: analystFixtures.slice(0, 2).flatMap(f => [f.requestId, f.messageId]), independentFailedRequest: failedRequests.get(`${sessions[1]}:current`) });
+  await chat.locator(`[data-tool-entry-id="${analystFixtures[0].requestId}"] .image-actions button`).click();
+  // Same-document back to the dedicated Analyst reader suppresses and unmounts
+  // the global panel. Ordinary navigation to System would retain that owner.
+  await page.goBack();
+  await expect(chat).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  report.push({ caller: 'AnalystChatPanel', ownerDepartureClosedInspector: true });
   await page.goto(`${origin}/files?root=output&path=.saivage/work/current.png`);
   await page.getByRole('button', { name: 'Inspect image · Current source' }).click(); await expect(page.getByRole('dialog')).toContainText('Decoded 2400 × 3600');
   await pixels(page.getByRole('dialog'), { width: 2400, height: 3600, sha256: hash(readFileSync(join(root, '.saivage/work/current.png'))) });
