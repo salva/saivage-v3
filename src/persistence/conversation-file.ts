@@ -117,6 +117,7 @@ function validationSeeds(genesis: ConversationSegmentGenesis): {
           timestamp: genesis.timestamp,
           history: genesis.compaction,
           sourceVersion: genesis.source.version,
+          coveredThroughMessageId: genesis.source.covered_through_message_id,
         }
       : undefined;
   return { inherited, compacted };
@@ -672,6 +673,7 @@ export function publishCompactedConversationSegment(
     timestamp,
     history: compaction.history,
     sourceVersion: current.entry.version,
+    coveredThroughMessageId: compaction.cutoffMessageId,
   });
   io.publishFreshFile(
     target.versionPath(filename),

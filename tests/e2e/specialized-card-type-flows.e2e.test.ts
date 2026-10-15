@@ -1532,7 +1532,7 @@ describe('specialized production card-type flows', () => {
         (row) =>
           row.kind === 'synthetic_context' &&
           row.origin === 'history_summary' &&
-          row.content === `Historical summary:\n${retainedHistory}`,
+          row.content.endsWith(`\n${retainedHistory}`),
       ),
     ).toHaveLength(1);
     const transitionSession = cardAgentSessionId('executor', childId);

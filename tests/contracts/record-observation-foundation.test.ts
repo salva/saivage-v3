@@ -152,7 +152,7 @@ describe('source-derived facts and independent protection', () => {
       expect(JSON.stringify(publicValue)).not.toContain('a'.repeat(64));
     }
     const suffix = prompt('newer-low-revision', selection(1), 'record.brief');
-    const next = validateConversation(SESSION, [suffix], undefined, { id: INPUT, timestamp: TS, sourceVersion: 1, history });
+    const next = validateConversation(SESSION, [suffix], undefined, { id: INPUT, timestamp: TS, sourceVersion: 1, coveredThroughMessageId: rows.at(-1)!.id, history });
     expect(next.effectiveRequiredModelFacts.latestRecordObservations[0]).toMatchObject({ source: { messageId: suffix.id, segmentVersion: 2 }, observation: { observed: selection(1) } });
     const selected = selectConversationProtection({ inherited: history.protectedPrompts, rows: [suffix], sourceVersion: 2, cutoffCount: 0 });
     expect(selected.activePrompts.map(p => p.message.id)).toEqual([b.id, suffix.id]);

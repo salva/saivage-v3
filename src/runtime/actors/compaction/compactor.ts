@@ -325,6 +325,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       timestamp: successorIdentity.timestamp,
       history: successor,
       sourceVersion,
+      coveredThroughMessageId: coveredRows[cutoffSourceIndex]!.id,
     };
     const { inherited } = successorContinuation(conversation, coveredRows);
     const prospective = validateConversation(sessionId, tail, inherited, seed);

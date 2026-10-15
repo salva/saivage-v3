@@ -162,11 +162,11 @@ describe('canonical conversation validation', () => {
 
   it('materializes self-contained compacted history and inherited open round on read', () => {
     const history = validHistory() as CompactedHistory;
-    const conversation = validateConversation(SESSION, [], { markerId: 'activation', inputId: INPUT, activeSegmentKind: 'initial', startOrdinal: 0 }, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3 });
+    const conversation = validateConversation(SESSION, [], { markerId: 'activation', inputId: INPUT, activeSegmentKind: 'initial', startOrdinal: 0 }, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3, coveredThroughMessageId: activation().id });
     expect(conversation.effectiveCompactedHistory).toEqual(history);
     expect(conversation.rounds[0]!.rows).toEqual([]);
     expect(conversation.effectiveRequiredModelFacts).toEqual(history.requiredModelFacts);
-    expect(conversation.compactedGenesis).toEqual({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z' });
+    expect(conversation.compactedGenesis).toEqual({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', sourceVersion: 3, coveredThroughMessageId: activation().id });
   });
 
   it('rejects removed compacted history fields', () => {
@@ -183,7 +183,7 @@ describe('canonical conversation validation', () => {
       { source: { segmentVersion: 1, rowIndex: 2 }, message: first },
       { source: { segmentVersion: 2, rowIndex: 0 }, message: second },
     ]);
-    const seed = (history: CompactedHistory) => ({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3 } as const);
+    const seed = (history: CompactedHistory) => ({ id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', history, sourceVersion: 3, coveredThroughMessageId: second.id } as const);
     expect(validateConversation(SESSION, [], undefined, seed(valid)).effectiveCompactedHistory?.protectedPrompts).toHaveLength(2);
 
     const wrongSession = protectedText('protected-other-session', 'instruction', 'agent:planner:card-a');
@@ -322,7 +322,7 @@ describe('record observation source derivation', () => {
     }];
     bundle[2] = agentMessageSchema.parse(result);
     const rows = [a, b, ac, activation(), ...bundle];
-    const source = validateConversation(SESSION, rows, undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', sourceVersion: 3, history });
+    const source = validateConversation(SESSION, rows, undefined, { id: GENESIS_ID, timestamp: '2026-08-18T00:00:00.000Z', sourceVersion: 3, coveredThroughMessageId: inheritedB.source.messageId, history });
     expect(source.segmentVersion).toBe(4);
     expect(source.effectiveRequiredModelFacts.latestRecordObservations).toEqual([fact(b, 1, 4), fact(ac, 2, 4), fact(ac, 2, 4, 1)]);
     const coveredRows = [a];

@@ -23,6 +23,21 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### C01 historical-prefix framing — no durable impact (2026-10-15)
+
+Exact implementation parent: `dd69aa145df85d8ac6c32d4f9a8fa9d5f3a6adc0`.
+Primary composition transports the existing genesis source version and exact
+covered-through message ID through transient validation/projection contracts;
+prospective candidates use the same already-selected cutoff. Existing summary
+prose is unchanged on disk and gains request-only prefix framing. Ordinary and
+corrective summary instructions scope status and authority to supplied history.
+No stored shape, meaning, selection, provenance or layout changes. Conversation
+index/genesis/segments remain format 9; provider/app-log evidence retains shared
+`version:1/type:rows`; every other family is unchanged. No adoption, migration,
+reset or unreleased-cutover exception is involved. Installed applicability is
+unknown/uninspected; source completion authorizes no deployment. External
+migration remains separately owner-requested and offline.
+
 ### AR-03 producer-neutral image normalization facts — no durable impact (2026-10-15)
 
 Exact implementation parent: `4fe4b45916cadcf5e9ee1b20b77ab819e67b1266`.

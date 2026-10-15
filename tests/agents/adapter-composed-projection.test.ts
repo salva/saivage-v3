@@ -76,7 +76,7 @@ describe('protocol adapters consume the composed projection', () => {
   const refusalB = buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: INPUT_B, candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, providerResponse: 'RAW-B' });
   const composed = composeContextProjection({
     sourceSessionId: SESSION,
-    effectiveHistory: { summaryText: 'prior summary', historyMessageId: 'history-block', historyTimestamp: TS, requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, protectedPrompts: [] },
+    effectiveHistory: { summaryText: 'prior summary', historyMessageId: 'history-block', sourceVersion: 3, coveredThroughMessageId: 'prefix-final-message', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, protectedPrompts: [] },
     dynamicBlocks: [
       { id: 'prepared-card', role: 'system', content: '{"brief":"FULL-BRIEF"}', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock,
       { id: 'prepared-node', role: 'system', content: "Current workflow node 'work':\n\nEXACT-COMPILED-NODE", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock,
@@ -88,6 +88,15 @@ describe('protocol adapters consume the composed projection', () => {
   const boundary = providerConversation.messages.find((item) => item.kind === 'synthetic_context' && item.origin === 'context_boundary');
   const summary = providerConversation.messages.find((item) => item.kind === 'synthetic_context' && item.origin === 'history_summary');
   if (!boundary || !summary) throw new Error('Missing composed boundary or history summary.');
+
+  it.each(['openai-chat-completions', 'openai-responses', 'openai-codex-backend'] as const)('serializes the exact historical source boundary before continuation with %s', (protocol) => {
+    expect(summary.content).toContain('source segment 3, message prefix-final-message');
+    expect(summary.content.endsWith('\nprior summary')).toBe(true);
+    const body = JSON.stringify(requestBody(protocol, providerConversation));
+    const encoded = JSON.stringify(summary.content).slice(1, -1);
+    expect(body.split(encoded)).toHaveLength(2);
+    expect(body.indexOf(encoded)).toBeLessThan(body.indexOf('first question'));
+  });
 
   it('projects each repeated recovery and refusal semantic exactly once before adapter mapping', () => {
     expect(identities).toEqual(['prepared-card', 'prepared-node', `${SESSION}:context-boundary`, 'history-block', `${INPUT_B}:model-recovered`, refusalB.id, 'u1']);

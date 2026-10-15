@@ -229,7 +229,8 @@ export function providerConversationProjection(
           ? {
               summaryText: history.summaryText,
               historyMessageId: `${genesis.id}:compacted-history`,
-              historyTimestamp: genesis.timestamp,
+              sourceVersion: genesis.sourceVersion,
+              coveredThroughMessageId: genesis.coveredThroughMessageId,
               requiredModelFacts: history.requiredModelFacts,
               protectedPrompts: history.protectedPrompts,
             }

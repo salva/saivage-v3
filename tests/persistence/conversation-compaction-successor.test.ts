@@ -273,7 +273,7 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('accepts a reducing preferred prefix while retaining the crossing tool bundle and final unmatched call', async () => {
+  it('advances past a nonreducing preferred prefix including header overhead while retaining the final unmatched call', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-fallback-open-'));
     initProjectTree(root);
     try {
@@ -288,10 +288,13 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.genesis.kind).toBe('compacted_segment_genesis');
-      expect(segment.rows.map((row) => row.id)).toEqual([...bundle.map(row => row.id), unmatchedCall('00000000-0000-4000-8000-000000000003', 'call-unmatched').id]);
+      // The tiny preferred prefix no longer pays for the truthful summary header.
+      // Ordinary authoritative fallback covers the entire settled bundle, never half of it.
+      expect(segment.rows.map((row) => row.id)).toEqual([unmatchedCall('00000000-0000-4000-8000-000000000003', 'call-unmatched').id]);
       expect(segment.genesis.kind === 'compacted_segment_genesis' && segment.genesis.continuation.kind).toBe('inherited_open_round');
       expect(segment.conversation.rounds.at(-1)!.state).toBe('open');
-      expect(segment.entry.genesis).toMatchObject({ covered_through_message_id: 't3' });
+      expect(segment.entry.genesis).toMatchObject({ covered_through_message_id: bundle.at(-1)!.id });
+      expect(calls).toHaveLength(2);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

@@ -72,8 +72,8 @@ function dynamicBlock(id: string, overrides: Partial<Omit<ContextBlock, 'id'>> =
   return { id, role: 'user', content: `content:${id}`, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, ...overrides };
 }
 
-const historyFacts = (partial: Omit<EffectiveCompactedHistoryFacts, 'historyMessageId' | 'historyTimestamp' | 'protectedPrompts'>): EffectiveCompactedHistoryFacts =>
-  ({ historyMessageId: 'genesis-1:compacted-history', historyTimestamp: '2026-08-17T00:00:00.000Z', protectedPrompts: [], ...partial });
+const historyFacts = (partial: Omit<EffectiveCompactedHistoryFacts, 'historyMessageId' | 'sourceVersion' | 'coveredThroughMessageId' | 'protectedPrompts'>): EffectiveCompactedHistoryFacts =>
+  ({ historyMessageId: 'genesis-1:compacted-history', sourceVersion: 1, coveredThroughMessageId: 'covered-prefix-end', protectedPrompts: [], ...partial });
 
 const compose = (uncoveredRows: readonly AgentMessage[], args: { effectiveHistory?: EffectiveCompactedHistoryFacts | null; dynamicBlocks?: readonly ContextBlock[] } = {}): ComposedContextProjection =>
   composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: args.effectiveHistory ?? null, dynamicBlocks: args.dynamicBlocks ?? [], uncoveredRows });
@@ -86,6 +86,21 @@ const recoveryRow = (inputId: string): AgentMessage =>
 
 const refusalRow = (inputId: string): AgentMessage =>
   buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: inputId, candidate: { provider: 'test', account: null, model: 'model' }, providerResponse: `RAW-REFUSAL-${inputId}` });
+
+it('frames a structural-only cutoff by its source coordinates, not the genesis creation time', () => {
+  const marker = agentMessageSchema.parse(row({ id: 'structural-cutoff', role: 'system', kind: 'activity', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary,
+    content: JSON.stringify({ event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'planner', card_id: 'project', input_id: INPUT_A, timestamp: TS }) }));
+  const source = validateConversation(SESSION, [marker]);
+  const history = compactedHistorySchema.parse({ summaryText: 'These rounds contained no provider-visible conversation content.', protectedPrompts: [], requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] } });
+  validateCompactedHistorySuccessor({ source, sourceVersion: 1, successor: history, coveredRows: [marker] });
+  const successor = validateConversation(SESSION, [], { markerId: marker.id, inputId: INPUT_A, activeSegmentKind: 'initial', startOrdinal: 0 }, { id: INPUT_B, timestamp: '2026-10-15T12:00:00.000Z', sourceVersion: 1, coveredThroughMessageId: marker.id, history });
+  const projected = providerConversationProjection(successor, []);
+  const summary = projected.messages.find(item => item.kind === 'synthetic_context' && item.origin === 'history_summary')!;
+  expect(summary.content).toContain(`source segment 1, message ${marker.id}`);
+  expect(summary.content.endsWith(`\n${history.summaryText}`)).toBe(true);
+  expect(summary.content).not.toContain('2026-10-15T12:00:00.000Z');
+  expect(summary.content).not.toContain(TS);
+});
 
 const PROCESS_ID = 'proc-0123456789ab';
 
@@ -168,7 +183,8 @@ describe('composition projector selection pass', () => {
       'dynamic', 'dynamic', 'context_boundary', 'history_summary', 'old-node-looking-row', 'owner-requirement',
     ]);
     expect(provider.messages.filter((item) => item.kind === 'synthetic_context' && item.origin === 'context_boundary')).toHaveLength(1);
-    expect(provider.messages[3]).toMatchObject({ kind: 'synthetic_context', origin: 'history_summary', content: 'Historical summary:\nDraft proposal, not approval' });
+    expect(provider.messages[3]).toMatchObject({ kind: 'synthetic_context', origin: 'history_summary', content: expect.stringContaining('source segment 1, message covered-prefix-end') });
+    expect(provider.messages[3]!.content.endsWith('\nDraft proposal, not approval')).toBe(true);
     expect(provider.messages[4]).toMatchObject({ kind: 'text', content: 'CURRENT-NODE' });
     expect(provider.messages[5]).toMatchObject({ kind: 'text', content: 'Still-applicable owner requirement' });
     expect(effectiveHistory.summaryText).toBe('Draft proposal, not approval');
@@ -265,7 +281,7 @@ describe('latest record observation source order', () => {
     validateCompactedHistorySuccessor({ source: prefixSource, sourceVersion: 1, successor: history, coveredRows: prefix });
     const original = structuredClone({ prefix, suffix, history });
     const conversation = compacted
-      ? validateConversation(SESSION, suffix, undefined, { id: INPUT_B, timestamp: TS, sourceVersion: 1, history })
+      ? validateConversation(SESSION, suffix, undefined, { id: INPUT_B, timestamp: TS, sourceVersion: 1, coveredThroughMessageId: prefix.at(-1)!.id, history })
       : validateConversation(SESSION, [...prefix, ...suffix]);
     const facts = conversation.effectiveRequiredModelFacts.latestRecordObservations;
     expect(facts.map((fact) => [fact.observation.observed.record_name, fact.observation.observed.view, fact.source.messageId])).toEqual([
@@ -274,7 +290,7 @@ describe('latest record observation source order', () => {
     expect(facts.slice(0, 2)).toEqual(history.requiredModelFacts.latestRecordObservations.slice(1));
     expect(facts[2]).toEqual({ source: { segmentVersion: compacted ? 2 : 1, rowIndex: compacted ? 0 : 3, messageId: 'A2', timestamp: TS }, observation: a2.record_observations![0] });
     const composed = compose(conversation.sourceRows, {
-      effectiveHistory: compacted ? { ...history, historyMessageId: `${INPUT_B}:compacted-history`, historyTimestamp: TS } : null,
+      effectiveHistory: compacted ? { ...history, historyMessageId: `${INPUT_B}:compacted-history`, sourceVersion: 1, coveredThroughMessageId: prefix.at(-1)!.id } : null,
       dynamicBlocks: [dynamicBlock('current-node', { role: 'system', content: 'Current task: verify the actual source before deciding.' })],
     });
     const primary = providerConversationProjection(conversation, [dynamicBlock('current-node', { role: 'system', content: 'Current task: verify the actual source before deciding.' })]);
@@ -471,7 +487,7 @@ describe('primary process-result projection', () => {
     expect(provider.messages.map((message) => message.kind === 'synthetic_context' ? [message.origin, message.content, message.block_identity] : message.id)).toEqual([
       ['dynamic', prepared.content, prepared.id],
       ['context_boundary', expect.any(String), `${SESSION}:context-boundary`],
-      ['history_summary', 'Historical summary:\nprior', 'genesis-1:compacted-history'],
+      ['history_summary', expect.stringContaining('source segment 1, message covered-prefix-end'), 'genesis-1:compacted-history'],
       ['retained_instruction', retained.content, '2:7:retained'],
       rows[0].id,
       rows[1].id,

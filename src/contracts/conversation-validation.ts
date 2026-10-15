@@ -44,7 +44,12 @@ type CanonicalConversationCall = {
   readonly resultSourceIndex: number | null;
 };
 
-type CompactedGenesisIdentity = Readonly<{ id: string; timestamp: string }>;
+type CompactedGenesisIdentity = Readonly<{
+  id: string;
+  timestamp: string;
+  sourceVersion: number;
+  coveredThroughMessageId: string;
+}>;
 
 export type ValidatedConversation = {
   readonly segmentVersion: number;
@@ -171,6 +176,7 @@ export interface CompactedGenesisSeed {
   readonly timestamp: string;
   readonly history: CompactedHistory;
   readonly sourceVersion: number;
+  readonly coveredThroughMessageId: string;
 }
 
 function createCanonicalConversationValidationState(
@@ -630,7 +636,7 @@ function materializeValidatedConversation(
     calls,
     unmatchedCall,
     compactedGenesis: genesis
-      ? Object.freeze({ id: genesis.id, timestamp: genesis.timestamp })
+      ? Object.freeze({ id: genesis.id, timestamp: genesis.timestamp, sourceVersion: genesis.sourceVersion, coveredThroughMessageId: genesis.coveredThroughMessageId })
       : null,
     effectiveCompactedHistory: genesis?.history ?? null,
     effectiveRequiredModelFacts: Object.freeze({

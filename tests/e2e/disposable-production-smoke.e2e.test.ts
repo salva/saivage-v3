@@ -1336,7 +1336,7 @@ describe('disposable production-composition smoke', () => {
       ).toBe(false);
       expect(
         publishedExecutorRequest!.messages.filter(
-          (message) => message.content === `Historical summary:\n${finalSummary}`,
+          (message) => typeof message.content === 'string' && message.content.startsWith('Historical summary (') && message.content.endsWith(`\n${finalSummary}`),
         ),
       ).toHaveLength(1);
       expect(continuedExecutorSegment!.entry).toEqual(published.entry);

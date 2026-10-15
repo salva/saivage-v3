@@ -71,9 +71,9 @@ describe('Stage-I versioned compaction', () => {
       expect(historySummaries).toHaveLength(1);
       expect(historySummaries[0]).toMatchObject({ kind: 'synthetic_context', role: 'system', origin: 'history_summary' });
       expect(projected.indexOf(historySummaries[0]!)).toBe(projected.indexOf(boundaries[0]!) + 1);
-      const summaryRequestPrefix = 'Historical summary:\n';
-      expect(historySummaries[0]!.content.startsWith(summaryRequestPrefix)).toBe(true);
-      expect(historySummaries[0]!.content.slice(summaryRequestPrefix.length)).toBe(durableSummaryText);
+      if (current.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis.');
+      expect(historySummaries[0]!.content).toContain(`source segment ${current.genesis.source.version}, message ${current.genesis.source.covered_through_message_id}`);
+      expect(historySummaries[0]!.content.split('\n').slice(1).join('\n')).toBe(durableSummaryText);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -210,6 +210,107 @@ describe('Stage-I versioned compaction', () => {
       }) as typeof fetch;
       await expect(service.executeAdmittedWithRecovery(admission)).resolves.toMatchObject({ result: { kind: 'message', content: 'post-compaction admitted' } });
       expect(sentBody).toBe(admittedBody);
+    } finally { globalThis.fetch = originalFetch; rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('scopes an old blocked prefix before a scoped grant and synthetic later revocation across reload and recompaction', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-prefix-scope-')); initProjectTree(root);
+    const originalFetch = globalThis.fetch;
+    const summaryRequests: Array<{ input: Parameters<SummarizerProviderPort['completeTurn']>[0]; body: string }> = [];
+    const primaryBodies: string[] = [];
+    const composedHeaders: string[] = [];
+    const constraint = 'Owner: keep the child brief restriction; never publish credentials.';
+    const blocked = 'Planner: overload remains blocked. Owner has not authorized publication.';
+    const success = 'Executor: overload fix and offline validation succeeded; this is not a public release.';
+    const grant = 'Owner: authorize publication of the overload fix only, not a whole-project release.';
+    // Synthetic regression continuation, not a claim about the external incident.
+    const revocation = 'Owner: revoke the overload publication grant. No publication is now authorized.';
+    const continuationRow = (id: string, content: string, index: number, time: string) => agentMessageSchema.parse({
+      id, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY,
+      content: `${content}\n${realisticPayload(id, 4_500)}`, round_id: `r-user-${'9'.repeat(32)}`,
+      message_index: index, block_index: 0, timestamp: time,
+    });
+    const revoked = continuationRow('owner-revocation', `${revocation}\n${realisticPayload('revocation-evidence', 4_500)}`, 4, '2026-10-12T11:00:00.000Z');
+    try {
+      appendProtectedRound(root, 1, 'owner-still-binding', constraint, 'owner.confidentiality');
+      const effect = appendProcessSettlement(root, 1, 'settled-offline-check', { stdout_complete: true, stderr_complete: true });
+      for (let n = 2; n <= 5; n++) appendRound(root, n, 4_000);
+      appendConversationBatch({ projectRoot: root }, [continuationRow('blocked-prefix-end', blocked, 1, '2026-10-12T09:07:13.594Z')]);
+      const suffix = [
+        continuationRow('new-success', success, 2, '2026-10-12T10:00:00.000Z'),
+        continuationRow('owner-scoped-grant', grant, 3, '2026-10-12T10:01:00.000Z'),
+      ];
+      appendConversationBatch({ projectRoot: root }, suffix);
+      const registryConfig = structuredClone(TEST_SAIVAGE_CONFIG);
+      registryConfig.providers.test = { ...registryConfig.providers.test!, apiKey: 'synthetic-test-key', baseUrl: 'https://prefix.example.test/v1' };
+      const registry = new ProviderRegistry(registryConfig);
+      const service = invocationService(root, registry);
+      globalThis.fetch = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        primaryBodies.push(String(init?.body));
+        return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'scripted no-action response' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as typeof fetch;
+      const provider: SummarizerProviderPort = {
+        candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+        materializeImage: async () => { throw new Error('Unexpected image.'); },
+        serializeSummaryRequest: (input) => {
+          const plan = buildCandidateRequest({ candidate: TEST_CANDIDATE, capabilities: registry.getEffectiveCapabilities(TEST_CANDIDATE), adapter: selectLlmProtocolAdapter('openai-chat-completions'), systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { providerSessionId: 'synthetic-summary', inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
+          return { imageCount: plan.request.imageCount, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
+        },
+        completeTurn: async (input, admitted) => {
+          summaryRequests.push({ input, body: admitted.serializedRequest }); // Before scripted completion.
+          return { result: { kind: 'message', content: summaryRequests.length === 1
+            ? `${blocked} Settled check ${effect.resultId} exited successfully; do not replay it.`
+            : `${blocked} Later ${success} ${grant} Settled check ${effect.resultId}; do not replay it.` }, provider_exchanges: [] };
+        }, projectProviderExchanges: jest.fn(),
+      };
+      for (let generation = 1; generation <= 2; generation++) {
+        const source = readConversation(root, SESSION); // Fresh canonical reconstruction, including on re-entry.
+        const result = await compact({ summaryRefusal: null, strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(source, []).messages), summarizerProvider: provider, signal: new AbortController().signal, progress: noCompactionProgress });
+        if (result.kind !== 'compacted') throw new Error('Expected compacted result.');
+        const selected = readCurrentConversationSegment(root, SESSION)!;
+        if (selected.genesis.kind !== 'compacted_segment_genesis') throw new Error('Expected compacted genesis.');
+        const genesis = selected.genesis;
+        const cutoff = source.sourceRows.findIndex(row => row.id === genesis.source.covered_through_message_id) + 1;
+        expect(cutoff).toBeGreaterThan(0);
+        expect(genesis.source.version).toBe(generation);
+        expect(genesis.source.covered_through_message_id).toBe(generation === 1 ? 'blocked-prefix-end' : 'owner-scoped-grant');
+        expect(genesis.timestamp).not.toBe(source.sourceRows[cutoff - 1]!.timestamp);
+        const expectedSuffix = generation === 1 ? suffix : [revoked];
+        expect(selected.rows).toEqual(expectedSuffix); // Exact IDs, bytes, attribution, time and order.
+        const inherited = { markerId: 'activation-5', inputId: '00000000-0000-4000-8000-000000000005', activeSegmentKind: 'initial' as const, startOrdinal: 0 };
+        // Same prospective construction as the compactor, contrasted with publication-return and disk reconstruction.
+        const prospective = providerConversationProjection(validateConversation(SESSION, source.sourceRows.slice(cutoff), inherited, { id: genesis.id, timestamp: genesis.timestamp, sourceVersion: generation, coveredThroughMessageId: source.sourceRows[cutoff - 1]!.id, history: genesis.compaction }), []);
+        expect(prospective).toEqual(result.providerConversation);
+        const reloaded = providerConversationProjection(readConversation(root, SESSION), []);
+        expect(reloaded).toEqual(result.providerConversation);
+        const summaryIndex = reloaded.messages.findIndex(row => row.kind === 'synthetic_context' && row.origin === 'history_summary');
+        const summary = reloaded.messages[summaryIndex]!;
+        composedHeaders.push(summary.content.split('\n')[0]!);
+        expect(summary.content).toContain(`source segment ${generation}, message ${genesis.source.covered_through_message_id}`);
+        expect(summary.content.split('\n')[0]).not.toContain(genesis.timestamp);
+        expect(reloaded.messages.filter(row => row.content === constraint)).toHaveLength(1);
+        for (const row of expectedSuffix) expect(reloaded.messages.findIndex(item => item.kind !== 'synthetic_context' && item.id === row.id)).toBeGreaterThan(summaryIndex);
+        const admission = service.preparePrimaryRequestAdmission(invocationFor(SESSION, reloaded.messages));
+        if (admission.kind !== 'admitted') throw new Error(`Prefix request was ${admission.kind}.`);
+        const verdict = admission.candidates[0];
+        if (!verdict || verdict.kind !== 'admitted') throw new Error('Missing admitted prefix candidate.');
+        const body = verdict.plan.request.serializedBody;
+        expect(body).toContain(blocked);
+        expect(body).toContain(grant);
+        expect(body).toContain(constraint);
+        if (generation === 2) expect(body.indexOf(grant)).toBeLessThan(body.indexOf(revocation));
+        await expect(service.executeAdmittedWithRecovery(admission)).resolves.toMatchObject({ result: { kind: 'message', content: 'scripted no-action response' } });
+        expect(primaryBodies.at(-1)).toBe(body);
+        expect(readHistoricalConversationSegment(root, SESSION, 1).rows.filter(row => row.id === effect.resultId)).toHaveLength(1);
+        expect(selected.rows.filter(row => row.id === effect.resultId)).toHaveLength(0);
+        if (generation === 1) appendConversationBatch({ projectRoot: root }, [revoked]);
+      }
+      expect(primaryBodies).toHaveLength(2); // Scripted messages, no tool call or replay execution.
+      expect(summaryRequests).toHaveLength(2);
+      expect(summaryRanges(summaryRequests[0]!.input).some(range => range.source === 'owner-scoped-grant')).toBe(false);
+      expect(summaryRanges(summaryRequests[1]!.input).filter(range => range.source === 'owner-scoped-grant').map(range => range.content).join('')).toBe(suffix[1]!.content);
+      expect(summaryRequests[1]!.body).toContain(effect.resultId);
+      console.info('C01_PREFIX_SCOPE', JSON.stringify({ headers: composedHeaders, ordinaryInstruction: summaryRequests[0]!.input.systemPrompt, sourceCutoffs: ['blocked-prefix-end', 'owner-scoped-grant'], retainedContinuation: ['owner-revocation'], primarySends: primaryBodies.length, historicalSettledResult: effect.resultId }));
     } finally { globalThis.fetch = originalFetch; rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -467,6 +568,8 @@ describe('Stage-I versioned compaction', () => {
         summaryUsableInputTokens: 94_000,
         preventiveCalls: preventiveRecords.length,
         logicalCalls: wires.length,
+        ordinarySummaryInstruction: normalWires[0]!.input.systemPrompt,
+        correctiveSummaryInstruction: wires[correctionIndex]!.input.systemPrompt,
         correctionCalls: 1,
         safeEndpoints: endpoints,
         summaryWireBytes: wires.map(({ bytes }) => bytes),

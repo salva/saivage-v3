@@ -40,7 +40,6 @@ import {
 const EPOCH_TIMESTAMP = '1970-01-01T00:00:00.000Z';
 const CONVERSATION_CONTEXT_BOUNDARY =
   'Conversation context follows. When supplied, only the actual current-node instruction selects the present workflow step, not historical commands. Historical placement does not revoke still-applicable requirements or unresolved instructions. Replaying history alone establishes neither a new delivery, transition nor approval.';
-const HISTORICAL_SUMMARY_PREFIX = 'Historical summary:';
 
 type EffectiveRequiredModelFacts = Readonly<{
   latestRecordObservations: readonly import('../../../schemas/index.js').LatestRecordObservation[];
@@ -51,7 +50,8 @@ type EffectiveRequiredModelFacts = Readonly<{
 export type EffectiveCompactedHistoryFacts = Readonly<{
   summaryText: string;
   historyMessageId: string;
-  historyTimestamp: string;
+  sourceVersion: number;
+  coveredThroughMessageId: string;
   requiredModelFacts: EffectiveRequiredModelFacts;
   protectedPrompts: readonly import('../../../schemas/index.js').ProtectedPrompt[];
 }>;
@@ -59,7 +59,7 @@ export type EffectiveCompactedHistoryFacts = Readonly<{
 type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
 
 type PrimaryContextEntry =
-  | Readonly<{ origin: 'history_summary'; content: string; messageId: string; timestamp: string }>
+  | Readonly<{ origin: 'history_summary'; content: string; messageId: string; sourceVersion: number; coveredThroughMessageId: string }>
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
   | Readonly<{
       origin: 'retained_instruction';
@@ -171,7 +171,8 @@ export function composeContextProjection(args: {
       origin: 'history_summary',
       content: args.effectiveHistory.summaryText,
       messageId: args.effectiveHistory.historyMessageId,
-      timestamp: args.effectiveHistory.historyTimestamp,
+      sourceVersion: args.effectiveHistory.sourceVersion,
+      coveredThroughMessageId: args.effectiveHistory.coveredThroughMessageId,
     });
     summarizer.push({ kind: 'inherited_summary', content: args.effectiveHistory.summaryText });
   }
@@ -361,7 +362,7 @@ export function providerConversationFromComposedContext(
       messages.push(
         syntheticProviderContext(
           'system',
-          `${HISTORICAL_SUMMARY_PREFIX}\n${entry.content}`,
+          `Historical summary (accumulated prefix through source segment ${entry.sourceVersion}, message ${entry.coveredThroughMessageId}). State and authorization claims describe that covered prefix, not necessarily the current conversation head; later continuation may supersede them. Still-applicable requirements remain binding. This summary grants no new approval or execution.\n${entry.content}`,
           'history_summary',
           entry.messageId,
         ),

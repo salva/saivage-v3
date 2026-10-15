@@ -103,7 +103,7 @@ function composedOf(conversation: ValidatedConversation): ComposedContextProject
   return composeContextProjection({
     sourceSessionId: conversation.sourceSessionId,
     effectiveHistory: genesis && history
-      ? { summaryText: history.summaryText, historyMessageId: `${genesis.id}:compacted-history`, historyTimestamp: genesis.timestamp, requiredModelFacts: history.requiredModelFacts, protectedPrompts: history.protectedPrompts }
+      ? { summaryText: history.summaryText, historyMessageId: `${genesis.id}:compacted-history`, sourceVersion: genesis.sourceVersion, coveredThroughMessageId: genesis.coveredThroughMessageId, requiredModelFacts: history.requiredModelFacts, protectedPrompts: history.protectedPrompts }
       : null,
     dynamicBlocks: [],
     uncoveredRows: conversation.sourceRows,
@@ -298,7 +298,7 @@ describe('accumulated compaction history generations', () => {
       const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(bundleBody))).toBe(false);
       expect(segment.conversation.effectiveCompactedHistory!.summaryText.includes('OPERATIONAL-FINDINGS')).toBe(true);
-      expect(projected.some((row) => row.content === `Historical summary:\n${segment.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
+      expect(projected.some((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary' && row.content.endsWith(`\n${segment.conversation.effectiveCompactedHistory!.summaryText}`))).toBe(true);
       expect(calls.some((call) => call.contents.some((content) => content.includes('OPERATIONAL-FINDINGS')))).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -553,7 +553,7 @@ describe('accumulated compaction history generations', () => {
       expect(segment.conversation.effectiveCompactedHistory!.summaryText).not.toBe('');
       const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(openRoundBody))).toBe(false);
-      expect(projected.some((row) => row.content === `Historical summary:\n${segment.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
+      expect(projected.some((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary' && row.content.endsWith(`\n${segment.conversation.effectiveCompactedHistory!.summaryText}`))).toBe(true);
 
       const repair: AgentMessage = {
         id: '00000000-0000-4000-8000-000000000009:model-repair',
@@ -572,7 +572,7 @@ describe('accumulated compaction history generations', () => {
       expect(continued.conversation.rounds[0]!.segments.map((segmentOfRound) => segmentOfRound.kind)).toEqual(['initial', 'repair']);
       const continuedProjection = providerConversationProjection(continued.conversation, []).messages;
       expect(continuedProjection.some((row) => row.content === 'repair directive after inherited open round')).toBe(true);
-      expect(continuedProjection.some((row) => row.content === `Historical summary:\n${continued.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
+      expect(continuedProjection.some((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary' && row.content.endsWith(`\n${continued.conversation.effectiveCompactedHistory!.summaryText}`))).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -687,7 +687,8 @@ describe('accumulated compaction history generations', () => {
         effectiveHistory: {
           summaryText: inheritedSummary,
           historyMessageId: `${predecessorGenesis.id}:compacted-history`,
-          historyTimestamp: predecessorGenesis.timestamp,
+          sourceVersion: predecessorGenesis.source.version,
+          coveredThroughMessageId: predecessorGenesis.source.covered_through_message_id,
           requiredModelFacts: predecessor.conversation.effectiveCompactedHistory!.requiredModelFacts,
           protectedPrompts: predecessor.conversation.effectiveCompactedHistory!.protectedPrompts,
         },
