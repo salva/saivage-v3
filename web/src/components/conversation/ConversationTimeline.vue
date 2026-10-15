@@ -1,6 +1,6 @@
 <template>
   <div class="conversation-timeline">
-    <p v-if="firstSourceEntry && !activationEntry(firstSourceEntry)">The activation start is outside this displayed segment or tail; this does not mean no instructions existed.</p>
+    <p v-if="firstSourceRow && !firstSourceRow.activation">The activation start is outside this displayed segment or tail; this does not mean no instructions existed.</p>
     <section
       v-for="(round, index) in presentedRounds"
       :key="round.id"
@@ -15,17 +15,17 @@
         </header>
         <template v-for="row in round.rows" :key="row.entry.id">
           <ContextBlock v-if="row.entry.kind === 'text' || row.entry.kind === 'record_prompt' || row.entry.kind === 'content_policy_refusal'" :entry="row.entry" />
-          <div v-else-if="activationEntry(row.entry)" :data-entry-id="row.entry.id" tabindex="-1" class="activation-marker">
+          <div v-else-if="row.activation" :data-entry-id="row.entry.id" tabindex="-1" class="activation-marker">
             <strong>Activation entry recorded</strong>
-            <template v-if="activationEntry(row.entry)!.instructions.kind === 'prepared'">
-              <p>Prepared instructions · {{ activationEntry(row.entry)!.agentName }} · {{ row.entry.timestamp }} — historical rendered instructions prepared for this activation; not proof of model delivery or interpretation.</p>
-              <InstructionDisclosure label="Role instructions" :text="preparedInstructions(row.entry).role_text" explanation="Prepared instructions" />
-              <InstructionDisclosure v-if="preparedInstructions(row.entry).node" :label="`Node ${preparedInstructions(row.entry).node!.node_id} instructions`" :text="preparedInstructions(row.entry).node!.text" explanation="Prepared instructions" />
-              <InstructionDisclosure v-if="preparedInstructions(row.entry).parent_direction" label="Parent activation direction" :text="preparedInstructions(row.entry).parent_direction!.text" explanation="Activation-scoped advisory direction, not acceptance" />
-              <p v-else>No parent direction · {{ preparedInstructions(row.entry).caller.kind }} caller</p>
-              <InstructionDisclosure label="Caller and card orientation" :text="JSON.stringify({ activation_id: preparedInstructions(row.entry).activation_id, caller: preparedInstructions(row.entry).caller, card: preparedInstructions(row.entry).card }, null, 2)" explanation="Recorded preparation provenance" metadata />
+            <template v-if="row.activation.instructions.kind === 'prepared'">
+              <p>Prepared instructions · {{ row.activation.agentName }} · {{ row.entry.timestamp }} — historical rendered instructions prepared for this activation; not proof of model delivery or interpretation.</p>
+              <InstructionDisclosure label="Role instructions" :text="row.activation.instructions.role_text" explanation="Prepared instructions" />
+              <InstructionDisclosure v-if="row.activation.instructions.node" :label="`Node ${row.activation.instructions.node.node_id} instructions`" :text="row.activation.instructions.node.text" explanation="Prepared instructions" />
+              <InstructionDisclosure v-if="row.activation.instructions.parent_direction" label="Parent activation direction" :text="row.activation.instructions.parent_direction.text" explanation="Activation-scoped advisory direction, not acceptance" />
+              <p v-else>No parent direction · {{ row.activation.instructions.caller.kind }} caller</p>
+              <InstructionDisclosure label="Caller and card orientation" :text="JSON.stringify({ activation_id: row.activation.instructions.activation_id, caller: row.activation.instructions.caller, card: row.activation.instructions.card }, null, 2)" explanation="Recorded preparation provenance" metadata />
             </template>
-            <p v-else-if="activationEntry(row.entry)!.instructions.kind === 'unavailable'">Historical instructions unavailable — not recorded</p>
+            <p v-else-if="row.activation.instructions.kind === 'unavailable'">Historical instructions unavailable — not recorded</p>
             <p v-else>No model invocation for this ingress</p>
             <details><summary>Recorded activation details</summary><p>{{ provenance(row.entry) }}</p><pre><JsonText :text="row.entry.content" /></pre></details>
           </div>
@@ -74,24 +74,20 @@ import ImagePreviewDialog from '../../files/ImagePreviewDialog.vue';
 function provenance(entry: AgentConversationEntry): string {
   return `${entry.role} · ${entry.timestamp} · ${entry.id} · source ${entry.round_id}, message ${entry.message_index}, block ${entry.block_index}`;
 }
-function preparedInstructions(entry: AgentConversationEntry) {
-  const instructions = activationEntry(entry)!.instructions;
-  if (instructions.kind !== 'prepared') throw new Error('Expected prepared activation instructions.');
-  return instructions;
-}
 function observationEntry(row: TimelineRow): AgentConversationEntry | null { return row.entry.kind === 'tool_call' ? row.mate : row.entry; }
 
 const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string>; imageContext?: ImageContext }>();
 const presentedRounds = computed(() => props.timeline.rounds.map(round => ({
   ...round,
   rows: round.kind === 'compacted' ? [] : round.rows.map(row => {
-    if (row.entry.kind !== 'tool_call' && row.entry.kind !== 'tool_result') return { ...row, tool: null };
+    const activation = activationEntry(row.entry);
+    if (row.entry.kind !== 'tool_call' && row.entry.kind !== 'tool_result') return { ...row, activation, tool: null };
     const display = buildToolDisplay(row);
     const result = row.entry.kind === 'tool_result' ? row.entry : row.mate;
-    return { ...row, tool: { display, images: conversationImages(result, props.imageContext, display.toolName) } };
+    return { ...row, activation, tool: { display, images: conversationImages(result, props.imageContext, display.toolName) } };
   }),
 })));
-const firstSourceEntry = computed(() => props.timeline.rounds.find(round => round.kind !== 'compacted')?.rows[0]?.entry);
+const firstSourceRow = computed(() => presentedRounds.value.find(round => round.kind !== 'compacted')?.rows[0]);
 const emit = defineEmits<{ toggle: [id: string]; inspecting: [open: boolean] }>();
 const inspection = ref<{ images: ImageSelection[]; index: number } | null>(null);
 const previewSelection = computed(() => inspection.value ? { kind: 'conversation' as const, image: inspection.value.images[inspection.value.index] } : null);

@@ -5,6 +5,7 @@ import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim
 import { seedTokenBeforeNavigation } from './fixtures/operator-preview-sync.js';
 import { redactTextForOutbound } from '../../../src/redaction/index.js';
 import { MODEL_RECOVERY_NOTICE_TEXT } from '../../../src/schemas/context-policy.js';
+import type { ActivationInstructions } from '../../../src/schemas/activation-instructions.js';
 
 const token = 'synthetic-cockpit-conversation-token';
 const executor = `agent:executor:${smokeCardId}`;
@@ -175,6 +176,103 @@ async function screenshot(page: Page, testInfo: TestInfo, name: string): Promise
 const layoutCommand = `printf '%s\\n' ${'synthetic_unbroken_argument_'.repeat(7)} --full-raw-command-only`;
 const layoutProcess = 'proc-012345abcdef';
 const analyst = 'agent:analyst:global';
+
+for (const sessionId of [executor, analyst]) {
+  test(`historical preparation stays public, chronological and selectable: ${sessionId}`, async ({ page, context }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    const rest = await setup(page);
+    const global = sessionId === analyst;
+    const role = redactTextForOutbound(`${'Recorded historical role. '.repeat(100)} token=role-egress-canary FINAL-ROLE`);
+    const node = redactTextForOutbound('Recorded execute node token=node-egress-canary FINAL-NODE');
+    const parent = redactTextForOutbound('Exact activation advisory token=parent-egress-canary FINAL-PARENT');
+    const instructions: ActivationInstructions = { kind: 'prepared', role_text: role,
+      activation_id: global ? null : marker,
+      caller: global ? { kind: 'global' } : { kind: 'parent', cardId: 'project', sessionId: 'agent:planner:project', sourceInputId: marker, toolCallId: 'recorded-parent-call', toolName: 'activate_card' },
+      card: global ? null : { cardId: smokeCardId, cardType: 'code', title: 'Historical card title' },
+      node: global ? null : { node_id: 'execute', text: node }, parent_direction: global ? null : { text: parent } };
+    const prepared = activationRow(sessionId, 'prepared');
+    prepared.content = JSON.stringify({ ...JSON.parse(prepared.content), instructions }, null, 2);
+    const unavailable = activationRow(sessionId, 'unavailable');
+    const pair = callRows('historical-read', 'r-assistant-33333333333343338333333333333333', 1).map(row => ({ ...row, session_id: sessionId }));
+    const imagePair = callRows('historical-image', 'r-assistant-33333333333343338333333333333333', 2, 'view_image').map(row => ({ ...row, session_id: sessionId }));
+    imagePair[1]!.content = JSON.stringify({ success: true, content: [{ type: 'image', image: { id: marker, mime_type: 'image/png', width: 16, height: 16, byte_length: 100, sha256: 'a'.repeat(64) } }], data: {
+      source_path: 'screen.png', source_dimensions: { width: 16, height: 16 }, oriented_dimensions: { width: 16, height: 16 }, sent_dimensions: { width: 16, height: 16 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600,
+    } });
+    const base = { ...prepared, round_id: pair[0]!.round_id, message_index: 3 };
+    const refusal = { ...base, id: 'historical-refusal', kind: 'content_policy_refusal', content: '{}', context_policy: { kind: 'structural', behavior: 'content_policy_refusal' } };
+    const diagnostic = { ...base, id: 'historical-diagnostic', kind: 'model_issue', content: 'Recorded provider issue', context_policy: { kind: 'structural', behavior: 'provider_failure' } };
+    const entries = [prepared, ...pair, ...imagePair, refusal, diagnostic, unavailable];
+    await page.route('**/api/agents/*/conversation**', async route => {
+      const url = new URL(route.request().url());
+      if (decodeURIComponent(url.pathname.split('/')[3]!) !== sessionId) return route.fallback();
+      if (url.pathname.endsWith('/versions')) return route.fulfill({ json: parseOperatorResponse('agents.conversationVersions.list', 200, {
+        session_id: sessionId, versions: [{ entry_id: marker, version: 1, published_at: now, genesis_kind: 'ordinary', source_version: null }], total: 1,
+      }) });
+      if (url.pathname.endsWith('/versions/1')) return route.fulfill({ json: parseOperatorResponse('agents.conversationVersions.get', 200, {
+        session_id: sessionId, version: 1, entry_id: marker, published_at: now, segment_context: null, entries: [prepared],
+      }) });
+      return route.fulfill({ json: parseOperatorResponse('agents.conversation', 200, { session_id: sessionId, segment_id: marker, segment_version: 1, segment_context: null,
+        entries, cursor: { segment_id: marker, segment_version: 1, message_id: unavailable.id } }) });
+    });
+    await page.goto(`/agents/${sessionId}`);
+    const owner = page.locator('.conversation-container');
+    const activation = owner.locator(`[data-entry-id="${prepared.id}"]`);
+    await expect(owner.locator('.activation-marker')).toHaveCount(2);
+    await expect(owner.locator(`[data-entry-id="${unavailable.id}"]`)).toContainText('Historical instructions unavailable — not recorded');
+    await expect(owner).not.toContainText('activation start is outside this displayed');
+    const expected = [['Role instructions', role], ...global ? [] : [['Node execute instructions', node], ['Parent activation direction', parent]],
+      ['Caller and card orientation', JSON.stringify({ activation_id: instructions.activation_id, caller: instructions.caller, card: instructions.card }, null, 2)]];
+    for (const [label, value] of expected) {
+      const disclosure = activation.locator('.instruction-disclosure').filter({ has: page.locator('summary', { hasText: label }) });
+      await expect(disclosure).not.toHaveAttribute('open', '');
+      await disclosure.locator('summary').focus(); await disclosure.locator('summary').press('Enter');
+      await expect(disclosure).toHaveAttribute('open', '');
+      expect(await disclosure.locator('pre').textContent()).toBe(value);
+      await disclosure.getByRole('button', { name: /copy/i }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(value);
+      await disclosure.locator('summary').focus(); await disclosure.locator('summary').press('Space');
+      await expect(disclosure).not.toHaveAttribute('open', '');
+    }
+    if (global) {
+      await expect(activation).toContainText('No parent direction · global caller');
+      await expect(activation).not.toContainText('Node execute instructions');
+    } else await expect(activation).toContainText('Activation-scoped advisory direction, not acceptance');
+    const raw = activation.locator('details').filter({ has: page.locator('summary', { hasText: 'Recorded activation details' }) });
+    await raw.locator('summary').click();
+    expect(await raw.locator('pre').textContent()).toBe(prepared.content);
+    await expect(raw).toContainText(`system · ${now} · ${prepared.id} · source ${prepared.round_id}, message 0, block 0`);
+    await expect(owner.locator('[data-entry-id="historical-refusal"]')).toContainText('repeated provider content-policy refusal');
+    await expect(owner.locator('[data-entry-id="historical-diagnostic"]')).toContainText('Model issue');
+    const read = owner.locator('.tool-chip').first();
+    await read.locator('.tool-chip-toggle').click();
+    await expect(read.locator('.tool-result')).toContainText('synthetic-raw-response-only');
+    const safeResult = read.locator('.tool-result .safe-original');
+    await safeResult.locator('summary').click();
+    await safeResult.getByRole('button', { name: /copy/i }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(pair[1]!.content);
+    const image = owner.locator('.tool-chip').nth(1);
+    await expect(image).toContainText('Image snapshot recorded');
+    await image.locator('.tool-chip-toggle').click();
+    await expect(image.locator('img, canvas, video')).toHaveCount(0);
+    await expect(image.getByRole('button', { name: 'Inspect image · content 1 · 16 × 16', exact: true })).toBeVisible();
+    expect(await owner.locator('[data-entry-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-entry-id')))).toEqual([prepared.id, pair[0]!.id, pair[1]!.id, imagePair[0]!.id, imagePair[1]!.id, refusal.id, diagnostic.id, unavailable.id]);
+    await owner.locator('.version-history > summary').click();
+    await owner.getByRole('button', { name: /Segment 1/ }).click();
+    await expect(owner.locator('.activation-marker')).toHaveCount(1);
+    await expect(owner.locator(`[data-entry-id="${unavailable.id}"]`)).toHaveCount(0);
+    await page.reload();
+    await expect(owner.locator('.activation-marker')).toHaveCount(1);
+    await owner.getByRole('button', { name: 'Current segment', exact: true }).click();
+    await expect(owner.locator('.activation-marker')).toHaveCount(2);
+    expect(await page.locator('body').textContent()).not.toMatch(/role-egress-canary|node-egress-canary|parent-egress-canary/);
+    expect(errors).toEqual([]);
+    expect(rest.unknown).toEqual([]);
+  });
+}
 
 function layoutRows(sessionId: string) {
   const cases = [

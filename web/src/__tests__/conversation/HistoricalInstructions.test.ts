@@ -10,9 +10,88 @@ import { compilePromptTemplate, renderCompiledPrompt, type PromptHost } from '..
 import { projectCanonicalConversationRow } from '../../../../src/application/read-models/canonical-conversation-outbound';
 import { agentMessageSchema, STRUCTURAL_ROW_POLICY, type ActivationInstructions } from '../../../../src/schemas/index';
 import { entry } from '../tool-presenters/fixtures';
+import { redactTextForOutbound } from '../../../../src/redaction';
+import type { ConversationSessionId } from '../../../../src/schemas/conversation-session-id';
+
+const inputId = '44444444-4444-4444-8444-444444444444';
+function marker(session: ConversationSessionId, instructions: ActivationInstructions, id = inputId) {
+  const base = entry(`${id}:activation`, 'activity', '', { session_id: session, role: 'system', context_policy: STRUCTURAL_ROW_POLICY.activation_boundary });
+  const cardId = session.split(':')[2];
+  return agentMessageSchema.parse({ ...base, content: JSON.stringify({ event: 'activation_open', agent_name: session.split(':')[1], input_id: id, timestamp: base.timestamp,
+    ...(cardId === 'global' ? {} : { card_id: cardId }), instructions }, null, 2) });
+}
+const parentInstructions: ActivationInstructions = {
+  kind: 'prepared', activation_id: inputId,
+  caller: { kind: 'parent', cardId: 'project', sessionId: 'agent:planner:project', sourceInputId: inputId, toolCallId: 'parent-call', toolName: 'activate_card' },
+  card: { cardId: 'card-a', cardType: 'code', title: 'Recorded card title' },
+  role_text: redactTextForOutbound(`${'Historical role full text. '.repeat(150)} token=role-private-canary FINAL-ROLE`),
+  node: { node_id: 'execute', text: redactTextForOutbound('Recorded node token=node-private-canary FINAL-NODE') },
+  parent_direction: { text: redactTextForOutbound('Exact advisory token=parent-private-canary FINAL-PARENT') },
+};
 
 
 describe('shared historical instruction presentation from source compiler/public projector', () => {
+  it('keeps complete public parent preparation, original recorded bytes and source provenance through replacement', async () => {
+    const prepared = marker('agent:executor:card-a', parentInstructions);
+    const unavailable = marker(prepared.session_id, { kind: 'unavailable', reason: 'not_recorded' }, '55555555-5555-4555-8555-555555555555');
+    const diagnostic = entry('issue', 'model_issue', 'Recorded issue');
+    const refusal = entry('refusal', 'content_policy_refusal', '{}');
+    const rows = [prepared, diagnostic, refusal, unavailable];
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] });
+    await router.push('/'); await router.isReady();
+    const copy = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } });
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(rows), expandedIds: new Set<string>() }, global: { plugins: [router] } });
+    const activation = wrapper.get('.activation-marker');
+    const disclosures = activation.findAll('.instruction-disclosure');
+    expect(disclosures.map(d => d.get('summary').text())).toEqual(['Role instructions', 'Node execute instructions', 'Parent activation direction', 'Caller and card orientation']);
+    const orientation = JSON.stringify({ activation_id: parentInstructions.activation_id, caller: parentInstructions.caller, card: parentInstructions.card }, null, 2);
+    for (const [index, value] of [parentInstructions.role_text, parentInstructions.node!.text, parentInstructions.parent_direction!.text, orientation].entries()) {
+      expect((disclosures[index].element as HTMLDetailsElement).open).toBe(false);
+      expect(disclosures[index].get('pre').element.textContent).toBe(value);
+      await disclosures[index].get('button').trigger('click');
+      expect(copy).toHaveBeenLastCalledWith(value);
+    }
+    expect(activation.text()).toContain('Activation-scoped advisory direction, not acceptance');
+    const raw = activation.get('details:not(.instruction-disclosure)');
+    expect(raw.get('pre').element.textContent).toBe(prepared.content);
+    expect(raw.text()).toContain(`system · ${prepared.timestamp} · ${prepared.id} · source ${prepared.round_id}, message 0, block 0`);
+    expect(wrapper.findAll('[data-entry-id]').map(row => row.attributes('data-entry-id'))).toEqual(rows.map(row => row.id));
+    expect(wrapper.text()).toContain('repeated provider content-policy refusal');
+    expect(wrapper.text()).not.toMatch(/private-canary|outside this displayed/);
+    await wrapper.setProps({ timeline: entriesToTimeline([unavailable]) });
+    expect(wrapper.findAll('.activation-marker')).toHaveLength(1);
+    expect(wrapper.findAll('.instruction-disclosure')).toHaveLength(0);
+    expect(wrapper.text()).toContain('Historical instructions unavailable — not recorded');
+    expect(wrapper.text()).not.toContain('FINAL-ROLE');
+    wrapper.unmount();
+  });
+
+  it.each<ConversationSessionId>(['agent:executor:project', 'agent:analyst:global'])('distinguishes root/global preparation without inventing a parent: %s', (session) => {
+    const global = session.endsWith(':global');
+    const instructions: ActivationInstructions = { kind: 'prepared', role_text: 'Recorded role', activation_id: global ? null : inputId,
+      caller: { kind: global ? 'global' : 'root' }, card: global ? null : { cardId: 'project', cardType: 'project', title: 'Root' },
+      node: global ? null : { node_id: 'plan', text: 'Root node' }, parent_direction: null };
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([marker(session, instructions)]), expandedIds: new Set<string>() } });
+    expect(wrapper.text()).toContain(`No parent direction · ${global ? 'global' : 'root'} caller`);
+    expect(wrapper.findAll('.instruction-disclosure')).toHaveLength(global ? 2 : 3);
+    expect(wrapper.text()).not.toContain('Parent activation direction');
+    wrapper.unmount();
+  });
+
+  it('keeps first-row notice semantics for ordinary, empty and compacted-only inputs and rejects malformed markers', async () => {
+    const prepared = marker('agent:analyst:global', { kind: 'unavailable', reason: 'not_recorded' });
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline([entry('ordinary', 'text', 'First'), prepared]), expandedIds: new Set<string>() } });
+    expect(wrapper.text()).toContain('activation start is outside this displayed segment or tail');
+    await wrapper.setProps({ timeline: entriesToTimeline([prepared]) });
+    expect(wrapper.text()).not.toContain('outside this displayed');
+    await wrapper.setProps({ timeline: entriesToTimeline([]) });
+    expect(wrapper.text()).not.toContain('outside this displayed');
+    await wrapper.setProps({ timeline: entriesToTimeline([entry('compacted', 'text', 'Retained summary', { round_id: 'r-compacted-0000000000000000000000000000000c' })]) });
+    expect(wrapper.text()).not.toContain('outside this displayed');
+    wrapper.unmount();
+    expect(() => mount(ConversationTimeline, { props: { timeline: entriesToTimeline([{ ...prepared, content: '{' }]), expandedIds: new Set<string>() } })).toThrow('Malformed activation_open');
+  });
   it('renders compiled role text and explicit absence without current templates, and marked text/repair once at source positions', async () => {
       const promptRoot = join(process.cwd(), '../src/config/system-templates/classic/prompts');
       const compile = (host: PromptHost, name: string, family: string) => {
@@ -46,8 +125,10 @@ describe('shared historical instruction presentation from source compiler/public
       const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(rows), expandedIds: new Set<string>() }, global: { plugins: [router] } });
       expect(wrapper.text()).toContain('Prepared instructions');
       expect(wrapper.text()).toContain('privacy-filtered recorded instructions');
-      expect(wrapper.text()).toContain('Historical instructions unavailable — not recorded');
-      expect(wrapper.text()).toContain('No model invocation for this ingress');
+       expect(wrapper.text()).toContain('Historical instructions unavailable — not recorded');
+       expect(wrapper.text()).toContain('No model invocation for this ingress');
+       expect(wrapper.findAll('.activation-marker').map(row => row.attributes('data-entry-id'))).toEqual([ingress[0].id, absent[0].id, confirmation[0].id]);
+       expect(wrapper.findAll('.activation-marker').slice(1).every(row => row.find('.instruction-disclosure').exists() === false)).toBe(true);
       const roleDisclosure = wrapper.get('.activation-marker .instruction-disclosure');
       expect(roleDisclosure.get('summary').text()).toBe('Role instructions');
       expect(roleDisclosure.get('pre').element.textContent).toBe(role);
