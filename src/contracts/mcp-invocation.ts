@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { imageMaxDimensionSchema } from './view-image.js';
+import { imageMaxDimensionSchema } from './image-normalization.js';
 import { mcpConnectionSchema } from '../schemas/index.js';
 
 export const McpServerRegisterArgumentsSchema = z

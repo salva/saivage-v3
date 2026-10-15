@@ -23,6 +23,25 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### AR-03 producer-neutral image normalization facts — no durable impact (2026-10-15)
+
+Exact implementation parent: `4fe4b45916cadcf5e9ee1b20b77ab819e67b1266`.
+The shared facts schema/predicate now owns normalization fields independently of
+the workspace schema; the decoder's neutral return type and optional browser
+enrichment use that owner. Workspace result and indexed MCP capture keys/values,
+strict canonical workspace validation, ordered descriptors and selected PNG bytes,
+selection, provenance and layout remain unchanged. Browser MCP labels no longer
+fabricate a schema path; a foreign `source_path` now declines optional enrichment
+only, without rejecting or rewriting retained tool data or hiding image actions.
+No durable family or discriminator changes: conversation index/genesis/segments
+remain format 9 (also owning raw selected PNGs), MCP definitions remain format 1,
+and app-log/provider evidence retain shared `version:1/type:rows`; all other
+families are unchanged. No retained-state adoption, migration, reset or unreleased
+cutover exception is involved. Installed-release applicability is unknown and
+uninspected; this source-only entry certifies no whole-release compatibility and
+authorizes no deployment or runtime action. External migration remains separately
+owner-requested and offline.
+
 ### AR-08 shared image eligibility facts — no durable impact (2026-10-15)
 
 Exact implementation parent: `7d884c3abd00b58798f0ffbff4f6e17c01eaaf89`.

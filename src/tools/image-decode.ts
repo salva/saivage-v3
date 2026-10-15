@@ -4,6 +4,7 @@ import {
   MAX_IMAGE_PIXELS,
   MAX_IMAGE_SOURCE_BYTES,
   ViewImageDataSchema,
+  type ImageNormalizationFacts,
   type ViewImageData,
 } from '../contracts/index.js';
 import { ImageInputError } from './image-input-error.js';
@@ -25,7 +26,7 @@ export async function normalizeImage(
   bytes: Buffer,
   maxDimension: number | 'original' = 1600,
   declaredMime?: string,
-): Promise<{ bytes: Buffer; data: Omit<ViewImageData, 'source_path'> }> {
+): Promise<{ bytes: Buffer; data: ImageNormalizationFacts }> {
   if (bytes.length > MAX_IMAGE_SOURCE_BYTES)
     throw new ImageInputError('Image source exceeds 32 MiB; generate a smaller source.');
   try {

@@ -188,6 +188,7 @@ export {
 export type { ImageDescriptor, MaterializedImage } from './image.js';
 export { ViewImageDataSchema, viewImageInputSchema, assertViewImageResult } from './view-image.js';
 export type { ViewImageData } from './view-image.js';
+export type { ImageNormalizationFacts } from './image-normalization.js';
 export type { ToolResult, ToolActionOutcome, ToolResultContentBlock } from './tool-result.js';
 export { ANALYST_TURN_BUSY_ERROR, ChatToolInvocationSchema } from './operator-api-chats.js';
 export type { RestartChatAcknowledgement } from './operator-api-chats.js';

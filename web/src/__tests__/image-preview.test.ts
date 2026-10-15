@@ -124,16 +124,42 @@ describe('caller-local selected image preview', () => {
   it('pins paired nonadjacent historical result identity and treats branded metadata as optional enrichment', () => {
     const metadata = { source_path: 'source.png', source_dimensions: { width: 1600, height: 3200 }, oriented_dimensions: { width: 1600, height: 3200 }, sent_dimensions: { width: 800, height: 1600 }, orientation_applied: false, resized: true, scale: { x: .5, y: .5 }, max_dimension: 1600 };
     const branded = entry({ success: true, data: metadata, content: [{ type: 'image', image }] });
-    expect(conversationImages(branded, context, 'view_image')[0].metadata).toContain('Source 1600 × 3200');
+    const details = 'Source 1600 × 3200 · Orientation-adjusted 1600 × 3200 · Sent 800 × 1600 · Resized';
+    expect(conversationImages(branded, context, 'view_image')[0].metadata).toBe(`source.png · ${details}`);
     const { source_path: _path, ...nativeMetadata } = metadata;
     const native = entry({ ...result, data: { images: [{ content_index: 1, ...nativeMetadata }] } });
-    expect(conversationImages(native, context, 'mcp_tool_call')[0].metadata).toContain('Orientation-adjusted 1600 × 3200');
+    expect(conversationImages(native, context, 'mcp_tool_call')[0].metadata).toBe(`Native MCP capture · ${details}`);
     expect(conversationImages(native, context, 'mcp_tool_call')[1].metadata).toBe('Original dimensions not recorded');
     const call = { ...branded, id: 'source:tool-call:call', role: 'assistant' as const, kind: 'tool_call' as const, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call', type: 'function', function: { name: 'view_image', arguments: '{}' } }] }) };
     const between = { ...branded, id: 'between', role: 'assistant' as const, kind: 'text' as const, content: 'Before result' };
     const timeline = entriesToTimeline([call, between, branded]);
     const row = timeline.rounds[0].rows[0];
     expect(conversationImages(row.mate, context, 'view_image')[0].locator).toEqual({ ...context, message_id: branded.id, content_index: 0, image_id: image.id });
+  });
+  it('rejects only optional enrichment for missing, invalid, mismatched and foreign facts, preserving mixed-content actions and exact locators', async () => {
+    const facts = { source_dimensions: { width: 1600, height: 3200 }, oriented_dimensions: { width: 1600, height: 3200 }, sent_dimensions: { width: 800, height: 1600 }, orientation_applied: false, resized: true, scale: { x: .5, y: .5 }, max_dimension: 1600 };
+    const invalid = [
+      undefined,
+      { ...facts, resized: false },
+      { ...facts, extra: true },
+      { ...facts, source_dimensions: { ...facts.source_dimensions, extra: true } },
+      { ...facts, sent_dimensions: { width: 400, height: 800 }, scale: { x: .25, y: .25 } },
+    ];
+    const cases = [
+      ...invalid.map(data => ({ tool: 'view_image', data: data ? { ...data, source_path: 'source.png' } : data })),
+      { tool: 'view_image', data: facts },
+      ...[...invalid, { ...facts, source_path: 'foreign.png' }].map(capture => ({ tool: 'mcp_tool_call', data: { images: capture ? [{ content_index: 1, ...capture }] : [] } })),
+    ];
+    const entries = cases.map(({ tool, data }, i) => ({ ...entry({ ...result, data }), tool, id: `source:tool-result:facts-${i}`, tool_call_id: `facts-${i}` }));
+    for (const [i, { tool }] of cases.entries()) {
+      const selections = conversationImages(entries[i], context, tool);
+      expect(selections.map(s => s.metadata)).toEqual(['Original dimensions not recorded', 'Original dimensions not recorded']);
+      expect(selections.map(s => s.locator)).toEqual([1, 3].map(content_index => ({ ...context, message_id: entries[i].id, content_index, image_id: image.id })));
+    }
+    const wrapper = mount(ConversationTimeline, { props: { timeline: entriesToTimeline(entries), expandedIds: new Set<string>(), imageContext: context } });
+    expect(wrapper.findAll('.tool-chip').map(chip => chip.findAll('.image-actions button').length)).toEqual(cases.map(() => 2));
+    expect(getConversationImage).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
   it('selects the exact result-owned image for each expanded repeated-ID exchange', async () => {
     const a = call('synthetic_typed_producer', { target: 'A' }, 'a', 'call_0');

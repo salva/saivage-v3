@@ -32,7 +32,7 @@ test.describe.configure({ timeout: 180_000, retries: 0 });
 const token = 'synthetic-image-browser-token';
 let sessions: readonly ConversationSessionId[];
 const timestamp = '2026-10-08T00:00:00.000Z';
-const evidence = join(process.cwd(), 'docs/working/2026-10-15-todo-AR04-timeline-projection/evidence/browser');
+const evidence = join(process.cwd(), 'docs/working/2026-10-15-todo-AR03-image-facts/evidence/browser');
 let root: string, app: App, origin: string, cards: CardService;
 let providerCalls = 0;
 const sink = createServer((_req, res) => { providerCalls++; res.writeHead(500); res.end('Forbidden synthetic provider invocation'); });

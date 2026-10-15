@@ -40,12 +40,17 @@ accounting. `contracts/tool-result.ts` owns the producer-neutral typed success/f
 envelope and branded ordered-content outcome constructor. Successful optional
 nonempty `content` holds strict text/image blocks; the singular `image` field is
 removed. Text and every explicit image occurrence retain content order and source
-session attribution. `contracts/view-image.ts` owns strict
-workspace input/resize metadata and descriptor consistency, checked by the producer
-and canonical successful `view_image` consumer. Native MCP production reuses the
+session attribution. `contracts/image-normalization.ts` owns browser-safe strict
+producer-neutral source/oriented/sent dimensions, orientation, resize, scale and
+maximum-dimension facts and their shared invariants. `contracts/view-image.ts`
+composes those fields and the same predicate with the required admitted workspace
+source label; it owns strict workspace input and descriptor consistency, checked
+by the producer and canonical successful `view_image` consumer. Native MCP production reuses the
 same lower ordered transport without invoking `view_image` or inventing workspace
 paths. Arbitrary nested image-like data is never promoted. `tools/project-file-tools.ts` shares exact scoped read
-admission; `tools/image-decode.ts` uses backend-only Sharp; workspace binders expose
+admission; `tools/image-decode.ts` uses backend-only Sharp and returns neutral
+normalization facts, with its workspace wrapper adding the admitted display path;
+workspace binders expose
 explicit `view_image` with complete invocation-session ownership. Sources stay read-only.
 `view_image` produces one image block with its unchanged workspace metadata.
 `persistence/conversation-image.ts`, exported through `session-api.ts`, publishes each
@@ -73,7 +78,12 @@ The shared Files feature component `web/src/files/ImagePreviewDialog.vue` owns o
 abortable read/object URL at a time; caller-local
 selection overlays the mounted Analyst/card/history/Files owner. Producer-neutral
 typed actions carry exact displayed session/segment/result locators, with optional
-producer labels. Fit/1:1 geometry, same-result navigation and Dialog focus conventions
+producer labels. Browser enrichment validates workspace metadata or indexed neutral
+MCP facts separately against the same normalization invariants. The workspace
+source label and literal **Native MCP capture** are presentation text, not fetch
+authority; the latter is never synthesized as a schema `source_path`. Missing,
+invalid, extra-field or descriptor-mismatched facts leave typed image actions intact
+and show **Original dimensions not recorded**. Fit/1:1 geometry, same-result navigation and Dialog focus conventions
 are shared; conversation arrivals cannot scroll the background during inspection.
 No image registry, persisted preview or durable change results.
 

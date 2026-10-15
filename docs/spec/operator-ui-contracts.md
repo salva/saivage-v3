@@ -82,8 +82,14 @@ closes the caller-local dialog.
 The shared dialog labels conversation pixels **Image shown to model** and
 **Recorded model-input snapshot; not proof of delivery or perception**, plus
 one-based content position and descriptor sent dimensions. Strict `view_image`
-and indexed native MCP metadata separately enrich source/orientation-adjusted/sent
-dimensions and resizing; absence says **Original dimensions not recorded**.
+metadata uses its admitted workspace source label; indexed native MCP normalization
+facts use the literal **Native MCP capture** as presentation text, never an invented
+`source_path`. Both share normalization invariants for source/orientation-adjusted/sent
+dimensions, orientation, resizing, scale and maximum dimension. This optional
+enrichment must match the selected descriptor's sent dimensions. Missing, invalid,
+extra-field (including a foreign MCP `source_path`) or mismatched facts say
+**Original dimensions not recorded**, without hiding typed image actions or changing
+their exact locators. Metadata labels never authorize fetching.
 No original-view toggle or automatic source loading exists.
 
 **Fit** defaults to min(1, viewport width/image width, viewport height/image height),
