@@ -39,23 +39,27 @@ afterEach(() => {
 });
 
 describe('AgentOperatorReadModelService granular resources', () => {
-  it('keeps actual loaded bundled browser guidance visible for Analyst and matching card nodes', () => {
+  it('renders real bundled Executor and Reviewer compositions for every matching node in declaration order', () => {
     const root = createRoot(); const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Browser guidance', bootstrap_content: 'Non-secret fixture', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Loaded composition', bootstrap_content: 'Non-secret fixture', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
     const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map());
-    const analyst = service.getCurrentInstructions(globalAgentSessionId('analyst'));
-    expect(analyst.bindings[0]!.instructions).toContain('mcp_server_control');
-    expect(analyst.bindings[0]!.instructions).toContain("scale:'css'");
-    for (const agent of ['executor', 'reviewer']) {
-      const result = service.getCurrentInstructions(cardAgentSessionId(agent, agent === 'reviewer' ? 'project' : child.id));
-      expect(result.bindings.length).toBeGreaterThan(0);
-      for (const binding of result.bindings) {
-        expect(binding.instructions).toContain('mcp_tools');
-        expect(binding.instructions).toContain('omitted filename');
-        expect(binding.instructions).toContain('Pixels cannot');
-      }
+    const templates = createPromptTemplateRegistry(TEST_WORKFLOWS);
+    for (const { agent, cardId, cardType } of [
+      { agent: 'executor', cardId: child.id, cardType: 'code' },
+      { agent: 'reviewer', cardId: 'project', cardType: 'project' },
+    ]) {
+      const workflow = TEST_WORKFLOWS.cardTypes.get(cardType)!;
+      const bindings = [...workflow.states].flatMap(([key, state]) => state.kind === 'node' && state.agent.name === agent
+        ? [{ kind: 'workflow_node', node_id: state.nodeId, instructions: redactTextForOutbound(templates.render(
+          { kind: 'workflow-agent', cardType }, agent, { contractDescription: describeNodeResultContract(workflow, key) },
+        )) }] : []);
+      expect(bindings.length).toBeGreaterThan(0);
+      const sessionId = cardAgentSessionId(agent, cardId);
+      expect(service.getCurrentInstructions(sessionId)).toEqual({
+        session_id: sessionId, basis: 'server_loaded_configuration',
+        scope: { kind: 'card', card_id: cardId, card_type: cardType, ownership: 'active' }, bindings,
+      });
     }
-    expect(JSON.stringify(service.getCurrentInstructions(globalAgentSessionId('oversight')))).not.toContain('mcp_server_control');
   });
   it('renders both configured globals from loaded composition without consuming or creating conversations', () => {
     const root = createRoot();

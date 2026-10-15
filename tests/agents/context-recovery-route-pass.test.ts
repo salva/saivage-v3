@@ -31,6 +31,7 @@ function preparedCompactionFixture() {
 }
 
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
@@ -77,9 +78,11 @@ function withMessages(value: InvocationRequest, contents: readonly string[]): In
 }
 
 describe('ordinary admitted execution immutable-membership recovery', () => {
-  it('marks only the attempted member context_failed and keeps earlier rate-limited and later untried members viable', async () => {
+  it('distinguishes the unattempted rate-limited member from the context-failed and untried members', async () => {
+    jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
-    availability.markFailed(A, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'rate_limit' });
+    const blockedUntilMs = 3_600_000;
+    availability.markFailed(A, { state: 'BLOCKED_UNTIL', untilMs: blockedUntilMs, reason: 'rate_limit' });
     const calls: string[] = [];
     let bCalls = 0;
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -104,13 +107,14 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
     expect(calls).toEqual(['cand-b']);
     expect(suspension!.contextFailedIdentity).toEqual(B);
     expect(suspension!.authority).toEqual(ordinaryAdmittedExecutionAuthority([A, B, C]));
-    expect(suspension!.records.map((record) => [record.identity.provider, record.state.kind])).toEqual([
-      ['cand-a', 'untried'],
-      ['cand-b', 'context_failed'],
-      ['cand-c', 'untried'],
+    expect(suspension!.records.map((record) => [record.identity, record.routeIndex, record.state.kind, record.state.attempts, record.state.finiteFailures])).toEqual([
+      [A, 0, 'temporarily_unavailable', 0, 0],
+      [B, 1, 'context_failed', 1, 1],
+      [C, 2, 'untried', 0, 0],
     ]);
+    expect(suspension!.records[0]!.state).toMatchObject({ untilMs: blockedUntilMs, reason: 'rate_limit' });
     expect(suspension!.settledProviderAttempts).toHaveLength(1);
-    expect(suspension!.settledProviderAttempts[0]).toMatchObject({ source_input_id: value.inputId, attempt_index: 0, status: 'error' });
+    expect(suspension!.settledProviderAttempts[0]).toMatchObject({ provider: B.provider, model: B.model, source_input_id: value.inputId, attempt_index: 0, status: 'error' });
     expect((suspension!.records[1]!.state as { failure: ProviderTurnFailure }).failure.failure_phase).toBe('provider_attempt');
 
     const preparation = svc.prepareAdmittedRecovery({ suspension: suspension!, request: compacted(value) });
@@ -119,10 +123,10 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
     const completion = await svc.resumeAdmittedExecution(preparation);
     expect(completion.result).toMatchObject({ kind: 'message', content: 'b-recovered' });
     expect(calls).toEqual(['cand-b', 'cand-b']);
-    expect(completion.provider_exchanges.map((attempt) => [attempt.attempt_index, attempt.status])).toEqual([[0, 'error'], [1, 'ok']]);
+    expect(completion.provider_exchanges.map((attempt) => [attempt.provider, attempt.attempt_index, attempt.status])).toEqual([['cand-b', 0, 'error'], ['cand-b', 1, 'ok']]);
   });
 
-  it('keeps the mandatory member first, then resumes ordinary scheduling over still-viable retained members', async () => {
+  it('retries the mandatory member first, then immediately selects an available untried alternative', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(A, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'rate_limit' });
@@ -155,6 +159,51 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
     expect(completion.result).toMatchObject({ kind: 'message', content: 'c-wins' });
     expect(completion.provider_exchanges.map((attempt) => attempt.attempt_index)).toEqual([0, 1, 2]);
     expect(Date.now()).toBe(0);
+  });
+
+  it('waits for the mandatory member standard retry when retained alternatives are unavailable', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    availability.markFailed(A, { state: 'BLOCKED_UNTIL', untilMs: 3_600_000, reason: 'rate_limit' });
+    const calls: [string, number][] = [];
+    let bCalls = 0;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const provider = new URL(String(input)).hostname.split('.')[0]!;
+      calls.push([provider, Date.now()]);
+      if (provider !== 'cand-b') throw new Error(`Unexpected provider ${provider}.`);
+      bCalls += 1;
+      if (bCalls === 1) return contextExhausted();
+      if (bCalls === 2) return serverUnavailable('compact retry unavailable');
+      return chatSuccess('b-recovered');
+    });
+    const value = request([A, B, C]);
+    const svc = service([A, B, C], availability);
+    const handoff = await svc.executeAdmittedWithRecovery(admitted(svc, value)).then(
+      () => { throw new Error('Expected suspension.'); },
+      (error: unknown) => {
+        if (!(error instanceof AdmittedProviderTurnFailure)) throw error;
+        return error.suspension;
+      },
+    );
+    // C was admitted untried, but is no longer eligible when ordinary scheduling resumes.
+    availability.markFailed(C, { state: 'BLOCKED_UNTIL', untilMs: 120_000, reason: 'rate_limit' });
+    const preparation = svc.prepareAdmittedRecovery({ suspension: handoff, request: compacted(value) });
+    expect(preparation.mandatoryFirstIdentity).toEqual(B);
+    const pending = svc.resumeAdmittedExecution(preparation);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(calls).toEqual([['cand-b', 0], ['cand-b', 0]]);
+    await jest.advanceTimersByTimeAsync(59_999);
+    expect(calls).toEqual([['cand-b', 0], ['cand-b', 0]]);
+    expect(availability.isAvailable(C)).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    const completion = await pending;
+    expect(calls).toEqual([['cand-b', 0], ['cand-b', 0], ['cand-b', 60_000]]);
+    expect(completion.result).toMatchObject({ kind: 'message', content: 'b-recovered' });
+    expect(completion.provider_exchanges.map((attempt) => [attempt.provider, attempt.attempt_index, attempt.status])).toEqual([
+      ['cand-b', 0, 'error'], ['cand-b', 1, 'error'], ['cand-b', 2, 'ok'],
+    ]);
+    expect(availability.isAvailable(C)).toBe(false);
+    expect(Date.now()).toBe(60_000);
   });
 
   it('excludes an exhausted member from compacted recovery while the context-failed member still retries first', async () => {

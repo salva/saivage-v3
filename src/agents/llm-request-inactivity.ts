@@ -55,7 +55,6 @@ export async function consumeProviderRequest<T>(
   const controller = new AbortController();
   let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   let http: ReturnType<typeof beginOutboundHttp> | undefined;
   let responseOk: boolean | undefined;
   let publicationUnknown = false;
@@ -110,7 +109,7 @@ export async function consumeProviderRequest<T>(
   };
   ownerSignal?.addEventListener('abort', onOwnerAbort, { once: true });
   onData();
-  deadlineTimer = setTimeout(() => {
+  const deadlineTimer = setTimeout(() => {
     if (!active || controller.signal.aborted) return;
     controller.abort(new ProviderRequestDeadlineError());
   }, PROVIDER_REQUEST_DEADLINE_MS);
