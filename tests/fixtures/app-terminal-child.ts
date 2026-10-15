@@ -64,7 +64,7 @@ if (scenario === 'coordinator-fast-reject') {
   try {
     const app = await startApp({ projectRoot, createRuntime: false, env: process.env });
     if (scenario === 'signal') {
-      process.stdout.write('READY\n');
+      process.stdout.write(`READY:${process.pid}\n`);
     } else if (scenario === 'restart-75') {
       const address = app.server.fastify.server.address();
       if (address === null || typeof address === 'string') throw new Error('Restart fixture has no TCP address.');

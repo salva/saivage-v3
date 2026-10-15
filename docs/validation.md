@@ -131,6 +131,16 @@ Ordinary Jest excludes Playwright, backend E2E, and the real-terminal-child
 suite. `npm test` runs ordinary parallel Jest, then the exact terminal-child
 suite serially; `npm run test:e2e` separately owns backend E2E.
 
+The terminal-child suite launches both fixtures directly with Node `--import tsx`
+(the full loader, not `tsx/esm`), without the tsx CLI process intermediary.
+The signal fixture publishes a complete `READY:<pid>` line after App startup;
+the test buffers that line and requires its PID to equal the spawned PID before
+sending real SIGTERM, then requires exit code 0 with no terminating signal.
+Each child close emits labelled, complete stdout/stderr and exit code/signal
+before exit assertions consume the result. Close before READY rejects immediately
+with the collected result, as do spawn errors; teardown retains partial output
+for a child still running at the unchanged test deadline.
+
 Heavy functional fixtures use explicit per-test 30-second harness deadlines
 for parallel validation contention, not a new default or global multiplier. Examples include:
 

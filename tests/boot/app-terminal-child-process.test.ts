@@ -14,30 +14,32 @@ import { appendStartupEvidence, appendStartupPendingCall } from '../helpers/star
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'app-terminal-child.ts');
-const tsx = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS = 20_000;
-const children = new Set<ChildProcess>();
+const children = new Map<ChildProcess, { scenario: string; stdout: string; stderr: string }>();
 
 function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.ProcessEnv = {}, target?: string): ChildProcess {
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' };
   delete env.SAIVAGE_API_TOKEN;
   Object.assign(env, extraEnv);
   const selectedFixture = scenario.startsWith('startup-admission-') ? join(process.cwd(), 'tests', 'fixtures', 'startup-admission-fatal.ts') : fixture;
-  const child = spawn(process.execPath, [tsx, selectedFixture, scenario, ...(projectRoot ? [projectRoot] : []), ...(target ? [target] : [])], {
+  const child = spawn(process.execPath, ['--import', 'tsx', selectedFixture, scenario, ...(projectRoot ? [projectRoot] : []), ...(target ? [target] : [])], {
     cwd: process.cwd(), env, stdio: ['ignore', 'pipe', 'pipe'],
   });
-  children.add(child);
-  child.once('exit', () => children.delete(child));
+  children.set(child, { scenario, stdout: '', stderr: '' });
+  child.once('close', () => children.delete(child));
   return child;
 }
 
 function collect(child: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }> {
-  let stdout = ''; let stderr = '';
-  child.stdout!.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
-  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
+  const output = children.get(child)!;
+  child.stdout!.setEncoding('utf8').on('data', (chunk: string) => { output.stdout += chunk; });
+  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => { output.stderr += chunk; });
   return new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+    child.once('close', (code, signal) => {
+      process.stderr.write(`TERMINAL_CHILD_CLOSE:${JSON.stringify({ ...output, code, signal })}\n`);
+      resolve({ code, signal, stdout: output.stdout, stderr: output.stderr });
+    });
   });
 }
 
@@ -60,7 +62,10 @@ async function availablePort(): Promise<number> {
 describe('App terminal process adapters', () => {
   const roots: string[] = [];
   afterEach(() => {
-    for (const child of children) child.kill('SIGKILL');
+    for (const [child, output] of children) {
+      process.stderr.write(`TERMINAL_CHILD_TEARDOWN_PARTIAL:${JSON.stringify(output)}\n`);
+      child.kill('SIGKILL');
+    }
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
@@ -106,11 +111,29 @@ describe('App terminal process adapters', () => {
     const root = project(validConfig(await availablePort())); roots.push(root);
     const child = runChild('signal', root);
     const result = collect(child);
-    await new Promise<void>((resolve, reject) => {
-      let output = '';
-      child.stdout!.on('data', (chunk: Buffer | string) => { output += chunk.toString(); if (output.includes('READY')) resolve(); });
-      child.once('error', reject);
+    let output = '';
+    let onData: (chunk: string) => void;
+    let onError: (error: Error) => void;
+    const ready = new Promise<string>((resolve, reject) => {
+      onData = (chunk) => {
+        output += chunk;
+        const match = /(?:^|\n)READY:(\d+)\n/.exec(output);
+        if (match) resolve(match[1]!);
+      };
+      onError = reject;
+      child.stdout!.on('data', onData);
+      child.once('error', onError);
     });
+    try {
+      const pid = await Promise.race([
+        ready,
+        result.then((closed) => { throw new Error(`Signal child closed before READY: ${JSON.stringify(closed)}`); }),
+      ]);
+      expect(pid).toBe(String(child.pid));
+    } finally {
+      child.stdout!.off('data', onData!);
+      child.off('error', onError!);
+    }
     child.kill('SIGTERM');
     await expect(result).resolves.toMatchObject({ code: 0, signal: null });
   }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
