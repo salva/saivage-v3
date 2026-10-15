@@ -348,6 +348,10 @@ not node re-entry; latest descriptor facts do not imply body recall. See
 Use the profile that matches the change; `docs/validation.md` owns the
 toolchain internals and CI topology behind them.
 
+The [offline compaction fact/action rubric](tests/fixtures/compaction-semantic-quality.md)
+complements mechanical regression tests; its frozen evidence does not establish
+changed-model fidelity.
+
 Build (and release through build) checks compiler-derived classic/classic-typed
 shared-template parity during prompt packaging, then runs compiled prompt
 composition with source/package byte comparison and all five selected roles.
