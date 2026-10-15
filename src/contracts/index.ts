@@ -139,7 +139,7 @@ export type {
   PreparedInvocationContext,
 } from './prepared-invocation.js';
 export { parsePrivateContent, validateResponsesPairs } from './responses-conversation.js';
-export { usableInputTokens } from './context-budget.js';
+export { usableInputTokens, requestExceedsSizeLimits } from './context-budget.js';
 export { ProcessToolResultSchema } from './operator-api-processes.js';
 export type { ProcessToolResult } from './operator-api-processes.js';
 export { ToolResultSchema } from './tool-result.js';

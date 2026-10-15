@@ -1,3 +1,19 @@
+import { MAX_IMAGE_REQUEST_BYTES } from './image.js';
+
+export function requestExceedsSizeLimits(
+  args: Readonly<{
+    estimatedInputTokens: number;
+    usableInputTokens: number;
+    imageCount: number;
+    serializedBytes: number;
+  }>,
+): boolean {
+  return (
+    args.estimatedInputTokens > args.usableInputTokens ||
+    (args.imageCount > 0 && args.serializedBytes > MAX_IMAGE_REQUEST_BYTES)
+  );
+}
+
 export function usableInputTokens(
   contextWindowTokens: number,
   requestedCompletionTokens: number,

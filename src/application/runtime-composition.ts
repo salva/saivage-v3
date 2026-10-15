@@ -9,6 +9,7 @@ import {
   buildCandidateRequest,
   selectLlmProtocolAdapter,
   buildLlmOptions,
+  supportsCapabilityRequest,
 } from '../agents/execution-api.js';
 import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../runtime/runtime-api.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
@@ -117,8 +118,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     [...services.workflows.agentBindings.values()].some(
       (binding) => binding.capabilityRequest.requiresImages,
     ) &&
-    (!summarizerCapabilities.imageInput ||
-      summarizerCapabilities.transportProtocol === 'openai-chat-completions')
+    !supportsCapabilityRequest(summarizerCapabilities, { requiresImages: true }).supported
   )
     throw new Error('Image-enabled agents require an image-compatible summary candidate.');
   const invocationService = new InvocationService({
@@ -139,7 +139,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     const capabilities = registry.getEffectiveCapabilities(candidate);
     if (
       providerConversationRequiresImages(input.providerConversation) &&
-      (!capabilities.imageInput || capabilities.transportProtocol === 'openai-chat-completions')
+      !supportsCapabilityRequest(capabilities, { requiresImages: true }).supported
     )
       throw new Error('Selected summary candidate cannot consume images.');
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);

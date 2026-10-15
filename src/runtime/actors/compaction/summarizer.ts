@@ -16,13 +16,9 @@ import { internalCompactionSummarySessionId } from '../../../contracts/index.js'
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/index.js';
 import type { EffectiveProviderCapabilities } from '../../../contracts/index.js';
-import { usableInputTokens } from '../../../contracts/index.js';
+import { usableInputTokens, requestExceedsSizeLimits } from '../../../contracts/index.js';
 import { COMPACTION_SUMMARY_BLOCKED_SUMMARY } from '../../../schemas/index.js';
-import {
-  MAX_IMAGE_REQUEST_BYTES,
-  type ImageDescriptor,
-  type MaterializedImage,
-} from '../../../contracts/index.js';
+import type { ImageDescriptor, MaterializedImage } from '../../../contracts/index.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
 export const SUMMARY_OUTPUT_TARGET_BYTES = 12_000;
@@ -92,9 +88,12 @@ export function admitSummaryRequest(args: {
   if (inputCapacity <= 0)
     throw new Error('The fixed summary candidate has no positive usable input capacity.');
   if (
-    args.serialization.estimatedInputTokens > inputCapacity ||
-    (args.serialization.imageCount > 0 &&
-      Buffer.byteLength(args.serialization.serializedRequest, 'utf8') > MAX_IMAGE_REQUEST_BYTES)
+    requestExceedsSizeLimits({
+      estimatedInputTokens: args.serialization.estimatedInputTokens,
+      usableInputTokens: inputCapacity,
+      imageCount: args.serialization.imageCount,
+      serializedBytes: Buffer.byteLength(args.serialization.serializedRequest, 'utf8'),
+    })
   )
     return {
       kind: 'too_large',

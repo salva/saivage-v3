@@ -111,6 +111,17 @@ Refine packs call/result/image atomically, materializing from the source session
 exact summary admission. Successful coverage removes pixels from active context;
 later folds inherit prose and retained tail, not old image files.
 
+`agents/provider-capabilities.ts` owns image-compatible capability matching, reused
+through `execution-api.ts` by composition and actual summary serialization. Those
+checks remain independent: enabled bindings require a compatible fixed summary
+route at composition, and retained image source requires it at use even after tool
+removal. Summaries request image support only, not tools or exclusive tool choice;
+text-only Chat remains valid. `contracts/context-budget.ts` shares only the pure
+token-or-image-wire size condition over request-local facts. Ordinary admission
+retains its ineligible/too-large verdicts, while summary admission retains fixed
+configuration errors versus packing obstruction. Final summary send still freshly
+re-admits and compares the packed request hash before dispatching retained bytes.
+
 Conversation index, genesis and envelope are strict format 9 (fresh 8→9 record-context cutover, retaining historical instruction evidence, maintenance and ordered content);
 card/record/provider evidence versions are unchanged. Earlier/mixed contracts block
 startup, with separately consented complete reset or explicitly requested external

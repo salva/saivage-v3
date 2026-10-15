@@ -24,6 +24,14 @@ import { AnalystRuntime } from '../../src/runtime/runtime-api.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/contracts/index.js';
 import type { OversightClock } from '../../src/application/project-oversight.js';
+import { createHash } from 'node:crypto';
+import sharp from 'sharp';
+import { appendConversationBatch, publishConversationImage } from '../../src/persistence/session-api.js';
+import { toolContentSucceeded, toolSucceeded } from '../../src/contracts/index.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { chatSuccess } from '../helpers/invocation-provider-fixture.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -89,6 +97,78 @@ function toolCalls(...calls: Array<{ id: string; name: string }>): Response {
 }
 
 describe('current runtime composition', () => {
+  it.each([
+    ['openai-chat-completions', true, false],
+    ['openai-responses', false, false],
+    ['openai-responses', true, true],
+    ['openai-codex-backend', true, true],
+  ] as const)('checks image-enabled bindings independently at composition: %s/imageInput=%s', (transportProtocol, imageInput, compatible) => {
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    config.providers.test.capabilities = { ...config.providers.test.capabilities, transportProtocol: 'openai-responses', imageInput: true };
+    config.agents.analyst.tools.push('view_image');
+    config.providers.summary = { models: ['summary-model'], capabilities: { transportProtocol, imageInput, toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 100_000, maxOutputTokens: 10_000 } };
+    config.compaction.summarizer_candidate = { provider: 'summary', account: null, model: 'summary-model' };
+    const compose = () => composeSummaryFixture(config);
+    if (compatible) expect(compose).not.toThrow();
+    else expect(compose).toThrow('Image-enabled agents require an image-compatible summary candidate.');
+  });
+
+  function composeSummaryFixture(config: typeof TEST_SAIVAGE_CONFIG) {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-composition-summary-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const registry = new ProviderRegistry(config);
+    const workflows = bindRuntimeWorkflows(compileProjectWorkflows(config), new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
+    const freshness = { runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), agentMembershipChanged: jest.fn(), conversationChanged: jest.fn(), llmExchangeChanged: jest.fn() };
+    const app = createRuntimeApplication({
+      projectRoot, config, workflows, providerRegistry: registry,
+      processIdentity: { pid: 42, startedAt: '2026-10-15T00:00:00.000Z' },
+      configAuthority: createTestConfigAuthority(projectRoot),
+      cardStore: new CardService(projectRoot, workflows, freshness), freshness, processRunner,
+      runtimeProcessRootScope: processRegistry.createContainerScope(processRegistry.rootScope, 'runtime'),
+      analystProcessRootScope: processRegistry.createContainerScope(processRegistry.rootScope, 'analyst'),
+      mcpToolInvocation: unusedMcpToolInvocation, restartCapability: { available: false }, fatalPort: testApplicationFatalPort,
+      analystSessionId: 'agent:analyst:global', onOversightOwnerFailure(error) { throw error; },
+    });
+    return { app, projectRoot };
+  }
+
+  it.each([false, true])('independently checks actual retained summary source on text-only Chat (images=%s)', async (images) => {
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    // No exposed image tool requires capability at composition.
+    const { app, projectRoot } = composeSummaryFixture(config);
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_request, init) => {
+      const body = JSON.parse(String(init?.body));
+      return chatSuccess(body.tools?.length ? 'ordinary answer' : 'short retained observation summary');
+    });
+    await app.analystRuntime.submit({ userContent: 'Establish the original text-only session.' });
+    fetch.mockClear();
+    const sessionId = 'agent:analyst:global' as const;
+    const image = publishConversationImage(projectRoot, sessionId, await sharp({ create: { width: 1, height: 1, channels: 3, background: '#abcdef' } }).png().toBuffer(), { width: 1, height: 1 });
+    const data = { observation: 'retained observation '.repeat(25_000) };
+    const content = settleToolActionOutcome(images ? toolContentSucceeded(data, [{ type: 'image', image }]) : toolSucceeded(data)).settledResultBytes;
+    const policies = toolRowPolicies({ content, template: { ...OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, settledAudience: 'primary_and_summarizer' }, evidence: { kind: 'observational_query', observedSha256: createHash('sha256').update(content).digest('hex') } });
+    const base = { session_id: sessionId, round_id: `r-assistant-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-10-15T00:00:00.000Z', tool: 'fixture_image_producer', tool_call_id: 'retained-image' };
+    appendConversationBatch({ projectRoot }, [
+      { ...base, id: '00000000-0000-4000-8000-000000000001:tool-call:retained-image', role: 'assistant', kind: 'tool_call', context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: base.tool_call_id, type: 'function', function: { name: base.tool, arguments: '{}' } }] }) },
+      { ...base, id: '00000000-0000-4000-8000-000000000001:tool-result:retained-image', role: 'tool', kind: 'tool_result', context_policy: policies.result, content },
+    ]);
+    try {
+      if (images) {
+        await expect(app.analystRuntime.submit({ userContent: 'Continue.' })).rejects.toThrow('Selected summary candidate cannot consume images.');
+        expect(fetch).not.toHaveBeenCalled();
+      } else {
+        await expect(app.analystRuntime.submit({ userContent: 'Continue.' })).resolves.toBeDefined();
+        expect(fetch.mock.calls.some(([, init]) => !JSON.parse(String(init?.body)).tools?.length)).toBe(true);
+      }
+    } finally {
+      app.closeAnalystAdmission();
+      await app.cleanupAnalystForApplicationStop();
+    }
+  });
+
   it('copies a required route pass and forwards separate admitted provider boundaries', async () => {
     const admittedExecution = jest.fn<InvocationService['executeAdmittedWithRecovery']>(
       async () => ({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] }),

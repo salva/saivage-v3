@@ -1,4 +1,5 @@
 export { InvocationService } from './invocation-service.js';
+export { supportsCapabilityRequest } from './provider-capabilities.js';
 export type { InvocationRequest } from './invocation-service.js';
 export { ProviderRegistry } from './provider.js';
 export { ModelRouter } from './model-router.js';

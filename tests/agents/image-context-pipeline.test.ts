@@ -583,6 +583,40 @@ it.each([
   },
 );
 
+it.each([
+  ['equal token capacity', 100, 100, 1, 100, true],
+  ['one token over capacity', 101, 100, 1, 100, false],
+  ['equal image wire capacity', 100, 100_000_000, 1, MAX_IMAGE_REQUEST_BYTES, true],
+  ['one UTF-8 byte over image wire capacity', 100, 100_000_000, 1, MAX_IMAGE_REQUEST_BYTES + 1, false],
+  ['text-only over image wire capacity', 100, 100_000_000, 0, MAX_IMAGE_REQUEST_BYTES + 1, true],
+] as const)('preserves separate owner verdicts at %s', (_label, tokens, capacity, imageCount, bytes, fits) => {
+  const built = plan({ sourceSessionId: SESSION, messages: [] });
+  // Serialize a multibyte body of the exact target size; character count is smaller.
+  const serializedBody = JSON.stringify({ text: 'é' });
+  const paddedBody = JSON.stringify({ text: `é${'a'.repeat(bytes - Buffer.byteLength(serializedBody))}` });
+  expect(Buffer.byteLength(paddedBody)).toBe(bytes);
+  expect(paddedBody.length).toBeLessThan(bytes);
+  const requestHash = createHash('sha256').update(paddedBody).digest('hex');
+  const verdict = classifyCandidateLocalAdmission({
+    capabilities: { ...built.capabilities, contextWindowTokens: capacity + 2000 },
+    match: { supported: true },
+    plan: { ...built, request: { ...built.request, serializedBody: paddedBody, requestHash, imageCount, estimatedWireInputTokens: tokens } },
+    limits: { contextUtilizationFraction: 1, requestedCompletionTokens: 2000 },
+  });
+  expect(verdict.kind).toBe(fits ? 'admitted' : 'projection_too_large');
+  if (verdict.kind === 'projection_too_large')
+    expect(verdict).toMatchObject({ serializedBytes: bytes, requestHash, estimatedInputTokens: tokens, usableInputTokens: capacity });
+  const summary = admitSummaryRequest({
+    serialization: { serializedRequest: paddedBody, requestSha256: requestHash, estimatedInputTokens: tokens, imageCount },
+    contextWindowTokens: capacity + 2000,
+    maxOutputTokens: 128_000,
+    contextUtilizationFraction: 1,
+  });
+  expect(summary.kind).toBe(fits ? 'admitted' : 'too_large');
+  if (summary.kind === 'admitted')
+    expect(summary).toMatchObject({ serializedRequest: paddedBody, requestSha256: requestHash, imageCount });
+});
+
 it('wire cap is a local capacity verdict and summary refusal even with ample token capacity', async () => {
   const f = await fixture(1, 1);
   const image = {
@@ -804,6 +838,37 @@ it.each(['gpt-6.1-sol', 'gpt-6-astra'])(
       attemptContext: { sourceSessionId: admission.bindings.sourceSessionId, invocationSessionId: admission.bindings.sessionId, inputId: admission.bindings.inputId, purpose: 'primary', attemptIndex: 2 },
     });
     expect(fetch.mock.calls[2]![1]!.body).toBe(fetch.mock.calls[1]![1]!.body);
+  },
+);
+
+it.each(['openai-responses', 'openai-codex-backend'] as const)(
+  'skips incompatible image routes before serialization and selects later %s',
+  async (protocol) => {
+    const f = await fixture(1, 1);
+    const chat = { ...candidate, provider: 'chat' };
+    const disabled = { ...candidate, provider: 'disabled' };
+    const enabled = { ...candidate, provider: 'enabled' };
+    const registry = invocationProviderRegistry([chat, disabled, enabled], {
+      chat: { transportProtocol: 'openai-chat-completions', imageInput: true },
+      disabled: { transportProtocol: protocol, imageInput: false },
+      enabled: { transportProtocol: protocol, imageInput: true },
+    });
+    const service = new InvocationService({ projectRoot: f.projectRoot, registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+    const provider = createInvocationServiceProvider(service, f.projectRoot);
+    const fetch = jest.spyOn(globalThis, 'fetch');
+    const admission = await provider.preparePrimaryRequestAdmission({
+      ...invocation(f.projection),
+      routePass: { kind: 'ordinary', candidateChain: [chat, disabled, enabled] },
+    }, new AbortController().signal);
+    expect(admission.kind).toBe('admitted');
+    expect(admission.candidates.slice(0, 2)).toEqual([chat, disabled].map(selected => expect.objectContaining({
+      candidate: selected,
+      kind: 'candidate_ineligible',
+      reason: { kind: 'capability_mismatch', reasons: ['unsupported_image_input'] },
+    })));
+    for (const verdict of admission.candidates.slice(0, 2)) expect(verdict).not.toHaveProperty('plan');
+    expect(admission.candidates[2]).toMatchObject({ kind: 'admitted', plan: { request: { imageCount: 1 } } });
+    expect(fetch).not.toHaveBeenCalled();
   },
 );
 

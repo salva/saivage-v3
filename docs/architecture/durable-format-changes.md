@@ -23,6 +23,22 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### AR-08 shared image eligibility facts — no durable impact (2026-10-15)
+
+Exact implementation parent: `7d884c3abd00b58798f0ffbff4f6e17c01eaaf89`.
+Composition and actual summary serialization reuse the existing capability owner;
+ordinary and summary admission share only the identical pure size condition.
+Their independent checks, errors/verdicts, exact serialized bytes/hashes and final
+summary re-admission remain unchanged. No retained shape, interpretation,
+selection, provenance, layout or discriminator changes: conversation remains
+format 9, card/record and MCP definitions format 1, app-log/provider evidence
+shared `version:1/type:rows`, and private diagnostics format 3/privacy policy 2.
+All other durable families are unchanged. This source-only refactor needs no
+retained-state adoption, reset, migration or unreleased cutover exception.
+Installed-release applicability is unknown and uninspected; this entry certifies
+no whole-release compatibility and authorizes no deployment or runtime action.
+External migration remains separately owner-requested and offline.
+
 ### AR-06 native MCP result typing — no durable impact (2026-10-15)
 
 Exact implementation parent: `97ca57172f5d5a6d66e9fd93614cd520d36abcce`.
