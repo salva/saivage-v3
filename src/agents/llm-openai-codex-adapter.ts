@@ -2,8 +2,6 @@ import {
   parseToolCallMessageForModel,
   assertProviderItemImageMaterialized,
   type ImageDescriptor,
-  providerContentParts,
-  providerToolResultOutput,
   LlmRequestError,
   type Candidate,
   type LlmCompleteOptions,
@@ -14,6 +12,7 @@ import {
 import { classifyHttpFailure, httpFailureDiagnosticMetadata } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
+import { openAIContentParts, openAIToolResultOutput } from './openai-content-serializer.js';
 
 interface CodexInputText {
   type: 'input_text';
@@ -143,7 +142,7 @@ function codexMessages(
           role: 'user',
           content: [
             { type: 'input_text', text: message.content },
-            ...providerContentParts(message.contentBlocks ?? [], onImageEmitted),
+            ...openAIContentParts(message.contentBlocks ?? [], onImageEmitted),
           ],
         });
     } else if (message.role === 'system') out.push({ role: 'system', content: message.content });
@@ -163,7 +162,7 @@ function codexMessages(
       out.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: providerToolResultOutput(message, onImageEmitted),
+        output: openAIToolResultOutput(message, onImageEmitted),
       });
     }
   }

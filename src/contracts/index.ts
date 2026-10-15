@@ -61,8 +61,6 @@ export {
   providerConversationRequiresImages,
   assertProviderItemImageMaterialized,
   materializedToolContent,
-  providerContentParts,
-  providerToolResultOutput,
 } from './provider-conversation.js';
 export type {
   SyntheticProviderContextItem,

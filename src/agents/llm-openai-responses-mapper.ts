@@ -1,12 +1,11 @@
 import {
   parsePrivateContent,
   assertProviderItemImageMaterialized,
-  providerContentParts,
-  providerToolResultOutput,
   type ImageDescriptor,
   parseToolCallMessageForModel,
   type ProviderConversationProjection,
 } from '../contracts/index.js';
+import { openAIContentParts, openAIToolResultOutput } from './openai-content-serializer.js';
 
 type ResponsesInputItem = Record<string, unknown>;
 
@@ -30,7 +29,7 @@ export function responsesInputFromProviderConversation(
       const item = textInput(message.role, message.content);
       if (message.contentBlocks)
         (item.content as unknown[]).push(
-          ...providerContentParts(message.contentBlocks, onImageEmitted),
+          ...openAIContentParts(message.contentBlocks, onImageEmitted),
         );
       input.push(item);
       continue;
@@ -59,7 +58,7 @@ export function responsesInputFromProviderConversation(
       input.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: providerToolResultOutput(message, onImageEmitted),
+        output: openAIToolResultOutput(message, onImageEmitted),
       });
       continue;
     }

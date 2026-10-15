@@ -86,9 +86,12 @@ unchanged; an open inspection retains its selected occurrences across refresh.
 sequentially and validates bytes/hash/decoded dimensions for invocation-local use.
 Application composition binds primary/recomposed/pinned preparation and the fixed
 summary materializer to project root and canonical source session. Async boundaries
-retain cancellation and exact-owner dispatch fences. Adapters remain pure serializers:
-Responses JSON and Codex SSE share native input-image parts, omit detail, and never
-open files. Primary results preserve one originating `call_id`-linked function output:
+retain cancellation and exact-owner dispatch fences. Neutral descriptor discovery and
+ordered materialized-content binding remain in `contracts/provider-conversation.ts`.
+Adapters remain pure serializers: Responses JSON and Codex SSE directly share
+`agents/openai-content-serializer.ts` for native input-image parts and tool-result
+outputs, omit detail, and never open files. Primary results preserve one originating
+`call_id`-linked function output:
 metadata text followed by all text/image parts in content order, not another user
 utterance. Synthetic summary/refine material retains its distinct ordered
 multimodal user-message path; call/result/all blocks remain one atomic packing unit.
@@ -96,7 +99,9 @@ Candidate construction hashes and retains the complete body with data URLs;
 dispatch sends those admitted bytes unchanged. Canonical/public content contains
 descriptors, never transient payloads. Browser schema imports never load Sharp/filesystem.
 
-Candidate accounting is complete UTF-8 wire bytes/4 plus each emitted raster reservation
+Candidate construction observes each actual image emission, including repeated
+occurrences, rather than counting descriptor inventory. Candidate accounting is
+complete UTF-8 wire bytes/4 plus each emitted raster reservation
 `2*ceil(width/32)*ceil(height/32)`, with a 32 MiB image-bearing wire cap. Descriptor
 accounting predicts PNG base64 part size without allocating payloads and adds four
 times raster reservation for compactor accounting bytes; token estimates add the same
