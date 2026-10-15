@@ -746,8 +746,8 @@ but the existing exact-launch terminal observer, not EOF, supplies delayed exit 
 capture-error status. Stop joins that observer and retains its classification;
 failed containment takes precedence and releases its wait race without retirement.
 Publication uncertainty escapes before ordinary cleanup, containment or later effects.
-The exact-launch observer distinguishes unavailable process evidence from normal terminal/capture settlement. Registry first-loss notification rejects runner waits promptly; the observer checks both typed rejection and exact runner observation, preserving genuine capture error independently. Open admission uses existing transport closure once, clearing readiness/cache while retaining the failed handle/launch. The observer never joins public stop from tracked work. Intentional closure and failed direct containment may win the race; failed-containment precedence, identity and operation joins remain, with no late retirement or replacement. Generation and `responseCompleted` fences still preserve correlated native results and single telemetry outcomes. Publication uncertainty escapes before evidence inspection or any follow-up.
-After the existing completion-sensitive caller/generation checks, McpServerRuntime
+The exact-launch observer distinguishes unavailable process evidence from normal terminal/capture settlement. Registry first-loss notification rejects runner waits promptly; the observer checks both typed rejection and exact runner observation, preserving genuine capture error independently. Open admission uses existing transport closure once, clearing readiness/cache while retaining the failed handle/launch. The observer never joins public stop from tracked work. Intentional closure and failed direct containment may win the race; failed-containment precedence, identity and operation joins remain, with no late retirement or replacement. Owner-local admission and `responseCompleted` fences still preserve correlated native results and single telemetry outcomes. Publication uncertainty escapes before evidence inspection or any follow-up.
+After the existing completion-sensitive caller/admission checks, McpServerRuntime
 classifies the validated returned native envelope once with `isError !== true` and
 supplies that same boolean to invocation counters and event publication, returning
 the envelope unchanged. Native failure is not a transport exception. The returned
@@ -1218,7 +1218,10 @@ The once-installed invocation port forwards the actual caller signal unchanged.
 For active stdio exchanges, the runtime operation owns the deadline; its first
 abort reason wins. Abort or an ambiguous stream failure synchronously fences
 admission, readiness and discovered schemas before the serialized callback can
-advance. That callback awaits only direct containment, never public stop (which
+advance. Each runtime's admission closes permanently; continuations check that
+same owner-local state, with caller cancellation checked first. Restart constructs
+a fresh runtime and binding only after successful containment of the old owner.
+That callback awaits only direct containment, never public stop (which
 joins admitted inner operations). An untracked outer completion joins stop after
 successful direct containment; containment failure retains the closed owner and
 propagates unchanged without a second stop. Queued cancellation dispatches nothing

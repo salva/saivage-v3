@@ -417,8 +417,8 @@ describe('current named-agent MCP manager contract',()=>{
       processRunner: processRunner as never, processScope, ids: { next: () => 1 }, invocationStats: {} as never,
     });
 
-    const startStdio = Reflect.get(runtime, 'startStdio') as (config: { transport: 'stdio'; command: string; autostart: boolean; disabled: boolean }, generation: number, signal: AbortSignal) => void;
-    startStdio.call(runtime, runtime.config as never, 0, new AbortController().signal);
+    const startStdio = Reflect.get(runtime, 'startStdio') as (config: { transport: 'stdio'; command: string; autostart: boolean; disabled: boolean }, signal: AbortSignal) => void;
+    startStdio.call(runtime, runtime.config as never, new AbortController().signal);
     terminal.reject(captureFailure);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -440,8 +440,8 @@ describe('current named-agent MCP manager contract',()=>{
     for (let cycle = 0; cycle < 2; cycle += 1) {
       const processScope = registry.createDirectScope(mcpRoot, `one:revision:${cycle}`, 'service_infrastructure');
       const runtime = new McpServerRuntime({ name: 'one', config, revision: 'revision', processRunner, processScope, ids: { next: () => 1 }, invocationStats: {} as never });
-      const startStdio = Reflect.get(runtime, 'startStdio') as (selected: typeof config, generation: number, signal: AbortSignal) => void;
-      startStdio.call(runtime, config, 0, new AbortController().signal);
+      const startStdio = Reflect.get(runtime, 'startStdio') as (selected: typeof config, signal: AbortSignal) => void;
+      startStdio.call(runtime, config, new AbortController().signal);
       for (let attempt = 0; attempt < 100 && processRunner.list().length > 0; attempt += 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 10));
       }

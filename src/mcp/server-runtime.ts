@@ -80,7 +80,6 @@ export class McpServerRuntime {
   private tools?: McpToolDefinition[];
   private readonly argumentValidatorCache = new Map<string, CachedMcpArgumentValidator>();
   private stdioInvocationQueue?: Promise<void>;
-  private generation = 0;
   private admissionOpen = true;
   private contained = false;
   private ready = false;
@@ -137,7 +136,7 @@ export class McpServerRuntime {
     if (this.operations.size || this.handle)
       return Promise.reject(new McpLifecycleError(`MCP server '${this.name}' is busy.`, 409));
     let joinStop = false;
-    const inner = this.admit(async (generation, signal, controller) => {
+    const inner = this.admit(async (signal, controller) => {
       const invalidate = () => {
         throwIfPublicationOutcomeUnknown(signal.reason);
         this.closeAdmission();
@@ -152,11 +151,11 @@ export class McpServerRuntime {
         const cfg = this.config;
         if (cfg.disabled) return;
         this.statusOverride = undefined;
-        if (cfg.transport === 'stdio') this.startStdio(cfg, generation, signal);
+        if (cfg.transport === 'stdio') this.startStdio(cfg, signal);
         else this.startStreamableHttp();
-        this.assertCurrent(generation, signal);
+        this.assertAdmissionOpen(signal);
         const tools = await this.discoverTools(signal, options?.observationSource);
-        this.assertCurrent(generation, signal);
+        this.assertAdmissionOpen(signal);
         this.tools = tools;
         this.argumentValidatorCache.clear();
         this.ready = true;
@@ -196,7 +195,6 @@ export class McpServerRuntime {
     this.closureCause = cause;
     this.disposeStdio(new ServerNotRunningError(this.name));
     this.admissionOpen = false;
-    this.generation += 1;
     this.ready = false;
     this.tools = undefined;
     this.argumentValidatorCache.clear();
@@ -276,7 +274,7 @@ export class McpServerRuntime {
     },
   ): Promise<unknown> {
     let joinStop = false;
-    const inner = this.admit(async (generation, signal, controller) => {
+    const inner = this.admit(async (signal, controller) => {
       const cfg = this.config;
       const handle = this.handle;
       if (!handle || !this.ready) throw new ServerNotRunningError(this.name);
@@ -301,7 +299,7 @@ export class McpServerRuntime {
         result =
           cfg.transport === 'stdio'
             ? await this.enqueueStdioInvocation(async () => {
-                this.assertCurrent(generation, signal);
+                this.assertAdmissionOpen(signal);
                 const invalidate = () => {
                   throwIfPublicationOutcomeUnknown(signal.reason);
                   this.closeAdmission();
@@ -358,11 +356,11 @@ export class McpServerRuntime {
                 signal,
               });
         if (responseCompleted) options?.signal?.throwIfAborted();
-        else this.assertCurrent(generation, signal);
+        else this.assertAdmissionOpen(signal);
       } catch (err) {
         throwIfPublicationOutcomeUnknown(err);
         if (responseCompleted) options?.signal?.throwIfAborted();
-        if (!responseCompleted && generation !== this.generation) throw err;
+        if (!responseCompleted && !this.admissionOpen) throw err;
         if (
           (!responseCompleted && signal.aborted && err === signal.reason) ||
           !(err instanceof McpInvokeError)
@@ -418,12 +416,11 @@ export class McpServerRuntime {
   }
 
   private admit<T>(
-    operation: (generation: number, signal: AbortSignal, controller: AbortController) => Promise<T>,
+    operation: (signal: AbortSignal, controller: AbortController) => Promise<T>,
     callerSignal?: AbortSignal,
   ): Promise<T> {
     if (callerSignal?.aborted) return Promise.reject(callerSignal.reason);
     if (!this.admissionOpen) return Promise.reject(new ServerNotRunningError(this.name));
-    const generation = this.generation;
     const controller = new AbortController();
     const onCallerAbort = () => {
       throwIfPublicationOutcomeUnknown(callerSignal!.reason);
@@ -431,7 +428,7 @@ export class McpServerRuntime {
     };
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
     this.controllers.add(controller);
-    const result = operation(generation, controller.signal, controller);
+    const result = operation(controller.signal, controller);
     let publicationUnknown = false;
     const tracked = result
       .then(
@@ -450,14 +447,13 @@ export class McpServerRuntime {
     return result;
   }
 
-  private assertCurrent(generation: number, signal: AbortSignal): void {
+  private assertAdmissionOpen(signal: AbortSignal): void {
     signal.throwIfAborted();
-    if (generation !== this.generation || !this.admissionOpen)
-      throw new ServerNotRunningError(this.name);
+    if (!this.admissionOpen) throw new ServerNotRunningError(this.name);
   }
 
-  private startStdio(cfg: StdioMcpServerConfig, generation: number, signal: AbortSignal): void {
-    this.assertCurrent(generation, signal);
+  private startStdio(cfg: StdioMcpServerConfig, signal: AbortSignal): void {
+    this.assertAdmissionOpen(signal);
     const launch = this.#processRunner.spawnInteractive({
       file: cfg.command,
       args: cfg.args ?? [],
@@ -507,8 +503,7 @@ export class McpServerRuntime {
           !result ||
           this.handle !== observedHandle ||
           this.containmentFailed ||
-          (this.closureCause !== 'transport' &&
-            (generation !== this.generation || !this.admissionOpen))
+          (this.closureCause !== 'transport' && !this.admissionOpen)
         )
           return;
         const admissionWasOpen = this.admissionOpen;
@@ -534,8 +529,7 @@ export class McpServerRuntime {
         if (
           this.handle !== observedHandle ||
           this.containmentFailed ||
-          (this.closureCause !== 'transport' &&
-            (generation !== this.generation || !this.admissionOpen))
+          (this.closureCause !== 'transport' && !this.admissionOpen)
         )
           return;
         const observedRecord = this.#processRunner.get(launch.record.id);

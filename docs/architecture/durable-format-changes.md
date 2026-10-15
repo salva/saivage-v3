@@ -23,6 +23,21 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### AR-05 redundant MCP closure counter removal — no durable impact (2026-10-15)
+
+Exact implementation parent: `48b3ecd7f4f50c18cbaf99e484cffd38d0829523`.
+The private `server-runtime.ts` counter changed only when that owner's admission
+permanently closed; continuations now check the same owner-local admission state
+directly. Manager replacement still creates a fresh runtime and binding after
+containment. No serializer, retained shape, interpretation, selection, provenance
+or layout changes; no discriminator changes. MCP definitions remain format 1,
+conversation index/genesis/segments remain format 9, app-log/provider evidence
+retain shared `version:1/type:rows`, and all other durable families are unchanged.
+No retained-state adoption, reset, migration or unreleased cutover is involved.
+Installed applicability is unknown and uninspected; this entry certifies no
+whole-release compatibility and authorizes no deployment or runtime action.
+External migration remains separately owner-requested and offline.
+
 ### F06 workflow-YAML structural authority — no durable impact (2026-10-15)
 
 Exact implementation parent: `1b710d2a834fd21af2cb340c547f427e05f0cb65`.

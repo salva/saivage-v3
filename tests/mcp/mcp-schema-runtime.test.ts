@@ -17,7 +17,7 @@ const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; jest.restoreAllMocks(); });
 
 describe('MCP schema validation at runtime use', () => {
-  it('isolates repeated IDs across tools, services and fresh starts while preserving both dialects and local refs', async () => {
+  it('isolates repeated IDs across tools and services, rejecting stale bindings and arguments after changed discovery on a fresh owner', async () => {
     const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-schema-owner-');
     mkdirSync(join(root, '.saivage'));
     const calls: unknown[] = [];
@@ -43,7 +43,8 @@ describe('MCP schema validation at runtime use', () => {
         'x-source': '2020',
       },
     ];
-    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
+    let changedOne = false;
+    globalThis.fetch = jest.fn(async (url, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body));
       if (request.method === 'notifications/initialized')
         return new Response(null, { status: 202 });
@@ -55,7 +56,8 @@ describe('MCP schema validation at runtime use', () => {
           request.method === 'tools/list'
             ? {
                 tools: [
-                  ...schemas.map((inputSchema, i) => ({ name: `tool${i}`, inputSchema })),
+                  ...(changedOne && String(url).endsWith('/one') ? [...schemas].reverse() : schemas)
+                    .map((inputSchema, i) => ({ name: `tool${i}`, inputSchema })),
                   { name: 'missing' },
                   { name: 'invalid', inputSchema: { type: 'object', required: 'not-an-array' } },
                   {
@@ -89,17 +91,32 @@ describe('MCP schema validation at runtime use', () => {
     });
     try {
       for (const name of ['one', 'two'])
-        manager.registerServer(name, { transport: 'streamable-http', url: 'http://localhost/mcp' });
-      for (let cycle = 0; cycle < 2; cycle++)
+        manager.registerServer(name, { transport: 'streamable-http', url: `http://localhost/${name}` });
+      const bindings = new Map<string, string>();
+      for (let cycle = 0; cycle < 2; cycle++) {
+        // Only one's actual discovery changes after A has compiled and been contained.
+        // Two retains the original schemas with the same IDs in a separate ready owner.
+        changedOne = cycle === 1;
+        for (const name of ['one', 'two']) await manager.startServer(name);
         for (const name of ['one', 'two']) {
-          await manager.startServer(name);
           const binding = manager.getServerStatus(name)!.bindingId!;
+          const previousBinding = bindings.get(name);
+          const changed = changedOne && name === 'one';
+          const admittedSchemas = changed ? [...schemas].reverse() : schemas;
+          if (previousBinding) {
+            expect(binding).not.toBe(previousBinding);
+            const count = calls.length;
+            await expect(manager.invokeTool(name, previousBinding, 'tool0', { value: 'text' }))
+              .rejects.toMatchObject({ statusCode: 409 });
+            expect(calls).toHaveLength(count);
+          }
+          bindings.set(name, binding);
           expect(
             manager
               .getServerTools(name)!
               .slice(0, 2)
               .map((t) => t.inputSchema),
-          ).toEqual(schemas);
+          ).toEqual(admittedSchemas);
           expect(
             manager.getServerTools(name)!.find((t) => t.name === 'missing'),
           ).not.toHaveProperty('inputSchema');
@@ -115,15 +132,17 @@ describe('MCP schema validation at runtime use', () => {
           }
           expect(calls).toHaveLength(beforeInvalid);
           for (let i = 0; i < 2; i++) {
-            await manager.invokeTool(name, binding, `tool${i}`, { value: i === 0 ? 'text' : 42 });
+            const stringValue = changed ? i === 1 : i === 0;
             const count = calls.length;
             await expect(
-              manager.invokeTool(name, binding, `tool${i}`, { value: i === 0 ? 42 : 'text' }),
+              manager.invokeTool(name, binding, `tool${i}`, { value: stringValue ? 42 : 'text' }),
             ).rejects.toMatchObject({ data: { reason: 'validation_error' } });
             expect(calls).toHaveLength(count);
+            await manager.invokeTool(name, binding, `tool${i}`, { value: stringValue ? 'text' : 42 });
           }
-          await manager.stopServer(name);
         }
+        for (const name of ['one', 'two']) await manager.stopServer(name);
+      }
       expect(calls).toHaveLength(8);
     } finally {
       await manager.cleanupForApplicationStop();

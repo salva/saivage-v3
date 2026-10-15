@@ -53,7 +53,9 @@ describe('active stdio cancellation ownership', () => {
     if (mode === 'publication') jest.useFakeTimers();
     const originalFetch = globalThis.fetch;
     const failure = mode === 'publication' ? new PublicationOutcomeUnknownError() : new TypeError('exact discovery reader/caller failure');
-    const terminate = jest.fn(async () => success);
+    const containment = deferred<typeof success>();
+    const entered = deferred<void>();
+    const terminate = jest.fn(() => { entered.resolve(); return containment.promise; });
     const events = { appendEventPrepared: jest.fn() };
     const caller = new AbortController();
     const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => 1 }, invocationStats: new McpInvocationStatsRecorder(events as never) });
@@ -64,7 +66,18 @@ describe('active stdio cancellation ownership', () => {
       return new Response(new ReadableStream({ start(controller) { controller.error(failure); } }));
     }) as typeof fetch;
     try {
-      await expect(runtime.start({ signal: caller.signal })).rejects.toBe(failure);
+      let settled = false;
+      const start = runtime.start({ signal: caller.signal }).catch(error => { settled = true; return error; });
+      if (mode !== 'publication') {
+        await entered.promise;
+        await turn();
+        expect(settled).toBe(false);
+        expect(runtime.isAdmissionOpen()).toBe(false);
+        expect(runtime.isReady()).toBe(false);
+        expect(runtime.getTools()).toBeUndefined();
+        containment.resolve(success);
+      }
+      expect(await start).toBe(failure);
       expect(failure).not.toBeInstanceOf(TransportError);
       expect(terminate).toHaveBeenCalledTimes(mode === 'publication' ? 0 : 1);
       expect(events.appendEventPrepared).not.toHaveBeenCalled();
