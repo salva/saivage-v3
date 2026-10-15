@@ -10,7 +10,7 @@ import { compact as compactWithoutProgress, LOCAL_OMISSION_SUMMARY, prepareCompa
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import { ConversationSessionIdSchema, globalAgentSessionId, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
+import { agentMessageSchema, ConversationSessionIdSchema, globalAgentSessionId, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { type SummaryRequestSerialization, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { internalCompactionSummarySessionId } from '../../src/contracts/provider-exchange-log.js';
@@ -127,6 +127,36 @@ function unmatchedCall(inputId: string, callId: string): AgentMessage {
 }
 
 describe('compaction fallback, successor identity, and internal summary identity', () => {
+  it('freshly rejects a complete invalid result in indexed old history even before valid later rows', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-result-history-')); initProjectTree(root);
+    try {
+      const bundle = settledBundle('00000000-0000-4000-8000-000000000001', 'historical', 'old result').map(row => agentMessageSchema.parse(row));
+      appendConversationBatch({ projectRoot: root }, [activation(1), ...bundle, text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const old = readCurrentConversationSegment(root, SESSION)!;
+      await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary') }), old.conversation);
+      expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toEqual(old.rows);
+      const current = readCurrentConversationSegment(root, SESSION)!;
+      expect(current.entry.version).toBe(2);
+      const path = cardConversationVersionFile(root, 'project', 'planner', old.entry.filename);
+      const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
+      const result = envelopes.flatMap(envelope => envelope.rows).find((row: AgentMessage) => row.kind === 'tool_result');
+      result.content = '{"success":true,"content":[]}';
+      result.context_policy = toolRowPolicies({ content: result.content }).result;
+      expect(agentMessageSchema.parse(result).content).toBe(result.content);
+      const complete = `${envelopes.map(envelope => JSON.stringify(envelope)).join('\n')}\n`;
+      const indexPath = cardConversationVersionIndexFile(root, 'project', 'planner');
+      const indexBefore = readFileSync(indexPath);
+      for (const suffix of ['', '{torn']) {
+        writeFileSync(path, complete + suffix);
+        const before = readFileSync(path);
+        expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
+        expect(readFileSync(path)).toEqual(before);
+        expect(readFileSync(indexPath)).toEqual(indexBefore);
+        // Unconsumed predecessors do not invalidate the independently valid current selection.
+        expect(readCurrentConversationSegment(root, SESSION)!.rows).toEqual(current.rows);
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 8 %s beneath a current format 9 index without rewriting bytes', async part => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-old-history-')); initProjectTree(root);
     try {

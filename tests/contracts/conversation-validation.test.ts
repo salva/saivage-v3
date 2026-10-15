@@ -9,9 +9,62 @@ import { providerConversationProjection } from '../../src/runtime/actors/convers
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { toolContentSucceeded } from '../../src/contracts/index.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 
 const SESSION = 'agent:planner:project' as const;
 describe('canonical conversation validation', () => {
+  it('preserves early envelope, pairing, commitment, image semantics and evidence failure precedence', () => {
+    const malformed = exchange('{"success":true,"extra":1}', 'view_image');
+    expect(() => validateConversation(SESSION, [activation(), malformed[1]])).toThrow(/has malformed content:/);
+    const missingImage = exchange('{"success":true}', 'view_image');
+    expect(() => validateConversation(SESSION, [activation(), missingImage[1]])).toThrow(/no matching earlier call/);
+    const wrongCommitment = agentMessageSchema.parse({ ...missingImage[1], context_policy: { ...missingImage[1].context_policy, call_policy_sha256: 'f'.repeat(64) } });
+    expect(() => validateConversation(SESSION, [activation(), missingImage[0], wrongCommitment])).toThrow(/does not commit to its call's policy template hash/);
+    const wrongEvidence = agentMessageSchema.parse({ ...missingImage[1], context_policy: { ...missingImage[1].context_policy, evidence: { kind: 'observational_query', observedSha256: 'f'.repeat(64) } } });
+    expect(() => validateConversation(SESSION, [activation(), missingImage[0], wrongEvidence])).toThrow(`Tool result '${missingImage[1].id}' has malformed content: Successful view_image requires exactly one image block.`);
+    // Strict identities make logical duplicates physical duplicates as well; do not forge IDs.
+    const valid = exchange('{"success":true}');
+    expect(() => validateConversation(SESSION, [activation(), ...valid, valid[1]])).toThrow('Conversation contains duplicate message ids.');
+    expect(() => validateConversation(SESSION, [activation(), valid[0], valid[0]])).toThrow('Conversation contains duplicate message ids.');
+    expect(() => agentMessageSchema.parse({ ...valid[1], id: `${valid[1].id}:distinct` })).toThrow();
+  });
+
+  it.each(['{"success":true,"extra":1}', '{"success":true,"content":[]}', '{"success":false,"error":"failed","content":[{"type":"text","text":"no"}]}', '{"success":true,"content":[{"type":"image","image":{"id":"invalid"}}]}'])('rejects malformed embedded result %s at the early owning parser', content => {
+    const [call, result] = exchange(content);
+    expect(() => validateConversation(SESSION, [activation(), call, result])).toThrow(/has malformed content:/);
+  });
+
+  it('preserves role, source identity and declared evidence requirements', () => {
+    const [call, result] = exchange('{"success":true}');
+    expect(() => validateConversation(SESSION, [activation(), result, call])).toThrow(/no matching earlier call/);
+    const otherSource = agentMessageSchema.parse({ ...result, id: result.id.replace(INPUT, OTHER_INPUT) });
+    expect(() => validateConversation(SESSION, [activation(), call, otherSource])).toThrow(/no matching earlier call/);
+    const wrongRole = agentMessageSchema.parse({ ...result, role: 'assistant' });
+    expect(() => validateConversation(SESSION, [activation(), call, wrongRole])).toThrow(/must use tool role/);
+    expect(() => agentMessageSchema.parse({ ...result, content: '{invalid', context_policy: toolRowPolicies({ content: '{invalid' }).result })).toThrow(/exact settled strict ToolResult bytes/);
+    const observationalCall = agentMessageSchema.parse({ ...call, context_policy: toolRowPolicies({ content: result.content, template: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE }).call });
+    const observationalPolicies = toolRowPolicies({ content: result.content, template: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE });
+    const missingEvidence = agentMessageSchema.parse({ ...result, context_policy: observationalPolicies.result });
+    expect(() => validateConversation(SESSION, [activation(), observationalCall, missingEvidence])).toThrow(/must carry exactly its call's declared 'observational_query' evidence/);
+    const [failedCall, failed] = exchange('{"success":false,"error":"failed"}');
+    expect(() => agentMessageSchema.parse({ ...failed, context_policy: { ...failed.context_policy, evidence: { kind: 'observational_query', observedSha256: 'f'.repeat(64) } } })).toThrow(/must carry none evidence/);
+    expect(validateConversation(SESSION, [activation(), failedCall, failed]).calls[0]!.resultSourceIndex).toBe(2);
+  });
+
+  it.each(['{"success":true,"data":"text"}', '{"success":false,"error":"interrupted"}'])('materializes settled source order, call indexes, repair segments and atomic boundaries for %s', content => {
+    const bundle = responsesBundle(SESSION, INPUT, RESPONSES_A, content).map(row => agentMessageSchema.parse(row));
+    const rows = [activation(), ...bundle, text('tail')];
+    const conversation = validateConversation(SESSION, rows);
+    expect(conversation.sourceRows).toEqual(rows);
+    expect(conversation.calls).toMatchObject([{ sourceIndex: 2, physicalIndex: 2, resultSourceIndex: 3 }]);
+    expect(conversation.unmatchedCall).toBeNull();
+    expect(conversation.safeSourcePrefixEnds).toEqual([1, 4, 5]);
+    expect(conversation.rounds[0]!.segments.map(segment => ({ kind: segment.kind, ids: segment.rows.map(row => row.id) }))).toEqual(
+      JSON.parse(content).success
+        ? [{ kind: 'initial', ids: rows.map(row => row.id) }]
+        : [{ kind: 'initial', ids: rows.slice(0, 3).map(row => row.id) }, { kind: 'repair', ids: rows.slice(3).map(row => row.id) }],
+    );
+  });
   it('accepts producer-neutral executed images while preserving view_image metadata and exchange commitments', () => {
     const image = { id: '11111111-1111-4111-8111-111111111111', mime_type: 'image/png' as const, width: 10, height: 5, byte_length: 100, sha256: 'a'.repeat(64) };
     const dimensions = { width: 10, height: 5 };
@@ -31,6 +84,13 @@ describe('canonical conversation validation', () => {
     const alternateContent = settleToolActionOutcome(toolContentSucceeded({ caption: 'fixture' }, [{ type: 'image', image }])).settledResultBytes;
     const alternate = rowsFor('fixture_image_producer', alternateContent);
     expect(() => validateConversation(SESSION, alternate)).not.toThrow();
+    for (const rows of [rowsFor('view_image'), alternate]) {
+      const conversation = validateConversation(SESSION, rows.map(row => agentMessageSchema.parse(row)));
+      expect(conversation.sourceRows).toEqual(rows);
+      expect(conversation.calls).toMatchObject([{ sourceIndex: 1, physicalIndex: 1, resultSourceIndex: 2 }]);
+      expect(conversation.safeSourcePrefixEnds).toEqual([1, 3]);
+      expect(conversation.rounds[0]!.segments.map(segment => segment.kind)).toEqual(['initial']);
+    }
     for (const origin of ['rejected_before_execution', 'unsupported_tool', 'execution_failed'] as const)
       expect(() => validateConversation(SESSION, rowsFor('fixture_image_producer', alternateContent, origin))).toThrow();
     expect(() => validateConversation(SESSION, [alternate[0]!, alternate[1]!, { ...alternate[2]!, tool: 'different' }])).toThrow();
@@ -47,6 +107,10 @@ describe('canonical conversation validation', () => {
     expect(() => validateConversation(SESSION, rowsFor('view_image', content, 'rejected_before_execution'))).toThrow();
     expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: false, error: 'failed', content: [{ type: 'image', image }] })))).toThrow(/malformed/);
     expect(() => validateConversation(SESSION, rowsFor('view_image', '{"success":true}'))).toThrow(/requires exactly one image block/);
+    for (const blocks of [[{ type: 'text', text: 'not an image' }], [{ type: 'image', image }, { type: 'image', image }]]) {
+      const rows = rowsFor('view_image', JSON.stringify({ success: true, data, content: blocks })).map(row => agentMessageSchema.parse(row));
+      expect(() => validateConversation(SESSION, rows)).toThrow(/requires exactly one image block/);
+    }
     expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, sent_dimensions: { width: 9, height: 5 } }, content: [{ type: 'image', image }] })))).toThrow(/malformed/);
     const differentDimensions = { width: 9, height: 5 };
     expect(() => validateConversation(SESSION, rowsFor('view_image', JSON.stringify({ success: true, data: { ...data, source_dimensions: differentDimensions, oriented_dimensions: differentDimensions, sent_dimensions: differentDimensions }, content: [{ type: 'image', image }] })))).toThrow(/consistent strict view_image/);
@@ -180,6 +244,14 @@ const INPUT = '00000000-0000-4000-8000-000000000001';
 const OTHER_INPUT = '00000000-0000-4000-8000-000000000002';
 const GENESIS_ID = '11111111-1111-4111-8111-111111111111';
 const MARKER_ID = '22222222-2222-4222-8222-222222222222';
+
+function exchange(content: string, tool = 'fixture_tool'): [AgentMessage, AgentMessage] {
+  const bundle = responsesBundle(SESSION, INPUT, RESPONSES_A, content);
+  const callId = bundle[1]!.tool_call_id!;
+  return [agentMessageSchema.parse({ ...bundle[1], provider_projection: undefined, tool,
+    content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: tool, arguments: '{}' } }] }),
+  }), agentMessageSchema.parse({ ...bundle[2], tool })];
+}
 
 const EMPTY_FACTS: RequiredModelFactSlots = { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] };
 

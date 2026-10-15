@@ -988,6 +988,7 @@ The canonical-row leaf imports neither the Agent read owner nor the invocation s
 All bounded collection and scalar success checks measure the same canonical settled success envelope through `settledSuccessBytes`; workflow scalar sections therefore include the provider-visible wrapper rather than measuring inner JSON alone.
 `ValidatedConversation` is the immutable durable-fact result of the singular state machine: physical/source rows, classifications, rounds/segments, compactions, call settlements, and its optional sole final unmatched call.
 Complete conversations derive validity solely from durable physical order.
+Within each row reduction, the tool-result envelope is parsed once; its transient value supplies failure/repair facts and is reused for ordering, tool-local semantics and evidence checks in their existing phases. Every owning read still freshly validates its complete consumed scope; parsing content alone does not establish conversation validity.
 Every result has one earlier exact matching call; zero or one unmatched call is permitted only when it is the final source row.
 Duplicate/mismatched calls or results, result-before-call, multiple unmatched calls, and a nonfinal unmatched call fail.
 The permitted final call has no liveness meaning.

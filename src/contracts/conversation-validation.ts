@@ -12,7 +12,7 @@ import {
 } from '../schemas/index.js';
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/index.js';
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
-import { ToolResultSchema } from './tool-result.js';
+import { ToolResultSchema, type ToolResult } from './tool-result.js';
 import { assertViewImageResult } from './view-image.js';
 import { parsePrivateContent } from './responses-conversation.js';
 import { recordObservationKey, type LatestRecordObservation } from '../schemas/index.js';
@@ -215,10 +215,11 @@ function reduceCanonicalConversationRow(
       segments: [{ kind: inherited.activeSegmentKind, start: ordinal, end: ordinal }],
     });
 
-  const toolFacts = validateToolContent(row);
+  const toolResult = validateToolCallOrParseResult(row);
+  const failedResult = toolResult?.success === false;
   if (row.kind === 'provider_private') parsePrivateContent(row);
   const repairAnchor =
-    row.kind === 'model_repair' || row.kind === 'content_policy_retry' || toolFacts.failedResult;
+    row.kind === 'model_repair' || row.kind === 'content_policy_retry' || failedResult;
   const opensRound = validateActivationOpenMarker(state.sessionId, row);
   if (
     conversationSessionIdentity(state.sessionId).cardId === null &&
@@ -257,11 +258,11 @@ function reduceCanonicalConversationRow(
     toolName: row.tool ?? null,
     toolCallId: row.tool_call_id ?? null,
     sourceInputId,
-    failedToolResult: toolFacts.failedResult,
+    failedToolResult: failedResult,
     projectedPrivateMessageId: row.provider_projection?.private_message_id ?? null,
     rowOrdinal,
   });
-  validateToolOrdering(state, source, row, callIdentity, resultIdentity);
+  validateToolOrdering(state, source, row, callIdentity, resultIdentity, toolResult);
   state.sources.push(source);
   state.sourceOrdinals.set(source.id, ordinal);
   return state;
@@ -651,6 +652,7 @@ function validateToolOrdering(
   row: AgentMessage,
   callIdentity: ReturnType<typeof loggedToolCallIdentity>,
   resultIdentity: ReturnType<typeof loggedToolResultIdentity>,
+  toolResult: ToolResult | null,
 ): void {
   if (callIdentity) {
     if (row.context_policy.kind !== 'tool_call')
@@ -687,7 +689,9 @@ function validateToolOrdering(
       throw new Error(
         `Tool result '${row.id}' does not commit to its call's policy template hash.`,
       );
-    const result = parseToolResultContent(row);
+    // A logged result identity exists only for the tool_result kind parsed in this reduction.
+    const result = toolResult!;
+    validateToolResultSemantics(row, result);
     if (result.success) {
       const expected = call.evidenceMode;
       if (policy.evidence.kind !== expected)
@@ -703,9 +707,8 @@ function validateToolOrdering(
   }
 }
 
-function parseToolResultContent(row: AgentMessage): { success: boolean } {
+function validateToolResultSemantics(row: AgentMessage, result: ToolResult): void {
   try {
-    const result = ToolResultSchema.parse(JSON.parse(row.content));
     if (result.success && row.tool === 'view_image') {
       if (result.content?.length !== 1 || result.content[0]?.type !== 'image')
         throw new Error('Successful view_image requires exactly one image block.');
@@ -718,7 +721,6 @@ function parseToolResultContent(row: AgentMessage): { success: boolean } {
       row.context_policy.settlement_origin !== 'executed'
     )
       throw new Error('Only executed successful results can select images.');
-    return { success: result.success === true };
   } catch (error) {
     throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
   }
@@ -739,7 +741,7 @@ function toolKey(identity: {
   ]);
 }
 
-function validateToolContent(row: AgentMessage): { failedResult: boolean } {
+function validateToolCallOrParseResult(row: AgentMessage): ToolResult | null {
   if (row.kind === 'tool_call') {
     if (row.role !== 'assistant') throw new Error(`Tool call '${row.id}' must use assistant role.`);
     let embedded: ReturnType<typeof parseToolCallMessageForModel>;
@@ -752,19 +754,17 @@ function validateToolContent(row: AgentMessage): { failedResult: boolean } {
     }
     if (embedded.id !== row.tool_call_id || embedded.name !== row.tool)
       throw new Error(`Tool call '${row.id}' embedded identity does not match row metadata.`);
-    return { failedResult: false };
+    return null;
   }
   if (row.kind === 'tool_result') {
     if (row.role !== 'tool') throw new Error(`Tool result '${row.id}' must use tool role.`);
     try {
-      return {
-        failedResult: ToolResultSchema.parse(JSON.parse(row.content)).success === false,
-      };
+      return ToolResultSchema.parse(JSON.parse(row.content));
     } catch (error) {
       throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
     }
   }
-  return { failedResult: false };
+  return null;
 }
 
 function validateActivationOpenMarker(

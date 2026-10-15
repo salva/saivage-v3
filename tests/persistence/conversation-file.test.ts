@@ -11,11 +11,50 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { RESPONSES_A, responsesBundle } from '../helpers/responses-producer-fixture.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('versioned conversation persistence', () => {
+  it.each(['result-envelope', 'result-hash', 'template-commitment', 'private-content', 'empty-envelope', 'unknown-envelope', 'later-row'] as const)('rejects complete %s before a valid later row and torn suffix without changing canonical bytes', fault => {
+    const projectRoot = root();
+    const bundle = responsesBundle(SESSION, '00000000-0000-4000-8000-000000000001', RESPONSES_A, '{"success":true,"data":"settled"}').map(row => agentMessageSchema.parse(row));
+    appendConversationBatch({ projectRoot }, [text('first'), ...bundle, text('later')]);
+    const segment = readCurrentConversationSegment(projectRoot, SESSION)!;
+    expect(segment.conversation.calls[0]!.resultSourceIndex).toBe(3);
+    const path = cardConversationVersionFile(projectRoot, 'project', 'planner', segment.entry.filename);
+    const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
+    const envelope = JSON.parse(readFileSync(path, 'utf8'));
+    const result = envelope.rows.find((row: AgentMessage) => row.kind === 'tool_result');
+    if (fault === 'result-envelope') {
+      result.content = '{"success":true,"extra":1}';
+      result.context_policy = toolRowPolicies({ content: result.content }).result;
+      // This is strict row-valid: only the complete reducer rejects the embedded envelope.
+      expect(agentMessageSchema.parse(result).content).toBe(result.content);
+    } else if (fault === 'result-hash') result.content = '{"success":true,"data":"changed"}';
+    else if (fault === 'template-commitment') result.context_policy.call_policy_sha256 = 'f'.repeat(64);
+    else if (fault === 'private-content') envelope.rows.find((row: AgentMessage) => row.kind === 'provider_private').content = '{invalid';
+    else if (fault === 'unknown-envelope') envelope.extra = true;
+    else if (fault === 'later-row') envelope.rows.at(-1).unexpected = true;
+    const complete = `${JSON.stringify(envelope)}\n${fault === 'empty-envelope' ? JSON.stringify({ version: 9, type: 'conversation-segment', rows: [] }) + '\n' : ''}`;
+    const indexBefore = readFileSync(indexPath);
+    for (const suffix of ['', '{torn']) {
+      writeFileSync(path, complete + suffix);
+      const before = readFileSync(path);
+      expect(() => readCurrentConversationSegment(projectRoot, SESSION)).toThrow();
+      expect(readFileSync(path)).toEqual(before);
+      expect(() => readHistoricalConversationSegment(projectRoot, SESSION, 1)).toThrow();
+      expect(readFileSync(path)).toEqual(before);
+      expect(readFileSync(indexPath)).toEqual(indexBefore);
+    }
+  });
+
+  it('rejects changed call template bytes at the actual row schema without a remembered commitment', () => {
+    const bundle = responsesBundle(SESSION, '00000000-0000-4000-8000-000000000001', RESPONSES_A, '{"success":true}');
+    const call = agentMessageSchema.parse(bundle[1]);
+    expect(() => agentMessageSchema.parse({ ...call, context_policy: { ...call.context_policy, template_bytes: '{}' } })).toThrow(/canonical serialization/);
+  });
   it('purely inspects supplied current and previous index candidates with a torn suffix, leaving all bytes untouched', () => {
     const projectRoot = root(); appendConversationBatch({projectRoot}, [text('first')]);
     const indexPath = cardConversationVersionIndexFile(projectRoot, 'project', 'planner');
