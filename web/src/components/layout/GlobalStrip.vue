@@ -34,7 +34,8 @@
           <summary>Updates</summary>
           <div class="strip-updates-body">
             <p>Cards, conversations, and records refresh through permitted WebSocket invalidation hints and reconnect snapshots of eligible mounted/accepted resources. Hints are not data or guaranteed delivery; reconnect does not certify a successful REST observation.</p>
-            <p>Files, Processes, and Events have no invalidation resource: use their explicit Refresh to observe changes.</p>
+            <p>Files has no invalidation resource or polling. Navigation and explicit Refresh read files; while mounted, connection-open and connected-registration refresh attempts read the represented directory and still-selected preview. An attempt does not guarantee a successful read.</p>
+            <p>Processes and Events have no invalidation resource: use their explicit Refresh to observe changes.</p>
           </div>
         </details>
       </div>

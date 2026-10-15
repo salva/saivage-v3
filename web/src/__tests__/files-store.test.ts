@@ -291,14 +291,14 @@ describe('useFileStore', () => {
       expect(store.metaLoading).toBe(false);
     });
 
-    it('sets listError to the API-provided message on failure', async () => {
+    it('sets metaError to the API-provided message on failure', async () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 403, { error: 'Forbidden' }));
 
       await store.fetchMetaFiles();
 
       expect(store.metaLoading).toBe(false);
-      expect(store.listError).toBe('Forbidden');
+      expect(store.metaError).toBe('Forbidden');
     });
 
     it('accepts optional path parameter overriding metaPath', async () => {
@@ -376,14 +376,14 @@ describe('useFileStore', () => {
       await olderFetch;
 
       expect(store.metaLoading).toBe(true);
-      expect(store.listError).toBeNull();
+      expect(store.metaError).toBeNull();
       expect(store.unauthorized).toBe(false);
       expect(loggerMocks.error).not.toHaveBeenCalled();
 
       newer.reject(new OperatorApiError('files.list', 403, { error: 'Current failure' }));
       await newerFetch;
       expect(store.metaLoading).toBe(false);
-      expect(store.listError).toBe('Current failure');
+      expect(store.metaError).toBe('Current failure');
       expect(store.unauthorized).toBe(false);
       expect(loggerMocks.error).toHaveBeenCalledWith('fetchMetaFiles', 'Current failure');
     });
@@ -422,7 +422,7 @@ describe('useFileStore', () => {
       expect(store.metaLoading).toBe(false);
     });
 
-    it('lets only the current listing success update Files freshness', async () => {
+    it('lets only the current listing success reset its age deadline', async () => {
       vi.useFakeTimers();
       const store = setupStore();
       const older = deferred<typeof mockMetaRootFiles>();
@@ -442,7 +442,8 @@ describe('useFileStore', () => {
         await olderFetch;
         await vi.advanceTimersByTimeAsync(10_000);
 
-        expect(store.isStale).toBe(true);
+        expect(store.metaListingAge).toBe('aged');
+        expect(store.outputListingAge).toBe('unobserved');
       } finally {
         store.$dispose();
         vi.useRealTimers();
@@ -465,6 +466,105 @@ describe('useFileStore', () => {
 
       expect(signals).toHaveLength(2);
       expect(signals.every((signal) => signal.aborted)).toBe(true);
+    });
+  });
+
+  describe('listing observations', () => {
+    it('ages roots independently and replaces navigation data and deadline together, including empty listings', async () => {
+      vi.useFakeTimers();
+      const store = setupStore();
+      try {
+        expect(store.metaListingAge).toBe('unobserved');
+        expect(store.outputListingAge).toBe('unobserved');
+        vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
+        await store.fetchMetaFiles();
+        await vi.advanceTimersByTimeAsync(20_000);
+        vi.mocked(listFiles).mockResolvedValueOnce(mockOutputRootFiles);
+        await store.fetchOutputFiles();
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(store.metaListingAge).toBe('aged');
+        expect(store.outputListingAge).toBe('recent');
+
+        vi.mocked(listFiles).mockResolvedValueOnce({ path: '.saivage/empty', files: [] });
+        await store.navigateMeta('.saivage/empty');
+        expect(store.metaPath).toBe('.saivage/empty');
+        expect(store.metaFiles).toEqual([]);
+        expect(store.metaListingAge).toBe('recent');
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(store.outputListingAge).toBe('aged');
+        expect(store.metaListingAge).toBe('recent');
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(store.metaListingAge).toBe('aged');
+      } finally {
+        store.$dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it('retains observations through pending and failed navigation and isolates root errors from other reads', async () => {
+      vi.useFakeTimers();
+      const store = setupStore();
+      try {
+        vi.mocked(listFiles).mockRejectedValueOnce(new Error('initial'));
+        await store.fetchOutputFiles();
+        expect(store.outputListingAge).toBe('unobserved');
+        expect(store.outputError).toBe('Failed to list output files');
+        vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
+        await store.fetchMetaFiles();
+        await vi.advanceTimersByTimeAsync(29_000);
+        const pending = deferred<FilesListResponse>();
+        vi.mocked(listFiles).mockReturnValueOnce(pending.promise);
+        const navigation = store.navigateMeta('.saivage/missing');
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(store.metaListingAge).toBe('aged');
+        pending.reject(new Error('navigation failed'));
+        await navigation;
+        expect(store.metaPath).toBe('.saivage');
+        expect(store.metaFiles).toEqual(mockMetaRootFiles.files);
+        expect(store.metaError).toBe('Failed to list metadata files');
+        expect(store.outputError).toBe('Failed to list output files');
+        vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
+        await store.fetchFileContent('.saivage/plan.json');
+        vi.mocked(listFiles).mockResolvedValueOnce(mockOutputRootFiles);
+        await store.fetchOutputFiles();
+        expect(store.metaError).toBe('Failed to list metadata files');
+        expect(store.metaListingAge).toBe('aged');
+        expect(store.outputError).toBeNull();
+        vi.mocked(getFileContent).mockRejectedValueOnce(new Error('preview'));
+        await store.fetchFileContent('.saivage/missing');
+        vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
+        await store.fetchMetaFiles();
+        expect(store.viewerState).toBe('error');
+        expect(store.metaError).toBeNull();
+      } finally {
+        store.$dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it('clears replaced deadlines and both remaining deadlines on disposal', async () => {
+      vi.useFakeTimers();
+      const store = setupStore();
+      try {
+        vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
+        await store.fetchMetaFiles();
+        await vi.advanceTimersByTimeAsync(29_000);
+        vi.mocked(listFiles).mockResolvedValueOnce(mockMetaNestedFiles);
+        await store.navigateMeta('.saivage/cards');
+        vi.mocked(listFiles).mockResolvedValueOnce(mockOutputRootFiles);
+        await store.fetchOutputFiles();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(store.metaListingAge).toBe('recent');
+        expect(vi.getTimerCount()).toBe(2);
+        store.$dispose();
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(store.metaListingAge).toBe('recent');
+        expect(store.outputListingAge).toBe('recent');
+      } finally {
+        store.$dispose();
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -544,29 +644,24 @@ describe('useFileStore', () => {
       expect(store.viewedFilePath).toBe('.saivage/nonexistent.txt');
     });
 
-    it('replaces the stale deadline with the latest accepted Files REST completion', async () => {
+    it('keeps listing age independent of preview success, failure and close', async () => {
       vi.useFakeTimers();
-      const startedAt = new Date('2026-08-11T12:00:00.000Z');
-      vi.setSystemTime(startedAt);
       const store = setupStore();
 
       try {
-        vi.mocked(getFileContent).mockResolvedValue(jsonContent);
-        await store.fetchFileContent('.saivage/plan.json');
-
-        expect(store.isStale).toBe(false);
-
-        await vi.advanceTimersByTimeAsync(20_000);
         vi.mocked(listFiles).mockResolvedValue(mockMetaRootFiles);
         await store.fetchMetaFiles();
-
-        expect(store.isStale).toBe(false);
-
-        await vi.advanceTimersByTimeAsync(10_000);
-        expect(store.isStale).toBe(false);
-
-        await vi.advanceTimersByTimeAsync(20_000);
-        expect(store.isStale).toBe(true);
+        await vi.advanceTimersByTimeAsync(29_000);
+        vi.mocked(getFileContent).mockResolvedValue(jsonContent);
+        await store.fetchFileContent('.saivage/plan.json');
+        expect(store.metaListingAge).toBe('recent');
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(store.metaListingAge).toBe('aged');
+        vi.mocked(getFileContent).mockRejectedValue(new Error('missing'));
+        await store.fetchFileContent('.saivage/missing');
+        store.clearViewedFile();
+        expect(store.metaListingAge).toBe('aged');
+        expect(store.outputListingAge).toBe('unobserved');
       } finally {
         store.$dispose();
         vi.useRealTimers();
@@ -710,16 +805,16 @@ describe('useFileStore', () => {
   });
 
   describe('scoped error handling', () => {
-    it('clears listError when a subsequent list call succeeds', async () => {
+    it('clears metaError when a subsequent metadata list call succeeds', async () => {
       const store = setupStore();
 
       vi.mocked(listFiles).mockRejectedValueOnce(new Error('Temporary failure'));
       await store.fetchMetaFiles();
-      expect(store.listError).toBe('Failed to list metadata files');
+      expect(store.metaError).toBe('Failed to list metadata files');
 
       vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
       await store.fetchMetaFiles();
-      expect(store.listError).toBeNull();
+      expect(store.metaError).toBeNull();
       expect(store.metaFiles).toEqual(mockMetaRootFiles.files);
     });
   });

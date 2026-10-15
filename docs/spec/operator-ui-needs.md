@@ -534,11 +534,18 @@ search or filter. Analyst results carry no new completeness guarantee. See N3.
 transport status and failed refresh. Check a connected socket with a failed REST read:
 retained data stays qualified. Show the resource's applicable refresh information; no
 runtime age-based stale state or event timestamp may masquerade as authoritative freshness.
+For Files, a directory read at least 30 seconds ago keeps its listing-age advisory
+even when a preview succeeds at second 29 or the other root is read. A failed
+refresh retains the listing observation and its age; initial failure is not empty.
 
 **F43 — Must — Understand update behavior.** Explain which inspected resources refresh
 from hints/reconnect and which require explicit observation. Check a conversation update,
 a file change, and an event publication: do not promise Files/Processes/event invalidations,
 polling, or guaranteed delivery. Provide permitted resource-local refresh/retry paths.
+Files retains mounted connection-open/connected-registration refresh attempts as
+well as navigation and explicit Refresh. Check a reconnect whose directory read
+fails while its selected preview succeeds, and the reverse: outcomes remain
+independent, and transport connection alone clears no listing-age advisory.
 
 **F44 — Must — Distinct degraded states.** Distinguish not loaded, loading, accepted empty,
 refreshing, refresh failed, offline/reconnecting, unauthorized, and typed not-found.

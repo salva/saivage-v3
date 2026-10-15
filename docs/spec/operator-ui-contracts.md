@@ -254,8 +254,11 @@ contracts the current Card Cockpit implements.
   records refresh through permitted WebSocket invalidation hints and
   reconnect snapshots of eligible mounted/accepted resources; hints are not
   data or guaranteed delivery; reconnect does not certify a successful REST
-  observation; Files, Processes, and Events have no invalidation resource
-  and use explicit Refresh.
+  observation. Files has no invalidation resource or polling: navigation and
+  explicit Refresh read files, and mounted connection-open/connected-registration
+  refresh attempts read the represented directory and still-selected preview.
+  Attempts do not guarantee successful reads. Processes and Events have no
+  invalidation resource and use explicit Refresh.
 
 ## 3. Identity, routes, and navigation
 
@@ -736,6 +739,21 @@ prose and output heads remain text. Safe-original strings are not reconstructed.
   redaction notice). Physical persistence paths are never disclosed. Files
   and previews expose explicit Refresh and permitted resource-local Retry;
   a failed historical read preserves usable listing/current state.
+- Metadata and Output each retain one independent listing observation and a
+  30-second age advisory: **This directory listing was read at least 30 seconds
+  ago. Refresh to read it again.** Only that listing's accepted successful read
+  (including empty) resets its deadline. Pending/failed/superseded reads and
+  preview/image reads do not reset it; the deadline performs no network read.
+  Failed navigation retains the prior represented path, rows and age. Initial
+  failure is not an accepted empty listing; loading and root-local errors are
+  explicit. Unauthorized presentation takes priority over the age advisory.
+- Mounted reconnect/connected-registration refresh joins any pending route
+  resolution; otherwise it reads the represented directory (the parent for a
+  deep-file selection), then the still-selected preview under route/selection
+  fences. Ordinary listing failure does not suppress the independent preview
+  attempt. Listing success cannot clear a typed preview failure, and preview
+  success cannot clear listing error/age. Neither connection nor absence of an
+  age warning certifies current file contents or live filesystem watching.
 - Current and historical `record:///` preview HTTP 404 `{error:'workspace_card_not_found',path,card_id}` displays **Card not found**, retaining the requested identity. Existing-card record/content and historical-version misses keep their distinct failures; corruption is not presented as missing-card.
 - Current and exact accepted `record:///` previews receive backend text
   redaction, including current drafts; authenticated Files access is not a

@@ -14,7 +14,8 @@ import { createLogger } from '../utils/logger';
 import { createOwnedFetch } from './owned-fetch';
 
 const log = createLogger('store:files');
-const STALE_AFTER_MS = 30_000;
+const LISTING_AGE_AFTER_MS = 30_000;
+type ListingAge = 'unobserved' | 'recent' | 'aged';
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -58,11 +59,17 @@ export const useFileStore = defineStore('files', () => {
   const metaPath = ref<string>(METADATA_ROOT);
   const metaFiles = ref<FileEntry[]>([]);
   const metaLoading = ref(false);
+  const metaError = ref<string | null>(null);
+  const metaListingAge = ref<ListingAge>('unobserved');
+  let metaAgeTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Work browser (.saivage/work/)
   const outputPath = ref<string>(OUTPUT_ROOT);
   const outputFiles = ref<FileEntry[]>([]);
   const outputLoading = ref(false);
+  const outputError = ref<string | null>(null);
+  const outputListingAge = ref<ListingAge>('unobserved');
+  let outputAgeTimer: ReturnType<typeof setTimeout> | undefined;
 
   // File content viewer
   const viewedFile = ref<FileContent | null>(null);
@@ -72,11 +79,8 @@ export const useFileStore = defineStore('files', () => {
   const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'card-missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
 
   // Shared
-  const listError = ref<string | null>(null);
   const viewerError = ref<string | null>(null);
   const unauthorized = ref(false);
-  const isStale = ref(false);
-  let staleTimer: ReturnType<typeof setTimeout> | undefined;
   let metaRequestSequence = 0;
   let outputRequestSequence = 0;
   let metaRequestOwner: ListRequestOwner | undefined;
@@ -108,18 +112,10 @@ export const useFileStore = defineStore('files', () => {
       || viewedFile.value?.contentType === 'text/markdown';
   });
 
-  function markRestSnapshotCompleted(): void {
-    isStale.value = false;
-    if (staleTimer !== undefined) clearTimeout(staleTimer);
-    staleTimer = setTimeout(() => {
-      staleTimer = undefined;
-      isStale.value = true;
-    }, STALE_AFTER_MS);
-  }
-
   onScopeDispose(() => {
     contentRequest.cancel();
-    if (staleTimer !== undefined) clearTimeout(staleTimer);
+    if (metaAgeTimer !== undefined) clearTimeout(metaAgeTimer);
+    if (outputAgeTimer !== undefined) clearTimeout(outputAgeTimer);
     const metaOwner = metaRequestOwner;
     metaRequestOwner = undefined;
     metaOwner?.controller.abort();
@@ -144,18 +140,23 @@ export const useFileStore = defineStore('files', () => {
     };
     metaRequestOwner = owner;
     metaLoading.value = true;
-    listError.value = null;
+    metaError.value = null;
     const p = path || metaPath.value;
     try {
       const response: FilesListResponse = await listFiles(p, owner.controller.signal);
       if (metaRequestOwner !== owner || metaRequestOwner.sequence !== owner.sequence) return;
       metaFiles.value = response.files;
       metaPath.value = response.path;
-      markRestSnapshotCompleted();
+      metaListingAge.value = 'recent';
+      if (metaAgeTimer !== undefined) clearTimeout(metaAgeTimer);
+      metaAgeTimer = setTimeout(() => {
+        metaAgeTimer = undefined;
+        metaListingAge.value = 'aged';
+      }, LISTING_AGE_AFTER_MS);
     } catch (err) {
       if (metaRequestOwner !== owner || owner.controller.signal.aborted) return;
       const msg = handleApiError(err, 'Failed to list metadata files');
-      listError.value = msg;
+      metaError.value = msg;
       log.error('fetchMetaFiles', msg);
     } finally {
       if (metaRequestOwner === owner && !owner.controller.signal.aborted) {
@@ -180,18 +181,23 @@ export const useFileStore = defineStore('files', () => {
     };
     outputRequestOwner = owner;
     outputLoading.value = true;
-    listError.value = null;
+    outputError.value = null;
     const p = path || outputPath.value;
     try {
       const response: FilesListResponse = await listFiles(p, owner.controller.signal);
       if (outputRequestOwner !== owner || outputRequestOwner.sequence !== owner.sequence) return;
       outputFiles.value = response.files;
       outputPath.value = response.path;
-      markRestSnapshotCompleted();
+      outputListingAge.value = 'recent';
+      if (outputAgeTimer !== undefined) clearTimeout(outputAgeTimer);
+      outputAgeTimer = setTimeout(() => {
+        outputAgeTimer = undefined;
+        outputListingAge.value = 'aged';
+      }, LISTING_AGE_AFTER_MS);
     } catch (err) {
       if (outputRequestOwner !== owner || owner.controller.signal.aborted) return;
       const msg = handleApiError(err, 'Failed to list output files');
-      listError.value = msg;
+      outputError.value = msg;
       log.error('fetchOutputFiles', msg);
     } finally {
       if (outputRequestOwner === owner && !owner.controller.signal.aborted) {
@@ -216,7 +222,6 @@ export const useFileStore = defineStore('files', () => {
     await contentRequest.run((signal) => getFileContent(path, signal), (response: FileContent) => {
       viewedFile.value = response;
       viewerState.value = 'ready';
-      markRestSnapshotCompleted();
     }, (err) => {
       const cardMissing = err instanceof OperatorApiError && err.status === 404 && err.data.error === 'workspace_card_not_found';
       const apiMessage = handleApiError(err, 'Failed to fetch file content');
@@ -249,17 +254,19 @@ export const useFileStore = defineStore('files', () => {
     metaPath,
     metaFiles,
     metaLoading,
+    metaError,
+    metaListingAge,
     outputPath,
     outputFiles,
     outputLoading,
+    outputError,
+    outputListingAge,
     viewedFile,
     viewedFilePath,
     contentLoading,
-    listError,
     viewerError,
     viewerState,
     unauthorized,
-    isStale,
 
     // Getters
     metaBreadcrumbs,

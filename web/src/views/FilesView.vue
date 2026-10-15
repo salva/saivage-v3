@@ -1,14 +1,14 @@
 <template>
   <div class="files-layout" data-testid="route-files" tabindex="-1">
     <StatusBanner
-      v-if="isStale || unauthorized"
+      v-if="activeListingAge === 'aged' || unauthorized"
       class="files-status-banner"
       :tone="unauthorized ? 'unauthorized' : 'stale'"
-      :message="unauthorized ? 'Files are unavailable: this browser is not authorized for the operator API. Public docs at /docs/ remain available.' : 'File listing may be stale. Refresh to resync with the authoritative REST snapshot.'"
+      :message="unauthorized ? 'Files are unavailable: this browser is not authorized for the operator API. Public docs at /docs/ remain available.' : 'This directory listing was read at least 30 seconds ago. Refresh to read it again.'"
       data-testid="files-status-banner"
     />
 
-    <StatusBanner v-if="listError" class="files-status-banner" tone="danger" :message="listError" data-testid="files-list-error" />
+    <StatusBanner v-if="activeError" class="files-status-banner" tone="danger" :message="activeError" data-testid="files-list-error" />
 
     <Panel class="file-browser" :padded="false" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
       <PanelHeader :title="activeRootLabel">
@@ -45,7 +45,7 @@
           <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
           <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
         </SelectableRow>
-        <ViewState v-if="activeFiles.length === 0 && !activeLoading" class="empty-state" state="empty" title="No files" data-testid="files-empty" />
+        <ViewState v-if="activeFiles.length === 0 && activeListingAge !== 'unobserved' && !activeError" class="empty-state" state="empty" title="No files" data-testid="files-empty" />
       </div>
     </Panel>
 
@@ -103,8 +103,8 @@ const {
   outputFiles, outputLoading, outputBreadcrumbs,
   viewedFile, viewedFilePath, contentLoading,
   isJsonContent, isMarkdownContent,
-  listError, viewerError, viewerState,
-  isStale, unauthorized,
+  metaError, outputError, metaListingAge, outputListingAge,
+  viewerError, viewerState, unauthorized,
 } = storeToRefs(fileStore);
 
 const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
@@ -113,6 +113,8 @@ const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' :
 const activeRootLabel = computed(() => activeRoot.value === 'meta' ? 'Metadata' : 'Output');
 const activeFiles = computed(() => activeRoot.value === 'meta' ? metaFiles.value : outputFiles.value);
 const activeLoading = computed(() => activeRoot.value === 'meta' ? metaLoading.value : outputLoading.value);
+const activeError = computed(() => activeRoot.value === 'meta' ? metaError.value : outputError.value);
+const activeListingAge = computed(() => activeRoot.value === 'meta' ? metaListingAge.value : outputListingAge.value);
 const activeBreadcrumbs = computed(() => activeRoot.value === 'meta' ? metaBreadcrumbs.value : outputBreadcrumbs.value);
 
 const viewerStateTitle = computed(() => {
@@ -263,7 +265,7 @@ async function applyQueryPath(operation: RouteResolution, rootName: FileRoot, pa
   const browseDirectory = async (directoryPath: string): Promise<boolean> => {
     await browse(directoryPath);
     if (!isCurrent()) return false;
-    return !fileStore.listError;
+    return !(rootName === 'meta' ? fileStore.metaError : fileStore.outputError);
   };
 
   if (!isCurrent()) return;

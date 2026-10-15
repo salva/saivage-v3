@@ -106,6 +106,94 @@ describe('FilesView', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('shows initial failure without claiming an accepted empty listing', async () => {
+    const { wrapper, fileStore } = await mountFilesView({
+      listFilesImpl: async () => { throw new Error('unavailable'); },
+    });
+    expect(wrapper.get('[data-testid="files-list-error"]').text()).toContain('Failed to list metadata files');
+    expect(wrapper.find('[data-testid="files-empty"]').exists()).toBe(false);
+    expect(fileStore.metaListingAge).toBe('unobserved');
+    wrapper.unmount();
+    fileStore.$dispose();
+  });
+
+  it('renders listing age despite a second-29 preview and an inactive-root read', async () => {
+    vi.useFakeTimers();
+    vi.mocked(getFileContent).mockResolvedValue(jsonContent);
+    const { wrapper, fileStore } = await mountFilesView();
+    await vi.advanceTimersByTimeAsync(29_000);
+    await fileStore.fetchFileContent('.saivage/plan.json');
+    await fileStore.fetchOutputFiles();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+    expect(wrapper.get('[data-testid="files-status-banner"]').text()).toBe('This directory listing was read at least 30 seconds ago. Refresh to read it again.');
+    expect(fileStore.outputListingAge).toBe('recent');
+    expect(listFiles).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+    fileStore.$dispose();
+  });
+
+  it('keeps delayed reconnect listing failure and preview success independent, then reverses the outcomes on Refresh', async () => {
+    vi.useFakeTimers();
+    vi.mocked(getFileContent).mockResolvedValue(jsonContent);
+    const { wrapper, fileStore } = await mountFilesView();
+    await fileStore.fetchFileContent('.saivage/plan.json');
+    await vi.advanceTimersByTimeAsync(30_000);
+    const listing = deferred<FilesListResponse>();
+    vi.mocked(listFiles).mockReturnValueOnce(listing.promise);
+    const refetch = syncMocks.registerResource.mock.calls[0]![0].refetch as () => Promise<void>;
+    const refresh = refetch();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="files-loading"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="files-status-banner"]').exists()).toBe(true);
+    expect(getFileContent).toHaveBeenCalledTimes(1);
+    listing.reject(new Error('directory unavailable'));
+    await refresh;
+    await flushPromises();
+    expect(getFileContent).toHaveBeenCalledTimes(2);
+    expect(wrapper.get('code').text()).toContain('saivage-v3');
+    expect(wrapper.get('[data-testid="files-list-error"]').text()).toContain('Failed to list metadata files');
+    expect(wrapper.find('[data-testid="files-status-banner"]').exists()).toBe(true);
+    expect(wrapper.findAll('.file-entry')).toHaveLength(2);
+
+    vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
+    vi.mocked(getFileContent).mockRejectedValueOnce(new OperatorApiError('files.content', 404, { error: 'File not found', path: '.saivage/plan.json' }));
+    await wrapper.get('[data-testid="files-refresh"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="files-list-error"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="files-status-banner"]').exists()).toBe(false);
+    expect(wrapper.get('.viewer-state').text()).toContain('File not found');
+    wrapper.unmount();
+    fileStore.$dispose();
+  });
+
+  it.each(['selection', 'root', 'unmount'])('does not revive a preview after %s changes during delayed reconnect', async (change) => {
+    vi.mocked(getFileContent).mockResolvedValue(jsonContent);
+    const { wrapper, fileStore, router } = await mountFilesView();
+    await fileStore.fetchFileContent('.saivage/plan.json');
+    const listing = deferred<FilesListResponse>();
+    vi.mocked(listFiles).mockReturnValueOnce(listing.promise);
+    const refetch = syncMocks.registerResource.mock.calls[0]![0].refetch as () => Promise<void>;
+    const refresh = refetch();
+    await flushPromises();
+    vi.mocked(getFileContent).mockClear();
+    if (change === 'selection') await fileStore.fetchFileContent('.saivage/new.json');
+    else if (change === 'root') {
+      await router.push('/files?root=output');
+      await flushPromises();
+    } else wrapper.unmount();
+    vi.mocked(getFileContent).mockClear();
+    listing.resolve(mockMetaRootFiles);
+    await refresh;
+    await flushPromises();
+    expect(getFileContent).not.toHaveBeenCalled();
+    if (change === 'selection') expect(fileStore.viewedFilePath).toBe('.saivage/new.json');
+    if (change === 'root') expect(wrapper.find('[data-testid="files-viewer"]').exists()).toBe(false);
+    if (change !== 'unmount') wrapper.unmount();
+    fileStore.$dispose();
   });
 
   it('renders the strict Files v4 card document as ordinary JSON without a special policy surface', async () => {
