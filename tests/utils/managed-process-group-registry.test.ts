@@ -142,8 +142,9 @@ describe('ManagedProcessGroupRegistry capabilities and process-group truth', () 
     const scope = registry.createDirectScope(registry.rootScope, 'direct', 'runtime_card');
 
     expect(() => launch(registry, scope)).toThrow("Managed process group 'group-1' has no leader PID.");
-    expect(child.kill).toHaveBeenCalledTimes(1);
-    expect(() => child.emit('error', errno('ENOENT'))).not.toThrow();
+    expect(child.kill).not.toHaveBeenCalled();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(() => expect(child.emit('error', errno('ENOENT'))).toBe(true)).not.toThrow();
     await expect(registry.terminateScopeTree({ rootScope: registry.rootScope, categories: ['runtime_card'], reason: 'done' })).resolves.toEqual({ selected: [], stopped: [], failed: [] });
   });
 
