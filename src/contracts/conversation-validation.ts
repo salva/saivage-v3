@@ -636,7 +636,12 @@ function materializeValidatedConversation(
     calls,
     unmatchedCall,
     compactedGenesis: genesis
-      ? Object.freeze({ id: genesis.id, timestamp: genesis.timestamp, sourceVersion: genesis.sourceVersion, coveredThroughMessageId: genesis.coveredThroughMessageId })
+      ? Object.freeze({
+          id: genesis.id,
+          timestamp: genesis.timestamp,
+          sourceVersion: genesis.sourceVersion,
+          coveredThroughMessageId: genesis.coveredThroughMessageId,
+        })
       : null,
     effectiveCompactedHistory: genesis?.history ?? null,
     effectiveRequiredModelFacts: Object.freeze({

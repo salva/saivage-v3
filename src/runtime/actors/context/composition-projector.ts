@@ -59,7 +59,13 @@ export type EffectiveCompactedHistoryFacts = Readonly<{
 type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
 
 type PrimaryContextEntry =
-  | Readonly<{ origin: 'history_summary'; content: string; messageId: string; sourceVersion: number; coveredThroughMessageId: string }>
+  | Readonly<{
+      origin: 'history_summary';
+      content: string;
+      messageId: string;
+      sourceVersion: number;
+      coveredThroughMessageId: string;
+    }>
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
   | Readonly<{
       origin: 'retained_instruction';
