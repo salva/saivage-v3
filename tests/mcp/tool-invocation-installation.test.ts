@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
+import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import {
   createMcpToolInvocationInstallation,
   McpToolInvocationAlreadyInstalledError,
@@ -22,7 +23,7 @@ function port(label: string): McpToolInvocationPort {
     getServerTools: jest.fn(() => [{ name: label, description: label, inputSchema: { type: 'object' as const } }]),
     findToolCapability: jest.fn(() => ({ serverName: label,
       bindingId: '11111111-1111-4111-8111-111111111111', name: label, description: label, inputSchema: { type: 'object' as const } })),
-    invokeTool: jest.fn(async () => label),
+    invokeTool: jest.fn(async (): Promise<NativeMcpResult> => ({ content: [{ type: 'text', text: label }] })),
   };
 }
 
@@ -56,7 +57,7 @@ describe('one-shot MCP tool invocation installation', () => {
     expect(facade.findToolCapability('server', 'tool')).toEqual(expect.objectContaining({ serverName: 'first' }));
     const signal = new AbortController().signal;
     await expect(facade.invokeTool('server',
-        '11111111-1111-4111-8111-111111111111', 'tool', { value: 1 }, { timeoutMs: 2, signal })).resolves.toBe('first');
+        '11111111-1111-4111-8111-111111111111', 'tool', { value: 1 }, { timeoutMs: 2, signal })).resolves.toEqual({ content: [{ type: 'text', text: 'first' }] });
     expect(authority.invokeTool).toHaveBeenCalledWith('server',
       '11111111-1111-4111-8111-111111111111', 'tool', { value: 1 }, { timeoutMs: 2, signal });
   });
@@ -66,6 +67,6 @@ describe('one-shot MCP tool invocation installation', () => {
     const first = port('first');
     installation.installer.install(first);
     expect(() => installation.installer.install(kind === 'same' ? first : port('second'))).toThrow(McpToolInvocationAlreadyInstalledError);
-    await expect(installation.port.invokeTool('server', '11111111-1111-4111-8111-111111111111', 'tool', {})).resolves.toBe('first');
+    await expect(installation.port.invokeTool('server', '11111111-1111-4111-8111-111111111111', 'tool', {})).resolves.toEqual({ content: [{ type: 'text', text: 'first' }] });
   });
 });

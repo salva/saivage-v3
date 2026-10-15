@@ -1,5 +1,6 @@
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { McpToolInvocationNotInstalledError, McpInvokeError } from '../mcp/tool-api.js';
+import type { NativeMcpResult } from '../mcp/tool-api.js';
 import {
   defineToolBinder,
   executedToolOutcome,
@@ -208,7 +209,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     inputSchema: () => McpToolCallArgumentsSchema,
     executor: async (ctx, args, signal, invocation): Promise<ToolExecutionResult<'none'>> => {
       if (!invocation) throw new Error('MCP requires the owning tool invocation context.');
-      let value: unknown;
+      let value: NativeMcpResult;
       try {
         value = await ctx.mcpToolInvocation.invokeTool(
           args.serverName,

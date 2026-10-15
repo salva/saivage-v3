@@ -486,7 +486,7 @@ describe('named-agent inventories and composition', () => {
         ...unusedMcpToolInvocation,
         getServerTools: () => [],
         findToolCapability: () => null,
-        invokeTool: () => Promise.resolve({}),
+        invokeTool: async () => ({ content: [] }),
       },
     });
     expect([...surface.tools.keys()]).toEqual(['mcp_tool_call']);

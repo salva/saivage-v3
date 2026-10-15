@@ -7,20 +7,22 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { McpInvokeError } from '../../src/mcp/errors.js';
+import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
+import { mapToolsCallResponse } from '../../src/mcp/tools-call-response.js';
 
-function invocation(invokeTool: () => Promise<unknown>, signal?: AbortSignal) {
+function invocation(invokeTool: () => Promise<NativeMcpResult>, signal?: AbortSignal) {
   const manager = { ...unusedMcpToolInvocation, invokeTool, findToolCapability: () => null, getServerTools: () => undefined };
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: manager })]);
   return invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'server', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'tool' }, testLlmToolInvocationContext({ sessionId: 'agent:executor:project', toolName: 'mcp_tool_call' }), signal);
 }
-async function result(value: unknown) {
+async function result(value: NativeMcpResult) {
   const execution = await invocation(async () => value);
   return settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult;
 }
 
 describe('complete native MCP envelope', () => {
   it('preserves large text and safe structured metadata without truncation', async () => {
-    const content = [{ type: 'text', text: 'é'.repeat(60_000) }];
+    const content: NativeMcpResult['content'] = [{ type: 'text', text: 'é'.repeat(60_000) }];
     expect(await result({ content, structuredContent: { ok: true }, _meta: { producer: 'fixture' } })).toEqual({
       success: true, content, data: { result: { structuredContent: { ok: true }, _meta: { producer: 'fixture' } }, native_content: [{ content_index: 0, type: 'text' }] },
     });
@@ -34,8 +36,9 @@ describe('complete native MCP envelope', () => {
   it('fails complete oversized projected text rather than returning a prefix', async () => {
     expect(await result({ content: [{ type: 'text', text: 'é'.repeat(530_000) }] })).toMatchObject({ success: false, error: expect.stringContaining('1 MiB') });
   });
-  it.each([false, ['scalar'], { content: [{ type: 'unknown' }] }, { content: [{ type: 'text', text: 1 }] }])('rejects malformed native content %p', async (value) => {
-    expect(await result(value)).toMatchObject({ success: false, error: 'Malformed native MCP tool result.' });
+  it('settles a protocol mapper rejection as a failed result', async () => {
+    const execution = await invocation(async () => mapToolsCallResponse({ result: { content: [{ type: 'text', text: 1 }] } }, 'server', 'tool'));
+    expect(settleToolActionOutcome(execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome).providerResult).toEqual({ success: false, error: 'Malformed native MCP tool result.' });
   });
   it('retains native errors as safe diagnostic data with no pixel selection', async () => {
     expect(await result({ isError: true, content: [{ type: 'text', text: 'failed' }, { type: 'image', data: 'not selected', mimeType: 'image/png' }] })).toEqual({
@@ -54,7 +57,7 @@ describe('complete native MCP envelope', () => {
     }
   });
   it('does not swallow unexpected projection errors', async () => {
-    const value = new Proxy({}, { get: () => { throw new Error('projection failed'); } });
+    const value: NativeMcpResult = { get content(): NativeMcpResult['content'] { throw new Error('projection failed'); } };
     await expect(invocation(jest.fn(async () => value))).rejects.toThrow('projection failed');
   });
 });

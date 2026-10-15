@@ -1,4 +1,4 @@
-import { NativeMcpResultSchema } from '../mcp/tool-api.js';
+import type { NativeMcpResult } from '../mcp/tool-api.js';
 import {
   MAX_IMAGE_SOURCE_BYTES,
   toolContentSucceeded,
@@ -18,16 +18,14 @@ const NON_IMAGE_LIMIT = 1024 * 1024;
 const NATIVE_TOOL_ERROR = 'MCP tool reported an error; effects may have occurred.';
 
 export async function projectNativeMcpResult(
-  value: unknown,
+  value: NativeMcpResult,
   projectRoot: string,
   sessionId: ConversationSessionId,
   signal: AbortSignal,
   maxDimension: number | 'original' = 1600,
 ): Promise<ToolActionOutcome> {
   signal.throwIfAborted();
-  const parsed = NativeMcpResultSchema.safeParse(value);
-  if (!parsed.success) throw new ImageInputError('Malformed native MCP tool result.');
-  const { content, ...envelope } = parsed.data;
+  const { content, ...envelope } = value;
   const data: Record<string, unknown> = { result: projectDynamicForOutbound(envelope) };
   const metadata: unknown[] = [];
   const captures: unknown[] = [];
@@ -44,7 +42,7 @@ export async function projectNativeMcpResult(
         content_index: index,
         ...(projectDynamicForOutbound(safeMetadata) as object),
       });
-      if (parsed.data.isError) continue;
+      if (value.isError) continue;
       if (!['image/png', 'image/jpeg', 'image/webp'].includes(block.mimeType))
         throw new ImageInputError('Unsupported native image MIME.');
       if (
@@ -91,12 +89,12 @@ export async function projectNativeMcpResult(
           },
         },
   );
-  const measuredResult = parsed.data.isError
+  const measuredResult = value.isError
     ? { success: false, error: NATIVE_TOOL_ERROR, data: { ...data, content: text } }
     : { success: true, data, ...(measuredContent.length ? { content: measuredContent } : {}) };
   if (Buffer.byteLength(canonicalJson(measuredResult), 'utf8') > NON_IMAGE_LIMIT)
     throw new ImageInputError('Complete native MCP text/JSON exceeds 1 MiB.');
-  if (parsed.data.isError) {
+  if (value.isError) {
     data.content = text;
     return toolFailed(NATIVE_TOOL_ERROR, data);
   }

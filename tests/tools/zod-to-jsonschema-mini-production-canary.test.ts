@@ -83,7 +83,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       async stopServer() { throw new Error('Unexpected MCP stop'); },
       getServerTools: () => [],
       findToolCapability: () => null,
-      invokeTool: async () => ({}),
+      invokeTool: async () => { throw new Error('Unexpected MCP invocation in test.'); },
     };
     const analystToolContext: ToolContext = {
       cardTypeVocabulary: vocabulary,

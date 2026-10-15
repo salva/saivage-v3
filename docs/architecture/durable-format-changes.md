@@ -23,6 +23,22 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### AR-06 native MCP result typing — no durable impact (2026-10-15)
+
+Exact implementation parent: `97ca57172f5d5a6d66e9fd93614cd520d36abcce`.
+The existing live protocol mapper's schema-inferred result now flows through the
+runtime, manager, internal invocation port, provider and converter without type
+erasure or a second envelope parse. The owning ingress schema, conversion checks,
+projected outputs and native invocation telemetry semantics remain unchanged.
+No serializer, retained shape, interpretation, selection, provenance or layout
+changes; no discriminator changes. Conversation index/genesis/segments remain
+format 9, MCP definitions remain format 1, and app-log/provider evidence retain
+shared `version:1/type:rows`; all other durable families are unchanged.
+No retained-state adoption, reset, migration or unreleased cutover is involved.
+Installed-release applicability is unknown and uninspected; this source entry
+certifies no whole-release compatibility and authorizes no deployment or runtime
+action. External migration remains separately owner-requested and offline.
+
 ### AR-05 redundant MCP closure counter removal — no durable impact (2026-10-15)
 
 Exact implementation parent: `48b3ecd7f4f50c18cbaf99e484cffd38d0829523`.

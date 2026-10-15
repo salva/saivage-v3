@@ -272,7 +272,7 @@ export class McpServerRuntime {
       signal?: AbortSignal;
       observationSource?: OutboundObservationSource;
     },
-  ): Promise<unknown> {
+  ): Promise<NativeMcpResult> {
     let joinStop = false;
     const inner = this.admit(async (signal, controller) => {
       const cfg = this.config;

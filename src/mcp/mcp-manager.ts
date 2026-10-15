@@ -13,6 +13,7 @@ import { McpInvocationStatsRecorder } from './invocation-stats.js';
 import { type McpServerStatus, type McpToolDefinition } from './protocol.js';
 import { type McpServerConfig } from './server-registry.js';
 import { McpServerRuntime } from './server-runtime.js';
+import type { NativeMcpResult } from './native-result.js';
 import { buildMcpToolsReadModel } from './status-projection.js';
 import { readMcpServerDefinitions, replaceMcpServerDefinitions } from './server-definitions.js';
 
@@ -47,7 +48,7 @@ export interface McpToolInvocationPort {
       signal?: AbortSignal;
       observationSource?: OutboundObservationSource;
     },
-  ): Promise<unknown>;
+  ): Promise<NativeMcpResult>;
 }
 
 interface McpLifecycleResult {
@@ -303,7 +304,7 @@ export class McpManager implements McpReconciliationPort {
       signal?: AbortSignal;
       observationSource?: OutboundObservationSource;
     },
-  ): Promise<unknown> {
+  ): Promise<NativeMcpResult> {
     options?.signal?.throwIfAborted();
     if (!this.admissionOpen) throw new ServerNotRunningError(serverName);
     const runtime = this.#runtimes.get(serverName);

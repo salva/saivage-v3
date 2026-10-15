@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { PassThrough } from 'node:stream';
 import type { normalizeImage as Normalize } from '../../src/tools/image-decode.js';
+import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { conversationImageFile } from '../../src/persistence/layout.js';
 const normalize = jest.fn<typeof Normalize>();
 jest.unstable_mockModule('../../src/tools/image-decode.js', () => ({ normalizeImage: normalize, normalizeWorkspaceImage: jest.fn() }));
@@ -155,7 +156,7 @@ it.each(['agent:executor:project', 'agent:analyst:global'] as const)('fences exa
 it('checks aggregate sources after normalization but before any publication', async () => {
   const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-native-aggregate-'); roots.push(projectRoot);
   normalize.mockResolvedValue({ bytes: Buffer.from('unpublished'), data: { source_dimensions: { width: 1, height: 1 }, oriented_dimensions: { width: 1, height: 1 }, sent_dimensions: { width: 1, height: 1 }, orientation_applied: false, resized: false, scale: { x: 1, y: 1 }, max_dimension: 1600 } });
-  const block = { type: 'image', data: Buffer.alloc(17 * 1024 * 1024).toString('base64'), mimeType: 'image/png' };
+  const block = { type: 'image', data: Buffer.alloc(17 * 1024 * 1024).toString('base64'), mimeType: 'image/png' } satisfies NativeMcpResult['content'][number];
   const tool = mcpToolBinders.find(binder => binder.name === 'mcp_tool_call')!.bind({ projectRoot, mcpToolInvocation: { ...unusedMcpToolInvocation, invokeTool: async () => ({ content: [block, block] }), getServerTools: () => undefined, findToolCapability: () => null } });
   const execution = await tool.executor({ serverName: 'one', bindingId: '11111111-1111-4111-8111-111111111111', toolName: 'screen' }, new AbortController().signal, testLlmToolInvocationContext({ sessionId: 'agent:analyst:global', toolName: 'mcp_tool_call' }));
   expect(execution.providerOutcome).toMatchObject({ kind: 'failed', error: expect.stringContaining('aggregate 32 MiB') });

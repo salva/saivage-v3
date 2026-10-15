@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { normalizeImage, normalizeWorkspaceImage } from '../../src/tools/image-decode.js';
 import { projectNativeMcpResult } from '../../src/tools/mcp-native-result.js';
+import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { materializeConversationImage } from '../../src/persistence/session-api.js';
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -32,7 +33,7 @@ it('rejects mismatched MIME, malformed base64 and animation', async () => {
     { type: 'image', data: 'YQ', mimeType: 'image/png' },
     { type: 'image', data: 'YQ==\n', mimeType: 'image/png' },
     { type: 'image', data: 'YQ==', mimeType: 'image/gif' },
-  ]) await expect(projectNativeMcpResult({ content: [block] }, '/unused', 'agent:analyst:global', new AbortController().signal)).rejects.toThrow();
+  ] satisfies NativeMcpResult['content']) await expect(projectNativeMcpResult({ content: [block] }, '/unused', 'agent:analyst:global', new AbortController().signal)).rejects.toThrow();
   const animationChunk = Buffer.alloc(12); animationChunk.write('acTL', 4, 'ascii');
   await expect(normalizeImage(Buffer.concat([bytes.subarray(0, 8), animationChunk, bytes.subarray(8)]), 1600, 'image/png')).rejects.toThrow('Animated images');
   await expect(normalizeImage(Buffer.alloc(32 * 1024 * 1024 + 1), 1600, 'image/png')).rejects.toThrow('32 MiB');

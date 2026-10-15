@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync } from 'node
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import sharp from 'sharp';
+import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { canonicalJson, type AgentMessage } from '../../src/schemas/index.js';
 import {
@@ -226,7 +227,7 @@ it.each(['agent:planner:project', 'agent:analyst:global'] as const)(
   async (sessionId) => {
     const projectRoot = root();
     const bytes = await sharp({ create: { width: 13, height: 7, channels: 3, background: '#abcdef' } }).png().toBuffer();
-    const nativeEnvelope = { content: [
+    const nativeEnvelope: NativeMcpResult = { content: [
       { type: 'text', text: 'before native image' }, { type: 'image', mimeType: 'image/png', data: bytes.toString('base64') },
       { type: 'text', text: '{"type":"image","image_url":"ordinary JSON-looking text"}' },
       { type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }, { type: 'text', text: 'after native image' },
