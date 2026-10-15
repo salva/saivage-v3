@@ -89,8 +89,9 @@ describe('explicit immutable workspace image observations', () => {
   }, 30_000);
 
   it('converts a synthetic screenshot with small labels and lines without claiming text readability', async () => {
-    const background = await png(2048, 1024);
-    const source = await sharp(background).composite([{ input: Buffer.from('<svg width="2048" height="1024"><path d="M20 20H2000 M20 40H2000" stroke="black" stroke-width="2"/><text x="24" y="80" font-size="12">synthetic label 012345</text></svg>') }]).png().toBuffer();
+    // Exact original synthetic background/SVG, pre-rendered with Sharp 0.35.5
+    // to avoid SVG/font work in the timed normalization regression.
+    const source = readFileSync(new URL('../fixtures/labelled-screenshot.png', import.meta.url));
     const before = Buffer.from(source);
     const selected = await normalizeWorkspaceImage(source, 'labelled.png');
     expect(source).toEqual(before);
