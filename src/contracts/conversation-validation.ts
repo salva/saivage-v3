@@ -464,7 +464,8 @@ function deriveLatestRecordObservations(
   );
   for (const row of rows) {
     const rowIndex = sourceOrdinals.get(row.id);
-    if (rowIndex === undefined) throw new Error('Record observation row is not in its canonical source.');
+    if (rowIndex === undefined)
+      throw new Error('Record observation row is not in its canonical source.');
     for (const observation of row.record_observations ?? []) {
       if (observation.observed.selection_kind !== 'current') continue;
       const key = recordObservationKey(observation.observed);

@@ -32,9 +32,9 @@ interface RecordMutationAdmissionRequest {
 type RecordMutationRequest = RecordMutationAdmissionRequest & {
   onRecordWritten?: (name: string) => void;
 } & (
-  | { operation: 'write'; content: string }
-  | { operation: 'edit'; oldString: string; newString: string; replaceAll?: boolean }
-);
+    | { operation: 'write'; content: string }
+    | { operation: 'edit'; oldString: string; newString: string; replaceAll?: boolean }
+  );
 
 type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordProjection | null };
 

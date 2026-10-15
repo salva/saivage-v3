@@ -1080,9 +1080,11 @@ export class AgentNodeExecution {
         versionSeq: card.version_seq,
         headId,
       })),
-      includedRecordVersions: rows.slice(1).flatMap(({ card }) =>
-        records.map((record) => acceptedRecordVersion(this.deps.store, card.id, record)),
-      ),
+      includedRecordVersions: rows
+        .slice(1)
+        .flatMap(({ card }) =>
+          records.map((record) => acceptedRecordVersion(this.deps.store, card.id, record)),
+        ),
     };
   }
   private reviewerContext(

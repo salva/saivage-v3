@@ -423,8 +423,7 @@ function publishAcceptance(
   return project(definition, head, artifact.accepted);
 }
 function acceptanceCard(projection: CanonicalCardProjection) {
-  if (projection.artifact.kind !== 'card-version')
-    throw new AuthoredRecordNotFoundError();
+  if (projection.artifact.kind !== 'card-version') throw new AuthoredRecordNotFoundError();
   return {
     revision: projection.card.version_seq,
     history: { entry_id: projection.artifact.entry_id, version: projection.artifact.version },
