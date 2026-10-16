@@ -34,6 +34,25 @@ const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const
 const BUDGET = { contextUtilizationFraction: 0.8 };
 
 describe('compaction summarizer projection boundary', () => {
+  it.each(['exact', 'same_message', 'classified', 'projection_failure', 'publication_unknown'] as const)('preserves summary cancellation and evidence precedence: %s', async mode => {
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: SESSION, instruction: 'summarize', items: [] });
+    const admitted = admitSummaryRequest({ serialization: deterministicSummarySerialization(input), ...BUDGET, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Expected admission');
+    const controller = new AbortController();
+    const reason = new Error('urgent cancellation');
+    const original = mode === 'same_message' ? new Error(reason.message) : mode === 'classified' ? new LlmRequestError({ kind: 'cancelled', provider: 'test', reason: 'abort', message: reason.message }) : reason;
+    const envelope = new ProviderTurnFailure({ failure_phase: 'provider_attempt', candidate: CANDIDATE, originalFailure: original, provider_exchanges: [errorAttempt(input.inputId)] });
+    const publicationFailure = mode === 'publication_unknown' ? new PublicationOutcomeUnknownError() : new Error('evidence write failed');
+    const project = jest.fn<SummarizerProviderPort['projectProviderExchanges']>(() => {
+      if (mode === 'projection_failure' || mode === 'publication_unknown') throw publicationFailure;
+    });
+    const failure = await invokeSummaryRequest({ input, admitted, signal: controller.signal, summarizerProvider: { ...summarizerProvider(async () => { controller.abort(reason); throw envelope; }), projectProviderExchanges: project } }).catch(error => error);
+    expect(project).toHaveBeenCalledTimes(1);
+    if (mode === 'exact') expect(failure).toBe(reason);
+    else if (mode === 'projection_failure') expect(failure).toMatchObject({ name: 'SummaryEvidencePublicationError', cause: publicationFailure });
+    else if (mode === 'publication_unknown') expect(failure).toBe(publicationFailure);
+    else expect(failure).toBe(envelope);
+  });
   it('publication uncertainty escapes before fold failure/cleanup even when provider already refused', async () => {
     const rows = durableRound(SESSION, SOURCE_INPUT_ID);
     const uncertainty = new PublicationOutcomeUnknownError();

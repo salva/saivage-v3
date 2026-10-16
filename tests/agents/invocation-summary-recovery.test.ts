@@ -26,6 +26,62 @@ afterEach(() => {
 });
 
 describe('InvocationService internal-summary recovery', () => {
+  it.each(['wait', 'loop'] as const)('retains prior evidence when exact cancellation exits the retry %s', async site => {
+    jest.useFakeTimers({ now: 0 });
+    const controller = new AbortController();
+    const reason = new Error('urgent cancellation');
+    const availability = new MemoryCandidateAvailability();
+    const first = site === 'loop' ? providerFailure(new LlmRequestError({ kind: 'server_overloaded', provider: CANDIDATE.provider, status: 503, message: 'busy' })) : parseFailure();
+    const service = scriptedService([first, success('never')], availability);
+    const pending = service.executeSummaryWithRecovery(admitted(service), controller.signal).catch(error => error);
+    if (site === 'loop') {
+      const failed = jest.spyOn(availability, 'markFailed');
+      failed.mockImplementation(() => controller.abort(reason));
+    }
+    await jest.advanceTimersByTimeAsync(0);
+    if (site === 'wait') {
+      expect(jest.getTimerCount()).toBe(1);
+      controller.abort(reason);
+    }
+    const failure = await pending;
+    expect(failure).toBeInstanceOf(ProviderTurnFailure);
+    expect(failure.originalFailure).toBe(reason);
+    expect(failure.candidate).toBeNull();
+    expect(failure.provider_exchanges).toMatchObject([{ attempt_index: 0, source_input_id: INPUT_ID }]);
+    expect(service.sentBodies).toHaveLength(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('leaves evidence-free before-send cancellation raw', async () => {
+    const controller = new AbortController();
+    const reason = new Error('before send');
+    controller.abort(reason);
+    const service = scriptedService([]);
+    await expect(service.executeSummaryWithRecovery(admitted(service), controller.signal)).rejects.toBe(reason);
+    expect(service.sentBodies).toHaveLength(0);
+  });
+
+  it.each([
+    ['summary', 'parse_error'], ['summary', 'provider_protocol_error'], ['summary', 'cancelled'], ['primary', 'parse_error'],
+  ] as const)('keeps a distinct %s %s failure racing cancellation terminal', async (purpose, kind) => {
+    const controller = new AbortController();
+    const reason = new Error('same message');
+    const actual = kind === 'cancelled'
+      ? new LlmRequestError({ kind, provider: CANDIDATE.provider, message: reason.message, reason: 'abort' })
+      : kind === 'provider_protocol_error'
+        ? new LlmRequestError({ kind, provider: CANDIDATE.provider, status: 200, message: reason.message })
+        : new LlmRequestError({ kind, provider: CANDIDATE.provider, message: reason.message });
+    const availability = new MemoryCandidateAvailability();
+    const failed = jest.spyOn(availability, 'markFailed');
+    const service = scriptedService([() => { controller.abort(reason); throw providerFailure(actual); }], availability);
+    const admission = admitted(service);
+    const pending = purpose === 'summary' ? service.executeSummaryWithRecovery(admission, controller.signal) : service.executeAdmittedWithRecovery(admission, controller.signal);
+    const failure = await pending.catch(error => error);
+    expect(failure.originalFailure).toBe(actual);
+    expect(failure.provider_exchanges).toMatchObject([{ attempt_index: 0, source_input_id: INPUT_ID }]);
+    expect(service.sentBodies).toHaveLength(1);
+    expect(failed).not.toHaveBeenCalled();
+  });
   it.each(['success', 'refusal', 'auth', 'protocol'] as const)('retains one summary admission/input through more than 64 overload transports, then %s', async outcome => {
     jest.useFakeTimers({ now: 0 });
     const overload = () => providerFailure(new LlmRequestError({ kind: 'server_overloaded', provider: CANDIDATE.provider, status: 200, message: 'busy' }));
@@ -112,7 +168,7 @@ class ScriptedInvocationService extends InvocationService {
   constructor(
     projectRoot: string,
     availability: MemoryCandidateAvailability,
-    private readonly outcomes: Array<ProviderTurnCompletion | ProviderTurnFailure>,
+    private readonly outcomes: Array<ProviderTurnCompletion | ProviderTurnFailure | (() => never)>,
   ) {
     super({ projectRoot, registry: invocationProviderRegistry([CANDIDATE]), candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
   }
@@ -128,13 +184,14 @@ class ScriptedInvocationService extends InvocationService {
     this.sentInputIds.push(options.inputId);
     const outcome = this.outcomes.shift();
     if (!outcome) throw new Error('Missing scripted summary outcome.');
+    if (typeof outcome === 'function') return outcome();
     if (outcome instanceof ProviderTurnFailure) throw outcome;
     return outcome;
   }
 }
 
 function scriptedService(
-  outcomes: Array<ProviderTurnCompletion | ProviderTurnFailure>,
+  outcomes: Array<ProviderTurnCompletion | ProviderTurnFailure | (() => never)>,
   availability = new MemoryCandidateAvailability(),
 ): ScriptedInvocationService {
   const root = mkdtempSync(join(tmpdir(), 'saivage-summary-recovery-'));

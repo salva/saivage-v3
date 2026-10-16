@@ -6,7 +6,7 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { replaceAuthProfiles } from '../../src/auth/index.js';
-import { NO_FRESHNESS_EFFECTS, type Candidate } from '../../src/contracts/index.js';
+import { NO_FRESHNESS_EFFECTS, type Candidate, type ProviderTurnFailure } from '../../src/contracts/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { controlledResponse } from '../helpers/provider-inactivity.js';
 
@@ -149,7 +149,9 @@ describe('Invocation Service provider inactivity recovery', () => {
       if (ordinary.kind !== 'admitted') throw new Error('fixture must admit');
       cancelled = service.executeAdmittedWithRecovery(ordinary, owner.signal).catch(error => error);
       await jest.advanceTimersByTimeAsync(120000);
-      expect(await cancelled).toMatchObject({ originalFailure: { failure: { kind: 'cancelled' } }, provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'owner stopped' } }] });
+      const failure = await cancelled as ProviderTurnFailure;
+      expect(failure.originalFailure).toBe(reason);
+      expect(failure.provider_exchanges).toMatchObject([{ status: 'error', error: { name: 'Error', message: 'owner stopped' } }]);
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(availability.getEntry(stalled)).toBeUndefined();
       expect(availability.getEntry(healthy)).toBeUndefined();

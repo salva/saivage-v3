@@ -44,6 +44,28 @@ function fixture() {
 }
 
 describe('real InvocationService successful-return cancellation ownership', () => {
+  it('keeps a genuine primary provider failure racing graceful cancellation as an error with its real exchange', async () => {
+    const f = fixture();
+    const failed = jest.spyOn(f.availability, 'markFailed');
+    const terminal = jest.fn();
+    const pending = f.actor.turn(f.input, undefined, terminal);
+    await f.started;
+    const reason = new Error('controlled interruption');
+    f.actor.requestGracefulCancellation(reason);
+    f.release(new Response('{}', { status: 503 }));
+    const outcome = await pending;
+    expect(outcome).toMatchObject({ type: 'error' });
+    if (outcome.type !== 'error') throw new Error('Expected genuine provider error');
+    expect(outcome.error).not.toBe(reason.message);
+    const rows = readConversation(f.root, f.input.sessionId).sourceRows;
+    expect(rows.filter(row => row.kind === 'model_issue')).toMatchObject([{ id: `${f.input.inputId}:error`, content: outcome.error }]);
+    const evidence = readFileSync(providerExchangeFile(f.root, f.input.sessionId), 'utf8').trim().split('\n').flatMap(line => JSON.parse(line).rows);
+    expect(evidence).toMatchObject([{ data: { attempt_index: 0, payload: { status: 'error', response_status: 503, terminal_conversation_output_id: `${f.input.inputId}:error` } } }]);
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(failed).not.toHaveBeenCalled();
+    expect(terminal).not.toHaveBeenCalled();
+    await expect(f.actor.join()).resolves.toEqual({ status: 'joined' });
+  });
   it('persists known graceful success and its one linked exchange through the normal actor completion, without terminal callback', async () => {
     const f = fixture();
     const succeeded = jest.spyOn(f.availability, 'markSucceeded');

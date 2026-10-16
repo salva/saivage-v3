@@ -11,17 +11,95 @@ import { AdmissionIntegrityError, LocalExactAdmissionError, NO_FRESHNESS_EFFECTS
 import { buildLlmOptions } from '../../src/agents/llm-options-factory.js';
 import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
-import { admitSummaryRequest, buildSummaryRequestInput, type AdmittedSummaryRequest } from '../../src/runtime/actors/compaction/summarizer.js';
+import { admitSummaryRequest, buildSummaryRequestInput, invokeSummaryRequest, type AdmittedSummaryRequest } from '../../src/runtime/actors/compaction/summarizer.js';
 import { invocationProviderRegistry, chatSuccess } from '../helpers/invocation-provider-fixture.js';
+import { initProjectTree } from '../helpers/canonical-project.js';
+import { readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
 
 const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const;
 const roots: string[] = [];
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
 describe('executeInternalSummaryTurn byte reuse', () => {
+  it('publishes only the real retryable summary attempt when cancellation interrupts its retry wait', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const projectRoot = mkdtempSync(join(tmpdir(), 'internal-summary-retry-cancellation-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const registry = invocationProviderRegistry([CANDIDATE]);
+    let waiting!: () => void;
+    const waitEntered = new Promise<void>(resolve => { waiting = resolve; });
+    const service = new InvocationService({ projectRoot, registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS, outboundHttp: record => { if (record.event === 'outbound_http_retry_wait') waiting(); } });
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: 'agent:planner:project', instruction: 'instruction', items: [] });
+    const admission = service.preparePrimaryRequestAdmission(input);
+    const verdict = admission.candidates[0];
+    if (!verdict || verdict.kind !== 'admitted') throw new Error('Expected admission');
+    const plan = verdict.plan;
+    const admitted = admitSummaryRequest({ serialization: { imageCount: 0, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens }, contextUtilizationFraction: .9, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Expected summary admission');
+    const controller = new AbortController();
+    const reason = new Error('urgent during retry delay');
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('not JSON', { status: 200 }));
+    const project = jest.spyOn(service, 'projectProviderExchanges');
+    const pending = invokeSummaryRequest({ input, admitted, signal: controller.signal, summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, materializeImage: async () => { throw new Error('No images'); }, serializeSummaryRequest: () => { throw new Error('Already admitted'); }, completeTurn: (next, packed, signal) => executeInternalSummaryTurn(service, next, signal, packed), projectProviderExchanges: (...args) => service.projectProviderExchanges(...args) } }).catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    await waitEntered;
+    expect(jest.getTimerCount()).toBe(1);
+    controller.abort(reason);
+    expect(await pending).toBe(reason);
+    const entries = readProviderExchangeEntries(projectRoot, 'agent:planner:project');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.data).toMatchObject({ source_input_id: input.inputId, attempt_index: 0, payload: { status: 'error' } });
+    expect(project).toHaveBeenCalledTimes(1);
+    expect(project.mock.calls[0]![3]).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+  it.each(['headers', 'streaming_body', 'retry_then_headers'] as const)('projects the real cancelled %s transport attempt before returning the exact summary owner reason', async phase => {
+    if (phase === 'retry_then_headers') jest.useFakeTimers({ now: 0 });
+    const projectRoot = mkdtempSync(join(tmpdir(), 'internal-summary-cancellation-'));
+    roots.push(projectRoot);
+    const registry = invocationProviderRegistry([CANDIDATE]);
+    const availability = new MemoryCandidateAvailability();
+    const failed = jest.spyOn(availability, 'markFailed');
+    const service = new InvocationService({ projectRoot, registry, candidateAvailability: availability, freshness: NO_FRESHNESS_EFFECTS });
+    const input = buildSummaryRequestInput({ candidate: CANDIDATE, sourceSessionId: 'agent:planner:project', instruction: 'instruction', items: [] });
+    const admission = service.preparePrimaryRequestAdmission(input);
+    const verdict = admission.candidates[0];
+    if (!verdict || verdict.kind !== 'admitted') throw new Error('Expected admitted request');
+    const plan = verdict.plan;
+    const admitted = admitSummaryRequest({ serialization: { imageCount: 0, serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens }, contextUtilizationFraction: .9, contextWindowTokens: 100_000, maxOutputTokens: 10_000 });
+    if (admitted.kind !== 'admitted') throw new Error('Expected summary admission');
+    const controller = new AbortController();
+    const reason = new Error('urgent summary interruption');
+    let entered!: () => void;
+    const transportEntered = new Promise<void>(resolve => { entered = resolve; });
+    let sends = 0;
+    const transport = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      if (++sends === 1 && phase === 'retry_then_headers') return new Response('not JSON', { status: 200 });
+      entered();
+      if (phase === 'streaming_body') return new Response(new ReadableStream<Uint8Array>({ start(stream) { init!.signal!.addEventListener('abort', () => stream.error(Object.assign(new Error('native body abort'), { name: 'AbortError' })), { once: true }); } }), { status: 200 });
+      return await new Promise<never>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(Object.assign(new Error('native transport abort'), { name: 'AbortError' })), { once: true }));
+    });
+    const project = jest.fn<import('../../src/runtime/actors/compaction/summarizer.js').SummarizerProviderPort['projectProviderExchanges']>();
+    const pending = invokeSummaryRequest({ input, admitted, signal: controller.signal, summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, materializeImage: async () => { throw new Error('No images'); }, serializeSummaryRequest: () => { throw new Error('Already admitted'); }, completeTurn: (next, packed, signal) => executeInternalSummaryTurn(service, next, signal, packed), projectProviderExchanges: project } }).catch(error => error);
+    if (phase === 'retry_then_headers') await jest.advanceTimersByTimeAsync(60_000);
+    await transportEntered;
+    controller.abort(reason);
+    expect(await pending).toBe(reason);
+    expect(project).toHaveBeenCalledTimes(1);
+    const projected = project.mock.calls[0]![3];
+    const count = phase === 'retry_then_headers' ? 2 : 1;
+    expect(projected).toHaveLength(count);
+    expect(projected.map(attempt => attempt.attempt_index)).toEqual(Array.from({ length: count }, (_, i) => i));
+    expect(projected.at(-1)).toMatchObject({ source_input_id: input.inputId, status: 'error', error: { name: 'Error', message: reason.message } });
+    expect(transport).toHaveBeenCalledTimes(count);
+    expect(failed).not.toHaveBeenCalled();
+  });
   it('uses actual successful summary admission, retains U and bytes, and rejects changed hashes or no-fit before fetch', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'internal-summary-turn-'));
     roots.push(projectRoot);

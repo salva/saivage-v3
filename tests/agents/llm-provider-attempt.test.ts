@@ -86,7 +86,9 @@ describe('shared LLM provider attempt', () => {
     try {
       await jest.advanceTimersByTimeAsync(0);
       owner.abort(reason);
-      expect(await pending).toMatchObject({ originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } }, provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'body owner stopped' } }] });
+      const failure = await pending;
+      expect(failure.originalFailure).toBe(reason);
+      expect(failure.provider_exchanges).toMatchObject([{ status: 'error', error: { name: 'Error', message: 'body owner stopped' } }]);
       expect(stream.response.body!.locked).toBe(false);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
@@ -296,9 +298,11 @@ describe('shared LLM provider attempt', () => {
     });
   });
 
-  it('records an identity-equal custom owner reason raw, then types cancellation without generic classification', async () => {
+  it('records and retains an identity-equal custom owner reason without generic classification', async () => {
     const value = fixture(); const controller = new AbortController(); const reason = new Error('owner stopped'); jest.spyOn(globalThis, 'fetch').mockImplementation(async () => { controller.abort(reason); throw reason; });
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(controller.signal), attemptContext })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'owner stopped' } }], originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } } });
+    const failure = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, plan: value.plan, capabilityRequest, options: options(controller.signal), attemptContext }).catch(error => error);
+    expect(failure.originalFailure).toBe(reason);
+    expect(failure.provider_exchanges).toMatchObject([{ status: 'error', error: { name: 'Error', message: 'owner stopped' } }]);
   });
 
   it('does not relabel a distinct error merely because the signal is aborted', async () => {

@@ -182,29 +182,24 @@ export async function executeLlmProviderAttempt(args: {
     throwIfPublicationOutcomeUnknown(caught);
     if (exchangeRecorded) throw caught;
     exchangeRecorded = true;
-    let originalFailure: LlmRequestError;
-    if (options.signal?.aborted && caught === options.signal.reason)
-      originalFailure = new LlmRequestError({
-        kind: 'cancelled',
-        provider: plan.candidate.provider,
-        reason: 'abort',
-        message: caught instanceof Error && caught.message ? caught.message : 'LLM request aborted',
-      });
-    else if (caught instanceof LlmRequestError) originalFailure = caught;
-    else
-      originalFailure = new LlmRequestError(
-        classifyTransportFailure(caught, {
-          provider: plan.candidate.provider,
-          model: plan.candidate.model,
-        }),
-      );
-    capture('transport_failure', originalFailure);
+    const ownerCancelled = options.signal?.aborted && caught === options.signal.reason;
+    const classifiedFailure = ownerCancelled
+      ? null
+      : caught instanceof LlmRequestError
+        ? caught
+        : new LlmRequestError(
+            classifyTransportFailure(caught, {
+              provider: plan.candidate.provider,
+              model: plan.candidate.model,
+            }),
+          );
+    if (classifiedFailure) capture('transport_failure', classifiedFailure);
     const evidence = rawErrorEvidence(caught);
     await handle.recordError({ ...evidence, status: llmRequestStatus(caught) });
     throw new ProviderTurnFailure({
       failure_phase: 'provider_attempt',
       provider_exchanges: recorder.settledAttempts(),
-      originalFailure,
+      originalFailure: ownerCancelled ? caught : classifiedFailure,
       candidate: plan.candidate,
     });
   }

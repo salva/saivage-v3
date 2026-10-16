@@ -12,6 +12,17 @@ import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor
 import type { LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
+import { InvocationService } from '../../../src/agents/invocation-service.js';
+import { MemoryCandidateAvailability } from '../../../src/agents/candidate-availability.js';
+import { invocationProviderRegistry } from '../../helpers/invocation-provider-fixture.js';
+import { executeInternalSummaryTurn } from '../../../src/application/invocation-service-provider.js';
+import type { SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { buildCandidateRequest } from '../../../src/agents/candidate-request.js';
+import { selectLlmProtocolAdapter } from '../../../src/agents/llm-protocol-adapter.js';
+import { buildLlmOptions } from '../../../src/agents/llm-options-factory.js';
+import { appendConversationBatch } from '../../../src/persistence/conversation-file.js';
+import { readProviderExchangeEntries } from '../../../src/persistence/provider-exchange-log.js';
+import { TEXT_ROW_POLICY } from '../../helpers/row-policy-fixtures.js';
 import { cardHeadFile, cardMailboxFile } from '../../../src/persistence/layout.js';
 import { uuidV4Schema } from '../../../src/schemas/index.js';
 import {
@@ -92,6 +103,7 @@ function harness(
   processPlatform?: ManagedProcessPlatform,
   workflows?: CompiledRuntimeWorkflows,
   freshness = NO_FRESHNESS_EFFECTS,
+  summary?: (projectRoot: string) => SummarizerProviderPort,
 ) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-notification-admission-'));
   roots.push(projectRoot);
@@ -102,6 +114,7 @@ function harness(
   const processes = createTestProcessRunner(projectRoot, processPlatform);
   const supervisor = createSupervisorRuntimeApi({
     ...testAutonomousCompaction,
+    ...(summary ? { summarizerProvider: summary(projectRoot) } : {}),
     ...(workflows ? { workflows } : {}),
     runtimeGate: new RuntimeGate(),
     projectRoot,
@@ -191,6 +204,95 @@ function refusal(inputId: string, raw: string): ProviderTurnFailure {
 }
 
 describe('Supervisor notification admission at terminal ownership', () => {
+  it.each(['root', 'descendant'] as const)('joins real transport/summary compaction before urgent %s suffix settlement', async target => {
+    const entered = deferred();
+    const aborted = deferred();
+    const release = deferred();
+    const replacement = deferred();
+    let goalId = '';
+    let leafId = '';
+    let rootCalls = 0;
+    let goalCalls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      const root = input.sessionId === 'agent:planner:project';
+      const calls = root ? ++rootCalls : ++goalCalls;
+      if (calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: root ? 'dispatch-goal' : 'dispatch-leaf', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: root ? goalId : leafId, instructions: 'Complete this scoped work.' }) } }] }, provider_exchanges: [] };
+      replacement.resolve();
+      return await new Promise<never>((_resolve, reject) => {
+        if (signal.aborted) reject(signal.reason);
+        else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    });
+    const h = harness(provider, undefined, undefined, TEST_RUNTIME_WORKFLOWS, NO_FRESHNESS_EFFECTS, projectRoot => {
+      const registry = invocationProviderRegistry([candidate]);
+      const service = new InvocationService({ projectRoot, registry, candidateAvailability: new MemoryCandidateAvailability(), freshness: NO_FRESHNESS_EFFECTS });
+      return {
+        candidate, contextWindowTokens: 100_000, maxOutputTokens: 10_000,
+        materializeImage: async () => { throw new Error('No images'); },
+        serializeSummaryRequest: input => {
+          const capabilities = registry.getEffectiveCapabilities(candidate);
+          const plan = buildCandidateRequest({ candidate, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: buildLlmOptions(input.agentName, [], [], { temperature: 0, max_tokens: 2000 }, undefined, input.inputId, { projectRoot, sessionId: input.sessionId }) });
+          return { serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, imageCount: plan.request.imageCount, estimatedInputTokens: plan.request.estimatedWireInputTokens };
+        },
+        completeTurn: (input, admitted, signal) => executeInternalSummaryTurn(service, input, signal, admitted),
+        projectProviderExchanges: (...args) => service.projectProviderExchanges(...args),
+      };
+    });
+    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] }).id;
+    const session = `agent:executor:${leafId}` as const;
+    // Seed real retained source, not a compactor replacement or a faux attempt.
+    appendActivationMarker({ projectRoot: h.projectRoot }, session, { event: 'activation_open', instructions: { kind: 'unavailable', reason: 'not_recorded' }, agent_name: 'executor', card_id: leafId, input_id: '11111111-1111-4111-8111-111111111111' });
+    appendConversationBatch({ projectRoot: h.projectRoot }, [{ id: 'large-source', session_id: session, role: 'user', kind: 'text', content: 'actual retained source '.repeat(20_000), context_policy: TEXT_ROW_POLICY, round_id: `r-user-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-10-16T00:00:00.000Z' }]);
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      entered.resolve();
+      init!.signal!.addEventListener('abort', () => aborted.resolve(), { once: true });
+      await release.promise;
+      throw Object.assign(new Error('native abort'), { name: 'AbortError' });
+    });
+    const stopped: string[] = [];
+    const stop = h.cards.stopRunning.bind(h.cards);
+    jest.spyOn(h.cards, 'stopRunning').mockImplementation(id => {
+      expect(readProviderExchangeEntries(h.projectRoot, session)).toHaveLength(1);
+      stopped.push(id);
+      return stop(id);
+    });
+    let urgent: Promise<unknown> | undefined;
+    try {
+      expect((await h.supervisor.startProject()).started).toBe(true);
+      await entered.promise;
+      const oldRoot = owner(h.supervisor);
+      const priorOwners = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+      const oldLeases = [goalId, leafId].map(id => priorOwners.get(id)!.parentRelationship!.invocation);
+      urgent = h.supervisor.submitNotification(target === 'root' ? 'project' : goalId, { id: '00000000-0000-4000-8000-000000000019', content: 'urgent source correction', created_at: '2026-10-16T00:00:00.000Z' }, 'urgent');
+      await aborted.promise;
+      expect(stopped).toEqual([]);
+      expect(h.cards.read(leafId)!.lifecycle.status).toBe('running');
+      release.resolve();
+      const expected = target === 'root' ? [leafId, goalId, 'project'] : [leafId, goalId];
+      await expect(urgent).resolves.toMatchObject({ queued: true, interruption: { status: 'interrupted', stopped_card_ids: expected } });
+      await replacement.promise;
+      expect(stopped).toEqual(expected);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(readProviderExchangeEntries(h.projectRoot, session)[0]!.data).toMatchObject({ attempt_index: 0, session_id: expect.stringMatching(/^internal:/), payload: { status: 'error' } });
+      expect(readConversation(h.projectRoot, session).unmatchedCall).toBeNull();
+      const owners = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners;
+      expect([...owners.keys()]).toEqual(['project']);
+      for (const lease of oldLeases) {
+        expect(lease.isWaitingBarrier()).toBe(false);
+        expect(lease.isConsumable()).toBe(true);
+        await lease.join();
+      }
+      expect(rootCalls).toBe(2);
+      expect(goalCalls).toBe(1);
+      expect(owner(h.supervisor) === oldRoot).toBe(target !== 'root');
+      expect(h.supervisor.getActorRuntimeReadModel().cards.map(card => card.cardId)).toEqual(['project']);
+    } finally {
+      release.resolve();
+      await urgent?.catch(() => {});
+      await h.supervisor.stopProject();
+    }
+  });
   it('selects through the strict pending reader without a callback-local card preflight and admits the exact unfrozen owner first', async () => {
     const entered = deferred();
     const h = harness(scriptedAdmissionProvider(async (_input, signal) => {

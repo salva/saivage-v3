@@ -599,156 +599,168 @@ export class InvocationService {
 
   private async runAdmittedExecution(run: AdmittedExecutionRun): Promise<ProviderTurnCompletion> {
     const { signal } = run;
-    for (;;) {
-      throwIfAborted(signal);
-      this.refreshRecordStates(run.records, run.deadlineMs, run.mode);
-      let record: MutableAdmittedRecord;
-      if (run.mandatoryFirst) {
-        const mandatory = run.records.find((entry) =>
-          candidatesEqual(entry.identity, run.mandatoryFirst!),
-        );
-        if (!mandatory)
-          throw new AdmittedRecoveryIntegrityError(
-            'The mandatory context-failed candidate is not part of the retained admission records.',
+    try {
+      for (;;) {
+        throwIfAborted(signal);
+        this.refreshRecordStates(run.records, run.deadlineMs, run.mode);
+        let record: MutableAdmittedRecord;
+        if (run.mandatoryFirst) {
+          const mandatory = run.records.find((entry) =>
+            candidatesEqual(entry.identity, run.mandatoryFirst!),
           );
-        run.mandatoryFirst = null;
-        record = mandatory;
-      } else {
-        const next = this.nextCandidateState(run.records, run.deadlineMs, run.mode);
-        if (next.kind === 'timeout') {
-          const message = `No LLM candidate became available for agent '${run.bindings.agentName}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
-          throw new ProviderTurnFailure({
-            failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-            provider_exchanges: run.settled,
-            originalFailure: run.lastFailure ?? new Error(message),
-            message,
-            candidate: null,
-          });
-        }
-        if (next.kind === 'wait') {
-          throwIfAborted(signal);
-          const waiting = next.record;
-          const state = waiting?.state;
-          const plan = waiting ? run.plans.get(waiting.routeIndex) : undefined;
-          emitOutboundHttp(this.outboundHttp, {
-            ...projectOutboundSource(run.bindings.sourceSessionId, run.bindings.inputId),
-            invocation_session: outboundSessionReference(run.bindings.sessionId),
-            service: 'provider',
-            purpose: run.purpose,
-            endpoint: !plan
-              ? 'provider.route'
-              : plan.capabilities.transportProtocol === 'openai-responses'
-                ? 'provider.responses'
-                : plan.capabilities.transportProtocol === 'openai-codex-backend'
-                  ? 'provider.codex'
-                  : 'provider.chat',
-            method: 'POST',
-            event: 'outbound_http_retry_wait',
-            request_id: waiting?.lastHttpRequestId,
-            attempt_index:
-              waiting?.lastHttpAttemptIndex ?? run.diagnosticOffset + run.settled.length,
-            retry_reason: state?.kind === 'retry_waiting' ? state.wait : 'availability',
-            delay_ms: next.waitMs,
-            ...(state?.kind === 'retry_waiting' && state.wait === 'overload'
-              ? {}
-              : { deadline_ms: run.deadlineMs }),
-            // This is the selected wait owner, not a promise of the next dispatch:
-            // the existing scheduler recomputes route eligibility after waking.
-            ...(waiting
-              ? {
-                  waiting_candidate_ref: outboundIdentityReference(
-                    JSON.stringify(waiting.identity),
-                  ),
-                }
-              : {}),
-          });
-          await delayWithAbort(next.waitMs, signal);
-          continue;
-        }
-        if (next.kind === 'none') {
-          const originalFailure =
-            run.lastFailure ??
-            new Error(`No healthy candidates available for agent '${run.bindings.agentName}'.`);
-          throw new ProviderTurnFailure({
-            failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-            provider_exchanges: run.settled,
-            originalFailure,
-            candidate: null,
-          });
-        }
-        record = next.record;
-        if (
-          run.mode === 'ordinary' &&
-          !isLocalOverload(record.state) &&
-          !this.candidateAvailability.isAvailable(record.identity)
-        ) {
-          const entry = this.candidateAvailability.getEntry(record.identity);
-          const attempts = attemptsOf(record.state);
-          if (
-            entry &&
-            entry.state !== 'HEALTHY' &&
-            entry.reason &&
-            WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)
-          ) {
-            record.state = {
-              kind: 'temporarily_unavailable',
-              finiteFailures: record.state.finiteFailures,
-              overloadDelayMs: record.state.overloadDelayMs,
-              attempts,
-              untilMs: entry.untilMs,
-              reason: entry.reason,
-            };
-          } else {
-            record.state = {
-              kind: 'exhausted',
-              finiteFailures: record.state.finiteFailures,
-              overloadDelayMs: record.state.overloadDelayMs,
-              attempts,
-              lastFailure: lastFailureOf(record.state),
-            };
+          if (!mandatory)
+            throw new AdmittedRecoveryIntegrityError(
+              'The mandatory context-failed candidate is not part of the retained admission records.',
+            );
+          run.mandatoryFirst = null;
+          record = mandatory;
+        } else {
+          const next = this.nextCandidateState(run.records, run.deadlineMs, run.mode);
+          if (next.kind === 'timeout') {
+            const message = `No LLM candidate became available for agent '${run.bindings.agentName}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
+            throw new ProviderTurnFailure({
+              failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
+              provider_exchanges: run.settled,
+              originalFailure: run.lastFailure ?? new Error(message),
+              message,
+              candidate: null,
+            });
           }
-          continue;
+          if (next.kind === 'wait') {
+            throwIfAborted(signal);
+            const waiting = next.record;
+            const state = waiting?.state;
+            const plan = waiting ? run.plans.get(waiting.routeIndex) : undefined;
+            emitOutboundHttp(this.outboundHttp, {
+              ...projectOutboundSource(run.bindings.sourceSessionId, run.bindings.inputId),
+              invocation_session: outboundSessionReference(run.bindings.sessionId),
+              service: 'provider',
+              purpose: run.purpose,
+              endpoint: !plan
+                ? 'provider.route'
+                : plan.capabilities.transportProtocol === 'openai-responses'
+                  ? 'provider.responses'
+                  : plan.capabilities.transportProtocol === 'openai-codex-backend'
+                    ? 'provider.codex'
+                    : 'provider.chat',
+              method: 'POST',
+              event: 'outbound_http_retry_wait',
+              request_id: waiting?.lastHttpRequestId,
+              attempt_index:
+                waiting?.lastHttpAttemptIndex ?? run.diagnosticOffset + run.settled.length,
+              retry_reason: state?.kind === 'retry_waiting' ? state.wait : 'availability',
+              delay_ms: next.waitMs,
+              ...(state?.kind === 'retry_waiting' && state.wait === 'overload'
+                ? {}
+                : { deadline_ms: run.deadlineMs }),
+              // This is the selected wait owner, not a promise of the next dispatch:
+              // the existing scheduler recomputes route eligibility after waking.
+              ...(waiting
+                ? {
+                    waiting_candidate_ref: outboundIdentityReference(
+                      JSON.stringify(waiting.identity),
+                    ),
+                  }
+                : {}),
+            });
+            await delayWithAbort(next.waitMs, signal);
+            continue;
+          }
+          if (next.kind === 'none') {
+            const originalFailure =
+              run.lastFailure ??
+              new Error(`No healthy candidates available for agent '${run.bindings.agentName}'.`);
+            throw new ProviderTurnFailure({
+              failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
+              provider_exchanges: run.settled,
+              originalFailure,
+              candidate: null,
+            });
+          }
+          record = next.record;
+          if (
+            run.mode === 'ordinary' &&
+            !isLocalOverload(record.state) &&
+            !this.candidateAvailability.isAvailable(record.identity)
+          ) {
+            const entry = this.candidateAvailability.getEntry(record.identity);
+            const attempts = attemptsOf(record.state);
+            if (
+              entry &&
+              entry.state !== 'HEALTHY' &&
+              entry.reason &&
+              WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)
+            ) {
+              record.state = {
+                kind: 'temporarily_unavailable',
+                finiteFailures: record.state.finiteFailures,
+                overloadDelayMs: record.state.overloadDelayMs,
+                attempts,
+                untilMs: entry.untilMs,
+                reason: entry.reason,
+              };
+            } else {
+              record.state = {
+                kind: 'exhausted',
+                finiteFailures: record.state.finiteFailures,
+                overloadDelayMs: record.state.overloadDelayMs,
+                attempts,
+                lastFailure: lastFailureOf(record.state),
+              };
+            }
+            continue;
+          }
+        }
+        const plan = run.plans.get(record.routeIndex);
+        if (!plan)
+          throw new AdmittedRecoveryIntegrityError(
+            `No admitted plan is retained for route index ${record.routeIndex}.`,
+          );
+        try {
+          const result = await this.executeAdmittedPlan(
+            plan,
+            { ...run.execution.options, signal },
+            run.execution.capabilityRequest,
+            {
+              sourceSessionId: run.bindings.sourceSessionId,
+              invocationSessionId: run.bindings.sessionId,
+              inputId: run.bindings.inputId,
+              purpose: run.purpose,
+              attemptIndex: run.diagnosticOffset + run.settled.length,
+            },
+            (requestId) => {
+              record.lastHttpRequestId = requestId;
+              record.lastHttpAttemptIndex = run.diagnosticOffset + run.settled.length;
+            },
+          );
+          run.settled.push(
+            ...indexProviderExchangeAttempts(
+              run.bindings.inputId,
+              run.settled.length,
+              result.provider_exchanges,
+            ),
+          );
+          if (!signal?.aborted) this.candidateAvailability.markSucceeded(record.identity);
+          return {
+            result: result.result,
+            provider_exchanges: run.settled,
+            provider_private_context: result.provider_private_context,
+          };
+        } catch (err) {
+          const outcome = this.handleAdmittedAttemptFailure(run, record, err);
+          if (outcome !== null) throw outcome;
         }
       }
-      const plan = run.plans.get(record.routeIndex);
-      if (!plan)
-        throw new AdmittedRecoveryIntegrityError(
-          `No admitted plan is retained for route index ${record.routeIndex}.`,
-        );
-      try {
-        const result = await this.executeAdmittedPlan(
-          plan,
-          { ...run.execution.options, signal },
-          run.execution.capabilityRequest,
-          {
-            sourceSessionId: run.bindings.sourceSessionId,
-            invocationSessionId: run.bindings.sessionId,
-            inputId: run.bindings.inputId,
-            purpose: run.purpose,
-            attemptIndex: run.diagnosticOffset + run.settled.length,
-          },
-          (requestId) => {
-            record.lastHttpRequestId = requestId;
-            record.lastHttpAttemptIndex = run.diagnosticOffset + run.settled.length;
-          },
-        );
-        run.settled.push(
-          ...indexProviderExchangeAttempts(
-            run.bindings.inputId,
-            run.settled.length,
-            result.provider_exchanges,
-          ),
-        );
-        if (!signal?.aborted) this.candidateAvailability.markSucceeded(record.identity);
-        return {
-          result: result.result,
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (isAbortFromSignal(error, signal) && run.settled.length > 0)
+        throw new ProviderTurnFailure({
+          failure_phase: 'provider_attempt',
           provider_exchanges: run.settled,
-          provider_private_context: result.provider_private_context,
-        };
-      } catch (err) {
-        const outcome = this.handleAdmittedAttemptFailure(run, record, err);
-        if (outcome !== null) throw outcome;
-      }
+          originalFailure: error,
+          candidate: null,
+        });
+      throw error;
     }
   }
 
@@ -761,15 +773,7 @@ export class InvocationService {
     throwIfPublicationOutcomeUnknown(err);
     if (err instanceof CandidateRequestPlanIntegrityError || err instanceof AdmissionIntegrityError)
       return err;
-    if (isAbortFromSignal(err, signal)) return err;
     const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
-    if (isAbortFromSignal(originalFailure, signal)) return originalFailure;
-    const attempts = attemptsOf(record.state) + 1;
-    const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
-      candidate: record.identity,
-      recoveryDelayMs: this.recoveryDelayMs,
-      overloadDelayMs: record.state.overloadDelayMs,
-    });
     if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
       if (err.provider_exchanges.length === 0)
         return new Error(
@@ -783,11 +787,27 @@ export class InvocationService {
         ),
       );
     }
+    // Once aborted, retain the actual failure and all settled evidence, without
+    // handing a distinct failure to recovery (which could substitute cancellation).
+    if (signal?.aborted) {
+      if (run.settled.length === 0) return err;
+      return new ProviderTurnFailure({
+        failure_phase: 'provider_attempt',
+        provider_exchanges: run.settled,
+        originalFailure,
+        candidate: record.identity,
+      });
+    }
+    const attempts = attemptsOf(record.state) + 1;
+    const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
+      candidate: record.identity,
+      recoveryDelayMs: this.recoveryDelayMs,
+      overloadDelayMs: record.state.overloadDelayMs,
+    });
     if (
       decision.availability &&
       (run.mode === 'ordinary' || (decision.kind === 'retry' && decision.wait === 'overload'))
     ) {
-      throwIfAborted(signal);
       this.candidateAvailability.markFailed(record.identity, decision.availability);
     }
     const overloaded = decision.kind === 'retry' && decision.wait === 'overload';
@@ -1248,9 +1268,7 @@ function abortReason(signal?: AbortSignal): unknown {
 }
 
 function isAbortFromSignal(error: unknown, signal?: AbortSignal): boolean {
-  if (!signal?.aborted) return false;
-  if (error === signal.reason) return true;
-  return error instanceof Error && error.name === 'AbortError';
+  return signal?.aborted === true && error === signal.reason;
 }
 
 function indexProviderExchangeAttempts(

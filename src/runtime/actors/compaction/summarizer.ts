@@ -202,6 +202,8 @@ async function sendAdmittedSummaryRequest(args: {
       args.input,
       outcome.failure.provider_exchanges,
     );
+    if (args.signal.aborted && outcome.failure.originalFailure === args.signal.reason)
+      throw args.signal.reason;
     if (isSummaryProviderRefusal(outcome.failure))
       throw new SummaryPolicyRefusalError(args.input.inputId, outcome.failure.originalFailure);
     throw outcome.failure;

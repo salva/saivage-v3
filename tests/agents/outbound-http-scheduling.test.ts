@@ -84,7 +84,10 @@ describe('actual invocation scheduler outbound observations', () => {
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 503 }));
     const value = { ...request([primary]), ...(summary ? { sessionId: `internal:compaction-summary:${'a'.repeat(64)}` } : {}) };
     const pending = invoke(service, value, summary, owner.signal).catch(e => e); await jest.advanceTimersByTimeAsync(0);
-    expect(records.at(-1)!.event).toBe('outbound_http_retry_wait'); owner.abort(reason); expect(await pending).toBe(reason);
+    expect(records.at(-1)!.event).toBe('outbound_http_retry_wait'); owner.abort(reason);
+    const failure = await pending;
+    expect(failure.originalFailure).toBe(reason);
+    expect(failure.provider_exchanges).toMatchObject([{ attempt_index: 0, source_input_id: inputId }]);
     const count = records.length; await jest.advanceTimersByTimeAsync(600000); expect(records).toHaveLength(count); expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('pinned and internal summary keep actual indexes and original source, not synthetic owner', async () => {

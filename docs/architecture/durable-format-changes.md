@@ -23,6 +23,26 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Urgent internal-summary cancellation — no durable impact (2026-10-16)
+
+Exact implementation parent: `c08578fc26bdccab997e70645b8f1982b12c19df`.
+The provider attempt/invocation owners preserve transient exact cancellation
+identity and real accumulated attempts; the summary owner publishes existing
+evidence before emitting that reason to actor settlement. Distinct failures and
+publication uncertainty retain precedence. Existing raw failure evidence, tool
+results, audits and lifecycle publications keep their shapes and meanings; no
+synthetic attempt, completion or prior effect is introduced. No retained shape,
+interpretation, selection, provenance or layout changes. Conversation
+index/genesis/segments and selected raw PNG contract remain format 9;
+provider/app-log evidence retains shared `version:1/type:rows`, not independent
+family numbering. Card/record/mailbox, diagnostics and all other discriminators
+are unchanged. No retained-state adoption, migration, reset or unreleased-cutover
+exception is involved. The incident deployment was `4edc1c7b`; the implementation
+parent is source evidence, not proof of installation or whole-release
+compatibility. This source-only fix repairs no retained incident history and
+authorizes no deployment or runtime action. External migration remains separately
+owner-requested and offline.
+
 ### C02 decision-relevant condensation — no durable impact (2026-10-15)
 
 Exact implementation parent: `00eb6d6572c87f978e951d17328e32051d55e221`.

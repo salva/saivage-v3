@@ -239,7 +239,9 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const caught = invoke(service({ availability }), request([candidate]), controller.signal).catch(error => error);
     await jest.advanceTimersByTimeAsync(0);
     controller.abort(reason);
-    expect(await caught).toBe(reason);
+    const failure = await caught;
+    expect(failure.originalFailure).toBe(reason);
+    expect(failure.provider_exchanges).toMatchObject([{ attempt_index: 0, status: 'error' }]);
     await jest.advanceTimersByTimeAsync(600_000);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(failed).toHaveBeenCalledTimes(1);
@@ -292,9 +294,10 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const pending = invoke(svc, request([codex]), controller.signal).catch((error: unknown) => { caught = error; });
     await jest.advanceTimersByTimeAsync(0);
     expect(caught).toMatchObject({
-      originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
+      originalFailure: abortOwner ? reason : { failure: { kind: 'cancelled', reason: 'abort' } },
       provider_exchanges: [{ attempt_index: 0, status: 'error', error: { name: reason instanceof Error ? reason.name : 'Error', message: reason instanceof Error ? reason.message : String(reason) } }],
     });
+    if (abortOwner) expect((caught as ProviderTurnFailure).originalFailure).toBe(reason);
     await pending;
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(firstBody.locked).toBe(false);
@@ -332,7 +335,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const svc = new InvocationService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, candidateAvailability: availability,
       registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test-account') }) });
     const pending = invoke(svc, request([codex]), controller.signal);
-    const rejection = expect(pending).rejects.toMatchObject({ originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } }, provider_exchanges: [
+    const rejection = expect(pending).rejects.toMatchObject({ originalFailure: reason, provider_exchanges: [
       { attempt_index: 0, status: 'error', error: { status: 503 } },
       { attempt_index: 1, status: 'error', error: { name: 'Error', message: reason.message } },
     ] });
@@ -390,7 +393,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const invocation = invoke(service({ availability }), request([candidate]), controller.signal);
 
     await expect(invocation).rejects.toMatchObject({
-      originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
+      originalFailure: reason,
       provider_exchanges: [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'error', error: { name: 'Error', message: 'owner stopped' } }],
     });
     expect(fetch).toHaveBeenCalledTimes(1);
