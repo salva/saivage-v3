@@ -1,1 +1,1 @@
-Repair the concrete failure identified by the accepted prior-stage summary and versioned `status.md` evidence; keep changes within the brief.
+The accepted prior-stage summary and versioned `status.md` identify a concrete failure. Apply the current assignment's authorized repair responsibility within the brief; an independent assessment does not silently become fix authorship.

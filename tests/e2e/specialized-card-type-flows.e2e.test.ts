@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -237,6 +237,7 @@ function harness(
   type: 'code' | 'architecture' | 'data' | 'test',
   provider: (input: LlmInvocationInput, signal: AbortSignal) => Promise<ProviderTurnCompletion>,
   summary?: { calls: LlmInvocationInput[]; content: string },
+  brief = `Exercise ${type}.`,
 ) {
   const root = mkdtempSync(join(tmpdir(), `specialized-${type}-flow-`));
   roots.push(root);
@@ -266,7 +267,7 @@ function harness(
     type,
     parent: 'project',
     title: `${type} flow`,
-    bootstrap_content: `Exercise ${type}.`,
+    bootstrap_content: brief,
     priority: 0,
     urgency: 'normal',
     created_by: 'planner',
@@ -303,7 +304,522 @@ const installFailingSuite = `${JSON.stringify(process.execPath)} -e ${JSON.strin
 const repairSuite = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("require('node:fs').writeFileSync('focused-test.cjs', \"require('node:assert/strict').equal(2 + 2, 4)\\n\")")} && ${JSON.stringify(process.execPath)} focused-test.cjs`;
 const verifyInstalledSuite = `${JSON.stringify(process.execPath)} focused-test.cjs`;
 
+// Optional task-local evidence: actual runtime provider inputs, not reconstructed prompts.
+function captureTestComposition(name: string, input: LlmInvocationInput): void {
+  const directory = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+  if (!directory) return;
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(
+    join(directory, `${name}.json`),
+    JSON.stringify(
+      {
+        systemPrompt: input.systemPrompt,
+        tools: input.tools,
+        preparedContext: input.preparedContext,
+        providerConversation: input.providerConversation,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 describe('specialized production card-type flows', () => {
+  it.each([
+    {
+      name: 'continues unfinished independent review in verify against fixed input',
+      misrouted: false,
+    },
+    {
+      name: 'returns misrouted coverage to the Planner and re-enters the same review',
+      misrouted: true,
+    },
+  ])('$name', async ({ misrouted }) => {
+    const brief =
+      'Independently assess fixed A.cjs: item 1 arithmetic result and item 2 release/caller agreement. Existing arithmetic assertion is adequate and passing. Inspect source and caller for item 2; no missing assertion is assigned. Whole-product auditing is a non-goal. Return findings for another correction owner; do not author repairs.';
+    const source = 'exports.sum = (a, b) => a + b;\nexports.release = () => true;\n';
+    const caller = 'Caller contract: release() must return true before publishing.\n';
+    const status = (id: string, content: string) =>
+      tool(id, 'write', {
+        path: `record:///status.md?card=${childId}`,
+        content,
+      });
+    let childId = '';
+    let supervisor!: ReturnType<typeof createSupervisorRuntimeApi>;
+    let plannerCalls = 0;
+    let executorCalls = 0;
+    const inputs: Array<{ node: string; input: LlmInvocationInput }> = [];
+    const direction =
+      'Assignment correction: coverage is adequate; independently resolve item 2 source/caller agreement on fixed A.cjs in verify. Retain accepted item 1; whole-product auditing remains a non-goal.';
+    const run = harness(
+      'test',
+      async (input) => {
+        if (input.agentName === 'planner') {
+          plannerCalls++;
+          if (plannerCalls === 1)
+            return complete(
+              tool('review-activate', 'activate_card', {
+                card_id: childId,
+                instructions:
+                  'Assess the two agreed items on fixed A.cjs independently; retain the explicit non-goal.',
+              }),
+            );
+          if (misrouted && plannerCalls === 2) {
+            expect(run.cards.read(childId)!.lifecycle).toMatchObject({
+              status: 'blocked',
+              result: { node_id: 'add-coverage', outcome: 'blocked' },
+            });
+            expect(JSON.stringify(latestToolResult(input))).toContain(
+              'Planner assignment correction',
+            );
+            expect(JSON.stringify(latestToolResult(input))).toContain('record:///status.md');
+            captureTestComposition('misroute-parent-return', input);
+            return complete(
+              tool('correct-same-review', 'activate_card', {
+                card_id: childId,
+                instructions: direction,
+              }),
+            );
+          }
+          expect(latestToolResult(input).success).toBe(true);
+          if (plannerCalls === (misrouted ? 3 : 2))
+            return complete(
+              tool('review-parent-status', 'write', {
+                path: 'record:///status.md?card=project',
+                content:
+                  'Both agreed A review items accepted with source/caller evidence. Non-goal retained.',
+              }),
+            );
+          if (plannerCalls === (misrouted ? 4 : 3))
+            return complete(
+              tool('review-parent-done', 'emit_result', {
+                outcome: 'complete_direct',
+                summary: 'Fixed-input independent review accepted.',
+              }),
+            );
+          throw new Error(`Unexpected Planner call ${plannerCalls}`);
+        }
+        const position = supervisor
+          .getActorRuntimeReadModel()
+          .cards.find(({ cardId }) => cardId === childId)?.processState;
+        if (position?.kind !== 'node') throw new Error('Missing review position');
+        inputs.push({ node: position.nodeId, input });
+        executorCalls++;
+        const actions = [
+          tool('review-baseline', 'run_command', { command: verifyInstalledSuite }),
+          status(
+            'review-diagnosed',
+            'A arithmetic assertion passed: item 1 accepted. Item 2 source/caller inspection remains unperformed, not unavailable. No missing coverage identified; whole-product audit is a non-goal.',
+          ),
+          tool('review-classify', 'emit_result', {
+            outcome: misrouted ? 'coverage_gap' : 'coverage_ready',
+            summary: misrouted
+              ? 'Historical erroneous classification: item 2 source/caller investigation remains.'
+              : 'Adequate passing coverage; verify owns unfinished item 2 source/caller inspection.',
+          }),
+          ...(misrouted
+            ? [
+                tool('inspect-misroute', 'read', { path: 'A.cjs' }),
+                status(
+                  'misroute-status',
+                  'No missing assertion or fixture to implement. Item 2 is unfinished source/caller verification. Need Planner assignment correction on this same independent-review child; no tests changed.',
+                ),
+                tool('misroute-return', 'emit_result', {
+                  outcome: 'blocked',
+                  summary:
+                    'Need Planner assignment correction: item 2 belongs to verification, not coverage authoring; no missing assertion identified.',
+                }),
+                status(
+                  'corrected-diagnose-status',
+                  'Corrected direction retains passing A arithmetic evidence/item 1. Coverage remains adequate; item 2 goes to verify.',
+                ),
+                tool('corrected-ready', 'emit_result', {
+                  outcome: 'coverage_ready',
+                  summary:
+                    'Adequate passing A coverage; corrected remaining source/caller review goes to verify.',
+                }),
+              ]
+            : []),
+          tool('inspect-fixed-source', 'read', { path: 'A.cjs' }),
+          tool('find-caller-contract', 'grep', { pattern: 'release', path: 'caller.txt' }),
+          tool('inspect-fixed-caller', 'read', { path: 'caller.txt' }),
+          status(
+            'review-accepted-status',
+            'Fixed A.cjs: item 1 accepted from unchanged passing arithmetic assertion; item 2 accepted after source release() => true and caller requires true before publishing. Both required items resolved. Whole-product auditing is the agreed non-goal, not a missing gate. No source/test edits or new coverage.',
+          ),
+          tool('review-accepted', 'emit_result', {
+            outcome: 'done',
+            summary:
+              'Both agreed A items accepted; source/caller agreement inspected, unchanged arithmetic evidence retained, non-goal preserved.',
+          }),
+        ];
+        const verifyStart = misrouted ? 9 : 4;
+        if (executorCalls === 2)
+          expect(latestToolResult(input)).toMatchObject({
+            success: true,
+            data: { status: 'exited', exit_code: 0 },
+          });
+        if (executorCalls === verifyStart)
+          captureTestComposition(`${misrouted ? 'misroute' : 'primary'}-first-verify`, input);
+        if (executorCalls === verifyStart + 1) {
+          expect(latestToolResult(input).success).toBe(true);
+          expect(JSON.stringify(latestToolResult(input))).toContain('exports.release = () => true');
+          captureTestComposition(
+            `${misrouted ? 'misroute' : 'primary'}-verify-continuation`,
+            input,
+          );
+        }
+        if (executorCalls === verifyStart + 2 || executorCalls === verifyStart + 3) {
+          expect(latestToolResult(input).success).toBe(true);
+          expect(JSON.stringify(latestToolResult(input))).toContain(
+            'must return true before publishing',
+          );
+        }
+        if (executorCalls === verifyStart + 4)
+          captureTestComposition(`${misrouted ? 'misroute' : 'primary'}-verify-verdict`, input);
+        if (misrouted && executorCalls === 4) {
+          expect(outcomeEnum(input)).toEqual([
+            'coverage_passing',
+            'repair_needed',
+            'blocked',
+            'failed',
+          ]);
+          captureTestComposition('misroute-add-coverage', input);
+        }
+        if (misrouted && executorCalls === 7) {
+          expect(input.preparedContext!.stableBlocks.at(-1)!.content).toContain(
+            JSON.stringify(direction),
+          );
+          captureTestComposition('misroute-blocked-reentry-fresh-direction', input);
+        }
+        const action = actions[executorCalls - 1];
+        if (!action) throw new Error(`Unexpected review call ${executorCalls}`);
+        return complete(action);
+      },
+      undefined,
+      brief,
+    );
+    childId = run.child.id;
+    supervisor = run.supervisor;
+    writeFileSync(join(run.root, 'A.cjs'), source);
+    writeFileSync(join(run.root, 'caller.txt'), caller);
+    const assertion = "require('node:assert/strict').equal(require('./A.cjs').sum(2, 2), 4);\n";
+    writeFileSync(join(run.root, 'focused-test.cjs'), assertion);
+    expect((await supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
+    expect(inputs.map(({ node }) => node)).toEqual([
+      'diagnose',
+      'diagnose',
+      'diagnose',
+      ...(misrouted
+        ? ['add-coverage', 'add-coverage', 'add-coverage', 'diagnose', 'diagnose']
+        : []),
+      'verify',
+      'verify',
+      'verify',
+      'verify',
+      'verify',
+    ]);
+    expect(run.cards.read(childId)!.lifecycle).toMatchObject({
+      status: 'done',
+      result: { node_id: 'verify', outcome: 'done' },
+    });
+    expect(readFileSync(join(run.root, 'A.cjs'), 'utf8')).toBe(source);
+    expect(readFileSync(join(run.root, 'focused-test.cjs'), 'utf8')).toBe(assertion);
+    assertRecordedNodeInstructions(
+      run.root,
+      inputs.filter((entry, index) => index === 0 || entry.node !== inputs[index - 1]!.node),
+    );
+  });
+
+  it('returns independent findings for owner correction and adjudicates combined fixed B without restarting settled items', async () => {
+    let childId = '';
+    let implementationId = '';
+    let supervisor!: ReturnType<typeof createSupervisorRuntimeApi>;
+    let plannerCalls = 0;
+    let reviewCalls = 0;
+    let authorCalls = 0;
+    const nodes: string[] = [];
+    const A = 'exports.sum = (a, b) => a + b;\nexports.release = () => false;\n';
+    const B = 'exports.sum = (a, b) => a + b;\nexports.release = () => true;\n';
+    const caller = 'Caller contract: release() must return true before publishing.\n';
+    const ownerDirection =
+      'Owner direction: return for reassignment when the release finding is established, even though further technical investigation is possible. Correction belongs to the original implementation owner; preserve settled arithmetic acceptance.';
+    const finalDirection =
+      'Combined fixed input B.cjs, integrated by the original implementation child, is ready for independent adjudication of item 2 release/caller agreement. Retain item 1 arithmetic acceptance: its source and assertion are unchanged. Author checks are not independent approval. A.cjs is historical evidence, not the review target.';
+    const brief =
+      'Independently assess item 1 arithmetic and item 2 release/caller agreement on the fixed input named by Planner. Initial input is A.cjs. Reserve all source/test correction and integration to the original implementation owner. Retain applicable settled items on repaired-input re-entry. Whole-product auditing is a non-goal. Both items require evidenced acceptance; an unavailable mandatory check cannot be waived.';
+    const run = harness(
+      'test',
+      async (input) => {
+        const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+        if (input.agentName === 'planner') {
+          plannerCalls++;
+          if (plannerCalls === 1)
+            return complete(
+              tool('original-author', 'activate_card', {
+                card_id: implementationId,
+                instructions:
+                  'Deliver fixed A.cjs and record author arithmetic evidence; independent acceptance belongs to the review child.',
+              }),
+            );
+          if (plannerCalls === 2) {
+            expect(run.cards.read(implementationId)!.lifecycle.status).toBe('done');
+            return complete(
+              tool('independent-A', 'activate_card', {
+                card_id: childId,
+                instructions:
+                  'Independently assess fixed A.cjs and caller.txt, two agreed items; source correction belongs to the original implementation owner.',
+              }),
+            );
+          }
+          if (plannerCalls === 3) {
+            expect(run.cards.read(childId)!.lifecycle).toMatchObject({
+              status: 'blocked',
+              result: { node_id: 'verify', outcome: 'blocked' },
+            });
+            expect(JSON.stringify(latestToolResult(input))).toContain('owner reassignment');
+            expect(JSON.stringify(latestToolResult(input))).toContain('record:///status.md');
+            captureTestComposition('independent-parent-after-terminal-return', input);
+            return complete(
+              tool('reopen-original-owner', 'reopen_card', { card_id: implementationId }),
+            );
+          }
+          if (plannerCalls === 4)
+            return complete(
+              tool('correct-original-owner', 'activate_card', {
+                card_id: implementationId,
+                instructions:
+                  'Correct release false in A into combined fixed B.cjs; preserve sum and caller contract. Run author checks; do not claim independent acceptance.',
+              }),
+            );
+          if (plannerCalls === 5) {
+            expect(run.cards.read(implementationId)!.lifecycle.status).toBe('done');
+            return complete(
+              tool('independent-B', 'activate_card', {
+                card_id: childId,
+                instructions: finalDirection,
+              }),
+            );
+          }
+          if (plannerCalls === 6)
+            return complete(
+              tool('integrated-parent-status', 'write', {
+                path: 'record:///status.md?card=project',
+                content:
+                  'Original implementation owner integrated B; author checks passed. Independent review reconciled item 2 on B and retained applicable item 1. Both accepted.',
+              }),
+            );
+          if (plannerCalls === 7)
+            return complete(
+              tool('integrated-parent-done', 'emit_result', {
+                outcome: 'complete_direct',
+                summary: 'Combined B independently accepted against both agreed items.',
+              }),
+            );
+          throw new Error(`Unexpected parent call ${plannerCalls}`);
+        }
+        if (cardId === implementationId) {
+          authorCalls++;
+          const authorStatus = (id: string, content: string) =>
+            tool(id, 'write', { path: `record:///status.md?card=${implementationId}`, content });
+          const actions = [
+            tool('deliver-A', 'write', { path: 'A.cjs', content: A }),
+            tool('author-check-A', 'run_command', { command: verifyInstalledSuite }),
+            authorStatus(
+              'author-status-A',
+              'Fixed A.cjs delivered; arithmetic assertion passes. Author evidence only, release review is outstanding.',
+            ),
+            tool('author-done-A', 'emit_result', {
+              outcome: 'done',
+              summary:
+                'A delivered; arithmetic author check passes, independent review outstanding.',
+            }),
+            tool('integrate-B', 'write', { path: 'B.cjs', content: B }),
+            tool('author-check-B', 'run_command', {
+              command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify("const a = require('node:assert/strict'); const b = require('./B.cjs'); a.equal(b.sum(2,2),4); a.equal(b.release(),true)")}`,
+            }),
+            authorStatus(
+              'author-status-B',
+              'Combined fixed B.cjs corrects release to true, retaining sum and caller contract. Both author assertions pass; independent adjudication of affected item 2 remains required.',
+            ),
+            tool('author-done-B', 'emit_result', {
+              outcome: 'done',
+              summary: 'B integrated and author checks pass, not independent acceptance.',
+            }),
+          ];
+          if (authorCalls === 3 || authorCalls === 7)
+            expect(latestToolResult(input)).toMatchObject({
+              success: true,
+              data: { exit_code: 0, status: 'exited' },
+            });
+          const action = actions[authorCalls - 1];
+          if (!action) throw new Error(`Unexpected author call ${authorCalls}`);
+          return complete(action);
+        }
+        expect(cardId).toBe(childId);
+        const position = supervisor
+          .getActorRuntimeReadModel()
+          .cards.find(({ cardId }) => cardId === childId)?.processState;
+        if (position?.kind !== 'node') throw new Error('Missing independent-review position');
+        nodes.push(position.nodeId);
+        reviewCalls++;
+        const status = (id: string, content: string) =>
+          tool(id, 'write', { path: `record:///status.md?card=${childId}`, content });
+        const actions = [
+          tool('independent-arithmetic', 'run_command', { command: verifyInstalledSuite }),
+          status(
+            'independent-diagnosed',
+            'A item 1 accepted: actual arithmetic assertion passed. Coverage adequate; item 2 source/caller inspection unperformed, not unavailable.',
+          ),
+          tool('independent-ready', 'emit_result', {
+            outcome: 'coverage_ready',
+            summary:
+              'Item 1 settled; adequate passing coverage, item 2 source/caller inspection belongs to verify.',
+          }),
+          tool('independent-read-A', 'read', { path: 'A.cjs' }),
+          tool('independent-read-caller', 'read', { path: 'caller.txt' }),
+          status(
+            'independent-finding',
+            `Fixed A.cjs item 1 accepted; item 2 concrete high-significance defect: release() returns false while caller.txt requires true before publishing. Correction/integration belongs to [[card:${implementationId}]]. No reviewed source/test edits. Work preserved; owner-requested reassignment, not unavailable tools; other investigation remains technically possible.`,
+          ),
+          tool('independent-owner-return', 'emit_result', {
+            outcome: 'blocked',
+            summary:
+              'Independent finding and explicit owner reassignment: original implementation owner must correct release false versus required true and establish combined B; item 1 remains settled.',
+          }),
+          status(
+            'independent-B-diagnosed',
+            'Fresh B direction established. Item 1 source sum and assertion unchanged, prior arithmetic evidence retained. Coverage adequate; verify must independently reconcile affected item 2 on combined B.',
+          ),
+          tool('independent-B-ready', 'emit_result', {
+            outcome: 'coverage_ready',
+            summary:
+              'B established; retained applicable item 1, affected item 2 requires independent adjudication.',
+          }),
+          tool('independent-read-B', 'read', { path: 'B.cjs' }),
+          tool('independent-caller-B', 'read', { path: 'caller.txt' }),
+          status(
+            'independent-B-accepted',
+            'Combined fixed B.cjs independently inspected: release true agrees with unchanged caller.txt; A item 2 defect is corrected in B. Item 1 sum and assertion unchanged: retain prior arithmetic acceptance. Author checks were evidence, not this independent verdict. Both required items accepted; whole-product audit remains non-goal.',
+          ),
+          tool('independent-B-done', 'emit_result', {
+            outcome: 'done',
+            summary:
+              'B item 2 independently accepted from source/caller evidence; unchanged settled item 1 retained.',
+          }),
+        ];
+        if (reviewCalls <= 7) expect(plannerCalls).toBe(2); // Delivered advice is not an activation return.
+        if (reviewCalls === 1)
+          expect(input.providerConversation.messages.map(({ content }) => content)).toContain(
+            ownerDirection,
+          );
+        if (reviewCalls === 2)
+          expect(latestToolResult(input)).toMatchObject({
+            success: true,
+            data: { exit_code: 0, status: 'exited' },
+          });
+        if (reviewCalls === 5)
+          expect(JSON.stringify(latestToolResult(input))).toContain(
+            'exports.release = () => false',
+          );
+        if (reviewCalls === 6 || reviewCalls === 12)
+          expect(JSON.stringify(latestToolResult(input))).toContain(
+            'must return true before publishing',
+          );
+        if (reviewCalls === 8) {
+          expect(input.preparedContext!.stableBlocks.at(-1)!.content).toContain(
+            JSON.stringify(finalDirection),
+          );
+          captureTestComposition('independent-blocked-reentry-B', input);
+        }
+        if (reviewCalls === 11) {
+          expect(latestToolResult(input).success).toBe(true);
+          expect(JSON.stringify(latestToolResult(input))).toContain('exports.release = () => true');
+          captureTestComposition('independent-B-evidence-continuation', input);
+        }
+      if (reviewCalls === 7) captureTestComposition('independent-owner-return', input);
+      if (reviewCalls === 13) captureTestComposition('independent-B-verdict', input);
+        const action = actions[reviewCalls - 1];
+        if (!action) throw new Error(`Unexpected independent call ${reviewCalls}`);
+        return complete(action);
+      },
+      undefined,
+      brief,
+    );
+    childId = run.child.id;
+    supervisor = run.supervisor;
+    implementationId = run.cards.create({
+      type: 'ops',
+      parent: 'project',
+      title: 'Original implementation owner',
+      bootstrap_content:
+        'Deliver A.cjs; correct verified release defects into combined B.cjs when directed. Preserve arithmetic and caller semantics; run author checks. Independent acceptance belongs to the test child.',
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+    }).id;
+    writeFileSync(join(run.root, 'caller.txt'), caller);
+    const assertion = "require('node:assert/strict').equal(require('./A.cjs').sum(2, 2), 4);\n";
+    writeFileSync(join(run.root, 'focused-test.cjs'), assertion);
+    expect(
+      supervisor.notifyCard(childId, {
+        id: '11111111-1111-4111-8111-111111111111',
+        content: ownerDirection,
+        created_at: '2026-10-16T00:00:00.000Z',
+        source: 'owner',
+      }),
+    ).toEqual({ ok: true, notificationId: '11111111-1111-4111-8111-111111111111' });
+    expect((await supervisor.startProject()).started).toBe(true);
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
+    expect(nodes).toEqual([
+      'diagnose',
+      'diagnose',
+      'diagnose',
+      'verify',
+      'verify',
+      'verify',
+      'verify',
+      'diagnose',
+      'diagnose',
+      'verify',
+      'verify',
+      'verify',
+      'verify',
+    ]);
+    expect(authorCalls).toBe(8);
+    expect(readFileSync(join(run.root, 'A.cjs'), 'utf8')).toBe(A);
+    expect(readFileSync(join(run.root, 'B.cjs'), 'utf8')).toBe(B);
+    expect(readFileSync(join(run.root, 'focused-test.cjs'), 'utf8')).toBe(assertion);
+    const calls = readConversation(
+      run.root,
+      cardAgentSessionId('executor', childId),
+    ).physicalRows.filter(({ kind }) => kind === 'tool_call');
+    const invocations = calls.flatMap(({ content }) => JSON.parse(content).tool_calls) as Array<{
+      function: { name: string; arguments: string };
+    }>;
+    expect(
+      invocations
+        .filter(({ function: fn }) => fn.name === 'write')
+        .every(
+          ({ function: fn }) =>
+            JSON.parse(fn.arguments).path === `record:///status.md?card=${childId}`,
+        ),
+    ).toBe(true);
+    expect(invocations.filter(({ function: fn }) => fn.name === 'run_command')).toHaveLength(1);
+    expect(
+      invocations
+        .filter(({ function: fn }) => fn.name === 'read')
+        .map(({ function: fn }) => JSON.parse(fn.arguments).path),
+    ).toEqual(['A.cjs', 'caller.txt', 'B.cjs', 'caller.txt']);
+    expect(run.cards.read(childId)!.lifecycle).toMatchObject({
+      status: 'done',
+      result: { node_id: 'verify', outcome: 'done' },
+    });
+    expect(run.cards.read('project')!.lifecycle.status).toBe('done');
+  });
+
   it('accepts a fresh adequately covered passing test baseline through diagnosis and verify-owned completion', async () => {
     let plannerCalls = 0;
     let executorCalls = 0;
@@ -732,7 +1248,10 @@ describe('specialized production card-type flows', () => {
       if (position?.kind !== 'node') throw new Error('missing stopped-reentry position');
       nodes.push(position.nodeId);
       executorCalls += 1;
-      if (!firstResumedInput) firstResumedInput = input;
+      if (!firstResumedInput) {
+        firstResumedInput = input;
+        captureTestComposition('stopped-test-recovery-with-parent', input);
+      }
       const actions = [
         tool('stopped-diagnose-suite', 'run_command', { command: passingSuite }),
         tool('stopped-diagnose-status', 'write', {
@@ -876,11 +1395,11 @@ describe('specialized production card-type flows', () => {
             tool('gap-status', 'write', {
               path: `record:///status.md?card=${childId}`,
               content:
-                'Diagnosis found no meaningful focused coverage. Classification: coverage_gap.',
+                'Required arithmetic behavior 2 + 2 = 4 has no assertion. Add focused-test.cjs asserting that exact result. Classification: coverage_gap.',
             }),
             tool('gap-result', 'emit_result', {
               outcome: 'coverage_gap',
-              summary: 'Meaningful focused coverage is missing.',
+              summary: 'Missing assertion: focused-test.cjs must assert 2 + 2 equals 4.',
             }),
             tool('gap-suite', 'run_command', { command: addCoverageSuite }),
             tool('gap-added-status', 'write', {
@@ -939,6 +1458,10 @@ describe('specialized production card-type flows', () => {
             summary: 'Repaired suite and coverage verified.',
           }),
         ];
+        if (executorCalls === 4)
+          captureTestComposition('ordinary-authorized-repair-handoff', input);
+        if (executorCalls === 5)
+          captureTestComposition('ordinary-authorized-repair-continuation', input);
         if (executorCalls === 2) {
           const result = latestToolResult(input);
           expect(result).toMatchObject({ success: true, data: { status: 'failed' } });

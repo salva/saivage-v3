@@ -1,5 +1,5 @@
 import { afterEach,describe,expect,it } from '@jest/globals';
-import { mkdirSync,mkdtempSync,rmSync,writeFileSync } from 'node:fs';
+import { mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -161,7 +161,8 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('compiles the exact typed test graph and derives its ready contract from the configured edge',()=>{
-    const process=compileProjectWorkflows(specializedConfig(),{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot}).cardTypes.get('test')!;
+    const template=resolveSystemTemplate('classic-typed');
+    const process=compileProjectWorkflows(specializedConfig(),{defaultPromptRoot:template.promptRoot}).cardTypes.get('test')!;
     const expectedEntries={BACKLOG:{node:'diagnose',prompt:null},CHANGED:{node:'diagnose',prompt:null},BLOCKED:{node:'diagnose',prompt:null},STOPPED:{node:'diagnose',prompt:'stopped-recovery'}} as const;
     for(const [entry,expected] of Object.entries(expectedEntries))expect(process.states.get(`entry:${entry}`)!.on.get('entry:route')).toMatchObject({targetStateId:`node:${expected.node}`,semantic:{kind:'entry-route',prompt:expected.prompt===null?null:{promptId:expected.prompt,compactable:true}}});
     const expectedNodes={
@@ -182,7 +183,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(nodeResultSchema(process,'node:verify').safeParse({outcome:'coverage_ready',summary:'Wrong node.'}).success).toBe(false);
     expect(describeNodeResultContract(process,'node:diagnose')).toContain(`outcome (one of: ${diagnoseOutcomes.join(' | ')})`);
     expect(nodeResultToolDefinition(process,'node:diagnose').function.parameters).toMatchObject({type:'object',properties:{outcome:{type:'string',enum:diagnoseOutcomes}},required:['outcome','summary'],additionalProperties:false});
-    expect(process.processPrompts.get('test-to-verify' as never)?.text).toBe("The focused tests pass, whether already passing at diagnosis or after coverage or repair work. Verify the affected suite and the coverage's meaning, stability, and scope before completion.\n");
+    expect(process.processPrompts.get('test-to-verify' as never)?.text).toBe(readFileSync(join(template.promptRoot,'process','test','test-to-verify.md'),'utf8'));
   });
 
   it('rejects underscore-bearing workflow node keys without widening or normalization',()=>{

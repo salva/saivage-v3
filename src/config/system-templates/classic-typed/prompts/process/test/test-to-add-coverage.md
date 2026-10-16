@@ -1,1 +1,1 @@
-Author the missing meaningful coverage identified by the accepted diagnosis or verification evidence. Do not force an artificial failure when current behavior is correct.
+Address the uncovered required behavior and missing meaningful assertion or fixture identified by the accepted evidence, within your assignment and retaining useful existing evidence. Do not force an artificial failure when current behavior is correct.

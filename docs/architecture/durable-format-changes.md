@@ -23,6 +23,29 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Typed test work ownership — no durable impact (2026-10-16)
+
+Exact implementation parent: `2028d619b2badeca94039a1736ae03b1fd9d0985`.
+Only bundled instruction prose and new-occurrence guidance change: unfinished
+review remains with verification, independent findings retain correction ownership,
+and the four typed test nodes describe truthful existing BLOCKED returns. Graphs,
+record gates, schemas, stored interpretation, selection, linkage, provenance,
+layout and prompt delivery are unchanged. Historical accepted outcomes, summaries
+and recorded instructions remain opaque factual text, neither reclassified nor
+rewritten. No discriminator advances: the shared conversation index/genesis/envelope
+family remains **10**, card/record/head/history/mailbox remain **format 1**,
+provider/app-log retain shared `version:1/type:rows`, and diagnostics retain
+format 3/privacy policy 2. This does not extend the independent record-excerpt
+9→10 cutover below or establish a deployed baseline from repository HEAD.
+
+Applicability is newly compiled bundled bytes after this source boundary. Existing
+materialized/custom hosts require separately authorized stopped reconciliation of
+the actual selected prompts, preserving custom guidance, and a genuinely new
+server process; binary installation, existing-config init, Run and refresh do not
+adopt them. Prompt-only adoption requires no reset/migration; whole-release
+adoption must separately honor every actual incompatible contract, including the
+conversation cutover below. No deployment or external migration is authorized.
+
 ### Record-prompt excerpts (2026-10-16)
 
 Exact implementation parent: `d27a34d42fe09d54756c686241aa2707535eec5e`.
