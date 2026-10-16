@@ -589,6 +589,8 @@ Malformed arguments, record violations, stale descendant context, incomplete des
 Generated `contractDescription` is the sole agent-template authority for this contract.
 The configured global Analyst uses its ordered operational surface unchanged and has no `emit_result`.
 
+Bundled shared roles instruct agents to prefer available dedicated file tools for authorized ordinary inspection/search and changes, using only selected capabilities and small, reviewable edits. Oversight remains inspection-only. Within role authority, shell remains appropriate for builds/tests, Git, external commands, generators, legitimate pipelines and operations dedicated tools cannot reasonably serve; Analyst's no-delivery and source-shell restrictions still apply. Failure/conflict is not permission to bypass tool contracts, record permissions or confidentiality, and publication uncertainty remains fatal without follow-up or replay. This is [role instruction policy](../architecture/prompts.md#dedicated-file-tool-preference), not runtime enforcement or a model-compliance guarantee; absolute read/discovery support grants no additional mutation authority.
+
 ### Exact terminal-result limit
 
 <!-- saivage:value-contract:emit-result-limit:start -->

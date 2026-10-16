@@ -246,6 +246,14 @@ After (same supplied facts, current assessment):
 CSV export is implemented on source X, not yet accepted: retry round-trip still fails ([failed check](reports/export-X-failed.txt)). Fix retry handling and verify the required round-trip on X before independent review. The task-owned worker remains allocated for that investigation; no release is confirmed.
 ```
 
+## Dedicated file-tool preference
+
+The five shared role prompts in both profiles own capability-conditioned file-work method, not the neutral project-guidance hooks or individual nodes. For authorized work, prefer selected `read`, `glob` and `grep` for inspection/search; Planner/Reviewer prefer selected `write`/`edit` for permitted changes, and Executor/Analyst additionally name `apply_patch`. Prefer small, reviewable edits over unnecessary whole-file rewrites. Oversight remains inspection-only. A renamed custom agent selecting a shipped role reference receives that prose, subject to its actual selected tools; an independent custom reference inherits none of it automatically.
+
+Within role authority, `run_command` remains appropriate for builds, tests, Git, external commands, generators, legitimate pipelines and operations dedicated tools cannot reasonably serve. Analyst still cannot perform delivery work, mutate source through shell, deploy or run delivery builds/tests. No unsuitable-tool attempt or explanation for every choice is required. Failure/conflict alone grants no shell bypass of tool contracts, permissions or record-write rules. Current `record:///` write/edit authority, invocation-final classified failures, publication-uncertainty fatality and confidentiality remain unchanged. Native absolute read/discovery support does not expand mutation authority; selected tool definitions own arguments, paths and result contracts.
+
+This is instruction policy, not runtime enforcement or evidence of model compliance. The prepared role, generated contract, selected tools and current-node context remain available over continuation and compaction; fresh node/session preparation selects the same compiled role. No feeding, retention or durable contract changes. New config-absent init receives packaged guidance; materialized overrides and independent custom references require separately authorized stopped reconciliation of actual selected hosts, preserving customizations, then a genuinely new server process. Existing-config init, Run and browser refresh do not upgrade prompts; source completion authorizes no installed changes.
+
 ## Runtime invariants and operator cutover
 
 - Prompt/config reads happen only during startup structural compilation.

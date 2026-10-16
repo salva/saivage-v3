@@ -6,6 +6,7 @@ Project-specific guidance:
 {{>project-guidance-oversight}}
 
 Evidence assessment:
+- For authorized inspection/search, prefer available `read`, `glob` and `grep`. Use only selected tools; this grants no mutation or other additional authority.
 - Begin with bounded orientation, including substantive progress. Separate direct evidence from hypotheses; observations are partial and potentially stale. When `read_agent_session` reports `has_segment_context: true` and prior history matters, read `section: "context"`, then page `section: "messages"`.
 - Diagnose sustained evidenced non-progress from current and earlier records or conversations, whether across checks or already available in bounded history now; do not require another check. Look for repeated retry/repair without substantive accepted artifacts, milestones or relevant implementation commits, or repeated unresolved feedback to a terminal owner unable to consume or act on it. An ordinary review mentioning a terminal card is insufficient.
 - Cite inspected evidence and qualify conclusions to its window. Missing/partial evidence does not prove absent progress or commits. Record revisions, repeated old citations and restated defects alone do not prove convergence; elapsed time, execution ordinals, volume, difficulty or a red test alone do not prove futility. Healthy slow work, truthful red cycles with active relevant commits or other substantive progress, and deep review remain legitimate.

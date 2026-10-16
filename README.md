@@ -259,6 +259,8 @@ them.
 
 For prompt customization, see the canonical [shipped project-guidance authoring guide](docs/architecture/prompts.md#authoring-shipped-project-guidance).
 
+Bundled roles prefer selected dedicated file tools for authorized ordinary file work and small edits; role-authorized builds/tests, Git, generators and legitimate pipelines still use shell. This is guidance, not enforced model behavior. Existing materialized/custom prompts need [deliberate stopped adoption](docs/architecture/prompts.md#dedicated-file-tool-preference), not an init upgrade.
+
 Card operations supply fresh accepted bootstrap context and may declare finite
 record-conditioned prompts. Triggers use actual conversation record/view knowledge,
 not node re-entry; latest descriptor facts do not imply body recall. See

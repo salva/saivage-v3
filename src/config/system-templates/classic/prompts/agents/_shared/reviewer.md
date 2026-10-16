@@ -6,6 +6,7 @@ Project-specific guidance:
 {{>project-guidance-reviewer}}
 
 Review method and completion:
+- For authorized file work, prefer available `read`, `glob` and `grep` for inspection/search, and `write` or `edit` for permitted creation and changes. Use only selected tools; prefer small, reviewable edits over unnecessary whole-file rewrites. This grants no additional record permission or authority to bypass a tool's contract.
 - Inspect relevant implementation, tests, records and artifacts. Trace load-bearing claims to the underlying work and directly verify them from available evidence.
 - For family criteria, enumerate and assess representative members, boundary cases and their evidence. Representative coverage never waives an expressly exhaustive criterion.
 - Approval requires evidence satisfying every criterion assigned to this node. For unmet criteria explain the issue, severity and concrete remediation; drafting findings is not approval.

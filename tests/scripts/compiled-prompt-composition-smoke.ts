@@ -13,7 +13,7 @@
 // source tree file-for-file and byte-for-byte, and compiling the template's
 // behavior must resolve no artifact outside its own root.
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +49,26 @@ const WORKFLOW_ROLES = ['planner', 'executor', 'reviewer'] as const;
 const SHIPPED_ROLES = [...WORKFLOW_ROLES, 'analyst', 'oversight'] as const;
 type ShippedRole = typeof SHIPPED_ROLES[number];
 
+const METHOD_SECTION: Record<ShippedRole, string> = {
+  planner: 'Admission and runtime rules:',
+  executor: 'Work and evidence:',
+  reviewer: 'Review method and completion:',
+  analyst: 'File work within Analyst authority:',
+  oversight: 'Evidence assessment:',
+};
+
+function roleMethodBlock(promptRoot: string, role: ShippedRole): string {
+  const text = readFileSync(join(promptRoot, 'agents', '_shared', `${role}.md`), 'utf8');
+  const start = text.indexOf(`${METHOD_SECTION[role]}\n`);
+  if (start < 0) throw new Error(`Missing ${role} method section.`);
+  const end = text.indexOf('\n\n', start);
+  return text.slice(start, end < 0 ? text.length : end);
+}
+
 function assertGuidanceComposition(text: string, promptRoot: string, role: ShippedRole, context: string): void {
+  const method = roleMethodBlock(promptRoot, role);
+  if (text.split(method).length - 1 !== 1) throw new Error(`Selected role method is not rendered exactly once for ${context}.`);
+  if (text.includes('{{')) throw new Error(`Unresolved role template syntax for ${context}.`);
   const fragmentRoot = join(promptRoot, 'fragments', '_shared');
   const common = readFileSync(join(fragmentRoot, 'project-guidance-common.md'), 'utf8');
   const matching = readFileSync(join(fragmentRoot, `project-guidance-${role}.md`), 'utf8');
@@ -186,6 +205,31 @@ try {
   };
   assertRoleComposition('classic', classic.promptRoot, classicSourceRoot, classicWorkflows, classicSourceWorkflows);
   assertRoleComposition('classic-typed', classicTyped.promptRoot, typedSourceRoot, typedWorkflows, typedSourceWorkflows);
+  for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig]] as const) {
+    const custom = structuredClone(config);
+    custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, tools: ['read', 'write'], skills: false };
+    for (const cardType of Object.values(custom.card_types)) for (const node of Object.values(cardType.workflow.nodes)) {
+      if (node.agent === 'reviewer') node.agent = 'evidence-reader';
+    }
+    const selected = compileProjectWorkflows(custom, { defaultPromptRoot: template.promptRoot, projectRoot });
+    const review = requireValue(selected.cardTypes.get('project')?.states.get('node:review'), 'Missing custom review.');
+    if (review.kind !== 'node' || review.agent.name !== 'evidence-reader' || review.selectedAgentPrompt.reference !== 'reviewer' || JSON.stringify(review.agent.tools.map((tool) => tool.name)) !== JSON.stringify(['read', 'write'])) throw new Error(`Reduced renamed role selection changed for ${template.name}.`);
+    const render = (state: typeof review) => renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: describeNodeResultContract(requireValue(selected.cardTypes.get('project'), 'Missing custom project.'), 'node:review') });
+    assertGuidanceComposition(render(review), template.promptRoot, 'reviewer', `${template.name} reduced renamed role`);
+
+    const independentRoot = join(projectRoot, '.saivage', 'config', 'prompts', 'agents', '_shared');
+    mkdirSync(independentRoot, { recursive: true });
+    const independentText = 'Independently assess the supplied evidence within selected permissions.\n\n{{contractDescription}}\n';
+    writeFileSync(join(independentRoot, 'independent-review.md'), independentText);
+    custom.agents['evidence-reader']!.prompt = { reference: 'independent-review', compactable: true };
+    const independent = compileProjectWorkflows(custom, { defaultPromptRoot: template.promptRoot, projectRoot });
+    const process = requireValue(independent.cardTypes.get('project'), 'Missing independent project.');
+    const node = requireValue(process.states.get('node:review'), 'Missing independent review.');
+    if (node.kind !== 'node' || node.selectedAgentPrompt.reference !== 'independent-review' || node.selectedAgentPrompt.source !== 'override-shared') throw new Error('Independent reference was not selected.');
+    const contract = describeNodeResultContract(process, 'node:review');
+    const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType: 'project' }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: contract });
+    if (text !== independentText.replace('{{contractDescription}}', contract) || text.includes(roleMethodBlock(template.promptRoot, 'reviewer')) || text.includes('{{')) throw new Error('Independent prompt gained implied shipped-role inheritance.');
+  }
   const assertPlanningComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
     for (const cardType of ['project', 'goal'] as const) {
       const packagedProcess = requireValue(packaged.cardTypes.get(cardType), `Missing packaged ${templateName}/${cardType} workflow.`);

@@ -715,6 +715,8 @@ If any transition, entry, task-result callback, or framework invariant escapes, 
 The first node ordinal is 0 and accepted node reentry advances it once.
 `AgentNodeExecution` consumes the compiled agent, prompt, tool, record, descendant-context, model, and outcome contract without role or family lookup.
 
+The shared roles own [selected dedicated-file-tool preference](./prompts.md#dedicated-file-tool-preference), with legitimate role-authorized shell exceptions and no change to prepared delivery or permissions. Tool definitions, not that method prose, remain authoritative for invocation contracts; independently authored prompt references require deliberate adoption.
+
 Provider modules own immutable tool identities/descriptions and one bind-time schema-factory binder contract.
 The scope-aware runtime catalog aggregates those entries, rejects duplicate `(scope,name)` pairs, and structural compilation retains their exact ordered references without freezing context-dependent schemas.
 Both global and card binding contexts carry the selected compiled card-type vocabulary.

@@ -888,6 +888,8 @@ A shipped prompt-only update does not replace an existing instance's materialize
 
 Status-authoring prompt adoption follows the [prompt cutover procedure](../architecture/prompts.md#runtime-invariants-and-operator-cutover): reconcile the actual selected Planner/Executor roles and affected node/handoff hosts while stopped, preserving project custom guidance, then start a new process only when authorized. New config-absent init gets packaged guidance; existing materialized/custom prompts do not auto-upgrade. This documentation authorizes no operational action or history rewrite.
 
+The [dedicated file-tool preference](../architecture/prompts.md#dedicated-file-tool-preference) is likewise source-only role wording, not an installed upgrade. Adoption requires separately authorized stopped reconciliation of the actual selected Planner, Executor, Reviewer, Analyst and Oversight hosts while preserving customizations and selected-tool/record permissions. Independently authored references need deliberate adoption; they inherit no shipped role policy automatically. Start a genuinely new server process only when authorized; existing-config init, Run and browser refresh do not install this guidance. No generated-state reset, migration or historical text rewrite is required or authorized by this prose change.
+
 For the conversation-9 current-record cutover, separately reconcile optional node
 `record_prompts` declarations and their selected process/fragment files while
 stopped. Both shipped profiles use reference-only `changed-record` bootstrap
