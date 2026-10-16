@@ -28,14 +28,12 @@ import {
   isWriteBlocked,
   listScopedPath,
   listVisibleDirectoryEntries,
-  loadProjectSearchIgnore,
   looksLikeSecretPath,
   parseScopedPathScheme,
   resolveContainedProjectPath,
   resolveRecordWriteTarget,
   resolveScopedPath,
-  scopedReadFilterRel,
-  visitFiles,
+  resolveAgentReadPath,
   visitScopedFiles,
   type VfsResolved,
 } from '../workspace/index.js';
@@ -127,17 +125,6 @@ function readFileHead(absolutePath: string, maxBytes: number): Buffer {
   }
 }
 
-function assertReadable(
-  projectRoot: string,
-  path: string,
-  label = 'read path',
-): { absolutePath: string; relativePath: string } {
-  const resolved = resolveProjectPath(projectRoot, path, label);
-  if (isHiddenPath(projectRoot, resolved.absolutePath, resolved.relativePath))
-    throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
-  return resolved;
-}
-
 function assertWritable(
   projectRoot: string,
   path: string,
@@ -204,18 +191,6 @@ function vfsCtx(ctx: WorkspaceContext) {
   };
 }
 
-function assertScopedReadable(ctx: WorkspaceContext, resolved: VfsResolved): ResolvedToolPath {
-  if (resolved.kind === 'record') {
-    if (resolved.recordKind === 'directory')
-      throw new Error('Record directory must be handled by caller.');
-    return resolved;
-  }
-  const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
-  if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel))
-    throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
-  return resolved;
-}
-
 function assertScopedWritable(
   ctx: WorkspaceContext,
   raw: string,
@@ -255,24 +230,6 @@ function assertScopedWritable(
   return resolved;
 }
 
-function resolveReadPath(
-  ctx: WorkspaceContext,
-  raw: string,
-): {
-  resolved: ResolvedToolPath | Extract<VfsResolved, { kind: 'record'; recordKind: 'directory' }>;
-  scoped: boolean;
-} {
-  const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'read');
-  if (resolved === null)
-    return {
-      resolved: { kind: 'project', ...assertReadable(ctx.projectRoot, raw), isRoot: false },
-      scoped: false,
-    };
-  if (resolved.kind === 'record' && resolved.recordKind === 'directory')
-    return { resolved, scoped: true };
-  return { resolved: assertScopedReadable(ctx, resolved), scoped: true };
-}
-
 function resolveWritePath(ctx: WorkspaceContext, raw: string): WritableToolPath {
   const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
   if (resolved === null) {
@@ -295,7 +252,12 @@ export function readWorkspaceImageSource(
     throw toolInputError('view_image supports project, work and own-card tmp paths only.');
   if (path.startsWith('tmp:///') && parseScopedPathUrl(path, 'tmp').segments[0] !== ctx.cardId)
     throw toolInputError('view_image tmp paths require the owning card context.');
-  const { resolved } = resolveReadPath(ctx, path);
+  // Images retain their independently contained project/work/own-tmp contract.
+  const resolved = resolveScopedPath(vfsCtx(ctx), path, 'read') ?? {
+    kind: 'project' as const,
+    ...resolveProjectPath(ctx.projectRoot, path, 'image path'),
+    isRoot: false,
+  };
   if (resolved.kind !== 'project' && resolved.kind !== 'work' && resolved.kind !== 'tmp')
     throw toolInputError('view_image supports project, work and own-card tmp paths only.');
   if (
@@ -303,6 +265,12 @@ export function readWorkspaceImageSource(
     (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/'))
   )
     throw toolInputError('Internal Saivage paths require an admitted work or tmp URL.');
+  const lexicalFilterRel =
+    resolved.kind === 'work' || resolved.kind === 'tmp'
+      ? resolved.relativePath.replace(/^\.saivage\/work(?:\/|$)/, '')
+      : resolved.relativePath;
+  if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, lexicalFilterRel))
+    throw toolInputError('Image source resolves to a blocked path.');
   const contained = resolveContainedProjectPath(ctx.projectRoot, resolved.absolutePath);
   const realRel = contained.realTargetProjectRelativePath ?? contained.relativePath;
   const filterRel = realRel?.startsWith('.saivage/work/')
@@ -325,23 +293,6 @@ export function readWorkspaceImageSource(
   if (bytes.length > maxBytes)
     throw toolInputError('Image source exceeds 32 MiB; generate a smaller source.');
   return { bytes, sourcePath: displayPathForResolved(ctx.projectRoot, resolved) };
-}
-
-async function directoryEntriesForRead(
-  ctx: WorkspaceContext,
-  raw: string,
-  resolved: ResolvedToolPath,
-  scoped: boolean,
-) {
-  if (scoped) {
-    const listing = await listScopedPath(vfsCtx(ctx), raw);
-    if (listing.kind !== 'entries')
-      throw new Error('Filesystem directory listing did not return entries.');
-    return listing.entries;
-  }
-  if (resolved.kind === 'record')
-    throw new Error('Record document cannot be listed as a directory.');
-  return listVisibleDirectoryEntries(ctx, resolved);
 }
 
 type GlobProjectParams = z.input<typeof globWorkspaceInputSchema>;
@@ -418,7 +369,7 @@ export async function readProject(
       );
     return params.position.byte_offset;
   };
-  const { resolved, scoped } = resolveReadPath(ctx, params.path);
+  const resolved = resolveAgentReadPath(vfsCtx(ctx), params.path, 'read');
 
   if (resolved.kind === 'record' && resolved.recordKind === 'directory') {
     const listing = await listScopedPath(vfsCtx(ctx), params.path);
@@ -548,7 +499,7 @@ export async function readProject(
       throw toolInputError(`Unsupported file type: ${relativePath}`);
     let entriesCount: number | undefined;
     if (st.isDirectory()) {
-      const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
+      const entries = listVisibleDirectoryEntries(ctx, resolved);
       entriesCount = entries.length;
     }
     const scalars = {
@@ -571,7 +522,7 @@ export async function readProject(
   }
 
   if (st.isDirectory()) {
-    const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
+    const entries = listVisibleDirectoryEntries(ctx, resolved);
     const items = entries.map((entry) => ({ name: entry.name, type: entry.type }));
     const { data } = packCollectionData({
       cap,
@@ -699,41 +650,12 @@ export async function globProject(
   const position = params.position ?? { item_index: 0, item_byte_offset: 0 };
   const maxResults = params.max_results ?? 200;
   const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
-  const scoped = resolveScopedPath(vfsCtx(ctx), params.directory, 'search');
   const pattern = globToRegExp(params.pattern);
   const window = searchWindow<string>(position, maxResults);
-  if (scoped !== null) {
-    await visitScopedFiles(vfsCtx(ctx), params.directory, async (entry) => {
-      if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath))
-        window.add(entry.displayPath);
-    });
-  } else {
-    const resolved = {
-      kind: 'project' as const,
-      ...assertReadable(ctx.projectRoot, params.directory),
-      isRoot: false,
-    };
-    const { absolutePath, relativePath } = resolved;
-    const consider = (abs: string, rel: string): void => {
-      const within =
-        abs === absolutePath ? relativePath : relative(absolutePath, abs).replace(/\\/g, '/');
-      if (pattern.test(within) || pattern.test(rel)) window.add(rel);
-    };
-    const st = statSync(absolutePath);
-    if (st.isFile()) consider(absolutePath, relativePath);
-    else
-      await visitFiles(
-        ctx.projectRoot,
-        absolutePath,
-        async (abs, rel) => {
-          consider(abs, rel);
-        },
-        {
-          includeHidden: false,
-          projectSearchIgnore: loadProjectSearchIgnore(ctx.projectRoot, toolInputError),
-        },
-      );
-  }
+  await visitScopedFiles(vfsCtx(ctx), params.directory, async (entry) => {
+    if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath))
+      window.add(entry.displayPath);
+  });
   const total = window.total();
   return packCollectionData({
     cap,
@@ -753,7 +675,7 @@ export async function grepProject(
   const position = params.position ?? { item_index: 0, item_byte_offset: 0 };
   const maxResults = params.max_results ?? 200;
   const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
-  const scoped = resolveScopedPath(vfsCtx(ctx), raw, 'search');
+  const scoped = resolveAgentReadPath(vfsCtx(ctx), raw, 'search');
   let regex: RegExp;
   try {
     regex = new RegExp(params.pattern);
@@ -765,47 +687,15 @@ export async function grepProject(
   let contentTruncated = false;
   const onMatch = (match: GrepMatch): void => window.add(match);
 
-  if (scoped !== null) {
-    const redact = scoped.kind === 'work';
-    await visitScopedFiles(vfsCtx(ctx), raw, async (entry) => {
-      const outcome =
-        entry.content === undefined
-          ? await scanFile(entry.absolutePath!, entry.displayPath, regex, include, redact, onMatch)
-          : scanRecordText(entry.content, entry.displayPath, regex, include, onMatch);
-      contentTruncated ||= outcome.contentTruncated;
-    });
-  } else {
-    const target = {
-      kind: 'project' as const,
-      ...assertReadable(ctx.projectRoot, raw),
-      isRoot: false,
-    };
-    const st = statSync(target.absolutePath);
-    if (st.isFile()) {
-      const outcome = await scanFile(
-        target.absolutePath,
-        displayPathForResolved(ctx.projectRoot, target),
-        regex,
-        include,
-        false,
-        onMatch,
-      );
-      contentTruncated = outcome.contentTruncated;
-    } else {
-      await visitFiles(
-        ctx.projectRoot,
-        target.absolutePath,
-        async (abs, rel) => {
-          const outcome = await scanFile(abs, rel, regex, include, false, onMatch);
-          contentTruncated ||= outcome.contentTruncated;
-        },
-        {
-          includeHidden: false,
-          projectSearchIgnore: loadProjectSearchIgnore(ctx.projectRoot, toolInputError),
-        },
-      );
-    }
-  }
+  const redact = scoped.kind === 'work';
+  await visitScopedFiles(vfsCtx(ctx), raw, async (entry) => {
+    if (include && !include.test(entry.matchPath) && !include.test(entry.displayPath)) return;
+    const outcome =
+      entry.content === undefined
+        ? await scanFile(entry.absolutePath!, entry.displayPath, regex, redact, onMatch)
+        : scanRecordText(entry.content, entry.displayPath, regex, onMatch);
+    contentTruncated ||= outcome.contentTruncated;
+  });
   const total = window.total();
   return packCollectionData({
     cap,
@@ -829,13 +719,8 @@ function scanRecordText(
   content: string,
   displayPath: string,
   regex: RegExp,
-  include: RegExp | null,
   onMatch: (match: GrepMatch) => void,
 ): GrepScanOutcome {
-  if (include) {
-    include.lastIndex = 0;
-    if (!include.test(displayPath)) return { contentTruncated: false };
-  }
   let contentTruncated = false;
   for (const [index, rawLine] of content.split(/\r?\n/).entries()) {
     const line = rawLine.slice(0, MAX_GREP_LINE_CHARS);
@@ -851,15 +736,9 @@ async function scanFile(
   absolutePath: string,
   displayPath: string,
   regex: RegExp,
-  include: RegExp | null,
   redact: boolean,
   onMatch: (match: GrepMatch) => void,
 ): Promise<GrepScanOutcome> {
-  if (include) {
-    include.lastIndex = 0;
-    if (!include.test(displayPath)) return { contentTruncated: false };
-  }
-
   const stream = createReadStream(absolutePath, { highWaterMark: GREP_STREAM_CHUNK_BYTES });
   const decoder = new StringDecoder('utf8');
   const initialChunks: Buffer[] = [];

@@ -1,6 +1,11 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
+import {
+  inspectAgentReadPath,
+  isWithinReadRoot,
+  resolveNativeReadPath,
+} from './agent-read-path.js';
 
 import { cardIdSchema, type AgentName } from '../schemas/index.js';
 import { effectiveRecordContent } from '../persistence/index.js';
@@ -46,6 +51,7 @@ export type VfsResolved =
       absolutePath: string;
       relativePath: string;
       workRoot?: string;
+      native?: boolean;
       isRoot: boolean;
     }
   | ({ kind: 'record'; cardId: string; isRoot: boolean } & (
@@ -118,17 +124,6 @@ function workRootOf(resolved: { kind?: string; workRoot?: unknown }): string | u
     : undefined;
 }
 
-export function scopedReadFilterRel(
-  resolved: { kind?: string; workRoot?: unknown; relativePath: string },
-  candidateAbs: string,
-  candidateScopedRel: string,
-): string {
-  const workRoot = workRootOf(resolved);
-  if (workRoot) return normalizeRel(relative(workRoot, candidateAbs));
-  if (resolved.kind === 'tmp') return candidateScopedRel.replace(TMP_SCOPED_PREFIX_RE, '');
-  return candidateScopedRel;
-}
-
 export function listVisibleDirectoryEntries(
   ctx: { projectRoot: string },
   resolved: FsResolved | { kind: 'project'; absolutePath: string; relativePath: string },
@@ -143,11 +138,9 @@ export function listVisibleDirectoryEntries(
     }))
     .filter(
       (entry) =>
-        !isHiddenPath(
-          ctx.projectRoot,
-          entry.absolutePath,
-          scopedReadFilterRel(resolved, entry.absolutePath, entry.relativePath),
-        ),
+        !SKIPPED_DIRS.has(entry.name) &&
+        !inspectAgentReadPath(entry.absolutePath, resourceRootForRead(ctx.projectRoot, resolved))
+          .blocked,
     )
     .map(({ name, type }) => ({ name, type }))
     .sort((a, b) => compareStrings(a.name, b.name));
@@ -178,13 +171,15 @@ export async function visitFiles(
   start: string,
   visitor: (absolutePath: string, relativePath: string) => Promise<boolean | void>,
   options: {
-    includeHidden: boolean;
     root?: string;
     displayPath?: (absolutePath: string, relativePath: string) => string;
     projectSearchIgnore?: ProjectSearchIgnore;
-  } = { includeHidden: false },
+    resourceRoot?: string;
+  } = {},
 ): Promise<boolean | void> {
-  const projectRelativeStart = normalizeRel(relative(projectRoot, start)) || '.';
+  const projectRelativeStart = options.projectSearchIgnore
+    ? normalizeRel(relative(realpathSync(projectRoot), realpathSync(start))) || '.'
+    : '.';
   if (
     options.projectSearchIgnore &&
     isProjectDirectoryExcluded(options.projectSearchIgnore, projectRelativeStart)
@@ -199,17 +194,14 @@ export async function visitFiles(
     const relativePath = normalizeRel(relative(root, absolutePath));
     if (entry.isDirectory()) {
       if (
-        !options.includeHidden &&
-        (SKIPPED_DIRS.has(entry.name) || isHiddenPath(projectRoot, absolutePath, relativePath))
+        SKIPPED_DIRS.has(entry.name) ||
+        inspectAgentReadPath(absolutePath, options.resourceRoot).blocked
       )
         continue;
       if ((await visitFiles(projectRoot, absolutePath, visitor, options)) === false) return false;
       continue;
     }
-    if (
-      !entry.isFile() ||
-      (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))
-    )
+    if (!entry.isFile() || inspectAgentReadPath(absolutePath, options.resourceRoot).blocked)
       continue;
     if (
       (await visitor(
@@ -366,6 +358,39 @@ export function resolveScopedPath(ctx: VfsContext, raw: string, mode: VfsMode): 
   return delegateDirectoryScheme(ctx, raw, mode, scheme);
 }
 
+function resourceRootForRead(
+  projectRoot: string,
+  resolved: { kind: string; relativePath: string; workRoot?: string },
+): string | undefined {
+  if (resolved.kind === 'work') return resolved.workRoot;
+  if (resolved.kind === 'tmp') {
+    const prefix = TMP_SCOPED_PREFIX_RE.exec(resolved.relativePath)?.[0];
+    if (!prefix) throw new Error('Invalid resolved tmp path.');
+    return resolve(projectRoot, prefix);
+  }
+  return undefined;
+}
+
+export function resolveAgentReadPath(
+  ctx: VfsContext,
+  raw: string,
+  mode: 'read' | 'search',
+): VfsResolved {
+  const resolved = resolveScopedPath(ctx, raw, mode) ?? {
+    kind: 'project' as const,
+    ...resolveNativeReadPath(ctx.projectRoot, raw, ctx.fail),
+    native: true,
+    isRoot: false,
+  };
+  if (
+    resolved.kind !== 'record' &&
+    inspectAgentReadPath(resolved.absolutePath, resourceRootForRead(ctx.projectRoot, resolved))
+      .blocked
+  )
+    throw ctx.fail(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
+  return resolved;
+}
+
 function recordSummaries(
   ctx: VfsContext,
   reader: CompleteRecordReader,
@@ -391,8 +416,7 @@ function recordSummaries(
 }
 
 export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsListing> {
-  const resolved = resolveScopedPath(ctx, raw, 'search');
-  if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
+  const resolved = resolveAgentReadPath(ctx, raw, 'search');
   if (resolved.kind === 'record')
     return { kind: 'records', records: recordSummaries(ctx, ctx.records!, resolved.cardId) };
   const st = statSync(resolved.absolutePath);
@@ -411,6 +435,9 @@ function displayPathCallback(
     return (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}`;
   if (resolved.kind === 'work') return (abs) => workUrlFromAbsolutePath(projectRoot, abs);
   if (resolved.kind === 'tmp') return (abs) => normalizeRel(relative(projectRoot, abs));
+  if (resolved.native)
+    return (abs) =>
+      isWithinReadRoot(resolve(projectRoot), abs) ? normalizeRel(relative(projectRoot, abs)) : abs;
   return undefined;
 }
 
@@ -419,8 +446,7 @@ export async function visitScopedFiles(
   raw: string,
   visitor: (entry: ScopedFileEntry) => Promise<boolean | void>,
 ): Promise<void> {
-  const resolved = resolveScopedPath(ctx, raw, 'search');
-  if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
+  const resolved = resolveAgentReadPath(ctx, raw, 'search');
 
   if (resolved.kind === 'record') {
     const metadata = ctx.records!.listDeclaredRecordMetadata(resolved.cardId);
@@ -446,19 +472,23 @@ export async function visitScopedFiles(
 
   const st = statSync(resolved.absolutePath);
   if (st.isFile()) {
-    const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
-    if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) return;
     await visitor({
       absolutePath: resolved.absolutePath,
       displayPath: displayPathForResolved(ctx.projectRoot, resolved),
-      matchPath: resolved.relativePath,
+      matchPath: basename(resolved.absolutePath),
     });
     return;
   }
 
   const base = resolved.absolutePath;
   const projectSearchIgnore =
-    resolved.kind === 'project' ? loadProjectSearchIgnore(ctx.projectRoot, ctx.fail) : undefined;
+    resolved.kind === 'project' &&
+    isWithinReadRoot(
+      inspectAgentReadPath(ctx.projectRoot).realPath,
+      inspectAgentReadPath(base, resourceRootForRead(ctx.projectRoot, resolved)).realPath,
+    )
+      ? loadProjectSearchIgnore(ctx.projectRoot, ctx.fail)
+      : undefined;
   await visitFiles(
     ctx.projectRoot,
     resolved.absolutePath,
@@ -469,13 +499,13 @@ export async function visitScopedFiles(
         matchPath: normalizeRel(relative(base, absolutePath)),
       }),
     {
-      includeHidden: false,
       root:
         resolved.kind === 'system' || resolved.kind === 'tmp'
           ? resolved.absolutePath
           : workRootOf(resolved),
       displayPath: displayPathCallback(ctx.projectRoot, resolved),
       projectSearchIgnore,
+      resourceRoot: resourceRootForRead(ctx.projectRoot, resolved),
     },
   );
 }

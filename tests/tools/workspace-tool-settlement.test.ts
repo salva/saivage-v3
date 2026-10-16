@@ -6,7 +6,7 @@ import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
-import { analystWorkspaceToolBinders, workspaceToolBinders } from '../../src/tools/workspace-provider.js';
+import { analystWorkspaceToolBinders, globalWorkspaceObservationToolBinders, workspaceToolBinders } from '../../src/tools/workspace-provider.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { invokeToolForLlm, llmToolDefinition } from '../../src/tools/invocation.js';
 import { compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
@@ -14,11 +14,85 @@ import { settleToolResultForConversation } from '../../src/runtime/actors/llm-de
 import { canonicalJson } from '../../src/schemas/index.js';
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
+import { readProject } from '../../src/tools/project-file-tools.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('workspace tool settlement', () => {
+  it('preserves logical current/historical/absent record observations without giving physical paths provenance', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'workspace-read-provenance-')); roots.push(root); initProjectTree(root);
+    const store = new CardService(root); const ctx = { projectRoot: root, cardId: 'project', agentName: 'planner' as const, store };
+    const current = await readProject(ctx, { path: 'record:///brief.md?card=project' });
+    const data = current.data as { head_id: string; revision: number; accepted_version_url: string };
+    expect(data.head_id).toEqual(expect.any(String)); expect(data.revision).toBeGreaterThan(0);
+    expect(current.record_observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ view: 'effective', selection_kind: 'current', head: { head_id: data.head_id, revision: data.revision }, exposure: { kind: 'full_body' } }),
+      expect.objectContaining({ view: 'accepted', selection_kind: 'current' }),
+    ]));
+    const historical = await readProject(ctx, { path: data.accepted_version_url });
+    expect(historical.record_observations).toHaveLength(1);
+    expect(historical.record_observations[0]).toMatchObject({ selection_kind: 'historical', head: null, exposure: { kind: 'full_body' } });
+    const absent = await readProject(ctx, { path: 'record:///status.md?card=project' });
+    expect(absent.data).toMatchObject({ state: 'absent', head_id: null, revision: null });
+    expect(absent.record_observations).toEqual(expect.arrayContaining([expect.objectContaining({ selection: { kind: 'absent' } })]));
+    const path = join(root, 'ordinary.txt'); writeFileSync(path, 'ordinary');
+    expect((await readProject(ctx, { path })).record_observations).toEqual([]);
+    await expect(readProject(ctx, { path: join(root, '.saivage/cards/project/card-head.json') })).rejects.toThrow(/blocked/);
+  });
+  it('settles external pagination and returned-path reads through card and global binders without leaking synthetic secrets', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'workspace-external-settlement-')); roots.push(parent);
+    const root = join(parent, 'project'); const sibling = join(parent, 'sibling');
+    mkdirSync(root); mkdirSync(sibling); initProjectTree(root);
+    const sentinel = 'ghp_SYNTHETIC_EXTERNAL_SETTLEMENT_SENTINEL';
+    for (const name of ['a.txt', 'b.txt']) writeFileSync(join(sibling, name), `needle ${name} ${sentinel}`);
+    writeFileSync(join(sibling, '.env'), 'private-source-sentinel');
+    const work = join(root, '.saivage/work/stash'); mkdirSync(work, { recursive: true });
+    writeFileSync(join(work, 'projection.txt'), `needle ${sentinel}`);
+    const store = new CardService(root);
+    const providers = [
+      { actor: 'executor', provider: bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'executor', store }) },
+      { actor: 'analyst', provider: bindToolProvider('workspace', globalWorkspaceObservationToolBinders, { projectRoot: root, agentName: 'analyst', store }) },
+    ] as const;
+    for (const { actor, provider } of providers) {
+      const surface = buildInvocationSurfaceFixture(actor, [provider]);
+      const invoke = async (name: string, args: unknown) => {
+        const result = await invokeToolForLlm(surface, name, args, testLlmToolInvocationContext({ toolName: name }));
+        const definition = surface.tools.get(name)!;
+        const facts = settleToolResultForConversation(name, compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate), result);
+        expect(facts.settledResultBytes).toBe(canonicalJson(facts.providerResult));
+        expect(facts.settledResultBytes).not.toContain(sentinel);
+        expect(facts.settledResultBytes).not.toContain('private-source-sentinel');
+        return facts.providerResult as { success: boolean; data: any };
+      };
+      expect((await invoke('read', { path: join(sibling, 'a.txt') })).success).toBe(true);
+      for (const name of ['glob', 'grep']) {
+        let position: { item_index: number; item_byte_offset: number } | undefined;
+        const paths: string[] = [];
+        do {
+          const result = await invoke(name, { ...(name === 'glob' ? { directory: sibling, pattern: '*.txt' } : { path: sibling, pattern: 'needle' }), max_results: 1, position });
+          expect(result.success).toBe(true);
+          expect(result.data.matches.total).toBe(2);
+          const item = result.data.matches.items[0]; const path = name === 'glob' ? item : item.path;
+          paths.push(path);
+          expect((await invoke('read', { path })).success).toBe(true);
+          position = result.data.matches.next ?? undefined;
+        } while (position);
+        expect(paths).toEqual([join(sibling, 'a.txt'), join(sibling, 'b.txt')]);
+      }
+      for (const [name, args] of [
+        ['read', { path: 'work:///stash/projection.txt' }],
+        ['grep', { path: 'work:///stash', pattern: 'needle' }],
+      ] as const) {
+        const result = await invoke(name, args);
+        expect(result.success).toBe(true);
+        expect(JSON.stringify(result)).toContain('[REDACTED]');
+      }
+      expect((await invoke('read', { path: join(sibling, '.env') })).success).toBe(false);
+      // Error strings also pass through the settlement boundary.
+      expect((await invoke('read', { path: join(sibling, `${sentinel}.missing`) })).success).toBe(false);
+    }
+  });
   it.each(['unexpected', 'publication_unknown'] as const)('does not settle %s mutation faults as invalid input', async (kind) => {
     const root = mkdtempSync(join(tmpdir(), 'workspace-record-fault-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
@@ -224,16 +298,4 @@ describe('workspace tool settlement', () => {
     expect(readSettlement.execution.providerOutcome.kind).toBe('succeeded');
   });
 
-  it('publishes the singular project search-scope contract in shared tool descriptions', () => {
-    const root = mkdtempSync(join(tmpdir(), 'workspace-search-description-')); roots.push(root); initProjectTree(root);
-    const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('workspace', workspaceToolBinders, { projectRoot: root, cardId: 'project', agentName: 'planner', store: new CardService(root) })]);
-    for (const name of ['glob', 'grep']) {
-      const description = llmToolDefinition(surface.tools.get(name)!).function.description;
-      expect(description).toContain('.saivage-search-ignore');
-      expect(description).toContain('project-root-relative');
-      expect(description).toContain('no Git state is inferred');
-      expect(description).toContain('directly readable');
-    }
-    expect(llmToolDefinition(surface.tools.get('read')!).function.description).toContain('read .saivage-search-ignore by that exact path');
-  });
 });

@@ -742,9 +742,29 @@ This is a source preference, not a final fit or retention guarantee. At most two
 
 Current `glob` and `grep` calls limit each complete settled success result to the requested 512–32,768-byte envelope and expose stateless `matches.next` continuation. This reduces new search-result amplification but does not prevent compaction caused by accumulated history. Project-directory searches also honor the target-owned [project discovery scope](#project-discovery-scope). Historical search results remain opaque durable JSON and are not rewritten or retroactively bounded; no reset or search-specific repair procedure follows from this current producer change.
 
+## Agent filesystem inspection
+
+Agent `read({path:"/work/sibling/docs/notes.md"})`,
+`glob({directory:"/work/sibling",pattern:"**/*.md"})` and
+`grep({path:"/work/sibling",pattern:"TODO"})` accept ordinary native absolute
+paths without registration. Relative paths default to the managed project root;
+external native discovery returns reusable absolute paths. An explicitly named
+ordinary symlink resolves normally, but recursive discovery does not follow
+encountered directory symlinks. Direct ordinary build/dependency files are readable;
+recursive discovery and directory listings omit fixed build/dependency/cache and
+`.git` entries.
+
+Missing paths and OS permission errors remain ordinary failures. Known credential
+paths and generic `.saivage` namespaces are refused before content access, including
+through aliases or `system:///`. Use explicit `record:///`, read-only `work:///`
+and admitted `tmp:///` resources for their intended data. `project:///` remains
+contained. Absolute text inspection does not expand write/edit/patch/Webfetch-save,
+`view_image`, or authenticated operator Files access. No copying workaround,
+deployment, reset or migration is needed for this invocation-only capability.
+
 ## Project discovery scope
 
-A target project may version-control an optional root `.saivage-search-ignore` to prune known disposable directory roots from recursive project-relative and `project:///` `glob`/`grep` calls. Use one literal project-root-relative directory per line; blank lines and full-line `#` comments are allowed. For example:
+A target project may version-control an optional root `.saivage-search-ignore` to prune known disposable directory roots from recursive native `glob`/`grep` calls resolving inside the project and `project:///` calls. External native and explicit `system:///` searches do not load this policy. Use one literal project-root-relative directory per line; blank lines and full-line `#` comments are allowed. For example:
 
 ```text
 # Keep artifacts/fixtures searchable; exclude only disposable generated subtrees.

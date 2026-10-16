@@ -1,4 +1,3 @@
-export { loadProjectSearchIgnore } from './project-search-ignore.js';
 export { looksLikeSecretPath } from './secret-paths.js';
 export {
   hasParentPathSegment,
@@ -23,8 +22,7 @@ export {
   listScopedPath,
   listVisibleDirectoryEntries,
   resolveScopedPath,
-  scopedReadFilterRel,
-  visitFiles,
+  resolveAgentReadPath,
   visitScopedFiles,
   type VfsResolved,
 } from './vfs.js';

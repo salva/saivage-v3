@@ -31,7 +31,7 @@ describe('workspace VFS and project-file security', () => {
     writeFileSync(join(ordinary, 'A-dir', 'a.txt'), 'a');
 
     const direct: string[] = [];
-    await visitFiles(root, ordinary, async (_absolutePath, displayPath) => { direct.push(displayPath); }, { includeHidden: false });
+    await visitFiles(root, ordinary, async (_absolutePath, displayPath) => { direct.push(displayPath); });
     expect(direct).toEqual(['ordered/A-dir/a.txt', 'ordered/b-dir/b.txt', 'ordered/z.txt']);
 
     const fixtures = [

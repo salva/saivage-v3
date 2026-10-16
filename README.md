@@ -4,6 +4,13 @@ Managed process evidence can become **unavailable** after lost group authority.
 Leader exit and EOF do not confirm cleanup; failed scopes remain blockers and later
 activations cannot take ownership. See [operator diagnosis](docs/runbook/index.md#unavailable-process-evidence).
 
+### Inspecting files
+
+Agent `read`, `glob` and `grep` accept ordinary native absolute paths outside the
+project as well as project-relative paths. Known secret/private sources remain
+blocked; resource URLs, mutations, images and operator Files keep their separate
+boundaries. See [agent filesystem inspection](docs/runbook/index.md#agent-filesystem-inspection).
+
 ### Inspecting screenshots
 
 An agent can use `run_command` to save a **non-secret** screenshot in the project,

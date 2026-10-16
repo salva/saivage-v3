@@ -23,6 +23,23 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Ordinary absolute agent reads — no durable impact (2026-10-16)
+
+Exact implementation parent: `261447e5c2788039a6f7a468d6ec4361af809cd1`.
+Only new read/glob/grep invocation admission and output path spellings change.
+`contracts/tool-result.ts` retains opaque data; conversation validation checks call
+identity/common result envelopes, and the context composition projector retains
+non-process results without resolving filesystem paths. Outbound invocation
+projection treats read paths as locations, not Files fetch authority. Historical
+successes/failures are neither replayed nor reclassified; record provenance and
+typed selected-image consumers are unchanged. No retained shape, interpretation,
+selection, linkage, provenance or layout change: conversation index/genesis/envelope
+and selected PNG ownership remain format 9, provider/app-log retain shared
+`version:1/type:rows`, and every other discriminator is unchanged. No migration,
+reset or unreleased-cutover exception applies. Installed applicability is unknown;
+this source boundary is not deployment evidence or whole-release certification.
+External migration remains separately owner-requested and offline.
+
 ### Urgent internal-summary cancellation — no durable impact (2026-10-16)
 
 Exact implementation parent: `c08578fc26bdccab997e70645b8f1982b12c19df`.

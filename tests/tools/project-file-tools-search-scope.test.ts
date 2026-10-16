@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -37,6 +37,42 @@ function project(): string {
 function items<T>(result: unknown): T[] { return (result as Page<T>).matches.items; }
 
 describe('project file search scope', () => {
+  it('applies project ignore to absolute and aliased project targets, but not external native roots', async () => {
+    const root = project();
+    writeFileSync(join(root, '.saivage-search-ignore'), 'artifacts/generated\n');
+    const outside = mkdtempSync(join(tmpdir(), 'external-search-scope-'));
+    roots.push(outside);
+    symlinkSync(join(root, 'artifacts/generated'), join(outside, 'alias'));
+    const ctx = { projectRoot: root };
+    for (const directory of [join(root, 'artifacts/generated'), join(outside, 'alias')]) {
+      expect(items<string>(await globProject(ctx, { directory, pattern: '**/*.txt' }))).toEqual([]);
+    }
+    mkdirSync(join(outside, 'artifacts/generated'), { recursive: true });
+    writeFileSync(join(outside, 'artifacts/generated/external.txt'), 'needle external');
+    // The target's policy is not discovered or read, even when malformed.
+    writeFileSync(join(outside, '.saivage-search-ignore'), Buffer.from([0xff]));
+    expect(items<string>(await globProject(ctx, { directory: outside, pattern: '**/*.txt' }))).toEqual([join(outside, 'artifacts/generated/external.txt')]);
+    expect(items<GrepMatch>(await grepProject(ctx, { path: outside, pattern: 'needle', include: '**/*.txt' }))).toEqual([{ path: join(outside, 'artifacts/generated/external.txt'), line: 1, preview: 'needle external' }]);
+  });
+
+  it('admits explicit dependency/build files while excluding those directories from recursive discovery and listing', async () => {
+    const root = project();
+    for (const directory of ['node_modules', 'dist', 'build', '__pycache__', '.git']) {
+      mkdirSync(join(root, directory), { recursive: true });
+      const file = join(root, directory, 'ordinary.txt');
+      writeFileSync(file, 'needle explicit');
+      await expect(readProject({ projectRoot: root }, { path: file })).resolves.toMatchObject({ content: { content: 'needle explicit' } });
+      expect(items<string>(await globProject({ projectRoot: root }, { directory: file, pattern: '*.txt' }))).toEqual([`${directory}/ordinary.txt`]);
+      expect(items<GrepMatch>(await grepProject({ projectRoot: root }, { path: file, pattern: 'needle' }))).toHaveLength(1);
+    }
+    const glob = items<string>(await globProject({ projectRoot: root }, { directory: root, pattern: '**/*.txt' }));
+    expect(glob.some((path) => path.endsWith('/ordinary.txt'))).toBe(false);
+    const listing = await readProject({ projectRoot: root }, { path: root }) as { entries: { items: { name: string }[] } };
+    for (const name of ['node_modules', 'dist', 'build', '__pycache__', '.git']) {
+      expect(listing.entries.items.map((entry) => entry.name)).not.toContain(name);
+    }
+  });
+
   it.each(['.', 'project:///'] as const)('prunes project-root searches for %s before ignored directory enumeration', async (directory) => {
     const root = project();
     writeFileSync(join(root, '.saivage-search-ignore'), '# target-owned output\nartifacts/generated\nfuture/output\n');
