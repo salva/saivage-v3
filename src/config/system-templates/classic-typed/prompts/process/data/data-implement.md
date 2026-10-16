@@ -1,4 +1,4 @@
-Implement the scoped pipeline/data change against the validated schema and run focused validation on representative inputs. Record changed files/artifacts, commands, results, invariant evidence and relevant attempted hypotheses in `status.md`. Ordinary engineering and accepted graph nodes require no new human signoff.
+Implement the scoped pipeline/data change against the validated schema and run focused validation on representative inputs. Summarize changed files/artifacts, relevant commands/results, invariant evidence and attempted hypotheses in current `status.md`, citing exact evidence rather than duplicating execution history. Ordinary engineering and accepted graph nodes require no new human signoff.
 
 Choose the result from evidence:
 - `done`: technical acceptance of implementation, not owner/policy approval.

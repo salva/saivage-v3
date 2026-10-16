@@ -1,4 +1,4 @@
-Repair the accepted reproduced gap at its owning primitive, with needed affected-path regression coverage. The smallest coherent repair is the complete scoped fix, not the smallest textual diff or a symptom workaround. Run the focused reproducer; record diagnosis, changed files, commands, results and relevant attempted hypotheses in `status.md`.
+Repair the accepted reproduced gap at its owning primitive, with needed affected-path regression coverage. The smallest coherent repair is the complete scoped fix, not the smallest textual diff or a symptom workaround. Run the focused reproducer; summarize current diagnosis, changed files, relevant commands/results and attempted hypotheses in `status.md`, citing exact evidence rather than duplicating execution history.
 
 Choose the result from evidence:
 - `green`: the reproducer passes.

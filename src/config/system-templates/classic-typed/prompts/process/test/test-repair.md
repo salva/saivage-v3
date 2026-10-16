@@ -1,4 +1,4 @@
-Diagnose and repair the observed faulty test or fixture; change product support only when the brief expressly requires it. Run the focused target and record diagnosis, changed files, commands, results and relevant attempted hypotheses in `status.md`.
+Diagnose and repair the observed faulty test or fixture; change product support only when the brief expressly requires it. Run the focused target and summarize current diagnosis, changed files, relevant commands/results and attempted hypotheses in `status.md`, citing exact evidence rather than duplicating execution history.
 
 Choose the result from evidence:
 - `tests_passing`: focused tests pass; verify still owns final acceptance.

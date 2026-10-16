@@ -1,1 +1,1 @@
-The accepted system review requires revision, including its cross-cutting/integration findings. Preserve the immutable versioned `review.md` URL in cumulative `status.md`. The revised draft still requires component review before system review.
+The accepted system review requires revision, including its cross-cutting/integration findings. Summarize current proposal progress and unresolved findings in `status.md` with the immutable versioned `review.md` URL. The revised draft still requires component review before system review.

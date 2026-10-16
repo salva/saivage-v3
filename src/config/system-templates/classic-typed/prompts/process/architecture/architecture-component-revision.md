@@ -1,1 +1,1 @@
-The accepted component review requires revision. Preserve its concrete findings and immutable versioned `review.md` URL in cumulative `status.md`; assess their warranted remedies in the draft before renewed component review.
+The accepted component review requires revision. Keep its unresolved concrete findings actionable in current `status.md` with the immutable versioned `review.md` URL; assess their warranted remedies in the draft before renewed component review.
