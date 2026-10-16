@@ -1,6 +1,6 @@
 # Operator UI: Functional Needs Specification
 
-Format-9 historical preparation must distinguish actual activation identity and
+Format-10 historical preparation must distinguish actual activation identity and
 root/parent/global caller, stable card orientation and exact recorded parent direction
 from current configured instructions. Parent text is advisory and privacy-filtered,
 not acceptance, wire delivery or evidence of model recall. Globals have no synthetic
@@ -8,7 +8,13 @@ card/parent context; non-model ingress is not applicable, unrecorded text unavai
 No current-template or current-record reconstruction fills missing historical bytes.
 
 Operators need actual conditional record instructions in source order and separate
-descriptors for metadata, slice, full-body preparation and reference-only exposure.
+descriptors for metadata, slice, full-body preparation, reference-only and excerpt exposure.
+Oversized instructions disclose encoded/redacted display previews and display-byte
+omissions, not exact source bodies or source offsets. Their versionless pointers
+select latest effective content, possibly a newer draft, without changing ordinary
+bounded record/history access. Operators must not infer absent requirements,
+complete-body exposure or accepted authority from a preview. The separate accepted
+bootstrap remains full; no new UI workflow is required.
 Accepted selections, effective drafts and accepted backing evidence stay distinct.
 Latest compacted descriptors show their original coordinates/time, not new occurrences
 or body recall. Inspecting an immutable selection is **record evidence**, never a

@@ -1,6 +1,6 @@
 # Operator UI: Exact Contracts Register
 
-Prepared format-9 activation evidence uses named `activation_id`, `caller`, `card`,
+Prepared format-10 activation evidence uses named `activation_id`, `caller`, `card`,
 `parent_direction`, `role_text` and `node` fields. Root/card ingress records its actual
 activation and stable orientation; global preparation has null activation/card/parent
 and a global caller. Parent callers record exact parent card/session/source-input/call/
@@ -14,7 +14,14 @@ Root/global callers explicitly have no parent direction. Conditional `record_pro
 bytes render as **Recorded workflow instruction** in actual source order, with
 initial/changed provenance. **Recorded record observations** identifies owning
 read/mutation/preparation/prompt, selection kind/view, accepted/draft/absence and
-metadata/slice/full_body/reference_only exposure. Slice byte coordinates remain exact.
+metadata/slice/full_body/reference_only/excerpt exposure. Slice byte coordinates remain exact.
+Excerpt is a non-complete source-body presentation, not a contiguous byte range.
+Oversized prompt JSON strings contain a marked encoded/redacted display preview;
+their notice reports display-byte omission, not source offsets, and links latest
+effective content without a version selector. That read can return a newer draft.
+The UI does not decode fragments or reconstruct omitted historical text. Full
+record/current/history APIs, pagination and immutable evidence links are unchanged;
+no new UI workflow or read-completeness claim follows.
 Compacted latest descriptors retain original source coordinates/time and are not
 inserted into the timeline as fresh observations. **Inspect immutable record evidence**
 selects only the recorded accepted locator (including draft backing), not today's

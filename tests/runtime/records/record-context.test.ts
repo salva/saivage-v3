@@ -18,8 +18,8 @@ import {
   readConversationCatalog,
   readHistoricalConversationSegment,
 } from '../../../src/persistence/conversation-file.js';
-import { cardConversationVersionFile } from '../../../src/persistence/layout.js';
-import { compilePromptTemplate } from '../../../src/utils/prompt-api.js';
+import { cardConversationVersionFile, cardRecordHeadFile, cardRecordPreviousHeadFile, cardAcceptedRecordFile } from '../../../src/persistence/layout.js';
+import { compilePromptTemplate, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 import {
   agentMessageSchema,
   canonicalJson,
@@ -46,6 +46,7 @@ import {
   type GlobalObservationToolContext,
 } from '../../../src/tools/global-observation-tools.js';
 import { executingLlmSnapshots } from '../../helpers/executing-llm-snapshot.js';
+import { prepareRecordPromptContent } from '../../../src/runtime/records/record-prompt-content.js';
 
 const roots: string[] = [];
 const SESSION = 'agent:planner:project' as const;
@@ -109,7 +110,7 @@ function prompts(rows: readonly AgentMessage[]) {
 async function readIntoConversation(
   f: ReturnType<typeof fixture>,
   path: string,
-  options: { metadata_only?: boolean; response_bytes?: number } = {},
+  options: { metadata_only?: boolean; response_bytes?: number; position?: { kind: 'text'; byte_offset: number } } = {},
 ) {
   const id = randomUUID(),
     callId = randomUUID();
@@ -174,7 +175,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     expect(prompts(absent.rows)[0]!.content).toContain(selection.locator);
     expect(prompts(absent.rows)[0]!.content).not.toContain('A {{recordSelection}}');
     expect(prompts(absent.rows)[1]!.content).toContain(
-      'Selected record data (JSON string or null): null',
+      'Selected record data (JSON string, possibly a marked encoded display preview, or null): null',
     );
     f.publish(absent.rows);
     f.store.openRecord('project', 'status.md');
@@ -217,7 +218,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     expect(publicRow.content).toContain('FINAL-SAFE-Z');
     const encodedBody = publicRow.content
       .split('\n')[1]!
-      .slice('Selected record data (JSON string or null): '.length);
+      .slice('Selected record data (JSON string, possibly a marked encoded display preview, or null): '.length);
     expect(JSON.parse(encodedBody)).toContain('FINAL-SAFE-Z');
     expect(publicRow.content).toContain('record:///brief.md?card=project&v=');
     f.publish(prepared.rows);
@@ -225,6 +226,155 @@ describe('closed record-context compiler and same-read supplier', () => {
     expect(foldConversation(f.root, SESSION).entries.find((r) => r.id === row.id)).toEqual(
       publicRow,
     );
+  });
+
+  it.each([
+    ['R3', '{{recordContent}}', `${'a'.repeat(40000)}\napi_key: Q9vX2mR7p\n${'b'.repeat(8181)}`],
+    ['R5', '{{recordContent}}', `${'a'.repeat(40000)}"api_key: Q9vX2mR7p\n${'b'.repeat(8181)}`],
+    ['R6', '{"api_key": {{recordContent}}}', `${'a'.repeat(40000)}"Q9vX2mR7p${'b'.repeat(8181)}`],
+    ['R7', 'api_key={{recordContent}}', `${'a'.repeat(40000)}Q9vX2mR7p${'b'.repeat(8181)}`],
+  ])('keeps %s confidential through real supplier, model text and public projection', async (regression, host, body) => {
+    const declaration = input('status.md', 'effective');
+    declaration.prompt.compactable = false;
+    const f = fixture([declaration]);
+    f.store.openRecord('project', 'status.md');
+    f.store.editRecord('project', 'status.md', body);
+    const node = f.node();
+    const original = node.recordPrompts[0]!;
+    const compiled = compilePromptTemplate({
+      host: { kind: 'record-context', cardType: 'project' },
+      name: original.prompt.promptId,
+      path: 'offline-C06.md',
+      text: `Record selection: {{recordSelection}}\nPayload: ${host}`,
+      resolveFragment: () => { throw new Error('No fragments.'); },
+    });
+    const custom = { ...node, recordPrompts: [{ ...original, artifact: { ...original.artifact, compiled } }] };
+    const read = jest.spyOn(f.store, 'readRecordCurrent');
+    const prepared = bootstrapContextSupplier(f.store, f.card, custom)({
+      inputId: randomUUID(), conversation: readConversation(f.root, SESSION),
+    });
+    expect(read).toHaveBeenCalledTimes(2); // one union read each for brief and status
+    const row = prompts(prepared.rows)[0]!;
+    expect(row.record_observations![0]!.observed).toMatchObject({
+      selection: { kind: 'draft' }, exposure: { kind: 'excerpt' },
+    });
+    const substitution = prepareRecordPromptContent(body, 'record:///status.md?card=project');
+    expect(row.content.endsWith(host.replace('{{recordContent}}', substitution))).toBe(true);
+    expect(JSON.parse(substitution)).toContain('Oversized record preview:');
+    if (regression === 'R6') expect(JSON.parse(row.content.split('Payload: ')[1]!).api_key)
+      .toBe(JSON.parse(substitution));
+    const intact = { ...row, content: renderCompiledPrompt(
+      { kind: 'record-context', cardType: 'project' }, original.prompt.promptId, compiled,
+      { cardType: 'project', recordSelection: '{}', recordContent: canonicalJson(body) },
+    ) };
+    const projected = projectCanonicalConversationRow(row, projectToolInvocation);
+    expect(projectCanonicalConversationRow(intact, projectToolInvocation).content).not.toContain('Q9vX2mR7p');
+    expect(projected.content).not.toContain('Q9vX2mR7p');
+    if (regression === 'R7') expect(projected.content.split('Payload: ')[1]).toBe('api_key=[REDACTED]');
+    f.publish(prepared.rows);
+    const conversation = readConversation(f.root, SESSION);
+    expect(conversation.sourceRows.find(r => r.id === row.id)!.content).toBe(row.content);
+    expect(providerConversationProjection(conversation, prepared.recordBlocks).messages.some(message =>
+      typeof message.content === 'string' && message.content.includes('Oversized record preview:'))).toBe(true);
+    read.mockClear();
+    expect(foldConversation(f.root, SESSION).entries.find(r => r.id === row.id)).toEqual(projected);
+    if (regression === 'R3') {
+      await publishThreeGenerationCompactedConversation(f.root);
+      const history = readHistoricalConversationSegment(f.root, SESSION, 1);
+      expect(foldHistoricalConversationRows(history.rows).find(r => r.id === row.id)).toEqual(projected);
+      const current = foldConversation(f.root, SESSION);
+      if (current.segmentContext?.kind !== 'compacted') throw new Error('Expected compaction.');
+      expect(current.segmentContext.protected_prompts.find(entry => entry.message.id === row.id)!.message).toEqual(projected);
+    }
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('shortens a custom body-bearing brief without changing the separate complete bootstrap or source', () => {
+    const f = fixture([input('brief.md', 'accepted', 'required')]);
+    const body = `START${'a'.repeat(40000)}OMITTED REQUIREMENT${'b'.repeat(40000)}END`;
+    f.store.acceptRecord('project', 'brief.md', body, 'analyst');
+    const before = f.store.readRecordCurrent('project', 'brief.md');
+    const read = jest.spyOn(f.store, 'readRecordCurrent');
+    const first = f.prepare();
+    expect(read).toHaveBeenCalledTimes(1);
+    const row = prompts(first.rows)[0]!;
+    expect(row.content).toContain('Oversized record preview:');
+    expect(row.content).not.toContain('OMITTED REQUIREMENT');
+    expect(row.record_observations![0]!.observed.exposure).toEqual({ kind: 'excerpt' });
+    expect(first.recordBlocks[0]!.content).toContain(canonicalJson(body));
+    expect(first.rows.at(-1)!.record_observations![0]!.observed.exposure).toEqual({ kind: 'full_body' });
+    f.publish(first.rows);
+    expect(f.prepare().rows).toEqual([]);
+    expect(f.store.readRecordCurrent('project', 'brief.md')).toEqual(before);
+  });
+
+  it('leaves exact selected record files unchanged and reads latest B through the preview pointer with ordinary bounded middle pages', async () => {
+    const f = fixture([input('status.md', 'effective')]);
+    const a = `A-START${'a'.repeat(40000)}A-OMITTED-REQUIREMENT${'a'.repeat(40000)}A-END`;
+    const predecessor = f.store.acceptRecord('project', 'status.md', 'Prior accepted status', 'planner');
+    const accepted = f.store.acceptRecord('project', 'status.md', a, 'planner');
+    const selectedFiles = [
+      cardRecordHeadFile(f.root, 'project', { filename: 'status.md' }),
+      cardRecordPreviousHeadFile(f.root, 'project', { filename: 'status.md' }),
+      cardAcceptedRecordFile(f.root, 'project', accepted.accepted!.source_entry_id),
+      cardAcceptedRecordFile(f.root, 'project', predecessor.accepted!.source_entry_id),
+    ];
+    const before = selectedFiles.map(path => readFileSync(path));
+    const prepared = f.prepare();
+    const row = prompts(prepared.rows)[0]!;
+    const pointer = 'record:///status.md?card=project';
+    expect(row.content).toContain(`Read the current record: ${pointer}.`);
+    expect(row.content).not.toContain('A-OMITTED-REQUIREMENT');
+    f.publish(prepared.rows);
+    expect(selectedFiles.map(path => readFileSync(path))).toEqual(before);
+
+    const b = `B-START${'b'.repeat(40000)}B-OMITTED-REQUIREMENT${'b'.repeat(40000)}B-END`;
+    f.store.openRecord('project', 'status.md');
+    f.store.editRecord('project', 'status.md', b);
+    const latest = await readIntoConversation(f, pointer);
+    const result = JSON.parse(latest.content);
+    expect(result.success).toBe(true);
+    expect(Buffer.byteLength(latest.content)).toBeLessThanOrEqual(32768);
+    expect(result.data.content.content).toContain('B-START');
+    expect(result.data.content.content).not.toContain('A-START');
+    expect(result.data.content.next_offset_bytes).toBeLessThan(Buffer.byteLength(b));
+    expect(latest.record_observations![0]!.observed).toMatchObject({
+      selection: { kind: 'draft' }, exposure: { kind: 'slice', offset_bytes: 0 },
+    });
+    const offset = b.indexOf('B-OMITTED-REQUIREMENT');
+    const middle = await readIntoConversation(f, pointer, {
+      response_bytes: 1200, position: { kind: 'text', byte_offset: offset },
+    });
+    const publicMiddle = projectCanonicalConversationRow(middle, projectToolInvocation);
+    const data = JSON.parse(publicMiddle.content).data;
+    expect(data.content.content.startsWith('B-OMITTED-REQUIREMENT')).toBe(true);
+    expect(data.content.offset_bytes).toBe(offset);
+    expect(Buffer.byteLength(publicMiddle.content)).toBeLessThanOrEqual(1200);
+    expect(publicMiddle.content).not.toContain('Oversized record preview:');
+    const historical = await readIntoConversation(f, `${pointer}&v=${accepted.accepted!.source_version}`);
+    expect(JSON.parse(historical.content).data.content.content).toContain('A-START');
+    expect(historical.record_observations![0]!.observed.selection_kind).toBe('historical');
+    expect(readFileSync(selectedFiles[2]!)).toEqual(before[2]);
+  });
+
+  it('keeps excerpt exposure when redaction alone fits, then fires only for a changed oversized selection', () => {
+    const f = fixture([input('status.md', 'effective')]);
+    f.store.openRecord('project', 'status.md');
+    f.store.editRecord('project', 'status.md', `api_key=${'x'.repeat(40000)}\nEND-A`);
+    const first = f.prepare();
+    const row = prompts(first.rows)[0]!;
+    expect(row.record_prompt!.reason).toBe('initial');
+    expect(row.record_observations![0]!.observed.exposure).toEqual({ kind: 'excerpt' });
+    expect(row.content).toContain('No further middle elision was needed.');
+    expect(row.content).toContain('END-A');
+    f.publish(first.rows);
+    expect(prompts(f.prepare().rows)).toEqual([]);
+    f.store.editRecord('project', 'status.md', `api_key=${'x'.repeat(40000)}\nEND-B`);
+    const changed = prompts(f.prepare().rows)[0]!;
+    expect(changed.record_prompt!.reason).toBe('changed');
+    expect(changed.record_observations![0]!.observed.exposure).toEqual({ kind: 'excerpt' });
+    expect(changed.content).toContain('END-B');
+    expect(changed.content).not.toContain('END-A');
   });
 
   it.each([0, 1, 2, 3, 'unmatched-quote'] as const)(
@@ -359,7 +509,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       .trimEnd()
       .split('\n');
     const envelope = JSON.parse(physical.at(-1)!);
-    expect(envelope).toMatchObject({ version: 9, type: 'conversation-segment' });
+    expect(envelope).toMatchObject({ version: 10, type: 'conversation-segment' });
     expect(envelope.rows[0].kind).toBe('ordinary_segment_genesis');
     expect(envelope.rows.slice(1)).toEqual(prepared.rows);
     expect(f.prepare().rows).toEqual([]);

@@ -20,6 +20,7 @@ import { deriveRequiredModelFacts, selectConversationProtection, validateConvers
   validateCompactedHistorySuccessor } from '../../src/contracts/conversation-validation.js';
 import { conversationSegmentEnvelopeSchema, conversationVersionIndexSchema } from '../../src/persistence/canonical-conversation-artifacts.js';
 import { segmentContext, foldHistoricalConversationRows } from '../../src/application/read-models/agent-conversation-read-model.js';
+import { prepareRecordPromptContent } from '../../src/runtime/records/record-prompt-content.js';
 
 const INPUT = '11111111-1111-4111-8111-111111111111';
 const SESSION = cardAgentSessionId('planner', 'project');
@@ -51,6 +52,18 @@ function prompt(id: string, observed: RecordSelectionObservation, key?: string):
 }
 
 describe('owning record observations', () => {
+  it('admits excerpt only for a selected body, independently of source identity', () => {
+    const source = { kind: 'prompt', input_id: INPUT, node_id: 'plan', reference: 'changed-record' };
+    const observed = selection(1, { kind: 'excerpt' });
+    expect(recordObservationSchema.parse({ observed, source }).observed).toEqual(observed);
+    expect(sameRecordSelection(observed, selection(1, { kind: 'full_body' }))).toBe(true);
+    for (const kind of ['absent', 'empty'] as const) {
+      expect(() => recordObservationSchema.parse({ observed: {
+        ...observed, head: kind === 'absent' ? null : observed.head, selection: { kind },
+      }, source })).toThrow(/No selected body/);
+    }
+  });
+
   it('uses one current owning read for metadata/slice/full and separately exposes accepted backing of a draft', async () => {
     const ctx = project();
     ctx.store.acceptRecord('project', 'brief.md', 'A accepted body', 'analyst');
@@ -105,8 +118,9 @@ describe('owning record observations', () => {
 
 describe('source-derived facts and independent protection', () => {
   it('retains newer current metadata after protected prompt A, ignores historical A, and merges inherited facts with suffix', () => {
-    const a = prompt('prompt-A', selection(1), 'record.brief');
-    const b = prompt('prompt-B', selection(2));
+    const a = prompt('prompt-A', selection(1, { kind: 'excerpt' }), 'record.brief');
+    a.content = prepareRecordPromptContent(`START${'x'.repeat(40000)}OMITTED REQUIREMENT${'y'.repeat(40000)}END`, 'record:///brief.md?card=project');
+    const b = prompt('prompt-B', selection(2, { kind: 'excerpt' }));
     // Historical reads are exact tool results; use a pair rather than a prompt claiming historical currentness.
     const callPolicy = policy();
     const call: AgentMessage = agentMessageSchema.parse({ id: `${INPUT}:tool-call:history`, session_id: SESSION, role: 'assistant', kind: 'tool_call',
@@ -143,9 +157,13 @@ describe('source-derived facts and independent protection', () => {
     const publicHistory = foldHistoricalConversationRows(rows);
     expect(publicHistory[3]!.record_observations![0]!.observed).toMatchObject({ exposure: { kind: 'metadata' }, selection: { kind: 'accepted', version: 2 } });
     const compacted = readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2);
+    expect(compacted.rows).toEqual([]); // Excerpts survive without a retained transcript.
     const publicContext = segmentContext(compacted.genesis)!;
     expect(publicContext.required_model_facts.latestRecordObservations[0]!.source).toEqual(facts.latestRecordObservations[0]!.source);
     expect(publicContext.protected_prompts.map(p => p.message.content)).toEqual([a.content, b.content]);
+    expect(publicContext.protected_prompts[0]!.message.content).toContain('Oversized record preview:');
+    expect(publicContext.protected_prompts[0]!.message.content).not.toContain('OMITTED REQUIREMENT');
+    expect(publicContext.protected_prompts.map(p => p.message.record_observations![0]!.observed.exposure)).toEqual([{ kind: 'excerpt' }, { kind: 'excerpt' }]);
     for (const publicValue of [publicHistory, publicContext]) {
       expect(JSON.stringify(publicValue)).not.toContain('content_sha256');
       expect(JSON.stringify(publicValue)).not.toContain('template_sha256');

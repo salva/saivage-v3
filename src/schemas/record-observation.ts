@@ -39,6 +39,7 @@ export const recordSelectionObservationSchema = z
       z.object({ kind: z.literal('metadata') }).strict(),
       z.object({ kind: z.literal('reference_only') }).strict(),
       z.object({ kind: z.literal('full_body') }).strict(),
+      z.object({ kind: z.literal('excerpt') }).strict(),
       z
         .object({
           kind: z.literal('slice'),
@@ -71,7 +72,9 @@ export const recordSelectionObservationSchema = z
       issue('An absent effective record has no head.');
     if (
       (value.selection.kind === 'absent' || value.selection.kind === 'empty') &&
-      (value.exposure.kind === 'slice' || value.exposure.kind === 'full_body')
+      (value.exposure.kind === 'slice' ||
+        value.exposure.kind === 'full_body' ||
+        value.exposure.kind === 'excerpt')
     )
       issue('No selected body exists for body exposure.');
     if (

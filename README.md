@@ -43,10 +43,11 @@ disposable context, lost on stop/active cancellation. Pixels cannot be certified
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
-Conversation index/genesis/envelope now use strict **format 9** for typed owning
+Conversation index/genesis/envelope now use strict **format 10** for excerpt exposure
+and encoded oversized record-prompt display, alongside typed owning
 record observations and descriptor-only required facts, retaining historical
 instruction evidence, loss-tolerant maintenance and ordered content.
-Format 8 or earlier/mixed
+Format 9 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;
@@ -55,26 +56,31 @@ there is no GC. Installing Sharp requires optional native dependencies (see the
 
 Conversation activation boundaries expose **Prepared instructions**: privacy-filtered
 historical rendered role and node text, not a delivery receipt or complete wire request.
-Format-9 prepared evidence also records stable card orientation, actual activation
+Current prepared evidence also records stable card orientation, actual activation
 identity and caller, and exact rendered parent direction where present. Parent
 `activate_card({card_id,instructions})` requires explicit non-whitespace direction;
 its bytes belong to that actual child activation, not a mailbox or future Run.
 Public `queue_notification` is selected only by configured Analyst/Oversight roles;
 card recipients and internal notifications remain.
 Conditional instructions retain actual bytes in source order; record descriptors
-distinguish accepted/draft selections and metadata/slice/full/reference exposure.
+distinguish accepted/draft selections and metadata/slice/full/reference/excerpt exposure.
 Compacted descriptors preserve original coordinates/time, not body recall or new
 occurrences. Immutable links inspect record evidence, never reconstructed requests;
 public copies omit internal hashes and independently redact text and source metadata.
 Recognized secrets in supplier JSON-quoted record text are filtered by the same server
 projection before current/history/protected display and full copy. Safe encoded text
-remains quoted, not decoded; stored history and private model context are unchanged.
-This outbound correction needs no migration or operational step.
+remains quoted, not decoded. Raw record bodies over 32768 UTF-8 bytes now inject a
+marked preview of complete encoded/redacted display, keeping at most 8192 display
+bytes per end plus notice and final JSON quoting. Its versionless pointer reads
+latest effective content through normal bounded reads, not historical omitted bytes.
+Small/null substitutions and separate full accepted bootstrap remain unchanged;
+omissions never waive requirements or grant acceptance. Large bootstrap can still
+dominate context. See the [9→10 contract/adoption record](docs/architecture/durable-format-changes.md#record-prompt-excerpts-2026-10-16).
 Owned durable prompts are **Recorded workflow instruction** at their original rows;
 compacted activation text is inspected through explicit indexed source history.
 Unavailable history is never filled from current templates. **Currently configured
 instructions** remains independent. Source completion authorizes no adoption or
-deployment; binary-only downgrade after format-9 publication is unsupported.
+deployment; binary-only downgrade after format-10 publication is unsupported.
 
 Conversation maintenance first preserves useful ordinary summaries. If bounded
 construction cannot produce a qualifying candidate, it may publish a fixed notice

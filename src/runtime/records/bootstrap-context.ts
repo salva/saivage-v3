@@ -12,6 +12,10 @@ import { observeRecordProjection } from '../../persistence/index.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import type { RecordContextSupplier } from '../actors/llm-invocation.js';
 import type { CompiledNodeContract } from '../card-process/card-process-config.js';
+import {
+  prepareRecordPromptContent,
+  RECORD_PROMPT_BODY_LIMIT_BYTES,
+} from './record-prompt-content.js';
 
 /** One owning current read per newly armed logical operation; no retained body cache. */
 export function bootstrapContextSupplier(
@@ -82,13 +86,15 @@ export function bootstrapContextSupplier(
       const includesBody = input.artifact.compiled.tokens.some(
         (token) => token.kind === 'placeholder' && token.key === 'recordContent',
       );
+      const oversized =
+        body !== undefined && Buffer.byteLength(body, 'utf8') > RECORD_PROMPT_BODY_LIMIT_BYTES;
       const current = observeRecordProjection({
         cardId: card.id,
         recordName: input.record,
         projection: selected ?? null,
         view: input.selection,
         selectionKind: 'current',
-        exposure: { kind: includesBody ? 'full_body' : 'reference_only' },
+        exposure: { kind: includesBody ? (oversized ? 'excerpt' : 'full_body') : 'reference_only' },
       });
       const prior = conversation.effectiveRequiredModelFacts.latestRecordObservations.find(
         (entry) =>
@@ -141,7 +147,10 @@ export function bootstrapContextSupplier(
             prior: prior ? publicRecordSelection(prior.observation.observed) : null,
             reason,
           }),
-          recordContent: canonicalJson(body ?? null),
+          recordContent:
+            includesBody && body !== undefined
+              ? prepareRecordPromptContent(body, selected!.currentUrl)
+              : canonicalJson(null),
         },
       );
       rows.push(

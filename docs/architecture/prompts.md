@@ -140,8 +140,23 @@ record/view pairs and foreign records reject compilation. The record-context hos
 uses the same process paths, overrides and direct fragments, but retains frozen
 tokens at the workflow owner for runtime substitution. `recordSelection` is a
 JSON descriptor with the observed selection, prior known selection or null, and
-`initial | changed` reason. `recordContent` is the complete selected body as a JSON
-string, or null for optional absence/empty selection. Substituted bytes are opaque:
+`initial | changed` reason. `recordContent` is a JSON string, or null for optional
+absence/empty selection. Bodies at or below 32768 raw UTF-8 bytes retain their exact
+ordinary JSON encoding. Larger bodies use a marked encoded display preview:
+`canonicalJson(complete body)` → complete record-prompt outbound redaction →
+scalar-safe display head/tail and notice → `canonicalJson(complete previewText)`.
+No prepass output is parsed back. Up to 8192 UTF-8 display bytes at each end are
+retained; if redaction leaves at most 16384 display bytes, that display appears once
+with an explicit no-further-elision notice. Omission counts measure intermediate
+display bytes, not raw source offsets or bytes removed by redaction. Final JSON
+quoting expands escape spellings; neither 16384 bytes nor the raw threshold is a
+total injection/context limit. The notice identifies this lossy encoded display,
+forbids decoding its fragments as a record, and supplies the selected projection's
+versionless current-record URL. A later normal bounded read selects latest effective
+content (possibly a draft), not the excerpt's historical omitted bytes. Omitted
+requirements remain requirements; this is not a summary or acceptance evidence.
+The separate complete accepted-bootstrap block remains full on every operation,
+including with a custom body-bearing brief prompt. Substituted bytes are opaque:
 template-looking record data is never retokenized. Required missing selection
 fails; no trimming, alternate prompt or body-to-reference fallback exists.
 
@@ -150,8 +165,13 @@ exactly this one supplier JSON-string layer, then filters ordinary surrounding p
 Matched syntax alone is decoded and its shared replacement re-encoded; safe original
 bytes and supplier quoting remain. The outbound conversation owner opts in only for
 `record_prompt`, including indexed history and retained protected instructions.
-Canonical/model-context text stays opaque and unchanged, with no current-template
-reconstruction, general decoder or prompt-language restriction.
+The oversized supplier prepass already persists its actual prepared display;
+public projection still filters the resulting row and surrounding prose. It does
+not reconstruct a current template or record, or recursively decode the preview.
+The shared inline owner extends an escape-aware complete double-quoted value only
+when actually masking a recognized secret; non-secret/unmodified candidates keep
+their conservative scan advancement. Existing outbound callers can consequently
+mask formerly exposed escaped-quote suffixes, without new secret categories.
 
 The supplier reads the union of mandatory accepted bootstrap and declared inputs
 once per distinct record. All views, descriptors and bodies derive from those
@@ -172,12 +192,17 @@ procedure belongs in the always-prepared node text.
 Typed record observation descriptors are separate from prompt text: owning current
 metadata/slice/full reads and known mutation results can advance selection knowledge
 without preserving a body. Immutable historical reads do not advance that knowledge.
-Conversation 9 required facts retain the latest descriptor per card/record/view in
+Conversation 10 required facts retain the latest descriptor per card/record/view in
 source order, independently of instruction protection. Durable `record_prompt` rows
 retain actual rendered text and declaration provenance; false without a key retains
 every occurrence, while an exact key selects the latest occurrence even in a newer
 suffix. Descriptor-only `record_observation` rows are structural evidence, not a
 protected copy or reconstruction of a prepared body.
+Raw-oversized body prompts carry `exposure:{kind:'excerpt'}`, including displays
+that fit after redaction. This is neither a contiguous source slice nor complete
+body exposure; absent/empty selections cannot carry it. Source hashes/head/revision
+still identify the selected source, not a byte commitment to the transformed text.
+Small-body prompts and separate full-bootstrap observations remain full-body.
 Primary composition and summary orientation separately project latest descriptor
 facts with actual source/exposure attribution, independently of protected prompt
 text. Primary, summary orientation and summary-source projection preserve the
@@ -263,7 +288,7 @@ This is instruction policy, not runtime enforcement or evidence of model complia
 - Old path forms and agent-name-keyed overrides are not read, moved, warned about, or normalized.
 - A fresh `saivage init [--profile <name>]` on a config-absent project materializes the selected template's complete closure; a materialized instance is upgrade-independent by construction because its override tree resolves every reference at the override tier. Hand-authored typed-graph configs carry their typed-only prompt files in `.saivage/config/prompts` (one-time copy from the classic-typed template's tree) because the bundled root contains only the classic template's compiled source closure.
 - Operators stop the service, manually reconcile the selected materialized overrides while preserving customizations, then start a genuinely new server process. Project Stop/Run, pause/resume, and browser refresh do not compile prompt changes.
-- Producer-declared compaction policy uses strict object declarations and current conversation format 9, with the fresh [8→9 record-context cutover](./durable-format-changes.md#explicit-activation-and-record-context-2026-10-13). Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations); no runtime converter or adoption permission follows source completion. Earlier cutovers are historical provenance, not supported formats. Declaration-based protection applies to eligible durable entry, edge, pending-notification, correction and record-prompt occurrences. Structural prepared role/node evidence adds no durable model-context occurrence, changes no static/node delivery according to a declaration flag, and is not carried into compacted genesis; inspect its exact indexed source history instead. Record observation facts retain descriptors independently, never those historical instruction strings.
+- Producer-declared compaction policy uses strict object declarations and current conversation format 10, with the fresh [9→10 excerpt cutover](./durable-format-changes.md#record-prompt-excerpts-2026-10-16). Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations); no runtime converter or adoption permission follows source completion. Earlier cutovers are historical provenance, not supported formats. Declaration-based protection applies to eligible durable entry, edge, pending-notification, correction and record-prompt occurrences. Structural prepared role/node evidence adds no durable model-context occurrence, changes no static/node delivery according to a declaration flag, and is not carried into compacted genesis; inspect its exact indexed source history instead. Record observation facts retain descriptors independently, never those historical instruction strings.
 
 ## Key source files
 

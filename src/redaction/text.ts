@@ -88,9 +88,11 @@ const INLINE_SECRET_ASSIGNMENT_RE = new RegExp(
   'gi',
 );
 const ENCODED_INLINE_SECRET_ASSIGNMENT_RE = new RegExp(
-  `[A-Za-z][A-Za-z0-9_-]*${ENCODED_SPACE}*=${ENCODED_SPACE}*(?:${String.raw`\\"`}${ENCODED_NON_QUOTE}*${String.raw`\\"`}|'${encodedUnit(String.raw`[^'"\\\x00-\x1f]`)}*'|${ENCODED_NON_SPACE}+)`,
+  `([A-Za-z][A-Za-z0-9_-]*)${ENCODED_SPACE}*=${ENCODED_SPACE}*(${String.raw`\\"`}${ENCODED_NON_QUOTE}*${String.raw`\\"`}|'${encodedUnit(String.raw`[^'"\\\x00-\x1f]`)}*'|${ENCODED_NON_SPACE}+)`,
   'gi',
 );
+const COMPLETE_INLINE_DOUBLE_QUOTED_VALUE_RE = /^"(?:[^"\\]|\\[\s\S])*"/;
+const COMPLETE_ENCODED_INLINE_VALUE_RE = new RegExp(`^${ENCODED_JSON_STRING}`);
 const URL_SECRET_QUERY_PARAM_RE = new RegExp(
   String.raw`([?&][^=&#\s]*(?:${SECRET_NAME_SYNTAX})[^=&#\s]*=)([^&#\s]+)`,
   'gi',
@@ -118,6 +120,10 @@ function hasRepresentedWordBoundary(text: string, offset: number, next: string):
   return /\w/.test(representedPreviousCharacter(text, offset)) !== /\w/.test(next);
 }
 
+function atEncodedUnitStart(pattern: RegExp): RegExp {
+  return new RegExp(`${String.raw`(?<!(?<!\\)(?:\\\\)*\\)`}${pattern.source}`, pattern.flags);
+}
+
 function replaceEncodedPattern(
   text: string,
   pattern: RegExp,
@@ -127,10 +133,7 @@ function replaceEncodedPattern(
 ): string {
   // Exclude starts inside an escape before matching, so a rejected candidate cannot
   // swallow a later legitimate start (for example the key after encoded tab).
-  const atUnitStart = new RegExp(
-    `${String.raw`(?<!(?<!\\)(?:\\\\)*\\)`}${pattern.source}`,
-    pattern.flags,
-  );
+  const atUnitStart = atEncodedUnitStart(pattern);
   return text.replace(atUnitStart, (match: string, ...args: unknown[]) => {
     const offset = args.at(-2) as number;
     if (boundary === 'yaml') {
@@ -156,7 +159,42 @@ function replaceEncodedPattern(
   });
 }
 
-/** Public record prompts alone carry one supplier-introduced JSON string layer. */
+function redactEncodedInlineAssignments(text: string): string {
+  const matcher = atEncodedUnitStart(ENCODED_INLINE_SECRET_ASSIGNMENT_RE);
+  const parts: string[] = [];
+  let end = 0;
+  for (let match; (match = matcher.exec(text)) !== null; ) {
+    parts.push(text.slice(end, match.index));
+    let chosen = match[0];
+    const key = match[1]!;
+    const value = match[2]!;
+    if (
+      hasRepresentedWordBoundary(text, match.index, chosen[0]!) &&
+      isSecretKey(key) &&
+      !value.startsWith(SECRET_REDACTION_PLACEHOLDER)
+    ) {
+      if (value.startsWith(String.raw`\"`)) {
+        const valueStart = matcher.lastIndex - value.length;
+        const complete = COMPLETE_ENCODED_INLINE_VALUE_RE.exec(text.slice(valueStart));
+        if (complete && complete[0].length > value.length)
+          chosen = text.slice(match.index, valueStart + complete[0].length);
+      }
+      const selected = JSON.parse(`"${chosen}"`) as string;
+      const changed = redactInlineAssignments(selected);
+      // Only a changed (masked) candidate may consume an extended range.
+      if (changed !== selected) {
+        matcher.lastIndex = match.index + chosen.length;
+        chosen = JSON.stringify(changed).slice(1, -1);
+      } else chosen = match[0];
+    }
+    parts.push(chosen);
+    end = matcher.lastIndex;
+  }
+  parts.push(text.slice(end));
+  return parts.join('');
+}
+
+/** Filter one supplier JSON-string layer for record-prompt preparation/public projection. */
 export function redactRecordPromptForOutbound(text: string): string {
   let result = replaceEncodedPattern(
     text,
@@ -191,13 +229,7 @@ export function redactRecordPromptForOutbound(text: string): string {
     ESCAPED_JSON_SECRET_VALUE_RE,
     replaceEscapedJsonSecretValue,
   );
-  result = replaceEncodedPattern(
-    result,
-    ENCODED_INLINE_SECRET_ASSIGNMENT_RE,
-    INLINE_SECRET_ASSIGNMENT_RE,
-    replaceInlineSecretAssignment,
-    'word',
-  );
+  result = redactEncodedInlineAssignments(result);
   result = replaceEncodedPattern(
     result,
     ENCODED_URL_SECRET_QUERY_PARAM_RE,
@@ -374,9 +406,32 @@ function redactEscapedJsonSecretValues(content: string): string {
   return content.replace(ESCAPED_JSON_SECRET_VALUE_RE, replaceEscapedJsonSecretValue);
 }
 export function redactSecretAssignmentsForOutbound(content: string): string {
-  return content
-    .replace(INLINE_SECRET_ASSIGNMENT_RE, replaceInlineSecretAssignment)
-    .replace(URL_SECRET_QUERY_PARAM_RE, replaceUrlSecretQueryParam);
+  return redactInlineAssignments(content).replace(
+    URL_SECRET_QUERY_PARAM_RE,
+    replaceUrlSecretQueryParam,
+  );
+}
+function redactInlineAssignments(content: string): string {
+  const matcher = cloneRegex(INLINE_SECRET_ASSIGNMENT_RE);
+  const parts: string[] = [];
+  let end = 0;
+  for (let match; (match = matcher.exec(content)) !== null; ) {
+    parts.push(content.slice(end, match.index));
+    const key = match[1]!;
+    const value = match[2]!;
+    if (isSecretKey(key) && !value.startsWith(SECRET_REDACTION_PLACEHOLDER)) {
+      if (value.startsWith('"')) {
+        const valueStart = matcher.lastIndex - value.length;
+        const complete = COMPLETE_INLINE_DOUBLE_QUOTED_VALUE_RE.exec(content.slice(valueStart));
+        if (complete && complete[0].length > value.length)
+          matcher.lastIndex = valueStart + complete[0].length;
+      }
+      parts.push(`${key}=${SECRET_REDACTION_PLACEHOLDER}`);
+    } else parts.push(match[0]);
+    end = matcher.lastIndex;
+  }
+  parts.push(content.slice(end));
+  return parts.join('');
 }
 function rawDynamicText(value: unknown, seen = new WeakSet<object>()): string {
   if (value === null || value === undefined) return '';

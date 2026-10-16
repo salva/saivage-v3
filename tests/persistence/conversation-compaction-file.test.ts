@@ -58,6 +58,7 @@ import { responsesProducerAccountId } from '../../src/agents/llm-openai-response
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 import { AgentNodeExecution } from '../../src/runtime/actors/agent-node-execution.js';
 import type { ContextBlock } from '../../src/contracts/prepared-invocation.js';
+import { prepareRecordPromptContent } from '../../src/runtime/records/record-prompt-content.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
@@ -205,13 +206,15 @@ describe('conversation compaction file persistence', () => {
       }
     },
   );
-  it.each(['normal', 'local_omission'] as const)(
+  it.each(['normal', 'local_omission', 'cancelled'] as const)(
     'preserves latest descriptor facts separately from protected record-prompt text through %s compaction',
     async (mode) => {
       const root = mkdtempSync(join(tmpdir(), 'record-facts-compaction-'));
       initProjectTree(root);
       try {
         const store = new CardService(root);
+        const body = `A instruction start${'a'.repeat(40000)}OMITTED REQUIREMENT${'b'.repeat(40000)}A instruction end`;
+        store.acceptRecord('project', 'brief.md', body, 'analyst');
         const ctx = { projectRoot: root, store, agentName: 'planner' as const, cardId: 'project' };
         const first = (
           await readProject(ctx, { path: 'record:///brief.md?card=project', metadata_only: true })
@@ -233,7 +236,7 @@ describe('conversation compaction file persistence', () => {
           id: 'old-record-prompt',
           role: 'user',
           kind: 'record_prompt',
-          content: 'Original A instruction, historical not current body',
+           content: prepareRecordPromptContent(body, 'record:///brief.md?card=project'),
           instruction_origin: 'workflow_prompt',
           record_prompt: { reference: 'changed-record', node_id: 'plan', reason: 'initial' },
           context_policy: {
@@ -243,7 +246,7 @@ describe('conversation compaction file persistence', () => {
           },
           record_observations: [
             {
-              observed: first,
+              observed: { ...first, exposure: { kind: 'excerpt' } },
               source: {
                 kind: 'prompt',
                 input_id: inputId,
@@ -273,7 +276,27 @@ describe('conversation compaction file persistence', () => {
             ordinal === 1 ? [...round(ordinal), oldPrompt, descriptor] : round(ordinal),
           );
         const source = readConversation(root, SESSION);
-        const result = await compact({
+        const before = readCurrentConversationSegment(root, SESSION)!;
+        const indexPath = cardConversationVersionIndexFile(root, 'project', 'planner');
+        const segmentPath = cardConversationVersionFile(root, 'project', 'planner', before.entry.filename);
+        const indexBytes = readFileSync(indexPath), segmentBytes = readFileSync(segmentPath);
+        const controller = new AbortController();
+        const cancellation = new Error('cancel excerpt compaction');
+        if (mode === 'cancelled') controller.abort(cancellation);
+        const completeTurn = jest.fn(async (request: Parameters<import('../../src/runtime/actors/compaction/summarizer.js').SummarizerProviderPort['completeTurn']>[0]) => {
+          const composed = JSON.stringify(request.providerConversation);
+          expect(composed).toContain('kind=record_selection_facts');
+          expect(composed).toContain(descriptor.id);
+          expect(composed).not.toContain('B current accepted body');
+          expect(composed).toContain('Oversized record preview:');
+          expect(composed).not.toContain('OMITTED REQUIREMENT');
+          if (mode === 'local_omission') throw new ProviderTurnFailure({
+            failure_phase: 'provider_attempt', candidate: CANDIDATE, provider_exchanges: [],
+            originalFailure: new LlmRequestError({ kind: 'content_policy', provider: 'test', message: 'synthetic refusal', status: 400, providerResponse: 'synthetic' }),
+          });
+          return { result: { kind: 'message' as const, content: 'Replacement historical summary' }, provider_exchanges: [] };
+        });
+        const operation = compact({
           summaryRefusal: null,
           strategy: 'preventive',
           conversations: { projectRoot: root },
@@ -286,41 +309,28 @@ describe('conversation compaction file persistence', () => {
             contextWindowTokens: 100_000,
             maxOutputTokens: 10_000,
             serializeSummaryRequest: deterministicSummarySerialization,
-            completeTurn: async (request) => {
-              const composed = JSON.stringify(request.providerConversation);
-              expect(composed).toContain('kind=record_selection_facts');
-              expect(composed).toContain(descriptor.id);
-              expect(composed).not.toContain('B current accepted body');
-              expect(composed).toContain(oldPrompt.content);
-              if (mode === 'local_omission')
-                throw new ProviderTurnFailure({
-                  failure_phase: 'provider_attempt',
-                  candidate: CANDIDATE,
-                  provider_exchanges: [],
-                  originalFailure: new LlmRequestError({
-                    kind: 'content_policy',
-                    provider: 'test',
-                    message: 'synthetic refusal',
-                    status: 400,
-                    providerResponse: 'synthetic',
-                  }),
-                });
-              return {
-                result: { kind: 'message' as const, content: 'Replacement historical summary' },
-                provider_exchanges: [],
-              };
-            },
+            completeTurn,
             projectProviderExchanges: jest.fn(),
           },
-          signal: new AbortController().signal,
+          signal: controller.signal,
           progress: noCompactionProgress,
         });
+        if (mode === 'cancelled') {
+          await expect(operation).rejects.toBe(cancellation);
+          expect(completeTurn).not.toHaveBeenCalled();
+          expect(readFileSync(indexPath)).toEqual(indexBytes);
+          expect(readFileSync(segmentPath)).toEqual(segmentBytes);
+          expect(readConversation(root, SESSION).sourceRows).toContainEqual(oldPrompt);
+          return;
+        }
+        const result = await operation;
         expect(result.kind).toBe('compacted');
         const history = readConversation(root, SESSION).effectiveCompactedHistory!;
         expect(history.requiredModelFacts.latestRecordObservations).toEqual([
           expect.objectContaining({ observation: descriptor.record_observations![0] }),
         ]);
         expect(history.protectedPrompts.map((entry) => entry.message)).toEqual([oldPrompt]);
+        expect(history.protectedPrompts[0]!.message.record_observations![0]!.observed.exposure).toEqual({ kind: 'excerpt' });
         expect(JSON.stringify(history.requiredModelFacts)).not.toContain(oldPrompt.content);
         expect(JSON.stringify(history.requiredModelFacts)).not.toContain('B current accepted body');
         const primary = providerConversationProjection(

@@ -157,7 +157,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
-  it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 8 %s beneath a current format 9 index without rewriting bytes', async part => {
+  it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 9 %s beneath a current format 10 index without rewriting bytes', async part => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-old-history-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -166,11 +166,11 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toEqual(old.rows);
       const path = cardConversationVersionFile(root, 'project', 'planner', old.entry.filename);
       const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
-      if (part === 'envelope') envelopes[0].version = 8;
-      else envelopes[0].rows[0].format_version = 8;
+      if (part === 'envelope') envelopes[0].version = 9;
+      else envelopes[0].rows[0].format_version = 9;
       writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
       const before = readFileSync(path);
-      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(9);
+      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(10);
       expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
       expect(readFileSync(path)).toEqual(before);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -228,7 +228,7 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('uses strict format 9 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
+  it('uses strict format 10 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -238,10 +238,13 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(9);
-      expect(segment.genesis.format_version).toBe(9);
+      expect(segment.index.format_version).toBe(10);
+      expect(segment.genesis.format_version).toBe(10);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(9);
+      expect(envelope.version).toBe(10);
+      expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 9 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 9 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 9 }, ...segment.rows] }).success).toBe(false);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 8 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 8 }).success).toBe(false);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 6 }).success).toBe(false);

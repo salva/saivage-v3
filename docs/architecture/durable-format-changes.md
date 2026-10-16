@@ -23,6 +23,53 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Record-prompt excerpts (2026-10-16)
+
+Exact implementation parent: `d27a34d42fe09d54756c686241aa2707535eec5e`.
+Conversation index and ordinary/compacted genesis `format_version` advance **9→10**;
+conversation-segment envelope `version` advances **9→10** (same owning conversation
+contract, not independent family numbering). `record-observation.ts` now admits
+strict `exposure:{kind:'excerpt'}` for a non-complete source-body presentation,
+including nested rows and compacted latest descriptor facts; absence/empty selection
+rejects excerpt. Existing full-body/slice/reference/metadata meanings are unchanged.
+
+`runtime/records/record-prompt-content.ts` preserves small/null substitutions and
+prepares raw bodies over 32768 UTF-8 bytes as complete supplier JSON encoding →
+existing record-prompt outbound redaction → scalar-safe display head/tail and
+disclosure/current-pointer notice → fresh JSON quoting of the entire preview.
+The prepass output is opaque text, never parsed back. The retained display allocation
+is at most 8192 bytes per end, not a final JSON/notice/host or total-context bound.
+If redaction leaves at most 16384 bytes, display appears once without further middle
+elision. Every oversized transformation has excerpt exposure. Source provenance
+identifies selected source, not display-byte equality; actual rendered prompt text
+is persisted, protected and summarized by existing owners. Versionless pointers
+select latest effective content through ordinary bounded reads, not historical
+omitted bytes. Separate full accepted bootstrap and record storage remain unchanged.
+
+This cutover also includes the shared raw/encoded inline masking correction used
+by that durable prepass: conservative candidates and boundary checks remain, with
+escape-aware complete double-quoted extension only for actually masked recognized
+secret values. Non-secret/unmodified candidates retain original advancement and
+incomplete values retain conservative coverage. New prompt bytes therefore differ
+durably; separately, current/history/protected public projection and other existing
+outbound callers can conceal previously exposed escaped-quote suffixes transiently.
+No retained old rows are rewritten or reinterpreted; opaque result/evidence bytes
+still mean what was recorded, with no new non-conversation validation requirement.
+
+Applicability: the owner supplied that format 9 is deployed, with incident
+`4edc1c7b`; installed commit/date were not inspected. This is a fresh 9→10 bump,
+not unreleased version reuse. Source completion grants no deployment/adoption,
+migration, reset or rollback permission. Old/mixed state blocks strictly; adoption
+requires a separately consented complete reset or explicitly requested external
+offline migration under the runbook gates. Binary-only rollback against new writes
+is unsupported. No converter, compatibility reader, probing or automatic reset.
+
+Raw selected PNG bytes are unchanged under the bumped owning conversation descriptor.
+Card/record/head/mailbox/config and MCP definitions remain unchanged; provider/app-log
+retain shared `version:1/type:rows`, diagnostics retain format 3/privacy policy 2,
+and unrelated families do not advance. Earlier dated entries below describe their
+source boundaries, not current format-10 claims or installation inventories.
+
 ### Ordinary absolute agent reads — no durable impact (2026-10-16)
 
 Exact implementation parent: `261447e5c2788039a6f7a468d6ec4361af809cd1`.
@@ -672,8 +719,8 @@ contains the schemas and direct publication/consumption owners.
 | Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:1`, `card-version` / `card-tombstone`; predecessor-linked ordinary/final payload, sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
 | Record head / accepted history | `records/record-<stem>.json`, `records/accepted/<UUID>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:1`, `record-head` / `accepted-record`; required head identity, sole current draft, accepted predecessor and ordinary card provenance. |
-| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:9`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. Protected messages preserve positive workflow-prompt provenance; required facts retain latest typed current record observations independently. |
-| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:9`, `type:conversation-segment`; strict activation instruction evidence, typed owning record observations and eligible actual record-prompt provenance alongside strict message/tool-result/private-context semantics. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
+| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:10`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. Protected messages preserve positive workflow-prompt provenance; required facts retain latest typed current record observations, including excerpt exposure, independently. |
+| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:10`, `type:conversation-segment`; strict activation instruction evidence, typed owning record observations including excerpt exposure and actual encoded/redacted oversized record-prompt display alongside strict message/tool-result/private-context semantics. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; separate lifecycle-exclusion boundary, not generated-root migration state. |
 
