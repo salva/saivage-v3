@@ -18,6 +18,59 @@ Retain natural command exits, timings, suite totals and warnings. This adds no
 universal gate or warning-fatal policy: canonical `npm test` still owns ordinary
 parallel Jest followed by the serial terminal-child suite, without forced exit.
 
+## Matched Vue core patch comparison
+
+Compare both root and `web/` lock graphs, recording source revision, manifest/lock
+hashes and actual in-environment Node/npm versions. In separate disposable baseline
+and candidate package roots, clean-install both graphs with development and optional
+dependencies (`npm ci --include=dev --include=optional`) and require successful
+`npm ls --all` for each. Inspect core-specific tree paths as well as exits: Vue and
+its nine core companions must resolve the intended matched patch, without stranded
+old copies or unrelated resolver churn. Necessary transitive changes need explicit
+assessment; do not use overrides, blanket dedupe or `npm audit fix`.
+
+Establish baseline mounted frontend and semantic SFC results. Candidate checks from
+the repository root are:
+
+```bash
+npm run web:typecheck
+npm run web:test
+npm run test:direct -- --runInBand --runTestsByPath tests/scripts/export-consumers.test.js
+npm run validate:routine
+npm run validate:docs
+npm run build
+npm run validate:ui-smoke
+node node_modules/@playwright/test/cli.js test -c tests/playwright/smoke/playwright.config.ts tests/playwright/smoke/storage-head-history.spec.ts tests/playwright/smoke/conversation-instruction-flows.spec.ts tests/playwright/smoke/operator-image-inspection.spec.ts tests/playwright/smoke/markdown-rendering.spec.ts
+npm run audit:security
+```
+
+Retain mounted Records, both history panels, recorded observations, compacted context,
+historical/current instructions, ContextBlock, ConversationTimeline, cockpit navigation,
+UI primitives/Dialog and Markdown results. The focused root test protects the actual
+compiler-semantic consumer; preserve independent counter arithmetic, not repinned
+classification counts. Build includes real VitePress SSR/static generation, web types
+and production assets, compiled prompt composition and static serving. Do not commit
+generated outputs or change prompts/scaffold semantics to pass.
+
+Use disposable browser fixtures, never a live project. Retain visible-browser
+evidence of cockpit/Records/history/context interactions, including **Unfilled scaffold
+— not authored or accepted** versus independently accepted backing; the existing
+storage-history scenario covers this distinction. Report assertions, console errors
+and artifacts, not merely browser startup. Mocked navigation/storage evidence and the
+real disposable-server image fixture have distinct scopes. Preserve existing private-IP
+namespace setup, no-egress runtime checks, short TMPDIR and writable build caches;
+only bounded registry install/audit work needs external network access.
+
+Run independent root and web `npm audit --include=dev --json` before and after, even
+when the aggregate security gate short-circuits. Preserve nonzero advisory exits and
+report severity counts **and unique advisory IDs**: propagated affected-package entries
+are not distinct vulnerabilities. Retained unrelated advisories stay disclosed; a
+new blocking result requires assessment, not an automatic broad fix. Required candidate
+failures block acceptance even if baseline also fails. Keep natural exits and warnings;
+do not force exit, weaken assertions or retry until green. This scoped Vue consumer
+comparison is not full release certification or deployment approval; it does not claim
+`npm test`, backend E2E or `validate:release` success, or waive an observed required gate.
+
 ## Export-consumer guard
 
 `npm run check:export-consumers` is the singular complete semantic

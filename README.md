@@ -375,6 +375,9 @@ not node re-entry; latest descriptor facts do not imply body recall. See
 Use the profile that matches the change; `docs/validation.md` owns the
 toolchain internals and CI topology behind them.
 
+For Vue core patches, use the [matched root/web comparison recipe](docs/validation.md#matched-vue-core-patch-comparison):
+backend routine validation alone does not cover the compiler, mounted UI and browser consumers.
+
 The [offline compaction fact/action rubric](tests/fixtures/compaction-semantic-quality.md)
 complements mechanical regression tests; its frozen evidence does not establish
 changed-model fidelity.

@@ -33,6 +33,18 @@ references outside code, synchronously parses GFM with Marked (`breaks: false`,
 Vue HTML insertion. Sanitization follows parsing; it does not bound parser cost.
 This is ephemeral presentation, not a rewrite of stored source or references.
 
+## Frontend and build dependency ownership
+
+The root and `web/` npm manifests and lockfiles own separate dependency graphs.
+Keep Vue core runtime and compiler patches matched across both: the root
+`@vue/compiler-sfc` drives semantic SFC analysis in `scripts/check-export-consumers.js`,
+and VitePress consumes Vue for documentation SSR/hydration; the web graph owns
+the operator runtime and SFC compilation through plugin-vue. Vue's nine core
+`@vue` companions follow the same core release, not a blanket `@vue/*` upgrade.
+Language-tools (`vue-tsc`/language-core), test-utils and devtools have independent
+release lines; their declared compatibility and actual consumers require separate
+assessment. See the [Vue patch comparison recipe](../validation.md#matched-vue-core-patch-comparison).
+
 ## Conversation-owned image pipeline
 
 `contracts/image.ts` owns browser-safe strict descriptors and pure descriptor-based

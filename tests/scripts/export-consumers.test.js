@@ -791,7 +791,7 @@ describe('repository complete export boundary', () => {
       expect(item.testLocations.some((location) => location.startsWith('tests/playwright/browser-client/chat-api-client-browser.spec.ts:'))).toBe(true);
     }
     const packageJson = JSON.parse(readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
-    expect(packageJson.devDependencies['@vue/compiler-sfc']).toBe('3.5.42');
+    expect(packageJson.devDependencies['@vue/compiler-sfc']).toBe('3.5.44');
     expect(packageJson.devDependencies['source-map-js']).toBe('1.2.2');
     expect(packageJson.devDependencies['@vue/compiler-dom']).toBeUndefined();
     expect(readFileSync(path.join(repositoryRoot, 'scripts/check-export-consumers.js'), 'utf8')).not.toContain("from '@vue/compiler-dom'");
