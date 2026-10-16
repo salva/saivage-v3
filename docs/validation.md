@@ -6,6 +6,18 @@ owns validation selection and navigation; the workflow file
 [`.github/workflows/validation.yml`](../.github/workflows/validation.yml) is
 the executable authority.
 
+## Local toolchain-upgrade evidence
+
+Use the latest supported Node 24.x LTS patch within the existing Node/npm engine
+ranges. For a local toolchain comparison, record the actual `node --version`,
+`npm --version`, resolved Node executable and architecture inside the validation
+environment, alongside the source revision and dependency lockfile hashes.
+Keep baseline and candidate source/dependencies matched; record clean-install
+evidence separately, including Sharp's native import and image-conversion tests.
+Retain natural command exits, timings, suite totals and warnings. This adds no
+universal gate or warning-fatal policy: canonical `npm test` still owns ordinary
+parallel Jest followed by the serial terminal-child suite, without forced exit.
+
 ## Export-consumer guard
 
 `npm run check:export-consumers` is the singular complete semantic

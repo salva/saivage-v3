@@ -144,7 +144,8 @@ commands or untrusted local/browser origins. Local builds and tests outside LXC
 remain supported. This trial deliberately disables operator authentication;
 follow the [runbook](docs/runbook/index.md) for deployment decisions.
 
-Use Node.js 24. The package engines require `node >=24 <25` and `npm >=10 <12`,
+Use the latest supported Node.js 24.x LTS patch. The package engines require
+`node >=24 <25` and `npm >=10 <12`,
 matching GitHub Actions. Build from a source checkout, then initialize and start
 from the target project:
 

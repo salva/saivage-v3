@@ -277,7 +277,7 @@ provider configs or authenticated operator pages. Pixels cannot be regex-certifi
 secret-free; browsing isolation/confidentiality practice belongs to deployment.
 
 Sharp is a backend runtime dependency: retain native optional packages beside
-compiled ESM. Use supported Node 24/npm >=10 <12 with optional dependencies enabled,
+compiled ESM. Use the latest supported Node 24.x LTS patch and npm >=10 <12 with optional dependencies enabled,
 not `--omit=optional`. Sharp requires Node-API v9/Node >=20.9; Linux x64 prebuilds
 require glibc >=2.28 or musl >=1.2.5 and SSE4.2. npm multi-platform lockfiles have
 native optional-package caveats: validate clean install/import and PNG/JPEG conversion
