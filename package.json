@@ -89,7 +89,7 @@
     "prettier": "^3.8.3",
     "source-map-js": "1.2.2",
     "ts-jest": "^29.4.15",
-    "tsx": "4.22.3",
+    "tsx": "4.23.15",
     "typescript": "^5.9.3",
     "vitepress": "2.0.0-alpha.1"
   },

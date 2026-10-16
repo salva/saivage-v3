@@ -477,14 +477,31 @@ to waive the independent root/web audit gate and its include-dev scope below.
 Consumer checks or a patched dependency alone do not establish all-green
 validation or whole-project acceptance.
 
-Root tsx 4.22.3 selects esbuild 0.28.2 within its existing `~0.28.0` range,
+Root tsx 4.23.15 selects esbuild 0.28.2 within its existing `~0.28.0` range,
 without a direct dependency or override; Vite's separate esbuild 0.25.12
-remains unchanged. The actual tsx consumer is `scripts/copy-system-template-prompts.js`
-in `npm run build`: it compiles and copies every registered prompt closure,
-then recompiles the packaged closure. The registry/copy-script Jest checks and
-the full build, including compiled composition's source/package byte comparison,
-provide semantic acceptance evidence. Applicability of the Windows `servedir`
-traversal advisory to this Linux transpilation consumer is not established.
+remains unchanged. Source-launcher consumers include Node `--import tsx`
+terminal, publication, public-entry, process, logger and Supervisor fixtures,
+CLI-backed disposable init/repair tests, and `scripts/copy-system-template-prompts.js`
+in `npm run build`. The copy script compiles and copies every registered prompt
+closure, then recompiles the packaged closure. Registry/copy-script Jest checks
+and the full build, including compiled composition's source/package byte comparison,
+protect that packaging consumer. Applicability of the Windows `servedir` traversal
+advisory to this Linux transpilation consumer is not established.
+
+Compare baseline and candidate in separate clean-installed root/web dependency
+roots, retaining exact toolchain versions, lock graphs, selected tests, warnings
+and natural exits. Run the terminal-child suite independently, targeting the actual
+App PID through Node `--import tsx`, never a CLI intermediary. Explicitly select
+the process-inline E2E consumer and the separate ts-jest config-init smoke rather
+than infer their coverage from default Jest selection. Disposable CLI probes for
+typed stdin and one-shot SIGINT asynchronous cleanup supplement, not replace,
+the actual App tests: require typed output with exit0 and completed cleanup with
+exit42 on the candidate, while recording the baseline's actual outcome. Required
+candidate failures block acceptance even if baseline also fails; forced exits,
+retries or relaxed deadlines are not passing evidence. This comparison is not
+full E2E/release certification or deployment approval; tsx does not own Jest's
+ts-jest transformations.
+
 The Jest/Istanbul chain's sprintf-js advisory remains unpatched and deferred;
 upstream repair or compatible parent removal is the revisit trigger. Run root
 and web audits independently with development dependencies included, including
