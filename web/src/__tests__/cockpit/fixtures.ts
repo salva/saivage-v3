@@ -141,7 +141,7 @@ export function cyclicCodePresentation(): OperatorApiSuccess<'workflows.presenta
     entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
     edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
     terminals: graph.terminals,
-    records: graph.records.map(({ name, bootstrap }) => ({ name, bootstrap })),
+    records: graph.records.map(({ name, bootstrap, initialization }) => ({ name, bootstrap, initialization })),
   };
 }
 
@@ -152,8 +152,8 @@ export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][
     notification_recipient: 'planner',
     permitted_child_types: [],
     records: [
-      { name: 'brief.md', format: 'markdown', schema: 'brief.v1', bootstrap: true },
-      { name: 'notes.md', format: 'markdown', schema: 'notes.v1', bootstrap: false },
+      { name: 'brief.md', format: 'markdown', schema: 'brief.v1', bootstrap: true, initialization: null },
+      { name: 'notes.md', format: 'markdown', schema: 'notes.v1', bootstrap: false, initialization: null },
     ],
     entries: [
       { entry: 'BACKLOG', node_id: 'execute', prompt },

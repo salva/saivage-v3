@@ -70,9 +70,9 @@ describe('workspace VFS and project-file security', () => {
     initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create({ type: 'goal', parent: 'project', title: 'Record order', bootstrap_content: 'brief', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-    cards.openRecord(child.id, 'status.md');
+    cards.openRecord(child.id, 'status.md', null);
     cards.editRecord(child.id, 'status.md', 'status');
-    cards.openRecord(child.id, 'review.md');
+    cards.openRecord(child.id, 'review.md', null);
     cards.editRecord(child.id, 'review.md', 'review');
     writeFileSync(join(cardNamespace(root, child.id), 'record-undiscoverable-orphan.jsonl'), 'needle orphan');
 

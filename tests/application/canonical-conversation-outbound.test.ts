@@ -165,13 +165,13 @@ describe('canonical conversation outbound row projection', () => {
       content: 'Actual rendered instruction token=text-canary FINAL-Z', instruction_origin: 'workflow_prompt',
       record_prompt: { reference, node_id: 'execute', reason: 'initial' },
       context_policy: { ...TEXT_ROW_POLICY, compactable: false, compaction_key: 'token=key-canary' },
-      record_observations: [{ observed: { card_id: 'project', record_name: 'status.md', view: 'effective', selection_kind: 'current', head: { head_id: source, revision: 3 }, selection: { kind: 'draft', content_sha256: 'a'.repeat(64), accepted_backing: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1', content_sha256: 'b'.repeat(64) } }, exposure: { kind: 'full_body' } }, source: { kind: 'prompt', input_id: source, node_id: 'execute', reference } }],
+      record_observations: [{ observed: { card_id: 'project', record_name: 'status.md', view: 'effective', selection_kind: 'current', head: { head_id: source, revision: 3 }, selection: { kind: 'draft', unfilled: true, content_sha256: 'a'.repeat(64), accepted_backing: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1', content_sha256: 'b'.repeat(64) } }, exposure: { kind: 'full_body' } }, source: { kind: 'prompt', input_id: source, node_id: 'execute', reference } }],
     });
     const before = structuredClone(row);
     const publicRow = projectCanonicalConversationRow(row, identityProjector);
     expect(publicRow.content).toBe('Actual rendered instruction token=[REDACTED] FINAL-Z');
     expect(publicRow.record_observations![0]!.source).toMatchObject({ reference: 'token=[REDACTED]' });
-    expect(publicRow.record_observations![0]!.observed.selection).toEqual({ kind: 'draft', accepted_backing: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1' } });
+    expect(publicRow.record_observations![0]!.observed.selection).toEqual({ kind: 'draft', unfilled: true, accepted_backing: { kind: 'accepted', entry_id: source, version: 1, locator: 'record:///status.md?card=project&v=1' } });
     for (const hidden of ['canary', 'content_sha256', 'a'.repeat(64), 'b'.repeat(64)]) expect(JSON.stringify(publicRow)).not.toContain(hidden);
     expect(row).toEqual(before);
     expect(() => AgentConversationEntrySchema.parse({ ...publicRow, record_observations: row.record_observations })).toThrow();

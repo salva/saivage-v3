@@ -76,7 +76,7 @@ function objectiveRecord() {
     record: {
       head_id:'11111111-1111-4111-8111-111111111111', name: objectiveName, revision: 5, current_url: `record:///${objectiveName}?card=${smokeCardId}`, accepted_version_url: `record:///${objectiveName}?card=${smokeCardId}&v=2`, state: 'open',
       accepted: { source_version: 2, source_entry_id: '66666666-6666-4666-8666-666666666666', committed_at: now, writer_agent: 'analyst', card_version_seq: 4, card_history_version: 4, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective.', content_sha256: 'b'.repeat(64), size_bytes: 27 },
-      draft: { opened_at: now, updated_at: now, content: objective, content_sha256: 'c'.repeat(64) },
+      draft: { unfilled: false, opened_at: now, updated_at: now, content: objective, content_sha256: 'c'.repeat(64) },
       effective_content_source: 'draft',
     },
   });
@@ -103,7 +103,7 @@ function largeGraph() {
   }));
   return {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
-    records: [...descriptors.map(({ current: _current, ...record }) => record), { name: graphLastMarker, format: 'markdown', schema: 'plain.v1', bootstrap: false }],
+    records: [...descriptors.map(({ current: _current, ...record }) => ({ ...record, initialization: null })), { name: graphLastMarker, format: 'markdown', schema: 'plain.v1', bootstrap: false, initialization: null }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: nodes[0]!.node_id, prompt: null })), nodes, edges,
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
   };
@@ -202,7 +202,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
       entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
       edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
       terminals: graph.terminals,
-      records: graph.records.map(({ name, bootstrap }) => ({ name, bootstrap })),
+      records: graph.records.map(({ name, bootstrap, initialization }) => ({ name, bootstrap, initialization })),
     }));
     return route.fallback();
   });

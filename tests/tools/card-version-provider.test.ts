@@ -283,10 +283,10 @@ describe('card version provider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-record-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create(childInput('Card'));
-    cards.openRecord(child.id, 'status.md');
+    cards.openRecord(child.id, 'status.md', null);
     cards.editRecord(child.id, 'status.md', 'draft content');
     cards.closeRecord(child.id, 'status.md', 'planner');
-    cards.openRecord(child.id, 'status.md');
+    cards.openRecord(child.id, 'status.md', null);
     cards.editRecord(child.id, 'status.md', 'second draft');
     const surface = surfaceFor(cards);
 
@@ -313,10 +313,10 @@ describe('card version provider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-discarded-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create(childInput('Card'));
-    cards.openRecord(child.id, 'status.md');
+    cards.openRecord(child.id, 'status.md', null);
     cards.editRecord(child.id, 'status.md', 'baseline');
     cards.closeRecord(child.id, 'status.md', 'planner');
-    cards.openRecord(child.id, 'status.md');
+    cards.openRecord(child.id, 'status.md', null);
     cards.editRecord(child.id, 'status.md', 'wrong direction draft');
     cards.discardRecord(child.id, 'status.md');
     const surface = surfaceFor(cards);
@@ -340,7 +340,7 @@ describe('card version provider', () => {
     const other = mkdtempSync(join(tmpdir(), 'saivage-card-version-discarded-none-')); roots.push(other); initProjectTree(other);
     const otherCards = new CardService(other);
     const otherChild = otherCards.create(childInput('Card'));
-    otherCards.openRecord(otherChild.id, 'status.md');
+    otherCards.openRecord(otherChild.id, 'status.md', null);
     otherCards.discardRecord(otherChild.id, 'status.md');
     const noneResult = await invokeTestTool(surfaceFor(otherCards), 'read_record_version', { card_id: otherChild.id, record_name: 'status.md', version: 2 });
     expect(noneResult).toMatchObject({ success: false, error: 'Record version not found.' });

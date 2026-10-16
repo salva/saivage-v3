@@ -64,7 +64,7 @@ const excerpt = computed(() => {
 });
 const stateLabel = computed(() => {
   const source = props.slot?.current?.record.effective_content_source;
-  if (source === 'draft') return 'Draft';
+  if (source === 'draft') return props.slot?.current?.record.draft?.unfilled ? 'Unfilled scaffold — not authored or accepted' : 'Draft';
   if (source === 'accepted') return 'Accepted';
   if (props.slot?.loading) return 'Loading';
   if (props.slot?.error) return 'Read failed';

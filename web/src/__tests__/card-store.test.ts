@@ -199,7 +199,7 @@ describe('CardStore exact card resources',()=>{
     expect(getRecordVersion).toHaveBeenCalledWith(A, 'brief.md', 2, expect.any(AbortSignal));
     expect(store.cardRecords['brief.md']!.selected).toEqual(historical);
     const draftTime = '2026-07-23T00:00:00.000Z';
-    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: draftTime }, effective_content_source: 'draft' } });
+    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { unfilled: false, content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: draftTime }, effective_content_source: 'draft' } });
     await store.refreshRecord('brief.md', 'invalidated');
     const missing = { error: 'historical_version_not_found' as const, resource: 'authored_record' as const, owner_id: `${A}/brief.md`, version: 3 };
     vi.mocked(getRecordVersion).mockRejectedValueOnce(new OperatorApiError('cards.records.versions.get', 404, missing));

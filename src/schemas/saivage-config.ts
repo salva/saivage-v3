@@ -306,6 +306,15 @@ const recordDefinitionSchema = z
     format: z.literal('markdown'),
     schema: z.string().regex(/^[a-z][a-z0-9-]{0,63}\.v[1-9][0-9]*$/u),
     bootstrap: z.boolean(),
+    initialization: z
+      .object({
+        content: z.string().refine((value) => value.trim().length > 0, 'Initializer must not be empty.'),
+        at: z.array(z.enum(['first_required_entry', 'clean_entry'])).nonempty()
+          .refine((values) => new Set(values).size === values.length, 'Duplicate initialization trigger.'),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 const cardTypeWorkflowSchema = z
@@ -460,7 +469,7 @@ export type CardTypesSource = z.input<typeof cardTypesSchema>;
 export type CardTypeSource = SaivageConfig['card_types'][keyof SaivageConfig['card_types']];
 export type RecordDeclaration = z.infer<typeof recordDefinitionSchema>;
 export type RecordDefinition = Readonly<
-  RecordDeclaration & {
+  Omit<RecordDeclaration, 'initialization'> & {
     filename: RecordName;
     declared: boolean;
   }

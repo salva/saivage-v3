@@ -28,7 +28,7 @@ function fixture() {
 describe('owner-local current bootstrap preparation', () => {
   it('selects complete accepted body, identity and full exposure from exactly one owning read', () => {
     const f = fixture();
-    f.store.openRecord('project', 'brief.md');
+    f.store.openRecord('project', 'brief.md', null);
     f.store.editRecord('project', 'brief.md', 'UNACCEPTED DRAFT');
     const read = jest.spyOn(f.store, 'readRecordCurrent');
     const prepared = f.prepare();

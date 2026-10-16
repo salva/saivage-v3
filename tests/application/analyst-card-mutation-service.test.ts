@@ -343,7 +343,7 @@ describe('Analyst record publication', () => {
       const cards = new CardService(root);
       const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: 'Original', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
-      const open = cards.openRecord(target.id, 'brief.md');
+      const open = cards.openRecord(target.id, 'brief.md', null);
       expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.revision } });
       expect(current(cards,target.id,'brief.md').revision).toBe(open.revision);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -439,7 +439,7 @@ describe('other Analyst mutation facets', () => {
       initProjectTree(root);
       const cards = new CardService(root);
       const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [] });
-      const open = cards.openRecord(card.id, 'brief.md');
+      const open = cards.openRecord(card.id, 'brief.md', null);
       const edited = cards.editRecord(card.id, 'brief.md', '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
       const closed = cards.closeRecord(card.id, 'brief.md', 'analyst');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;

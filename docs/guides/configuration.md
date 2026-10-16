@@ -41,7 +41,9 @@ Saivage reads one strict YAML file: `.saivage/saivage.yaml` in the target
 project. `saivage init` materializes it from a bundled template; after that
 the instance owns it, and every change takes effect on the next start.
 `${ENV_VAR}` references are interpolated from the service environment at
-startup — keep API keys out of the file. Validation is strict: unknown or
+startup, except literal record scaffold content at
+`card_types.<type>.records.<name>.initialization.content` — keep API keys out of
+the file and scaffolds. Validation is strict: unknown or
 obsolete keys fail startup instead of being ignored.
 
 Missing `${ENV_VAR}` references still substitute an empty string. After a
@@ -213,6 +215,24 @@ Switching templates or replacing the map is a stopped configuration change;
 the runbook owns [identity-cutover rules](../runbook/index.md#agent-and-workflow-identity-cutovers)
 for instances with retained history. After a change, verify what actually
 compiled in the control room's [System > Installed workflows](./operating.md#system) view.
+
+### Optional record scaffolds
+
+For optional literal record scaffolds, configure non-bootstrap
+`records.<name>.initialization:{content,at}` in the complete owning card type.
+`at` is a nonempty duplicate-free subset of `first_required_entry | clean_entry`;
+content must contain non-whitespace text. Omission/null disables future seeding.
+First-required needs a node requirement, clean needs a clean requirement, and
+seed-capable requirements need matching `record_writes` and direct `write`.
+No map overlay, file-reference template or prompt interpolation is added.
+Continue preserves every present head, including empty-after-discard; clean opens
+a fresh configured cycle while preserving accepted backing. Untouched scaffolds
+are not authored or accepted and cannot satisfy gates. Configuration changes need
+new-process compilation, never rewrite ongoing drafts and are not installed by
+existing-config init. Creation-time initialization remains deferred. See the
+[example and incompatible adoption boundary](../runbook/index.md#optional-record-scaffolds)
+before changing an instance; head2/conversation11 adoption is not authorized by
+editing configuration or installing source.
 
 ## Compaction
 

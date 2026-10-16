@@ -8,6 +8,13 @@ export function classicRecordContext(definition: CardTypesSource[string]): CardT
   const bootstrap = Object.entries(definition.records).find(([, record]) => record.bootstrap)![0];
   return {
     ...definition,
+    records: Object.fromEntries(Object.entries(definition.records).map(([name, record]) => [name,
+      name === 'status.md' ? { ...record, initialization: {
+        content: '# Current assessment\n\nNot yet assessed. Replace this scaffold with the current brief-relative state, supporting evidence and remaining work.\n',
+        at: ['first_required_entry', ...(Object.values(definition.workflow.nodes).some((node) =>
+          node.records?.[name]?.mode === 'clean') ? ['clean_entry' as const] : [])],
+      } } : record,
+    ])),
     workflow: {
       ...definition.workflow,
       nodes: Object.fromEntries(

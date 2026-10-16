@@ -908,7 +908,7 @@ describe('loss-tolerant maintenance through production invocation and persistenc
       expect(f.terminal).toHaveBeenCalledTimes(1);
       const current = readCurrentConversationSegment(f.root, f.session)!;
       expect(current.entry.version).toBe(2);
-      expect(current.index.format_version).toBe(10);
+      expect(current.index.format_version).toBe(11);
       expect(current.conversation.effectiveCompactedHistory!.summaryText).toBe(
         LOCAL_OMISSION_SUMMARY,
       );

@@ -192,7 +192,7 @@ procedure belongs in the always-prepared node text.
 Typed record observation descriptors are separate from prompt text: owning current
 metadata/slice/full reads and known mutation results can advance selection knowledge
 without preserving a body. Immutable historical reads do not advance that knowledge.
-Conversation 10 required facts retain the latest descriptor per card/record/view in
+Conversation 11 required facts retain the latest descriptor per card/record/view in
 source order, independently of instruction protection. Durable `record_prompt` rows
 retain actual rendered text and declaration provenance; false without a key retains
 every occurrence, while an exact key selects the latest occurrence even in a newer
@@ -213,6 +213,42 @@ This claims neither retained body bytes nor delivery, recall or currentness.
 Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion and passes obsolete fixed-result-directive validation. The Analyst and process hosts reject that value. Old `toolList`, `projectContext`, `cardId`, `cardTitle`, and `cardBrief` placeholders do not exist: tools, project orientation, and card data are typed dynamic context, never rendered prompt variables.
 
 ## Compiled artifacts and runtime use
+
+### Literal record scaffolds are data, not prompt references
+
+Optional `records.<name>.initialization:{content,at}` belongs to the complete owning
+card-type definition. Its literal Markdown is preserved as the parsed YAML scalar;
+`${NAME}`, `{{recordContent}}` and include-like text are not interpolated or compiled.
+There is no file-reference alternate, prompt lookup, schema execution or runtime
+template language for these bodies. Normal prompt syntax outside this exact
+configuration content path is unchanged. See the
+[entry/eligibility contract](../spec/system-specification.md) and
+[configuration procedure](../runbook/index.md#optional-record-scaffolds).
+
+Actual requirement entry opens an ordinary workflow draft; ordinary effective record
+reads and the same-read conditional supplier expose its body and derived `unfilled`.
+Accepted-only suppliers still select accepted backing or absence. The shared
+`changed-record-with-body` host quotes the selected body as JSON data and distinguishes
+starter data from authored drafts and independent accepted evidence. Always-prepared
+role/node instructions and generated gates still own today's task, scope and outcome;
+the starter is not acceptance, an agent write, progress or mandatory headings.
+Bundled classic/classic-typed status starters ask for a brief-relative current
+assessment, evidence and remaining work without duplicating a full example at each
+node. Existing status-purpose guidance and substantive deliverable obligations remain.
+
+Initial/changed selection uses ordinary conversation knowledge, not an extra feed
+or guaranteed refresh: unchanged re-entry need not repeat a conditional row. Actual
+record-prompt text retains its declaration's policy; descriptor-only facts preserve
+recorded unfilled/backing distinctions after compaction, never omitted bodies or
+today's template. Later edits/config replacement cannot rewrite old observations.
+Roles and node context remain always prepared across continuation and fresh nodes;
+no instruction moves to init-only memory and no retention/feeding policy changes.
+Creation-time seeding/preview remains deferred. Existing instance YAML and selected
+materialized/custom hosts require deliberate authorized stopped reconciliation and
+new-process compilation, not existing-config init or hot reload; the head2/conversation11
+cutover independently requires incompatible-adoption authorization.
+
+### Compilation and preparation
 
 `compileProjectWorkflows()` owns exact root/scope selection and fragment reads. It compiles each selected agent template once. Process templates render raw `cardType` eagerly and are stored as final frozen non-empty text. Source edits after compilation cannot affect the artifact.
 
@@ -258,6 +294,9 @@ The authenticated Debug Graphs projection exposes each resolved workflow declara
 
 Nodes additionally project ordered record-prompt inputs and compiled placeholder
 metadata, never selected record bodies or literal template tokens.
+Record declarations separately project nullable initializer content/triggers through
+the existing privacy filter; these are compiled configuration, not selected record
+bodies, historical observations or executable prompt templates.
 Process/record declaration reference and key metadata is privacy-filtered for this
 operator projection; displayed keys never select retained instruction authority.
 
@@ -294,7 +333,7 @@ This is instruction policy, not runtime enforcement or evidence of model complia
 - Old path forms and agent-name-keyed overrides are not read, moved, warned about, or normalized.
 - A fresh `saivage init [--profile <name>]` on a config-absent project materializes the selected template's complete closure; a materialized instance is upgrade-independent by construction because its override tree resolves every reference at the override tier. Hand-authored typed-graph configs carry their typed-only prompt files in `.saivage/config/prompts` (one-time copy from the classic-typed template's tree) because the bundled root contains only the classic template's compiled source closure.
 - Operators stop the service, manually reconcile the selected materialized overrides while preserving customizations, then start a genuinely new server process. Project Stop/Run, pause/resume, and browser refresh do not compile prompt changes.
-- Producer-declared compaction policy uses strict object declarations and current conversation format 10, with the fresh [9→10 excerpt cutover](./durable-format-changes.md#record-prompt-excerpts-2026-10-16). Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations); no runtime converter or adoption permission follows source completion. Earlier cutovers are historical provenance, not supported formats. Declaration-based protection applies to eligible durable entry, edge, pending-notification, correction and record-prompt occurrences. Structural prepared role/node evidence adds no durable model-context occurrence, changes no static/node delivery according to a declaration flag, and is not carried into compacted genesis; inspect its exact indexed source history instead. Record observation facts retain descriptors independently, never those historical instruction strings.
+- Producer-declared compaction policy uses strict object declarations and current conversation format 11, with the fresh [10→11 scaffold-observation cutover](./durable-format-changes.md#node-entry-record-scaffolds-2026-10-16), retaining the earlier 9→10 excerpt contract. Incompatible adoption follows the [runbook reset/external-migration decision](../runbook/index.md#external-migrations); no runtime converter or adoption permission follows source completion. Earlier cutovers are historical provenance, not supported formats. Declaration-based protection applies to eligible durable entry, edge, pending-notification, correction and record-prompt occurrences. Structural prepared role/node evidence adds no durable model-context occurrence, changes no static/node delivery according to a declaration flag, and is not carried into compacted genesis; inspect its exact indexed source history instead. Record observation facts retain descriptors independently, never those historical instruction strings.
 
 ## Key source files
 

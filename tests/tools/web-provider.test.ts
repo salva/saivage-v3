@@ -64,7 +64,7 @@ describe('WebProvider', () => {
     cards.setStatus('project', 'running');
     cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
     cards.setStatus('project', 'changed');
-    if (condition === 'draft') { cards.openRecord('project', 'brief.md'); cards.editRecord('project', 'brief.md', 'workflow draft'); }
+    if (condition === 'draft') { cards.openRecord('project', 'brief.md', null); cards.editRecord('project', 'brief.md', 'workflow draft'); }
     const before = cards.readRecordCurrent('project', 'brief.md');
     const notify = jest.fn((_id: string, notice: Parameters<CardService['enqueueNotification']>[1]) => ({ ok: true as const, notificationId: notice.id }));
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('fetched correction', { status: 200, headers: { 'content-type': 'text/plain' } }));

@@ -123,6 +123,7 @@ const DebugGraphRecordSchema = z
     format: z.literal('markdown'),
     schema: z.string().min(1),
     bootstrap: z.boolean(),
+    initialization: z.object({ content: z.string(), at: z.array(z.enum(['first_required_entry', 'clean_entry'])) }).strict().nullable(),
   })
   .strict();
 const ResolvedPromptDeclarationSchema = z

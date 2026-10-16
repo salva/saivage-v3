@@ -28,6 +28,7 @@ export const recordSelectionObservationSchema = z
       z
         .object({
           kind: z.literal('draft'),
+          unfilled: z.boolean(),
           content_sha256: hash,
           accepted_backing: acceptedSelection.nullable(),
         })
@@ -153,7 +154,7 @@ const publicRecordSelectionObservationSchema = recordSelectionObservationSchema.
   selection: z.discriminatedUnion('kind', [
     publicAcceptedSelection,
     z
-      .object({ kind: z.literal('draft'), accepted_backing: publicAcceptedSelection.nullable() })
+      .object({ kind: z.literal('draft'), unfilled: z.boolean(), accepted_backing: publicAcceptedSelection.nullable() })
       .strict(),
     z.object({ kind: z.literal('absent') }).strict(),
     z.object({ kind: z.literal('empty') }).strict(),
@@ -186,6 +187,7 @@ export function publicRecordSelection(
         : value.selection.kind === 'draft'
           ? {
               kind: 'draft',
+              unfilled: value.selection.unfilled,
               accepted_backing: value.selection.accepted_backing
                 ? accepted(value.selection.accepted_backing)
                 : null,

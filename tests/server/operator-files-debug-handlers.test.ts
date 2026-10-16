@@ -349,7 +349,7 @@ describe('operator files and debug contract handlers', () => {
     const acceptedView = runtimeCardsOperatorApiContracts['cards.records.get'].response[200].parse(acceptedResponse.json());
     await preview(currentUrl, source, accepted.revision, original.committed_at, acceptedView.record.accepted!.content);
 
-    cards.openRecord('project', 'status.md');
+    cards.openRecord('project', 'status.md', null);
     const draftSource = `Draft ${source}`;
     cards.editRecord('project', 'status.md', draftSource);
     const canonicalBefore = cards.readRecordCurrent('project', 'status.md');
@@ -402,7 +402,7 @@ describe('operator files and debug contract handlers', () => {
     const absent = await request();
     expect(absent.statusCode).toBe(404);
     expect(absent.json()).toEqual({ error: 'Closed record not found.', path });
-    cards.openRecord('project', 'status.md');
+    cards.openRecord('project', 'status.md', null);
     cards.discardRecord('project', 'status.md');
     const empty = await request();
     expect(empty.statusCode).toBe(404);

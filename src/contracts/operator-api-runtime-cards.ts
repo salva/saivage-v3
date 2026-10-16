@@ -208,6 +208,7 @@ const RecordAcceptedWireSchema = z
   .strict();
 const RecordDraftWireSchema = z
   .object({
+    unfilled: z.boolean(),
     opened_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     content: z.string(),

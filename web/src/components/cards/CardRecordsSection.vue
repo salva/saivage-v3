@@ -12,6 +12,7 @@
         <div v-else>
           <div class="record-metadata">{{ record.schema }} · {{ record.bootstrap ? 'bootstrap' : 'optional' }}</div>
           <p v-if="value(record.name).current">Current revision {{ value(record.name).current?.record.revision }} · {{ value(record.name).current?.record.effective_content_source ?? 'empty' }}</p>
+          <p v-if="value(record.name).current?.record.draft">{{ value(record.name).current?.record.draft?.unfilled ? 'Unfilled scaffold — not authored or accepted' : 'Draft' }}</p>
           <div v-if="value(record.name).current?.record.accepted_version_url" class="record-locator">
             <router-link :to="recordLink(record.name, value(record.name).current!.record.accepted!.source_version)">Latest accepted v{{ value(record.name).current?.record.accepted?.source_version }}</router-link>
             <ExactValue :value="value(record.name).current!.record.accepted_version_url!" label="accepted record locator" />

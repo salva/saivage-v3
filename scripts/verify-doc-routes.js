@@ -371,8 +371,8 @@ function extractImplementedAgentTools(projectRoot) {
   return new Map(Object.entries(extractClassicAgents(projectRoot)).map(([role, tools]) => [role, uniqueSorted(tools)]));
 }
 
-const SCHEMA_WRAPPERS = new Set(['optional', 'default', 'strict', 'passthrough', 'superRefine', 'transform', 'pipe']);
-const SCALAR_CHAINS = new Set(['min', 'max', 'int', 'positive', 'nonnegative', 'safe', 'refine', 'regex']);
+const SCHEMA_WRAPPERS = new Set(['optional', 'nullable', 'default', 'strict', 'passthrough', 'superRefine', 'transform', 'pipe']);
+const SCALAR_CHAINS = new Set(['min', 'max', 'nonempty', 'int', 'positive', 'nonnegative', 'safe', 'refine', 'regex']);
 const SCALAR_FACTORIES = new Set(['string', 'number', 'boolean', 'enum', 'unknown', 'literal', 'any']);
 
 function extractConfigSchema(projectRoot) {

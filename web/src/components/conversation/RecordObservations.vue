@@ -7,6 +7,7 @@
       <p>Source: {{ item.source.kind }} · {{ timestamp }} · {{ sourceLabel }}</p>
       <p>Selection: {{ item.observed.selection.kind }} · Exposure: {{ item.observed.exposure.kind }}<template v-if="item.observed.exposure.kind === 'slice'"> · bytes {{ item.observed.exposure.offset_bytes }} + {{ item.observed.exposure.utf8_bytes }} of {{ item.observed.exposure.total_bytes }}</template></p>
       <p v-if="item.observed.selection.kind === 'draft' && accepted(item)">Accepted backing only; the current draft has no immutable body locator.</p>
+      <p v-if="item.observed.selection.kind === 'draft'">{{ item.observed.selection.unfilled ? 'Unfilled scaffold — not authored or accepted' : 'Draft' }}</p>
       <button v-if="accepted(item)" type="button" @click="openEvidence(accepted(item)!.locator)">Inspect immutable record evidence · v{{ accepted(item)!.version }}</button>
       <p v-if="item.source.kind === 'preparation'">Descriptor only: no historical full prepared record text was recorded.</p>
       <InstructionDisclosure label="Observation descriptor" :text="JSON.stringify(item, null, 2)" explanation="Descriptor only, not a reconstructed request" metadata />

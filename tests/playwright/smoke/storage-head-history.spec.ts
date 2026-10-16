@@ -86,7 +86,7 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
     const prefix = `/api/cards/${smokeCardId}`;
     if (path === prefix) return json(route, 'cards.get', { card: { ...smokeOperatorCard, title: revision === 3 ? first.title : fourth.title, lifecycle: first.lifecycle, version_seq: revision, updated_at: now } });
     if (path === `${prefix}/records`) return json(route, 'cards.records.list', { card_id: smokeCardId, records: [{ name: recordName, format: 'markdown', schema: 'brief.v1', bootstrap: true, current: { head_id:firstId, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted_source_version: 1, draft_present: true } }] });
-    if (path === `${prefix}/records/${recordName}`) return json(route, 'cards.records.get', { card_id: smokeCardId, record: { head_id:firstId, name: recordName, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted, draft: { opened_at: now, updated_at: now, content: draftText, content_sha256: hash(draftText) }, effective_content_source: 'draft' } });
+    if (path === `${prefix}/records/${recordName}`) return json(route, 'cards.records.get', { card_id: smokeCardId, record: { head_id:firstId, name: recordName, revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted, draft: { unfilled: false, opened_at: now, updated_at: now, content: draftText, content_sha256: hash(draftText) }, effective_content_source: 'draft' } });
     if (path === `${prefix}/records/${recordName}/history`) return json(route, 'cards.records.history.list', { card_id: smokeCardId, name: recordName, versions: [{ version: 1, entry_id: acceptedId, published_at: now, version_url: acceptedUrl }], total: 1 });
     if (path === `${prefix}/records/${recordName}/versions/1`) return json(route, 'cards.records.versions.get', { card_id: smokeCardId, name: recordName, version: 1, version_url: acceptedUrl, entry_id: acceptedId, published_at: now, artifact: { published_at: now, accepted } });
     const missingRecordVersion = { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${smokeCardId}/${recordName}`, version: 3 };
@@ -206,6 +206,57 @@ test('built UI distinguishes mutable heads, sparse ordinary history and accepted
   assertPreviewRequestFailures(failures);
 });
 
+test('built Records keeps an unfilled current scaffold separate from accepted backing', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
+  const pageErrors: string[] = [];
+  const badResponses: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('response', (response) => {
+    if (response.status() >= 400) badResponses.push(`${response.status()} ${new URL(response.url()).pathname}`);
+  });
+  await installOperatorWebSocketShim(page);
+  const rest = await installOperatorRestRoutes(page);
+  const name = 'status.md';
+  const url = `record:///${name}?card=${smokeCardId}`;
+  const seed = 'Current assessment: not yet assessed.';
+  const prefix = `/api/cards/${smokeCardId}/records`;
+  await page.route(`**/api/cards/${smokeCardId}/records{,/**,?**}`, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === prefix) return json(route, 'cards.records.list', {
+      card_id: smokeCardId, records: [
+        { name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null },
+        { name, format: 'markdown', schema: 'work-status.v1', bootstrap: false,
+        current: { head_id: firstId, revision: 3, current_url: url, accepted_version_url: `${url}&v=1`,
+          state: 'open', accepted_source_version: 1, draft_present: true } }],
+    });
+    if (path === `${prefix}/${name}`) return json(route, 'cards.records.get', {
+      card_id: smokeCardId, record: { head_id: firstId, name, revision: 3, current_url: url,
+        accepted_version_url: `${url}&v=1`, state: 'open', accepted,
+        draft: { unfilled: true, opened_at: now, updated_at: now, content: seed, content_sha256: hash(seed) },
+        effective_content_source: 'draft' },
+    });
+    return route.fallback();
+  });
+  await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}?facet=records`));
+  const records = page.getByTestId('facet-records').locator('.records-list .document-frame')
+    .filter({ has: page.getByRole('heading', { name, exact: true }) });
+  await expect(records.getByText('Current revision 3 · draft', { exact: true })).toBeVisible();
+  await expect(records.getByText('Unfilled scaffold — not authored or accepted', { exact: true })).toBeVisible();
+  await expect(records.getByText(seed, { exact: true })).toBeVisible();
+  await expect(records.getByRole('link', { name: 'Latest accepted v1', exact: true })).toBeVisible();
+  const backing = records.locator('details').filter({ hasText: 'Prior accepted content' });
+  await expect(backing.getByText(acceptedText, { exact: true })).not.toBeVisible();
+  await backing.locator('summary').click();
+  await expect(backing.getByText(acceptedText, { exact: true })).toBeVisible();
+  await expect(backing).not.toContainText(seed);
+  await expect(records.getByText(seed, { exact: true })).toBeVisible();
+  expect(rest.unknown).toEqual([]);
+  expect(pageErrors).toEqual([]);
+  expect(badResponses).toEqual([]);
+  assertPreviewRequestFailures(failures);
+});
+
 for (const outcome of ['success', 'failure'] as const) {
   test(`built Records preserves manual inspection after held current ${outcome}`, async ({ page, context, baseURL }, testInfo) => {
     if (!baseURL) throw new Error('baseURL required');
@@ -249,7 +300,7 @@ for (const outcome of ['success', 'failure'] as const) {
       const text = fresh ? 'Late fresh current draft.' : draftText;
       return { card_id: smokeCardId, record: { head_id: fresh ? fourthId : firstId, name: recordName,
         revision: 3, current_url: currentUrl, accepted_version_url: acceptedUrl, state: 'open', accepted,
-        draft: { opened_at: now, updated_at: now, content: text, content_sha256: hash(text) }, effective_content_source: 'draft' } };
+        draft: { unfilled: false, opened_at: now, updated_at: now, content: text, content_sha256: hash(text) }, effective_content_source: 'draft' } };
     };
     await page.route(`**/api/cards/${smokeCardId}/records{,/**,?**}`, async (route) => {
       const url = new URL(route.request().url());

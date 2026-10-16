@@ -9,6 +9,7 @@ import {
   authoredRecordVersionArtifactSchema,
   recordHeadSchema,
   isEmptyRecordContent,
+  isEligibleRecordContent,
   type AcceptedRecordSnapshot,
   type AuthoredRecordVersionArtifact,
   type RecordHead,
@@ -188,7 +189,7 @@ function projectAuthoredRecordArtifact(
   const projection = project(
     definition,
     {
-      ...identity(artifact.card_id, definition),
+      ...headIdentity(artifact.card_id, definition),
       head_id: null,
       revision: artifact.version,
       draft: null,
@@ -299,13 +300,14 @@ export function listAuthoredRecordVersions(
 }
 function identity(cardId: string, definition: RecordDefinition) {
   return {
-    format_version: 1 as const,
-    kind: 'record-head' as const,
     card_id: cardId,
     record_name: definition.filename,
     record_format: definition.format,
     schema: definition.schema,
   };
+}
+function headIdentity(cardId: string, definition: RecordDefinition) {
+  return { ...identity(cardId, definition), format_version: 2 as const, kind: 'record-head' as const };
 }
 function reference(artifact: AuthoredRecordVersionArtifact): AcceptedRecordReference {
   return { entry_id: artifact.entry_id, version: artifact.version };
@@ -328,25 +330,27 @@ function publishHead(
     io,
   );
 }
-function draft(stamp: string, openedAt = stamp, content = ''): OpenRecordDraft {
-  return { opened_at: openedAt, updated_at: stamp, content, content_sha256: sha256Hex(content) };
+function draft(stamp: string, openedAt: string, content: string, seed: string | null): OpenRecordDraft {
+  return { opened_at: openedAt, updated_at: stamp, content, content_sha256: sha256Hex(content), seed_sha256: seed };
 }
 export function openAuthoredRecord(
   projectRoot: string,
   card: CardRecord,
   definition: RecordDefinition,
+  seed: string | null,
   io?: ReplacementFileIo,
   temporary?: PublicationTemporaryIdFactory,
 ): RecordProjection {
   const prior = readHead(projectRoot, card.id, definition);
   if (prior?.draft) return currentProjection(projectRoot, definition, prior);
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
+  const stamp = new Date().toISOString();
   const head = recordHeadSchema.parse({
-    ...identity(card.id, definition),
+    ...headIdentity(card.id, definition),
     head_id: randomUUID(),
     revision: (prior?.revision ?? 0) + 1,
     accepted: prior?.accepted ?? null,
-    draft: draft(new Date().toISOString()),
+    draft: draft(stamp, stamp, seed ?? '', seed === null ? null : sha256Hex(seed)),
   });
   publishHead(projectRoot, definition, head, prior === null, io, temporary);
   return project(definition, head, accepted);
@@ -366,7 +370,7 @@ export function editOpenAuthoredRecord(
     ...prior,
     head_id: randomUUID(),
     revision: prior.revision + 1,
-    draft: draft(new Date().toISOString(), prior.draft.opened_at, content),
+    draft: draft(new Date().toISOString(), prior.draft.opened_at, content, prior.draft.seed_sha256),
   });
   publishHead(projectRoot, definition, head, false, io);
   return project(definition, head, accepted);
@@ -389,6 +393,7 @@ function publishAcceptance(
   const version = (prior?.revision ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({
     ...identity(cardId, definition),
+    format_version: 1,
     kind: 'accepted-record',
     entry_id: entryId,
     version,
@@ -407,7 +412,7 @@ function publishAcceptance(
     },
   });
   const head = recordHeadSchema.parse({
-    ...identity(cardId, definition),
+    ...headIdentity(cardId, definition),
     head_id: randomUUID(),
     revision: version,
     accepted: reference(artifact),
@@ -467,6 +472,8 @@ export function closeOpenAuthoredRecord(
   const cardId = projection.card.id;
   const prior = readHead(projectRoot, cardId, definition);
   if (!prior?.draft) throw new Error('Record is not open.');
+  if (!isEligibleRecordContent({ draft: prior.draft, accepted: null }))
+    throw new Error('Record draft is empty or an unfilled scaffold; authored content is required.');
   const observed = acceptanceCard(projection);
   return publishAcceptance(
     projectRoot,

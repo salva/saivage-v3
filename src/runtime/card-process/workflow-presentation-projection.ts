@@ -1,5 +1,6 @@
 import { WorkflowPresentationSchema, type WorkflowPresentation } from '../../contracts/index.js';
 import type { CompiledCardTypeWorkflow } from './card-process-config.js';
+import { redactTextForOutbound } from '../../redaction/index.js';
 import { workflowEdge, workflowEntryTarget } from './workflow-topology.js';
 
 /** Structural facts only, from exactly one immutable installed workflow. */
@@ -18,6 +19,8 @@ export function projectWorkflowPresentation(
       [...node.on.values()].map((route) => workflowEdge(workflow, node, route)),
     ),
     terminals: ['DONE', 'BLOCKED', 'FAILED'].map((terminal) => ({ terminal })),
-    records: [...workflow.records.values()].map(({ name, bootstrap }) => ({ name, bootstrap })),
+    records: [...workflow.records.values()].map(({ name, bootstrap, initialization }) => ({
+      name, bootstrap, initialization: initialization ? { content: redactTextForOutbound(initialization.content), at: [...initialization.at] } : null,
+    })),
   });
 }

@@ -174,11 +174,12 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
       card_type: cardType,
       notification_recipient: workflow.notificationRecipient,
       permitted_child_types: [...workflow.permittedChildTypes],
-      records: [...workflow.records.values()].map(({ name, format, schema, bootstrap }) => ({
+      records: [...workflow.records.values()].map(({ name, format, schema, bootstrap, initialization }) => ({
         name,
         format,
         schema,
         bootstrap,
+        initialization: initialization ? { content: redactTextForOutbound(initialization.content), at: [...initialization.at] } : null,
       })),
       entries: graphEntries,
       nodes,

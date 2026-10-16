@@ -47,6 +47,9 @@ import {
 } from '../../../src/tools/global-observation-tools.js';
 import { executingLlmSnapshots } from '../../helpers/executing-llm-snapshot.js';
 import { prepareRecordPromptContent } from '../../../src/runtime/records/record-prompt-content.js';
+import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { createPromptTemplateRegistry } from '../../../src/utils/prompt-api.js';
+import { describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 
 const roots: string[] = [];
 const SESSION = 'agent:planner:project' as const;
@@ -106,6 +109,31 @@ function fixture(inputs: Input[]) {
 function prompts(rows: readonly AgentMessage[]) {
   return rows.filter((row) => row.kind === 'record_prompt');
 }
+
+it('composes shipped role, node and scaffold as observed data through edit and re-entry', () => {
+  const f = fixture([input('status.md', 'effective')]);
+  const owner = new AgentNodeExecution({ cardId: 'project', store: f.store } as never, {} as never) as unknown as { prepareRecordRequirements(node: CompiledNodeContract): void };
+  owner.prepareRecordRequirements(f.node());
+  const initial = f.prepare(); f.publish(initial.rows);
+  expect(prompts(initial.rows)[0]!.record_observations![0]!.observed.selection).toMatchObject({ kind: 'draft', unfilled: true, accepted_backing: null });
+  f.store.editRecord('project', 'status.md', 'Current brief-relative assessment with unresolved evidence.');
+  const changed = f.prepare(); f.publish(changed.rows);
+  expect(prompts(changed.rows)[0]!.record_observations![0]!.observed.selection).toMatchObject({ kind: 'draft', unfilled: false });
+  owner.prepareRecordRequirements(f.node('recover'));
+  const reentry = f.prepare('recover');
+  expect(prompts(reentry.rows)).toEqual([]); // Same observed work is not a new seeded cycle or repeated prompt.
+  if (process.env.SAIVAGE_TEST_SHIPPED_RECORD_COMPOSITION) {
+    const workflow = f.workflows.cardTypes.get('project')!;
+    writeFileSync(process.env.SAIVAGE_TEST_SHIPPED_RECORD_COMPOSITION, JSON.stringify({
+      kind: 'offline-shipped-render-and-real-supplier-not-provider-wire',
+      role: createPromptTemplateRegistry(f.workflows).render({ kind: 'workflow-agent', cardType: 'project' }, f.node().agent.name, { contractDescription: describeNodeResultContract(workflow, 'node:plan') }),
+      node: workflow.processPrompts.get(f.node().prompt.promptId)!.text,
+      recoveryNode: workflow.processPrompts.get(f.node('recover').prompt.promptId)!.text,
+      initial, changed, reentry,
+      latest: readConversation(f.root, SESSION).effectiveRequiredModelFacts.latestRecordObservations,
+    }, null, 2));
+  }
+});
 
 async function readIntoConversation(
   f: ReturnType<typeof fixture>,
@@ -178,7 +206,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       'Selected record data (JSON string, possibly a marked encoded display preview, or null): null',
     );
     f.publish(absent.rows);
-    f.store.openRecord('project', 'status.md');
+    f.store.openRecord('project', 'status.md', null);
     for (const body of [
       String.raw`Notes\napi_key: ordinary-example`,
       'api_key: "${NAME} ${OTHER}"\nFINAL-SAFE-Z',
@@ -237,7 +265,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     const declaration = input('status.md', 'effective');
     declaration.prompt.compactable = false;
     const f = fixture([declaration]);
-    f.store.openRecord('project', 'status.md');
+    f.store.openRecord('project', 'status.md', null);
     f.store.editRecord('project', 'status.md', body);
     const node = f.node();
     const original = node.recordPrompts[0]!;
@@ -329,7 +357,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     expect(selectedFiles.map(path => readFileSync(path))).toEqual(before);
 
     const b = `B-START${'b'.repeat(40000)}B-OMITTED-REQUIREMENT${'b'.repeat(40000)}B-END`;
-    f.store.openRecord('project', 'status.md');
+    f.store.openRecord('project', 'status.md', null);
     f.store.editRecord('project', 'status.md', b);
     const latest = await readIntoConversation(f, pointer);
     const result = JSON.parse(latest.content);
@@ -359,7 +387,7 @@ describe('closed record-context compiler and same-read supplier', () => {
 
   it('keeps excerpt exposure when redaction alone fits, then fires only for a changed oversized selection', () => {
     const f = fixture([input('status.md', 'effective')]);
-    f.store.openRecord('project', 'status.md');
+    f.store.openRecord('project', 'status.md', null);
     f.store.editRecord('project', 'status.md', `api_key=${'x'.repeat(40000)}\nEND-A`);
     const first = f.prepare();
     const row = prompts(first.rows)[0]!;
@@ -407,7 +435,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       expect(
         projectCanonicalConversationRow(prompts(prepare().rows)[0]!, projectToolInvocation).content,
       ).toContain('null');
-      f.store.openRecord('project', 'status.md');
+      f.store.openRecord('project', 'status.md', null);
       f.store.editRecord('project', 'status.md', body);
       for (const reason of ['initial', 'changed']) {
         const prepared = prepare();
@@ -480,7 +508,7 @@ describe('closed record-context compiler and same-read supplier', () => {
 
   it('reads the union once per record; compares both views before the batch; substitutes opaque same-read bodies', () => {
     const f = fixture([input('brief.md', 'accepted', 'required'), input('brief.md', 'effective')]);
-    f.store.openRecord('project', 'brief.md');
+    f.store.openRecord('project', 'brief.md', null);
     f.store.editRecord('project', 'brief.md', 'D {{> never-expand}}');
     const read = jest.spyOn(f.store, 'readRecordCurrent');
     const prepared = f.prepare();
@@ -509,7 +537,7 @@ describe('closed record-context compiler and same-read supplier', () => {
       .trimEnd()
       .split('\n');
     const envelope = JSON.parse(physical.at(-1)!);
-    expect(envelope).toMatchObject({ version: 10, type: 'conversation-segment' });
+    expect(envelope).toMatchObject({ version: 11, type: 'conversation-segment' });
     expect(envelope.rows[0].kind).toBe('ordinary_segment_genesis');
     expect(envelope.rows.slice(1)).toEqual(prepared.rows);
     expect(f.prepare().rows).toEqual([]);
@@ -543,7 +571,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     expect(prompts(first.rows)[0]!.content).toContain('null');
     expect(prompts(first.rows)[0]!.record_observations![0]!.observed.selection.kind).toBe('absent');
     f.publish(first.rows);
-    f.store.openRecord('project', 'status.md');
+    f.store.openRecord('project', 'status.md', null);
     f.store.editRecord('project', 'status.md', 'Now a draft');
     expect(prompts(f.prepare().rows)[0]!.record_prompt!.reason).toBe('changed');
     const missing = fixture([input('status.md', 'accepted', 'required')]);
@@ -555,7 +583,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     const f = fixture([input('brief.md', 'accepted', 'required', false)]);
     const first = f.prepare();
     f.publish(first.rows);
-    f.store.openRecord('project', 'brief.md');
+    f.store.openRecord('project', 'brief.md', null);
     const next = f.prepare();
     expect(prompts(next.rows)).toEqual([]);
     expect(next.rows).toHaveLength(1);
@@ -622,7 +650,7 @@ describe('closed record-context compiler and same-read supplier', () => {
     const a = f.prepare();
     f.publish(a.rows);
     f.store.acceptRecord('project', 'brief.md', 'new B', 'analyst');
-    f.store.openRecord('project', 'status.md');
+    f.store.openRecord('project', 'status.md', null);
     f.store.editRecord('project', 'status.md', 'status B');
     const b = f.prepare();
     f.publish(b.rows);

@@ -1,6 +1,6 @@
 # Operator UI: Exact Contracts Register
 
-Prepared format-10 activation evidence uses named `activation_id`, `caller`, `card`,
+Prepared format-11 activation evidence uses named `activation_id`, `caller`, `card`,
 `parent_direction`, `role_text` and `node` fields. Root/card ingress records its actual
 activation and stable orientation; global preparation has null activation/card/parent
 and a global caller. Parent callers record exact parent card/session/source-input/call/
@@ -360,6 +360,23 @@ Plain resource reads cancel their pending request when their owner departs. Supe
 
 ## 5. Records, versions, and diffs
 
+Current record body APIs require `draft.unfilled` on every non-null draft, alongside
+existing content/hash/timestamps; the stored `seed_sha256` is not exposed. Absence,
+present-empty head, unfilled scaffold, changed draft and acceptance remain distinct.
+Overview previews and Records label unfilled drafts **Unfilled scaffold — not authored
+or accepted**; accepted backing is displayed separately, never promoted over an
+effective unfilled draft. Safe full content remains readable; scaffold publication
+is no agent attribution or progress. Recorded public draft selections likewise require
+`{kind:'draft',unfilled,accepted_backing}`; current/history/compacted observations use
+the recorded boolean, not current template text, and retain independent immutable
+backing links. No draft gets an immutable locator. Existing Analyst open-draft
+conflict remains unchanged.
+
+Compiled workflow `records[]` requires nullable `initialization:{content,at}` beside
+`name` and `bootstrap`; authenticated Debug graphs expose the same selected choices
+through existing privacy filtering. These describe installed compiled configuration,
+not historical scaffold text, author evidence or hot-reload state.
+
 - Record declarations render in declaration order; descriptor reads precede
   content reads; each record is fetched independently. Exactly one record is
   the bootstrap record. Overview consumes these same selected-card CardStore
@@ -370,7 +387,9 @@ Plain resource reads cancel their pending request when their owner departs. Supe
 - Overview labels the configured `bootstrap:true` record as **Objective**
   regardless of its custom name and presents every other declared record in
   declaration order under that exact name. A source's `effective_content_source`
-  alone determines **Draft** versus **Accepted**; an accepted HTTP observation
+  determines draft versus accepted content; a draft's required `unfilled` boolean
+  selects **Unfilled scaffold — not authored or accepted** when true and **Draft**
+  otherwise, while accepted content is **Accepted**. An accepted HTTP observation
   is not acceptance of the work. Arbitrary records are not classified as
   progress, review, constraints, or completion from their names or Markdown.
   Objective descriptor loading, initial content failure, empty effective

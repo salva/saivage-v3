@@ -43,6 +43,7 @@ export function projectRecordObservation(value: RecordObservation) {
           : observed.selection.kind === 'draft'
             ? {
                 kind: 'draft' as const,
+                unfilled: observed.selection.unfilled,
                 accepted_backing: observed.selection.accepted_backing
                   ? accepted(observed.selection.accepted_backing)
                   : null,

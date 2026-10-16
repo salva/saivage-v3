@@ -43,11 +43,12 @@ disposable context, lost on stop/active cancellation. Pixels cannot be certified
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
-Conversation index/genesis/envelope now use strict **format 10** for excerpt exposure
+Conversation index/genesis/envelope now share strict **format 11** for required
+unfilled-draft observations, retaining excerpt exposure
 and encoded oversized record-prompt display, alongside typed owning
 record observations and descriptor-only required facts, retaining historical
 instruction evidence, loss-tolerant maintenance and ordered content.
-Format 9 or earlier/mixed
+Format 10 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;
@@ -80,7 +81,17 @@ Owned durable prompts are **Recorded workflow instruction** at their original ro
 compacted activation text is inspected through explicit indexed source history.
 Unavailable history is never filled from current templates. **Currently configured
 instructions** remains independent. Source completion authorizes no adoption or
-deployment; binary-only downgrade after format-10 publication is unsupported.
+deployment; binary-only downgrade after format-11/head2 publication is unsupported.
+
+Optional literal record scaffolds seed ordinary drafts at first required entry
+while the head is absent and/or fresh clean entry, not card creation. Continue
+preserves existing work; untouched scaffolds are **Unfilled scaffold — not authored
+or accepted** and cannot satisfy gates or be accepted/exported. Record heads advance
+**1→2** while immutable accepted artifacts remain **1**. See the
+[lifecycle contract](docs/spec/system-specification.md) and
+[configuration/adoption procedure](docs/runbook/index.md#optional-record-scaffolds).
+This source-only slice defers creation-time scaffolds; GitHub #4 remains OPEN.
+It authorizes no deployment, reset or external migration.
 
 Conversation maintenance first preserves useful ordinary summaries. If bounded
 construction cannot produce a qualifying candidate, it may publish a fixed notice
@@ -324,7 +335,7 @@ not node re-entry; latest descriptor facts do not imply body recall. See
   eligible completed-summary reuse or local omission, never an identical policy retry.
   Exhausted safe maintenance blocks the owning card without exposing provider prose. See the
   [compaction runbook](docs/runbook/index.md#prepared-conversation-compaction).
-   Conversation index/genesis/segment format **9** retains summary, protected
+   Conversation index/genesis/segment format **11** retains summary, protected
   instructions, required model facts, and continuation without compaction
   checksums or accumulated accounting. Adoption from earlier formats is a
   **incompatible cutover** across all four generated roots: separately consented
@@ -340,7 +351,7 @@ not node re-entry; latest descriptor facts do not imply body recall. See
   identities omit only encrypted reasoning before request admission. Adopting
   this payload also requires the separate incompatible-adoption decision, even
   with matching outer versions; those alone are not compatibility.
-  Card/record format-1 heads and immutable predecessor documents are a separate
+   Card format-1 heads/history, record format-2 heads and format-1 accepted documents are a separate
   incompatible adoption boundary; this source change authorizes no deployment,
   external migration or destructive reset.
 - New projects enable an independent two-hour

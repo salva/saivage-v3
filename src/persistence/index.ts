@@ -30,7 +30,7 @@ export type {
   ConversationSegmentGenesis,
   ConversationContinuation,
 } from './canonical-conversation-artifacts.js';
-export { effectiveRecordContent, isEmptyRecordContent } from './canonical-record-artifacts.js';
+export { effectiveRecordContent, isEmptyRecordContent, isEligibleRecordContent, isUnfilledRecordDraft } from './canonical-record-artifacts.js';
 export type { AuthoredRecordVersionArtifact } from './canonical-record-artifacts.js';
 export {
   cardDiffValue,

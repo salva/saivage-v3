@@ -170,7 +170,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       else envelopes[0].rows[0].format_version = 9;
       writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
       const before = readFileSync(path);
-      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(10);
+      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(11);
       expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
       expect(readFileSync(path)).toEqual(before);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -238,10 +238,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(10);
-      expect(segment.genesis.format_version).toBe(10);
+      expect(segment.index.format_version).toBe(11);
+      expect(segment.genesis.format_version).toBe(11);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(10);
+      expect(envelope.version).toBe(11);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 9 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 9 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 9 }, ...segment.rows] }).success).toBe(false);

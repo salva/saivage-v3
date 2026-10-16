@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { isUnfilledRecordDraft } from '../../persistence/index.js';
 import type { CardService } from '../../cards/store-api.js';
 import {
   positiveSafeIntegerSchema,
@@ -429,7 +430,13 @@ function projectRecord(projection: RecordProjection) {
     state: projection.state,
     accepted: projection.accepted ? projectAccepted(projection.accepted) : null,
     draft: projection.draft
-      ? { ...projection.draft, content: redactTextForOutbound(projection.draft.content) }
+      ? {
+          opened_at: projection.draft.opened_at,
+          updated_at: projection.draft.updated_at,
+          content_sha256: projection.draft.content_sha256,
+          unfilled: isUnfilledRecordDraft(projection.draft),
+          content: redactTextForOutbound(projection.draft.content),
+        }
       : null,
     effective_content_source:
       projection.state === 'open'

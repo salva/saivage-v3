@@ -112,7 +112,7 @@ describe('new-format record publication, current/history API and restart', () =>
       app = await startProductionApp(root, TOKEN);
       const cards = app.server.runtimeApplication.cardStore;
       cards.acceptRecord('project', 'status.md', 'accepted baseline', 'analyst');
-      cards.openRecord('project', 'status.md');
+      cards.openRecord('project', 'status.md', null);
       cards.editRecord('project', 'status.md', 'unfinished work');
       const before = await get('/api/cards/project/records/status.md');
       expect(before).toMatchObject({

@@ -280,6 +280,7 @@ describe('source-derived Config schema inventory', () => {
       'compaction.summarizer_candidate',
       'card_types.entry',
       'card_types.entry.records.entry',
+      'card_types.entry.records.entry.initialization',
       'card_types.entry.workflow',
       'card_types.entry.workflow.entries',
       'card_types.entry.workflow.entries.BACKLOG',
@@ -307,6 +308,31 @@ describe('source-derived Config schema inventory', () => {
       'mcpServers.entry.variant1',
       'mcpServers.entry.variant2',
     ]);
+    expect(result.expected.get('card_types.entry.records.entry')).toEqual([
+      'bootstrap', 'format', 'initialization', 'schema',
+    ]);
+    expect(result.expected.get('card_types.entry.records.entry.initialization')).toEqual([
+      'at', 'content',
+    ]);
+  });
+
+  it('requires complete documentation beneath optional nullable initializer wrappers', () => {
+    withFixture([CONFIG, DOC], (root) => {
+      rewrite(root, DOC, (source) => source.replace(/^\| `card_types.entry.records.entry.initialization` .*\n/m, ''));
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain(
+        'missing-config-section',
+      );
+    });
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, DOC, '| `card_types.entry.records.entry.initialization` | `at,content`',
+        '| `card_types.entry.records.entry.initialization` | `content`');
+      expect(verifyConfigDocs({ projectRoot: root }).ok).toBe(false);
+    });
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, CONFIG, "at: z.array(z.enum(['first_required_entry', 'clean_entry']))",
+        'at: z.array(z.lazy(() => z.string()))');
+      expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
+    });
   });
 
   it('turns newly reachable objects into missing-row failures and fails closed for unsupported syntax', () => {

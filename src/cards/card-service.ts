@@ -579,14 +579,20 @@ export class CardService {
     };
     return { projection, definition: this.recordDefinitionFor(projection.card, filename) };
   }
-  openRecord(cardId: string, filename: string): RecordProjection {
+  openRecord(cardId: string, filename: string, seed: string | null): RecordProjection {
     const a = this.admitWrite(cardId, filename);
-    return openAuthoredRecord(
+    const opened = openAuthoredRecord(
       this.projectRoot,
       a.projection.card,
       a.definition,
+      seed,
       this.cardPublicationIo,
     );
+    if (seed !== null)
+      this.freshness.cardProjectionChanged({
+        resource: 'cards', scope: 'record', card_id: cardId, record_name: filename,
+      });
+    return opened;
   }
   editRecord(cardId: string, filename: string, content: string): RecordProjection {
     const a = this.admitWrite(cardId, filename);

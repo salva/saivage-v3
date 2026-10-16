@@ -56,7 +56,7 @@ describe('Analyst record preflight', () => {
   it('classifies an open record conflict as an error without write or network effects', () => {
     const { cards } = setup();
     const card = cards.read('project')!;
-    const opened = cards.openRecord('project', 'brief.md');
+    const opened = cards.openRecord('project', 'brief.md', null);
     expect(preflightHarness(cards, () => card, () => ({ kind: 'present', projection: opened }))).toMatchObject({ ok: false, audit_outcome: 'error', result: { data: { code: 'record_open_conflict', current_head: opened.revision } } });
   });
 

@@ -71,7 +71,7 @@ function draftArtifact(content: string) {
       accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2',
       state: 'open' as const,
       accepted: { source_version: 2, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, card_history_version: 1, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective', content_sha256: 'a'.repeat(64), size_bytes: 26 },
-      draft: { opened_at: now, updated_at: now, content, content_sha256: 'b'.repeat(64) },
+      draft: { unfilled: false, opened_at: now, updated_at: now, content, content_sha256: 'b'.repeat(64) },
       effective_content_source: 'draft' as const,
     },
   };

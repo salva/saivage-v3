@@ -220,7 +220,7 @@ describe('reviewer rework completion E2E', () => {
             success: false, error: 'Review context is stale: reviewed subtree or included records changed during review.',
           });
           expect(discard).toHaveBeenCalledWith('project', 'review.md');
-          expect(reopen).toHaveBeenCalledWith('project', 'review.md');
+          expect(reopen).toHaveBeenCalledWith('project', 'review.md', null);
           expect(discard.mock.invocationCallOrder[0]).toBeLessThan(reopen.mock.invocationCallOrder[0]!);
           expect(cards.readRecordCurrent('project', 'review.md')).toMatchObject({
             kind: 'found', value: { projection: { state: 'open', accepted: null, draft: { content: '' } } },

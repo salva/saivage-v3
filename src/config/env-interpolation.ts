@@ -25,16 +25,25 @@ function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolatio
   return { value, warnings };
 }
 
-/** Deep-interpolate ${ENV_VAR} references in any config-compatible value. */
+/** Interpolate configuration, except the owning workflow's literal record scaffold. */
 export function interpolateValue(
   v: unknown,
   env: EnvironmentSource,
+  path: readonly string[] = [],
 ): { value: unknown; warnings: string[] } {
+  if (
+    path.length === 6 &&
+    path[0] === 'card_types' &&
+    path[2] === 'records' &&
+    path[4] === 'initialization' &&
+    path[5] === 'content'
+  )
+    return { value: v, warnings: [] };
   if (typeof v === 'string') {
     return interpolateString(v, env);
   }
   if (Array.isArray(v)) {
-    const results = v.map((item) => interpolateValue(item, env));
+    const results = v.map((item, index) => interpolateValue(item, env, [...path, String(index)]));
     return {
       value: results.map((r) => r.value),
       warnings: results.flatMap((r) => r.warnings),
@@ -44,7 +53,7 @@ export function interpolateValue(
     const result: Record<string, unknown> = {};
     const warnings: string[] = [];
     for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-      const { value: iv, warnings: iw } = interpolateValue(val, env);
+      const { value: iv, warnings: iw } = interpolateValue(val, env, [...path, key]);
       result[key] = iv;
       warnings.push(...iw);
     }

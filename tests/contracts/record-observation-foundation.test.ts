@@ -72,7 +72,7 @@ describe('owning record observations', () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(metadata.record_observations.map(o => o.exposure.kind)).toEqual(['metadata', 'metadata']);
     const accepted = metadata.record_observations[1]!.selection;
-    ctx.store.openRecord('project', 'brief.md');
+    ctx.store.openRecord('project', 'brief.md', null);
     ctx.store.editRecord('project', 'brief.md', 'D'.repeat(4000));
     read.mockClear();
     const sliced = await readProject(ctx, { path: 'record:///brief.md?card=project', response_bytes: 700 });
@@ -175,6 +175,35 @@ describe('source-derived facts and independent protection', () => {
     const selected = selectConversationProtection({ inherited: history.protectedPrompts, rows: [suffix], sourceVersion: 2, cutoffCount: 0 });
     expect(selected.activePrompts.map(p => p.message.id)).toEqual([b.id, suffix.id]);
     expect(JSON.stringify(facts.latestRecordObservations)).not.toContain(a.content);
+  });
+
+  it('retains unfilled and independent accepted backing in nested, historical and compacted descriptors', () => {
+    const ctx = project();
+    const observed: RecordSelectionObservation = { ...selection(3), view: 'effective', selection: {
+      kind: 'draft', unfilled: true, content_sha256: sha256Hex('starter'),
+      accepted_backing: selection(1).selection as Extract<RecordSelectionObservation['selection'], {kind:'accepted'}>,
+    } };
+    const row = prompt('seed-observation', observed);
+    row.context_policy = { ...DURABLE_PRIMARY_CONTENT_POLICY, compactable: true };
+    appendConversationBatch({ projectRoot: ctx.projectRoot }, [row]);
+    const source = readConversation(ctx.projectRoot, SESSION);
+    const facts = deriveRequiredModelFacts({ inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, coveredRows: [row], source });
+    const history = compactedHistorySchema.parse({ summaryText: 'No accepted new work', protectedPrompts: [], requiredModelFacts: facts });
+    const entryId = randomUUID();
+    publishCompactedConversationSegment({ projectRoot: ctx.projectRoot }, SESSION, {
+      identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: TS, filename: versionFilename(2, entryId) },
+      history, cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' },
+    });
+    const retained = readConversation(ctx.projectRoot, SESSION);
+    expect(retained.effectiveRequiredModelFacts.latestRecordObservations[0]!.observation.observed.selection).toEqual(observed.selection);
+    const historical = foldHistoricalConversationRows(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 1).rows);
+    const compacted = segmentContext(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2).genesis)!;
+    for (const selection of [historical[0]!.record_observations![0]!.observed.selection, compacted.required_model_facts.latestRecordObservations[0]!.observation.observed.selection]) {
+      expect(selection).toMatchObject({ kind: 'draft', unfilled: true, accepted_backing: { kind: 'accepted', version: 1 } });
+      expect(selection).not.toHaveProperty('content_sha256');
+    }
+    const { unfilled: _unfilled, ...missing } = observed.selection as Extract<RecordSelectionObservation['selection'], {kind:'draft'}>;
+    expect(() => recordObservationSchema.parse({ ...row.record_observations![0], observed: { ...observed, selection: missing } })).toThrow();
   });
 
   it('rejects missing required facts, malformed provenance, and protected descriptor rows; keeps selection distinct from head changes', () => {

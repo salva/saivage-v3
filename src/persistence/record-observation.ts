@@ -3,6 +3,7 @@ import {
   type RecordSelectionObservation,
 } from '../schemas/index.js';
 import type { RecordProjection } from './authored-record-files.js';
+import { isUnfilledRecordDraft } from './canonical-record-artifacts.js';
 
 /** Pure projection of the exact owning read/publication. Performs no I/O. */
 export function observeRecordProjection(args: {
@@ -27,6 +28,7 @@ export function observeRecordProjection(args: {
     args.view === 'effective' && p?.draft
       ? {
           kind: 'draft' as const,
+          unfilled: isUnfilledRecordDraft(p.draft),
           content_sha256: p.draft.content_sha256,
           accepted_backing: accepted,
         }

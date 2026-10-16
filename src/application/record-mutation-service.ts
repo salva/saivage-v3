@@ -251,7 +251,7 @@ export function mutateRecord(
   if (request.surface === 'analyst')
     result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, request.agentName);
   else {
-    if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
+    if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name, null);
     result = store.editRecord(parsed.cardId, parsed.name, nextContent);
   }
   const success: RecordMutationSuccess = {

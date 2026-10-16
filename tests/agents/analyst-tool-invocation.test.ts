@@ -406,5 +406,5 @@ describe('Analyst parsed tool invocation', () => {
 });
 
 function appendRaw(path: string, row: unknown): void {
-  appendFileSync(path, `${JSON.stringify({ version: 10, type: 'conversation-segment', rows: [row] })}\n`);
+  appendFileSync(path, `${JSON.stringify({ version: 11, type: 'conversation-segment', rows: [row] })}\n`);
 }

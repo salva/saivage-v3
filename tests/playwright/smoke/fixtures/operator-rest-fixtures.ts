@@ -72,7 +72,7 @@ const debugErrors = parseOperatorResponse('debug.errors', 200, {
 });
 const codeDebugGraph = {
     card_type: 'code', notification_recipient: 'executor', permitted_child_types: [],
-    records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false }],
+    records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, initialization: null }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, initialization: null }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
     nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } }, record_prompts: [], model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
     edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
@@ -92,7 +92,7 @@ const projectPresentation = parseOperatorResponse('workflows.presentation', 200,
     { source_node_id: 'plan', outcome: 'execution:failed', condition: 'default', target: { kind: 'terminal', terminal: 'FAILED' } },
   ],
   terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
-  records: [{ name: 'brief.md', bootstrap: true }],
+  records: [{ name: 'brief.md', bootstrap: true, initialization: null }],
 });
 const doctorOk = parseOperatorResponse('debug.doctor', 200, {
   status: 'ok',
@@ -403,7 +403,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
         edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
         terminals: graph.terminals,
-        records: graph.records.map(({ name, bootstrap }) => ({ name, bootstrap })),
+        records: graph.records.map(({ name, bootstrap, initialization }) => ({ name, bootstrap, initialization })),
       }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);

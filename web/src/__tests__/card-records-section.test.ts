@@ -143,7 +143,7 @@ describe('CardRecordsSection', () => {
     const current = content();
     const draftTime = '2026-07-19T00:00:00Z';
     vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record,
-      revision: 5, state: 'open', draft: { opened_at: time, updated_at: draftTime, content: 'unfinished draft', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
+      revision: 5, state: 'open', draft: { unfilled: false, opened_at: time, updated_at: draftTime, content: 'unfinished draft', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
     const store = await admit();
     const { wrapper, errors } = render({ record: name, version: 1 });
     await flushPromises();
@@ -168,6 +168,19 @@ describe('CardRecordsSection', () => {
     expect(store.cardRecords[name]!.diffError).toBeNull();
     expect(store.cardRecords[name]!.history?.versions.map((entry) => entry.version)).toEqual([1, 2, 4]);
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('labels unfilled current scaffold separately from authored drafts and accepted backing', async () => {
+    const current = content();
+    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record,
+      revision: 5, state: 'open', draft: { unfilled: true, opened_at: time, updated_at: time,
+        content: 'Not yet assessed.', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
+    await admit(); const { wrapper } = render({ record: name, version: 1 }); await flushPromises();
+    expect(wrapper.text()).toContain('Unfilled scaffold — not authored or accepted');
+    expect(wrapper.text()).toContain('Not yet assessed.');
+    expect(wrapper.text()).toContain('Prior accepted content');
+    expect(wrapper.text()).toContain('accepted brief');
+    expect(wrapper.text()).toContain('historical brief 1');
   });
 
   it('invalidates the old-card initial-load continuation on a card switch', async () => {

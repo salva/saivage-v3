@@ -16,7 +16,6 @@ const acceptedRecordReferenceSchema = z
   .object({ entry_id: uuidV4Schema, version: positiveSafeIntegerSchema })
   .strict();
 const identity = {
-  format_version: z.literal(1),
   card_id: cardIdSchema,
   record_name: recordNameSchema,
   record_format: z.literal('markdown'),
@@ -62,6 +61,7 @@ const openRecordDraftSchema = z
     updated_at: z.string().datetime(),
     content: z.string(),
     content_sha256: hash,
+    seed_sha256: hash.nullable(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -71,6 +71,7 @@ const openRecordDraftSchema = z
 export const recordHeadSchema = z
   .object({
     ...identity,
+    format_version: z.literal(2),
     kind: z.literal('record-head'),
     head_id: uuidV4Schema,
     revision: positiveSafeIntegerSchema,
@@ -88,6 +89,7 @@ export const recordHeadSchema = z
 export const authoredRecordVersionArtifactSchema = z
   .object({
     ...identity,
+    format_version: z.literal(1),
     kind: z.literal('accepted-record'),
     entry_id: uuidV4Schema,
     version: positiveSafeIntegerSchema,
@@ -122,6 +124,20 @@ export type AuthoredRecordVersionArtifact = z.infer<typeof authoredRecordVersion
 export type RecordHead = z.infer<typeof recordHeadSchema>;
 export type OpenRecordDraft = z.infer<typeof openRecordDraftSchema>;
 export type AcceptedRecordReference = z.infer<typeof acceptedRecordReferenceSchema>;
+
+export function isUnfilledRecordDraft(draft: OpenRecordDraft): boolean {
+  return draft.seed_sha256 !== null && draft.content_sha256 === draft.seed_sha256;
+}
+
+/** Effective drafts never borrow eligibility from accepted backing. */
+export function isEligibleRecordContent(record: {
+  draft: OpenRecordDraft | null;
+  accepted: AcceptedRecordSnapshot | null;
+}): boolean {
+  return record.draft
+    ? !isEmptyRecordContent(record.draft.content) && !isUnfilledRecordDraft(record.draft)
+    : record.accepted !== null && !isEmptyRecordContent(record.accepted.content);
+}
 
 export function effectiveRecordContent(record: {
   revision: number;

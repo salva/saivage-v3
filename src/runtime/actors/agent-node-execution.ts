@@ -1,4 +1,5 @@
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/index.js';
+import { isEligibleRecordContent } from '../../persistence/index.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../contracts/index.js';
 import {
   canonicalJson,
@@ -953,14 +954,24 @@ export class AgentNodeExecution {
 
   private prepareRecordRequirements(node: CompiledNodeContract): void {
     for (const requirement of node.requirements) {
-      if (requirement.mode === 'continue') continue;
+      const initialization = requirement.definition.initialization;
+      if (requirement.mode === 'continue' && !initialization?.at.includes('first_required_entry'))
+        continue;
       const name = requirement.definition.name;
       const result = this.deps.store.readRecordCurrent(this.deps.cardId, name);
       if (result.kind === 'card-not-found')
         throw new Error(`Card '${this.deps.cardId}' not found.`);
       const current = result.value.projection;
+      const seed = initialization && (
+          (!current && initialization.at.includes('first_required_entry')) ||
+          (requirement.mode === 'clean' && initialization.at.includes('clean_entry'))
+        ) ? initialization.content : null;
+      if (requirement.mode === 'continue') {
+        if (!current && seed !== null) this.deps.store.openRecord(this.deps.cardId, name, seed);
+        continue;
+      }
       if (current?.state === 'open') this.deps.store.discardRecord(this.deps.cardId, name);
-      this.deps.store.openRecord(this.deps.cardId, name);
+      this.deps.store.openRecord(this.deps.cardId, name, seed);
     }
   }
   private captureRecordHead(filename: string): { revision: number; headId: string } | null {
@@ -979,7 +990,7 @@ export class AgentNodeExecution {
       const candidate = readCandidate(this.deps.store, this.deps.cardId, filename);
       if (!candidate) {
         violations.push(
-          `Required record 'record:///${filename}?card=${encodeURIComponent(this.deps.cardId)}' is missing or empty.`,
+          `Required record 'record:///${filename}?card=${encodeURIComponent(this.deps.cardId)}' is missing, empty or an unfilled scaffold; authored content is required.`,
         );
         continue;
       }
@@ -1024,8 +1035,8 @@ export class AgentNodeExecution {
         });
         continue;
       }
-      if (!candidate.draft || candidate.draft.content.trim().length === 0)
-        throw new Error(`Accepted open candidate '${this.deps.cardId}/${filename}' is empty.`);
+      if (!candidate.draft || !isEligibleRecordContent(candidate))
+        throw new Error(`Accepted open candidate '${this.deps.cardId}/${filename}' is empty or unfilled.`);
       const closed = this.deps.store.closeRecord(this.deps.cardId, filename, node.agent.name);
       const snapshot = closed.accepted!;
       accepted.push({
@@ -1043,7 +1054,7 @@ export class AgentNodeExecution {
       if (result.kind !== 'found' || !result.value.projection)
         throw new Error(`Written record '${this.deps.cardId}/${filename}' is missing.`);
       const current = result.value.projection;
-      if (current.state !== 'open' || !current.draft || current.draft.content.trim().length === 0)
+      if (current.state !== 'open' || !current.draft || !isEligibleRecordContent(current))
         throw new Error(
           `Written record '${this.deps.cardId}/${filename}' is not a non-empty open draft.`,
         );
@@ -1135,8 +1146,7 @@ function readCandidate(
   const result = store.readRecordCurrent(cardId, filename);
   if (result.kind === 'card-not-found' || !result.value.projection) return null;
   const current = result.value.projection;
-  const selected = current.state === 'open' ? current.draft?.content : current.accepted?.content;
-  return selected?.trim() ? current : null;
+  return isEligibleRecordContent(current) ? current : null;
 }
 function firstIncompleteDescendant(
   cardId: string,
