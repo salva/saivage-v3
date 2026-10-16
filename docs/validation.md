@@ -360,6 +360,17 @@ Required coverage, fail-closed test gates and prerequisite relations are unchang
 
 ## Browser and E2E profiles
 
+The exact-pinned test runner `@playwright/test` 1.64.1 selects `playwright` and
+`playwright-core` 1.64.1. Its matched managed Chromium and headless shell are
+revision 1248 / version 156.0.8078.4, with installer-selected ffmpeg revision 1013.
+After refreshing these packages, rerun `npm run web:test:e2e:install` to install
+their matching browsers. For isolated assessment, explicitly set
+`PLAYWRIGHT_BROWSERS_PATH=/home/salva/g/ml/tmp/2026-10-16-playwright-supported-update/browsers`
+for both installation and validation, with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
+unset. The separately pinned external Playwright MCP tooling is a distinct
+contract, not this test runner/browser pairing. The optional system-Chrome
+override below remains a separate validation choice, not matched-browser evidence.
+
 Shared-root export changes require `node scripts/check-web-browser-imports.cjs`
 and `npm --prefix web run build` (browser graph admission, Vue typecheck, Vite
 production build), plus `npm --prefix web run test --
