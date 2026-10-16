@@ -187,7 +187,7 @@ focused execution coverage of their actual semantic owners.
 
 ## Backend test runner ownership
 
-Backend suites use Jest 30 with ts-jest 29.4.9's ESM transformation and the
+Backend suites use Jest 30 with ts-jest 29.4.15's ESM transformation and the
 Node test environment. Explicit `testMatch` patterns retain the JS/TS families
 `**/__tests__/**/*.[jt]s?(x)` and `**/?(*.)+(spec|test).[tj]s?(x)`.
 The Node-owned `tests/scripts/import-boundary-ratchet.test.cjs` is not a Jest
@@ -195,6 +195,67 @@ suite; `npm run test:import-boundaries` runs it with `node --test`.
 Ordinary Jest excludes Playwright, backend E2E, and the real-terminal-child
 suite. `npm test` runs ordinary parallel Jest, then the exact terminal-child
 suite serially; `npm run test:e2e` separately owns backend E2E.
+
+ts-jest compatibility follows declared peer ranges, not equal major numbers:
+29.4.15 supports Jest `^29.0.0 || ^30.0.0` and TypeScript `>=4.3 <7`;
+its Node engine includes `>=20.0.0`. Jest 30.5.2, TypeScript 5.9.3 and the
+comparison toolchain Node 24.22.0 satisfy those constraints. Compatible ranges
+alone do not establish correct transform behavior. The explicit JS/TS transforms
+retain `useESM: true`, inline `module: ESNext`, `moduleResolution: NodeNext`,
+`isolatedModules: true`, `.js`-relative mapping and VM modules. Diagnostics are
+not disabled; new diagnostics block acceptance rather than justify suppression
+or resolver/configuration changes. Isolated transformation does not replace
+independent strict semantic typechecking through `tsc --noEmit`.
+
+### Scoped ts-jest patch comparison
+
+The 2026-10-16 comparison of 29.4.9 with 29.4.15 uses independent fresh root/web
+`npm ci --include=dev --include=optional` environments, full peer trees and the
+specific Jest/transformer/compiler dependency tree. Only the root ts-jest floor
+and selected entry change; web manifest/lock bytes and all other resolutions
+remain unchanged. This is maintained-line compiler correctness upkeep, not an
+evidenced local bug fix, security remediation or performance improvement.
+
+Both versions require the semantic export consumer, runtime gate/running-chain,
+terminal coordinator/real-process cleanup and process-runner/registry focused
+suites, a separate `npm run test:terminal-child`, and the named
+`process-inline-output.e2e.test.ts` with only the Playwright ignore override.
+Run the focused matrix with a fresh issue-owned Jest cache, then repeat only
+`tests/scripts/export-consumers.test.js` once with that same cache. A failed cold
+run blocks warming; preserve semantic assertions and export-counter arithmetic,
+not timing targets. Separately run
+`node --test --test-name-pattern='ts-jest config:init' tests/scripts/devtool-security.test.cjs`
+in each disposable environment, with its required `../tmp` inside the fixture.
+That Node-owned CLI/configuration check is not selected by Jest; unrelated
+Vite/Babel cases are intentionally unselected by this filter.
+
+Every command is finitely bounded with GNU `timeout --kill-after=5s`; tests/builds
+use private-IP/no-egress isolation, short writable TMPDIR and writable dependency
+caches. Require natural exits and proven empty owned cgroups, without `forceExit`,
+warning suppression, retries or altered workers/deadlines. The terminal gate must
+run independently even when ordinary Jest fails. Retain raw output, warnings,
+timings and containment results; matching cold/warm assertions imply neither
+performance savings nor reproduction of upstream's Bundler/CommonJS regression.
+
+On 2026-10-16, baseline and candidate fresh installs and peer trees passed.
+Each version passed the focused matrix (8 suites/107 tests), warm export
+comparison (1/44), separate terminal gate (1/11), process-inline E2E (1/1) and
+filtered config:init check (1 passed, 0 skipped; three other cases unselected).
+Candidate `validate:routine`, `build`, one canonical `npm test` (333 ordinary
+suites/4401 tests, then 1 serial suite/11 tests) and `audit:security` passed with
+natural exits and empty owned cgroups. Routine retained strict typechecking and
+semantic export counters; build covered docs SSR, web compilation, compiled
+prompt composition and static-serving smoke. Independent root/web audits matched
+baseline: root exit 1 reported 20 moderate affected-package entries from the sole
+sprintf-js advisory GHSA-hp3w-g68c-fv3c; web exit 0 reported none, with no
+low/high/critical findings in either graph. This is not security remediation.
+Final-document `validate:docs` is a separate required gate. Required failures
+block completion, even if also present on baseline. This comparison neither claims nor
+waives applicable CI jobs or `validate:release`: full backend E2E remains an
+independent unresolved release gate, not a ts-jest timing experiment. No deployment
+readiness follows from these local checks.
+
+### Terminal ownership and deadlines
 
 The terminal-child suite launches both fixtures directly with Node `--import tsx`
 (the full loader, not `tsx/esm`), without the tsx CLI process intermediary.

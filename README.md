@@ -378,6 +378,9 @@ toolchain internals and CI topology behind them.
 For Vue core patches, use the [matched root/web comparison recipe](docs/validation.md#matched-vue-core-patch-comparison):
 backend routine validation alone does not cover the compiler, mounted UI and browser consumers.
 
+For ts-jest patches, use the [backend runner and scoped comparison guidance](docs/validation.md#backend-test-runner-ownership):
+declared peer compatibility does not replace semantic, terminal and natural-exit checks.
+
 The [offline compaction fact/action rubric](tests/fixtures/compaction-semantic-quality.md)
 complements mechanical regression tests; its frozen evidence does not establish
 changed-model fidelity.
