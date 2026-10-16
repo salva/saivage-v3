@@ -209,7 +209,7 @@ Each shipped template retains one shared Planner system-prompt artifact selected
 
 The always-prepared roles own reusable work methods and authority: Planner strategy, delegation and direct-child repair; Executor scoped work, evidence interpretation and current status-record mechanics; Reviewer independent inspection and current review-record mechanics; Analyst request resolution and permitted inspection/control; Oversight bounded diagnosis, useful advice and successful no-action. Conditional image/MCP guidance follows task and authority; selected tool definitions own their parameter and command-output mechanics. No direction relies on init-only model memory.
 
-Shared Planner and Executor own brief-relative current status authorship in both profiles. They consolidate superseded current sections rather than prepend continuation accounts, distinguishing actual delivery, proposals/in-progress work, acceptance and remaining actions. Material decisions, blockers, uncertainty, partial/failed checks and exact source/artifact identities with evidence applicability remain explicit; existing work products and retained accepted history hold supporting detail, not an undisclosed backlog. Nodes supply scoped evidence deltas, diagnoses, classifications and required substantive deliverables; concise status does not replace that work or erase a failed check because another input passed. No quota, fixed template, new acceptance gate or artifact-per-action rule is introduced. Reviewer still independently inspects evidence and owns `review.md`, not `status.md`. This changes authoring prose only, not composition, delivery, compaction, record/history semantics or durable formats.
+Shared Planner and Executor own brief-relative current status authorship in both profiles. Conversation is the work history, not a timeline to relocate into a separate log/history record or document; actual deliverables and necessary primary evidence still belong in permitted work products and records. They consolidate superseded current sections rather than prepend continuation accounts, distinguishing actual delivery, proposals/in-progress work, acceptance and remaining actions. Material decisions, blockers, uncertainty, partial/failed checks and exact source/artifact identities with evidence applicability remain explicit; existing work products and retained accepted history hold supporting detail, not an undisclosed backlog. Current resource ownership, unresolved effects and applicable cumulative accounting remain explicit when needed for current conclusions or safe continuation; consolidation neither confirms release/cleanup nor restarts an accounting period. Nodes supply scoped evidence deltas, diagnoses, classifications and required substantive deliverables; concise status does not replace that work or erase a failed check because another input passed. No quota, fixed template, new acceptance gate or artifact-per-action rule is introduced. Reviewer still independently inspects evidence and owns `review.md`, not `status.md`. This changes authoring prose only, not composition, delivery, compaction, record/history semantics or durable formats.
 
 New config-absent init receives these packaged role and node bytes. Existing materialized/custom prompts do not auto-upgrade: adoption requires separately authorized stopped reconciliation of the actual selected Planner/Executor and affected node/handoff hosts, preserving project custom guidance, then a genuinely new process. Source completion authorizes no installed-project inspection or reconciliation; see [operator cutover](#runtime-invariants-and-operator-cutover).
 
@@ -229,6 +229,22 @@ Nodes additionally project ordered record-prompt inputs and compiled placeholder
 metadata, never selected record bodies or literal template tokens.
 Process/record declaration reference and key metadata is privacy-filtered for this
 operator projection; displayed keys never select retained instruction authority.
+
+### Illustrative status consolidation
+
+**Illustrative facts and paths, not executed checks or runtime evidence; not a required format.** Both versions use only this supplied scenario: the accepted brief requires CSV export and a successful retry round-trip on source X, followed by independent review. Export is implemented on X, but its retry round-trip failed; the primary failed-check report is `reports/export-X-failed.txt`. Review remains outstanding. The task-owned worker remains allocated for the retry investigation, with no confirmed release.
+
+Before (activity inventory):
+
+```markdown
+Implemented CSV export on X. Ran retry round-trip; failed (reports/export-X-failed.txt). Still need the brief's successful retry round-trip on X and independent review. Kept the task-owned worker allocated to investigate; no release confirmed. Updated status again.
+```
+
+After (same supplied facts, current assessment):
+
+```markdown
+CSV export is implemented on source X, not yet accepted: retry round-trip still fails ([failed check](reports/export-X-failed.txt)). Fix retry handling and verify the required round-trip on X before independent review. The task-owned worker remains allocated for that investigation; no release is confirmed.
+```
 
 ## Runtime invariants and operator cutover
 
