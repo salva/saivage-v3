@@ -409,3 +409,41 @@ dependencies. `npm run audit:security:all` uses the lower moderate threshold.
 dependency-freshness review; it does not replace the CI gate.
 Passing `npm run validate:release` does not run or replace the separately
 required root-and-web `npm run audit:security` gate.
+
+### Backend patch decision — 2026-10-16
+
+Updated Fastify 5.12.5 → 5.12.7 and @fastify/static 10.1.3 → 10.1.6,
+retaining caret manifest floors and exact lock resolutions. These supported
+security-maintenance patches remove the affected package ranges for
+[Fastify header-schema validation bypass (GHSA-389g-gv7q-r4x8)](https://github.com/fastify/fastify/security/advisories/GHSA-389g-gv7q-r4x8)
+and [static path-guard bypass (GHSA-r799-r9gc-m956)](https://github.com/fastify/fastify-static/security/advisories/GHSA-r799-r9gc-m956).
+No Saivage exploit was demonstrated: the Fastify advisory's schema constructs
+were not observed here, and the static advisory requires a case-insensitive
+filesystem rather than the intended ordinary Linux deployment. Static requires
+content-disposition 3.0.0 (Node >=22), compatible with the tested Node 24.22.0 /
+npm 11.19.1 toolchain; no other transitive resolution changed.
+
+@fastify/cors and @fastify/websocket remain 11.2.0. Their newer 11.3 minor lines
+are independent assessments, not required security patches for this unit:
+CORS supplied no evidenced necessary behavior fix, while WebSocket error/upgrade
+lifecycle maintenance remains separately worthwhile to assess. No blanket
+backend refresh, compatibility override or runtime workaround was introduced.
+
+Baseline and candidate focused server checks each passed eight suites / 82 tests
+with no skips: real-Fastify REST/authentication and TCP-WebSocket admission,
+observation-only and inbound-bound consumers, plus policy and credential-safe
+request-serializer coverage. Candidate clean install, full dependency-tree check,
+`validate:routine` and `build` passed, including compiled prompt composition and
+real-Fastify static serving. The static smoke checks the docs redirect/landing,
+six linked navigation pages, CSS/JS and conditional icons, docs misses returning
+404, SPA `/` and `/cards`, a built web asset, and asset/API misses returning 404
+rather than the SPA. All commands exited naturally without owner containment.
+
+Independent include-dev root/web audits passed the high/critical gate before and
+after: root retained 20 moderate affected-package entries and zero low/high/critical;
+web had zero findings. Neither selected advisory was yet in the audit feed;
+their affected ranges were removed by the locked package versions, not certified
+absent by that feed. DOMPurify continuation remains deferred pending its original
+owner, and sprintf-js remains deferred. This is bounded source patch acceptance,
+not an audit-free, full-release or deployment certificate. No browser,
+case-insensitive-filesystem exploit or unused download-API coverage is claimed.
