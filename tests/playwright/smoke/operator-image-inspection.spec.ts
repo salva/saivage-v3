@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import sharp from 'sharp';
@@ -96,7 +97,7 @@ async function advance(session: ConversationSessionId) {
 test.beforeAll(async () => {
   mkdirSync(evidence, { recursive: true });
   const port = await listen(sink);
-  root = mkdtempSync('/home/salva/g/ml/tmp/image-browser-');
+  root = mkdtempSync(join(tmpdir(), 'image-browser-'));
   writeProductionConfig(root, productionTestConfig(port, config => {
     for (const [name, agent] of Object.entries(config.agents)) agent.tools = [...DEFAULT_SAIVAGE_CONFIG.agents[name]!.tools];
     config.providers.fixture!.capabilities = { ...config.providers.fixture!.capabilities, transportProtocol: 'openai-responses', imageInput: true };

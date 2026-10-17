@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   appendConversationBatch,
   readConversation,
@@ -14,7 +16,7 @@ import type { AgentMessage, ConversationSessionId } from '../../src/schemas/inde
 
 describe('durable-preserving MCP topology history', () => {
   it('strict current readers/materialization and outbound projection retain old name-only and new bound/registration facts without execution', () => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-historical-');
+    const root = mkdtempSync(join(tmpdir(), 'mcp-historical-'));
     const session = 'agent:planner:project' as ConversationSessionId;
     const input = '11111111-1111-4111-8111-111111111111';
     const timestamp = '2026-10-10T00:00:00.000Z';

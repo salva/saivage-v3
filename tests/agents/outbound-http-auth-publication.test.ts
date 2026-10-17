@@ -1,5 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as auth from '../../src/auth/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { capturedHttp, assertLifecycles, assertPrivateMetadata } from '../helpers/http-lifecycle.js';
@@ -18,7 +20,7 @@ const { makeCodexJwt } = await import('../helpers/llm-test-helpers.js');
 
 describe('auth HTTP terminal is outside credential publication', () => {
   it.each(['openai-codex', 'github-copilot'] as const)('%s successful HTTP then unknown credential publication has no later observation or cleanup', async provider => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/auth-http-publication-'); const capture = capturedHttp();
+    const root = mkdtempSync(join(tmpdir(), 'auth-http-publication-')); const capture = capturedHttp();
     const token = provider === 'openai-codex' ? makeCodexJwt('private-account') : 'secret-access';
     const file = { version: 1, profiles: { 'secret-profile': { type: 'oauth' as const, provider, accessToken: token, refreshToken: 'secret-refresh', expiresAt: Date.now() - 1 } } };
     auth.replaceAuthProfiles(root, file);

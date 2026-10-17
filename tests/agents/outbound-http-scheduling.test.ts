@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { NO_FRESHNESS_EFFECTS, PublicationOutcomeUnknownError, type Candidate } from '../../src/contracts/index.js';
@@ -19,7 +21,7 @@ function request(chain: Candidate[] = [primary]): InvocationRequest {
     modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: chain } };
 }
 function setup(chain = [primary], throwing = false) {
-  const capture = capturedHttp(); const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/http-scheduling-'); roots.push(projectRoot);
+  const capture = capturedHttp(); const projectRoot = mkdtempSync(join(tmpdir(), 'http-scheduling-')); roots.push(projectRoot);
   const service = new InvocationService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry(chain),
     candidateAvailability: new MemoryCandidateAvailability(), outboundHttp: e => { capture.sink(e); if (throwing) throw new Error('sink'); } });
   return { service, ...capture };
@@ -120,7 +122,7 @@ describe('actual invocation scheduler outbound observations', () => {
     { type: 'response.output_text.delta', delta: 'truncated-secret-sse' },
   ])('Codex HTTP-200 SSE failure/malformed/truncated is never successful HTTP handling: %p', async event => {
     jest.useFakeTimers();
-    const codex = { provider: 'openai-codex', account: null, model: 'gpt-5' }; const capture = capturedHttp(); const root = mkdtempSync('/home/salva/g/ml/tmp/http-sse-'); roots.push(root);
+    const codex = { provider: 'openai-codex', account: null, model: 'gpt-5' }; const capture = capturedHttp(); const root = mkdtempSync(join(tmpdir(), 'http-sse-')); roots.push(root);
     const service = new InvocationService({ projectRoot: root, freshness: NO_FRESHNESS_EFFECTS, outboundHttp: capture.sink,
       candidateAvailability: new MemoryCandidateAvailability(), registry: invocationProviderRegistry([codex], { 'openai-codex': { transportProtocol: 'openai-codex-backend', exclusiveToolChoiceSupport: 'parallel_off' } }, { 'openai-codex': makeCodexJwt('test') }) });
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`, { status: 200 }));

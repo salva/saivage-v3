@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { stringify } from 'yaml';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createMcpToolInvocationInstallation } from '../../src/mcp/tool-invocation-installation.js';
@@ -27,7 +28,7 @@ function rpc(id: number, result: unknown, sse = false) {
   Object.defineProperty(response, 'redirected', { value: true }); return response;
 }
 function fixture(autostart = false) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-http-'); roots.push(root); mkdirSync(join(root, '.saivage'));
+  const root = mkdtempSync(join(tmpdir(), 'mcp-http-')); roots.push(root); mkdirSync(join(root, '.saivage'));
   writeFileSync(join(root, '.saivage/saivage.yaml'), stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), mcpServers: { 'secret-server': { ...config, autostart } } }));
   const processRegistry = new ManagedProcessGroupRegistry(); const scope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers');
   const runner = new ProcessRunner(root, processRegistry, testApplicationFatalPort); const capture = capturedHttp();

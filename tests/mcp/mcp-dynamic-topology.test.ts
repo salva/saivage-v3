@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import * as YAML from 'yaml';
 import * as realFs from 'node:fs';
 let publicationFault = false;
@@ -43,7 +44,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function setup(operator = {}) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-topology-');
+  const root = mkdtempSync(join(tmpdir(), 'mcp-topology-'));
   roots.push(root);
   mkdirSync(join(root, '.saivage'));
   writeFileSync(

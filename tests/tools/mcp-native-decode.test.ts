@@ -1,6 +1,8 @@
 import { afterEach, expect, it } from '@jest/globals';
 import sharp from 'sharp';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { normalizeImage, normalizeWorkspaceImage } from '../../src/tools/image-decode.js';
 import { projectNativeMcpResult } from '../../src/tools/mcp-native-result.js';
 import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
@@ -8,7 +10,7 @@ import { materializeConversationImage } from '../../src/persistence/session-api.
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 it.each(['png', 'jpeg', 'webp'] as const)('normalizes native %s with honest source/oriented/sent metadata and no fabricated path', async format => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-native-decode-'); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'mcp-native-decode-')); roots.push(root);
   const bytes = await sharp({ create: { width: 20, height: 10, channels: 3, background: '#abc' } }).toFormat(format).toBuffer();
   const result = await projectNativeMcpResult({ content: [{ type: 'text', text: 'before' }, { type: 'image', data: bytes.toString('base64'), mimeType: `image/${format}` }, { type: 'resource_link', uri: 'https://example.test/x', name: 'link' }, { type: 'text', text: 'after' }], structuredContent: { image: { type: 'image', data: 'ordinary' } } }, root, 'agent:analyst:global', new AbortController().signal, 8);
   expect(result).toMatchObject({ kind: 'succeeded', data: { images: [{ content_index: 1, source_dimensions: { width: 20, height: 10 }, oriented_dimensions: { width: 20, height: 10 }, sent_dimensions: { width: 8, height: 4 }, resized: true, scale: { x: 0.4, y: 0.4 }, max_dimension: 8 }] } });
@@ -26,7 +28,7 @@ it('applies orientation before resize and preserves original override', async ()
   expect(selected.data).toMatchObject({ source_dimensions: { width: 20, height: 10 }, oriented_dimensions: { width: 10, height: 20 }, sent_dimensions: { width: 10, height: 20 }, orientation_applied: true, resized: false, max_dimension: 'original' });
 });
 it.each(['png', 'jpeg'] as const)('selects identical neutral, workspace and MCP %s bytes/facts with real alpha or reflected pixels', async format => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-native-decode-'); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'mcp-native-decode-')); roots.push(root);
   const width = 40, height = 20;
   const pixels = Buffer.alloc(width * height * 4);
   for (let i = 0; i < width * height; i++) {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { normalizeWorkspaceImage } from '../../src/tools/image-decode.js';
 import { readWorkspaceImageSource } from '../../src/tools/project-file-tools.js';
@@ -15,7 +16,7 @@ import type { CardService } from '../../src/cards/store-api.js';
 import { isReadBlocked } from '../../src/workspace/index.js';
 
 const roots: string[] = [];
-function root() { const path = mkdtempSync('/home/salva/g/ml/tmp/saivage-image-test-'); roots.push(path); return path; }
+function root() { const path = mkdtempSync(join(tmpdir(), 'saivage-image-test-')); roots.push(path); return path; }
 afterEach(() => { for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true }); });
 const png = (width: number, height: number) => sharp({ create: { width, height, channels: 4, background: { r: 12, g: 23, b: 34, alpha: 0.5 } } }).png().toBuffer();
 

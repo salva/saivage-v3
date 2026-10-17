@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
@@ -469,7 +470,7 @@ test('rejected workspace request has public location bytes in Request, safe-orig
 
 test.beforeAll(async () => {
   const port = await listen(sink);
-  root = mkdtempSync('/home/salva/g/ml/tmp/reading-real-server-');
+  root = mkdtempSync(join(tmpdir(), 'reading-real-server-'));
   const config = productionTestConfig(port, config => {
     for (const [name, agent] of Object.entries(config.agents)) agent.tools = [...DEFAULT_SAIVAGE_CONFIG.agents[name]!.tools];
     config.providers.fixture!.capabilities = { ...config.providers.fixture!.capabilities, transportProtocol: 'openai-responses', imageInput: true };

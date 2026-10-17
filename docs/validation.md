@@ -6,6 +6,13 @@ owns validation selection and navigation; the workflow file
 [`.github/workflows/validation.yml`](../.github/workflows/validation.yml) is
 the executable authority.
 
+## Portable temporary fixtures
+
+Allocate disposable fixtures with `os.tmpdir()` and `path.join`, retaining each
+fixture's existing `mkdtemp` prefix rather than a developer-home path. Callers can
+select an existing writable short `TMPDIR`; keep workspace-harness artifacts under
+workspace `tmp/`. Local validation success is not exact-SHA GitHub CI success.
+
 ## Local toolchain-upgrade evidence
 
 Use the latest supported Node 24.x LTS patch within the existing Node/npm engine

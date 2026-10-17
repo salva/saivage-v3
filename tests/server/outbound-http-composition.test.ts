@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { OutboundHttpEvent } from '../../src/contracts/index.js';
 import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
@@ -32,7 +33,7 @@ async function runCompositionScenario(options: {
   factoryError?: Error;
   lifecycle?: string[];
 } = {}) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/server-http-');
+  const root = mkdtempSync(join(tmpdir(), 'server-http-'));
   const terminal = createAppTerminalCoordinator();
   const initializeDispatched = deferred<void>();
   const headersRelease = deferred<void>();

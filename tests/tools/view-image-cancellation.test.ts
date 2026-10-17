@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { LlmToolInvocationContext } from '../../src/runtime/runtime-api.js';
 import type { normalizeWorkspaceImage as Normalize } from '../../src/tools/image-decode.js';
 import type { CardService } from '../../src/cards/store-api.js';
@@ -21,7 +22,7 @@ it.each(['agent:executor:project', 'agent:analyst:global'] as const)(
   'retains exact %s cancellation reason after pending normalization succeeds or fails recognizably',
   async (sessionId) => {
     for (const failure of [false, true]) {
-      const root = mkdtempSync('/home/salva/g/ml/tmp/view-image-cancellation-');
+      const root = mkdtempSync(join(tmpdir(), 'view-image-cancellation-'));
       roots.push(root);
       writeFileSync(join(root, 'screen.png'), 'decoder-owned input');
       let resolve!: (value: Awaited<ReturnType<typeof Normalize>>) => void;

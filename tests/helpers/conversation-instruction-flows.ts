@@ -1,5 +1,6 @@
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import {
@@ -74,7 +75,7 @@ const tool = (id: string, name: string, args: object): LlmCompleteResult => ({
 });
 
 export async function createInstructionFlow(scene: InstructionScene) {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/conversation-instruction-flow-');
+  const root = mkdtempSync(join(tmpdir(), 'conversation-instruction-flow-'));
   const unexpectedProviderRequests: string[] = [];
   const sink = createServer((request, response) => {
     unexpectedProviderRequests.push(`${request.method} ${request.url}`);

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/runtime-api.js';
@@ -15,7 +16,7 @@ const roots: string[] = [];
 afterEach(() => { for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true }); publish.mockReset(); decoder.mockReset().mockImplementation(sharp); });
 
 it.each([new Error('publication denied'), new PublicationOutcomeUnknownError(new Error('rename uncertain'))])('propagates publication failure unchanged with no tool result/retry/cleanup: %s', async (failure) => {
-  const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/saivage-image-failure-'); roots.push(projectRoot);
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-image-failure-')); roots.push(projectRoot);
   const source = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#123456' } }).png().toBuffer();
   writeFileSync(join(projectRoot, 'screen.png'), source);
   publish.mockImplementation(() => { throw failure; });
@@ -26,7 +27,7 @@ it.each([new Error('publication denied'), new PublicationOutcomeUnknownError(new
 });
 
 it('does not classify native/programming decoder failure as invalid input', async () => {
-  const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/saivage-image-native-'); roots.push(projectRoot);
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-image-native-')); roots.push(projectRoot);
   writeFileSync(join(projectRoot, 'screen.png'), await sharp({ create: { width: 10, height: 10, channels: 3, background: '#123456' } }).png().toBuffer());
   const failure = Object.assign(new Error('Native library unavailable'), { code: 'EACCES' });
   decoder.mockImplementationOnce(() => { throw failure; });
@@ -36,7 +37,7 @@ it('does not classify native/programming decoder failure as invalid input', asyn
 });
 
 it('fences cancellation during asynchronous conversion before snapshot publication', async () => {
-  const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/saivage-image-cancel-'); roots.push(projectRoot);
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-image-cancel-')); roots.push(projectRoot);
   const source = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#123456' } }).png().toBuffer();
   writeFileSync(join(projectRoot, 'screen.png'), source);
   const metadata = await sharp(source).metadata();

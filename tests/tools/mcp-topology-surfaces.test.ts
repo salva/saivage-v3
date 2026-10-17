@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
@@ -271,7 +272,7 @@ describe('dynamic MCP ordinary surfaces', () => {
   });
 
   it('refuses exact definition Files reads and resolved aliases before parsing malformed secret bytes', async () => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-files-surface-');
+    const root = mkdtempSync(join(tmpdir(), 'mcp-files-surface-'));
     roots.push(root);
     mkdirSync(join(root, '.saivage', 'config'), { recursive: true });
     writeFileSync(

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 let phase: 'open' | 'write' | 'collision' | 'rename' | 'parent-fsync' | null = null;
 let armed = false;
@@ -115,7 +116,7 @@ const candidate = { provider: 'test', account: null, model: 'model' };
 const session = 'agent:planner:project' as const;
 const inputId = '00000000-0000-4000-8000-000000000001';
 function fixture() {
-  const root = fs.mkdtempSync('/home/salva/g/ml/tmp/diagnostic-fault-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'diagnostic-fault-'));
   roots.push(root);
   initProjectTree(root);
   const activation = randomUUID();

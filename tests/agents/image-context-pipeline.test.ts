@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import type { NativeMcpResult } from '../../src/mcp/tool-api.js';
 import { afterEach, expect, it, jest } from '@jest/globals';
@@ -83,7 +84,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function root() {
-  const result = mkdtempSync('/home/salva/g/ml/tmp/image-context-');
+  const result = mkdtempSync(join(tmpdir(), 'image-context-'));
   roots.push(result);
   initProjectTree(result);
   return result;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import type { App } from '../../src/boot/app.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -42,7 +43,7 @@ async function operatorGet(app: App, path: string): Promise<{ status: number; bo
 
 describe('process inline output production composition', () => {
   it('projects real process heads to primary requests while retaining durable URLs and readable retired logs', async () => {
-    const parent = mkdtempSync('/home/salva/g/ml/tmp/saivage-process-inline-e2e-');
+    const parent = mkdtempSync(join(tmpdir(), 'saivage-process-inline-e2e-'));
     roots.push(parent);
     const projectRoot = join(parent, 'project');
     const sibling = join(parent, 'sibling');

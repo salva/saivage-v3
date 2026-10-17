@@ -36,7 +36,7 @@ afterEach(async () => {
 
 describe('MCP tool invocation production composition', () => {
   it('starts a HEAD-405 HTTP peer only through complete paginated protocol discovery', async () => {
-    const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-http-admission-');
+    const projectRoot = mkdtempSync(join(tmpdir(), 'mcp-http-admission-'));
     roots.push(projectRoot);
     const calls: Array<{ method: string; operation?: string; session?: string; cursor?: string }> = [];
     let finishFinalPage: (() => void) | undefined;
@@ -101,7 +101,7 @@ describe('MCP tool invocation production composition', () => {
   it.each(['stdio', 'streamable-http'] as const)(
     'selected agent dynamically registers, discovers, calls and removes %s without changing its frozen gateway or another owner',
     async (transport) => {
-      const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-dynamic-composition-');
+      const projectRoot = mkdtempSync(join(tmpdir(), 'mcp-dynamic-composition-'));
       roots.push(projectRoot);
       const callsPath = join(projectRoot, 'calls.jsonl');
       writeFileSync(callsPath, '');
@@ -425,7 +425,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     60_000,
   );
   it('serves lifetime workspace roots through a real synthetic stdio child and manager without replay', async () => {
-    const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/mcp-lifetime-á space-');
+    const projectRoot = mkdtempSync(join(tmpdir(), 'mcp-lifetime-á space-'));
     roots.push(projectRoot);
     const script = join(projectRoot, 'peer.cjs');
     writeFileSync(

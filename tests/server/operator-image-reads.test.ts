@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import Fastify from 'fastify';
 import sharp from 'sharp';
 import { agentOperatorApiContracts } from '../../src/contracts/operator-api-agents.js';
@@ -58,7 +59,7 @@ import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 
 const roots: string[] = [];
 it('binary contracts validate byte success and retain singular bounded JSON error responses', async () => {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/operator-binary-contract-');
+  const root = mkdtempSync(join(tmpdir(), 'operator-binary-contract-'));
   roots.push(root);
   initProjectTree(root);
   const server = Fastify({ logger: false });
@@ -101,7 +102,7 @@ const png = (width = 5, height = 3, background = '#ff0000') =>
     .toBuffer();
 
 function setup() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/operator-image-read-');
+  const root = mkdtempSync(join(tmpdir(), 'operator-image-read-'));
   roots.push(root);
   initProjectTree(root);
   const cards = new CardService(root);

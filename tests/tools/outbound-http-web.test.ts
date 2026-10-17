@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { projectOutboundSource } from '../../src/observability/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/index.js';
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
@@ -16,7 +18,7 @@ const { CardService, initProjectTree, testAnalystMutationServices } = await impo
 const roots: string[] = [];
 afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/web-http-'); roots.push(root); const capture = capturedHttp();
+  const root = mkdtempSync(join(tmpdir(), 'web-http-')); roots.push(root); const capture = capturedHttp();
   const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('web', webToolBinders, { projectRoot: root, agentName: 'executor', outboundHttp: capture.sink })]);
   return { root, surface, ...capture };
 }

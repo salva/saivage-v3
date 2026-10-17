@@ -2,6 +2,7 @@ import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
@@ -42,7 +43,7 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
 }
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/saivage-process-provider-');
+  const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
   return fn(root).finally(async () => { await cleanupTestProcessRunners(root); rmSync(root, { recursive: true, force: true }); });
 }
 
@@ -412,7 +413,7 @@ describe('process provider', () => {
   }));
 
   it('completes pwd for native, relative and scoped cwd without moving ownership or capture', async () => {
-    const parent = mkdtempSync('/home/salva/g/ml/tmp/saivage-command-cwd-');
+    const parent = mkdtempSync(join(tmpdir(), 'saivage-command-cwd-'));
     const root = join(parent, 'project');
     const sibling = join(parent, 'sibling');
     mkdirSync(root);

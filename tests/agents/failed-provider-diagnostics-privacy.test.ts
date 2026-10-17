@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { FailedProviderRequestDiagnostics } from '../../src/agents/failed-provider-request-diagnostics.js';
@@ -16,7 +17,7 @@ const context = {
   purpose: 'primary' as const,
 };
 function fixture() {
-  const root = mkdtempSync('/home/salva/g/ml/tmp/diagnostic-privacy-');
+  const root = mkdtempSync(join(tmpdir(), 'diagnostic-privacy-'));
   roots.push(root);
   mkdirSync(join(root, '.saivage'));
   const activation = randomUUID();

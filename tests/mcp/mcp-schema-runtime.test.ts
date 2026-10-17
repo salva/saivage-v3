@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import * as YAML from 'yaml';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
@@ -18,7 +19,7 @@ afterEach(() => { globalThis.fetch = originalFetch; jest.restoreAllMocks(); });
 
 describe('MCP schema validation at runtime use', () => {
   it('isolates repeated IDs across tools and services, rejecting stale bindings and arguments after changed discovery on a fresh owner', async () => {
-    const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-schema-owner-');
+    const root = mkdtempSync(join(tmpdir(), 'mcp-schema-owner-'));
     mkdirSync(join(root, '.saivage'));
     const calls: unknown[] = [];
     const schemas = [
@@ -152,7 +153,7 @@ describe('MCP schema validation at runtime use', () => {
   it.each(['stdio', 'streamable-http'] as const)(
     '%s retains exact discovery, validates pinned screenshot arguments before transport and refreshes changed-schema cache',
     async (transport) => {
-      const root = mkdtempSync('/home/salva/g/ml/tmp/mcp-schema-');
+      const root = mkdtempSync(join(tmpdir(), 'mcp-schema-'));
       mkdirSync(join(root, '.saivage'));
       const callsPath = join(root, 'calls.jsonl');
       writeFileSync(callsPath, '');

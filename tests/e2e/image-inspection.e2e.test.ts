@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
@@ -48,7 +49,7 @@ it.each([
   ['openai-responses', 'gpt-6.1-sol'], ['openai-responses', 'gpt-6-astra'],
   ['openai-codex-backend', 'gpt-6.1-sol'], ['openai-codex-backend', 'gpt-6-astra'],
 ] as const)('real loopback %s / %s command → immutable pixels → reopen → original → HTTP summary', async (protocol, model) => {
-  const projectRoot = mkdtempSync('/home/salva/g/ml/tmp/image-native-e2e-');
+  const projectRoot = mkdtempSync(join(tmpdir(), 'image-native-e2e-'));
   initProjectTree(projectRoot);
   const posted: string[] = [];
   let phase = 0;

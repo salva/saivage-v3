@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { performance } from 'node:perf_hooks';
@@ -76,7 +77,7 @@ function fixture(
 ) {
   const selected =
     protocol === 'openai-codex-backend' ? { ...candidate, provider: 'openai-codex' } : candidate;
-  const root = mkdtempSync('/home/salva/g/ml/tmp/failed-diagnostics-');
+  const root = mkdtempSync(join(tmpdir(), 'failed-diagnostics-'));
   roots.push(root);
   initProjectTree(root);
   const activation = randomUUID();
