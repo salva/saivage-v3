@@ -218,6 +218,14 @@ and `node scripts/check-import-boundaries.cjs`. Admission does not prove cycle
 freedom or complete import-syntax coverage; routed value imports also need
 focused execution coverage of their actual semantic owners.
 
+## Server-plugin maintenance
+
+Server-plugin changes require real backend socket tests of the actual application
+composition, including affected error paths and cleanup, plus `npm run
+validate:routine` and `npm run build`. Browser WebSocket mocks do not exercise the
+backend plugin. Preserve existing authentication, payload-limit close-code and
+privacy assertions; a dependency upgrade does not justify weakening them.
+
 ## Backend test runner ownership
 
 Backend suites use Jest 30 with ts-jest 29.4.15's ESM transformation and the
