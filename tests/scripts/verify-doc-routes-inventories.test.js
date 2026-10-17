@@ -329,8 +329,11 @@ describe('source-derived Config schema inventory', () => {
       expect(verifyConfigDocs({ projectRoot: root }).ok).toBe(false);
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, CONFIG, "at: z.array(z.enum(['first_required_entry', 'clean_entry']))",
-        'at: z.array(z.lazy(() => z.string()))');
+      rewrite(root, CONFIG, (source) => {
+        const matches = [...source.matchAll(/\bat\s*:\s*z\s*\.\s*array\s*\(\s*z\s*\.\s*enum\s*\(\s*\[\s*'first_required_entry'\s*,\s*'clean_entry'\s*\]\s*\)\s*\)/g)];
+        expect(matches).toHaveLength(1);
+        return source.replace(matches[0][0], 'at: z.array(z.lazy(() => z.string()))');
+      });
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
     });
   });
