@@ -196,6 +196,16 @@ Ordinary Jest excludes Playwright, backend E2E, and the real-terminal-child
 suite. `npm test` runs ordinary parallel Jest, then the exact terminal-child
 suite serially; `npm run test:e2e` separately owns backend E2E.
 
+The shared Jest configuration sets `workerGracefulExitTimeout` to 5000ms,
+a finite worker-pool shutdown allowance, not a test/hook deadline or performance
+requirement. Workers receive that allowance concurrently; test selection,
+concurrency and terminal-child ownership remain unchanged. Jest retains its
+automatic force-exit fallback and visible warning when a worker exceeds the
+allowance; no `forceExit` option is enabled. Complete canonical stages with a
+natural npm exit 0 pass even if that warning appears. Warning absence establishes
+only that the run emitted no warning, not leak-free cleanup or repair of an
+unattributed teardown problem.
+
 ts-jest compatibility follows declared peer ranges, not equal major numbers:
 29.4.15 supports Jest `^29.0.0 || ^30.0.0` and TypeScript `>=4.3 <7`;
 its Node engine includes `>=20.0.0`. Jest 30.5.2, TypeScript 5.9.3 and the
