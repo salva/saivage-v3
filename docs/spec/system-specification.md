@@ -1362,6 +1362,7 @@ CLI `stop` delegates to REST operation `stop_project`; there is no `stop_project
 
 The exact public registry-owned operator REST contracts are `GET /health` and `GET /health/ready`, and the complete registry uses only `GET | POST`.
 The public built web SPA, documentation site, and their static assets are HTTP resources outside that registry and its operator-session admission.
+These builds belong to the Saivage package, not the managed project's working directory.
 `GET /docs` redirects exactly once with status 302 and `Location: /docs/`; `GET /docs/` serves the built documentation landing page.
 When the documentation build is absent, documentation paths return 404 rather than web SPA content.
 Once the server is booted, readiness unconditionally returns 200 `{status:'ready',serverAvailability}`.

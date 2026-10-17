@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '../../config/index.js';
 import {
@@ -68,8 +68,18 @@ export async function createFastifyApp(
 
 async function registerStaticAssets(fastify: FastifyInstance): Promise<void> {
   const thisFile = fileURLToPath(import.meta.url);
-  const inDist = thisFile.includes('/dist/src/') || thisFile.includes('\\dist\\src\\');
-  const packageRoot = fileURLToPath(new URL(inDist ? '../../../..' : '../../..', import.meta.url));
+  let packageRelativeRoot: string;
+  switch (extname(thisFile)) {
+    case '.ts':
+      packageRelativeRoot = '../../..';
+      break;
+    case '.js':
+      packageRelativeRoot = '../../../..';
+      break;
+    default:
+      throw new Error('Unsupported static-assets module format');
+  }
+  const packageRoot = fileURLToPath(new URL(packageRelativeRoot, import.meta.url));
   const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist');
   const docsBuilt = existsSync(docsDistDir);
 

@@ -2019,6 +2019,8 @@ The files/debug handler owns the one cards-load check.
 Its bounded catch calls `throwIfPublicationOutcomeUnknown(error)` before logging or building the fixed `issues_found` projection, so ordinary card-read failure alone becomes a 200 diagnostic.
 Publication uncertainty escapes unchanged to `ContractRuntime`, whose fatal boundary invokes the application fatal port and produces no ordinary Doctor diagnostic or HTTP response.
 `/ws` retains its separate ticket-or-disabled admission, and static SPA/docs/assets remain outside the operator registry.
+Static roots derive from the executing module's current source `.ts` or compiled
+`dist/src` `.js` layout, independently of the project working directory and ancestor names.
 There is no content-supervision route, OpenAPI document, code generator, generated client/server source, declaration snapshot, or generation/staleness workflow.
 
 `CardService.listCardVersions()`, `readCardVersion()`, and `diffCardVersions()` are singular projections of one call-local committed artifact catalog; `card-version-provider.ts` owns the model tools and consumes the diff's carried selected artifacts without rereading.
