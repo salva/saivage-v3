@@ -409,12 +409,30 @@ The exact-pinned test runner `@playwright/test` 1.64.1 selects `playwright` and
 `playwright-core` 1.64.1. Its matched managed Chromium and headless shell are
 revision 1248 / version 156.0.8078.4, with installer-selected ffmpeg revision 1013.
 After refreshing these packages, rerun `npm run web:test:e2e:install` to install
-their matching browsers. For isolated assessment, explicitly set
-`PLAYWRIGHT_BROWSERS_PATH=/home/salva/g/ml/tmp/2026-10-16-playwright-supported-update/browsers`
-for both installation and validation, with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
-unset. The separately pinned external Playwright MCP tooling is a distinct
+their matching browsers. The separately pinned external Playwright MCP tooling is a distinct
 contract, not this test runner/browser pairing. The optional system-Chrome
 override below remains a separate validation choice, not matched-browser evidence.
+
+For an opt-in isolated assessment, first choose or create an assessment-owned,
+writable **absolute** browser-cache directory outside generated Saivage state.
+Use an appropriate temporary root or caller-owned external assessment location;
+workspace-harness artifacts still follow the workspace `tmp/` policy. Replace
+the example path below with that actual directory and record it in assessment
+evidence. From the repository root, with the existing dependency/toolchain and
+host-browser prerequisites satisfied, run both commands in the same shell with
+the same unchanged exported path and the executable override unset:
+
+```bash
+export PLAYWRIGHT_BROWSERS_PATH='/absolute/path/to/assessment/browsers'
+unset PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+timeout -k 10s 600s npm run web:test:e2e:install &&
+  timeout -k 10s 900s npm run web:test:e2e:smoke
+```
+
+The `&&` prevents smoke validation after unsuccessful installation. If continuing
+in another shell, restore that exact exported path and keep
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` unset. This recipe does not change the
+ordinary/global browser-cache default.
 
 Shared-root export changes require `node scripts/check-web-browser-imports.cjs`
 and `npm --prefix web run build` (browser graph admission, Vue typecheck, Vite
