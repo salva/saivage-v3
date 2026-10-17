@@ -428,8 +428,22 @@ test('rejected workspace request has public location bytes in Request, safe-orig
       expect(argumentsValue).toEqual({ path: WORKSPACE_ARGUMENT_PUBLIC_PATH, metadata_only: true });
       expect(dto.entries.find(row => row.id === `${inputId}:tool-result:failed-location`)?.content).toContain('FINAL-RESULT-Z');
       await page.goto(`${origin}/agents/${session}${historical ? '?segment=1' : ''}`);
-      const exchange = page.locator(`[data-tool-entry-id="${id}"]`);
+      const inspector = session === analyst ? page.locator('.global-session-reader') : page.getByTestId('facet-conversations');
+      const reader = inspector.locator('.conversation-container');
+      await expect(reader).toHaveCount(1);
+      await expect(reader).toBeVisible();
+      await expect(reader.locator('.segment-context > strong')).toHaveText(historical
+        ? 'Conversation · exact segment 1'
+        : `Conversation · current segment ${dto.segment_version}`);
+      // Source entry IDs are not page-global projection IDs.
+      const exchange = reader.locator(`[data-tool-entry-id="${id}"]`);
       await expect(exchange).toHaveCount(1);
+      await expect(exchange).toBeVisible();
+      if (session === executor) {
+        const dockExchange = page.getByTestId('chat-scroll-container').locator(`[data-tool-entry-id="${id}"]`);
+        await expect(dockExchange).toHaveCount(1);
+        await expect(dockExchange).toBeVisible();
+      }
       await exchange.locator('.tool-chip-toggle').click();
       const request = exchange.locator('.tool-request');
       await expect(request).toContainText('Request');
