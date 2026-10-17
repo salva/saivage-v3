@@ -190,6 +190,10 @@ cd "$TARGET_PROJECT"
 env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start --host 127.0.0.1 --port 8080
 ```
 
+The startup announcement reports the actual binding (including the OS-selected
+port for `--port 0`). Qualified wildcard output is not a browser destination;
+see [startup command inputs](docs/runbook/index.md#startup-command-inputs).
+
 The [getting-started guide](docs/guides/getting-started.md) walks through a
 complete minimal configuration and first objective, and the
 [configuration guide](docs/guides/configuration.md) documents every key. The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)

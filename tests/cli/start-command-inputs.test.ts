@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import type { StartInputs } from '../../src/boot/index.js';
+import type { App } from '../../src/boot/app.js';
 
-const startApp = jest.fn<(inputs: StartInputs) => Promise<{ environment: { server: { host: string; port: number } } }>>(async () => ({ environment: { server: { host: '127.0.0.1', port: 0 } } }));
+const startApp = jest.fn<(inputs: StartInputs) => Promise<Pick<App, 'boundListener'>>>(async () => ({ boundListener: { host: '127.0.0.1', port: 49152 } }));
 const withDirectMutationComposition = jest.fn<typeof import('../../src/boot/index.js').withDirectMutationComposition>(() => {
   throw new Error('Unexpected direct mutation composition during start');
 });
@@ -21,7 +22,7 @@ afterEach(() => {
 
 describe('start command typed inputs', () => {
   it('passes every accepted start option from the one CLI parse without argv', async () => {
-    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
     await run([
       'node', 'saivage', 'start',
       '--host=127.0.0.1', '--port', '0', '--config=selected.yaml',
@@ -39,7 +40,18 @@ describe('start command typed inputs', () => {
       failedProviderDiagnostics: '00000000-0000-4000-8000-000000000001',
     });
     expect(startApp.mock.calls[0]![0]).not.toHaveProperty('argv');
+    expect(log).toHaveBeenCalledWith('Saivage server listening on http://127.0.0.1:49152');
     expect(withDirectMutationComposition).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['::1', 'http://[::1]:49152'],
+    ['0.0.0.0', 'http://0.0.0.0:49152 (wildcard bind; use a reachable host address to connect)'],
+    ['::', 'http://[::]:49152 (wildcard bind; use a reachable host address to connect)'],
+  ])('formats the observed bind %s', async (host, announcement) => {
+    startApp.mockResolvedValueOnce({ boundListener: { host, port: 49152 } });
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await run(['node', 'saivage', 'start']);
+    expect(log).toHaveBeenCalledWith(`Saivage server listening on ${announcement}`);
   });
 
   it('passes explicit false create intent when start has no options', async () => {

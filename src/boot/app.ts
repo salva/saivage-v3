@@ -125,6 +125,7 @@ export function createOversightOwnerFailureHandler(input: {
 export interface App {
   readonly environment: Environment;
   readonly server: ServerInstance;
+  readonly boundListener: { readonly host: string; readonly port: number };
   stop(): Promise<ShutdownReport>;
 }
 
@@ -148,6 +149,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
   let environment: Environment;
   let server: ServerInstance;
+  let boundListener: App['boundListener'];
   try {
     environment = await loadEnvironment(options, env);
     for (const warning of environment.configWarnings) console.error(formatConfigWarning(warning));
@@ -177,6 +179,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string')
       throw new Error('Server did not publish a TCP control address.');
+    boundListener = { host: address.address, port: address.port };
     const dialHost =
       environment.server.host === '0.0.0.0' || environment.server.host === '::'
         ? '127.0.0.1'
@@ -206,5 +209,5 @@ export async function startApp(options: StartAppOptions): Promise<App> {
     process.removeListener('SIGINT', stopForSignal);
     process.removeListener('SIGTERM', stopForSignal);
   });
-  return { environment, server, stop };
+  return { environment, server, boundListener, stop };
 }

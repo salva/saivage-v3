@@ -256,8 +256,14 @@ async function handleInit(options: InitInputs): Promise<void> {
 }
 async function handleStart(inputs: StartInputs): Promise<void> {
   const app = await startApp(inputs);
+  const { host, port } = app.boundListener;
+  const urlHost = host.includes(':') ? `[${host}]` : host;
+  const qualification =
+    host === '0.0.0.0' || host === '::'
+      ? ' (wildcard bind; use a reachable host address to connect)'
+      : '';
   console.log(
-    `Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`,
+    `Saivage server listening on http://${urlHost}:${port}${qualification}`,
   );
 }
 async function handleRuntimeControl(
