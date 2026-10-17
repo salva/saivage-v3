@@ -418,9 +418,15 @@ test('rejected workspace request has public location bytes in Request, safe-orig
       const base = `${origin}/api/agents/${encodeURIComponent(session)}/conversation`;
       const response = await page.request.get(historical ? `${base}/versions/1` : base, { headers: { authorization: `Bearer ${token}` } });
       expect(response.status()).toBe(200);
-      const dto = historical
-        ? parseOperatorResponse('agents.conversationVersions.get', 200, await response.json())
-        : parseOperatorResponse('agents.conversation', 200, await response.json());
+      const responseJson = await response.json();
+      const { dto, expectedOrientation } = (() => {
+        if (historical) {
+          const historicalDto = parseOperatorResponse('agents.conversationVersions.get', 200, responseJson);
+          return { dto: historicalDto, expectedOrientation: 'Conversation · exact segment 1' };
+        }
+        const currentDto = parseOperatorResponse('agents.conversation', 200, responseJson);
+        return { dto: currentDto, expectedOrientation: `Conversation · current segment ${currentDto.segment_version}` };
+      })();
       expect(JSON.stringify(dto)).not.toContain(WORKSPACE_ARGUMENT_CANARY);
       const id = `${inputId}:tool-call:failed-location`;
       const publicCall = dto.entries.find(row => row.id === id)!;
@@ -432,9 +438,7 @@ test('rejected workspace request has public location bytes in Request, safe-orig
       const reader = inspector.locator('.conversation-container');
       await expect(reader).toHaveCount(1);
       await expect(reader).toBeVisible();
-      await expect(reader.locator('.segment-context > strong')).toHaveText(historical
-        ? 'Conversation · exact segment 1'
-        : `Conversation · current segment ${dto.segment_version}`);
+      await expect(reader.locator('.segment-context > strong')).toHaveText(expectedOrientation);
       // Source entry IDs are not page-global projection IDs.
       const exchange = reader.locator(`[data-tool-entry-id="${id}"]`);
       await expect(exchange).toHaveCount(1);
