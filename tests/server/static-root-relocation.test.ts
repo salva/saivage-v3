@@ -1,6 +1,7 @@
 import { expect, it } from '@jest/globals';
 import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -76,7 +77,7 @@ console.log('relocated static roots: both factory instances passed');
 `;
 
 it('anchors source static assets to its package despite dist/src ancestors and unrelated cwd', async () => {
-  const fixture = mkdtempSync('/home/salva/g/ml/tmp/saivage-static-root-');
+  const fixture = mkdtempSync(join(tmpdir(), 'saivage-static-root-'));
   try {
     const packageRoot = join(fixture, 'dist', 'src', 'checkout');
     mkdirSync(packageRoot, { recursive: true });
