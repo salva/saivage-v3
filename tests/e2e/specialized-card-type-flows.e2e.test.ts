@@ -46,6 +46,11 @@ import {
   foldHistoricalConversationRows,
 } from '../../src/application/read-models/agent-conversation-read-model.js';
 
+// Hang safety budget for multi-turn durable integration flows, not a runtime latency assertion.
+// The 25s stopped-wait allowance leaves nominal room for setup, start and assertions.
+const TEST_SAFETY_TIMEOUT_MS = 30_000;
+jest.setTimeout(TEST_SAFETY_TIMEOUT_MS);
+
 function assertRecordedNodeInstructions(
   root: string,
   starts: Array<{ node: string; input: LlmInvocationInput }>,
@@ -149,11 +154,12 @@ const tool = (id: string, name: string, args: object): LlmCompleteResult => ({
   tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
 });
 async function waitUntil(predicate: () => boolean) {
-  for (let attempt = 0; attempt < 1000; attempt += 1) {
-    if (predicate()) return;
+  const deadline = performance.now() + 25_000;
+  while (!predicate()) {
+    if (performance.now() >= deadline)
+      throw new Error('condition not reached within 25000ms');
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
-  throw new Error('condition not reached');
 }
 function testConfig() {
   const config = specializedConfig();
@@ -1623,7 +1629,6 @@ describe('specialized production card-type flows', () => {
     });
   });
 
-  // Durable multi-activation review/redraft cycles need headroom under parallel validation contention.
   it('cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence', async () => {
     let plannerCalls = 0;
     let executorCalls = 0;
@@ -1877,7 +1882,7 @@ describe('specialized production card-type flows', () => {
         projection: { accepted: { content: 'Notification-aware system review approved.' } },
       },
     });
-  }, 30_000);
+  });
 
   it('keeps the compiled data node authoritative across compaction and advances schema_ready to validate in one Executor session', async () => {
     const retainedHistory =
