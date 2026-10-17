@@ -13,6 +13,32 @@ fixture's existing `mkdtemp` prefix rather than a developer-home path. Callers c
 select an existing writable short `TMPDIR`; keep workspace-harness artifacts under
 workspace `tmp/`. Local validation success is not exact-SHA GitHub CI success.
 
+## Native-path script entrypoints
+
+`tests/scripts/file-url-entrypoints.test.js` exercises actual CLI invocation in
+tracked-file relocation fixtures on Linux. Packaging uses the build's installed
+tsx CLI in ordinary and `checkout café` paths (spaces/non-ASCII); the full docs
+verifier uses native Node in ordinary and `checkout café #?%20%` paths (also
+fragment/query punctuation, a valid-looking percent escape and literal percent).
+Each case requires a healthy baseline before rejecting a missing selected prompt
+or deliberate public-route drift. Packaging checks exact source/output file sets,
+bytes and compiler-derived closure. Fresh distinct-driver and no-argv imports must
+remain silent, even with the invalid fixture inputs retained.
+
+Run the callers separately from the repository root:
+
+```bash
+timeout --kill-after=10s 900s env NODE_OPTIONS=--experimental-vm-modules node node_modules/jest/bin/jest.js --runInBand --runTestsByPath tests/scripts/file-url-entrypoints.test.js --testNamePattern='packaging entrypoint'
+timeout --kill-after=10s 900s env NODE_OPTIONS=--experimental-vm-modules node node_modules/jest/bin/jest.js --runInBand --runTestsByPath tests/scripts/file-url-entrypoints.test.js --testNamePattern='docs entrypoint'
+```
+
+Each command must execute two cases. Child processes, including tracked-file
+discovery, use `timeout --kill-after=5s 60s`; each case has a 360-second Jest
+budget. This is caller-specific regression coverage, not full platform portability
+or a new validation profile. The observed tsx source-loading failure before the
+entrypoint in combined `#?%` checkout paths is outside this fix; these checks do
+not establish packaging or full-build success in that combined punctuation path.
+
 ## Local toolchain-upgrade evidence
 
 Use the latest supported Node 24.x LTS patch within the existing Node/npm engine

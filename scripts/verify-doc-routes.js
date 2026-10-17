@@ -1649,5 +1649,4 @@ function main() {
   if (!result.ok) process.exit(1);
 }
 
-const invokedPath = process.argv[1] ? fileURLToPath(new URL(`file://${process.argv[1]}`)) : '';
-if (invokedPath === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

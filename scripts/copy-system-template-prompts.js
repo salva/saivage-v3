@@ -124,7 +124,7 @@ export function copySystemTemplatePrompts({ templates = SYSTEM_TEMPLATES, distRo
   return Object.freeze(packaged);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
     const packaged = copySystemTemplatePrompts();
