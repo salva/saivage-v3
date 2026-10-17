@@ -530,6 +530,18 @@ tests/playwright/smoke/playwright.config.ts
 tests/playwright/smoke/markdown-rendering.spec.ts`. It uses synthetic API fixtures
 and mocked transport, not a live deployed project or provider.
 
+For supported Marked patches, compare the mounted Markdown test and this browser
+spec before and after the update, keeping existing benign/hostile fixtures and
+assertions intact. Run existing cases first; select the added cases separately
+with Vitest `-t 'Marked patch regression'` or Playwright
+`--grep 'Marked patch regression'` to establish the old parser's semantic failures.
+Check literal code-span backslashes with following emphasis and an unquoted
+paragraph as a DOM sibling after a heading blockquote, in conversation and full
+records. The real mounted string-parser → sanitizer path and actual browser DOM
+are complementary evidence. These corrections are presentation-only: no stored
+source/provenance rewrite, audit certificate or measured performance claim follows.
+Use the existing validation profiles for full candidate acceptance.
+
 For sanitizer comparisons, run these actual consumers before and after fresh
 root/web installs and peer-tree checks. Preserve benign GFM/tables/code/HTTPS,
 encoded Cards links/navigation, literal references in code, and image/alt retention;
