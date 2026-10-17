@@ -1,7 +1,7 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { quoteBashWord } from '../helpers/bash-word.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -46,6 +46,20 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
   return fn(root).finally(async () => { await cleanupTestProcessRunners(root); rmSync(root, { recursive: true, force: true }); });
+}
+
+async function waitForUtf8Prefix(surface: Parameters<typeof invokeTestTool>[0], processId: string) {
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    const result = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
+    const diagnostic = `UTF-8 prefix observation: ${JSON.stringify(result)}`;
+    if (!result.success) throw new Error(diagnostic);
+    const data = result.data as { status: string; stdout_bytes: number };
+    if (data.status !== 'running' || data.stdout_bytes > 2) throw new Error(diagnostic);
+    if (Date.now() >= deadline) throw new Error(`Capture readiness exceeded 2 seconds. ${diagnostic}`);
+    if (data.stdout_bytes === 2) return result;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 describe('process provider', () => {
@@ -223,29 +237,34 @@ describe('process provider', () => {
     const started = await invokeTestTool(surface, 'run_command', { command: `printf '\\360\\237'; sleep 60`, wait: false });
     if (!started.success) throw new Error(started.error);
     const processId = (started.data as { process_id: string }).process_id;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const observed = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
-    if (!observed.success) throw new Error(observed.error);
-    expect(observed.data).toEqual(expect.objectContaining({ stdout: '', stdout_complete: false, stdout_bytes: 2 }));
-    await invokeTestTool(surface, 'kill_process', { process_id: processId });
+    const observed = await waitForUtf8Prefix(surface, processId);
+    expect(observed.data).toEqual(expect.objectContaining({ status: 'running', stdout: '', stdout_complete: false, stdout_bytes: 2 }));
+    expect(processes.processRunner.get(processId)).toMatchObject({ status: 'running' });
+    const killed = await invokeTestTool(surface, 'kill_process', { process_id: processId });
+    expect(killed).toMatchObject({ success: true, data: { status: 'killed', stdout: '', stdout_complete: false, stdout_bytes: 2 } });
+    expect(processes.processRunner.get(processId)).toBeNull();
   }));
 
   it('reconstructs a multibyte character split across running writes before terminal capture', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
-    const script = 'process.stdout.write(Buffer.from([0xf0,0x9f]));setTimeout(()=>process.stdout.write(Buffer.from([0x99,0x82])),500);';
-    const started = await invokeTestTool(surface, 'run_command', { command: `${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, wait: false });
+    const releasePath = join(root, 'utf8-release');
+    const script = `const fs=require('node:fs');process.stdout.write(Buffer.from([0xf0,0x9f]));const timer=setInterval(()=>{try{fs.accessSync(${JSON.stringify(releasePath)});}catch(error){if(error.code==='ENOENT')return;throw error;}clearInterval(timer);process.stdout.write(Buffer.from([0x99,0x82]));},10);`;
+    const started = await invokeTestTool(surface, 'run_command', { command: `timeout --kill-after=1s 10s ${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, wait: false });
     if (!started.success) throw new Error(started.error);
     const processId = (started.data as { process_id: string }).process_id;
-    let partial = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
-    for (let attempt = 0; attempt < 40 && partial.success && (partial.data as { stdout_bytes: number }).stdout_bytes < 2; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      partial = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
-    }
+    const partial = await waitForUtf8Prefix(surface, processId);
     expect(partial).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'running', stdout: '', stdout_complete: false, stdout_bytes: 2 }) }));
+    expect(processes.processRunner.get(processId)).toMatchObject({ status: 'running' });
+    // Fixture progress stays held beyond the former 500 ms second-write window.
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    const held = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
+    expect(held).toEqual(partial);
+    expect(processes.processRunner.get(processId)).toMatchObject({ status: 'running' });
+    writeFileSync(releasePath, 'release');
     const terminal = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 2_000 });
-    expect(terminal).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'exited', stdout: '🙂', stdout_complete: true, stdout_bytes: 4 }) }));
+    expect(terminal).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'exited', exit_code: 0, stdout: '🙂', stdout_complete: true, stdout_bytes: 4 }) }));
+    expect(processes.processRunner.get(processId)).toBeNull();
   }));
 
   it.each([

@@ -50,6 +50,7 @@ describe('process inline output production composition', () => {
     symlinkSync(process.execPath, executable);
     const projectRoot = join(parent, 'project');
     const sibling = join(parent, 'sibling');
+    const releasePath = join(parent, 'wait-release');
     mkdirSync(projectRoot);
     mkdirSync(sibling);
     const providerRequests: ChatCompletionRequest[] = [];
@@ -87,8 +88,8 @@ describe('process inline output production composition', () => {
           expect(result).toMatchObject({ status: 'exited', stdout: 'short-out', stderr: '', stdout_complete: true, stderr_complete: false });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).toHaveProperty('stderr_url');
-          const script = 'process.stdout.write("wait-start");setTimeout(()=>{process.stdout.write("-wait-end")},150);';
-          sendToolCall(response, 'background-wait', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
+          const script = `const fs=require('node:fs');process.stdout.write("wait-start");const timer=setInterval(()=>{try{fs.accessSync(${JSON.stringify(releasePath)});}catch(error){if(error.code==='ENOENT')return;throw error;}clearInterval(timer);process.stdout.write("-wait-end");},10);`;
+          sendToolCall(response, 'background-wait', 'run_command', { command: `timeout --kill-after=1s 10s ${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
         } else if (executorCalls === 3) {
           const result = toolResult(body).data;
           observedPrimaryResults.push(result);
@@ -97,6 +98,8 @@ describe('process inline output production composition', () => {
           expect(result).toHaveProperty('stderr_url');
           waitProcessId = String(result.process_id);
           waitStdoutUrl = String(result.stdout_url);
+          // Observe through another provider turn beyond the former 150 ms lifetime.
+          await new Promise((resolve) => setTimeout(resolve, 750));
           sendToolCall(response, 'background-observe', 'wait_process', { process_id: waitProcessId, timeout_ms: 0 });
         } else if (executorCalls === 4) {
           const result = toolResult(body).data;
@@ -104,11 +107,12 @@ describe('process inline output production composition', () => {
           expect(result.status).toBe('running');
           expect(result).toHaveProperty('stdout_url');
           expect(result).toHaveProperty('stderr_url');
+          writeFileSync(releasePath, 'release');
           sendToolCall(response, 'background-terminal-wait', 'wait_process', { process_id: waitProcessId, timeout_ms: 2_000 });
         } else if (executorCalls === 5) {
           const result = toolResult(body).data;
           observedPrimaryResults.push(result);
-          expect(result).toMatchObject({ process_id: waitProcessId, status: 'exited', stdout: 'wait-start-wait-end', stdout_complete: true, stderr_complete: true });
+          expect(result).toMatchObject({ process_id: waitProcessId, status: 'exited', exit_code: 0, stdout: 'wait-start-wait-end', stdout_complete: true, stderr_complete: true });
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).not.toHaveProperty('stderr_url');
           sendToolCall(response, 'read-retired-log', 'read', { path: waitStdoutUrl });

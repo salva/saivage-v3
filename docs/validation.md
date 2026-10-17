@@ -320,14 +320,24 @@ covering setup, settlement and in-test cleanup, not a new default or global mult
 - `tests/tools/project-file-tools-read-limits.test.ts`: `reports exact totals beyond the count window and reconstructs an oversized glob item from global positions` — 1002-file packing and byte pagination.
 - `tests/tools/view-image.test.ts`: `accepts the exact 40M-pixel boundary with a >16K side: normalizes 2000x20000 without upscaling or metadata` — exact-cap normalization; the adjacent decoded-pixel/selected-PNG hard-cap rejection case also retains its 30-second deadline.
 
-Inner polling/iteration guards, completion waits, semantic assertions, fixture/result limits, and application timers remain
-unchanged. These harness deadlines are not application latency guarantees and do
+The earlier harness-deadline work left inner polling/iteration guards, completion
+waits, semantic assertions, fixture/result limits, and application timers unchanged.
+These harness deadlines are not application latency guarantees and do
 not suppress process-exit diagnostics.
 
 Independently of those unchanged harness deadlines, ProcessRunner now retires its
 losing wait timeout. Focused timer-retirement and isolated natural-exit regressions
 cover that defect; historical tails/warnings were not complete handle attribution,
 and this coverage does not certify all teardown fixed.
+
+Real subprocess intermediate-state tests hold fixture progress until observation,
+rather than requiring the observer to beat a timed child exit. The UTF-8 cases in
+`tests/tools/process-provider.test.ts` use captured-byte readiness; its split-write
+case and `tests/e2e/process-inline-output.e2e.test.ts` release their exact local file
+gates only after running-state assertions, including controlled 750 ms delayed
+observations. Finite readiness, terminal-wait and external child timeouts remain
+hang bounds, not speed requirements or unlimited scheduler tolerance. Existing
+scope/app cleanup owns failed tests; terminal consumption still owns retirement.
 
 ## Profile coverage and prerequisites
 
