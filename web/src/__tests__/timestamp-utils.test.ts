@@ -2,7 +2,11 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { formatRecentTimestamp, formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 
 describe('formatTimestamp', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
 
   it('formats relative edge cases', () => {
     const now = new Date('2026-05-19T12:00:00Z');
@@ -20,13 +24,31 @@ describe('formatTimestamp', () => {
     expect(formatted).not.toMatch(/ago|from now|just now/);
   });
 
-  it('formats absolute and timeOnly modes with invalid fallback', () => {
+  it('formats absolute mode with invalid and empty-input fallbacks', () => {
     const date = new Date('2026-05-19T12:34:56Z');
     expect(formatTimestamp(date, 'absolute')).toContain('2026');
-    expect(formatTimestamp(date, 'timeOnly')).toMatch(/12:34:56|34:56/);
     expect(formatTimestamp('not-a-date', 'absolute')).toBe('not-a-date');
     expect(formatTimestamp(null, 'absolute')).toBe('—');
     expect(formatTimestamp('', 'timeOnly')).toBe('—');
+  });
+
+  it.each([
+    ['UTC', '12:34:56'],
+    ['America/New_York', '08:34:56'],
+    ['Asia/Kolkata', '18:04:56'],
+    ['Asia/Kathmandu', '18:19:56'],
+  ])('formats timeOnly in local timezone %s', (zone, expected) => {
+    // Control only rendering locale; the hook restores TZ after each real local-time conversion.
+    vi.stubEnv('TZ', zone);
+    const date = new Date('2026-05-19T12:34:56Z');
+    const nativeToLocaleTimeString = date.toLocaleTimeString;
+    const timeString = vi.spyOn(date, 'toLocaleTimeString').mockImplementation((_locales, options) =>
+      nativeToLocaleTimeString.call(date, 'en-GB', options),
+    );
+
+    expect(formatTimestamp(date, 'timeOnly')).toBe(expected);
+    expect(timeString).toHaveBeenCalledTimes(1);
+    expect(timeString).toHaveBeenCalledWith([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   });
 
   it('detects recent timestamps under seven days', () => {
