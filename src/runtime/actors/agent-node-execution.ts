@@ -962,10 +962,12 @@ export class AgentNodeExecution {
       if (result.kind === 'card-not-found')
         throw new Error(`Card '${this.deps.cardId}' not found.`);
       const current = result.value.projection;
-      const seed = initialization && (
-          (!current && initialization.at.includes('first_required_entry')) ||
-          (requirement.mode === 'clean' && initialization.at.includes('clean_entry'))
-        ) ? initialization.content : null;
+      const seed =
+        initialization &&
+        ((!current && initialization.at.includes('first_required_entry')) ||
+          (requirement.mode === 'clean' && initialization.at.includes('clean_entry')))
+          ? initialization.content
+          : null;
       if (requirement.mode === 'continue') {
         if (!current && seed !== null) this.deps.store.openRecord(this.deps.cardId, name, seed);
         continue;
@@ -1036,7 +1038,9 @@ export class AgentNodeExecution {
         continue;
       }
       if (!candidate.draft || !isEligibleRecordContent(candidate))
-        throw new Error(`Accepted open candidate '${this.deps.cardId}/${filename}' is empty or unfilled.`);
+        throw new Error(
+          `Accepted open candidate '${this.deps.cardId}/${filename}' is empty or unfilled.`,
+        );
       const closed = this.deps.store.closeRecord(this.deps.cardId, filename, node.agent.name);
       const snapshot = closed.accepted!;
       accepted.push({

@@ -154,7 +154,11 @@ const publicRecordSelectionObservationSchema = recordSelectionObservationSchema.
   selection: z.discriminatedUnion('kind', [
     publicAcceptedSelection,
     z
-      .object({ kind: z.literal('draft'), unfilled: z.boolean(), accepted_backing: publicAcceptedSelection.nullable() })
+      .object({
+        kind: z.literal('draft'),
+        unfilled: z.boolean(),
+        accepted_backing: publicAcceptedSelection.nullable(),
+      })
       .strict(),
     z.object({ kind: z.literal('absent') }).strict(),
     z.object({ kind: z.literal('empty') }).strict(),

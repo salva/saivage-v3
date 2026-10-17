@@ -590,7 +590,10 @@ export class CardService {
     );
     if (seed !== null)
       this.freshness.cardProjectionChanged({
-        resource: 'cards', scope: 'record', card_id: cardId, record_name: filename,
+        resource: 'cards',
+        scope: 'record',
+        card_id: cardId,
+        record_name: filename,
       });
     return opened;
   }

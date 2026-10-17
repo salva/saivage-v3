@@ -20,7 +20,11 @@ export function projectWorkflowPresentation(
     ),
     terminals: ['DONE', 'BLOCKED', 'FAILED'].map((terminal) => ({ terminal })),
     records: [...workflow.records.values()].map(({ name, bootstrap, initialization }) => ({
-      name, bootstrap, initialization: initialization ? { content: redactTextForOutbound(initialization.content), at: [...initialization.at] } : null,
+      name,
+      bootstrap,
+      initialization: initialization
+        ? { content: redactTextForOutbound(initialization.content), at: [...initialization.at] }
+        : null,
     })),
   });
 }

@@ -307,7 +307,11 @@ function identity(cardId: string, definition: RecordDefinition) {
   };
 }
 function headIdentity(cardId: string, definition: RecordDefinition) {
-  return { ...identity(cardId, definition), format_version: 2 as const, kind: 'record-head' as const };
+  return {
+    ...identity(cardId, definition),
+    format_version: 2 as const,
+    kind: 'record-head' as const,
+  };
 }
 function reference(artifact: AuthoredRecordVersionArtifact): AcceptedRecordReference {
   return { entry_id: artifact.entry_id, version: artifact.version };
@@ -330,8 +334,19 @@ function publishHead(
     io,
   );
 }
-function draft(stamp: string, openedAt: string, content: string, seed: string | null): OpenRecordDraft {
-  return { opened_at: openedAt, updated_at: stamp, content, content_sha256: sha256Hex(content), seed_sha256: seed };
+function draft(
+  stamp: string,
+  openedAt: string,
+  content: string,
+  seed: string | null,
+): OpenRecordDraft {
+  return {
+    opened_at: openedAt,
+    updated_at: stamp,
+    content,
+    content_sha256: sha256Hex(content),
+    seed_sha256: seed,
+  };
 }
 export function openAuthoredRecord(
   projectRoot: string,

@@ -82,7 +82,10 @@ type CompiledRecordDefinition = Readonly<
   Omit<RecordDeclaration, 'initialization'> & {
     name: RecordName;
     declared: boolean;
-    initialization: Readonly<{ content: string; at: readonly ('first_required_entry' | 'clean_entry')[] }> | null;
+    initialization: Readonly<{
+      content: string;
+      at: readonly ('first_required_entry' | 'clean_entry')[];
+    }> | null;
   }
 >;
 type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
@@ -656,15 +659,25 @@ function compileCardTypeInputs(
   for (const [rawName, value] of Object.entries(source.records)) {
     const name = parseRecordName(rawName);
     const initialization = value.initialization
-      ? Object.freeze({ content: value.initialization.content, at: Object.freeze([...value.initialization.at]) })
+      ? Object.freeze({
+          content: value.initialization.content,
+          at: Object.freeze([...value.initialization.at]),
+        })
       : null;
     if (initialization) {
-      if (value.bootstrap) throw new Error(`${location}.records.${name}: bootstrap initialization is forbidden.`);
+      if (value.bootstrap)
+        throw new Error(`${location}.records.${name}: bootstrap initialization is forbidden.`);
       const requirements = Object.values(source.workflow.nodes).flatMap((node) =>
-        node.records[rawName] ? [node.records[rawName]!] : []);
+        node.records[rawName] ? [node.records[rawName]!] : [],
+      );
       if (initialization.at.includes('first_required_entry') && requirements.length === 0)
-        throw new Error(`${location}.records.${name}: first_required_entry requires a node requirement.`);
-      if (initialization.at.includes('clean_entry') && !requirements.some((item) => item.mode === 'clean'))
+        throw new Error(
+          `${location}.records.${name}: first_required_entry requires a node requirement.`,
+        );
+      if (
+        initialization.at.includes('clean_entry') &&
+        !requirements.some((item) => item.mode === 'clean')
+      )
         throw new Error(`${location}.records.${name}: clean_entry requires a clean requirement.`);
     }
     const definition = Object.freeze({
@@ -703,7 +716,9 @@ function compileCardTypeInputs(
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} requires matching agent record_writes authority.`,
         );
-      const requiresWrite = requirement.mode === 'clean' || requirement.gate === 'updated' ||
+      const requiresWrite =
+        requirement.mode === 'clean' ||
+        requirement.gate === 'updated' ||
         definition.initialization?.at.includes('first_required_entry');
       if (requiresWrite && !agent.tools.some((tool) => tool.name === 'write'))
         throw new Error(

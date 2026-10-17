@@ -47,9 +47,21 @@ export const WorkflowPresentationSchema = z
     terminals: z
       .array(z.object({ terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']) }).strict())
       .length(3),
-    records: z.array(z.object({ name: recordNameSchema, bootstrap: z.boolean(),
-      initialization: z.object({ content: z.string(), at: z.array(z.enum(['first_required_entry', 'clean_entry'])) }).strict().nullable(),
-    }).strict()),
+    records: z.array(
+      z
+        .object({
+          name: recordNameSchema,
+          bootstrap: z.boolean(),
+          initialization: z
+            .object({
+              content: z.string(),
+              at: z.array(z.enum(['first_required_entry', 'clean_entry'])),
+            })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    ),
   })
   .strict();
 export type WorkflowPresentation = z.infer<typeof WorkflowPresentationSchema>;

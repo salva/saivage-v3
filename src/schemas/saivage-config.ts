@@ -308,9 +308,16 @@ const recordDefinitionSchema = z
     bootstrap: z.boolean(),
     initialization: z
       .object({
-        content: z.string().refine((value) => value.trim().length > 0, 'Initializer must not be empty.'),
-        at: z.array(z.enum(['first_required_entry', 'clean_entry'])).nonempty()
-          .refine((values) => new Set(values).size === values.length, 'Duplicate initialization trigger.'),
+        content: z
+          .string()
+          .refine((value) => value.trim().length > 0, 'Initializer must not be empty.'),
+        at: z
+          .array(z.enum(['first_required_entry', 'clean_entry']))
+          .nonempty()
+          .refine(
+            (values) => new Set(values).size === values.length,
+            'Duplicate initialization trigger.',
+          ),
       })
       .strict()
       .nullable()
