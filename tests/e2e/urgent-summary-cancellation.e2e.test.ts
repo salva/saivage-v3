@@ -61,6 +61,7 @@ afterEach(() => {
 });
 
 describe('offline urgent cancellation through summary, Analyst and HTTP owners', () => {
+  // Finite safety budget for durable/HTTP setup, settlement and cleanup, not a latency assertion.
   it.each(['cancel', 'distinct_failure'] as const)(
     'retains real canonical evidence and truthful queue effects on %s',
     async (outcome) => {
@@ -376,5 +377,6 @@ describe('offline urgent cancellation through summary, Analyst and HTTP owners',
         rmSync(projectRoot, { recursive: true, force: true });
       }
     },
+    30_000,
   );
 });

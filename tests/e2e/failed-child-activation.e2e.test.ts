@@ -302,6 +302,7 @@ describe('failed child activation lifecycle E2E', () => {
       latest: { card_id: child.id, marker_id: marker.id },
     });
   });
+  // Finite safety budget for durable setup and lifecycle settlement, not a latency assertion.
   it('rejects autonomous reactivation of a failed child without ownership, then continues through a sibling to natural completion', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-failed-child-siblings-'));
     roots.push(projectRoot);
@@ -541,7 +542,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(selectLinkedRunningChain(cards)).toEqual([]);
     expect(ownership.activationOwners.size).toBe(0);
     expect(supervisor.getRuntimeState()).toBeNull();
-  });
+  }, 30_000);
 
   it('constructs a fresh actor when a failed child is changed and autonomously retried', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-failed-child-changed-retry-'));

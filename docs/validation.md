@@ -285,14 +285,16 @@ with the collected result, as do spawn errors; teardown retains partial output
 for a child still running at the unchanged test deadline.
 
 Heavy functional fixtures use explicit per-test 30-second harness deadlines
-for parallel validation contention, not a new default or global multiplier. Examples include:
+covering setup, settlement and in-test cleanup, not a new default or global multiplier. Examples include:
 
 - `tests/e2e/reviewer-rework-feedback.e2e.test.ts`: `lets the owning goal Planner reopen the same completed child for reviewed correction` — durable multi-activation correction.
 - `tests/e2e/specialized-card-type-flows.e2e.test.ts`: `cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence` — durable review/redraft cycles.
+- `tests/e2e/failed-child-activation.e2e.test.ts`: `rejects autonomous reactivation of a failed child without ownership, then continues through a sibling to natural completion` — durable failed-child rejection and sibling settlement.
+- `tests/e2e/urgent-summary-cancellation.e2e.test.ts`: `retains real canonical evidence and truthful queue effects on %s` (`cancel` and `distinct_failure`) — durable lifecycle/HTTP setup, cancellation settlement and joined cleanup.
 - `tests/tools/project-file-tools-read-limits.test.ts`: `reports exact totals beyond the count window and reconstructs an oversized glob item from global positions` — 1002-file packing and byte pagination.
 - `tests/tools/view-image.test.ts`: `accepts the exact 40M-pixel boundary with a >16K side: normalizes 2000x20000 without upscaling or metadata` — exact-cap normalization; the adjacent decoded-pixel/selected-PNG hard-cap rejection case also retains its 30-second deadline.
 
-Completion waits, assertions, fixture/result limits, and application timers remain
+Inner polling/iteration guards, completion waits, semantic assertions, fixture/result limits, and application timers remain
 unchanged. These harness deadlines are not application latency guarantees and do
 not suppress process-exit diagnostics.
 
