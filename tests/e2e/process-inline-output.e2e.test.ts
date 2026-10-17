@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import type { App } from '../../src/boot/app.js';
+import { quoteBashWord } from '../helpers/bash-word.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { parseActivationOpenPayload } from '../../src/schemas/index.js';
 import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
@@ -45,6 +46,8 @@ describe('process inline output production composition', () => {
   it('projects real process heads to primary requests while retaining durable URLs and readable retired logs', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'saivage-process-inline-e2e-'));
     roots.push(parent);
+    const executable = join(parent, 'Node 24 \' " $HOME `node`');
+    symlinkSync(process.execPath, executable);
     const projectRoot = join(parent, 'project');
     const sibling = join(parent, 'sibling');
     mkdirSync(projectRoot);
@@ -77,7 +80,7 @@ describe('process inline output production composition', () => {
         executorCalls += 1;
         if (executorCalls === 1) {
           const script = 'process.stdout.write("short-out");process.stderr.write(Buffer.from([0xf0,0x9f]));';
-          sendToolCall(response, 'foreground-mixed', 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, timeout_ms: 2_000 });
+          sendToolCall(response, 'foreground-mixed', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, timeout_ms: 2_000 });
         } else if (executorCalls === 2) {
           const result = toolResult(body).data;
           observedPrimaryResults.push(result);
@@ -85,7 +88,7 @@ describe('process inline output production composition', () => {
           expect(result).not.toHaveProperty('stdout_url');
           expect(result).toHaveProperty('stderr_url');
           const script = 'process.stdout.write("wait-start");setTimeout(()=>{process.stdout.write("-wait-end")},150);';
-          sendToolCall(response, 'background-wait', 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, wait: false });
+          sendToolCall(response, 'background-wait', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
         } else if (executorCalls === 3) {
           const result = toolResult(body).data;
           observedPrimaryResults.push(result);
@@ -113,7 +116,7 @@ describe('process inline output production composition', () => {
           const result = toolResult(body).data;
           expect(JSON.stringify(result)).toContain('wait-start-wait-end');
           const script = 'process.stdout.write("kill-start");setInterval(()=>{},1000);';
-          sendToolCall(response, 'background-kill', 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, wait: false });
+          sendToolCall(response, 'background-kill', 'run_command', { command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`, wait: false });
         } else if (executorCalls === 7) {
           const result = toolResult(body).data;
           observedPrimaryResults.push(result);

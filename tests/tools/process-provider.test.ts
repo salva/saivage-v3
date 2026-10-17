@@ -1,4 +1,5 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { quoteBashWord } from '../helpers/bash-word.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
@@ -171,6 +172,31 @@ describe('process provider', () => {
     }
   }));
 
+  it('executes a literal Node path and script through Bash without expanding their contents', async () => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+    const executable = join(root, 'Node 24 \' " $HOME `node`');
+    symlinkSync(process.execPath, executable);
+    const stdout = 'literal \' " $HOME `node` \\ text\né🙂\n';
+    const script = `process.stdout.write(${JSON.stringify(stdout)});`;
+
+    const invocation = await invokeTestTool(surface, 'run_command', {
+      command: `${quoteBashWord(executable)} -e ${quoteBashWord(script)}`,
+      timeout_ms: 10_000,
+    });
+    expect(invocation.success).toBe(true);
+    if (!invocation.success) throw new Error(invocation.error);
+    expectUnifiedProcessResult(invocation.data);
+    expect(invocation.data).toEqual(expect.objectContaining({
+      status: 'exited', exit_code: 0, stdout, stderr: '',
+      stdout_complete: true, stderr_complete: true,
+      stdout_bytes: Buffer.byteLength(stdout, 'utf8'), stderr_bytes: 0,
+    }));
+    const processId = (invocation.data as { process_id: string }).process_id;
+    expect(processes.processRunner.get(processId)).toBeNull();
+    expect(processes.processRunner.list()).toEqual([]);
+  }), 30_000);
+
   it('captures independently bounded, redacted heads with raw byte counts and line-relative completeness', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
@@ -179,7 +205,7 @@ describe('process provider', () => {
       `process.stderr.write(${JSON.stringify(`${'é'.repeat(1_024)}z token=synthetic-secret-value`)});`,
     ].join('');
 
-    const invocation = await invokeTestTool(surface, 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, timeout_ms: 1_000 });
+    const invocation = await invokeTestTool(surface, 'run_command', { command: `${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, timeout_ms: 1_000 });
     if (!invocation.success) throw new Error(invocation.error);
     const data = invocation.data as Record<string, unknown>;
     expect(data.stdout).toBe('out\n'.repeat(30));
@@ -209,7 +235,7 @@ describe('process provider', () => {
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
     const script = 'process.stdout.write(Buffer.from([0xf0,0x9f]));setTimeout(()=>process.stdout.write(Buffer.from([0x99,0x82])),500);';
-    const started = await invokeTestTool(surface, 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, wait: false });
+    const started = await invokeTestTool(surface, 'run_command', { command: `${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, wait: false });
     if (!started.success) throw new Error(started.error);
     const processId = (started.data as { process_id: string }).process_id;
     let partial = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
@@ -229,7 +255,7 @@ describe('process provider', () => {
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
     const script = `process.stdout.write(${JSON.stringify(output)});`;
-    const invocation = await invokeTestTool(surface, 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, timeout_ms: 1_000 });
+    const invocation = await invokeTestTool(surface, 'run_command', { command: `${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, timeout_ms: 1_000 });
     if (!invocation.success) throw new Error(invocation.error);
     const data = invocation.data as { stdout: string; stdout_complete: boolean };
     expect(data.stdout_complete).toBe(false);
@@ -245,7 +271,7 @@ describe('process provider', () => {
     const stderr = `${'line\r\n'.repeat(29)}last`;
     const script = `process.stdout.write(${JSON.stringify(stdout)});process.stderr.write(${JSON.stringify(stderr)});`;
 
-    const invocation = await invokeTestTool(surface, 'run_command', { command: `${process.execPath} -e ${JSON.stringify(script)}`, timeout_ms: 1_000 });
+    const invocation = await invokeTestTool(surface, 'run_command', { command: `${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, timeout_ms: 1_000 });
     if (!invocation.success) throw new Error(invocation.error);
     expect(invocation.data).toEqual(expect.objectContaining({
       stdout,
@@ -556,7 +582,8 @@ describe('process provider', () => {
     const kill = jest.spyOn(processRunner.processRunner, 'kill');
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const controller = new AbortController();
-    const pending = invokeTestTool(surface, 'run_command', { command: `exec ${process.execPath} -e 'process.stdout.write("before"); setInterval(() => {}, 1000)'`, timeout_ms: 10_000 }, controller.signal);
+    const script = 'process.stdout.write("before"); setInterval(() => {}, 1000)';
+    const pending = invokeTestTool(surface, 'run_command', { command: `exec ${quoteBashWord(process.execPath)} -e ${quoteBashWord(script)}`, timeout_ms: 10_000 }, controller.signal);
     setTimeout(() => controller.abort(new Error('stop')), 50);
 
     const result = await pending;
