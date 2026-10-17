@@ -262,9 +262,7 @@ async function handleStart(inputs: StartInputs): Promise<void> {
     host === '0.0.0.0' || host === '::'
       ? ' (wildcard bind; use a reachable host address to connect)'
       : '';
-  console.log(
-    `Saivage server listening on http://${urlHost}:${port}${qualification}`,
-  );
+  console.log(`Saivage server listening on http://${urlHost}:${port}${qualification}`);
 }
 async function handleRuntimeControl(
   command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server',

@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { replaceConfigYaml } from '../../src/config/config-file.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
@@ -118,7 +119,7 @@ async function health(origin: string): Promise<void> {
 describe('real CLI startup listener announcement', () => {
   it.each(['127.0.0.1', '0.0.0.0', '::1', '::'])('reports actual %s port-zero binding', async (host) => {
     if (host.includes(':') && !await ipv6Available(host)) return;
-    const root = mkdtempSync('/home/salva/g/ml/tmp/PORT-05-listener-');
+    const root = mkdtempSync(join(tmpdir(), 'PORT-05-listener-'));
     let running: ReturnType<typeof launch> | undefined;
     try {
       const config = structuredClone(TEST_SAIVAGE_CONFIG);
