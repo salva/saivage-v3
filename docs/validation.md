@@ -427,6 +427,24 @@ Node-externalization warnings are not browser-safety success.
 
 ### Markdown consumer checks
 
+`web/src/components/content/MarkdownText.vue` parses Marked GFM synchronously to
+an HTML string, calls default `DOMPurify.sanitize(html)`, and renders the result
+through `v-html`. Conversation and record presentation share this untrusted-content
+boundary; there are no sanitizer hooks, XHTML options, `IN_PLACE`,
+`SAFE_FOR_TEMPLATES` or DOM-returning modes in this consumer.
+
+The web lock selects DOMPurify **3.4.17** instead of 3.4.16, retaining the
+`^3.4.16` manifest range. Dated publisher evidence identifies 3.4.17 as the patched
+release for [GHSA-c6gr-qvv4-5v3f](https://github.com/cure53/DOMPurify/security/advisories/GHSA-c6gr-qvv4-5v3f)
+(XHTML SVG animation/attributeName),
+[GHSA-mrv2-3pqr-j5jr](https://github.com/cure53/DOMPurify/security/advisories/GHSA-mrv2-3pqr-j5jr)
+(`IN_PLACE` hooks detaching subtrees), and
+[GHSA-cg2g-xh64-v4q7](https://github.com/cure53/DOMPurify/security/advisories/GHSA-cg2g-xh64-v4q7)
+(`SAFE_FOR_TEMPLATES`, DOM output and attached shadow roots with downstream
+evaluation). These nondefault-mode demonstrations are not reproduced Saivage
+exploits. The publisher supports its latest release; a dated patch selection is
+neither a latest-forever promise nor proof of comprehensive security.
+
 Run `npm --prefix web run test -- src/__tests__/content/markdown-text.test.ts
 src/__tests__/card-records-section.test.ts` for mounted parser/sanitizer semantics
 and record presentation. The component coverage includes GFM, literal code and
@@ -440,6 +458,26 @@ and card-reference navigation to selected card detail. Run it with
 tests/playwright/smoke/playwright.config.ts
 tests/playwright/smoke/markdown-rendering.spec.ts`. It uses synthetic API fixtures
 and mocked transport, not a live deployed project or provider.
+
+For sanitizer comparisons, run these actual consumers before and after fresh
+root/web installs and peer-tree checks. Preserve benign GFM/tables/code/HTTPS,
+encoded Cards links/navigation, literal references in code, and image/alt retention;
+require removal of scripts, executable attributes and plain/encoded JavaScript
+URLs. The browser scenario covers conversation, record disclosure and Records &
+History, a false execution sentinel and no unexpected requests/page/API errors.
+Image-element retention does not establish PNG decoding fidelity. Focused passes
+do not replace full candidate validation or certify release/deployment readiness.
+
+Run root and web `npm audit --json --include=dev --audit-level=high` independently,
+then separate requests with `--audit-level=moderate`, before and after. Record
+natural exits, severity/affected-package counts, unique advisory IDs/ranges and
+remediation availability; aggregate scripts can short-circuit or obscure exits.
+The 2026-10-17 baseline retained 20 root moderate affected-package entries from
+the single sprintf-js advisory GHSA-hp3w-g68c-fv3c, with no web findings and no
+high/critical findings. This is baseline evidence, not candidate acceptance or
+20 distinct vulnerabilities. Publisher advisories absent from the audit feed
+cannot be claimed removed from its counts by a patch. New findings require
+assessment, not automatic audit fixes or unrelated upgrades.
 
 For parser dependency refreshes, observe the upstream `'[](' + '\u00a0'.repeat(n)`
 workload in isolated child processes with external timeouts, increasing bounded
@@ -595,7 +633,9 @@ Independent include-dev root/web audits passed the high/critical gate before and
 after: root retained 20 moderate affected-package entries and zero low/high/critical;
 web had zero findings. Neither selected advisory was yet in the audit feed;
 their affected ranges were removed by the locked package versions, not certified
-absent by that feed. DOMPurify continuation remains deferred pending its original
-owner, and sprintf-js remains deferred. This is bounded source patch acceptance,
-not an audit-free, full-release or deployment certificate. No browser,
+absent by that feed. At that dated backend decision, DOMPurify continuation was
+deferred pending its original owner; that ownership deferral is historical, not
+the current sanitizer acceptance disposition. The separate sanitizer comparison
+above requires its own candidate gates; sprintf-js remains deferred. This is bounded
+source patch acceptance, not an audit-free, full-release or deployment certificate. No browser,
 case-insensitive-filesystem exploit or unused download-API coverage is claimed.
