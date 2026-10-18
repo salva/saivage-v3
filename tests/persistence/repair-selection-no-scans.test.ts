@@ -21,7 +21,7 @@ it('repair primitives use only supplied selectors and exact selected paths, with
   const cards = new CardService(root);
   const card = cards.create({type:'code', parent:'project', title:'first', bootstrap_content:'brief', priority:0, urgency:'normal', created_by:'analyst', depends_on:[]});
   cards.editCard(card.id, {title:'second'});
-  cards.acceptRecord(card.id, 'status.md', 'accepted', 'analyst'); cards.openRecord(card.id, 'status.md', null);
+  cards.acceptRecord(card.id, 'status.md', 'accepted', 'analyst'); cards.openRecord(card.id, 'status.md');
   const definition = {filename:'status.md', format:'markdown' as const, schema:'work-status.v1', bootstrap:false, declared:true};
   appendConversationBatch({projectRoot:root}, [{id:'text', session_id:'agent:planner:project', role:'assistant', kind:'text', content:'hello', timestamp:'2026-10-04T00:00:00.000Z', context_policy:TEXT_ROW_POLICY, round_id:`r-assistant-${'0'.repeat(32)}`, message_index:1, block_index:0}]);
   const cardBytes = fs.readFileSync(cardPreviousHeadFile(root, card.id));

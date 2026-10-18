@@ -111,6 +111,7 @@ function harness(
     prompt: { promptId: 'work', compactable: true },
     correctionPrompt: { promptId: 'correct', compactable: true },
     agent: { name: 'planner', tools: [], model: { temperature: 0, maxTokens: 100 } },
+    initializeRecords: [],
     requirements: [{ definition: { name: 'status.md' }, mode: 'clean', gate: 'exists' }],
     descendantContext: null,
     on: new Map(),
@@ -239,6 +240,7 @@ function harness(
   };
   let statusRecordOpened = false;
   const store = {
+    initializeRecord: jest.fn(),
     read: (_id: string) => card,
     workflows: { cardTypes: new Map([[cardType, { bootstrapRecord: { name: 'brief.md' } }]]) },
     readRecordCurrent: jest.fn((_cardId: string, name: string) => {
@@ -393,7 +395,7 @@ function appendRawRows(test: ReturnType<typeof harness>, rows: readonly unknown[
   const segment = readCurrentConversationSegment(test.projectRoot, test.sessionId)!;
   appendFileSync(
     cardConversationVersionFile(test.projectRoot, 'project', 'planner', segment.entry.filename),
-    `${JSON.stringify({ version: 11, type: 'conversation-segment', rows })}\n`,
+    `${JSON.stringify({ version: 12, type: 'conversation-segment', rows })}\n`,
   );
 }
 

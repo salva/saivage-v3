@@ -137,7 +137,7 @@ export function cyclicCodePresentation(): OperatorApiSuccess<'workflows.presenta
   const graph = cyclicCodeGraph();
   return {
     card_type: graph.card_type,
-    nodes: graph.nodes.map(({ node_id, agent_name }) => ({ node_id, agent_name })),
+    nodes: graph.nodes.map(({ node_id, agent_name, initialize_records }) => ({ node_id, agent_name, initialize_records })),
     entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
     edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
     terminals: graph.terminals,
@@ -164,6 +164,7 @@ export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][
     nodes: [
       {
         node_id: 'execute',
+        initialize_records: [],
         record_prompts: [],
         agent_name: 'executor',
         session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' },
@@ -181,6 +182,7 @@ export function cyclicCodeGraph(): OperatorApiSuccess<'debug.graphs'>['graphs'][
       },
       {
         node_id: 'repair',
+        initialize_records: [],
         record_prompts: [],
         agent_name: 'executor',
         session: { scope: 'card', identity_pattern: 'agent:executor:{cardId}' },

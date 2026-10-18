@@ -130,8 +130,8 @@ describe('durable-preserving MCP topology history', () => {
       appendConversationBatch({ projectRoot: root }, rows);
       expect(readConversationCatalog(root, session).versions).toHaveLength(1);
       const segment = readCurrentConversationSegment(root, session)!;
-      expect(segment.index.format_version).toBe(11);
-      expect(segment.genesis.format_version).toBe(11);
+      expect(segment.index.format_version).toBe(12);
+      expect(segment.genesis.format_version).toBe(12);
       expect(segment.rows).toEqual(rows);
       const materialized = readConversation(root, session);
       expect(materialized.physicalRows).toEqual(rows);

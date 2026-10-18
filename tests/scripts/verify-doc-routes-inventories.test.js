@@ -312,7 +312,7 @@ describe('source-derived Config schema inventory', () => {
       'bootstrap', 'format', 'initialization', 'schema',
     ]);
     expect(result.expected.get('card_types.entry.records.entry.initialization')).toEqual([
-      'at', 'content',
+      'format_version', 'template',
     ]);
   });
 
@@ -324,15 +324,15 @@ describe('source-derived Config schema inventory', () => {
       );
     });
     withFixture([CONFIG, DOC], (root) => {
-      replaceChecked(root, DOC, '| `card_types.entry.records.entry.initialization` | `at,content`',
-        '| `card_types.entry.records.entry.initialization` | `content`');
+      replaceChecked(root, DOC, '| `card_types.entry.records.entry.initialization` | `format_version,template`',
+        '| `card_types.entry.records.entry.initialization` | `template`');
       expect(verifyConfigDocs({ projectRoot: root }).ok).toBe(false);
     });
     withFixture([CONFIG, DOC], (root) => {
       rewrite(root, CONFIG, (source) => {
-        const matches = [...source.matchAll(/\bat\s*:\s*z\s*\.\s*array\s*\(\s*z\s*\.\s*enum\s*\(\s*\[\s*'first_required_entry'\s*,\s*'clean_entry'\s*\]\s*\)\s*\)/g)];
+        const matches = [...source.matchAll(/\btemplate\s*:\s*z\s*\.\s*string\s*\(\s*\)/g)];
         expect(matches).toHaveLength(1);
-        return source.replace(matches[0][0], 'at: z.array(z.lazy(() => z.string()))');
+        return source.replace(matches[0][0], 'template: z.lazy(() => z.string())');
       });
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
     });

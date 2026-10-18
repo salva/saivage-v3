@@ -259,6 +259,10 @@ const processNodeSchema = z
     agent: agentNameSchema,
     prompt: staticPromptDeclarationSchema,
     correction_prompt: durablePromptDeclarationSchema,
+    initialize_records: z
+      .array(recordNameSchema)
+      .refine((values) => new Set(values).size === values.length, 'Duplicate initialized record.')
+      .optional(),
     record_prompts: z
       .array(
         z
@@ -308,16 +312,10 @@ const recordDefinitionSchema = z
     bootstrap: z.boolean(),
     initialization: z
       .object({
-        content: z
+        format_version: z.literal(1),
+        template: z
           .string()
           .refine((value) => value.trim().length > 0, 'Initializer must not be empty.'),
-        at: z
-          .array(z.enum(['first_required_entry', 'clean_entry']))
-          .nonempty()
-          .refine(
-            (values) => new Set(values).size === values.length,
-            'Duplicate initialization trigger.',
-          ),
       })
       .strict()
       .nullable()

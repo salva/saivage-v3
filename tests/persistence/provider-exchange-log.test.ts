@@ -8,6 +8,8 @@ import type { ProviderExchangePayload } from '../../src/contracts/provider-excha
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import { providerExchangeFile } from '../../src/persistence/layout.js';
 import { appendProviderExchangeEntry, readLatestProviderExchangePayload, readProviderExchangeEntries } from '../../src/persistence/provider-exchange-log.js';
+import { projectProviderExchange } from '../../src/agents/provider-exchange-outbound.js';
+import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 
 const roots: string[] = [];
 const owner = 'agent:planner:project' as const;
@@ -34,6 +36,21 @@ function publish(root: string, sessionId: string, model: string, timestamp = fir
 }
 
 describe('strict selected provider evidence', () => {
+  it.each(['generic', 'codex', 'openai-responses'] as const)('retains unchanged strict %s transport metadata under shared envelope1', transport => {
+    const root = project();
+    const request_params = { endpoint: 'https://example.test/v1/request', method: 'POST', stream: true, offered_tools_count: 2,
+      ...(transport === 'generic' ? { temperature: 0.2, max_tokens: 1000 } : transport === 'openai-responses' ? { max_output_tokens: 1000, include: ['reasoning.encrypted_content'], store: false, reasoning_keys: ['effort'] } : {}) };
+    const attempt = { ...row(owner, 'metadata').data.payload, transport, request_params, status: 'ok' as const };
+    const payload = projectProviderExchangeForPublication(attempt, { assistantOutputIds: [], terminalConversationOutputId: null });
+    const entry = row(owner, 'metadata');
+    appendProviderExchangeEntry(root, owner, { ...entry, data: { ...entry.data, payload } });
+    const envelope = JSON.parse(readFileSync(providerExchangeFile(root, owner), 'utf8'));
+    expect(envelope).toMatchObject({ version: 1, type: 'rows' });
+    const retained = readLatestProviderExchangePayload(root, owner)!;
+    expect(projectProviderExchange(retained).request_params).toEqual(request_params);
+    expect(() => projectProviderExchangeForPublication({ ...attempt, request_params: { ...request_params, record_fact: 'not transport metadata' } }, { assistantOutputIds: [], terminalConversationOutputId: null })).toThrow();
+    expect(() => projectProviderExchange({ ...retained, request_params: { ...request_params, record_fact: 'not transport metadata' } })).toThrow();
+  });
   it('retains partial/zero usage and summary facts without replacing latest primary', () => {
     const root = project();
     const primary = row(owner, 'primary');

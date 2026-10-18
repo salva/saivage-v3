@@ -34,6 +34,7 @@ describe('Analyst corrections on CHANGED in production composition', () => {
     let app: App | null = null; let fixtureFailure: unknown;
     let analystCalls = 0; let cardCalls = 0; let correcting = false; let correctionTurns = 0;
     const acceptedHeads: number[] = [];
+    const acceptedVersions: number[] = [];
     const provider = createServer(async (request, response) => {
       try {
         const body = await readJsonRequest(request) as ChatCompletionRequest;
@@ -59,10 +60,14 @@ describe('Analyst corrections on CHANGED in production composition', () => {
             expect(result).toMatchObject({ success: true, data: { state: 'closed', propagation: { ok: true } } });
             const current = cards.readRecordCurrent('project', previous.record);
             expect(current).toMatchObject({ kind: 'found', value: { projection: { revision: result.data.revision, state: 'closed', accepted: { content: previous.content, writer_agent: 'analyst' } } } });
-            expect(result.data.accepted_version_url).toBe(`record:///${previous.record}?card=project&v=${result.data.revision}`);
+            expect(result.data.accepted_version_url).toBe(`record:///${previous.record}?card=project&v=${result.data.version}`);
+            expect(result.data.target_version).toBeNull();
             expect(result.data.current_url).toBe(`record:///${previous.record}?card=project`);
             expect(result.data).not.toHaveProperty('head_entry_id');
-            if (previous.record === 'brief.md') acceptedHeads.push(result.data.revision);
+            if (previous.record === 'brief.md') {
+              acceptedHeads.push(result.data.revision);
+              acceptedVersions.push(result.data.version);
+            }
             expect(cards.read('project')!.lifecycle.status).toBe('changed');
           } else expect(cards.read('project')!.lifecycle.status).toBe('blocked');
           const next = corrections[correctionTurns++];
@@ -110,8 +115,9 @@ describe('Analyst corrections on CHANGED in production composition', () => {
       expect(cards.read('project')!.lifecycle.status).toBe('changed');
       expect(app.server.runtimeApplication.runtimeApi.getStatus().status).toBe('stopped');
       expect(cards.readRecordCurrent('project', 'brief.md')).toMatchObject({ kind: 'found', value: { projection: { accepted: { content: finalBrief } } } });
-      for (const [index, head] of acceptedHeads.entries()) {
-        expect(cards.readRecordVersion('project', 'brief.md', head)).toMatchObject({ kind: 'found', value: { projection: { artifact: { accepted: { content: corrections[index]!.content } } } } });
+      expect(acceptedVersions).toEqual([3, 4, 5]);
+      for (const [index, version] of acceptedVersions.entries()) {
+        expect(cards.readRecordVersion('project', 'brief.md', version)).toMatchObject({ kind: 'found', value: { projection: { artifact: { accepted: { content: corrections[index]!.content } } } } });
       }
       expect(readConversation(root, 'agent:executor:project').physicalRows).toEqual(activationRows);
       const rows = readConversation(root, 'agent:analyst:global').physicalRows;

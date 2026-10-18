@@ -219,7 +219,7 @@ it('spawned prev repairs fresh-publish identities and disclose pending/draft los
     expect(restored.pending).toEqual(previous.pending);
     expect(f.cards.readPendingNotifications(child.id)).toEqual([]);
     expect(readFileSync(cardRepair.report, 'utf8')).toContain('queue changes may be lost');
-    f.cards.openRecord(child.id, 'brief.md', null);
+    f.cards.openRecord(child.id, 'brief.md');
     f.cards.editRecord(child.id, 'brief.md', 'first draft');
     f.cards.editRecord(child.id, 'brief.md', 'latest lost draft');
     const definition = {
@@ -493,6 +493,7 @@ it('spawned child discard preserves namespace/sibling/parent; restart launches n
           record.initialization = null;
         for (const node of Object.values(value.card_types[type]!.workflow.nodes)) {
           node.records = {};
+          node.initialize_records = [];
           for (const edge of Object.values(node.edges))
             if ('terminal' in edge.target) edge.target.export_records = [];
         }

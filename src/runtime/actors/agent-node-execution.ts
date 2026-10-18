@@ -34,6 +34,7 @@ import {
   type ConversationFileContext,
 } from '../../persistence/session-api.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import { renderCompiledPrompt } from '../../utils/prompt-api.js';
 import { bootstrapContextSupplier } from '../records/bootstrap-context.js';
 import {
   appendActivationMarker,
@@ -66,7 +67,7 @@ import {
 } from '../../tools/tool-api.js';
 import type { McpToolInvocationPort } from '../../mcp/manager-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
-import type { RecordProjection } from '../../persistence/index.js';
+import type { CurrentRecordProjection } from '../../persistence/index.js';
 import {
   PublicationOutcomeUnknownError,
   throwIfPublicationOutcomeUnknown,
@@ -953,46 +954,52 @@ export class AgentNodeExecution {
   }
 
   private prepareRecordRequirements(node: CompiledNodeContract): void {
+    for (const definition of node.initializeRecords) {
+      this.deps.store.initializeRecord(this.deps.cardId, definition.name, () => {
+        const card = this.deps.store.read(this.deps.cardId);
+        if (!card) throw new Error(`Card '${this.deps.cardId}' not found.`);
+        return renderCompiledPrompt(
+          { kind: 'record-initializer', cardType: card.type },
+          definition.name,
+          definition.initialization!.compiled,
+          {
+            cardType: card.type,
+            cardId: card.id,
+            cardTitle: card.title,
+            nodeId: node.nodeId,
+            recordName: definition.name,
+          },
+        );
+      });
+    }
     for (const requirement of node.requirements) {
-      const initialization = requirement.definition.initialization;
-      if (requirement.mode === 'continue' && !initialization?.at.includes('first_required_entry'))
-        continue;
+      if (requirement.mode === 'continue') continue;
       const name = requirement.definition.name;
       const result = this.deps.store.readRecordCurrent(this.deps.cardId, name);
       if (result.kind === 'card-not-found')
         throw new Error(`Card '${this.deps.cardId}' not found.`);
       const current = result.value.projection;
-      const seed =
-        initialization &&
-        ((!current && initialization.at.includes('first_required_entry')) ||
-          (requirement.mode === 'clean' && initialization.at.includes('clean_entry')))
-          ? initialization.content
-          : null;
-      if (requirement.mode === 'continue') {
-        if (!current && seed !== null) this.deps.store.openRecord(this.deps.cardId, name, seed);
-        continue;
-      }
       if (current?.state === 'open') this.deps.store.discardRecord(this.deps.cardId, name);
-      this.deps.store.openRecord(this.deps.cardId, name, seed);
+      this.deps.store.openRecord(this.deps.cardId, name);
     }
   }
   private captureRecordHead(filename: string): { revision: number; headId: string } | null {
     const result = this.deps.store.readRecordCurrent(this.deps.cardId, filename);
     const projection = result.kind === 'found' ? result.value.projection : null;
-    return projection ? { revision: projection.revision, headId: projection.headId! } : null;
+    return projection ? { revision: projection.revision, headId: projection.headId } : null;
   }
   private validateRecords(
     node: CompiledNodeContract,
     baseline: ReadonlyMap<string, { revision: number; headId: string } | null>,
-  ): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
-    const candidates = new Map<string, RecordProjection>();
+  ): { candidates: Map<string, CurrentRecordProjection> } | { violations: string[] } {
+    const candidates = new Map<string, CurrentRecordProjection>();
     const violations: string[] = [];
     for (const required of node.requirements) {
       const filename = required.definition.name;
       const candidate = readCandidate(this.deps.store, this.deps.cardId, filename);
       if (!candidate) {
         violations.push(
-          `Required record 'record:///${filename}?card=${encodeURIComponent(this.deps.cardId)}' is missing, empty or an unfilled scaffold; authored content is required.`,
+          `Required record 'record:///${filename}?card=${encodeURIComponent(this.deps.cardId)}' is missing, empty or document 0; authored content is required.`,
         );
         continue;
       }
@@ -1011,7 +1018,7 @@ export class AgentNodeExecution {
   }
   private closeAcceptedRecords(
     node: CompiledNodeContract,
-    candidates: ReadonlyMap<string, RecordProjection>,
+    candidates: ReadonlyMap<string, CurrentRecordProjection>,
     writtenRecords: ReadonlySet<string>,
   ): Array<{ name: string; url: string; version: number }> {
     const accepted: Array<{ name: string; url: string; version: number }> = [];
@@ -1039,7 +1046,7 @@ export class AgentNodeExecution {
       }
       if (!candidate.draft || !isEligibleRecordContent(candidate))
         throw new Error(
-          `Accepted open candidate '${this.deps.cardId}/${filename}' is empty or unfilled.`,
+          `Accepted open candidate '${this.deps.cardId}/${filename}' is empty or document 0.`,
         );
       const closed = this.deps.store.closeRecord(this.deps.cardId, filename, node.agent.name);
       const snapshot = closed.accepted!;
@@ -1146,7 +1153,7 @@ function readCandidate(
   store: CardService,
   cardId: string,
   filename: string,
-): RecordProjection | null {
+): CurrentRecordProjection | null {
   const result = store.readRecordCurrent(cardId, filename);
   if (result.kind === 'card-not-found' || !result.value.projection) return null;
   const current = result.value.projection;

@@ -30,7 +30,11 @@ import {
 } from '../../workspace/index.js';
 import { projectEffectiveConfigForOutbound } from '../../config/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
-import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/index.js';
+import {
+  effectiveRecordContent,
+  SAIVAGE_CARDS_RELATIVE_DIR,
+  SAIVAGE_WORK_RELATIVE_DIR,
+} from '../../persistence/index.js';
 import {
   CanonicalCardFilesReadModel,
   type CanonicalCardFilesReader,
@@ -551,7 +555,7 @@ export class WorkspaceFileReadModelService {
                 },
               };
         const record = result.value.projection;
-        const effective = record.state === 'open' ? record.draft : record.accepted;
+        const effective = effectiveRecordContent(record);
         if (!effective)
           return {
             statusCode: 404,
@@ -568,9 +572,8 @@ export class WorkspaceFileReadModelService {
             content: redactTextForOutbound(effective.content),
             redacted: true,
             sensitivity: 'sensitive-redacted',
-            version: request.version ?? record.revision,
-            modifiedAt:
-              record.state === 'open' ? record.draft!.updated_at : record.accepted!.committed_at,
+            version: effective.version,
+            modifiedAt: effective.modifiedAt,
           },
         };
       }

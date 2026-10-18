@@ -10,7 +10,11 @@ export function projectWorkflowPresentation(
   const nodes = [...workflow.states.values()].filter((state) => state.kind === 'node');
   return WorkflowPresentationSchema.parse({
     card_type: workflow.cardType,
-    nodes: nodes.map((node) => ({ node_id: node.nodeId, agent_name: node.agent.name })),
+    nodes: nodes.map((node) => ({
+      node_id: node.nodeId,
+      agent_name: node.agent.name,
+      initialize_records: node.initializeRecords.map((record) => record.name),
+    })),
     entries: (['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const).map((entry) => ({
       entry,
       node_id: workflowEntryTarget(workflow, entry),
@@ -23,7 +27,7 @@ export function projectWorkflowPresentation(
       name,
       bootstrap,
       initialization: initialization
-        ? { content: redactTextForOutbound(initialization.content), at: [...initialization.at] }
+        ? { format_version: 1, template: redactTextForOutbound(initialization.template) }
         : null,
     })),
   });

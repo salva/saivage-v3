@@ -12,7 +12,8 @@
         <div v-else>
           <div class="record-metadata">{{ record.schema }} · {{ record.bootstrap ? 'bootstrap' : 'optional' }}</div>
           <p v-if="value(record.name).current">Current revision {{ value(record.name).current?.record.revision }} · {{ value(record.name).current?.record.effective_content_source ?? 'empty' }}</p>
-          <p v-if="value(record.name).current?.record.draft">{{ value(record.name).current?.record.draft?.unfilled ? 'Unfilled scaffold — not authored or accepted' : 'Draft' }}</p>
+          <p v-if="value(record.name).current?.record.baseline">Baseline v0 — not authored or accepted</p>
+          <p v-if="value(record.name).current?.record.draft">Draft for v{{ value(record.name).current?.record.draft?.target_version }}<template v-if="value(record.name).current?.record.draft?.version === 0"> · Baseline v0 — not authored or accepted</template></p>
           <div v-if="value(record.name).current?.record.accepted_version_url" class="record-locator">
             <router-link :to="recordLink(record.name, value(record.name).current!.record.accepted!.source_version)">Latest accepted v{{ value(record.name).current?.record.accepted?.source_version }}</router-link>
             <ExactValue :value="value(record.name).current!.record.accepted_version_url!" label="accepted record locator" />
@@ -39,7 +40,7 @@
         <div v-if="value(record.name).selectedError" class="record-history-error" role="alert">{{ value(record.name).selectedError }} <button type="button" :disabled="!historicalActionsReady(record.name)" @click="retrySelected(record.name)">Retry</button></div>
         <ViewState v-if="value(record.name).selectedLoading" state="loading" title="Loading selected record version" />
         <div v-if="value(record.name).selected" class="selected-record">
-          <strong>Selected v{{ value(record.name).selected?.version }}</strong>
+          <strong>Selected accepted document v{{ value(record.name).selected?.version }}</strong>
           <ExactValue :value="value(record.name).selected!.version_url" label="selected record locator" />
           <p>Observed card mutation revision {{ value(record.name).selected!.artifact.accepted.card_version_seq }} · ordinary history
             <router-link :to="{ name: 'card-detail', params: { id: cardId }, query: { facet: 'records', version: String(value(record.name).selected!.artifact.accepted.card_history_version) } }">v{{ value(record.name).selected!.artifact.accepted.card_history_version }}</router-link>

@@ -36,7 +36,7 @@ describe('bundled record excerpt composition', () => {
       if (node.kind !== 'node') throw new Error('Missing plan node.');
       const store = new CardService(root, workflows);
       store.acceptRecord('project', 'brief.md', 'Accepted requirement stays authoritative.', 'analyst');
-      store.openRecord('project', 'status.md', null);
+      store.openRecord('project', 'status.md');
       const source = 'FIRST\n' + 'ordinary status work remains unfinished.\n'.repeat(1000) + 'LAST';
       store.editRecord('project', 'status.md', source);
       const supplier = bootstrapContextSupplier(store, store.read('project')!, node);

@@ -157,7 +157,7 @@ const CardRecordCurrentDescriptorSchema = z
     revision: positiveSafeIntegerSchema,
     current_url: z.string().min(1),
     accepted_version_url: z.string().min(1).nullable(),
-    state: z.enum(['open', 'closed', 'empty']),
+    state: z.enum(['baseline', 'open', 'closed', 'empty']),
     accepted_source_version: positiveSafeIntegerSchema.nullable(),
     draft_present: z.boolean(),
   })
@@ -208,7 +208,8 @@ const RecordAcceptedWireSchema = z
   .strict();
 const RecordDraftWireSchema = z
   .object({
-    unfilled: z.boolean(),
+    version: z.number().int().safe().nonnegative(),
+    target_version: positiveSafeIntegerSchema,
     opened_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     content: z.string(),
@@ -222,10 +223,19 @@ const CardRecordContentSchema = z
     revision: positiveSafeIntegerSchema,
     current_url: z.string().min(1),
     accepted_version_url: z.string().min(1).nullable(),
-    state: z.enum(['open', 'closed', 'empty']),
+    state: z.enum(['baseline', 'open', 'closed', 'empty']),
+    baseline: z
+      .object({
+        version: z.literal(0),
+        created_at: z.string().datetime(),
+        content: z.string(),
+        content_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .strict()
+      .nullable(),
     accepted: RecordAcceptedWireSchema.nullable(),
     draft: RecordDraftWireSchema.nullable(),
-    effective_content_source: z.enum(['draft', 'accepted']).nullable(),
+    effective_content_source: z.enum(['baseline', 'draft', 'accepted']).nullable(),
   })
   .strict();
 export const CardRecordContentResponseSchema = z

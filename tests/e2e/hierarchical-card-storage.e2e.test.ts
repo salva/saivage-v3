@@ -29,7 +29,7 @@ describe('reset-only hierarchical card storage', () => {
     const survivor = cards.create(input('project', 'code', [dependency.id]));
     expect(readFileSync(cardHeadFile(root, goal.id), 'utf8')).toContain('"kind":"card-head"');
     expect(readFileSync(cardRecordHeadFile(root, dependency.id, testRecordDefinition('brief.md')), 'utf8')).toContain('"kind":"record-head"');
-    cards.openRecord(dependency.id, 'status.md', null); const editedStatus = cards.editRecord(dependency.id, 'status.md', 'status'); cards.closeRecord(dependency.id, 'status.md', 'executor');
+    cards.openRecord(dependency.id, 'status.md'); const editedStatus = cards.editRecord(dependency.id, 'status.md', 'status'); cards.closeRecord(dependency.id, 'status.md', 'executor');
     const dependencySession = parseConversationSessionId(`agent:executor:${dependency.id}`);
     appendConversationBatch({ projectRoot: root }, [row(dependencySession, 'message')]);
     const dependencyStreamBefore = readFileSync(cardHeadFile(root, dependency.id), 'utf8');

@@ -6,6 +6,7 @@ import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../../src/contracts/tool-result.js';
+import { describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 
 type ToolOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
 
@@ -86,6 +87,7 @@ function harness(args: {
     prompt: { promptId: 'work', compactable: true },
     correctionPrompt: args.protectedCorrection ? { promptId: 'correct', compactable: false, compactionKey: ' correction key ' } : { promptId: 'correct', compactable: true },
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
+    initializeRecords: [],
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
     on: new Map([['result:complete', Object.freeze({targetStateId:'terminal:DONE',reenter:false,semantic:Object.freeze({kind:'configured-outcome',outcome:'complete',prompt:null,terminalBehavior:Object.freeze({promotion:Object.freeze({kind:'current'}),exportRecords:Object.freeze([])})})})]]),
@@ -176,6 +178,8 @@ function harness(args: {
     appendedToolResults,
     settledToolResults,
     llmInputArguments,
+    process,
+    stateId,
     plainTextCorrections,
     plainTextCorrectionMessages,
     continuationContextCallbacks,
@@ -431,7 +435,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     if ('kind' in accepted) throw new Error('Expected accepted node result.');
     expect(Object.isFrozen(accepted)).toBe(true);
     expect(Object.isFrozen(accepted.acceptedRecords)).toBe(true);
-    expect(test.llmInputArguments[0]?.[3]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');
+    expect(test.llmInputArguments[0]?.[3]).toBe(describeNodeResultContract(test.process as never, test.stateId));
     expect(test.llmInputArguments[0]?.[5]).toEqual({
       type: 'function',
       function: {

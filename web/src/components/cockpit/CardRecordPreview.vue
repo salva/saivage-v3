@@ -34,11 +34,11 @@
         <template v-if="slot?.current">
           <dt>Artifact state</dt><dd>{{ artifactState }}</dd>
           <dt>Head revision</dt><dd>{{ slot.current.record.revision }}</dd>
-          <dt>Accepted source revision</dt><dd>{{ slot.current.record.accepted?.source_version ?? 'none' }}</dd>
+          <dt>Accepted document version</dt><dd>{{ slot.current.record.accepted?.source_version ?? 'none' }}</dd>
           <dt>Effective content</dt><dd>{{ stateLabel }}</dd>
         </template>
       </dl>
-      <p>Card revision counts all mutations, including private queue selection changes. Each record has its own mutable revision sequence; accepted history can be sparse. Neither measures work completed.</p>
+      <p>Card revision counts all mutations, including private queue selection changes. Each record has its own mutable revision sequence, separate from consecutive accepted document versions. Neither measures work completed.</p>
     </details>
   </div>
 </template>
@@ -64,7 +64,8 @@ const excerpt = computed(() => {
 });
 const stateLabel = computed(() => {
   const source = props.slot?.current?.record.effective_content_source;
-  if (source === 'draft') return props.slot?.current?.record.draft?.unfilled ? 'Unfilled scaffold — not authored or accepted' : 'Draft';
+  if (source === 'baseline') return 'Baseline v0 — not authored or accepted';
+  if (source === 'draft') { const draft = props.slot!.current!.record.draft!; return `Draft for v${draft.target_version}${draft.version === 0 ? ' · Baseline v0 — not authored or accepted' : ''}`; }
   if (source === 'accepted') return 'Accepted';
   if (props.slot?.loading) return 'Loading';
   if (props.slot?.error) return 'Read failed';
@@ -73,6 +74,7 @@ const stateLabel = computed(() => {
 });
 const artifactState = computed(() => {
   const state = props.slot?.current?.record.state;
+  if (state === 'baseline') return 'Baseline v0';
   if (state === 'open') return 'Open (draft)';
   if (state === 'closed') return 'Closed (accepted)';
   if (state === 'empty') return 'Empty';

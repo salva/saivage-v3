@@ -16,7 +16,7 @@ const graph: DebugGraph = {
   permitted_child_types: ['code'],
   records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, initialization: null }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, initialization: null }],
   entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry: entry as 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED', node_id: 'plan', prompt: entry === 'STOPPED' ? { reference: 'stopped-recovery', compactable: true } : null })),
-  nodes: [{ record_prompts: [], node_id: 'plan', agent_name: 'planner', session: { scope: 'card', identity_pattern: 'agent:planner:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'planner', compactable: true }, process: { reference: 'plan', compactable: true }, correction: { reference: 'correct-plan-result', compactable: true } }, model: { route: 'planner', candidates: [{ provider: 'openai', model: 'gpt-5.6' }], temperature: 0.2, max_tokens: 4096 }, skills: false, tools: ['create_card', 'activate_card'], child_creation_types: ['code'], child_activation_types: ['code'], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['again', 'done'] }],
+  nodes: [{ initialize_records: [], record_prompts: [], node_id: 'plan', agent_name: 'planner', session: { scope: 'card', identity_pattern: 'agent:planner:<card-id>' }, prompt: { source: 'bundled-shared', declaration: { reference: 'planner', compactable: true }, process: { reference: 'plan', compactable: true }, correction: { reference: 'correct-plan-result', compactable: true } }, model: { route: 'planner', candidates: [{ provider: 'openai', model: 'gpt-5.6' }], temperature: 0.2, max_tokens: 4096 }, skills: false, tools: ['create_card', 'activate_card'], child_creation_types: ['code'], child_activation_types: ['code'], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['again', 'done'] }],
   edges: [{ source_node_id: 'plan', outcome: 'again', runtime_owned: false, condition: 'default', prompt: { reference: 'retry', compactable: true }, target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'done', runtime_owned: false, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
   terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
@@ -42,6 +42,21 @@ describe('Debug Graphs', () => {
     expect(store.graphs).toEqual([graph]);
     expect(store.graphsRefreshError).toBe('Failed to fetch compiled graphs');
     expect(store.graphsRefreshing).toBe(false);
+  });
+
+  it('renders versioned initializer data and independent node selections without interpreting template macros', () => {
+    const template = '# {{cardTitle}} at {{nodeId}} ${LITERAL}';
+    const selected = DebugGraphsResponseSchema.parse({ global_agents: [globalAgent], graphs: [{ ...graph,
+      records: graph.records.map(record => record.name === 'status.md' ? { ...record, initialization: { format_version: 1, template } } : record),
+      nodes: graph.nodes.map(node => ({ ...node, initialize_records: ['status.md'] })),
+    }] }).graphs[0]!;
+    const wrapper = mount(DebugGraphDiagram, { props: { graph: selected } });
+    expect(wrapper.get('.graph-summary').text()).toContain('node-entry template (format 1)');
+    expect(wrapper.get('.graph-summary pre').text()).toBe(template);
+    expect(wrapper.get('.graph-summary').text()).toContain('plan: status.md');
+    expect(DebugGraphsResponseSchema.safeParse({ global_agents: [globalAgent], graphs: [{ ...selected,
+      records: selected.records.map(record => record.name === 'status.md' ? { ...record, initialization: { content: template, at: ['first_required_entry'] } } : record),
+    }] }).success).toBe(false);
   });
 
   it('renders selected global declarations without prompt bodies or paths',()=>{

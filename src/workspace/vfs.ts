@@ -61,7 +61,7 @@ export type VfsResolved =
           filename: string;
           format: 'markdown';
           schema: string;
-          state: 'absent' | 'open' | 'closed' | 'empty';
+          state: 'absent' | 'baseline' | 'open' | 'closed' | 'empty';
           revision: number | null;
           headId: string | null;
           version: number | null;

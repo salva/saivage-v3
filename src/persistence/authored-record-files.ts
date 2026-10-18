@@ -15,6 +15,7 @@ import {
   type RecordHead,
   type OpenRecordDraft,
   type AcceptedRecordReference,
+  type RecordBaseline,
 } from './canonical-record-artifacts.js';
 import {
   readCanonicalBytes,
@@ -34,21 +35,31 @@ import {
 } from './replace-file.js';
 import type { CanonicalCardProjection } from './card-files.js';
 
-export interface RecordProjection {
+interface RecordProjectionIdentity {
   readonly cardId: string;
   readonly filename: string;
-  readonly revision: number;
-  readonly headId: string | null;
   readonly currentUrl: string;
   readonly acceptedVersionUrl: string | null;
-  readonly state: 'open' | 'closed' | 'empty';
+}
+export interface CurrentRecordProjection extends RecordProjectionIdentity {
+  readonly revision: number;
+  readonly headId: string;
+  readonly state: 'baseline' | 'open' | 'closed' | 'empty';
+  readonly baseline: RecordBaseline | null;
   readonly accepted: AcceptedRecordSnapshot | null;
   readonly draft: OpenRecordDraft | null;
 }
-export interface AcceptedRecordProjection extends RecordProjection {
+export interface AcceptedRecordProjection extends RecordProjectionIdentity {
+  readonly revision: null;
+  readonly headId: null;
+  readonly state: 'closed';
+  readonly baseline: null;
+  readonly draft: null;
+  readonly accepted: AcceptedRecordSnapshot;
   readonly artifact: AuthoredRecordVersionArtifact;
   readonly versionUrl: string;
 }
+export type RecordProjection = CurrentRecordProjection | AcceptedRecordProjection;
 export class AuthoredRecordNotFoundError extends Error {
   constructor() {
     super('Authored record not found.');
@@ -57,7 +68,7 @@ export class AuthoredRecordNotFoundError extends Error {
 }
 export type CurrentAuthoredRecordClassification =
   | Readonly<{ kind: 'unclaimed' | 'empty' }>
-  | Readonly<{ kind: 'present'; projection: RecordProjection }>;
+  | Readonly<{ kind: 'present'; projection: CurrentRecordProjection }>;
 
 function exactIdentity(
   value: RecordHead | AuthoredRecordVersionArtifact,
@@ -110,7 +121,7 @@ export function inspectAuthoredRecordSelection(
   definition: RecordDefinition,
   data: Buffer,
   instrumentation?: CanonicalReadInstrumentation,
-): { readonly head: RecordHead; readonly projection: RecordProjection } {
+): { readonly head: RecordHead; readonly projection: CurrentRecordProjection } {
   const head = decodeHead(cardId, definition, data);
   return { head, projection: currentProjection(projectRoot, definition, head, instrumentation) };
 }
@@ -166,9 +177,9 @@ function readAccepted(
 }
 function project(
   definition: RecordDefinition,
-  head: Omit<RecordHead, 'head_id'> & { readonly head_id: string | null },
+  head: RecordHead,
   accepted: AcceptedRecordSnapshot | null,
-): RecordProjection {
+): CurrentRecordProjection {
   const currentUrl = `record:///${encodeURIComponent(definition.filename)}?card=${encodeURIComponent(head.card_id)}`;
   return Object.freeze({
     cardId: head.card_id,
@@ -177,7 +188,8 @@ function project(
     headId: head.head_id,
     currentUrl,
     acceptedVersionUrl: accepted ? `${currentUrl}&v=${accepted.source_version}` : null,
-    state: head.draft ? 'open' : accepted ? 'closed' : 'empty',
+    state: head.baseline ? 'baseline' : head.draft ? 'open' : accepted ? 'closed' : 'empty',
+    baseline: head.baseline,
     accepted,
     draft: head.draft,
   });
@@ -186,25 +198,29 @@ function projectAuthoredRecordArtifact(
   definition: RecordDefinition,
   artifact: AuthoredRecordVersionArtifact,
 ): AcceptedRecordProjection {
-  const projection = project(
-    definition,
-    {
-      ...headIdentity(artifact.card_id, definition),
-      head_id: null,
-      revision: artifact.version,
-      draft: null,
-      accepted: reference(artifact),
-    },
-    artifact.accepted,
-  );
-  return Object.freeze({ ...projection, artifact, versionUrl: projection.acceptedVersionUrl! });
+  const currentUrl = `record:///${encodeURIComponent(definition.filename)}?card=${encodeURIComponent(artifact.card_id)}`;
+  const versionUrl = `${currentUrl}&v=${artifact.version}`;
+  return Object.freeze({
+    cardId: artifact.card_id,
+    filename: definition.filename,
+    headId: null,
+    revision: null,
+    baseline: null,
+    draft: null,
+    state: 'closed',
+    accepted: artifact.accepted,
+    currentUrl,
+    acceptedVersionUrl: versionUrl,
+    artifact,
+    versionUrl,
+  });
 }
 function currentProjection(
   projectRoot: string,
   definition: RecordDefinition,
   head: RecordHead,
   instrumentation?: CanonicalReadInstrumentation,
-): RecordProjection {
+): CurrentRecordProjection {
   return project(
     definition,
     head,
@@ -232,7 +248,7 @@ export function readCurrentAuthoredRecord(
   card: CardRecord,
   definition: RecordDefinition,
   instrumentation?: CanonicalReadInstrumentation,
-): RecordProjection | null {
+): CurrentRecordProjection | null {
   const result = classifyCurrentAuthoredRecord(projectRoot, card, definition, instrumentation);
   return result.kind === 'present' ? result.projection : null;
 }
@@ -309,7 +325,7 @@ function identity(cardId: string, definition: RecordDefinition) {
 function headIdentity(cardId: string, definition: RecordDefinition) {
   return {
     ...identity(cardId, definition),
-    format_version: 2 as const,
+    format_version: 3 as const,
     kind: 'record-head' as const,
   };
 }
@@ -338,24 +354,25 @@ function draft(
   stamp: string,
   openedAt: string,
   content: string,
-  seed: string | null,
+  version: number,
+  targetVersion: number,
 ): OpenRecordDraft {
   return {
     opened_at: openedAt,
     updated_at: stamp,
     content,
     content_sha256: sha256Hex(content),
-    seed_sha256: seed,
+    version,
+    target_version: targetVersion,
   };
 }
 export function openAuthoredRecord(
   projectRoot: string,
   card: CardRecord,
   definition: RecordDefinition,
-  seed: string | null,
   io?: ReplacementFileIo,
   temporary?: PublicationTemporaryIdFactory,
-): RecordProjection {
+): CurrentRecordProjection {
   const prior = readHead(projectRoot, card.id, definition);
   if (prior?.draft) return currentProjection(projectRoot, definition, prior);
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
@@ -365,10 +382,45 @@ export function openAuthoredRecord(
     head_id: randomUUID(),
     revision: (prior?.revision ?? 0) + 1,
     accepted: prior?.accepted ?? null,
-    draft: draft(stamp, stamp, seed ?? '', seed === null ? null : sha256Hex(seed)),
+    baseline: null,
+    draft: draft(
+      stamp,
+      stamp,
+      prior?.baseline?.content ?? '',
+      prior?.baseline ? 0 : (prior?.accepted?.version ?? 0) + 1,
+      (prior?.accepted?.version ?? 0) + 1,
+    ),
   });
   publishHead(projectRoot, definition, head, prior === null, io, temporary);
   return project(definition, head, accepted);
+}
+/** Exact absence alone authorizes rendering; an established empty head is present. */
+export function initializeRecordBaseline(
+  projectRoot: string,
+  card: CardRecord,
+  definition: RecordDefinition,
+  render: () => string,
+  io?: ReplacementFileIo,
+): CurrentRecordProjection {
+  const prior = readHead(projectRoot, card.id, definition);
+  if (prior) return currentProjection(projectRoot, definition, prior);
+  if (definition.bootstrap) throw new Error('Bootstrap records cannot have a template baseline.');
+  const content = render();
+  const head = recordHeadSchema.parse({
+    ...headIdentity(card.id, definition),
+    head_id: randomUUID(),
+    revision: 1,
+    baseline: {
+      version: 0,
+      created_at: new Date().toISOString(),
+      content,
+      content_sha256: sha256Hex(content),
+    },
+    draft: null,
+    accepted: null,
+  });
+  publishHead(projectRoot, definition, head, true, io);
+  return project(definition, head, null);
 }
 export function editOpenAuthoredRecord(
   projectRoot: string,
@@ -376,16 +428,23 @@ export function editOpenAuthoredRecord(
   definition: RecordDefinition,
   content: string,
   io?: ReplacementFileIo,
-): RecordProjection {
+): CurrentRecordProjection {
   const prior = readHead(projectRoot, card.id, definition);
   if (!prior?.draft) throw new Error('Record is not open.');
   const accepted = currentProjection(projectRoot, definition, prior).accepted;
   if (prior.draft.content === content) throw new Error('Record open edit must change content.');
+  if (isEmptyRecordContent(content)) throw new Error('Record content must not be empty.');
   const head = recordHeadSchema.parse({
     ...prior,
     head_id: randomUUID(),
     revision: prior.revision + 1,
-    draft: draft(new Date().toISOString(), prior.draft.opened_at, content, prior.draft.seed_sha256),
+    draft: draft(
+      new Date().toISOString(),
+      prior.draft.opened_at,
+      content,
+      prior.draft.target_version,
+      prior.draft.target_version,
+    ),
   });
   publishHead(projectRoot, definition, head, false, io);
   return project(definition, head, accepted);
@@ -401,14 +460,14 @@ function publishAcceptance(
   cardHistory: AcceptedRecordSnapshot['card_history'],
   io?: ReplacementFileIo,
   temporary?: PublicationTemporaryIdFactory,
-): RecordProjection {
+): CurrentRecordProjection {
   if (isEmptyRecordContent(content)) throw new Error('Record content must not be empty.');
   const stamp = new Date().toISOString();
   const entryId = randomUUID();
-  const version = (prior?.revision ?? 0) + 1;
+  const version = (prior?.accepted?.version ?? 0) + 1;
   const artifact = authoredRecordVersionArtifactSchema.parse({
     ...identity(cardId, definition),
-    format_version: 1,
+    format_version: 2,
     kind: 'accepted-record',
     entry_id: entryId,
     version,
@@ -429,7 +488,8 @@ function publishAcceptance(
   const head = recordHeadSchema.parse({
     ...headIdentity(cardId, definition),
     head_id: randomUUID(),
-    revision: version,
+    revision: (prior?.revision ?? 0) + 1,
+    baseline: null,
     accepted: reference(artifact),
     draft: null,
   });
@@ -457,12 +517,13 @@ export function acceptAuthoredRecord(
   writer: AgentName,
   io?: ReplacementFileIo,
   temporary?: PublicationTemporaryIdFactory,
-): RecordProjection {
+): CurrentRecordProjection {
   const cardId = projection.card.id;
   const prior = readHead(projectRoot, cardId, definition);
   if (prior?.draft) throw new Error('Record already has an open workflow draft.');
   const accepted = prior ? currentProjection(projectRoot, definition, prior).accepted : null;
-  if (accepted?.content === content) throw new Error('Record content is unchanged.');
+  if ((prior?.baseline?.content ?? accepted?.content) === content)
+    throw new Error('Record content is unchanged.');
   const observed = acceptanceCard(projection);
   return publishAcceptance(
     projectRoot,
@@ -483,12 +544,12 @@ export function closeOpenAuthoredRecord(
   definition: RecordDefinition,
   writer: AgentName,
   io?: ReplacementFileIo,
-): RecordProjection {
+): CurrentRecordProjection {
   const cardId = projection.card.id;
   const prior = readHead(projectRoot, cardId, definition);
   if (!prior?.draft) throw new Error('Record is not open.');
   if (!isEligibleRecordContent({ draft: prior.draft, accepted: null }))
-    throw new Error('Record draft is empty or an unfilled scaffold; authored content is required.');
+    throw new Error('Record draft is empty or document 0; authored content is required.');
   const observed = acceptanceCard(projection);
   return publishAcceptance(
     projectRoot,
@@ -507,7 +568,7 @@ export function discardOpenAuthoredRecord(
   card: CardRecord,
   definition: RecordDefinition,
   io?: ReplacementFileIo,
-): RecordProjection {
+): CurrentRecordProjection {
   const prior = readHead(projectRoot, card.id, definition);
   if (!prior?.draft) throw new Error('Record is not open.');
   const accepted = currentProjection(projectRoot, definition, prior).accepted;
@@ -527,7 +588,7 @@ export function initializeAuthoredRecord(
   cardHistory: AcceptedRecordSnapshot['card_history'],
   bootstrapContent?: string,
   temporary?: PublicationTemporaryIdFactory,
-): RecordProjection | null {
+): CurrentRecordProjection | null {
   if (bootstrapContent === undefined) return null;
   if (!definition.bootstrap)
     throw new Error('Only the bootstrap record accepts bootstrap content.');

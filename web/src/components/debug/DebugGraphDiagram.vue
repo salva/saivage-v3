@@ -39,7 +39,8 @@
       <dl class="graph-summary">
         <dt>Permitted children</dt><dd>{{ graph.permitted_child_types.join(', ') || 'none' }}</dd>
         <dt>Notification recipient</dt><dd>{{ graph.notification_recipient }}</dd>
-        <dt>Records</dt><dd><span v-for="record in graph.records" :key="record.name">{{ record.name }} · {{ record.schema }}<template v-if="record.bootstrap"> · bootstrap</template><template v-if="record.initialization"> · scaffold at {{ record.initialization.at.join(', ') }}<details><summary>Configured scaffold</summary><pre>{{ record.initialization.content }}</pre></details></template><br></span></dd>
+        <dt>Records</dt><dd><span v-for="record in graph.records" :key="record.name">{{ record.name }} · {{ record.schema }}<template v-if="record.bootstrap"> · bootstrap</template><template v-if="record.initialization"> · node-entry template (format {{ record.initialization.format_version }})<details><summary>Configured initializer template</summary><pre>{{ record.initialization.template }}</pre></details></template><br></span></dd>
+        <dt>Node initialization</dt><dd><span v-for="node in graph.nodes" :key="node.node_id">{{ node.node_id }}: {{ node.initialize_records.join(', ') || 'none' }}<br></span></dd>
       </dl>
       <h5>Selected element details</h5>
       <pre><JsonText :text="detailJson" /></pre>

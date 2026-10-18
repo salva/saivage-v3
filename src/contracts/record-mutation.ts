@@ -174,6 +174,8 @@ export const RecordMutationSuccessSchema = z
       .object({
         ...commonIdentity,
         state: z.enum(['open', 'closed']),
+        version: positiveSafeIntegerSchema,
+        target_version: positiveSafeIntegerSchema.nullable(),
         revision: positiveSafeIntegerSchema,
         head_id: uuidV4Schema,
         current_url: z.string().min(1),
@@ -200,7 +202,10 @@ export const RecordMutationSuccessSchema = z
           (data.accepted_version_url !== null &&
             !isAcceptedUrl(data.accepted_version_url, currentUrl, data.revision)) ||
           (data.surface === 'analyst' &&
-            data.accepted_version_url !== `${currentUrl}&v=${data.revision}`)
+            data.accepted_version_url !== `${currentUrl}&v=${data.version}`) ||
+          (data.state === 'open'
+            ? data.target_version !== data.version
+            : data.target_version !== null)
         )
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -220,7 +225,7 @@ export const ModelRecordTargetWireSchema = z
     name: recordNameSchema,
     format: z.literal('markdown'),
     schema: z.string().min(1),
-    state: z.enum(['absent', 'open', 'closed', 'empty']),
+    state: z.enum(['absent', 'baseline', 'open', 'closed', 'empty']),
     revision: positiveSafeIntegerSchema.nullable(),
     head_id: uuidV4Schema.nullable(),
     current_url: z.string().min(1),

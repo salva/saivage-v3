@@ -52,6 +52,57 @@ function prompt(id: string, observed: RecordSelectionObservation, key?: string):
 }
 
 describe('owning record observations', () => {
+  it('keeps real current stamps but null historical tool stamps after many mutations before accepted1 and accepted2', async () => {
+    const ctx = project();
+    ctx.store.initializeRecord('project', 'status.md', () => 'template');
+    ctx.store.openRecord('project', 'status.md');
+    for (const body of ['first edit', 'second edit', 'accepted first']) ctx.store.editRecord('project', 'status.md', body);
+    const first = ctx.store.closeRecord('project', 'status.md', 'planner');
+    expect(first.accepted!.source_version).toBe(1); expect(first.revision).toBeGreaterThan(1);
+    ctx.store.openRecord('project', 'status.md'); ctx.store.editRecord('project', 'status.md', 'accepted second');
+    const second = ctx.store.closeRecord('project', 'status.md', 'planner');
+    expect(second.accepted!.source_version).toBe(2);
+    const current = await readProject(ctx, { path: 'record:///status.md?card=project', metadata_only: true });
+    expect(current.data).toMatchObject({ revision: second.revision, head_id: second.headId });
+    for (const options of [{}, { metadata_only: true }, { response_bytes: 900 }]) {
+      const historical = await readProject(ctx, { path: 'record:///status.md?card=project&v=1', ...options });
+      expect(historical.data).toMatchObject({ version: 1, revision: null, head_id: null });
+      expect(historical.record_observations).toEqual([expect.objectContaining({ selection_kind: 'historical', head: null, selection: expect.objectContaining({ kind: 'accepted', version: 1, entry_id: first.accepted!.source_entry_id }) })]);
+    }
+    expect(ctx.store.diffRecordVersions('project', 'status.md', { from: 1, to: 2 })).toMatchObject({ kind: 'found', value: { from: { revision: null, headId: null }, to: { revision: null, headId: null }, target: { kind: 'version', version: 2 } } });
+    expect(ctx.store.diffRecordVersions('project', 'status.md', { from: 1, to: 'current' })).toMatchObject({ kind: 'found', value: { target: { kind: 'current', revision: second.revision, head_id: second.headId } } });
+  });
+  it('carries baseline0 and draft0/target1 through real reads, nested results and compacted latest facts at conversation12', async () => {
+    const ctx = project(); ctx.store.initializeRecord('project', 'status.md', () => 'Non-authored starter');
+    const binder = workspaceToolBinders.find(t => t.name === 'read')!.bind(ctx);
+    const execution = await binder.executor({ path: 'record:///status.md?card=project' }, new AbortController().signal);
+    const nested = buildSettledToolResult({ session_id: SESSION, source_input_id: INPUT, tool_call_id: 'baseline-read', tool_name: 'read', resultPolicy: policy(), settlement: { kind: 'executed', execution } });
+    expect(nested.message.record_observations![0]!.observed.selection).toMatchObject({ kind: 'baseline', version: 0 });
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 11, type: 'conversation-segment', rows: [nested.message] })).toThrow();
+    expect(conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [nested.message] }).version).toBe(12);
+    ctx.store.openRecord('project', 'status.md');
+    const read = await readProject(ctx, { path: 'record:///status.md?card=project', metadata_only: true });
+    const observed = read.record_observations[0]!;
+    expect(observed.selection).toMatchObject({ kind: 'draft', version: 0, target_version: 1, accepted_backing: null });
+    const row = prompt('draft-zero', observed); row.context_policy = { ...DURABLE_PRIMARY_CONTENT_POLICY, compactable: true };
+    appendConversationBatch({ projectRoot: ctx.projectRoot }, [row]);
+    const source = readConversation(ctx.projectRoot, SESSION);
+    const facts = deriveRequiredModelFacts({ inherited: { latestRecovery: null, latestContentPolicyRefusal: null, latestRecordObservations: [] }, coveredRows: [row], source });
+    const history = compactedHistorySchema.parse({ summaryText: 'Template is not authored work', protectedPrompts: [], requiredModelFacts: facts });
+    const entryId = randomUUID();
+    publishCompactedConversationSegment({ projectRoot: ctx.projectRoot }, SESSION, { identity: { genesisId: randomUUID(), entryId, segmentVersion: 2, timestamp: TS, filename: versionFilename(2, entryId) }, history, cutoffSourceIndex: 0, cutoffMessageId: row.id, continuation: { kind: 'between_rounds' } });
+    expect(readConversation(ctx.projectRoot, SESSION).effectiveRequiredModelFacts.latestRecordObservations[0]!.observation.observed.selection).toEqual(observed.selection);
+    const genesis = readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2).genesis;
+    expect(conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [genesis] }).version).toBe(12);
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [{ ...genesis, format_version: 11 }] })).toThrow();
+    if (genesis.kind !== 'compacted_segment_genesis') throw new Error('Missing compacted genesis');
+    const oldGenesis = { ...genesis, compaction: { ...genesis.compaction, requiredModelFacts: { ...genesis.compaction.requiredModelFacts,
+      latestRecordObservations: genesis.compaction.requiredModelFacts.latestRecordObservations.map(item => ({ ...item, observation: { ...item.observation, observed: { ...item.observation.observed, selection: { ...item.observation.observed.selection, unfilled: true } } } })),
+    } } };
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [oldGenesis] })).toThrow();
+    const old = { ...row, record_observations: row.record_observations!.map(item => ({ ...item, observed: { ...item.observed, selection: { ...item.observed.selection, unfilled: true } } })) };
+    expect(() => conversationSegmentEnvelopeSchema.parse({ version: 12, type: 'conversation-segment', rows: [old] })).toThrow();
+  });
   it('admits excerpt only for a selected body, independently of source identity', () => {
     const source = { kind: 'prompt', input_id: INPUT, node_id: 'plan', reference: 'changed-record' };
     const observed = selection(1, { kind: 'excerpt' });
@@ -72,7 +123,7 @@ describe('owning record observations', () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(metadata.record_observations.map(o => o.exposure.kind)).toEqual(['metadata', 'metadata']);
     const accepted = metadata.record_observations[1]!.selection;
-    ctx.store.openRecord('project', 'brief.md', null);
+    ctx.store.openRecord('project', 'brief.md');
     ctx.store.editRecord('project', 'brief.md', 'D'.repeat(4000));
     read.mockClear();
     const sliced = await readProject(ctx, { path: 'record:///brief.md?card=project', response_bytes: 700 });
@@ -82,8 +133,13 @@ describe('owning record observations', () => {
     const full = await readProject(ctx, { path: 'record:///brief.md?card=project' });
     expect(full.record_observations[0]!.exposure.kind).toBe('full_body');
     const historical = await readProject(ctx, { path: 'record:///brief.md?card=project&v=1' });
+    expect(historical.data).toMatchObject({ version: 1, revision: null, head_id: null });
     expect(historical.record_observations).toHaveLength(1);
     expect(historical.record_observations[0]).toMatchObject({ selection_kind: 'historical', head: null, selection: { kind: 'accepted', version: 1 } });
+    for (const options of [{ metadata_only: true }, { response_bytes: 700 }]) {
+      const read = await readProject(ctx, { path: 'record:///brief.md?card=project&v=1', ...options });
+      expect(read.data).toMatchObject({ version: 1, revision: null, head_id: null });
+    }
   });
 
   it('carries read metadata atomically on its exact settled result; fake returned JSON cannot produce it', async () => {
@@ -177,10 +233,10 @@ describe('source-derived facts and independent protection', () => {
     expect(JSON.stringify(facts.latestRecordObservations)).not.toContain(a.content);
   });
 
-  it('retains unfilled and independent accepted backing in nested, historical and compacted descriptors', () => {
+  it('retains explicit document versions and independent accepted backing across compaction', () => {
     const ctx = project();
     const observed: RecordSelectionObservation = { ...selection(3), view: 'effective', selection: {
-      kind: 'draft', unfilled: true, content_sha256: sha256Hex('starter'),
+      kind: 'draft', version: 2, target_version: 2, content_sha256: sha256Hex('starter'),
       accepted_backing: selection(1).selection as Extract<RecordSelectionObservation['selection'], {kind:'accepted'}>,
     } };
     const row = prompt('seed-observation', observed);
@@ -199,11 +255,12 @@ describe('source-derived facts and independent protection', () => {
     const historical = foldHistoricalConversationRows(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 1).rows);
     const compacted = segmentContext(readHistoricalConversationSegment(ctx.projectRoot, SESSION, 2).genesis)!;
     for (const selection of [historical[0]!.record_observations![0]!.observed.selection, compacted.required_model_facts.latestRecordObservations[0]!.observation.observed.selection]) {
-      expect(selection).toMatchObject({ kind: 'draft', unfilled: true, accepted_backing: { kind: 'accepted', version: 1 } });
+      expect(selection).toMatchObject({ kind: 'draft', version: 2, target_version: 2, accepted_backing: { kind: 'accepted', version: 1 } });
       expect(selection).not.toHaveProperty('content_sha256');
     }
-    const { unfilled: _unfilled, ...missing } = observed.selection as Extract<RecordSelectionObservation['selection'], {kind:'draft'}>;
+    const { target_version: _target, ...missing } = observed.selection as Extract<RecordSelectionObservation['selection'], {kind:'draft'}>;
     expect(() => recordObservationSchema.parse({ ...row.record_observations![0], observed: { ...observed, selection: missing } })).toThrow();
+    expect(() => recordObservationSchema.parse({ ...row.record_observations![0], observed: { ...observed, selection: { ...observed.selection, unfilled: false } } })).toThrow();
   });
 
   it('rejects missing required facts, malformed provenance, and protected descriptor rows; keeps selection distinct from head changes', () => {

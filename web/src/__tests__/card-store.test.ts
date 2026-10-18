@@ -18,7 +18,7 @@ const descriptors=[
   {name:'research-findings.md',format:'markdown' as const,schema:'research.v1',bootstrap:false,current:null},
   {name:'decision.md',format:'markdown' as const,schema:'decision.v1',bootstrap:false,current:null},
 ];
-const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_id:'11111111-1111-4111-8111-111111111111',revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
+const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_id:'11111111-1111-4111-8111-111111111111',revision:2,current_url:`record:///${name}?card=${cardId}`,accepted_version_url:`record:///${name}?card=${cardId}&v=2`,state:'closed' as const,baseline:null,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,card_history_version:1,card_history_entry_id:'11111111-1111-4111-8111-111111111111',content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,effective_content_source:'accepted' as const}});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
@@ -199,7 +199,7 @@ describe('CardStore exact card resources',()=>{
     expect(getRecordVersion).toHaveBeenCalledWith(A, 'brief.md', 2, expect.any(AbortSignal));
     expect(store.cardRecords['brief.md']!.selected).toEqual(historical);
     const draftTime = '2026-07-23T00:00:00.000Z';
-    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { unfilled: false, content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: draftTime }, effective_content_source: 'draft' } });
+    vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record, revision: 3, state: 'open', draft: { version: 3, target_version: 3, content: 'unfinished draft', content_sha256: 'b'.repeat(64), opened_at: accepted.committed_at, updated_at: draftTime }, effective_content_source: 'draft' } });
     await store.refreshRecord('brief.md', 'invalidated');
     const missing = { error: 'historical_version_not_found' as const, resource: 'authored_record' as const, owner_id: `${A}/brief.md`, version: 3 };
     vi.mocked(getRecordVersion).mockRejectedValueOnce(new OperatorApiError('cards.records.versions.get', 404, missing));

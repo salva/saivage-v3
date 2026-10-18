@@ -325,7 +325,7 @@ describe('operator files and debug contract handlers', () => {
     expect(aliasSpelling.json()).toEqual({ error: 'Path not found', path: './.saivage/cards' });
   });
 
-  it.each(['Ordinary café prose.', 'Ordinary café prose. token=synthetic_credential_longer_than_the_placeholder_123456789'])('projects current accepted, draft and sparse historical record URLs without changing canonical content: %s', async (source) => {
+  it.each(['Ordinary café prose.', 'Ordinary café prose. token=synthetic_credential_longer_than_the_placeholder_123456789'])('projects document versions for current accepted, draft and accepted-only historical record URLs without changing canonical content: %s', async (source) => {
     const accepted = cards.acceptRecord('project', 'status.md', source, 'analyst');
     const original = accepted.accepted!;
     const artifactPath = cardAcceptedRecordFile(projectRoot, 'project', original.source_entry_id);
@@ -347,9 +347,9 @@ describe('operator files and debug contract handlers', () => {
     const acceptedResponse = await request('/api/cards/project/records/status.md');
     expect(acceptedResponse.statusCode).toBe(200);
     const acceptedView = runtimeCardsOperatorApiContracts['cards.records.get'].response[200].parse(acceptedResponse.json());
-    await preview(currentUrl, source, accepted.revision, original.committed_at, acceptedView.record.accepted!.content);
+    await preview(currentUrl, source, original.source_version, original.committed_at, acceptedView.record.accepted!.content);
 
-    cards.openRecord('project', 'status.md', null);
+    cards.openRecord('project', 'status.md');
     const draftSource = `Draft ${source}`;
     cards.editRecord('project', 'status.md', draftSource);
     const canonicalBefore = cards.readRecordCurrent('project', 'status.md');
@@ -358,18 +358,21 @@ describe('operator files and debug contract handlers', () => {
     const draftResponse = await request('/api/cards/project/records/status.md');
     expect(draftResponse.statusCode).toBe(200);
     const draftView = runtimeCardsOperatorApiContracts['cards.records.get'].response[200].parse(draftResponse.json());
-    await preview(currentUrl, draftSource, draft.revision, draft.draft!.updated_at, draftView.record.draft!.content);
+    expect(draft.draft!.version).toBe(2); expect(draft.revision).toBe(3);
+    await preview(currentUrl, draftSource, draft.draft!.version, draft.draft!.updated_at, draftView.record.draft!.content);
 
-    const historicalResponse = await request(`/api/cards/project/records/status.md/versions/${accepted.revision}`);
+    const historicalResponse = await request(`/api/cards/project/records/status.md/versions/${original.source_version}`);
     expect(historicalResponse.statusCode).toBe(200);
     const historical = runtimeCardsOperatorApiContracts['cards.records.versions.get'].response[200].parse(historicalResponse.json());
-    await preview(`${currentUrl}&v=${accepted.revision}`, source, accepted.revision, original.committed_at, historical.artifact.accepted.content);
+    await preview(`${currentUrl}&v=${original.source_version}`, source, original.source_version, original.committed_at, historical.artifact.accepted.content);
 
-    const absentPath = `${currentUrl}&v=${draft.revision}`;
-    const absent = await request(`/api/files/content?path=${encodeURIComponent(absentPath)}`);
-    expect(absent.statusCode).toBe(404);
-    expect(filesDebugOperatorApiContracts['files.content'].response[404].parse(absent.json())).toEqual({ error: 'workspace_historical_version_not_found', path: absentPath, historical: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: 'project/status.md', version: draft.revision } });
-    expect(await request(`/api/cards/project/records/status.md/versions/${draft.revision}`)).toHaveProperty('statusCode', 404);
+    for (const version of [draft.draft!.version,draft.revision]) {
+      const absentPath = `${currentUrl}&v=${version}`;
+      const absent = await request(`/api/files/content?path=${encodeURIComponent(absentPath)}`);
+      expect(absent.statusCode).toBe(404);
+      expect(filesDebugOperatorApiContracts['files.content'].response[404].parse(absent.json())).toEqual({ error: 'workspace_historical_version_not_found', path: absentPath, historical: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: 'project/status.md', version } });
+      expect(await request(`/api/cards/project/records/status.md/versions/${version}`)).toHaveProperty('statusCode', 404);
+    }
     const malformedPath = `${currentUrl}&v=0`;
     const malformed = await request(`/api/files/content?path=${encodeURIComponent(malformedPath)}`);
     expect(malformed.statusCode).toBe(400);
@@ -402,7 +405,7 @@ describe('operator files and debug contract handlers', () => {
     const absent = await request();
     expect(absent.statusCode).toBe(404);
     expect(absent.json()).toEqual({ error: 'Closed record not found.', path });
-    cards.openRecord('project', 'status.md', null);
+    cards.openRecord('project', 'status.md');
     cards.discardRecord('project', 'status.md');
     const empty = await request();
     expect(empty.statusCode).toBe(404);

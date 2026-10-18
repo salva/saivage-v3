@@ -7,6 +7,7 @@ import type {
   WorkspaceFilesListResult,
 } from './workspace-file-read-model.js';
 import type { CardArtifact, CanonicalCardProjection } from '../../persistence/index.js';
+import { effectiveRecordContent } from '../../persistence/index.js';
 import { projectCardArtifactForOutbound, projectCardRecordForOutbound } from './card-outbound.js';
 
 const CARDS_ROOT = '.saivage/cards';
@@ -259,7 +260,7 @@ export class CanonicalCardFilesReadModel {
         if (result.kind === 'card-not-found' || !result.value.projection)
           return { statusCode: 404, body: { error: 'File not found', path } };
         const record = result.value.projection;
-        const effective = record.state === 'open' ? record.draft : record.accepted;
+        const effective = effectiveRecordContent(record);
         if (!effective) return { statusCode: 404, body: { error: 'File not found', path } };
         const bytes = Buffer.from(effective.content);
         if (bytes.byteLength > MAX_FILE_SIZE_BYTES)
@@ -281,9 +282,8 @@ export class CanonicalCardFilesReadModel {
             content,
             redacted: true,
             sensitivity: 'sensitive-redacted',
-            version: record.revision,
-            modifiedAt:
-              record.state === 'open' ? record.draft!.updated_at : record.accepted!.committed_at,
+            version: effective.version,
+            modifiedAt: effective.modifiedAt,
           },
         };
       }

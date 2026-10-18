@@ -12,7 +12,15 @@ export const WorkflowPresentationSchema = z
   .object({
     card_type: cardTypeSchema,
     nodes: z
-      .array(z.object({ node_id: z.string().min(1), agent_name: agentNameSchema }).strict())
+      .array(
+        z
+          .object({
+            node_id: z.string().min(1),
+            agent_name: agentNameSchema,
+            initialize_records: z.array(recordNameSchema),
+          })
+          .strict(),
+      )
       .min(1),
     entries: z
       .array(
@@ -54,8 +62,8 @@ export const WorkflowPresentationSchema = z
           bootstrap: z.boolean(),
           initialization: z
             .object({
-              content: z.string(),
-              at: z.array(z.enum(['first_required_entry', 'clean_entry'])),
+              format_version: z.literal(1),
+              template: z.string(),
             })
             .strict()
             .nullable(),

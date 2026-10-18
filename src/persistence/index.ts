@@ -1,5 +1,6 @@
 export { appendAppLogEntry, readAppLogEntries } from './app-log.js';
 export { observeRecordProjection } from './record-observation.js';
+export { initializeRecordBaseline } from './authored-record-files.js';
 export { publishFreshFile } from './replace-file.js';
 export type { AppLogPublicationContext } from './app-log.js';
 export {
@@ -18,6 +19,7 @@ export {
 export type {
   CurrentAuthoredRecordClassification,
   RecordProjection,
+  CurrentRecordProjection,
   AcceptedRecordProjection,
 } from './authored-record-files.js';
 export { cardVersionChangeSchema } from './canonical-card-artifacts.js';
@@ -34,7 +36,6 @@ export {
   effectiveRecordContent,
   isEmptyRecordContent,
   isEligibleRecordContent,
-  isUnfilledRecordDraft,
 } from './canonical-record-artifacts.js';
 export type { AuthoredRecordVersionArtifact } from './canonical-record-artifacts.js';
 export {

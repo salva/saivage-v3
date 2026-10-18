@@ -283,23 +283,25 @@ describe('card version provider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-record-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create(childInput('Card'));
-    cards.openRecord(child.id, 'status.md', null);
+    cards.openRecord(child.id, 'status.md');
     cards.editRecord(child.id, 'status.md', 'draft content');
     cards.closeRecord(child.id, 'status.md', 'planner');
-    cards.openRecord(child.id, 'status.md', null);
+    cards.openRecord(child.id, 'status.md');
     cards.editRecord(child.id, 'status.md', 'second draft');
     const surface = surfaceFor(cards);
 
-    const openHead = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
+    const openHead = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 1 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
     const openHeadResult = openHead.providerResult as { success: boolean; data: { content_source: string; content: { content: string }; entry_id: string; version_url: string } };
     expect(openHead.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((openHead.evidence as { locator: string }).locator).toBe(`${openHeadResult.data.version_url}#entry=${openHeadResult.data.entry_id}`);
-    expect(openHeadResult.data.version_url).toBe(`record:///status.md?card=${encodeURIComponent(child.id)}&v=3`);
+    expect(openHeadResult.data.version_url).toBe(`record:///status.md?card=${encodeURIComponent(child.id)}&v=1`);
     expect(openHeadResult.data.content_source).toBe('accepted');
     expect(openHeadResult.data.content.content).toBe('draft content');
+    expect(openHeadResult.data).not.toHaveProperty('revision');
+    await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3 })).resolves.toMatchObject({ success: false, error: 'Record version not found.' });
     await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 5 })).resolves.toMatchObject({ success: false, error: 'Record version not found.' });
 
-    const closed = await invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3 });
+    const closed = await invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 1 });
     const closedResult = closed as { success: boolean; data: { state: string; content_source: string; content: { content: string } } };
     expect(closedResult.data).not.toHaveProperty('state');
     expect(closedResult.data.content_source).toBe('accepted');
@@ -313,10 +315,10 @@ describe('card version provider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-discarded-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create(childInput('Card'));
-    cards.openRecord(child.id, 'status.md', null);
+    cards.openRecord(child.id, 'status.md');
     cards.editRecord(child.id, 'status.md', 'baseline');
     cards.closeRecord(child.id, 'status.md', 'planner');
-    cards.openRecord(child.id, 'status.md', null);
+    cards.openRecord(child.id, 'status.md');
     cards.editRecord(child.id, 'status.md', 'wrong direction draft');
     cards.discardRecord(child.id, 'status.md');
     const surface = surfaceFor(cards);
@@ -326,21 +328,21 @@ describe('card version provider', () => {
     expect(history.value.catalog.versions).toHaveLength(1);
     const closedRow = history.value.catalog.versions[0]!;
 
-    const discardedWithBaseline = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
+    const discardedWithBaseline = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 1 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
     const discardedResult = discardedWithBaseline.providerResult as { success: boolean; data: { version: number; entry_id: string; state: string; content_source: string; content: { content: string }; content_sha256: string | null; total_bytes: number } };
-    expect(discardedResult.data).toMatchObject({ version: 3, entry_id: closedRow.entry_id, content_source: 'accepted', content_sha256: closedRow.accepted.content_sha256 });
+    expect(discardedResult.data).toMatchObject({ version: 1, entry_id: closedRow.entry_id, content_source: 'accepted', content_sha256: closedRow.accepted.content_sha256 });
     expect(discardedResult.data.content.content).toBe('baseline');
-    expect(discardedWithBaseline.evidence).toMatchObject({ kind: 'canonical_locator', locator: `record:///status.md?card=${encodeURIComponent(child.id)}&v=3#entry=${closedRow.entry_id}`, sha256: closedRow.accepted.content_sha256 });
+    expect(discardedWithBaseline.evidence).toMatchObject({ kind: 'canonical_locator', locator: `record:///status.md?card=${encodeURIComponent(child.id)}&v=1#entry=${closedRow.entry_id}`, sha256: closedRow.accepted.content_sha256 });
     await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6 })).resolves.toMatchObject({ success: false });
 
-    const paged = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3, byte_offset: 4, response_bytes: 512 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
+    const paged = settleExecution(surface, 'read_record_version', await invokeToolForLlm(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 1, byte_offset: 4, response_bytes: 512 }, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'read_record_version' })));
     expect((paged.evidence as { locator: string }).locator).toBe((discardedWithBaseline.evidence as { locator: string }).locator);
     expect((paged.evidence as { sha256: string }).sha256).toBe((discardedWithBaseline.evidence as { sha256: string }).sha256);
 
     const other = mkdtempSync(join(tmpdir(), 'saivage-card-version-discarded-none-')); roots.push(other); initProjectTree(other);
     const otherCards = new CardService(other);
     const otherChild = otherCards.create(childInput('Card'));
-    otherCards.openRecord(otherChild.id, 'status.md', null);
+    otherCards.openRecord(otherChild.id, 'status.md');
     otherCards.discardRecord(otherChild.id, 'status.md');
     const noneResult = await invokeTestTool(surfaceFor(otherCards), 'read_record_version', { card_id: otherChild.id, record_name: 'status.md', version: 2 });
     expect(noneResult).toMatchObject({ success: false, error: 'Record version not found.' });

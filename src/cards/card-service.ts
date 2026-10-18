@@ -15,6 +15,7 @@ import {
   closeOpenAuthoredRecord,
   discardOpenAuthoredRecord,
   openAuthoredRecord,
+  initializeRecordBaseline,
   readCurrentAuthoredRecord,
   editOpenAuthoredRecord,
   classifyCurrentAuthoredRecord,
@@ -26,6 +27,7 @@ import {
   type AcceptedRecordProjection,
   type CurrentAuthoredRecordClassification,
   type RecordProjection,
+  type CurrentRecordProjection,
   effectiveRecordContent,
   listActiveCardTraversal,
   publishCardTombstone,
@@ -230,7 +232,7 @@ function assertPermittedChildType(
 type CardRecordCurrentResult = CardTargetRead<{
   readonly card: CardRecord;
   readonly definition: RecordDefinition;
-  readonly projection: RecordProjection | null;
+  readonly projection: CurrentRecordProjection | null;
 }>;
 type CardRecordHistoryResult = CardTargetRead<{
   readonly card: CardRecord;
@@ -248,7 +250,7 @@ type CardRecordDiffSelectionResult =
   | CardTargetRead<{
       readonly card: CardRecord;
       readonly definition: RecordDefinition;
-      readonly from: RecordProjection;
+      readonly from: AcceptedRecordProjection;
       readonly to: RecordProjection;
       readonly target:
         | { kind: 'version'; version: number }
@@ -487,7 +489,7 @@ export class CardService {
             admitted.definition,
             instrumentation,
           );
-    const to = typeof pivots.to === 'number' ? pivots.to : (current?.revision ?? 0);
+    const to = typeof pivots.to === 'number' ? pivots.to : (current?.accepted?.source_version ?? 0);
     if (pivots.from > to) return { kind: 'invalid-pivots', from: pivots.from, to };
     const pair =
       typeof pivots.to === 'number'
@@ -521,15 +523,14 @@ export class CardService {
         ...admitted,
         from,
         to: toProjection,
-        target:
-          typeof pivots.to === 'number'
-            ? { kind: 'version', version: pivots.to }
-            : {
-                kind: 'current',
-                head_id: toProjection.headId!,
-                revision: toProjection.revision,
-                accepted_version: toProjection.accepted?.source_version ?? null,
-              },
+        target: current
+          ? {
+              kind: 'current',
+              head_id: current.headId,
+              revision: current.revision,
+              accepted_version: current.accepted?.source_version ?? null,
+            }
+          : { kind: 'version', version: to },
       },
     };
   }
@@ -583,25 +584,44 @@ export class CardService {
     };
     return { projection, definition: this.recordDefinitionFor(projection.card, filename) };
   }
-  openRecord(cardId: string, filename: string, seed: string | null): RecordProjection {
+  initializeRecord(
+    cardId: string,
+    filename: string,
+    render: () => string,
+  ): CurrentRecordProjection {
     const a = this.admitWrite(cardId, filename);
-    const opened = openAuthoredRecord(
+    let created = false;
+    const result = initializeRecordBaseline(
       this.projectRoot,
       a.projection.card,
       a.definition,
-      seed,
+      () => {
+        const content = render();
+        created = true;
+        return content;
+      },
       this.cardPublicationIo,
     );
-    if (seed !== null)
+    if (created)
       this.freshness.cardProjectionChanged({
         resource: 'cards',
         scope: 'record',
         card_id: cardId,
         record_name: filename,
       });
+    return result;
+  }
+  openRecord(cardId: string, filename: string): CurrentRecordProjection {
+    const a = this.admitWrite(cardId, filename);
+    const opened = openAuthoredRecord(
+      this.projectRoot,
+      a.projection.card,
+      a.definition,
+      this.cardPublicationIo,
+    );
     return opened;
   }
-  editRecord(cardId: string, filename: string, content: string): RecordProjection {
+  editRecord(cardId: string, filename: string, content: string): CurrentRecordProjection {
     const a = this.admitWrite(cardId, filename);
     return editOpenAuthoredRecord(
       this.projectRoot,
@@ -611,7 +631,7 @@ export class CardService {
       this.cardPublicationIo,
     );
   }
-  closeRecord(cardId: string, filename: string, agentName: AgentName): RecordProjection {
+  closeRecord(cardId: string, filename: string, agentName: AgentName): CurrentRecordProjection {
     const a = this.admitWrite(cardId, filename);
     const closed = closeOpenAuthoredRecord(
       this.projectRoot,
@@ -633,7 +653,7 @@ export class CardService {
     filename: string,
     content: string,
     agentName: AgentName,
-  ): RecordProjection {
+  ): CurrentRecordProjection {
     const a = this.admitWrite(cardId, filename);
     const accepted = acceptAuthoredRecord(
       this.projectRoot,
@@ -651,7 +671,7 @@ export class CardService {
     });
     return accepted;
   }
-  discardRecord(cardId: string, filename: string): RecordProjection {
+  discardRecord(cardId: string, filename: string): CurrentRecordProjection {
     const a = this.admitWrite(cardId, filename);
     return discardOpenAuthoredRecord(
       this.projectRoot,

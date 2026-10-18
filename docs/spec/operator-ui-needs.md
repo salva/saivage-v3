@@ -16,11 +16,13 @@ bounded record/history access. Operators must not infer absent requirements,
 complete-body exposure or accepted authority from a preview. The separate accepted
 bootstrap remains full; no new UI workflow is required.
 Accepted selections, effective drafts and accepted backing evidence stay distinct.
-Operators must distinguish absent records, present empty heads, unfilled workflow
-scaffolds, changed drafts and accepted work. **Unfilled scaffold — not authored or
-accepted** makes no progress, author or completeness claim; a changed draft remains
-unaccepted. Independently accepted backing remains inspectable without satisfying
-the effective scaffold's workflow gate. The same distinction survives recorded
+Operators must distinguish absent records, established empty heads, baseline0,
+draft0/target1, authored drafts for vN and accepted work. **Baseline v0 — not authored
+or accepted** makes no progress or completeness claim; positive drafts remain
+unaccepted. Accepted document version is distinct from current mutation revision;
+historical mutation revision is unavailable, not guessed from document version.
+Independently accepted backing remains inspectable without satisfying an ineligible
+effective draft's workflow gate. The same distinction survives recorded
 observations and compaction, without reconstructing history from current templates.
 Raw safe record inspection remains available. Editing stays through existing
 authority: before entry the Analyst may accept content; an actual open workflow
@@ -241,8 +243,8 @@ observed workflow position, recorded result, error/completion facts, card public
 revision, and record revisions. Overview must lead with the effective current content
 of the configured bootstrap record as its source-labeled objective, then expose every
 other declared current record in declaration order with independent loading, failure,
-freshness, and Retry states. Check custom bootstrap and arbitrary record names, unfilled
-scaffold versus Draft versus Accepted effective sources, running, blocked, stopped, and done cards: record
+freshness, and Retry states. Check custom bootstrap and arbitrary record names, Baseline v0
+versus Draft for vN versus Accepted effective sources, running, blocked, stopped, and done cards: record
 names/content are not automatically categorized as progress, a work-status narrative
 cannot substitute for a recorded outcome, revision numbers do not measure completion,
 and absent fields are not invented. Complete source content remains directly readable

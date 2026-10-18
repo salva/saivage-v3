@@ -43,7 +43,7 @@ const WorkspaceTextContentResponseSchema = z
     content: z.string(),
     redacted: z.boolean(),
     sensitivity: z.string(),
-    version: z.number().int().positive().optional(),
+    version: z.number().int().nonnegative().optional(),
     modifiedAt: z.string().nullable().optional(),
   })
   .strict();
@@ -124,7 +124,7 @@ const DebugGraphRecordSchema = z
     schema: z.string().min(1),
     bootstrap: z.boolean(),
     initialization: z
-      .object({ content: z.string(), at: z.array(z.enum(['first_required_entry', 'clean_entry'])) })
+      .object({ format_version: z.literal(1), template: z.string() })
       .strict()
       .nullable(),
   })
@@ -215,6 +215,7 @@ const DebugGraphNodeSchema = z
     child_activation_types: z.array(cardTypeSchema),
     readable_records: z.array(recordNameSchema),
     record_write_patterns: z.array(z.string().min(1)),
+    initialize_records: z.array(recordNameSchema),
     requirements: z.array(
       z
         .object({

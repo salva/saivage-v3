@@ -26,9 +26,13 @@ export const recordSelectionObservationSchema = z
     selection: z.discriminatedUnion('kind', [
       acceptedSelection,
       z
+        .object({ kind: z.literal('baseline'), version: z.literal(0), content_sha256: hash })
+        .strict(),
+      z
         .object({
           kind: z.literal('draft'),
-          unfilled: z.boolean(),
+          version: nonnegative,
+          target_version: positive,
           content_sha256: hash,
           accepted_backing: acceptedSelection.nullable(),
         })
@@ -54,8 +58,20 @@ export const recordSelectionObservationSchema = z
   .strict()
   .superRefine((value, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
-    if (value.view === 'accepted' && value.selection.kind === 'draft')
-      issue('Accepted view cannot select a draft.');
+    if (
+      value.view === 'accepted' &&
+      (value.selection.kind === 'draft' || value.selection.kind === 'baseline')
+    )
+      issue('Accepted view cannot select nonaccepted content.');
+    if (value.selection.kind === 'draft') {
+      const draft = value.selection;
+      if (
+        draft.target_version !== (draft.accepted_backing?.version ?? 0) + 1 ||
+        (draft.version !== draft.target_version &&
+          !(draft.version === 0 && draft.target_version === 1 && !draft.accepted_backing))
+      )
+        issue('Invalid draft document version or accepted backing.');
+    }
     if (
       value.selection_kind === 'historical' &&
       (value.head !== null || value.selection.kind !== 'accepted')
@@ -153,10 +169,12 @@ const publicRecordSelectionObservationSchema = recordSelectionObservationSchema.
   record_name: z.string().min(1),
   selection: z.discriminatedUnion('kind', [
     publicAcceptedSelection,
+    z.object({ kind: z.literal('baseline'), version: z.literal(0) }).strict(),
     z
       .object({
         kind: z.literal('draft'),
-        unfilled: z.boolean(),
+        version: nonnegative,
+        target_version: positive,
         accepted_backing: publicAcceptedSelection.nullable(),
       })
       .strict(),
@@ -191,12 +209,15 @@ export function publicRecordSelection(
         : value.selection.kind === 'draft'
           ? {
               kind: 'draft',
-              unfilled: value.selection.unfilled,
+              version: value.selection.version,
+              target_version: value.selection.target_version,
               accepted_backing: value.selection.accepted_backing
                 ? accepted(value.selection.accepted_backing)
                 : null,
             }
-          : { kind: value.selection.kind },
+          : value.selection.kind === 'baseline'
+            ? { kind: 'baseline', version: 0 }
+            : { kind: value.selection.kind },
     exposure: value.exposure,
   };
 }

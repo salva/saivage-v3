@@ -15,16 +15,9 @@ export function classicRecordContext(definition: CardTypesSource[string]): CardT
           ? {
               ...record,
               initialization: {
-                content:
+                format_version: 1 as const,
+                template:
                   '# Current assessment\n\nNot yet assessed. Replace this scaffold with the current brief-relative state, supporting evidence and remaining work.\n',
-                at: [
-                  'first_required_entry',
-                  ...(Object.values(definition.workflow.nodes).some(
-                    (node) => node.records?.[name]?.mode === 'clean',
-                  )
-                    ? ['clean_entry' as const]
-                    : []),
-                ],
               },
             }
           : record,
@@ -37,6 +30,7 @@ export function classicRecordContext(definition: CardTypesSource[string]): CardT
           id,
           {
             ...node,
+            initialize_records: node.records?.['status.md'] ? ['status.md'] : [],
             record_prompts: [
               {
                 record: bootstrap,

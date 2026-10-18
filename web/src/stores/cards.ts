@@ -562,13 +562,13 @@ export const useCardStore = defineStore('cards', () => {
       .then((response) => {
         if (recordOwners.get(name) !== owner || selectedCardId.value !== cardId) return;
         const effective =
-          response.record.effective_content_source === 'draft'
+          response.record.effective_content_source === 'baseline' ? response.record.baseline : response.record.effective_content_source === 'draft'
             ? response.record.draft
             : response.record.effective_content_source === 'accepted'
               ? response.record.accepted
               : null;
         const timestamp =
-          response.record.effective_content_source === 'draft'
+          response.record.effective_content_source === 'baseline' ? response.record.baseline!.created_at : response.record.effective_content_source === 'draft'
             ? response.record.draft!.updated_at
             : response.record.accepted?.committed_at;
         cardRecords.value = withKey(cardRecords.value, name, {

@@ -20,7 +20,7 @@ const TOKEN = 'isolated-record-initialization-token';
 const INITIAL = '# Assessment\nNot yet assessed. ${LITERAL}\n';
 const REPLACEMENT = '# Revised organization\nNot yet assessed.\n';
 describe('configured node-entry record initialization through production composition', () => {
-  it('rejects untouched custom scaffolds, retains a seed on restart and exports only authored assessments', async () => {
+  it('rejects baseline0, retains it on restart and exports authored document1 then document2', async () => {
     const root = mkdtempSync(join(tmpdir(), 'record-initialization-e2e-')); roots.push(root);
     let app: App | null = null; let phase = 0; let calls = 0; let failure: unknown;
     const held: { response?: ServerResponse } = {}; let analystCalls = 0;
@@ -56,7 +56,7 @@ describe('configured node-entry record initialization through production composi
         permitted_child_types: ['code'],
         records: {
           'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
-          'assessment.md': { format: 'markdown', schema: 'assessment.v1', bootstrap: false, initialization: { content: INITIAL, at: ['first_required_entry'] } },
+          'assessment.md': { format: 'markdown', schema: 'assessment.v1', bootstrap: false, initialization: { format_version: 1, template: INITIAL } },
         },
         workflow: {
           notification_recipient: 'executor',
@@ -64,6 +64,7 @@ describe('configured node-entry record initialization through production composi
           nodes: { execute: {
             agent: 'executor', prompt: { reference: 'assess', compactable: true }, correction_prompt: { reference: 'correct-execution-result', compactable: true },
             records: { 'assessment.md': { mode: 'continue', gate: 'exists' } },
+            initialize_records: ['assessment.md'],
             record_prompts: [{ record: 'assessment.md', selection: 'effective', presence: 'optional', prompt: { reference: 'changed-record-with-body', compactable: true } }],
             edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['assessment.md'] } } },
           } },
@@ -98,15 +99,14 @@ describe('configured node-entry record initialization through production composi
       await waitFor(() => calls === 2 || failure !== undefined, 'corrective operation after untouched seed');
       if (failure) throw failure;
       const initial = await getRecord();
-      expect(initial).toMatchObject({ state: 'open', revision: 1, accepted: null, draft: { content: INITIAL, unfilled: true } });
-      expect(initial.draft).not.toHaveProperty('seed_sha256');
-      expect(JSON.stringify(requests[0])).toContain('"unfilled":true'.replaceAll('"', '\\"'));
-      expect(JSON.stringify(requests[1])).toContain('unfilled scaffold');
+      expect(initial).toMatchObject({ state: 'baseline', revision: 1, accepted: null, draft: null, baseline: { version: 0, content: INITIAL } });
+      expect(JSON.stringify(requests[0])).toContain('baseline');
+      expect(JSON.stringify(requests[1])).toContain('document 0');
       expect(cards.readRecordHistory('project', 'assessment.md')).toMatchObject({ value: { catalog: { versions: [] } } });
       await app.stop(); app = null; held.response?.destroy();
 
       // A newly compiled server adopts replacement config, but continue must use stored seed provenance.
-      config.card_types.project!.records['assessment.md']!.initialization!.content = REPLACEMENT;
+      config.card_types.project!.records['assessment.md']!.initialization!.template = REPLACEMENT;
       writeProductionConfig(root, config); phase = 1; calls = 0;
       const freshProcess = spawnSync(process.execPath, [join(process.cwd(), 'node_modules/tsx/dist/cli.mjs'), '--eval', `
         import { startProductionApp } from ${JSON.stringify(pathToFileURL(join(process.cwd(), 'tests/helpers/production-composition-e2e.ts')).href)};
@@ -119,7 +119,7 @@ describe('configured node-entry record initialization through production composi
       `], { encoding: 'utf8', timeout: 15_000 });
       expect(freshProcess.error).toBeUndefined(); expect(freshProcess.status).toBe(0);
       const retainedLine = freshProcess.stdout.split('\n').find(line => line.startsWith('RETAINED_SEED='));
-      expect(JSON.parse(retainedLine!.slice('RETAINED_SEED='.length))).toMatchObject({ value: { projection: { draft: { content: INITIAL }, accepted: null } } });
+      expect(JSON.parse(retainedLine!.slice('RETAINED_SEED='.length))).toMatchObject({ value: { projection: { baseline: { version: 0, content: INITIAL }, draft: null, accepted: null } } });
       expect(calls).toBe(0);
       app = await startProductionApp(root, TOKEN);
       expect(await getRecord()).toEqual(initial);
@@ -128,19 +128,20 @@ describe('configured node-entry record initialization through production composi
       const accepted = await getRecord();
       expect(accepted).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Delivered current assessment with evidence.', writer_agent: 'executor' } });
       const acceptedVersion = accepted.accepted.source_version;
+      expect(acceptedVersion).toBe(1); expect(accepted.revision).toBeGreaterThan(1);
       await app.stop(); app = null;
 
       config.card_types.project!.workflow.nodes.execute!.records['assessment.md']!.mode = 'clean';
-      config.card_types.project!.records['assessment.md']!.initialization!.at = ['first_required_entry', 'clean_entry'];
       writeProductionConfig(root, config); phase = 2; calls = 0;
       app = await startProductionApp(root, TOKEN);
       await runUntilStopped(); expect(calls).toBe(3);
       const final = await getRecord();
       expect(final).toMatchObject({ state: 'closed', draft: null, accepted: { content: 'Reassessed current remaining work.', writer_agent: 'executor' } });
       const conversation = readConversation(root, cardAgentSessionId('executor', 'project'));
-      const seeds = conversation.physicalRows.flatMap(row => row.record_observations ?? []).filter(item => item.observed.record_name === 'assessment.md' && item.observed.selection.kind === 'draft' && item.observed.selection.unfilled);
-      expect(seeds.some(item => item.observed.selection.kind === 'draft' && item.observed.selection.accepted_backing?.version === acceptedVersion)).toBe(true);
-      expect(JSON.stringify(requests.at(-2))).toContain('unfilled scaffold');
+      const drafts = conversation.physicalRows.flatMap(row => row.record_observations ?? []).filter(item => item.observed.record_name === 'assessment.md' && item.observed.selection.kind === 'draft');
+      expect(drafts.some(item => item.observed.selection.kind === 'draft' && item.observed.selection.target_version === 2 && item.observed.selection.accepted_backing?.version === acceptedVersion)).toBe(true);
+      expect(JSON.stringify(requests.at(-2))).toContain('empty');
+      expect(final.accepted.source_version).toBe(2);
       const history = app.server.runtimeApplication.cardStore.readRecordHistory('project', 'assessment.md');
       expect(history).toMatchObject({ value: { catalog: { versions: [expect.objectContaining({ version: acceptedVersion }), expect.objectContaining({ version: final.accepted.source_version })] } } });
       if (process.env.SAIVAGE_TEST_RECORD_COMPOSITION) writeFileSync(process.env.SAIVAGE_TEST_RECORD_COMPOSITION,

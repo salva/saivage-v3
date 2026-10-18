@@ -24,7 +24,7 @@ function content(cardId = A): CardRecordContentResponse {
     accepted: { source_version: 4, source_entry_id: entryId, committed_at: time, writer_agent: 'analyst',
       card_version_seq: 1, card_history_version: 1, card_history_entry_id: entryId,
       content: 'accepted brief', content_sha256: 'a'.repeat(64), size_bytes: 14 },
-    draft: null, effective_content_source: 'accepted' } };
+    baseline: null, draft: null, effective_content_source: 'accepted' } };
 }
 function selected(version: number, cardId = A): RecordVersionContentResponse {
   const accepted = { ...content(cardId).record.accepted!, source_version: version, content: `historical brief ${version}` };
@@ -143,7 +143,7 @@ describe('CardRecordsSection', () => {
     const current = content();
     const draftTime = '2026-07-19T00:00:00Z';
     vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record,
-      revision: 5, state: 'open', draft: { unfilled: false, opened_at: time, updated_at: draftTime, content: 'unfinished draft', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
+      revision: 5, state: 'open', draft: { version: 5, target_version: 5, opened_at: time, updated_at: draftTime, content: 'unfinished draft', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
     const store = await admit();
     const { wrapper, errors } = render({ record: name, version: 1 });
     await flushPromises();
@@ -170,17 +170,16 @@ describe('CardRecordsSection', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
-  it('labels unfilled current scaffold separately from authored drafts and accepted backing', async () => {
+  it('labels current-only baseline0 without inventing accepted backing or history', async () => {
     const current = content();
     vi.mocked(getCardRecord).mockResolvedValue({ ...current, record: { ...current.record,
-      revision: 5, state: 'open', draft: { unfilled: true, opened_at: time, updated_at: time,
-        content: 'Not yet assessed.', content_sha256: 'b'.repeat(64) }, effective_content_source: 'draft' } });
-    await admit(); const { wrapper } = render({ record: name, version: 1 }); await flushPromises();
-    expect(wrapper.text()).toContain('Unfilled scaffold — not authored or accepted');
+      revision: 1, state: 'baseline', accepted: null, accepted_version_url: null, draft: null, baseline: { version: 0, created_at: time,
+        content: 'Not yet assessed.', content_sha256: 'b'.repeat(64) }, effective_content_source: 'baseline' } });
+    await admit(); const { wrapper } = render(); await flushPromises();
+    expect(wrapper.text()).toContain('Baseline v0 — not authored or accepted');
     expect(wrapper.text()).toContain('Not yet assessed.');
-    expect(wrapper.text()).toContain('Prior accepted content');
-    expect(wrapper.text()).toContain('accepted brief');
-    expect(wrapper.text()).toContain('historical brief 1');
+    expect(wrapper.text()).not.toContain('Prior accepted content');
+    expect(wrapper.text()).not.toContain('Latest accepted v0');
   });
 
   it('invalidates the old-card initial-load continuation on a card switch', async () => {
@@ -414,7 +413,7 @@ describe('CardRecordsSection', () => {
     if (outcome === 'success') current.resolve({ ...next, record: { ...next.record, head_id: '22222222-2222-4222-8222-222222222222', accepted: { ...next.record.accepted!, content: 'fresh current' } } });
     else current.reject(new Error('late current failed'));
     await refresh; await flushPromises();
-    expect(wrapper.get('.selected-record').text()).toContain('Selected v2');
+    expect(wrapper.get('.selected-record').text()).toContain('Selected accepted document v2');
     expect(wrapper.get('.selected-record').text()).toContain(selected(2).version_url);
     expect(wrapper.get('.selected-record').text()).toContain('historical brief 2');
     expect(wrapper.get('.record-diff').text()).toContain('+observed current');

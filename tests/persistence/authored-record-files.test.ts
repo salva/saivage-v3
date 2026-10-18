@@ -24,6 +24,7 @@ import {
   readAuthoredRecordVersionPair,
   inspectAuthoredRecordSelection,
   restoreAuthoredRecordSelection,
+  initializeRepairAuthoredRecord,
 } from '../../src/persistence/authored-record-files.js';
 import { readCanonicalCard } from '../../src/persistence/card-files.js';
 import {
@@ -37,6 +38,8 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { recordHeadSchema, authoredRecordVersionArtifactSchema, effectiveRecordContent } from '../../src/persistence/canonical-record-artifacts.js';
+import { observeRecordProjection } from '../../src/persistence/record-observation.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -84,11 +87,50 @@ const definition = {
 };
 
 describe('exact record heads and accepted predecessor chains', () => {
+  it('publishes baseline0, authors document1 through several revisions, then document2 without historical currentness', () => {
+    const { root, cards, card } = setup(); const render = jest.fn(() => 'starter');
+    const baseline = cards.initializeRecord(card.id, 'status.md', render);
+    expect(baseline).toMatchObject({ revision: 1, state: 'baseline', baseline: { version: 0 }, draft: null, accepted: null });
+    expect(effectiveRecordContent(baseline)).toMatchObject({ source: 'baseline', version: 0, content: 'starter' });
+    expect(observeRecordProjection({ cardId: card.id, recordName: 'status.md', projection: baseline, selectionKind: 'current', view: 'accepted', exposure: { kind: 'metadata' } })).toMatchObject({ head: { head_id: baseline.headId, revision: 1 }, selection: { kind: 'absent' } });
+    const head = JSON.parse(readFileSync(cardRecordHeadFile(root, card.id, definition), 'utf8'));
+    expect(recordHeadSchema.parse(head).format_version).toBe(3);
+    expect(() => recordHeadSchema.parse({ ...head, format_version: 2 })).toThrow();
+    expect(() => recordHeadSchema.parse({ ...head, baseline: { ...head.baseline, content: 'corrupt' } })).toThrow();
+    expect(cards.initializeRecord(card.id, 'status.md', render)).toEqual(baseline); expect(render).toHaveBeenCalledTimes(1);
+    expect(cards.openRecord(card.id, 'status.md').draft).toMatchObject({ version: 0, target_version: 1 });
+    expect(() => cards.editRecord(card.id, 'status.md', 'starter')).toThrow(/change content/);
+    for (const content of ['one', 'two', 'starter']) cards.editRecord(card.id, 'status.md', content);
+    const first = cards.closeRecord(card.id, 'status.md', 'executor');
+    expect(first).toMatchObject({ revision: 6, accepted: { source_version: 1 } });
+    cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', 'next'); cards.discardRecord(card.id, 'status.md');
+    cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', 'second');
+    const second = cards.closeRecord(card.id, 'status.md', 'executor');
+    expect(second).toMatchObject({ revision: 12, accepted: { source_version: 2 } });
+    expect(second.headId).not.toBe(first.headId);
+    const selected = cards.readRecordVersion(card.id, 'status.md', 1);
+    if (selected.kind !== 'found') throw new Error('Missing accepted1');
+    expect(selected.value.projection).toMatchObject({ revision: null, headId: null, baseline: null, draft: null, accepted: { source_version: 1, content: 'starter' } });
+    expect(observeRecordProjection({ cardId: card.id, recordName: 'status.md', projection: selected.value.projection, selectionKind: 'historical', view: 'effective', exposure: { kind: 'full_body' } })).toMatchObject({ head: null, selection: { kind: 'accepted', version: 1 } });
+    expect(() => authoredRecordVersionArtifactSchema.parse({ ...selected.value.projection.artifact, format_version: 1 })).toThrow();
+    expect(history(cards, card.id, 'status.md').map(item => item.version)).toEqual([1, 2]);
+  });
+  it('does not infer mutation revisions even for bootstrap and synthetic repair accepted1', () => {
+    const { root, cards, card } = setup();
+    const ordinary = projection(root, card.id).artifact;
+    if (ordinary.kind !== 'card-version') throw new Error('Missing ordinary card');
+    initializeRepairAuthoredRecord(root, card.id, definition, { entry_id: ordinary.entry_id, version: 1 }, 'supplied repair');
+    for (const name of ['brief.md', 'status.md']) {
+      expect(current(cards, card.id, name)).toMatchObject({ revision: 1, accepted: { source_version: 1 } });
+      const selected = cards.readRecordVersion(card.id, name, 1);
+      expect(selected).toMatchObject({ kind: 'found', value: { projection: { revision: null, headId: null, accepted: { source_version: 1 } } } });
+    }
+  });
   it.each(['replacement', 'initial'] as const)('fresh-restores exact previous accepted/draft selection in %s mode without predecessor reads', mode => {
     const { root, cards, card } = setup();
     cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
     cards.acceptRecord(card.id, 'status.md', 'second', 'analyst');
-    cards.openRecord(card.id, 'status.md', null); cards.editRecord(card.id, 'status.md', 'retained draft');
+    cards.openRecord(card.id, 'status.md'); cards.editRecord(card.id, 'status.md', 'retained draft');
     cards.editRecord(card.id, 'status.md', 'lost draft');
     const path = cardRecordHeadFile(root, card.id, definition); const prev = cardRecordPreviousHeadFile(root, card.id, definition);
     const candidateBytes = readFileSync(prev); const before = readFileSync(path); const reads: string[] = [];
@@ -105,7 +147,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     else expect(existsSync(prev)).toBe(false);
   });
   it('refuses previous record owner/definition mismatch and damaged selected accepted content without changing selectors', () => {
-    const { root, cards, card } = setup(); cards.acceptRecord(card.id, 'status.md', 'first', 'analyst'); cards.openRecord(card.id, 'status.md', null);
+    const { root, cards, card } = setup(); cards.acceptRecord(card.id, 'status.md', 'first', 'analyst'); cards.openRecord(card.id, 'status.md');
     const path = cardRecordHeadFile(root, card.id, definition); const prev = cardRecordPreviousHeadFile(root, card.id, definition);
     const before = readFileSync(path); const candidate = readFileSync(prev);
     expect(() => inspectAuthoredRecordSelection(root, card.id, {...definition, schema:'different.v1'}, candidate)).toThrow(/identity/);
@@ -122,7 +164,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     const previous = cardRecordPreviousHeadFile(root, card.id, definition);
     cards.acceptRecord(card.id, 'status.md', 'first', 'analyst');
     expect(existsSync(previous)).toBe(false);
-    for (const publish of [() => cards.openRecord(card.id, 'status.md', null), () => cards.editRecord(card.id, 'status.md', 'draft'), () => cards.discardRecord(card.id, 'status.md'), () => cards.openRecord(card.id, 'status.md', null), () => cards.editRecord(card.id, 'status.md', 'accepted'), () => cards.closeRecord(card.id, 'status.md', 'executor'), () => cards.acceptRecord(card.id, 'status.md', 'second', 'analyst')]) {
+    for (const publish of [() => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'draft'), () => cards.discardRecord(card.id, 'status.md'), () => cards.openRecord(card.id, 'status.md'), () => cards.editRecord(card.id, 'status.md', 'accepted'), () => cards.closeRecord(card.id, 'status.md', 'executor'), () => cards.acceptRecord(card.id, 'status.md', 'second', 'analyst')]) {
       const before = readFileSync(path); const inode = statSync(path).ino; const priorId = current(cards, card.id, 'status.md').headId;
       publish();
       expect(statSync(previous).ino).toBe(inode); expect(readFileSync(previous)).toEqual(before);
@@ -135,35 +177,35 @@ describe('exact record heads and accepted predecessor chains', () => {
     const {head_id: _id, ...missingId} = JSON.parse(readFileSync(path, 'utf8'));
     writeFileSync(path, JSON.stringify(missingId)); expect(() => cards.readRecordCurrent(card.id, 'status.md')).toThrow();
   });
-  function sparseFixture() {
+  function interveningRevisionsFixture() {
     const value = setup(); const { cards, card, root } = value;
     cards.acceptRecord(card.id, 'status.md', 'one', 'analyst');
-    for (const content of ['four', 'seven']) {
-      cards.openRecord(card.id, 'status.md', null); cards.discardRecord(card.id, 'status.md');
+    for (const content of ['two', 'three']) {
+      cards.openRecord(card.id, 'status.md'); cards.discardRecord(card.id, 'status.md');
       cards.acceptRecord(card.id, 'status.md', content, 'analyst');
     }
-    cards.acceptRecord(card.id, 'status.md', 'eight', 'analyst');
+    cards.acceptRecord(card.id, 'status.md', 'four', 'analyst');
     const paths = new Map(history(cards, card.id, 'status.md').map(row => [row.version, cardAcceptedRecordFile(root, card.id, row.entry_id)]));
     return { ...value, paths };
   }
   it('selects numeric accepted pairs with one bounded traversal and exact content/provenance', () => {
-    const { cards, card, paths } = sparseFixture(); const reads: string[] = [];
-    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 4, to: 8 }, { onRead: path => reads.push(path) })).toMatchObject({
-      kind: 'found', value: { from: { revision: 4, accepted: { source_version: 4, content: 'four', writer_agent: 'analyst', card_version_seq: 1 } }, to: { revision: 8, accepted: { source_version: 8, content: 'eight' } }, target: { kind: 'version', version: 8 } },
+    const { cards, card, paths } = interveningRevisionsFixture(); const reads: string[] = [];
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 2, to: 4 }, { onRead: path => reads.push(path) })).toMatchObject({
+      kind: 'found', value: { from: { revision: null, headId: null, accepted: { source_version: 2, content: 'two', writer_agent: 'analyst', card_version_seq: 1 } }, to: { revision: null, headId: null, accepted: { source_version: 4, content: 'four' } }, target: { kind: 'version', version: 4 } },
     });
-    for (const version of [4, 7, 8]) expect(reads.filter(path => path === paths.get(version))).toHaveLength(1);
+    for (const version of [2, 3, 4]) expect(reads.filter(path => path === paths.get(version))).toHaveLength(1);
     expect(reads).not.toContain(paths.get(1));
   });
   it('consumes the selected acceptance for above-head pivots without opening predecessors', () => {
-    const { root, card, paths } = sparseFixture(); const reads: string[] = [];
+    const { root, card, paths } = interveningRevisionsFixture(); const reads: string[] = [];
     expect(readAuthoredRecordVersionPair(root, card, definition, { from: 9, to: 10 }, { onRead: path => reads.push(path) })).toEqual({ from: null, to: null });
-    expect(reads.filter(path => path === paths.get(8))).toHaveLength(1);
-    for (const version of [1, 4, 7]) expect(reads).not.toContain(paths.get(version));
-    writeFileSync(paths.get(8)!, '{broken');
+    expect(reads.filter(path => path === paths.get(4))).toHaveLength(1);
+    for (const version of [1, 2, 3]) expect(reads).not.toContain(paths.get(version));
+    writeFileSync(paths.get(4)!, '{broken');
     expect(() => readAuthoredRecordVersionPair(root, card, definition, { from: 9, to: 10 })).toThrow();
   });
   it.each([
-    [4, 4, { kind: 'found', value: { from: { revision: 4 }, to: { revision: 4 } } }],
+    [4, 4, { kind: 'found', value: { from: { revision: null, headId: null }, to: { revision: null, headId: null } } }],
     [5, 8, { kind: 'version-not-found', version: 5, side: 'from' }],
     [4, 6, { kind: 'version-not-found', version: 6, side: 'to' }],
     [5, 6, { kind: 'version-not-found', version: 5, side: 'from' }],
@@ -171,23 +213,23 @@ describe('exact record heads and accepted predecessor chains', () => {
     [9, 10, { kind: 'version-not-found', version: 9, side: 'from' }],
     [4, 10, { kind: 'version-not-found', version: 10, side: 'to' }],
   ])('preserves accepted pivot semantics for %s → %s', (from, to, expected) => {
-    const { cards, card } = sparseFixture();
+    const { cards, card } = interveningRevisionsFixture();
     expect(cards.diffRecordVersions(card.id, 'status.md', { from: from as number, to: to as number })).toMatchObject(expected);
   });
-  it.each(['missing', 'malformed', 'link'] as const)('rejects a reached %s acceptance before reporting a gap', fault => {
-    const { cards, card, paths } = sparseFixture(); const path = paths.get(7)!;
+  it.each(['missing', 'malformed', 'link'] as const)('rejects a reached %s acceptance', fault => {
+    const { cards, card, paths } = interveningRevisionsFixture(); const path = paths.get(3)!;
     if (fault === 'missing') unlinkSync(path);
     else if (fault === 'malformed') writeFileSync(path, '{broken');
     else { const stored = JSON.parse(readFileSync(path, 'utf8')); stored.predecessor.version = stored.version; writeFileSync(path, JSON.stringify(stored)); }
-    expect(() => cards.diffRecordVersions(card.id, 'status.md', { from: 5, to: 6 })).toThrow();
+    expect(() => cards.diffRecordVersions(card.id, 'status.md', { from: 2, to: 4 })).toThrow();
   });
-  it('does not consume below an exact or gap stop, while preserving single-selector bounds', () => {
-    const { cards, card, paths } = sparseFixture(); writeFileSync(paths.get(1)!, '{broken');
-    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 4, to: 8 }).kind).toBe('found');
+  it('does not consume below an exact stop or above-head selection, preserving single-selector bounds', () => {
+    const { cards, card, paths } = interveningRevisionsFixture(); writeFileSync(paths.get(1)!, '{broken');
+    expect(cards.diffRecordVersions(card.id, 'status.md', { from: 2, to: 4 }).kind).toBe('found');
     expect(cards.diffRecordVersions(card.id, 'status.md', { from: 5, to: 8 })).toEqual({ kind: 'version-not-found', version: 5, side: 'from' });
-    expect(cards.readRecordVersion(card.id, 'status.md', 4).kind).toBe('found');
+    expect(cards.readRecordVersion(card.id, 'status.md', 2).kind).toBe('found');
     expect(cards.readRecordVersion(card.id, 'status.md', 5)).toEqual({ kind: 'version-not-found', version: 5 });
-    expect(() => cards.diffRecordVersions(card.id, 'status.md', { from: 2, to: 8 })).toThrow();
+    expect(() => cards.diffRecordVersions(card.id, 'status.md', { from: 1, to: 4 })).toThrow();
   });
   it('publishes bootstrap acceptance with actual initial ordinary provenance and leaves optional heads absent', () => {
     const { root, cards, card } = setup();
@@ -213,15 +255,15 @@ describe('exact record heads and accepted predecessor chains', () => {
       }),
     ).toEqual({ kind: 'unclaimed' });
   });
-  it('retains only accepted sparse versions; mutable edits count A→B→A and discard clears no accepted history', () => {
+  it('numbers accepted documents independently of A→B→A mutation revisions and discard', () => {
     const { root, cards, card } = setup();
-    expect(cards.openRecord(card.id, 'status.md', null)).toMatchObject({
+    expect(cards.openRecord(card.id, 'status.md')).toMatchObject({
       revision: 1,
       acceptedVersionUrl: null,
       state: 'open',
     });
     const openedBytes = readFileSync(cardRecordHeadFile(root, card.id, definition));
-    expect(cards.openRecord(card.id, 'status.md', null).revision).toBe(1);
+    expect(cards.openRecord(card.id, 'status.md').revision).toBe(1);
     expect(readFileSync(cardRecordHeadFile(root, card.id, definition))).toEqual(openedBytes);
     cards.editRecord(card.id, 'status.md', 'A');
     cards.editRecord(card.id, 'status.md', 'B');
@@ -232,12 +274,12 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(closed).toMatchObject({
       revision: 5,
       state: 'closed',
-      acceptedVersionUrl: `record:///status.md?card=${card.id}&v=5`,
+      acceptedVersionUrl: `record:///status.md?card=${card.id}&v=1`,
       accepted: { content: 'A' },
     });
     const first = history(cards, card.id, 'status.md')[0]!;
     const firstBytes = readFileSync(cardAcceptedRecordFile(root, card.id, first.entry_id));
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'later draft');
     cards.discardRecord(card.id, 'status.md');
     expect(current(cards, card.id, 'status.md')).toMatchObject({
@@ -248,13 +290,13 @@ describe('exact record heads and accepted predecessor chains', () => {
     });
     const next = cards.acceptRecord(card.id, 'status.md', 'accepted B', 'analyst');
     expect(next.revision).toBe(9);
-    expect(history(cards, card.id, 'status.md').map((entry) => entry.version)).toEqual([5, 9]);
+    expect(history(cards, card.id, 'status.md').map((entry) => entry.version)).toEqual([1, 2]);
     expect(history(cards, card.id, 'status.md')[1]!.predecessor).toEqual({
       entry_id: first.entry_id,
-      version: 5,
+      version: 1,
     });
     expect(readFileSync(cardAcceptedRecordFile(root, card.id, first.entry_id))).toEqual(firstBytes);
-    for (const gap of [1, 2, 3, 4, 6, 7, 8])
+    for (const gap of [3, 4, 5, 6, 7, 8])
       expect(cards.readRecordVersion(card.id, 'status.md', gap)).toEqual({
         kind: 'version-not-found',
         version: gap,
@@ -262,7 +304,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it('keeps present empty heads distinct from missing optional or generic heads', () => {
     const { root, cards, card } = setup();
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     cards.discardRecord(card.id, 'status.md');
     expect(current(cards, card.id, 'status.md')).toMatchObject({
       revision: 2,
@@ -281,7 +323,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       declared: false,
     };
     const before = readFileSync(cardHeadFile(root, card.id));
-    openAuthoredRecord(root, card, dynamic, null);
+    openAuthoredRecord(root, card, dynamic);
     expect(existsSync(cardRecordHeadFile(root, card.id, dynamic))).toBe(true);
     expect(readFileSync(cardHeadFile(root, card.id))).toEqual(before);
   });
@@ -290,7 +332,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
     const prior = history(cards, card.id, 'status.md')[0]!;
     if (mutation === 'close') {
-      cards.openRecord(card.id, 'status.md', null);
+      cards.openRecord(card.id, 'status.md');
       cards.editRecord(card.id, 'status.md', 'accepted');
     }
     const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
@@ -326,7 +368,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   });
   it('preserves crash-left draft after owner recreation and rejects explicit Analyst acceptance', () => {
     const { root, cards, card } = setup();
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'unfinished');
     const restarted = new CardService(root, TEST_WORKFLOWS);
     expect(current(restarted, card.id, 'status.md')).toMatchObject({
@@ -351,14 +393,14 @@ describe('exact record heads and accepted predecessor chains', () => {
       if (mutation === 'close') return cards.closeRecord(missing, invalid, 'executor');
       if (mutation === 'edit') return cards.editRecord(missing, invalid, '');
       if (mutation === 'discard') return cards.discardRecord(missing, invalid);
-      return cards.openRecord(missing, invalid, null);
+      return cards.openRecord(missing, invalid);
     };
     expect(write).toThrow(AuthoredRecordNotFoundError);
   });
   it.each(['accept', 'close'] as const)('rejects malformed record heads before draft/content conditions on %s', (mutation) => {
     const { root, cards, card } = setup();
     cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
-    cards.openRecord(card.id, 'status.md', null); // Open draft would otherwise reject direct acceptance.
+    cards.openRecord(card.id, 'status.md'); // Open draft would otherwise reject direct acceptance.
     const path = cardRecordHeadFile(root, card.id, definition);
     writeFileSync(path, '{broken');
     const before = readFileSync(path);
@@ -370,7 +412,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   it('rejects direct acceptance of an open draft before consuming a corrupt accepted body', () => {
     const { root, cards, card } = setup();
     const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     writeFileSync(cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id), '{broken');
     const path = cardRecordHeadFile(root, card.id, definition);
     const before = readFileSync(path);
@@ -391,9 +433,9 @@ describe('exact record heads and accepted predecessor chains', () => {
     const path = cardRecordHeadFile(root, card.id, definition);
     expect(() => cards.closeRecord(card.id, 'status.md', 'executor')).toThrow('Record is not open.');
     expect(existsSync(path)).toBe(false);
-    const opened = cards.openRecord(card.id, 'status.md', null);
+    const opened = cards.openRecord(card.id, 'status.md');
     const before = readFileSync(path);
-    expect(() => cards.closeRecord(card.id, 'status.md', 'executor')).toThrow('Record draft is empty or an unfilled scaffold; authored content is required.');
+    expect(() => cards.closeRecord(card.id, 'status.md', 'executor')).toThrow('Record draft is empty or document 0; authored content is required.');
     expect(readFileSync(path)).toEqual(before);
     expect(current(cards, card.id, 'status.md')).toEqual(opened);
     expect(history(cards, card.id, 'status.md')).toEqual([]);
@@ -401,7 +443,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   it('closes a valid draft without consuming its broken prior accepted body', () => {
     const { root, cards, card } = setup();
     const prior = cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'replacement');
     const ordinary = JSON.parse(readFileSync(cardHeadFile(root, card.id), 'utf8')).ordinary;
     const brokenPath = cardAcceptedRecordFile(root, card.id, prior.accepted!.source_entry_id);
@@ -425,7 +467,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     const observe = () => expect(cards.readRecordCurrent(card.id, 'status.md').kind).toBe('found');
     const write = (content: string) => {
       if (mutation === 'accept') return cards.acceptRecord(card.id, 'status.md', content, 'analyst');
-      cards.openRecord(card.id, 'status.md', null);
+      cards.openRecord(card.id, 'status.md');
       cards.editRecord(card.id, 'status.md', content);
       return cards.closeRecord(card.id, 'status.md', 'executor');
     };
@@ -444,13 +486,13 @@ describe('exact record heads and accepted predecessor chains', () => {
     expect(third.accepted).toMatchObject({ card_version_seq: 3, card_history: ordinary });
     expect(current(cards, card.id, 'status.md')).toEqual(third);
     expect(history(cards, card.id, 'status.md').at(-1)).toMatchObject({
-      predecessor: { entry_id: second.accepted!.source_entry_id, version: second.revision },
+      predecessor: { entry_id: second.accepted!.source_entry_id, version: second.accepted!.source_version },
     });
   });
   it.each(['accept', 'close', 'open', 'edit', 'discard'] as const)('does not reuse earlier observation to authorize %s after legitimate deletion', (mutation) => {
     const { root, cards, card } = setup();
     cards.acceptRecord(card.id, 'status.md', 'prior', 'analyst');
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'draft');
     expect(cards.readRecordCurrent(card.id, 'status.md').kind).toBe('found');
     cards.deleteSubtrees([card.id], () => true, 'analyst');
@@ -461,7 +503,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       if (mutation === 'close') return cards.closeRecord(card.id, 'status.md', 'executor');
       if (mutation === 'edit') return cards.editRecord(card.id, 'status.md', 'replacement');
       if (mutation === 'discard') return cards.discardRecord(card.id, 'status.md');
-      return cards.openRecord(card.id, 'status.md', null);
+      return cards.openRecord(card.id, 'status.md');
     };
     expect(write).toThrow(AuthoredRecordNotFoundError);
     expect(readFileSync(path)).toEqual(before);
@@ -518,7 +560,7 @@ describe('exact record heads and accepted predecessor chains', () => {
   it('tags current draft diff separately from immutable accepted selectors', () => {
     const { cards, card } = setup();
     cards.acceptRecord(card.id, 'status.md', 'A', 'analyst');
-    cards.openRecord(card.id, 'status.md', null);
+    cards.openRecord(card.id, 'status.md');
     cards.editRecord(card.id, 'status.md', 'B');
     expect(
       cards.diffRecordVersions(card.id, 'status.md', { from: 1, to: 'current' }),
@@ -639,7 +681,7 @@ describe('exact record heads and accepted predecessor chains', () => {
     );
     writeFileSync(temporaryPath, 'collision');
     const temporary = () => temp;
-    expect(() => openAuthoredRecord(root, card, definition, null, undefined, temporary)).toThrow();
+    expect(() => openAuthoredRecord(root, card, definition, undefined, temporary)).toThrow();
     expect(existsSync(path)).toBe(false);
     expect(readFileSync(temporaryPath, 'utf8')).toBe('collision');
   });
@@ -657,7 +699,7 @@ describe('exact record heads and accepted predecessor chains', () => {
       const { root, cards, card } = setup();
       cards.acceptRecord(card.id, 'status.md', 'baseline', 'analyst');
       if (mutation === 'close') {
-        cards.openRecord(card.id, 'status.md', null);
+        cards.openRecord(card.id, 'status.md');
         cards.editRecord(card.id, 'status.md', 'unfinished');
       }
       const headPath = cardRecordHeadFile(root, card.id, definition);

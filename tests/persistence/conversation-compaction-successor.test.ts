@@ -157,7 +157,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
-  it.each(['envelope', 'genesis'] as const)('strict historical consumer rejects format 9 %s beneath a current format 10 index without rewriting bytes', async part => {
+  it.each([9, 11].flatMap(version => (['envelope', 'genesis'] as const).map(part => ({ version, part }))))('strict historical consumer rejects format $version $part beneath a current format 12 index without rewriting bytes', async ({ version, part }) => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-old-history-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -166,11 +166,11 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toEqual(old.rows);
       const path = cardConversationVersionFile(root, 'project', 'planner', old.entry.filename);
       const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
-      if (part === 'envelope') envelopes[0].version = 9;
-      else envelopes[0].rows[0].format_version = 9;
+      if (part === 'envelope') envelopes[0].version = version;
+      else envelopes[0].rows[0].format_version = version;
       writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
       const before = readFileSync(path);
-      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(11);
+      expect(readCurrentConversationSegment(root, SESSION)!.index.format_version).toBe(12);
       expect(() => readHistoricalConversationSegment(root, SESSION, 1)).toThrow();
       expect(readFileSync(path)).toEqual(before);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -228,7 +228,30 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('uses strict format 10 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
+  it.each(['index', 'envelope', 'compacted-genesis'] as const)('rejects old format11 at the exact current compacted %s consumer without changing bytes', async part => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-format11-')); initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      await compactOnce(root, 'preventive', summarizer({ calls: [], summaryOf: constantSummary('summary') }), readConversation(root, SESSION));
+      const current = readCurrentConversationSegment(root, SESSION)!;
+      expect(current.genesis.kind).toBe('compacted_segment_genesis');
+      const indexPath = cardConversationVersionIndexFile(root, 'project', 'planner');
+      const segmentPath = cardConversationVersionFile(root, 'project', 'planner', current.entry.filename);
+      const path = part === 'index' ? indexPath : segmentPath;
+      if (part === 'index') writeFileSync(path, JSON.stringify({ ...current.index, format_version: 11 }) + '\n');
+      else {
+        const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
+        if (part === 'envelope') envelopes[0].version = 11;
+        else envelopes[0].rows[0].format_version = 11;
+        writeFileSync(path, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + '\n');
+      }
+      const before = readFileSync(path); const indexBefore = readFileSync(indexPath);
+      expect(() => readCurrentConversationSegment(root, SESSION)).toThrow();
+      expect(readFileSync(path)).toEqual(before); expect(readFileSync(indexPath)).toEqual(indexBefore);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('uses strict format 12 and rejects old/mixed formats and prospectively mutated protected rows and coordinates', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-protected-derivation-')); initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), protectedText('protected-source', 'EXACT SOURCE INSTRUCTION', 'workflow.rule'), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
@@ -238,10 +261,13 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(root, SESSION)!;
       if (segment.genesis.kind !== 'compacted_segment_genesis') throw new Error('expected compacted genesis');
       const history = segment.genesis.compaction;
-      expect(segment.index.format_version).toBe(11);
-      expect(segment.genesis.format_version).toBe(11);
+      expect(segment.index.format_version).toBe(12);
+      expect(segment.genesis.format_version).toBe(12);
       const envelope = JSON.parse(readFileSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename), 'utf8'));
-      expect(envelope.version).toBe(11);
+      expect(envelope.version).toBe(12);
+      expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 11 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 11 }).success).toBe(false);
+      expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 11 }, ...segment.rows] }).success).toBe(false);
       expect(conversationVersionIndexSchema.safeParse({ ...segment.index, format_version: 9 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, version: 9 }).success).toBe(false);
       expect(conversationSegmentEnvelopeSchema.safeParse({ ...envelope, rows: [{ ...segment.genesis, format_version: 9 }, ...segment.rows] }).success).toBe(false);

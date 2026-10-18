@@ -2,18 +2,20 @@ import {
   recordSelectionObservationSchema,
   type RecordSelectionObservation,
 } from '../schemas/index.js';
-import type { RecordProjection } from './authored-record-files.js';
-import { isUnfilledRecordDraft } from './canonical-record-artifacts.js';
+import type { CurrentRecordProjection, AcceptedRecordProjection } from './authored-record-files.js';
 
 /** Pure projection of the exact owning read/publication. Performs no I/O. */
-export function observeRecordProjection(args: {
-  cardId: string;
-  recordName: string;
-  projection: RecordProjection | null;
-  view: 'accepted' | 'effective';
-  selectionKind: 'current' | 'historical';
-  exposure: RecordSelectionObservation['exposure'];
-}): RecordSelectionObservation {
+export function observeRecordProjection(
+  args: {
+    cardId: string;
+    recordName: string;
+    view: 'accepted' | 'effective';
+    exposure: RecordSelectionObservation['exposure'];
+  } & (
+    | { projection: CurrentRecordProjection | null; selectionKind: 'current' }
+    | { projection: AcceptedRecordProjection; selectionKind: 'historical' }
+  ),
+): RecordSelectionObservation {
   const { projection: p } = args;
   const accepted = p?.accepted
     ? {
@@ -28,13 +30,20 @@ export function observeRecordProjection(args: {
     args.view === 'effective' && p?.draft
       ? {
           kind: 'draft' as const,
-          unfilled: isUnfilledRecordDraft(p.draft),
+          version: p.draft.version,
+          target_version: p.draft.target_version,
           content_sha256: p.draft.content_sha256,
           accepted_backing: accepted,
         }
-      : (accepted ?? {
-          kind: p && args.view === 'effective' ? ('empty' as const) : ('absent' as const),
-        });
+      : args.view === 'effective' && p?.baseline
+        ? {
+            kind: 'baseline' as const,
+            version: 0 as const,
+            content_sha256: p.baseline.content_sha256,
+          }
+        : (accepted ?? {
+            kind: p && args.view === 'effective' ? ('empty' as const) : ('absent' as const),
+          });
   return recordSelectionObservationSchema.parse({
     card_id: args.cardId,
     record_name: args.recordName,

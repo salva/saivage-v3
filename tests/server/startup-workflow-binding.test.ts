@@ -101,6 +101,7 @@ describe('startup workflow binding authority', () => {
     source.card_types.code!.workflow.nodes.execute!.agent = 'empty';
     source.card_types.code!.workflow.notification_recipient = 'empty';
     source.card_types.code!.records['status.md']!.initialization = null;
+    source.card_types.code!.workflow.nodes.execute!.initialize_records = [];
     source.card_types.code!.workflow.nodes.execute!.records = Object.fromEntries(
       Object.keys(source.card_types.code!.workflow.nodes.execute!.records).map((name) => [name, {mode:'continue',gate:'exists'}]),
     );

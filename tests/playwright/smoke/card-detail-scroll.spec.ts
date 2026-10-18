@@ -52,7 +52,7 @@ test('desktop card records facet keeps all content reachable inside the bounded 
             size_bytes: longBrief.length,
           },
           draft: null,
-          effective_content_source: 'accepted',
+          baseline: null, effective_content_source: 'accepted',
         },
       })),
     });

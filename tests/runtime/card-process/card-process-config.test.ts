@@ -20,6 +20,14 @@ function compiledDeclaration(value:{reference:string;compactable?:boolean;compac
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 describe('named-agent card-type workflow compilation',()=>{
+  it('compiles initializer source fields into an independently rendered entry-context template', () => {
+    const value=source(); const template='{{cardType}}/{{cardId}}/{{cardTitle}}/{{nodeId}}/{{recordName}} ${LITERAL}';
+    value.card_types.project!.records['status.md']!.initialization={format_version:1,template};
+    const initialized=compileProjectWorkflows(value).cardTypes.get('project')!.records.get('status.md')!.initialization!;
+    expect({format_version:initialized.format_version,template:initialized.template}).toEqual(value.card_types.project!.records['status.md']!.initialization);
+    expect(Object.isFrozen(initialized.compiled)).toBe(true);
+    expect(renderCompiledPrompt({kind:'record-initializer',cardType:'project'},'status.md',initialized.compiled,{cardType:'project',cardId:'project',cardTitle:'Literal {{cardId}}',nodeId:'plan',recordName:'status.md'})).toBe('project/project/Literal {{cardId}}/plan/status.md ${LITERAL}');
+  });
   it('requires recipient-first STOPPED across classic, typed architecture and custom child-bearing workflows without enforcing dispatch tools',()=>{
     for (const profile of ['classic','classic-typed','paad-typed'] as const) {
       const config=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate(profile).config));
@@ -132,7 +140,7 @@ describe('named-agent card-type workflow compilation',()=>{
       const workflow=compiled.cardTypes.get(cardType as never)!;
       expect(workflow.notificationRecipient).toBe(expectedCardType.workflow.notification_recipient);
       expect([...workflow.permittedChildTypes]).toEqual(expectedCardType.permitted_child_types);
-      expect([...workflow.records.values()].map(({name,format,schema,bootstrap,initialization})=>({name,format,schema,bootstrap,initialization}))).toEqual(Object.entries(expectedCardType.records).map(([name,record])=>({name,...record,initialization:record.initialization??null})));
+      expect([...workflow.records.values()].map(({name,format,schema,bootstrap,initialization})=>({name,format,schema,bootstrap,initialization:initialization?{format_version:initialization.format_version,template:initialization.template}:null}))).toEqual(Object.entries(expectedCardType.records).map(([name,record])=>({name,...record,initialization:record.initialization??null})));
       for(const [entry,expectedEntry] of Object.entries(expectedCardType.workflow.entries)){
         const route=workflow.states.get(`entry:${entry}`)!.on.get('entry:route')!;
         expect(route).toMatchObject({targetStateId:`node:${expectedEntry.node}`,reenter:false,semantic:{kind:'entry-route',prompt:compiledDeclaration(expectedEntry.prompt)}});
@@ -613,6 +621,7 @@ describe('named-agent card-type workflow compilation',()=>{
     for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
       const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),tools:value.agents.executor!.tools.filter((tool)=>tool!=='write'&&tool!=='edit'),record_writes:['notes.md']};const execute=value.card_types.code!.workflow.nodes.execute!;execute.agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges))if('terminal'in edge.target)edge.target.export_records=['notes.md'];
       value.card_types.code!.records['status.md']!.initialization=null;
+      execute.initialize_records=[];
       if(needsWrite)expect(()=>compileProjectWorkflows(value)).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value)).not.toThrow();
       if(needsWrite){value.agents.matrix!.tools.push('write');const node=compileProjectWorkflows(value).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
     }
@@ -623,6 +632,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(()=>compileProjectWorkflows(value)).not.toThrow();
     delete value.card_types.architecture!.records['status.md'];
     value.card_types.architecture!.workflow.nodes.execute!.record_prompts = [];
+    value.card_types.architecture!.workflow.nodes.execute!.initialize_records = [];
     expect(()=>compileProjectWorkflows(value)).toThrow(/descendant_context record 'status.md'.*architecture/);
   });
 

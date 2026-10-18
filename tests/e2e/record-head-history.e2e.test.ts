@@ -111,15 +111,20 @@ describe('new-format record publication, current/history API and restart', () =>
       initializeProject(root);
       app = await startProductionApp(root, TOKEN);
       const cards = app.server.runtimeApplication.cardStore;
-      cards.acceptRecord('project', 'status.md', 'accepted baseline', 'analyst');
-      cards.openRecord('project', 'status.md', null);
+      cards.initializeRecord('project', 'status.md', () => 'non-authored template');
+      cards.openRecord('project', 'status.md');
+      for (const content of ['first edit', 'second edit', 'accepted baseline']) cards.editRecord('project', 'status.md', content);
+      const firstAccepted = cards.closeRecord('project', 'status.md', 'executor');
+      expect(firstAccepted.accepted!.source_version).toBe(1);
+      expect(firstAccepted.revision).toBe(6);
+      cards.openRecord('project', 'status.md');
       cards.editRecord('project', 'status.md', 'unfinished work');
       const before = await get('/api/cards/project/records/status.md');
       expect(before).toMatchObject({
         status: 200,
         body: {
           record: {
-            revision: 3,
+            revision: 8,
             state: 'open',
             current_url: 'record:///status.md?card=project',
             accepted_version_url: 'record:///status.md?card=project&v=1',
@@ -146,7 +151,7 @@ describe('new-format record publication, current/history API and restart', () =>
       ).toMatchObject({
         status: 200,
         body: {
-          to: { kind: 'current', revision: 3, accepted_version: 1 },
+          to: { kind: 'current', revision: 8, accepted_version: 1 },
           hunks: [{ lines: ['-accepted baseline', '+unfinished work'] }],
         },
       });
@@ -171,17 +176,17 @@ describe('new-format record publication, current/history API and restart', () =>
         status: 200,
         body: {
           record: {
-            revision: 5,
+            revision: 10,
             state: 'closed',
             draft: null,
-            accepted_version_url: 'record:///status.md?card=project&v=5',
+            accepted_version_url: 'record:///status.md?card=project&v=2',
             accepted: { content: 'finished work', writer_agent: 'executor' },
           },
         },
       });
       expect(await get('/api/cards/project/records/status.md/history')).toMatchObject({
         status: 200,
-        body: { total: 2, versions: [{ version: 1 }, { version: 5 }] },
+        body: { total: 2, versions: [{ version: 1 }, { version: 2 }] },
       });
       expect(await get('/api/cards/project/records/status.md/versions/1')).toMatchObject({
         status: 200,
@@ -190,15 +195,21 @@ describe('new-format record publication, current/history API and restart', () =>
           artifact: { accepted: { content: 'accepted baseline' } },
         },
       });
+      const historical = (await get('/api/cards/project/records/status.md/versions/1')).body;
+      expect(historical).not.toHaveProperty('revision');
+      expect(historical.artifact).not.toHaveProperty('revision');
+      expect(historical.artifact.accepted).not.toHaveProperty('revision');
+      const currentSelection = restartedCards.readRecordVersion('project', 'status.md', 1);
+      expect(currentSelection).toMatchObject({ kind: 'found', value: { projection: { revision: null, headId: null } } });
       expect(await get('/api/cards/project/records/status.md/versions/3')).toMatchObject({
         status: 404,
         body: { version: 3 },
       });
-      expect(await get('/api/cards/project/records/status.md/diff?from=1&to=5')).toMatchObject({
+      expect(await get('/api/cards/project/records/status.md/diff?from=1&to=2')).toMatchObject({
         status: 200,
-        body: { to: { kind: 'version', version: 5 }, hunks: [{ lines: ['-accepted baseline', '+finished work'] }] },
+        body: { to: { kind: 'version', version: 2 }, hunks: [{ lines: ['-accepted baseline', '+finished work'] }] },
       });
-      for (const [from, to, missing] of [[2, 5, 2], [1, 3, 3], [2, 3, 2]]) {
+      for (const [from, to, missing] of [[3, 5, 3], [1, 3, 3], [3, 4, 3]]) {
         expect(await get(`/api/cards/project/records/status.md/diff?from=${from}&to=${to}`)).toMatchObject({
           status: 404, body: { error: 'historical_version_not_found', version: missing },
         });

@@ -34,7 +34,7 @@ import { cardHeadFile } from '../../src/persistence/layout.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK_HANDOFF =
-  'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\n';
+  'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=1\n\n';
 const FEEDBACK_PROMPT = TEST_WORKFLOWS.cardTypes
   .get('project')!
   .processPrompts.get('review-to-plan' as never)!.text;
@@ -220,7 +220,7 @@ describe('reviewer rework completion E2E', () => {
             success: false, error: 'Review context is stale: reviewed subtree or included records changed during review.',
           });
           expect(discard).toHaveBeenCalledWith('project', 'review.md');
-          expect(reopen).toHaveBeenCalledWith('project', 'review.md', null);
+          expect(reopen).toHaveBeenCalledWith('project', 'review.md');
           expect(discard.mock.invocationCallOrder[0]).toBeLessThan(reopen.mock.invocationCallOrder[0]!);
           expect(cards.readRecordCurrent('project', 'review.md')).toMatchObject({
             kind: 'found', value: { projection: { state: 'open', accepted: null, draft: { content: '' } } },
@@ -549,26 +549,26 @@ describe('reviewer rework completion E2E', () => {
         (row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK_PROMPT,
       ),
     ).toHaveLength(1);
-    expect(cards.readRecordVersion('project', 'status.md', 6)).toMatchObject({
+    expect(cards.readRecordVersion('project', 'status.md', 2)).toMatchObject({
       kind: 'found',
       value: { projection: { artifact: { accepted: { content: REVISED_EVIDENCE } } } },
     });
-    expect(cards.readRecordVersion('project', 'review.md', 2)).toEqual({
+    expect(cards.readRecordVersion('project', 'review.md', 6)).toEqual({
       kind: 'version-not-found',
-      version: 2,
+      version: 6,
     });
-    expect(cards.readRecordVersion('project', 'review.md', 3)).toMatchObject({
+    expect(cards.readRecordVersion('project', 'review.md', 1)).toMatchObject({
       kind: 'found',
       value: {
         projection: {
-          versionUrl: 'record:///review.md?card=project&v=3',
+          versionUrl: 'record:///review.md?card=project&v=1',
           artifact: {
             accepted: { content: 'Rework required: add explicit remediation evidence.' },
           },
         },
       },
     });
-    expect(cards.readRecordVersion('project', 'review.md', 6)).toMatchObject({
+    expect(cards.readRecordVersion('project', 'review.md', 2)).toMatchObject({
       kind: 'found',
       value: {
         projection: { artifact: { accepted: { content: 'Approved after concrete remediation.' } } },
@@ -950,14 +950,14 @@ describe('reviewer rework completion E2E', () => {
         }),
       ]),
     );
-    expect(goalReviewContext).toContain(`record:///review.md?card=${goal.id}&v=3`);
-    expect(cards.readRecordVersion(goal.id, 'review.md', 3)).toMatchObject({
+    expect(goalReviewContext).toContain(`record:///review.md?card=${goal.id}&v=1`);
+    expect(cards.readRecordVersion(goal.id, 'review.md', 1)).toMatchObject({
       kind: 'found',
       value: {
         projection: { artifact: { accepted: { content: firstReview, writer_agent: 'reviewer' } } },
       },
     });
-    expect(cards.readRecordVersion(goal.id, 'review.md', 6)).toMatchObject({
+    expect(cards.readRecordVersion(goal.id, 'review.md', 2)).toMatchObject({
       kind: 'found',
       value: {
         projection: {

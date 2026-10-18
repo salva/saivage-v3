@@ -23,6 +23,51 @@ baseline/change entries with implementation, recording evidence and honest unkno
 
 ## Current source baseline
 
+### Record document 0 and selected node templates (2026-10-18)
+
+Exact implementation parent: `10463cd83369b1eda687525c6522492836f133c0`.
+This source changes record-head `format_version` **2→3**, including previous
+slots: current-only baseline0, explicit draft document/target versions and removal
+of seed fingerprints. Immutable accepted-record artifacts advance **1→2**:
+consecutive document numbering is independent of mutation revisions; historical
+projection has no known head identity or publication revision. No retained file
+is renumbered by the product. Bootstrap/repair accepted1 attribution stays factual.
+
+The single conversation family advances index/genesis `format_version` and
+segment-envelope `version` **11→12** together. Baseline and explicit draft
+version/target observations replace `unfilled`, including nested tool results,
+compacted latest-current facts, public projections and model composition.
+Historical tool/VFS selections expose null mutation revision/head, never a version
+relabelled as revision. Current observations retain exact head UUID/revision.
+
+Formerly unversioned initialization `{content,at}` is replaced with explicit
+owning input `initialization:{format_version:1,template}` and node
+`initialize_records`. Macro/include syntax is compiled, not preserved literally;
+`${NAME}` remains data. Already established heads suppress rendering entirely.
+Explicit clean remains separate and does not rerender retained text.
+
+Provider/app-log shared `version:1,type:rows` is **unchanged**. The three OpenAI
+transport adapters emit transport metadata, `llm-provider-attempt.ts` adds endpoint
+and method, and publication/retained/public readers use the unchanged strict
+transport-specific schemas in `agents/provider-exchange-outbound.ts` via
+`provider-exchange-projection.ts` and `persistence/provider-exchange-log.ts`.
+Record facts are instead composed from conversation observations through
+`publicRecordSelection`; their change belongs to conversation12, not provider
+evidence metadata. This is a strict nested-contract trace, not an opacity claim.
+Card families and other durable owners have no intended change.
+
+These are fresh bumps, not an unreleased-cutover exception. Source applicability
+is the parent above; dated workspace evidence of JSQLite2 conversation10 does not
+certify current installations or target deployment. Old/mixed state and old
+initialization input block strictly. Source completion authorizes no adoption.
+Later adoption requires a separately consented reset or explicitly requested
+external offline migration to a pinned final matching release, complete preserved
+stopped backup and strict complete linked/indexed-history candidate validation.
+Never infer template origin from equal text or invent historical authorship,
+acceptance or observations. No converter, dual reader, backfill, implicit reset
+or binary-only downgrade is introduced; GitHub #4 creation-time support remains
+residual and AR09 remains parked.
+
 ### Explicit selected MCP restart — no durable impact (2026-10-18)
 
 Exact implementation parent: `1adefa5e7b8a974ea58d649b89c39e5a39d27030`.
@@ -829,10 +874,11 @@ changes to that historical tree.
 | Card current head | Card namespace `card-head.json`; `persistence/canonical-card-artifacts.ts`, `card-files.ts` | `format_version:1`, `kind:card-head`; required `head_id`, ordinary selection and ordered current-only pending mailbox UUIDs. |
 | Immutable card history | `card-history/<UUID>.json`; same schema/publication owners | `format_version:1`, `card-version` / `card-tombstone`; predecessor-linked ordinary/final payload, sparse ordinary revisions, no historical queue. |
 | Mailbox documents | `mailbox/<UUID>.json`; same owners | `format_version:1`, `kind:card-message`; exact message identity selected only by current head, not a queue log. |
-| Record head | `records/record-<stem>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:2`, `kind:record-head`; required head identity, sole current draft with required nullable `seed_sha256`, latest accepted reference. Unfilled effective drafts are not eligible authored work. Previous slot shares head2. |
-| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:1`, `kind:accepted-record`; unchanged accepted body/snapshot, predecessor and ordinary card provenance. |
-| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:11`; exact catalog/current selection, predecessor source/cutoff and explicit continuation, distinct from segment ordinal. Coverage permits declared structural omission as well as ordinary semantic refine. Protected messages preserve positive workflow-prompt provenance; required facts retain latest typed current record observations, including draft `unfilled` and excerpt exposure, independently. |
-| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:11`, `type:conversation-segment`; strict activation instruction evidence, typed owning record observations including draft `unfilled`, excerpt exposure and actual encoded/redacted oversized record-prompt display alongside strict message/tool-result/private-context semantics. Optional nonempty successful-result `content` selects ordered text/image blocks; each typed image descriptor selects a raw PNG governed by this conversation contract, with no independent image envelope/catalog version. |
+| Record head | `records/record-<stem>.json`; `persistence/canonical-record-artifacts.ts`, `authored-record-files.ts` | `format_version:3`, `kind:record-head`; current head UUID/mutation revision, nullable current-only baseline0, draft document/target versions and latest accepted reference. Baseline0/draft0 and empty drafts are ineligible. Previous slot shares head3. |
+| Accepted record history | `records/accepted/<UUID>.json`; same owners | `format_version:2`, `kind:accepted-record`; consecutive document versions, immutable body/attribution and ordinary card provenance, exact predecessor. Historical projection has null head/revision. |
+| Record initialization input | Owning card-type YAML declaration; `schemas/saivage-config.ts`, workflow compiler | `initialization.format_version:1`, `template` plus explicit node `initialize_records`; replaces formerly unversioned content/triggers, without old-input reader. |
+| Conversation index and ordinary/compacted genesis | Session `index.json`, selected `versions/<ordinal>-<UUID>.jsonl`; `persistence/canonical-conversation-artifacts.ts`, `conversation-file.ts` | `format_version:12`; exact catalog/current selection, source/cutoff/continuation and latest current record facts with baseline0 and draft version/target/backing; historical selections carry no current head. Existing protected prompts, excerpts and structural omission retained. |
+| Conversation segment envelope / selected images | Same session versions and `images/<UUID>.png`; above owners, `contracts/{tool-result,image,view-image,conversation-validation}.ts`, `persistence/conversation-image.ts`, `layout.ts` | `version:12`, `type:conversation-segment`; baseline/draft/current/historical observation meanings, nested tool results and strict activation/message/private-context semantics. Ordered text/image successful-result blocks select raw PNGs under this owning conversation contract, with no independent image envelope/catalog version. |
 | App log and session provider evidence | `.saivage/logs/app.jsonl`, session `provider-exchange.jsonl`; `contracts/{app-log,provider-exchange-log}.ts`, `persistence/{app-log,provider-exchange-log,growing-file}.ts` | Both use the **shared** `version:1`, `type:rows` envelope, with distinct strict row schemas and owners; these are not independently numbered envelopes. |
 | Lifecycle lock | `.saivage/locks/runtime.lock`; `runtime/lock.ts` | `format_version:1`; separate lifecycle-exclusion boundary, not generated-root migration state. |
 

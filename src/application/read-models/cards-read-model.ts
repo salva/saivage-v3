@@ -1,5 +1,4 @@
 import { basename } from 'node:path';
-import { isUnfilledRecordDraft } from '../../persistence/index.js';
 import type { CardService } from '../../cards/store-api.js';
 import {
   positiveSafeIntegerSchema,
@@ -428,18 +427,23 @@ function projectRecord(projection: RecordProjection) {
     current_url: projection.currentUrl,
     accepted_version_url: projection.acceptedVersionUrl,
     state: projection.state,
+    baseline: projection.baseline
+      ? { ...projection.baseline, content: redactTextForOutbound(projection.baseline.content) }
+      : null,
     accepted: projection.accepted ? projectAccepted(projection.accepted) : null,
     draft: projection.draft
       ? {
           opened_at: projection.draft.opened_at,
           updated_at: projection.draft.updated_at,
           content_sha256: projection.draft.content_sha256,
-          unfilled: isUnfilledRecordDraft(projection.draft),
+          version: projection.draft.version,
+          target_version: projection.draft.target_version,
           content: redactTextForOutbound(projection.draft.content),
         }
       : null,
-    effective_content_source:
-      projection.state === 'open'
+    effective_content_source: projection.baseline
+      ? ('baseline' as const)
+      : projection.state === 'open'
         ? ('draft' as const)
         : projection.accepted
           ? ('accepted' as const)
@@ -452,7 +456,9 @@ function recordView(
 ): string | null {
   if (view === 'accepted') return artifact.accepted?.content ?? null;
   if (view === 'draft') return artifact.draft?.content ?? null;
-  return artifact.state === 'open'
-    ? (artifact.draft?.content ?? null)
-    : (artifact.accepted?.content ?? null);
+  return artifact.baseline
+    ? artifact.baseline.content
+    : artifact.state === 'open'
+      ? (artifact.draft?.content ?? null)
+      : (artifact.accepted?.content ?? null);
 }

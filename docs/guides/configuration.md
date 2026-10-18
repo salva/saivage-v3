@@ -218,20 +218,21 @@ compiled in the control room's [System > Installed workflows](./operating.md#sys
 
 ### Optional record scaffolds
 
-For optional literal record scaffolds, configure non-bootstrap
-`records.<name>.initialization:{content,at}` in the complete owning card type.
-`at` is a nonempty duplicate-free subset of `first_required_entry | clean_entry`;
-content must contain non-whitespace text. Omission/null disables future seeding.
-First-required needs a node requirement, clean needs a clean requirement, and
-seed-capable requirements need matching `record_writes` and direct `write`.
-No map overlay, file-reference template or prompt interpolation is added.
-Continue preserves every present head, including empty-after-discard; clean opens
-a fresh configured cycle while preserving accepted backing. Untouched scaffolds
-are not authored or accepted and cannot satisfy gates. Configuration changes need
-new-process compilation, never rewrite ongoing drafts and are not installed by
-existing-config init. Creation-time initialization remains deferred. See the
+Configure non-bootstrap `records.<name>.initialization:{format_version:1,template}`
+and an ordered node `initialize_records` list in the complete owning card type.
+Selection is independent of completion requirements and requires a declared
+initializer, matching `record_writes` and direct `write`. Old content/triggers
+are rejected, never upgraded. The narrow host supports cardType/cardId/cardTitle/
+nodeId/recordName and direct fragment includes; `${NAME}` remains literal.
+Only absent heads render once into nonauthored baseline0. Every existing head,
+including empty-after-discard, suppresses rendering. Explicit clean remains separate:
+open from baseline0 or otherwise empty for the next document version, preserving
+accepted backing without rerendering. Baseline0/draft0 and empty drafts cannot
+satisfy authored gates. Configuration changes need new-process compilation, never
+rewrite retained text and are not installed by existing-config init.
+Creation-time initialization remains deferred. See the
 [example and incompatible adoption boundary](../runbook/index.md#optional-record-scaffolds)
-before changing an instance; head2/conversation11 adoption is not authorized by
+before changing an instance; head3/accepted2/conversation12 adoption is not authorized by
 editing configuration or installing source.
 
 ## Compaction

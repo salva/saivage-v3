@@ -59,13 +59,13 @@ const railSessions = [
   }),
 ] as const;
 
-function acceptedRecord(name: string, content: string, version: number) {
+function acceptedRecord(name: string, content: string, headRevision: number, documentVersion: number) {
   return parseOperatorResponse('cards.records.get', 200, {
     card_id: smokeCardId,
     record: {
-      head_id:'11111111-1111-4111-8111-111111111111', name, revision: version, current_url: `record:///${name}?card=${smokeCardId}`, accepted_version_url: `record:///${name}?card=${smokeCardId}&v=${version}`, state: 'closed',
-      accepted: { source_version: version, source_entry_id: '55555555-5555-4555-8555-555555555555', committed_at: now, writer_agent: 'executor', card_version_seq: 8, card_history_version: 8, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
-      draft: null, effective_content_source: 'accepted',
+      head_id:'11111111-1111-4111-8111-111111111111', name, revision: headRevision, current_url: `record:///${name}?card=${smokeCardId}`, accepted_version_url: `record:///${name}?card=${smokeCardId}&v=${documentVersion}`, state: 'closed',
+      accepted: { source_version: documentVersion, source_entry_id: '55555555-5555-4555-8555-555555555555', committed_at: now, writer_agent: 'executor', card_version_seq: 8, card_history_version: 8, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
+      baseline: null, draft: null, effective_content_source: 'accepted',
     },
   });
 }
@@ -76,7 +76,7 @@ function objectiveRecord() {
     record: {
       head_id:'11111111-1111-4111-8111-111111111111', name: objectiveName, revision: 5, current_url: `record:///${objectiveName}?card=${smokeCardId}`, accepted_version_url: `record:///${objectiveName}?card=${smokeCardId}&v=2`, state: 'open',
       accepted: { source_version: 2, source_entry_id: '66666666-6666-4666-8666-666666666666', committed_at: now, writer_agent: 'analyst', card_version_seq: 4, card_history_version: 4, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective.', content_sha256: 'b'.repeat(64), size_bytes: 27 },
-      draft: { unfilled: false, opened_at: now, updated_at: now, content: objective, content_sha256: 'c'.repeat(64) },
+      baseline: null, draft: { version: 3, target_version: 3, opened_at: now, updated_at: now, content: objective, content_sha256: 'c'.repeat(64) },
       effective_content_source: 'draft',
     },
   });
@@ -87,6 +87,8 @@ function largeGraph() {
     const ordinal = String(index + 1).padStart(2, '0');
     return {
       node_id: `node-${ordinal}`,
+      initialize_records: [],
+      record_prompts: [],
       agent_name: `custom-worker-${ordinal}`,
       session: { scope: 'card', identity_pattern: `agent:custom-worker-${ordinal}:<card-id>` },
       prompt: { source: 'bundled-shared', declaration: { reference: 'executor', compactable: true }, process: { reference: 'execute', compactable: true }, correction: { reference: 'correct-execute-result', compactable: true } },
@@ -188,7 +190,9 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
           return json(route, parseOperatorResponse('cards.records.get', 500, { error: 'InternalServerError', message: 'Internal server error' }), 500);
         }
       }
-      return json(route, name === objectiveName ? objectiveRecord() : acceptedRecord(name, contents[name]!, descriptors.findIndex((descriptor) => descriptor.name === name) + 1));
+      if (name === objectiveName) return json(route, objectiveRecord());
+      const current = descriptors.find(descriptor => descriptor.name === name)!.current;
+      return json(route, acceptedRecord(name, contents[name]!, current.revision, current.accepted_source_version));
     }
     if (path === `/api/cards/${smokeCardId}/agent-sessions`) return json(route, parseOperatorResponse('agents.cardSessions', 200, { card_id: smokeCardId, sessions: railSessions }));
     if (path === `/api/agents/${encodeURIComponent(sessionId)}`) return json(route, parseOperatorResponse('agents.detail', 200, { session: { id: sessionId, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null } }));
@@ -198,7 +202,7 @@ async function installClarityFixture(page: Page): Promise<Fixture> {
     }
     if (path === `/api/workflows/${graph.card_type}/presentation`) return json(route, parseOperatorResponse('workflows.presentation', 200, {
       card_type: graph.card_type,
-      nodes: graph.nodes.map(({ node_id, agent_name }) => ({ node_id, agent_name })),
+      nodes: graph.nodes.map(({ node_id, agent_name, initialize_records }) => ({ node_id, agent_name, initialize_records })),
       entries: graph.entries.map(({ entry, node_id }) => ({ entry, node_id })),
       edges: graph.edges.map(({ source_node_id, outcome, condition, target }) => ({ source_node_id, outcome, condition, target })),
       terminals: graph.terminals,
@@ -238,7 +242,7 @@ test('work-first Overview uses custom current sources without request fan-out at
   await expect(overview.getByRole('heading', { name: 'Objective' })).toBeVisible();
   const objectivePreview = overview.locator(`[data-record-name="${objectiveName}"]`);
   await expect(objectivePreview).toContainText(`From ${objectiveName}`);
-  await expect(objectivePreview.getByTestId('record-source-state')).toHaveText('Draft');
+  await expect(objectivePreview.getByTestId('record-source-state')).toHaveText('Draft for v3');
   await expect(objectivePreview.getByTestId('record-excerpt')).toContainText('Make the operator overview');
   await expect(overview.getByTestId('overview-participants')).toContainText('Active — working now');
   await expect(overview.getByTestId('overview-result-line')).toContainText('The source refresh failed');
@@ -252,7 +256,7 @@ test('work-first Overview uses custom current sources without request fan-out at
   const recordDetails = objectivePreview.locator('summary', { hasText: 'Record details' });
   await openDetailsByKeyboard(page, recordDetails);
   await expect(objectivePreview).toContainText('Head revision5');
-  await expect(objectivePreview).toContainText('Accepted source revision2');
+  await expect(objectivePreview).toContainText('Accepted document version2');
   await openDetailsByKeyboard(page, recordDetails);
   await openDetailsByKeyboard(page, objectivePreview.locator('summary', { hasText: 'Full content' }));
 

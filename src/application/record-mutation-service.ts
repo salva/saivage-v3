@@ -15,7 +15,7 @@ import {
 import {
   effectiveRecordContent,
   isEmptyRecordContent,
-  type RecordProjection,
+  type CurrentRecordProjection,
 } from '../persistence/index.js';
 import type { AgentName } from '../schemas/index.js';
 import { observeRecordProjection } from '../persistence/index.js';
@@ -36,7 +36,10 @@ type RecordMutationRequest = RecordMutationAdmissionRequest & {
     | { operation: 'edit'; oldString: string; newString: string; replaceAll?: boolean }
   );
 
-type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordProjection | null };
+type Admission = {
+  parsed: ReturnType<typeof parseRecordUrl>;
+  current: CurrentRecordProjection | null;
+};
 
 function failure(value: RecordMutationFailure): RecordMutationFailure {
   return RecordMutationFailureSchema.parse(value);
@@ -247,11 +250,11 @@ export function mutateRecord(
         operation: request.operation,
       },
     });
-  let result: RecordProjection;
+  let result: CurrentRecordProjection;
   if (request.surface === 'analyst')
     result = store.acceptRecord(parsed.cardId, parsed.name, nextContent, request.agentName);
   else {
-    if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name, null);
+    if (current?.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
     result = store.editRecord(parsed.cardId, parsed.name, nextContent);
   }
   const success: RecordMutationSuccess = {
@@ -270,8 +273,10 @@ export function mutateRecord(
       card_id: parsed.cardId,
       name: parsed.name,
       state: request.surface === 'analyst' ? 'closed' : 'open',
+      version: result.draft ? result.draft.version : result.accepted!.source_version,
+      target_version: result.draft?.target_version ?? null,
       revision: result.revision,
-      head_id: result.headId!,
+      head_id: result.headId,
       current_url: result.currentUrl,
       accepted_version_url: result.acceptedVersionUrl,
       bytes: Buffer.byteLength(nextContent),

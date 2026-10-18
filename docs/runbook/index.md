@@ -73,12 +73,14 @@ templates, private diagnostics or resemblance cannot fabricate text/provenance.
 No runtime converter exists. Binary-only downgrade after new-format publication is
 unsupported; rollback needs a separately authorized matching complete-state/release
 decision. That excerpt cutover left unrelated durable families unchanged; the later
-head2/conversation11 contract below is separately incompatible.
+head3/accepted2/conversation12 contract below is separately incompatible.
 
 ## Optional record scaffolds
 
+::: v-pre
+
 In the complete owning card-type definition in `.saivage/saivage.yaml`, an optional
-non-bootstrap record declaration can contain this literal initializer. This is a
+non-bootstrap record declaration can contain this template initializer. This is a
 declaration excerpt, **not** a complete config or a per-field overlay:
 
 ```yaml
@@ -88,63 +90,69 @@ records:
     schema: status-summary.v1
     bootstrap: false
     initialization:
-      content: |
+      format_version: 1
+      template: |
         # Current assessment
 
-        Not yet assessed.
-      at: [first_required_entry, clean_entry]
+        {{cardTitle}} — not yet assessed at {{nodeId}}.
+workflow:
+  nodes:
+    plan:
+      # Other required node fields omitted in this excerpt.
+      initialize_records: [status.md]
 ```
 
 Supply the normal complete `card_types` map (including `project` and its workflow),
 or omit that whole map to select bundled classic definitions. There is no deep
-merge. Each type can choose different content/triggers or no initializer. Replace
-the owning declaration's content/triggers, omit `initialization`, or set it to null
-to disable **future** seeding; do not edit generated heads. At least one actual
-requirement must use the record for first-required; clean needs a clean requirement.
-Every requirement that can seed needs matching agent `record_writes` and direct
-`write`; `edit` alone is insufficient. Bootstrap initialization, unknown keys/triggers,
-duplicate/empty trigger sets and whitespace-only content reject compilation.
+merge. Each type chooses its template and each node its ordered selections,
+independently of completion requirements. Every selection needs a declared
+non-bootstrap initializer, matching agent `record_writes` and direct `write`;
+`edit` alone is insufficient. Duplicate/unknown selections, old `{content,at}`
+input, unknown keys, bootstrap initialization and empty templates fail strictly.
+Omission/null disables future initialization, not retained text; do not edit heads.
 
-Content is exactly the parsed YAML scalar, including its YAML newline handling,
-not a file path or prompt reference. `${NAME}`, prompt placeholders and include-like
-text remain literal only in `card_types.<type>.records.<name>.initialization.content`;
-other environment interpolation is unchanged. Compilation freezes the selected
+Templates support only `{{cardType}}`, `{{cardId}}`, `{{cardTitle}}`, `{{nodeId}}`,
+`{{recordName}}` and direct `{{> fragment-id}}` includes from normal card/shared
+fragment lookup. Nested includes, unavailable macros, arbitrary paths and malformed
+syntax fail compilation. Inserted bytes are not reparsed. `{{...}}` is syntax, not
+preserved literal data. `${NAME}` stays literal in the exact owning
+`initialization.template` field and fragments; other env interpolation is unchanged.
+Compilation freezes the selected
 choice. Reconcile authorized config/selected prompt edits while stopped and start a
 genuinely new process; Run/refresh is not recompilation. Existing-YAML init preserves
 definitions and materialized/custom prompts rather than upgrading them. Shipped
 classic/classic-typed/paad-typed status declarations carry a brief-relative starter; custom
 selected hosts do not automatically acquire new guidance.
 
-`first_required_entry` seeds only while the exact head is absent, not when a present
-head is empty after discard. Continue preserves every present accepted/draft/unfilled/
-empty head across process restarts and config replacement/disable. Clean opens a
-fresh cycle, preserving accepted backing, and uses clean-entry content or, for an
-absent head, first-required content. Both triggers open once. No initializer retains
-ordinary empty-clean/no-publication-continue behavior. Creation, startup, reads and
-free writes never backfill scaffolds; creation-time initialization/preview is deferred
+Selected initialization renders only while the exact head is absent. Every present
+baseline/draft/accepted/empty-after-discard head suppresses rendering and publication,
+including after restarts or template/context changes. Separately explicit clean
+discards an open draft and opens from an existing baseline0 or otherwise empty,
+preserving accepted backing, without rerendering. Continue preserves current work.
+Creation, startup, reads and free writes never backfill templates; creation-time initialization/preview is deferred
 and GitHub #4 remains OPEN.
 
-Inspect **Unfilled scaffold — not authored or accepted** in Overview, Records and
-recorded observations. The owning agent must change it to nonempty content before
-gate/close/export acceptance; editing back to the exact seed rejects again. Changed
-text is not a semantic correctness guarantee. Accepted backing stays independently
-inspectable but cannot satisfy an effective unfilled draft. Baselines follow setup,
-so opening alone cannot meet `updated`. Automatic opening is not an agent write or
-progress event, and auto-only seeds can survive ordinary nonacceptance/interruption;
-genuinely activation-written drafts retain ordinary cleanup. Analyst acceptance
-before entry suppresses first-required seeding; after entry the real workflow draft
-retains the existing Analyst conflict, with no takeover or auto-discard permission.
+Inspect **Baseline v0 — not authored or accepted** and **Draft for vN** in Overview,
+Records and observations. Opening baseline0 yields draft0/target1; a changed nonempty
+edit authors draft1, eligible for accepted1. Untemplated drafts start directly at1;
+later acceptance is n+1 regardless of mutation revisions. Textual change does not
+prove adequacy. Accepted backing cannot satisfy draft0 or an empty draft. Updated
+stamps follow all preparation, so opening/initialization alone cannot satisfy them.
+Automatic initialization is not agent work; activation-written cleanup is unchanged.
+Authorized Analyst acceptance suppresses later initialization, while a real open
+workflow draft retains the existing Analyst conflict, without takeover authority.
+
+:::
 
 ### Record-scaffold incompatible adoption
 
-Current record heads/previous slots use **format 2 (1→2)** with required nullable
-draft seed commitment. Immutable accepted artifacts/snapshots remain **format 1**.
-The shared conversation index/genesis/envelope family is **11 (10→11)**, requiring
-recorded draft `unfilled` even in nested/compacted facts. Source parent is
-`07ed080bb4cd4be78b1ba223f64a5fb7fbe90082`. Workspace memory records JSQLite2's
-`cb2bb15c37729a0e516dcf5ed3da83d111222bf5`/conversation10 deployment on 2026-10-16;
-this is a fresh bump, not unreleased reuse or a claim of target installation.
-See the [format record](../architecture/durable-format-changes.md#node-entry-record-scaffolds-2026-10-16).
+Current heads/previous slots use **3 (2→3)**; immutable accepted artifacts use
+**2 (1→2)** and shared conversation index/genesis/envelope **12 (11→12)**. The
+formerly unversioned initializer now explicitly uses **format_version:1**. Source
+parent is `10463cd83369b1eda687525c6522492836f133c0`; these are fresh bumps with no
+target installation claim. Provider/app-log shared envelope1 remains unchanged
+strict transport metadata, not composed record facts. See the
+[format record](../architecture/durable-format-changes.md#record-document-0-and-selected-node-templates-2026-10-18).
 
 This is source-only completion, not adoption authority. Old/mixed retained heads or
 conversations stay strict stopped blockers, without probing, converter, normalization
@@ -154,7 +162,7 @@ migration under [all offline gates](#external-migrations): stopped exclusion,
 successful complete preserved backup, separate complete candidate and strict complete
 linked/indexed history validation. No such operation is authorized here. A future
 migration must not invent historical seeds from current config or relabel old authored
-drafts. Binary-only rollback after head2/conversation11 writes is unsupported;
+drafts. Binary-only rollback after head3/accepted2/conversation12 writes is unsupported;
 matching complete-boundary state/release rollback is a separate authorized operation.
 
 ## Unavailable process evidence
@@ -936,7 +944,7 @@ A valid config may still fail startup binding when a configured tool has no defi
 
 Current-node text remains prepared request context, not an ordinary durable model-context row; its activation marker records structural prepared-instruction evidence once. Existing node-looking rows remain unchanged ordinary history and are not used to select graph position. One composition-owned boundary separates prepared context from conversation context; only accumulated history receives a summary header identifying its source segment version and covered-through message ID. Summary status and authorization describe that prefix, not necessarily the current head; replay alone proves neither transition nor approval. Existing entry/edge/correction/recovery rows and one-time transition handoffs remain durable under their current contracts, and still-applicable requirements do not expire merely because delivery was one-time. Strict prompt declarations are objects: static agent and node sites use `{reference,compactable?}`, while durable entry, correction, nonterminal-edge, and pending-notification sites additionally allow `compaction_key` only with `compactable:false`. Omitted `compactable` resolves to true. Static/node flags never change delivery or create a durable model-context occurrence; structural activation evidence remains distinct. These composition bytes participate in exact request admission and in summarizer request overhead; the 16-call bound does not reserve capacity for them or guarantee fit.
 
-The conversation index, ordinary and compacted genesis, and conversation-segment envelope all use strict format 11; earlier-format adoption follows the [reset/external-migration decision](#external-migrations), not a same-format upgrade. Compacted history contains nonempty `summaryText`, ordered `protectedPrompts`, and `requiredModelFacts` with two nullable recovery/refusal slots plus required descriptor-only `latestRecordObservations`, including draft `unfilled`, without compaction checksums or accumulated accounting. Protected durable prompts remain primary-visible in full after their covered source rows are omitted. Summarizers receive the current protected set as read-only orientation, not as independent summary intervals. Anonymous protected occurrences accumulate; an exact keyed replacement releases the older occurrence into ordinary summary source once on the next successful positive advance, or that older compactable narration may be locally omitted. Protected/prepared overhead is nonsplittable and can make compaction or admission fail; there is no quota, eviction, truncation, or universal reduction guarantee.
+The conversation index, ordinary and compacted genesis, and conversation-segment envelope all use strict format12; earlier-format adoption follows the [reset/external-migration decision](#external-migrations), not a same-format upgrade. Compacted history contains nonempty `summaryText`, ordered `protectedPrompts`, and `requiredModelFacts` with two nullable recovery/refusal slots plus required descriptor-only `latestRecordObservations`, including baseline0 and draft version/target/backing, without compaction checksums or accumulated accounting. Protected durable prompts remain primary-visible in full after their covered source rows are omitted. Summarizers receive the current protected set as read-only orientation, not as independent summary intervals. Anonymous protected occurrences accumulate; an exact keyed replacement releases the older occurrence into ordinary summary source once on the next successful positive advance, or that older compactable narration may be locally omitted. Protected/prepared overhead is nonsplittable and can make compaction or admission fail; there is no quota, eviction, truncation, or universal reduction guarantee.
 
 Compaction publishes a new immutable JSONL segment and atomically replaces its cumulative conversation index; it never appends metadata to the source segment. The new segment starts with self-contained compacted genesis carrying one accumulated summary, a variable-sized ordered protected-prompt list, two nullable bounded recovery/refusal slots plus descriptor-only latest record observations with original source coordinates/time, source version/filename/cutoff metadata, and either `between_rounds` or minimal inherited `{marker_id,input_id,active_segment_kind}` continuation. Genesis is operator context, not a transcript row or cursor. Providers receive the derived synthetic accumulated-summary context but never inherited IDs. Successful compaction over a validated atomic source prefix is the sole omission authority: uncovered summary-only/evidence-only bundles and closed rounds below the trigger remain fully visible; eligible compactable rows require successful summary construction and atomic prefix validation, while covered protected prompt rows require that same validation plus exact preservation in the ordered protected list. The predecessor remains historical and is never needed to validate, project, compact, or recover current; the next compaction inherits the accumulated summary rather than reopening it. Row omission follows append-order call/result policy authority with fixed per-surface evidence modes—mutable current discovery surfaces are observational, and only the dedicated immutable readers `get_card_version` and `read_record_version` emit canonical locators. Provider tool definitions carry no internal policy; the compiled invocation tool contracts keep it settlement-side, and exact adapter request admission measures the serialized provider request that is actually sent. Exact post-compaction recovery/refusal behavior keeps each code-owned text bounded and newest-only: the latest covered refusal locator resolves to the synthetic compacted fact and a superseded marker is no longer a current locator. The orientation and content commitments are distinct: the Analyst snapshot's complete-observation hash commits to the full strict observation even when the bounded rendering omits branches, while the content hash covers exactly the rendered bytes. Selected-graph participant reserve diagnostics report every configured agent actually participating in the selected compiled graphs, including specialized nodes. Candidate admission remains a deterministic best-effort estimate of one canonicalized complete body (`ceil(UTF-8 bytes / 4)`).
 
@@ -1133,7 +1141,7 @@ old/mixed retained state.
 
 The earlier owning-Planner child-reopening release was a same-format adoption, not reset authority. Reconcile each explicitly configured named agent that performs Planner work so its selected card-scoped tool list includes `reopen_card` only where intended, and reconcile the selected Planner plus typed plan/recover/review-to-plan prompt overrides while preserving instance guidance and unrelated configuration. Do not infer capability from an agent name, assume bundled-template changes update a materialized instance, or add the tool globally to every role. Planner `reopen_card({card_id})` is autonomous local repair of only a done/failed immediate child during the exact active parent ownership; reopening and explicit activation direction have separate admission. Global Analyst `reopen_card({cardId})` remains the intervention-ready arbitrary-target operation with changed propagation, including root procedures. Neither operation guarantees successful model behavior. The later format-9 cutover has its own complete-state adoption decision; the earlier same-format release grants no current reset, migration or binary-only adoption authority.
 
-Do not combine that no-reset rollout statement with producer-declared compaction, checksum-removal, image-result, historical-instruction-evidence, explicit-activation/record-context, excerpt/display or record-scaffold cutovers. Current source uses strict object prompt declarations and conversation index/genesis/envelope format 11; earlier formats are historical provenance, not current requirements. Incompatible adoption needs a separately consented reset or explicitly requested [external migration](#external-migrations); core records structural prepared evidence, not ordinary durable current-node model context, and does not reinterpret unmarked node-looking rows. Card head/history1, record head2/accepted1 and growing-file envelope1 remain separate. Source completion authorizes no deployment, prompt update, reset or migration.
+Do not combine that no-reset rollout statement with incompatible conversation or record cutovers. Current source uses strict object prompt declarations, conversation index/genesis/envelope12, record head3/accepted2 and explicit initializer input1; earlier formats are historical provenance, not current requirements. Incompatible adoption needs a separately consented reset or explicitly requested [external migration](#external-migrations); core records structural prepared evidence, not ordinary durable current-node model context, and does not reinterpret unmarked node-looking rows. Card head/history1 and shared growing-file envelope1 remain separate and unchanged. Source completion authorizes no deployment, prompt update, reset or migration.
 
 **Hand-authored typed-graph prompt ownership:** an existing hand-authored explicit `card_types` map that references typed-only prompts (for example `code-red`, `specialized-plan`, `research-explore`, `architecture-draft`) must carry those prompt files in `.saivage/config/prompts`, because the bundled root contains only the classic template's source-derived closure. While stopped, deliberately copy and reconcile the required classic-typed prompt files without replacing existing customizations, then start a genuinely new process. Do not use `init` as an upgrade: existing-config init performs no template/config materialization. Classic-only process references continue to resolve from the bundled classic root when no project override exists.
 
@@ -1451,7 +1459,7 @@ Adopting per-session evidence into an established installation is **not** a same
 
 The process-result payload cutover from metadata-only results to strict bounded inline stdout/stderr heads, completeness flags, raw byte counts and canonical fallback URLs is another cumulative incompatible item. Outer versions do not make old rows current. Saivage has no old-shape reader, row converter or compatibility probe. External conversion must establish required facts from canonical evidence, never invent stream content or effects.
 
-The Responses private-context producer payload is another independent cumulative incompatible item. Each private row requires lowercase 64-hex `producer_account_id`, derived solely from local provider/account aliases (including null implicit account), not credentials, endpoint, model or organization. Missing/invalid provenance fails canonical consumption, including public reads that later hide the row. Current conversation index/genesis/envelope use format 11; that is not evidence of the introducing payload's historical discriminator boundary (unestablished in the reference). Historical equal-number warnings remain valid, not permission for future reuse. Choose consented complete reset or explicit external migration; multiple changes can share one complete adoption only when the selected release contains them all, not thereby share a deployed discriminator. External migration must evidence producer provenance; unresolved required provenance blocks, never fabricated identity. No runtime backfill, payload probing, selective installation edits or binary-only downgrade. Source completion establishes neither deployment nor loss consent.
+The Responses private-context producer payload is another independent cumulative incompatible item. Each private row requires lowercase 64-hex `producer_account_id`, derived solely from local provider/account aliases (including null implicit account), not credentials, endpoint, model or organization. Missing/invalid provenance fails canonical consumption, including public reads that later hide the row. Current conversation index/genesis/envelope use format12; that is not evidence of the introducing payload's historical discriminator boundary (unestablished in the reference). Historical equal-number warnings remain valid, not permission for future reuse. Choose consented complete reset or explicit external migration; multiple changes can share one complete adoption only when the selected release contains them all, not thereby share a deployed discriminator. External migration must evidence producer provenance; unresolved required provenance blocks, never fabricated identity. No runtime backfill, payload probing, selective installation edits or binary-only downgrade. Source completion establishes neither deployment nor loss consent.
 
 Responses replay preserves encrypted reasoning only for the same local provider/account identity; other candidates omit whole encrypted reasoning items before request admission while retaining native visible text, calls and results. Normal failover remains enabled. Model changes under the same alias retain identity; credentials changed under the same alias also retain identity, so use a distinct local identity when intending that boundary. Two aliases sharing credentials compare different. This conservative local rule makes no remote organization/key compatibility claim. Residual HTTP 400 `invalid_encrypted_content` is terminal protocol failure absent higher-priority evidence: no strip-and-resend, repair, hidden alternate attempt or guaranteed reauthentication remedy follows it.
 The earlier canonical-hash format-3, checksum-closure-removal 3→4 and initial-image 4→5 cutovers are historical provenance, not supported representations. Ordered content introduced strict format 6 via a fresh 5→6 bump with unknown format-5 deployment applicability. Loss-tolerant maintenance advanced conversation index, ordinary/compacted genesis and segment envelope together 6→7; historical instruction evidence now freshly advances 7→8, without advancing unrelated families. Coverage may declare structural omission instead of semantic refine. Source/group/summary/protected-list/continuation/retained-tail hashes, serialized group inventories, prior-history attestations, accumulated disposition counters and `retained_rows` remain removed. Exact protections/facts, source metadata, physical suffix and explicit continuation remain strict. Independent tool-policy/evidence, per-block replacement/evidence, orientation, admitted request, identity/artifact, MCP and backup hashes remain unchanged; transient aggregate prepared-context attestations are absent and require no adoption. No core compatibility reader/converter or replacement integrity machinery. Adoption chooses separately consented complete reset or explicitly requested external offline migration to the pinned matching release, including complete retained canonical indexed history and applicable previous selectors. Preserve historical summaries as genuine summaries, not fabricated local omissions or provider effects. Reset loses all generated history; external fidelity is evidenced under complete backup/exclusion/candidate validation gates. Source completion grants no deployment/reset/migration, including JSQLite2. Binary-only rollback remains unsupported; later action needs a separately scoped matching-state/release decision.
@@ -1464,7 +1472,7 @@ The card/record representation cutover uses owner heads and immutable predecesso
 
 Earlier card stream and parent-owned `children` cutover labels describe historical formats only; they authorize no old-layout read path. Current format-1 immutable ordinary payload uses `child_membership` plus `active_child_order`, not durable `children`.
 
-Ordinary same-format deployment is neither reset nor migration authority. Stop the old service, deploy and strictly start the new binary against retained current-format state only when both binaries match every durable contract: card head/history1, record head2/accepted1, Files projections, conversation11, process-result and required private-producer payloads. Equal outer versions do not establish compatibility; compare the [format reference](../architecture/durable-format-changes.md) and exact release source contracts, never startup probing/normalization. Unsupported/mixed/malformed state stays stopped, not implicit reset/migration/repair permission. Supported same-format corruption uses separately backed-up/consented exact-target repair; incompatible adoption chooses separately consented reset or explicitly requested external migration. Process-log URLs remain independently readable while available; reset removes them with the complete work root.
+Ordinary same-format deployment is neither reset nor migration authority. Stop the old service, deploy and strictly start the new binary against retained current-format state only when both binaries match every durable contract: card head/history1, record head3/accepted2, Files projections, conversation12, initializer input1, process-result and required private-producer payloads. Equal outer versions do not establish compatibility; compare the [format reference](../architecture/durable-format-changes.md) and exact release source contracts, never startup probing/normalization. Unsupported/mixed/malformed state stays stopped, not implicit reset/migration/repair permission. Supported same-format corruption uses separately backed-up/consented exact-target repair; incompatible adoption chooses separately consented reset or explicitly requested external migration. Process-log URLs remain independently readable while available; reset removes them with the complete work root.
 ## Publication-outcome-unknown exit
 
 The fixed `PublicationOutcomeUnknownError` stderr line means the process exited without

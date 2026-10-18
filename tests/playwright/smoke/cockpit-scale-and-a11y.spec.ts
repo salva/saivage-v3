@@ -141,7 +141,7 @@ async function installScaleFixture(page: Page): Promise<{ childrenReads: string[
             size_bytes: content.length,
           },
           draft: null,
-          effective_content_source: 'accepted',
+          baseline: null, effective_content_source: 'accepted',
         },
       }));
     }

@@ -38,9 +38,9 @@ function rows(session: string) {
   const output = validateProcessToolResult({ process_id: processId, status: 'exited', exit_code: 0, stdout, stderr, stdout_bytes: Buffer.byteLength(stdout) + 1000, stderr_bytes: Buffer.byteLength(stderr), stdout_complete: false, stderr_complete: true,
     stdout_url: `work:///processes/${processId}/stdout.log`, stderr_url: `work:///processes/${processId}/stderr.log` });
   const run = pair(session, 'run', 'run_command', { command, wait: false }, { success: true, data: output });
-  const draft = RecordMutationSuccessSchema.parse({ kind: 'applied', data: { card_id: smokeCardId, name: 'status.md', state: 'open', surface: 'card_agent', revision: 7,
+  const draft = RecordMutationSuccessSchema.parse({ kind: 'applied', data: { card_id: smokeCardId, name: 'status.md', state: 'open', surface: 'card_agent', version: 5, target_version: 5, revision: 7,
     head_id: '33333333-3333-4333-8333-333333333333', current_url: recordUrl, accepted_version_url: `${recordUrl}&v=4`, bytes: 14, written: true } }).data;
-  const accepted = RecordMutationSuccessSchema.parse({ kind: 'applied', data: { ...draft, state: 'closed', surface: 'analyst', revision: 8, head_id: '44444444-4444-4444-8444-444444444444', accepted_version_url: `${recordUrl}&v=8`, bytes: 17, propagation: { ok: false, partial: true, error: 'Ancestor notification refused' } } }).data;
+  const accepted = RecordMutationSuccessSchema.parse({ kind: 'applied', data: { ...draft, state: 'closed', surface: 'analyst', version: 5, target_version: null, revision: 8, head_id: '44444444-4444-4444-8444-444444444444', accepted_version_url: `${recordUrl}&v=5`, bytes: 17, propagation: { ok: false, partial: true, error: 'Ancestor notification refused' } } }).data;
   return [run[0]!, text(session, 'intervening-prose', 'Correction before the process observation.'), run[1]!,
     ...pair(session, 'wait', 'wait_process', { process_id: processId, timeout_ms: 0 }, { success: true, data: { ...output, exit_code: 1 } }),
     ...pair(session, 'edit', 'edit', { path: 'src/example.ts', old_string: 'old supplied text', new_string: 'new supplied text', replace_all: true }, { success: true, data: { path: 'src/example.ts', replacements: 2, bytes: 38, edited: true } }),

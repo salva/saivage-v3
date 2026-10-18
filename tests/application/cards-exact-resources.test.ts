@@ -72,7 +72,7 @@ describe('exact Card operator resources',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
     const secrets=['sentinel-alpha-SEC1','sentinel-bravo-SEC1','sentinel-charlie-SEC1','sentinel-delta-SEC1'];
     cards.acceptRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[0]}`,'analyst');
-    cards.openRecord(card.id,'status.md',null);
+    cards.openRecord(card.id,'status.md');
     cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[1]}`);
     const draft=model.diffRecord(card.id,'status.md',{from:1,to:'current',view:'draft'});
     const effective=model.diffRecord(card.id,'status.md',{from:1,to:'current',view:'effective'});
@@ -80,15 +80,15 @@ describe('exact Card operator resources',()=>{
     expect(effective.body).toMatchObject({view:'effective',hunks:[]});
 
     cards.closeRecord(card.id,'status.md');
-    cards.openRecord(card.id,'status.md',null);
+    cards.openRecord(card.id,'status.md');
     cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[2]}`);
     cards.closeRecord(card.id,'status.md');
-    const accepted=model.diffRecord(card.id,'status.md',{from:4,to:7,view:'accepted'});
+    const accepted=model.diffRecord(card.id,'status.md',{from:2,to:3,view:'accepted'});
     expect(accepted.body).toMatchObject({view:'accepted',hunks:[]});
 
-    cards.openRecord(card.id,'status.md',null);
+    cards.openRecord(card.id,'status.md');
     cards.editRecord(card.id,'status.md',`mode=changed\ntoken=${secrets[3]}`);
-    const safeChange=model.diffRecord(card.id,'status.md',{from:7,to:'current',view:'effective'});
+    const safeChange=model.diffRecord(card.id,'status.md',{from:3,to:'current',view:'effective'});
     expect(safeChange.body).toMatchObject({view:'effective',hunks:[{old_lines:2,new_lines:2,lines:['-mode=steady','-token=[REDACTED]','+mode=changed','+token=[REDACTED]']}]});
     const serialized=JSON.stringify([draft,effective,accepted,safeChange]);
     for(const secret of secrets)expect(serialized).not.toContain(secret);
@@ -130,7 +130,7 @@ describe('exact Card operator resources',()=>{
     expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'card_record_not_found',cardId:card.id,name:'unknown.md'}});
     expect(()=>model.getRecord(card.id,'UNKNOWN.md')).toThrow();
     expect(model.getRecord(card.id,'status.md')).toEqual({statusCode:404,body:{error:'card_record_not_found',cardId:card.id,name:'status.md'}});
-    cards.openRecord(card.id,'status.md',null);
+    cards.openRecord(card.id,'status.md');
     expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',revision:1,state:'open',draft:{content:''},effective_content_source:'draft'}}});
     cards.discardRecord(card.id,'status.md');
     expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',revision:2,state:'empty',accepted:null,draft:null,effective_content_source:null}}});

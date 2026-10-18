@@ -151,12 +151,12 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const child = cards.create(input());
     flush(); clear();
 
-    const draft = cards.openRecord(child.id, 'status.md', null);
+    const draft = cards.openRecord(child.id, 'status.md');
     const working = cards.editRecord(child.id, 'status.md', 'working');
     cards.discardRecord(child.id, 'status.md');
     expect(flush()).toEqual([]);
 
-    const next = cards.openRecord(child.id, 'status.md', null);
+    const next = cards.openRecord(child.id, 'status.md');
     const edited = cards.editRecord(child.id, 'status.md', 'closed');
     cards.closeRecord(child.id, 'status.md', 'executor');
     expect(flush()).toEqual([{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: child.id, record_name: 'status.md' }]);
@@ -331,7 +331,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
   it('emits no record hint when close reports an outcome-unknown record head publication failure', () => {
     const child = cards.create(input());
-    const draft = cards.openRecord(child.id, 'status.md', null);
+    const draft = cards.openRecord(child.id, 'status.md');
     const edited = cards.editRecord(child.id, 'status.md', 'review');
     flush(); clear();
 
@@ -351,7 +351,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
   it('fails fast without effects when immutable card or record version creation fails', () => {
     const child = cards.create(input());
-    const draft = cards.openRecord(child.id, 'status.md', null);
+    const draft = cards.openRecord(child.id, 'status.md');
     flush(); clear();
     const missingIo: ReplacementFileIo = {
       open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },

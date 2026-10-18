@@ -840,9 +840,11 @@ describe('disposable production-composition smoke', () => {
     let publishedExecutorRequest: ChatRequest | undefined;
     let continuedExecutorRequest: ChatRequest | undefined;
     let summaryCallsBeforeC = 0;
-    const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`;
+    // Leave room for current record-selection descriptors in the first write/A fold.
+    // B still triggers compaction; C remains an uncompacted continuation below.
+    const sourceA = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(28_000)}`;
     const sourceB = `Refreshed unresolved task from the second observation. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`;
-    const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(31_000)}`;
+    const sourceC = `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(28_000)}`;
     const incompleteSummary = 'INCOMPLETE SUMMARY MUST NEVER CONTINUE';
     const correctedSummary = `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(30_000)}`;
     const finalSummary =

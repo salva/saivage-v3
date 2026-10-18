@@ -25,7 +25,7 @@ function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolatio
   return { value, warnings };
 }
 
-/** Interpolate configuration, except the owning workflow's literal record scaffold. */
+/** Initializer templates are data templates, never environment expansion hosts. */
 export function interpolateValue(
   v: unknown,
   env: EnvironmentSource,
@@ -36,7 +36,7 @@ export function interpolateValue(
     path[0] === 'card_types' &&
     path[2] === 'records' &&
     path[4] === 'initialization' &&
-    path[5] === 'content'
+    path[5] === 'template'
   )
     return { value: v, warnings: [] };
   if (typeof v === 'string') {

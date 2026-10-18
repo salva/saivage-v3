@@ -43,19 +43,19 @@ const descriptors = [
   { name: 'review-custom.md', format: 'markdown' as const, schema: 'plain.v1', bootstrap: false, current: { head_id:'11111111-1111-4111-8111-111111111111', revision: 1, current_url: 'record:///review-custom.md?card=card-a', accepted_version_url: 'record:///review-custom.md?card=card-a&v=1', state: 'closed' as const, accepted_source_version: 1, draft_present: false } },
 ];
 
-function acceptedArtifact(name: string, content: string, headVersion = 3, sourceVersion = 2) {
+function acceptedArtifact(name: string, content: string, headRevision = 3, sourceVersion = 2) {
   return {
     card_id: 'card-a',
     record: {
       name,
       head_id:'11111111-1111-4111-8111-111111111111',
-      revision: headVersion,
+      revision: headRevision,
       current_url: `record:///${name}?card=card-a`,
       accepted_version_url: `record:///${name}?card=card-a&v=${sourceVersion}`,
       state: 'closed' as const,
       accepted: { source_version: sourceVersion, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, card_history_version: 1, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content, content_sha256: 'a'.repeat(64), size_bytes: content.length },
       draft: null,
-      effective_content_source: 'accepted' as const,
+      baseline: null, effective_content_source: 'accepted' as const,
     },
   };
 }
@@ -70,8 +70,9 @@ function draftArtifact(content: string) {
       current_url: 'record:///mission-custom.md?card=card-a',
       accepted_version_url: 'record:///mission-custom.md?card=card-a&v=2',
       state: 'open' as const,
+      baseline: null,
       accepted: { source_version: 2, source_entry_id: '11111111-1111-4111-8111-111111111111', committed_at: now, writer_agent: 'analyst', card_version_seq: 2, card_history_version: 1, card_history_entry_id: '11111111-1111-4111-8111-111111111111', content: 'Earlier accepted objective', content_sha256: 'a'.repeat(64), size_bytes: 26 },
-      draft: { unfilled: false, opened_at: now, updated_at: now, content, content_sha256: 'b'.repeat(64) },
+      draft: { version: 3, target_version: 3, opened_at: now, updated_at: now, content, content_sha256: 'b'.repeat(64) },
       effective_content_source: 'draft' as const,
     },
   };
@@ -120,15 +121,16 @@ describe('work-first Overview clarity', () => {
 
     const objective = wrapper.get('[data-testid="overview-objective"]');
     expect(objective.text()).toContain('From mission-custom.md');
-    expect(objective.text()).toContain('Draft');
+    expect(objective.get('[data-testid="record-source-state"]').text()).toBe('Draft for v3');
     const objectiveExcerpt = objective.get('[data-testid="record-excerpt"]').text();
     expect(Array.from(objectiveExcerpt).length).toBe(601);
     expect(objectiveExcerpt.endsWith('…')).toBe(true);
     expect(objective.get('.record-full-content').text()).toContain('Draft objective');
     expect(objective.get('.record-details').text()).toContain('Head revision5');
-    expect(objective.get('.record-details').text()).toContain('Accepted source revision2');
+    expect(objective.get('.record-details').text()).toContain('Accepted document version2');
     expect(store.cardRecords['mission-custom.md']!.content).toMatchObject({ kind: 'content', revision: 5, timestamp: now });
     expect(store.cardRecords['mission-custom.md']!.current?.record.accepted?.source_version).toBe(2);
+    expect(store.cardRecords['mission-custom.md']!.current?.record.draft).toMatchObject({ version: 3, target_version: 3 });
     expect(store.cardRecords['constraints.md']!.content).toMatchObject({ kind: 'content', revision: 3, timestamp: now });
     expect(store.cardRecords['constraints.md']!.current?.record.accepted?.source_version).toBe(2);
 

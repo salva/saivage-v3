@@ -259,7 +259,7 @@ function parseSegment(
 }
 function emptyIndex(sessionId: ConversationSessionId): ConversationVersionIndex {
   return conversationVersionIndexSchema.parse({
-    format_version: 11,
+    format_version: 12,
     kind: 'conversation-version-index',
     session_id: sessionId,
     created_at: new Date().toISOString(),
@@ -466,7 +466,7 @@ function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {
 }
 function segmentEnvelope(rows: readonly (ConversationSegmentGenesis | AgentMessage)[]): Buffer {
   if (!rows.length) throw new Error('Conversation envelope requires at least one row.');
-  return Buffer.from(`${JSON.stringify({ version: 11, type: 'conversation-segment', rows })}\n`);
+  return Buffer.from(`${JSON.stringify({ version: 12, type: 'conversation-segment', rows })}\n`);
 }
 function serializeStrictJson(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value)}\n`);
@@ -495,7 +495,7 @@ export function appendConversationBatch(
     const filename = versionFilename(1, randomUUID());
     const timestamp = new Date().toISOString();
     const genesis = {
-      format_version: 11,
+      format_version: 12,
       kind: 'ordinary_segment_genesis',
       id: randomUUID(),
       entry_id: entryId,
@@ -635,7 +635,7 @@ export function publishCompactedConversationSegment(
   const timestamp = compaction.identity.timestamp;
   const filename = compaction.identity.filename;
   const genesis = {
-    format_version: 11,
+    format_version: 12,
     kind: 'compacted_segment_genesis',
     id: compaction.identity.genesisId,
     entry_id: entryId,

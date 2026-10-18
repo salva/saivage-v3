@@ -56,12 +56,12 @@ disposable context, lost on stop/active cancellation. Pixels cannot be certified
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
 
-Conversation index/genesis/envelope now share strict **format 11** for required
-unfilled-draft observations, retaining excerpt exposure
+Conversation index/genesis/envelope now share strict **format 12** for baseline0,
+explicit draft document/target versions and historical-selection observations, retaining excerpt exposure
 and encoded oversized record-prompt display, alongside typed owning
 record observations and descriptor-only required facts, retaining historical
 instruction evidence, loss-tolerant maintenance and ordered content.
-Format 10 or earlier/mixed
+Format 11 or earlier/mixed
 state stays a stopped blocker: adoption needs a separately consented complete
 reset or explicitly owner-requested external offline migration, never automatic
 conversion. Snapshots grow with observations and are included in complete backups;
@@ -94,13 +94,15 @@ Owned durable prompts are **Recorded workflow instruction** at their original ro
 compacted activation text is inspected through explicit indexed source history.
 Unavailable history is never filled from current templates. **Currently configured
 instructions** remains independent. Source completion authorizes no adoption or
-deployment; binary-only downgrade after format-11/head2 publication is unsupported.
+deployment; binary-only downgrade after current-format publication is unsupported.
 
-Optional literal record scaffolds seed ordinary drafts at first required entry
-while the head is absent and/or fresh clean entry, not card creation. Continue
-preserves existing work; untouched scaffolds are **Unfilled scaffold — not authored
-or accepted** and cannot satisfy gates or be accepted/exported. Record heads advance
-**1→2** while immutable accepted artifacts remain **1**. See the
+Nodes explicitly select create-if-absent record templates with narrow card/node
+macros and direct includes. They create **Baseline v0 — not authored or accepted**;
+an ordinary changed edit authors draft-for-1, then acceptance publishes document1.
+Existing heads never rerender; explicit clean remains a separate empty-draft cycle.
+Document versions are independent of head mutation revisions. Record heads advance
+**2→3**, accepted artifacts **1→2**, and conversation index/genesis/envelope
+**11→12** together. Old input/state blocks strictly. See the
 [lifecycle contract](docs/spec/system-specification.md) and
 [configuration/adoption procedure](docs/runbook/index.md#optional-record-scaffolds).
 This source-only slice defers creation-time scaffolds; GitHub #4 remains OPEN.

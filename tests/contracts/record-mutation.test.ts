@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import { ModelRecordTargetWireSchema, RecordMutationFailureSchema, RecordMutationSuccessSchema, RecordUrlInputError, parseRecordUrl } from '../../src/contracts/record-mutation.js';
+import { CardRecordContentResponseSchema } from '../../src/contracts/operator-api-runtime-cards.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -40,8 +41,14 @@ describe('record URL and mutation contracts', () => {
     const populated={...absent,state:'open',revision:3,head_id:'11111111-1111-4111-8111-111111111111',accepted_version_url:'record:///status.md?card=card-a&v=1'};
     expect(ModelRecordTargetWireSchema.parse(populated)).toEqual(populated);
     expect(ModelRecordTargetWireSchema.safeParse({...populated,mutation_url:'legacy'}).success).toBe(false);
-    const success={kind:'applied' as const,data:{card_id:'card-a',name:'status.md',state:'open',revision:3,head_id:'11111111-1111-4111-8111-111111111111',current_url:'record:///status.md?card=card-a',accepted_version_url:null,bytes:1,written:true,surface:'card_agent'}};
+    const success={kind:'applied' as const,data:{card_id:'card-a',name:'status.md',state:'open',version:1,target_version:1,revision:3,head_id:'11111111-1111-4111-8111-111111111111',current_url:'record:///status.md?card=card-a',accepted_version_url:null,bytes:1,written:true,surface:'card_agent'}};
     expect(RecordMutationSuccessSchema.parse(success)).toEqual(success);
+    const baseline = { card_id: 'card-a', record: { head_id: populated.head_id, name: 'status.md', revision: 1, current_url: populated.current_url, accepted_version_url: null,
+      state: 'baseline', baseline: { version: 0, created_at: '2026-10-18T00:00:00.000Z', content: 'starter', content_sha256: 'a'.repeat(64) }, draft: null, accepted: null, effective_content_source: 'baseline' } };
+    expect(CardRecordContentResponseSchema.parse(baseline)).toEqual(baseline);
+    expect(() => CardRecordContentResponseSchema.parse({ ...baseline, record: { ...baseline.record, revision: null } })).toThrow();
+    expect(() => CardRecordContentResponseSchema.parse({ ...baseline, record: { ...baseline.record, head_id: null } })).toThrow();
+    expect(() => ModelRecordTargetWireSchema.parse({ ...populated, state: 'baseline', revision: null, head_id: null })).toThrow();
   });
 
   it('rejects removed stale/configured-record failures and unknown fields',()=>{

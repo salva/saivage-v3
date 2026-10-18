@@ -4,6 +4,7 @@ export type PromptHost =
   | Readonly<{ kind: 'global-agent' }>
   | Readonly<{ kind: 'workflow-agent'; cardType: CardTypeName }>
   | Readonly<{ kind: 'process'; cardType: CardTypeName }>
+  | Readonly<{ kind: 'record-initializer'; cardType: CardTypeName }>
   | Readonly<{ kind: 'record-context'; cardType: CardTypeName }>;
 export type AgentPromptHost = Extract<PromptHost, { kind: 'global-agent' | 'workflow-agent' }>;
 export type ProcessPromptHost = Extract<PromptHost, { kind: 'process' }>;
@@ -24,6 +25,7 @@ const PLACEHOLDERS: Readonly<Record<PromptHost['kind'], ReadonlySet<string>>> = 
   'global-agent': new Set(['vocabularySnippet']),
   'workflow-agent': new Set(['contractDescription']),
   process: new Set(['cardType']),
+  'record-initializer': new Set(['cardType', 'cardId', 'cardTitle', 'nodeId', 'recordName']),
   'record-context': new Set(['cardType', 'recordSelection', 'recordContent']),
 });
 const FRAGMENT_IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;

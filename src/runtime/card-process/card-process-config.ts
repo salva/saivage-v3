@@ -83,8 +83,9 @@ type CompiledRecordDefinition = Readonly<
     name: RecordName;
     declared: boolean;
     initialization: Readonly<{
-      content: string;
-      at: readonly ('first_required_entry' | 'clean_entry')[];
+      format_version: 1;
+      template: string;
+      compiled: CompiledPromptTemplate;
     }> | null;
   }
 >;
@@ -165,6 +166,7 @@ export type CompiledNodeContract = ProcessStateBase &
     correctionPrompt: CompiledPromptDeclaration;
     recordPrompts: readonly CompiledRecordPrompt[];
     requirements: readonly CompiledRecordRequirement[];
+    initializeRecords: readonly CompiledRecordDefinition[];
     descendantContext: CompiledDescendantContext | null;
     childCreationTypes: ReadonlySet<CardTypeName>;
     childActivationTypes: ReadonlySet<CardTypeName>;
@@ -608,6 +610,7 @@ type ProcessNodeDraft = Readonly<{
   correctionPrompt: CompiledPromptDeclaration;
   recordPrompts: readonly CompiledRecordPrompt[];
   requirements: readonly CompiledRecordRequirement[];
+  initializeRecords: readonly CompiledRecordDefinition[];
   descendantContext: CompiledDescendantContext | null;
   edges: ReadonlyMap<string, ProcessEdgeDraft>;
   childCreationTypes: ReadonlySet<CardTypeName>;
@@ -660,25 +663,21 @@ function compileCardTypeInputs(
     const name = parseRecordName(rawName);
     const initialization = value.initialization
       ? Object.freeze({
-          content: value.initialization.content,
-          at: Object.freeze([...value.initialization.at]),
+          format_version: 1 as const,
+          template: value.initialization.template,
+          compiled: compilePromptTemplate({
+            host: { kind: 'record-initializer', cardType },
+            name,
+            path: `${location}.records.${name}.initialization.template`,
+            text: value.initialization.template,
+            resolveFragment: (id) =>
+              selectPrompt('fragments', { kind: 'record-initializer', cardType }, id, roots),
+          }),
         })
       : null;
     if (initialization) {
       if (value.bootstrap)
         throw new Error(`${location}.records.${name}: bootstrap initialization is forbidden.`);
-      const requirements = Object.values(source.workflow.nodes).flatMap((node) =>
-        node.records[rawName] ? [node.records[rawName]!] : [],
-      );
-      if (initialization.at.includes('first_required_entry') && requirements.length === 0)
-        throw new Error(
-          `${location}.records.${name}: first_required_entry requires a node requirement.`,
-        );
-      if (
-        initialization.at.includes('clean_entry') &&
-        !requirements.some((item) => item.mode === 'clean')
-      )
-        throw new Error(`${location}.records.${name}: clean_entry requires a clean requirement.`);
     }
     const definition = Object.freeze({
       name,
@@ -709,6 +708,18 @@ function compileCardTypeInputs(
     if (agent.session !== 'card')
       throw new Error(`${location}.workflow.nodes.${nodeId}.agent must use card session scope.`);
     const requirements: Array<CompiledRecordRequirement> = [];
+    const initializeRecords = (node.initialize_records ?? []).map((name) => {
+      const definition = records.get(parseRecordName(name));
+      if (!definition?.initialization || definition.bootstrap)
+        throw new Error(
+          `${location}.workflow.nodes.${nodeId}.initialize_records requires a declared nonbootstrap initializer: '${name}'.`,
+        );
+      if (!agentCanWriteRecord(agent, name) || !agent.tools.some((tool) => tool.name === 'write'))
+        throw new Error(
+          `${location}.workflow.nodes.${nodeId}.initialize_records '${name}' requires record_writes authority and the write tool.`,
+        );
+      return definition;
+    });
     for (const [rawRecord, requirement] of Object.entries(node.records)) {
       const name = parseRecordName(rawRecord);
       const definition = records.get(name) ?? genericRecordDefinition(name);
@@ -716,10 +727,7 @@ function compileCardTypeInputs(
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} requires matching agent record_writes authority.`,
         );
-      const requiresWrite =
-        requirement.mode === 'clean' ||
-        requirement.gate === 'updated' ||
-        definition.initialization?.at.includes('first_required_entry');
+      const requiresWrite = requirement.mode === 'clean' || requirement.gate === 'updated';
       if (requiresWrite && !agent.tools.some((tool) => tool.name === 'write'))
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} (${requirement.mode} + ${requirement.gate}) requires the write tool.`,
@@ -881,6 +889,7 @@ function compileCardTypeInputs(
           `${location}.workflow.nodes.${nodeId}.correction_prompt`,
         ),
         requirements: Object.freeze(requirements),
+        initializeRecords: Object.freeze(initializeRecords),
         descendantContext,
         edges: immutableMap(edges),
         childCreationTypes:
@@ -1140,6 +1149,7 @@ function buildCardTypeStateTable(
         correctionPrompt: node.correctionPrompt,
         recordPrompts: node.recordPrompts,
         requirements: node.requirements,
+        initializeRecords: node.initializeRecords,
         descendantContext: node.descendantContext,
         childCreationTypes: node.childCreationTypes,
         childActivationTypes: node.childActivationTypes,
@@ -1453,5 +1463,5 @@ export function describeNodeResultContract(
     node.requirements.length === 0
       ? ''
       : ` Required record gates: ${node.requirements.map(({ definition, mode, gate }) => `${definition.name} (${mode} + ${gate})`).join(', ')}.`;
-  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters).${requirements}`;
+  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters).${requirements} Record templates create current-only baseline v0, not authored or accepted work. Use authorized write/edit on the current record URL to author its draft for the next document version; framework acceptance closes eligible drafts. An untouched draft0 or empty draft cannot satisfy record gates, and updated gates require a mutation after node preparation. Document versions and head mutation revisions are distinct. A nonempty edit establishes neither adequacy nor truth: assess the actual work against the brief and evidence. Existing records are not reinitialized on entry; separately configured clean may discard an open draft and start an empty cycle with accepted backing preserved.`;
 }

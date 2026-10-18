@@ -1,6 +1,6 @@
 # Operator UI: Exact Contracts Register
 
-Prepared format-11 activation evidence uses named `activation_id`, `caller`, `card`,
+Prepared format-12 activation evidence uses named `activation_id`, `caller`, `card`,
 `parent_direction`, `role_text` and `node` fields. Root/card ingress records its actual
 activation and stable orientation; global preparation has null activation/card/parent
 and a global caller. Parent callers record exact parent card/session/source-input/call/
@@ -381,22 +381,28 @@ Plain resource reads cancel their pending request when their owner departs. Supe
 
 ## 5. Records, versions, and diffs
 
-Current record body APIs require `draft.unfilled` on every non-null draft, alongside
-existing content/hash/timestamps; the stored `seed_sha256` is not exposed. Absence,
-present-empty head, unfilled scaffold, changed draft and acceptance remain distinct.
-Overview previews and Records label unfilled drafts **Unfilled scaffold — not authored
-or accepted**; accepted backing is displayed separately, never promoted over an
-effective unfilled draft. Safe full content remains readable; scaffold publication
-is no agent attribution or progress. Recorded public draft selections likewise require
-`{kind:'draft',unfilled,accepted_backing}`; current/history/compacted observations use
-the recorded boolean, not current template text, and retain independent immutable
-backing links. No draft gets an immutable locator. Existing Analyst open-draft
-conflict remains unchanged.
+Current record body APIs expose nullable `baseline` and draft document
+`version,target_version` with content/hash/timestamps. Absence, established empty
+head, baseline0, draft0/target1, positive draft and acceptance remain distinct.
+Overview/Records/observations label **Baseline v0 — not authored or accepted** and
+**Draft for vN**, with the same nonauthored warning on draft0. Accepted backing is
+separate, never promoted over ineligible effective content. Recorded selections
+use `{kind:'baseline',version:0}` or `{kind:'draft',version,target_version,accepted_backing}`;
+no `unfilled` or template reconstruction exists. Safe full content stays readable.
+Current head UUID/revision remain strict nonnullable fields. Historical accepted
+HTTP responses omit mutation revision; VFS/tool metadata and sliced reads expose
+`version:N,revision:null,head_id:null`. Current-relative diffs report the exact
+current stamp; version-to-version diffs report document versions only. Selected
+history labels say accepted document version, never an inferred record revision.
+Immutable entry/provenance, including observed **card** mutation revision, remains
+factual. Baseline/drafts have no immutable history locator or v0 history entry.
+Existing Analyst open-draft conflict remains unchanged.
 
-Compiled workflow `records[]` requires nullable `initialization:{content,at}` beside
+Compiled workflow `records[]` requires nullable `initialization:{format_version:1,template}` beside
 `name` and `bootstrap`; authenticated Debug graphs expose the same selected choices
 through existing privacy filtering. These describe installed compiled configuration,
-not historical scaffold text, author evidence or hot-reload state.
+not historical scaffold text, author evidence or hot-reload state. Nodes expose
+ordered `initialize_records` independently of record completion requirements.
 
 - Record declarations render in declaration order; descriptor reads precede
   content reads; each record is fetched independently. Exactly one record is
@@ -408,9 +414,8 @@ not historical scaffold text, author evidence or hot-reload state.
 - Overview labels the configured `bootstrap:true` record as **Objective**
   regardless of its custom name and presents every other declared record in
   declaration order under that exact name. A source's `effective_content_source`
-  determines draft versus accepted content; a draft's required `unfilled` boolean
-  selects **Unfilled scaffold — not authored or accepted** when true and **Draft**
-  otherwise, while accepted content is **Accepted**. An accepted HTTP observation
+  determines baseline versus draft versus accepted content, with the labels above,
+  while accepted content is **Accepted**. An accepted HTTP observation
   is not acceptance of the work. Arbitrary records are not classified as
   progress, review, constraints, or completion from their names or Markdown.
   Objective descriptor loading, initial content failure, empty effective

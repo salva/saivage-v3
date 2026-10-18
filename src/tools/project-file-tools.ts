@@ -417,12 +417,27 @@ export async function readProject(
     const observations = (
       exposure: RecordSelectionObservation['exposure'],
     ): readonly RecordSelectionObservation[] => {
+      const projection = resolved.recordProjection;
+      const identity = {
+        cardId: resolved.cardId,
+        recordName: resolved.filename,
+        view: 'effective' as const,
+        exposure,
+      };
+      if (projection?.headId === null)
+        return [
+          observeRecordProjection({
+            ...identity,
+            projection,
+            selectionKind: 'historical',
+          }),
+        ];
       const effective = observeRecordProjection({
         cardId: resolved.cardId,
         recordName: resolved.filename,
-        projection: resolved.recordProjection,
+        projection,
         view: 'effective',
-        selectionKind: resolved.currentSelection ? 'current' : 'historical',
+        selectionKind: 'current',
         exposure,
       });
       if (!resolved.currentSelection) return [effective];
@@ -431,7 +446,7 @@ export async function readProject(
         observeRecordProjection({
           cardId: resolved.cardId,
           recordName: resolved.filename,
-          projection: resolved.recordProjection,
+          projection,
           view: 'accepted',
           selectionKind: 'current',
           exposure:

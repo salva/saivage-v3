@@ -91,9 +91,9 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   it.each(gateCases)('preserves %s/%s admission and A→B→A mutable freshness on real heads', (mode, gate) => {
     const root=mkdtempSync(join(tmpdir(),'saivage-record-gates-')); roots.push(root); initProjectTree(root);
     const store=new CardService(root); store.acceptRecord('project','status.md','baseline','analyst');
-    store.openRecord('project','status.md',null); store.editRecord('project','status.md','A');
+    store.openRecord('project','status.md'); store.editRecord('project','status.md','A');
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
-    const node={requirements:[{mode,gate,definition:{name:'status.md'}}]};
+    const node={initializeRecords:[],requirements:[{mode,gate,definition:{name:'status.md'}}]};
     runner.prepareRecordRequirements(node);
     const baseline=new Map([['status.md',runner.captureRecordHead('status.md') as {revision:number;headId:string}]]);
     const initial=runner.validateRecords(node,baseline);
@@ -127,7 +127,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({mode:'continue',gate:'updated',definition:{name}}));
     const agent={name:'worker',recordWrites:requirements.map(({definition})=>({source:definition.name,matcher:new RegExp(`^${definition.name.replace('.', '\\.')}$`)}))};
-    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,revision:index+1,state:'open',draft:{content:'accepted',seed_sha256:null}}]));
+    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,revision:index+1,state:'open',draft:{content:'accepted',version:1,target_version:1}}]));
     expect(runner.closeAcceptedRecords({nodeId:'work',agent,requirements},candidates,new Set())).toEqual([
       {name:'alpha.md',url:'record:///alpha.md?card=project&v=2',version:2},
       {name:'beta.md',url:'record:///beta.md?card=project&v=3',version:3},
@@ -142,7 +142,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({mode:'continue',gate:'updated',definition:{name}}));
     const agent={name:'worker',recordWrites:requirements.map(({definition})=>({source:definition.name,matcher:new RegExp(`^${definition.name.replace('.', '\\.')}$`)}))};
-    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,revision:index+1,state:'open',draft:{content:'accepted',seed_sha256:null}}]));
+    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,revision:index+1,state:'open',draft:{content:'accepted',version:1,target_version:1}}]));
     expect(()=>runner.closeAcceptedRecords({nodeId:'work',agent,requirements},candidates,new Set())).toThrow(failure);
     expect(store.closeRecord).toHaveBeenCalledTimes(1);
     expect(store.readRecordCurrent).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   it('applies exists and updated gates against non-empty effective content and exact head stamps', () => {
     const projections = new Map([
       ['closed.md', { headId:'11111111-1111-4111-8111-111111111111', revision: 4, currentUrl: 'record:///closed.md?card=project', state: 'closed', accepted: { content: 'accepted' }, draft: null }],
-      ['open.md', { headId:'22222222-2222-4222-8222-222222222222', revision: 6, currentUrl: 'record:///open.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: 'new', seed_sha256:null } }],
+      ['open.md', { headId:'22222222-2222-4222-8222-222222222222', revision: 6, currentUrl: 'record:///open.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: 'new', version:2,target_version:2 } }],
       ['empty.md', { headId:'33333333-3333-4333-8333-333333333333', revision: 3, currentUrl: 'record:///empty.md?card=project', state: 'open', accepted: { content: 'old' }, draft: { content: '' } }],
     ]);
     const store={readRecordCurrent:jest.fn((_card:string,name:string)=>({kind:'found',value:{projection:projections.get(name)??null}}))};
@@ -161,24 +161,24 @@ describe('AgentNodeExecution authored-record absence handling', () => {
       {mode:'continue',gate:'updated',definition:{name:'open.md'}},
       {mode:'continue',gate:'exists',definition:{name:'empty.md'}},
     ]};
-    expect(runner.validateRecords(node,new Map([['closed.md',{revision:4,headId:'11111111-1111-4111-8111-111111111111'}],['open.md',{revision:5,headId:'11111111-1111-4111-8111-111111111111'}],['empty.md',{revision:2,headId:'11111111-1111-4111-8111-111111111111'}]]))).toEqual({violations:["Required record 'record:///empty.md?card=project' is missing, empty or an unfilled scaffold; authored content is required."]});
+    expect(runner.validateRecords(node,new Map([['closed.md',{revision:4,headId:'11111111-1111-4111-8111-111111111111'}],['open.md',{revision:5,headId:'11111111-1111-4111-8111-111111111111'}],['empty.md',{revision:2,headId:'11111111-1111-4111-8111-111111111111'}]]))).toEqual({violations:["Required record 'record:///empty.md?card=project' is missing, empty or document 0; authored content is required."]});
   });
 
   it('prepares only clean requirements by discard then open and captures the post-preparation exact head', () => {
     const openProjection={revision:2,state:'open',draft:{content:'old'}};
     const discardRecord=jest.fn((_cardId:string,_name:string)=>({revision:3}));
-    const openRecord=jest.fn((_cardId:string,_name:string,_seed:string|null)=>({revision:4}));
+    const openRecord=jest.fn((_cardId:string,_name:string)=>({revision:4}));
     const readRecordCurrent=jest.fn()
       .mockReturnValueOnce({kind:'found',value:{projection:openProjection}})
       .mockReturnValue({kind:'found',value:{projection:{revision:4,headId:'11111111-1111-4111-8111-111111111111'}}});
     const runner=new AgentNodeExecution({cardId:'project',store:{readRecordCurrent,discardRecord,openRecord}} as never,{} as never) as unknown as RecordMethods;
-    runner.prepareRecordRequirements({requirements:[
+    runner.prepareRecordRequirements({initializeRecords:[],requirements:[
       {mode:'clean',gate:'updated',definition:{name:'clean.md'}},
       {mode:'continue',gate:'exists',definition:{name:'continue.md'}},
     ]});
     expect(readRecordCurrent).toHaveBeenCalledWith('project','clean.md');
     expect(discardRecord).toHaveBeenCalledWith('project','clean.md');
-    expect(openRecord).toHaveBeenCalledWith('project','clean.md',null);
+    expect(openRecord).toHaveBeenCalledWith('project','clean.md');
     expect(runner.captureRecordHead('clean.md')).toEqual({revision:4,headId:'11111111-1111-4111-8111-111111111111'});
   });
 
@@ -187,7 +187,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     const runner=new AgentNodeExecution({cardId:'project',store:{closeRecord}} as never,{} as never) as unknown as RecordMethods;
     const requirement={mode:'continue',gate:'exists',definition:{name:'resume.md'}};
     const node={agent:{name:'worker',tools:[],recordWrites:[{source:'resume.md',matcher:/^resume\.md$/u}]},requirements:[requirement]};
-    const candidate={revision:7,currentUrl:'record:///resume.md?card=project',state:'open',draft:{content:'resumed',seed_sha256:null}};
+    const candidate={revision:7,currentUrl:'record:///resume.md?card=project',state:'open',draft:{content:'resumed',version:1,target_version:1}};
     expect(runner.closeAcceptedRecords(node,new Map([['resume.md',candidate]]),new Set())).toEqual([{name:'resume.md',url:'record:///resume.md?card=project&v=8',version:8}]);
     expect(closeRecord).toHaveBeenCalledWith('project','resume.md','worker');
   });
@@ -195,7 +195,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   it('closes required records first and free records in sorted order, stopping at the first free failure', () => {
     const trace:string[]=[];
     const nextHead=new Map([['required.md',3],['free-a.md',5],['free-b.md',6],['free-c.md',7]]);const closeRecord=jest.fn((_card:string,name:string)=>{trace.push(name);if(name==='free-b.md')throw new Error('FREE_CLOSE_FAILED');const revision=nextHead.get(name)!;return{revision,currentUrl:`record:///${name}?card=project`,accepted:{source_version:revision}};});
-    const open=(name:string,head:number)=>({revision:head,currentUrl:`record:///${name}?card=project`,state:'open',draft:{content:name,seed_sha256:null}});
+    const open=(name:string,head:number)=>({revision:head,currentUrl:`record:///${name}?card=project`,state:'open',draft:{content:name,version:1,target_version:1}});
     const values=new Map([['free-a.md',open('free-a.md',4)],['free-b.md',open('free-b.md',5)],['free-c.md',open('free-c.md',6)]]);
     const store={closeRecord,readRecordCurrent:jest.fn((_card:string,name:string)=>({kind:'found',value:{projection:values.get(name)??null}}))};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;

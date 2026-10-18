@@ -169,7 +169,7 @@ for (const markdownCase of markdownCases) {
             size_bytes: Buffer.byteLength(markdownCase.source),
           },
           draft: null,
-          effective_content_source: 'accepted',
+          baseline: null, effective_content_source: 'accepted',
         },
       });
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });

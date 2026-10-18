@@ -94,6 +94,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],
         record_write_patterns: node.agent.recordWrites.map(({ source }) => source),
+        initialize_records: node.initializeRecords.map((record) => record.name),
         requirements: node.requirements.map((requirement) => ({
           record_name: requirement.definition.name,
           mode: requirement.mode,
@@ -181,7 +182,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           schema,
           bootstrap,
           initialization: initialization
-            ? { content: redactTextForOutbound(initialization.content), at: [...initialization.at] }
+            ? { format_version: 1, template: redactTextForOutbound(initialization.template) }
             : null,
         }),
       ),

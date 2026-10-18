@@ -64,7 +64,7 @@ describe('WebProvider', () => {
     cards.setStatus('project', 'running');
     cards.commitActivationOutcome('project', { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-10-02T00:00:00.000Z');
     cards.setStatus('project', 'changed');
-    if (condition === 'draft') { cards.openRecord('project', 'brief.md', null); cards.editRecord('project', 'brief.md', 'workflow draft'); }
+    if (condition === 'draft') { cards.openRecord('project', 'brief.md'); cards.editRecord('project', 'brief.md', 'workflow draft'); }
     const before = cards.readRecordCurrent('project', 'brief.md');
     const notify = jest.fn((_id: string, notice: Parameters<CardService['enqueueNotification']>[1]) => ({ ok: true as const, notificationId: notice.id }));
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('fetched correction', { status: 200, headers: { 'content-type': 'text/plain' } }));
@@ -251,7 +251,7 @@ describe('WebProvider', () => {
     const content = '# Goal\nFetched\n# Instructions\nUse it\n# Acceptance Criteria\nSaved';
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }));
     const mutationPath = 'record:///brief.md?card=project';
-    const write = jest.fn((_path: string, _content: string, _tools: readonly string[]) => ({ kind: 'returned' as const, success: true as const, data: { head_id: '11111111-1111-4111-8111-111111111111', card_id: 'project', name: 'brief.md', state: 'closed', revision: 4, current_url: 'record:///brief.md?card=project', accepted_version_url: 'record:///brief.md?card=project&v=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }));
+    const write = jest.fn((_path: string, _content: string, _tools: readonly string[]) => ({ kind: 'returned' as const, success: true as const, data: { head_id: '11111111-1111-4111-8111-111111111111', card_id: 'project', name: 'brief.md', state: 'closed', version: 4, target_version: null, revision: 4, current_url: 'record:///brief.md?card=project', accepted_version_url: 'record:///brief.md?card=project&v=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }));
     const admitWrite = jest.fn((_path: string) => ({ ok: true as const }));
     const readiness = Object.freeze({ assertInterventionReady() {} });
     try {
@@ -278,7 +278,7 @@ describe('WebProvider', () => {
     let readinessCount = 0;
     const mutationPath = 'record:///brief.md?card=project';
     const admitWrite = jest.fn(() => { events.push('preflight'); return { ok: true as const }; });
-    const write = jest.fn(() => { events.push('mutate'); return { kind: 'returned' as const, success: true as const, data: { head_id: '11111111-1111-4111-8111-111111111111', card_id: 'project', name: 'brief.md', state: 'closed', revision: 4, current_url: 'record:///brief.md?card=project', accepted_version_url: 'record:///brief.md?card=project&v=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }; });
+    const write = jest.fn(() => { events.push('mutate'); return { kind: 'returned' as const, success: true as const, data: { head_id: '11111111-1111-4111-8111-111111111111', card_id: 'project', name: 'brief.md', state: 'closed', version: 4, target_version: null, revision: 4, current_url: 'record:///brief.md?card=project', accepted_version_url: 'record:///brief.md?card=project&v=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }; });
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() { readinessCount += 1; events.push(`readiness-${readinessCount}`); } }, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [bindWeb({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
@@ -577,7 +577,7 @@ describe('WebProvider', () => {
   it('keeps replacement-decoding expansion successful for an Analyst prepared record save', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-analyst-decode-'));
     const mutationPath = 'record:///brief.md?card=project';
-    const write = jest.fn((_path: string, _content: string, _tools: readonly string[]) => ({ kind: 'returned' as const, success: true as const, data: { head_id: '11111111-1111-4111-8111-111111111111', card_id: 'project', name: 'brief.md', state: 'closed', revision: 4, current_url: mutationPath, accepted_version_url: `${mutationPath}&v=4`, bytes: 3, written: true, surface: 'analyst', propagation: { ok: true } } }));
+    const write = jest.fn((_path: string, _content: string, _tools: readonly string[]) => ({ kind: 'returned' as const, success: true as const, data: { head_id: '11111111-1111-4111-8111-111111111111', card_id: 'project', name: 'brief.md', state: 'closed', version: 4, target_version: null, revision: 4, current_url: mutationPath, accepted_version_url: `${mutationPath}&v=4`, bytes: 3, written: true, surface: 'analyst', propagation: { ok: true } } }));
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(Uint8Array.from([0xff]), { status: 200, headers: { 'content-type': 'text/plain' } }));
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() {} }, analystMutations: { recordMutations: { admitWrite: () => ({ ok: true as const }), write } } } as never;

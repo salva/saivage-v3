@@ -8,7 +8,7 @@ import {
   sameRecordSelection,
 } from '../../schemas/index.js';
 import { renderCompiledPrompt } from '../../utils/prompt-api.js';
-import { observeRecordProjection } from '../../persistence/index.js';
+import { effectiveRecordContent, observeRecordProjection } from '../../persistence/index.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
 import type { RecordContextSupplier } from '../actors/llm-invocation.js';
 import type { CompiledNodeContract } from '../card-process/card-process-config.js';
@@ -78,7 +78,9 @@ export function bootstrapContextSupplier(
       const body =
         input.selection === 'accepted'
           ? selected?.accepted?.content
-          : (selected?.draft?.content ?? selected?.accepted?.content);
+          : selected
+            ? effectiveRecordContent(selected)?.content
+            : undefined;
       if (body === undefined && input.presence === 'required')
         throw new Error(
           `Required ${input.selection} record '${card.id}/${input.record}' has no selected content.`,

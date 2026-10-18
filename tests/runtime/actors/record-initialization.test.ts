@@ -1,17 +1,20 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CardService, initProjectTree, TEST_WORKFLOWS } from '../../helpers/canonical-project.js';
-import { testRecordDefinition } from '../../helpers/record-definitions.js';
+import { CardService } from '../../../src/cards/card-service.js';
+import { publishInitialProjectRuntime } from '../../../src/boot/index.js';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
-import { sha256Hex } from '../../../src/schemas/index.js';
-import { recordHeadSchema, authoredRecordVersionArtifactSchema, isEligibleRecordContent } from '../../../src/persistence/canonical-record-artifacts.js';
-import { inspectAuthoredRecordSelection } from '../../../src/persistence/authored-record-files.js';
-import { cardRecordHeadFile, cardRecordPreviousHeadFile, cardAcceptedRecordFile } from '../../../src/persistence/layout.js';
-import { observeRecordProjection } from '../../../src/persistence/record-observation.js';
-import { NO_FRESHNESS_EFFECTS } from '../../../src/contracts/index.js';
+import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
+import { effectiveSaivageConfigSchema } from '../../../src/schemas/index.js';
+import { compileProjectWorkflows, describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
+import { cardRecordHeadFile } from '../../../src/persistence/layout.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
+import { compilePromptTemplate, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
+import { bootstrapContextSupplier } from '../../../src/runtime/records/bootstrap-context.js';
+import { readConversation, appendConversationBatch } from '../../../src/persistence/conversation-file.js';
+import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
+import { publishThreeGenerationCompactedConversation } from '../../helpers/compacted-conversation-fixture.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -19,118 +22,124 @@ type Methods = {
   prepareRecordRequirements(node: unknown): void;
   captureRecordHead(name: string): { headId: string; revision: number } | null;
   validateRecords(node: unknown, baseline: Map<string, unknown>): { candidates?: Map<string, any>; violations?: string[] };
-  closeAcceptedRecords(node: unknown, candidates: Map<string, any>, written: Set<string>): unknown;
-  discardWrittenRecords(written: Set<string>): void;
 };
-function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'record-seed-')); roots.push(root); initProjectTree(root);
-  const hint = jest.fn();
-  const store = new CardService(root, { ...NO_FRESHNESS_EFFECTS, cardProjectionChanged: hint });
+function fixture(profile: 'classic' | 'classic-typed' | 'paad-typed' = 'classic', clean = false) {
+  const template = resolveSystemTemplate(profile); const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
+  config.card_types.project!.records['status.md']!.initialization = { format_version: 1, template: '{{cardType}}/{{cardId}}/{{cardTitle}}/{{nodeId}}/{{recordName}} ${LITERAL}' };
+  config.card_types.project!.workflow.nodes.plan!.records['status.md'] = { mode: clean ? 'clean' : 'continue', gate: 'updated' };
+  const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config), { defaultPromptRoot: template.promptRoot });
+  const root = mkdtempSync(join(tmpdir(), 'record-baseline-')); roots.push(root); publishInitialProjectRuntime(root, workflows);
+  const store = new CardService(root, workflows);
   const runner = new AgentNodeExecution({ cardId: 'project', store } as never, {} as never) as unknown as Methods;
+  const node = workflows.cardTypes.get('project')!.states.get('node:plan')!;
+  if (node.kind !== 'node') throw new Error('Missing plan node');
   const read = () => { const result = store.readRecordCurrent('project', 'status.md'); if (result.kind !== 'found') throw new Error('missing card'); return result.value.projection; };
-  return { root, store, runner, read, hint };
+  return { root, store, runner, read, node, workflows };
 }
-function node(mode: 'continue' | 'clean' = 'continue', gate: 'exists' | 'updated' = 'exists', content: string | null = 'seed\n', at = ['first_required_entry', 'clean_entry']) {
-  return { agent: TEST_WORKFLOWS.cardTypes.get('project')!.states.get('node:plan')!.kind === 'node'
-    ? (TEST_WORKFLOWS.cardTypes.get('project')!.states.get('node:plan') as any).agent : null,
-    requirements: [{ mode, gate, definition: { name: 'status.md', initialization: content === null ? null : { content, at } } }] };
-}
-describe('required-entry scaffold lifecycle and authored eligibility', () => {
-  it.each(['exists', 'updated'] as const)('captures %s baseline after setup, rejects seed/restore/whitespace, accepts actual work only', gate => {
-    const f = fixture(); const selected = node('continue', gate);
-    expect(f.read()).toBeNull();
-    f.runner.prepareRecordRequirements(selected);
-    const initial = f.read()!;
+describe('real node preparation and document lifecycle', () => {
+  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('renders exact entry context once in %s and excludes v0 from both gates', profile => {
+    const f = fixture(profile); f.runner.prepareRecordRequirements(f.node);
+    expect(f.read()).toMatchObject({ state: 'baseline', revision: 1, baseline: { version: 0, content: expect.stringContaining('project/project/') }, accepted: null, draft: null });
+    expect(f.read()!.baseline!.content).toContain('/plan/status.md ${LITERAL}');
     const baseline = new Map([['status.md', f.runner.captureRecordHead('status.md')]]);
-    expect(initial).toMatchObject({ revision: 1, accepted: null, draft: { content: 'seed\n', seed_sha256: sha256Hex('seed\n') } });
-    expect(f.hint).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'record', record_name: 'status.md' }));
-    expect(f.runner.validateRecords(selected, baseline).violations).toBeDefined();
-    expect(() => f.store.closeRecord('project', 'status.md', 'planner')).toThrow(/unfilled scaffold/);
+    for (const gate of ['exists', 'updated']) expect(f.runner.validateRecords({ ...f.node, requirements: f.node.requirements.map(item => ({ ...item, gate })) }, baseline).violations).toBeDefined();
+    const opened = f.store.openRecord('project', 'status.md');
+    expect(opened.draft).toMatchObject({ version: 0, target_version: 1 });
+    expect(() => f.store.closeRecord('project', 'status.md', 'planner')).toThrow(/document 0/);
     expect(() => f.store.acceptRecord('project', 'status.md', 'operator edit', 'analyst')).toThrow(/open workflow draft/);
     f.store.editRecord('project', 'status.md', 'authored');
-    f.store.editRecord('project', 'status.md', 'seed\n');
-    expect(f.runner.validateRecords(selected, baseline).violations).toBeDefined();
-    f.store.editRecord('project', 'status.md', ' \n');
-    expect(f.runner.validateRecords(selected, baseline).violations).toBeDefined();
-    expect(f.store.readRecordHistory('project', 'status.md')).toMatchObject({ value: { catalog: { versions: [] } } });
-    f.store.editRecord('project', 'status.md', 'Current delivered assessment');
-    const candidates = f.runner.validateRecords(selected, baseline).candidates!;
-    expect(candidates.size).toBe(1);
-    expect(f.runner.closeAcceptedRecords(selected, candidates, new Set(['status.md']))).toEqual([expect.objectContaining({ name: 'status.md', version: 6 })]);
-    expect(f.read()!.accepted!.writer_agent).toBe('planner');
+    // Returning to the same text is an ordinary authored mutation, not a fingerprint test.
+    f.store.editRecord('project', 'status.md', opened.draft!.content);
+    expect(f.runner.validateRecords(f.node, baseline).candidates?.size).toBe(1);
+    expect(() => f.store.editRecord('project', 'status.md', ' \n')).toThrow(/must not be empty/);
+    const accepted = f.store.closeRecord('project', 'status.md', 'planner');
+    expect(accepted.accepted!.source_version).toBe(1); expect(accepted.revision).toBeGreaterThan(1);
   });
 
-  it.each(['accepted', 'draft', 'seed', 'discarded'] as const)('continue preserves present %s byte-for-byte through replacement/disable and a fresh owner', state => {
-    const f = fixture();
-    if (state === 'accepted') f.store.acceptRecord('project', 'status.md', 'before entry', 'analyst');
-    else { f.runner.prepareRecordRequirements(node()); if (state === 'draft') f.store.editRecord('project', 'status.md', 'ongoing'); if (state === 'discarded') f.store.discardRecord('project', 'status.md'); }
-    const path = cardRecordHeadFile(f.root, 'project', { filename: 'status.md' });
-    const before = readFileSync(path);
-    for (const content of ['replacement', null]) {
-      const store = new CardService(f.root);
-      const runner = new AgentNodeExecution({ cardId: 'project', store } as never, {} as never) as unknown as Methods;
-      runner.prepareRecordRequirements(node('continue', 'exists', content));
-      expect(readFileSync(path)).toEqual(before);
-    }
+  it.each((['classic', 'classic-typed', 'paad-typed'] as const).flatMap(profile =>
+    (['baseline', 'draft', 'accepted', 'empty'] as const).map(state => [profile, state] as const)))('does not render or publish in %s for existing %s on entry/re-entry', (profile, state) => {
+    const f = fixture(profile);
+    if (state === 'accepted') f.store.acceptRecord('project', 'status.md', 'Analyst before workflow', 'analyst');
+    else f.runner.prepareRecordRequirements(f.node);
+    if (state === 'draft' || state === 'empty') f.store.openRecord('project', 'status.md');
+    if (state === 'draft') f.store.editRecord('project', 'status.md', 'ongoing');
+    if (state === 'empty') f.store.discardRecord('project', 'status.md');
+    const path = cardRecordHeadFile(f.root, 'project', { filename: 'status.md' }); const before = readFileSync(path);
+    const render = jest.fn(() => { throw new Error('must not render'); });
+    f.store.initializeRecord('project', 'status.md', render);
+    expect(render).not.toHaveBeenCalled();
+    const initialize = f.store.initializeRecord.bind(f.store);
+    const renderCalls = jest.fn((render: () => string) => render());
+    jest.spyOn(f.store, 'initializeRecord').mockImplementation((id, name, render) => initialize(id, name, () => renderCalls(render)));
+    f.store.editCard('project', { title: 'Changed entry context {{cardId}}' }, 'analyst');
+    const changed = { ...f.node, initializeRecords: f.node.initializeRecords.map(definition => ({ ...definition, initialization: {
+      ...definition.initialization!, template: 'Changed {{cardTitle}}',
+      compiled: compilePromptTemplate({ host: { kind: 'record-initializer', cardType: 'project' }, name: definition.name, path: 'changed-template', text: 'Changed {{cardTitle}}', resolveFragment: () => { throw new Error('No fragment'); } }),
+    } })) };
+    f.runner.prepareRecordRequirements(changed);
+    f.runner.prepareRecordRequirements(changed);
+    expect(renderCalls).not.toHaveBeenCalled(); expect(readFileSync(path)).toEqual(before);
   });
 
-  it('clean opens once with both triggers, retains backing and uses a new choice only in a fresh cycle', () => {
-    const f = fixture(); const open = jest.spyOn(f.store, 'openRecord');
-    f.runner.prepareRecordRequirements(node('clean'));
-    expect(open).toHaveBeenCalledTimes(1);
-    f.store.editRecord('project', 'status.md', 'accepted assessment'); f.store.closeRecord('project', 'status.md', 'planner');
-    f.runner.prepareRecordRequirements(node('clean', 'exists', 'replacement'));
-    expect(f.read()).toMatchObject({ accepted: { content: 'accepted assessment' }, draft: { content: 'replacement', seed_sha256: sha256Hex('replacement') } });
-    expect(isEligibleRecordContent(f.read()!)).toBe(false);
-    f.store.editRecord('project', 'status.md', 'continuing changed body');
-    expect(f.read()!.draft!.seed_sha256).toBe(sha256Hex('replacement'));
-    f.runner.prepareRecordRequirements(node('continue', 'exists', 'other'));
-    expect(f.read()!.draft!.content).toBe('continuing changed body');
-    f.runner.prepareRecordRequirements(node('clean', 'exists', null));
-    expect(f.read()).toMatchObject({ draft: { content: '', seed_sha256: null }, accepted: { content: 'accepted assessment' } });
+  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('composes %s roles, nodes, tools, record entry/re-entry and compaction from the final compiled contracts', async profile => {
+    const f = fixture(profile); const session = 'agent:planner:project' as const;
+    const roles = [...f.workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states].flatMap(([stateId, node]) => {
+      if (node.kind !== 'node') return [];
+      const contract = describeNodeResultContract(workflow, stateId);
+      const role = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: contract });
+      expect(role.split(contract)).toHaveLength(2);
+      return [{ cardType, stateId, agent: node.agent.name, role, contract, tools: node.agent.tools,
+        node: workflow.processPrompts.get(node.prompt.promptId)!.text,
+        correction: workflow.processPrompts.get(node.correctionPrompt.promptId)!.text,
+        handoffs: [...node.on.values()].flatMap(route => 'prompt' in route.semantic && route.semantic.prompt ? [workflow.processPrompts.get(route.semantic.prompt.promptId)!.text] : []),
+      }];
+    }));
+    expect(new Set(roles.map(item => item.agent))).toEqual(new Set(['planner', 'executor', 'reviewer']));
+    f.runner.prepareRecordRequirements(f.node);
+    const prepare = (node = f.node) => bootstrapContextSupplier(f.store, f.store.read('project')!, node)({ inputId: '11111111-1111-4111-8111-111111111111', conversation: readConversation(f.root, session) });
+    const initial = prepare(); appendConversationBatch({ projectRoot: f.root }, initial.rows);
+    expect(initial.rows.find(row => row.kind === 'record_prompt' && row.record_observations?.some(item => item.observed.selection.kind === 'baseline'))!.content)
+      .toContain(JSON.stringify(f.read()!.baseline!.content));
+    f.store.openRecord('project', 'status.md'); f.store.editRecord('project', 'status.md', 'Actual current assessment');
+    const changed = prepare(); appendConversationBatch({ projectRoot: f.root }, changed.rows);
+    const recovery = f.workflows.cardTypes.get('project')!.states.get('node:recover')!;
+    if (recovery.kind !== 'node') throw new Error('Missing recovery node');
+    f.runner.prepareRecordRequirements(recovery);
+    const reentry = prepare(recovery);
+    expect(reentry.rows.filter(row => row.kind === 'record_prompt')).toEqual([]);
+    await publishThreeGenerationCompactedConversation(f.root);
+    const compacted = readConversation(f.root, session);
+    const latest = compacted.effectiveRequiredModelFacts.latestRecordObservations.find(item => item.observation.observed.record_name === 'status.md')!;
+    expect(latest.observation.observed.selection).toMatchObject({ kind: 'draft', version: 1, target_version: 1 });
+    const afterCompaction = prepare(recovery);
+    expect(afterCompaction.rows.filter(row => row.kind === 'record_prompt')).toEqual([]);
+    const composition = providerConversationProjection(compacted, afterCompaction.recordBlocks);
+    const facts = composition.messages.find(message => 'block_identity' in message && message.block_identity === 'latest-record-observations')!;
+    expect(facts.content).toContain('"target_version":1');
+    expect(facts.content).not.toContain('Actual current assessment');
+    const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+    if (evidence) { mkdirSync(evidence, { recursive: true }); writeFileSync(join(evidence, `record-v0-${profile}.json`), JSON.stringify({ kind: 'offline-final-source-compiled-composition-not-provider-wire', profile, roles, initial, changed, reentry, afterCompaction, latest, composition }, null, 2)); }
   });
 
-  it('first-only clean seeds absent heads but not present-empty ones; untemplated opening stays empty', () => {
-    const f = fixture(); const first = node('clean', 'exists', 'first', ['first_required_entry']);
-    f.runner.prepareRecordRequirements(first); expect(f.read()!.draft!.content).toBe('first');
-    f.store.discardRecord('project', 'status.md'); f.runner.prepareRecordRequirements(first);
-    expect(f.read()!.draft).toMatchObject({ content: '', seed_sha256: null });
-    const free = f.store.openRecord('project', 'notes.md', null); expect(free.draft).toMatchObject({ content: '', seed_sha256: null });
+  it('keeps explicit clean separate and captures updated stamps after preparation', () => {
+    const f = fixture('classic', true); f.runner.prepareRecordRequirements(f.node);
+    expect(f.read()!.draft).toMatchObject({ version: 0, target_version: 1 });
+    f.store.editRecord('project', 'status.md', 'first'); f.store.closeRecord('project', 'status.md', 'planner');
+    f.runner.prepareRecordRequirements(f.node);
+    expect(f.read()).toMatchObject({ accepted: { source_version: 1, content: 'first' }, draft: { version: 2, target_version: 2, content: '' } });
+    const baseline = new Map([['status.md', f.runner.captureRecordHead('status.md')]]);
+    expect(f.runner.validateRecords(f.node, baseline).violations).toBeDefined();
+    f.store.editRecord('project', 'status.md', 'second');
+    expect(f.runner.validateRecords(f.node, baseline).candidates?.size).toBe(1);
+    expect(f.store.closeRecord('project', 'status.md', 'planner').accepted!.source_version).toBe(2);
+    expect(f.store.openRecord('project', 'notes.md').draft).toMatchObject({ version: 1, target_version: 1, content: '' });
   });
 
-  it('retains auto-only drafts in nonaccepted cleanup and rejects free-draft seed acceptance', () => {
-    const f = fixture(); f.runner.prepareRecordRequirements(node());
-    const before = f.read(); f.runner.discardWrittenRecords(new Set()); expect(f.read()).toEqual(before);
-    const freeNode = { ...node(), requirements: [] };
-    expect(() => f.runner.closeAcceptedRecords(freeNode, new Map(), new Set(['status.md']))).toThrow(/non-empty open draft/);
-    f.store.editRecord('project', 'status.md', 'genuine write');
-    f.runner.discardWrittenRecords(new Set(['status.md'])); expect(f.read()!.draft).toBeNull();
-  });
-
-  it('keeps strict head2/artifact1 and repair selections distinct, including previous seeded provenance', () => {
-    const f = fixture(); f.store.acceptRecord('project', 'status.md', 'supplied', 'analyst'); f.runner.prepareRecordRequirements(node('clean'));
-    const def = testRecordDefinition('status.md');
-    const current = readFileSync(cardRecordHeadFile(f.root, 'project', def));
-    const head = recordHeadSchema.parse(JSON.parse(current.toString())); expect(head.format_version).toBe(2);
-    expect(() => recordHeadSchema.parse({ ...head, format_version: 1 })).toThrow();
-    const { seed_sha256: _seed, ...withoutSeed } = head.draft!;
-    expect(() => recordHeadSchema.parse({ ...head, draft: withoutSeed })).toThrow();
-    const artifact = JSON.parse(readFileSync(cardAcceptedRecordFile(f.root, 'project', head.accepted!.entry_id), 'utf8'));
-    expect(authoredRecordVersionArtifactSchema.parse(artifact).format_version).toBe(1);
-    expect(() => authoredRecordVersionArtifactSchema.parse({ ...artifact, format_version: 2 })).toThrow();
-    expect(inspectAuthoredRecordSelection(f.root, 'project', def, current).projection.draft!.seed_sha256).toBe(sha256Hex('seed\n'));
-    f.store.editRecord('project', 'status.md', 'changed');
-    expect(inspectAuthoredRecordSelection(f.root, 'project', def, readFileSync(cardRecordPreviousHeadFile(f.root, 'project', def))).projection.draft!.content).toBe('seed\n');
-    const observed = observeRecordProjection({ cardId: 'project', recordName: 'status.md', projection: f.read(), view: 'effective', selectionKind: 'current', exposure: { kind: 'metadata' } });
-    expect(observed.selection).toMatchObject({ kind: 'draft', unfilled: false, accepted_backing: { kind: 'accepted', version: 1 } });
-  });
-
-  it('propagates publication uncertainty immediately without follow-up work', () => {
-    const unknown = new PublicationOutcomeUnknownError(); const read = jest.fn(() => ({ kind: 'found', value: { projection: null } }));
-    const open = jest.fn(() => { throw unknown; }); const discard = jest.fn();
-    const runner = new AgentNodeExecution({ cardId: 'project', store: { readRecordCurrent: read, openRecord: open, discardRecord: discard } } as never, {} as never) as unknown as Methods;
-    const selected = node(); selected.requirements.push(selected.requirements[0]!);
-    expect(() => runner.prepareRecordRequirements(selected)).toThrow(unknown);
-    expect(read).toHaveBeenCalledTimes(1); expect(open).toHaveBeenCalledTimes(1); expect(discard).not.toHaveBeenCalled();
+  it('stops on initializer publication uncertainty without follow-up reads/cleanup', () => {
+    const f = fixture(); const unknown = new PublicationOutcomeUnknownError();
+    const initializeRecord = jest.fn(() => { throw unknown; }); const read = jest.fn(); const discard = jest.fn();
+    const runner = new AgentNodeExecution({ cardId: 'project', store: { initializeRecord, readRecordCurrent: read, discardRecord: discard } } as never, {} as never) as unknown as Methods;
+    expect(() => runner.prepareRecordRequirements(f.node)).toThrow(unknown);
+    expect(initializeRecord).toHaveBeenCalledTimes(1); expect(read).not.toHaveBeenCalled(); expect(discard).not.toHaveBeenCalled();
   });
 });
