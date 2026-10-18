@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import * as YAML from 'yaml';
 import { run } from '../../src/cli.js';
+import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import {
   DEFAULT_SAIVAGE_CONFIG,
   resolveSystemTemplate,
@@ -66,6 +67,31 @@ async function command(projectRoot: string, name: string, ...args: string[]) {
 }
 
 describe('offline workflow compilation and publication', () => {
+  it('actual PAAD init strictly loads its entire materialized closure and preserves it on a different profile request', async () => {
+    const projectRoot = root();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    await command(projectRoot, 'init', '--profile', 'paad-typed');
+    const template = resolveSystemTemplate('paad-typed');
+    const configPath = join(projectRoot, '.saivage', 'saivage.yaml');
+    const promptsRoot = join(projectRoot, '.saivage', 'config', 'prompts');
+    const markerPath = join(projectRoot, '.saivage', 'config', 'template.json');
+    const effective = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: {}, projectRoot }).loadEffective();
+    expect(effective.config).toEqual(template.config);
+    expect(JSON.parse(readFileSync(markerPath, 'utf8'))).toEqual({ template: 'paad-typed', saivage_version: SAIVAGE_VERSION });
+    assertTreeEqual(template.promptRoot, promptsRoot);
+    const artifacts: Array<{path: string; source: string}> = [];
+    compileProjectWorkflows(effective.config, { projectRoot, artifactObserver: artifact => artifacts.push(artifact) });
+    expect(artifacts.length).toBeGreaterThan(0);
+    expect(new Set(artifacts.map(artifact => relative(promptsRoot, artifact.path)))).toEqual(new Set(walkFiles(promptsRoot)));
+    for (const artifact of artifacts) {
+      expect(artifact.path.startsWith(`${promptsRoot}/`)).toBe(true);
+      expect(artifact.source.startsWith('override-')).toBe(true);
+    }
+    const retained = new Map([configPath, markerPath, ...walkFiles(promptsRoot).map(file => join(promptsRoot, file))].map(path => [path, readFileSync(path)]));
+    await command(projectRoot, 'init', '--profile', 'classic');
+    for (const [path, bytes] of retained) expect(readFileSync(path)).toEqual(bytes);
+    expect(walkFiles(promptsRoot)).toEqual(walkFiles(template.promptRoot));
+  });
   it('reports safe warnings for its successful offline load without disclosing environment values', async () => {
     const projectRoot = root();
     const fixture = structuredClone(TEST_SAIVAGE_CONFIG);

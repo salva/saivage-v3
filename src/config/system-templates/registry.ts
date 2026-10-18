@@ -7,6 +7,7 @@ import {
 } from '../../schemas/index.js';
 import { CLASSIC_TEMPLATE } from './classic/template.js';
 import { CLASSIC_TYPED_TEMPLATE } from './classic-typed/template.js';
+import { PAAD_TYPED_TEMPLATE } from './paad-typed/template.js';
 
 export interface SystemTemplateDefinition {
   readonly name: SystemTemplateName;
@@ -17,6 +18,7 @@ export interface SystemTemplateDefinition {
 export const SYSTEM_TEMPLATES: readonly SystemTemplateDefinition[] = Object.freeze([
   CLASSIC_TEMPLATE,
   CLASSIC_TYPED_TEMPLATE,
+  PAAD_TYPED_TEMPLATE,
 ]);
 
 export const DEFAULT_SYSTEM_TEMPLATE = 'classic' satisfies SystemTemplateName;

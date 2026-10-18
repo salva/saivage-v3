@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/contracts/index.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
@@ -19,7 +19,7 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
-import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
+import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../src/utils/prompt-api.js';
 import { specializedConfig } from '../helpers/specialized-config.js';
 import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
@@ -179,9 +179,10 @@ function runtimeHarness(
   config: SaivageConfig,
   provider: (input: LlmInvocationInput, signal: AbortSignal) => Promise<ProviderTurnCompletion>,
   summary?: { calls: LlmInvocationInput[]; content: string },
+  profile = 'classic-typed',
 ) {
   const structural = compileProjectWorkflows(config, {
-    defaultPromptRoot: resolveSystemTemplate('classic-typed').promptRoot,
+    defaultPromptRoot: resolveSystemTemplate(profile).promptRoot,
   });
   initializeAndValidateCurrentGeneratedState(root, structural);
   const providerRegistry = new ProviderRegistry(config);
@@ -215,19 +216,36 @@ function runtimeHarness(
           serializeSummaryRequest: deterministicSummarySerialization,
           completeTurn: async (input: LlmInvocationInput) => {
             summary.calls.push(input);
+            if (profile === 'paad-typed') captureTestComposition(`${basename(root)}-summary-${summary.calls.length}`, input);
             return complete({ kind: 'message', content: summary.content });
           },
           projectProviderExchanges: jest.fn(),
         },
       }
     : {};
+   let capturedCalls = 0;
   const supervisor = createSupervisorRuntimeApi({
     ...testAutonomousCompaction,
     ...summaryOverrides,
     workflows,
     projectRoot: root,
     actorStore: cards,
-    provider: scriptedAdmissionProvider(jest.fn(provider)),
+    provider: scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+      if (profile === 'paad-typed') {
+        const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId as string;
+        const process = structural.cardTypes.get(cards.read(cardId)!.type)!;
+        // Select by the actual prepared node block rather than infer a node from history.
+        const node = [...process.states.values()].find(state => state.kind === 'node' && input.preparedContext!.stableBlocks[1]!.content.startsWith(`Current workflow node '${state.nodeId}':`));
+        if (!node || node.kind !== 'node') throw new Error('Missing prepared PAAD node');
+        const contract = describeNodeResultContract(process, `node:${node.nodeId}`);
+        const role = renderCompiledPrompt({kind:'workflow-agent', cardType: cards.read(cardId)!.type}, node.agent.name, node.selectedAgentPrompt.compiled, {contractDescription: contract});
+        expect(input.systemPrompt).toContain(role);
+        expect(input.systemPrompt.split(contract)).toHaveLength(2);
+        expect(input.tools.map(tool => tool.function.name).sort()).toEqual([...node.agent.tools.map(tool => tool.name), 'emit_result'].sort());
+        captureTestComposition(`${basename(root)}-${cardId}-${node.nodeId}-${++capturedCalls}`, input);
+      }
+      return provider(input, signal);
+    })),
     conversations: { projectRoot: root },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner: new ProcessRunner(root, registry, testApplicationFatalPort),
@@ -240,10 +258,11 @@ function runtimeHarness(
 }
 
 function harness(
-  type: 'code' | 'architecture' | 'data' | 'test',
+  type: 'code' | 'architecture' | 'data' | 'test' | 'goal',
   provider: (input: LlmInvocationInput, signal: AbortSignal) => Promise<ProviderTurnCompletion>,
   summary?: { calls: LlmInvocationInput[]; content: string },
   brief = `Exercise ${type}.`,
+  profile = 'classic-typed',
 ) {
   const root = mkdtempSync(join(tmpdir(), `specialized-${type}-flow-`));
   roots.push(root);
@@ -266,7 +285,7 @@ function harness(
     }
   }
   const structural = compileProjectWorkflows(config, {
-    defaultPromptRoot: resolveSystemTemplate('classic-typed').promptRoot,
+    defaultPromptRoot: resolveSystemTemplate(profile).promptRoot,
   });
   publishInitialProjectRuntime(root, structural);
   const child = new CardService(root, structural).create({
@@ -279,7 +298,7 @@ function harness(
     created_by: 'planner',
     depends_on: [],
   });
-  return { ...runtimeHarness(root, config, provider, summary), child };
+  return { ...runtimeHarness(root, config, provider, summary, profile), child };
 }
 
 function transitionRows(input: LlmInvocationInput) {
@@ -331,6 +350,128 @@ function captureTestComposition(name: string, input: LlmInvocationInput): void {
 }
 
 describe('specialized production card-type flows', () => {
+  it('prepares PAAD goal Planner with its own brief, current contract and direct parent direction', async () => {
+    let goalId = ''; let parentCalls = 0; let goalCalls = 0;
+    const direction = 'Assess this goal only against its accepted brief. No implementation or descendant work is requested; return actual scoped evidence.';
+    const run = harness('goal', async input => {
+      const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId;
+      if (cardId === 'project') {
+        parentCalls++;
+        if (parentCalls === 1) return complete(tool('goal-activate','activate_card',{card_id:goalId,instructions:direction}));
+        if (parentCalls === 2) {
+          expect(run.cards.read(goalId)!.lifecycle).toMatchObject({status:'done',result:{node_id:'plan',outcome:'complete_direct'}});
+          expect(latestToolResult(input).success).toBe(true);
+          return complete(tool('goal-parent-status','write',{path:'record:///status.md?card=project',content:'Scoped goal assessment returned; no implementation acceptance claimed.'}));
+        }
+        if (parentCalls === 3) return complete(tool('goal-parent-done','emit_result',{outcome:'complete_direct',summary:'Scoped assessment complete.'}));
+        throw new Error('Unexpected goal parent call');
+      }
+      expect(cardId).toBe(goalId); goalCalls++;
+      expect(input.agentName).toBe('planner');
+      expect(input.preparedContext!.stableBlocks.find(block=>block.id.startsWith('parent-direction:'))!.content).toContain(JSON.stringify(direction));
+      if (goalCalls === 1) return complete(tool('goal-status','write',{path:`record:///status.md?card=${goalId}`,content:'Accepted goal requests assessment only. No implementation or decomposition is necessary; no work is added to manufacture alignment.'}));
+      if (goalCalls === 2) return complete(tool('goal-done','emit_result',{outcome:'complete_direct',summary:'Assessment complete without unnecessary decomposition.'}));
+      throw new Error('Unexpected goal call');
+    }, undefined, 'Assess whether this supplied assessment-only goal needs decomposition. No implementation is requested or accepted by this goal.', 'paad-typed');
+    goalId = run.child.id;
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
+    expect(goalCalls).toBe(2); expect(parentCalls).toBe(3);
+  });
+
+  it.each(['repair', 'already_green'] as const)('PAAD returns a missing owner decision, re-enters after clarification and independently accepts %s', async (mode) => {
+    let childId = ''; let acceptanceId = ''; let plannerCalls = 0; let codeCalls = 0; let acceptanceCalls = 0;
+    const brief = 'Implement the owner-selected answer in answer.cjs. The answer must be supplied by the requirement owner, not chosen by the implementer. Preserve that accepted scope; a later owner clarification supplies only the missing value.';
+    const direction = 'Owner clarification in owner-decision.txt supplies answer 42 within the accepted brief. Diagnose before ordinary scoped repair; retain already-green when appropriate. Independent acceptance remains separate.';
+    const status = (card: string, id: string, content: string) => tool(id, 'write', {path: `record:///status.md?card=${card}`, content});
+    const check = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("require('node:assert/strict').equal(require('./answer.cjs'), 42)")}`;
+    const run = harness('code', async input => {
+      if (input.agentName === 'planner') {
+        plannerCalls++;
+        const actions = [
+          tool('first-activation', 'activate_card', {card_id: childId, instructions:'Diagnose the assigned answer implementation; return the unavailable owner decision rather than choosing a value.'}),
+          tool('owner-input', 'read', {path:'owner-decision.txt'}),
+          tool('clarified-activation', 'activate_card', {card_id: childId, instructions:direction}),
+          tool('accept-fixed-output', 'activate_card', {card_id:acceptanceId, instructions:'Independently inspect owner-decision.txt and answer.cjs and run the fixed-input acceptance check. Do not repair the implementation.'}),
+          status('project', 'parent-status', 'Owner supplied the missing answer. Implementation returned current evidence; separate fixed-input verification accepted it.'),
+          tool('parent-complete', 'emit_result', {outcome:'complete_direct', summary:'Clarified implementation independently accepted.'}),
+        ];
+        if (plannerCalls === 2) {
+          expect(latestToolResult(input).success).toBe(true);
+          expect(JSON.stringify(latestToolResult(input))).toContain('Owner answer unavailable');
+          expect(JSON.stringify(latestToolResult(input))).toContain('record:///status.md');
+          expect(run.cards.read(childId)!.lifecycle).toMatchObject({status:'blocked', result:{node_id:'red',outcome:'blocked'}});
+          captureTestComposition(`paad-${mode}-actual-blocked-parent-return`, input);
+          // Simulate the requirement owner's external clarification, only after the real terminal return.
+          writeFileSync(join(run.root, 'owner-decision.txt'), 'Requirement owner decision: answer 42. Existing implementation scope is unchanged.\n');
+        }
+        if (plannerCalls === 3) expect(JSON.stringify(latestToolResult(input))).toContain('Requirement owner decision: answer 42');
+        if (plannerCalls === 4) expect(run.cards.read(childId)!.lifecycle.status).toBe('done');
+        if (plannerCalls === 5) expect(run.cards.read(acceptanceId)!.lifecycle).toMatchObject({status:'done',result:{node_id:'verify',outcome:'done'}});
+        const action = actions[plannerCalls - 1]; if (!action) throw new Error('Unexpected PAAD planner call');
+        return complete(action);
+      }
+      const cardId = JSON.parse(input.preparedContext!.stableBlocks[0]!.content).cardId;
+      if (cardId === childId) {
+        codeCalls++;
+        const actions = [
+          tool('missing-decision', 'read', {path:'owner-decision.txt'}),
+          status(childId, 'unavailable-status', 'Owner answer unavailable: choosing 41 versus 42 would change required behavior; no owner decision exists. Need the requirement owner to supply the answer. No implementation change made.'),
+          tool('unavailable-result', 'emit_result', {outcome:'blocked',summary:'Owner answer unavailable; required input must come from requirement owner.'}),
+          tool('read-clarification', 'read', {path:'owner-decision.txt'}),
+          tool('diagnose-answer', 'run_command', {command:check}),
+          status(childId, 'diagnosed-status', mode === 'repair' ? 'Owner answer 42 confirmed. Focused check reproduces answer 41 defect; ordinary local repair authorized.' : 'Owner answer 42 confirmed. Focused check passes on unchanged source; already green.'),
+          tool('red-classification', 'emit_result', {outcome:mode === 'repair' ? 'red_confirmed' : 'already_green',summary:mode === 'repair' ? 'Answer defect reproduced.' : 'Existing answer satisfies owner decision.'}),
+          ...(mode === 'repair' ? [
+            tool('repair-answer', 'write', {path:'answer.cjs',content:'module.exports = 42;\n'}),
+            tool('check-repair', 'run_command', {command:check}),
+            status(childId, 'green-status', 'Scoped answer repair passes the focused check. Independent acceptance outstanding.'),
+            tool('green-result', 'emit_result', {outcome:'green',summary:'Ordinary scoped repair passes.'}),
+          ] : []),
+          status(childId, 'refactor-status', 'No further structural changes justified. Owner answer check passes; separate independent acceptance required.'),
+          tool('implementation-done', 'emit_result', {outcome:'done',summary:'Owner answer implemented with focused evidence.'}),
+        ];
+        if (codeCalls === 4) {
+          expect(input.preparedContext!.stableBlocks.find(block=>block.id.startsWith('parent-direction:'))!.content).toContain(JSON.stringify(direction));
+          captureTestComposition(`paad-${mode}-clarified-reentry`, input);
+        }
+        if (codeCalls === 6) expect(latestToolResult(input)).toMatchObject({success:true,data:{exit_code: mode === 'repair' ? 1 : 0}});
+        const action = actions[codeCalls - 1]; if (!action) throw new Error('Unexpected PAAD code call');
+        return complete(action);
+      }
+      expect(cardId).toBe(acceptanceId); acceptanceCalls++;
+      const actions = [
+        tool('independent-owner-read', 'read', {path:'owner-decision.txt'}),
+        tool('independent-source-read', 'read', {path:'answer.cjs'}),
+        tool('independent-diagnosis', 'run_command', {command:check}),
+        status(acceptanceId, 'independent-diagnosed', 'Fixed input has adequate focused coverage and passes; independent source/owner comparison proceeds in verify.'),
+        tool('independent-ready', 'emit_result', {outcome:'coverage_ready',summary:'Fixed-input coverage ready.'}),
+        tool('independent-verify', 'run_command', {command:check}),
+        status(acceptanceId, 'independent-status', 'Independent source and owner-decision inspection agree on answer 42; focused check passes; no source changes.'),
+        tool('independent-done', 'emit_result', {outcome:'done',summary:'Fixed owner answer independently accepted.'}),
+      ];
+      if (acceptanceCalls === 4 || acceptanceCalls === 7) expect(latestToolResult(input)).toMatchObject({success:true,data:{exit_code:0}});
+      const action = actions[acceptanceCalls - 1]; if (!action) throw new Error('Unexpected PAAD acceptance call');
+      return complete(action);
+    }, undefined, brief, 'paad-typed');
+    childId = run.child.id;
+    acceptanceId = run.cards.create({type:'test',parent:'project',title:'Independent fixed answer acceptance',bootstrap_content:'Independently accept the fixed answer.cjs against the requirement owner decision using source inspection and the focused assertion. No implementation or test edits assigned.',priority:0,urgency:'normal',created_by:'planner',depends_on:[childId]}).id;
+    const original = `module.exports = ${mode === 'repair' ? 41 : 42};\n`;
+    writeFileSync(join(run.root, 'answer.cjs'), original);
+    const acceptedBrief = run.cards.readRecordCurrent(childId, 'brief.md');
+    if (acceptedBrief.kind !== 'found') throw new Error('Missing accepted brief');
+    expect((await run.supervisor.startProject()).started).toBe(true);
+    await waitUntil(()=>run.supervisor.getStatus().status === 'stopped');
+    expect(plannerCalls).toBe(6);
+    expect(acceptanceCalls).toBe(8);
+    expect(readFileSync(join(run.root, 'answer.cjs'),'utf8')).toBe(mode === 'repair' ? 'module.exports = 42;\n' : original);
+    const finalBrief = run.cards.readRecordCurrent(childId, 'brief.md');
+    if (finalBrief.kind !== 'found') throw new Error('Missing retained accepted brief');
+    expect(finalBrief.value.projection).toEqual(acceptedBrief.value.projection);
+    const activations = readConversation(run.root, cardAgentSessionId('executor',childId)).physicalRows.filter(row=>row.kind==='activity' && parseActivationOpenPayload(row.content, row.session_id, row.timestamp));
+    expect(activations.length).toBe(mode === 'repair' ? 4 : 3);
+  });
+
   it.each([
     {
       name: 'continues unfinished independent review in verify against fixed input',
@@ -826,7 +967,7 @@ describe('specialized production card-type flows', () => {
     expect(run.cards.read('project')!.lifecycle.status).toBe('done');
   });
 
-  it('accepts a fresh adequately covered passing test baseline through diagnosis and verify-owned completion', async () => {
+  it.each(['classic-typed', 'paad-typed'])('%s accepts a fresh adequately covered passing test baseline through diagnosis and verify-owned completion', async (profile) => {
     let plannerCalls = 0;
     let executorCalls = 0;
     let supervisor!: ReturnType<typeof createSupervisorRuntimeApi>;
@@ -910,7 +1051,7 @@ describe('specialized production card-type flows', () => {
           'failed',
         ]);
       return complete(actions[executorCalls - 1]!);
-    });
+    }, undefined, 'Independently verify the fixed arithmetic baseline; no source repair is assigned.', profile);
     supervisor = run.supervisor;
     childId = run.child.id;
     expect((await supervisor.startProject()).started).toBe(true);
@@ -1629,7 +1770,7 @@ describe('specialized production card-type flows', () => {
     });
   });
 
-  it('cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence', async () => {
+  it.each(['classic-typed', 'paad-typed'])('%s cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence', async (profile) => {
     let plannerCalls = 0;
     let executorCalls = 0;
     let reviewerCalls = 0;
@@ -1762,7 +1903,7 @@ describe('specialized production card-type flows', () => {
         await pendingApprovalReleased;
       }
       return complete(actions[reviewerCalls - 1]!);
-    });
+    }, undefined, 'Exercise architecture.', profile);
     supervisor = run.supervisor;
     childId = run.child.id;
     expect((await supervisor.startProject()).started).toBe(true);
@@ -1884,7 +2025,7 @@ describe('specialized production card-type flows', () => {
     });
   });
 
-  it('keeps the compiled data node authoritative across compaction and advances schema_ready to validate in one Executor session', async () => {
+  it.each(['classic-typed', 'paad-typed'])('%s keeps the compiled data node authoritative across compaction and advances schema_ready to validate in one Executor session', async (profile) => {
     const retainedHistory =
       'Owner constraint remains applicable. The runtime correction remains unresolved. An earlier implementation idea was proposed, not executed or accepted.';
     const summaryCalls: LlmInvocationInput[] = [];
@@ -1983,6 +2124,8 @@ describe('specialized production card-type flows', () => {
         );
       },
       { calls: summaryCalls, content: retainedHistory },
+      'Exercise data.',
+      profile,
     );
     supervisor = run.supervisor;
     childId = run.child.id;

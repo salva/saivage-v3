@@ -45,9 +45,52 @@ Bundled defaults and project overrides use the same tree:
     <card-type>/<fragment-id>.md
 ```
 
-The project override root is `.saivage/config/prompts`; each registered system template owns its own bundled source tree under `src/config/system-templates/<name>/prompts/`, and packaging copies each tree per-template under `dist/src/config/system-templates/<name>/prompts/`. Packaging compiles each registered template standalone against its own source prompts root, observes every selected bundled agent, process, and direct-fragment artifact, and requires the physical source and copied output trees to equal that template's compiled closure exactly. There is no union tree, runtime discovery, or separately maintained numeric file count. Before copying shipped templates, packaging checks compiler-derived classic/classic-typed shared agent/fragment membership and byte parity, plus common-path shared process byte parity; typed-only process paths remain permitted. Generic per-template copying remains independent of that explicit family policy. Both shipped closures contain five shared agent prompts and six shared project-guidance fragments, including Oversight, plus all process prompts selected by their graphs. `classic-typed` additionally contains its selected typed card-specific process prompts and architecture notification-return prompt. Neither tree has a template-specific agent prompt. `saivage init --profile <name>` materializes the selected template's complete closure into a config-absent project override root, after which the instance owns its prompts; with an existing config, init preserves the prompt tree, marker, and YAML and performs no template upgrade.
+The project override root is `.saivage/config/prompts`; each registered system template owns its own bundled source tree under `src/config/system-templates/<name>/prompts/`, and packaging copies each tree per-template under `dist/src/config/system-templates/<name>/prompts/`. Packaging compiles each registered template standalone against its own source prompts root, observes every selected bundled agent, process, and direct-fragment artifact, and requires the physical source and copied output trees to equal that template's compiled closure exactly. There is no union tree, runtime discovery, or separately maintained numeric file count. Before copying shipped templates, packaging checks compiler-derived classic/classic-typed shared agent/fragment membership and byte parity, plus common-path shared process byte parity; typed-only process paths remain permitted. Generic per-template copying remains independent of that explicit family policy. All three shipped closures contain five shared agent prompts and six shared project-guidance fragments, including Oversight, plus all process prompts selected by their graphs. `classic-typed` and `paad-typed` contain the same selected typed card-specific process paths and architecture notification-return prompt; PAAD has only the five intentional prose deltas below. No tree has a card-specific agent prompt. `saivage init --profile <name>` materializes the selected template's complete closure into a config-absent project override root, after which the instance owns its prompts; with an existing config, init preserves the prompt tree, marker, and YAML and performs no template upgrade.
 
 Typed-only process hosts cover specialized planning (`specialized-plan`, `specialized-review`, `specialized-recover` and their review handoffs); code reproduction, repair, refactor and evidence/retry handoffs; test diagnosis, coverage, repair and verification; research exploration, assessment and reporting; data schema, validation and implementation; and architecture drafting, component/system review, revision handoffs and `architecture-notifications-to-draft`. The compiler-observed closure, not a maintained numeric total, owns the complete inventory. Each reference maps to `<reference>.md` under its shared or card-specific process directory.
+
+## Optional paad-typed guidance
+
+`paad-typed` is an init-only opt-in methodology variant over the identical deeply
+frozen classic-typed config. It owns a full physical closure, not an overlay or
+fallback to another profile. Classic remains default; neither existing profile is
+modified. Its compiled path set equals classic-typed's, and all bytes outside
+these five paths remain identical:
+
+| Path under `prompts/` | Effective responsibility |
+| --- | --- |
+| `agents/_shared/planner.md` | Evidence-grounded pushback before creation/activation; bidirectional scope alignment; ordinary local decisions remain autonomous, material requirement choices stay with the authorized owner. |
+| `agents/_shared/executor.md` | Resolve task-defining uncertainty from the brief/direction/source before implementation; return unavailable required decisions through the current node's existing outcome and status; validation currency and changed interface/caller/doc coherence. |
+| `agents/_shared/reviewer.md` | Independently compare delivery, accepted scope and actual source; verify findings, separate suggestions and accept supported no-finding results. |
+| `process/architecture/architecture-component-review.md` | Component fit, boundaries/contracts, avoidable complexity and maintenance burden within existing criteria. |
+| `process/architecture/architecture-system-review.md` | Complementary intent/integration/operational/persistence lens, preserving immutable component evidence while deciding system acceptance. |
+
+These are prepared role/current-node instructions, not lifecycle-entry, handoff or
+conditional record procedures. The three roles continue across operations and
+compaction; the architecture nodes add only their current scoped lens. Bootstrap
+is still supplied separately per operation. Parent direction remains advisory and
+activation-local, never transitive. No feeding, declaration, retention, compaction,
+graph, tool, result or durable-format contract changes. All six guidance fragments
+remain neutral; Analyst/Oversight, including successful no-action, are unchanged.
+
+A Planner cannot amend a child's accepted brief through metadata or activation
+direction. Genuine changed requirements need the authorized owner; a truthful
+supported result, not a notice or indefinite wait, returns unavailable input.
+This supplies no new BLOCKED reason: ordinary diagnosis/repair, code already-green,
+test verification-owned acceptance, data policy boundaries and exhaustive research
+obligations remain intact. Existing independent review is the verification pass,
+not a new validator or reviewer-of-reviewer gate. Status remains a current
+brief-relative synthesis, not a PAAD activity log or mandatory matrix.
+
+This deliberately adapts Curtis "Ovid" Poe's PAAD — Pushback, Alignment,
+Architecture, **Discipline** — with a local anti-degradation emphasis, not the
+upstream plugin's full procedures. The profile README records pinned sources,
+adopted/excluded mechanics and attribution. The Planner carries the full pinned
+MIT notice in a clearly delimited non-procedural section so it travels through
+normal packaging/init. It neither changes Saivage's GPL license nor implies
+endorsement or measured model quality. Existing-config init never upgrades or
+switches a profile; later adoption needs separately authorized stopped
+reconciliation and independently resolved identity/format compatibility.
 
 ## Selection and references
 
@@ -183,7 +226,7 @@ distinct conversations have independent knowledge. Head-only changes do not
 change semantic selection. Actual prompt bytes and needed preparation descriptors
 publish in one ordered envelope, with no record reread after comparison.
 
-Both shipped templates declare reference-only accepted-bootstrap guidance and
+All shipped templates declare reference-only accepted-bootstrap guidance and
 effective/optional body-bearing inputs for each node's own record requirements.
 These inputs are data, not write permission or acceptance. Template changes do not
 constitute record changes or replay old prompt occurrences; indispensable new-node
@@ -232,7 +275,7 @@ Accepted-only suppliers still select accepted backing or absence. The shared
 starter data from authored drafts and independent accepted evidence. Always-prepared
 role/node instructions and generated gates still own today's task, scope and outcome;
 the starter is not acceptance, an agent write, progress or mandatory headings.
-Bundled classic/classic-typed status starters ask for a brief-relative current
+Bundled classic/classic-typed/paad-typed status starters ask for a brief-relative current
 assessment, evidence and remaining work without duplicating a full example at each
 node. Existing status-purpose guidance and substantive deliverable obligations remain.
 
@@ -270,7 +313,7 @@ Each shipped template retains one shared Planner system-prompt artifact selected
 
 The always-prepared roles own reusable work methods and authority: Planner strategy, delegation and direct-child repair; Executor scoped work, evidence interpretation and current status-record mechanics; Reviewer independent inspection and current review-record mechanics; Analyst request resolution and permitted inspection/control; Oversight bounded diagnosis, useful advice and successful no-action. Conditional image/MCP guidance follows task and authority; selected tool definitions own their parameter and command-output mechanics. Analyst card-pagination mechanics live in the selected `get_card` and `get_card_version` definitions; the role retains the distinction between historical child membership and current liveness. No direction relies on init-only model memory.
 
-Shared Planner and Executor own brief-relative current status authorship in both profiles. Conversation is the work history, not a timeline to relocate into a separate log/history record or document; actual deliverables and necessary primary evidence still belong in permitted work products and records. They consolidate superseded current sections rather than prepend continuation accounts, distinguishing actual delivery, proposals/in-progress work, acceptance and remaining actions. Material decisions, blockers, uncertainty, partial/failed checks and exact source/artifact identities with evidence applicability remain explicit; existing work products and retained accepted history hold supporting detail, not an undisclosed backlog. Current resource ownership, unresolved effects and applicable cumulative accounting remain explicit when needed for current conclusions or safe continuation; consolidation neither confirms release/cleanup nor restarts an accounting period. Nodes supply scoped evidence deltas, diagnoses, classifications and required substantive deliverables; concise status does not replace that work or erase a failed check because another input passed. No quota, fixed template, new acceptance gate or artifact-per-action rule is introduced. Reviewer still independently inspects evidence and owns `review.md`, not `status.md`. This changes authoring prose only, not composition, delivery, compaction, record/history semantics or durable formats.
+Shared Planner and Executor own brief-relative current status authorship in all profiles. Conversation is the work history, not a timeline to relocate into a separate log/history record or document; actual deliverables and necessary primary evidence still belong in permitted work products and records. They consolidate superseded current sections rather than prepend continuation accounts, distinguishing actual delivery, proposals/in-progress work, acceptance and remaining actions. Material decisions, blockers, uncertainty, partial/failed checks and exact source/artifact identities with evidence applicability remain explicit; existing work products and retained accepted history hold supporting detail, not an undisclosed backlog. Current resource ownership, unresolved effects and applicable cumulative accounting remain explicit when needed for current conclusions or safe continuation; consolidation neither confirms release/cleanup nor restarts an accounting period. Nodes supply scoped evidence deltas, diagnoses, classifications and required substantive deliverables; concise status does not replace that work or erase a failed check because another input passed. No quota, fixed template, new acceptance gate or artifact-per-action rule is introduced. Reviewer still independently inspects evidence and owns `review.md`, not `status.md`. This changes authoring prose only, not composition, delivery, compaction, record/history semantics or durable formats.
 
 New config-absent init receives these packaged role and node bytes. Existing materialized/custom prompts do not auto-upgrade: adoption requires separately authorized stopped reconciliation of the actual selected Planner/Executor and affected node/handoff hosts, preserving project custom guidance, then a genuinely new process. Source completion authorizes no installed-project inspection or reconciliation; see [operator cutover](#runtime-invariants-and-operator-cutover).
 
@@ -318,7 +361,7 @@ CSV export is implemented on source X, not yet accepted: retry round-trip still 
 
 ## Dedicated file-tool preference
 
-The five shared role prompts in both profiles own capability-conditioned file-work method, not the neutral project-guidance hooks or individual nodes. For authorized work, prefer selected `read`, `glob` and `grep` for inspection/search; Planner/Reviewer prefer selected `write`/`edit` for permitted changes, and Executor/Analyst additionally name `apply_patch`. Prefer small, reviewable edits over unnecessary whole-file rewrites. Oversight remains inspection-only. A renamed custom agent selecting a shipped role reference receives that prose, subject to its actual selected tools; an independent custom reference inherits none of it automatically.
+The five shared role prompts in all profiles own capability-conditioned file-work method, not the neutral project-guidance hooks or individual nodes. For authorized work, prefer selected `read`, `glob` and `grep` for inspection/search; Planner/Reviewer prefer selected `write`/`edit` for permitted changes, and Executor/Analyst additionally name `apply_patch`. Prefer small, reviewable edits over unnecessary whole-file rewrites. Oversight remains inspection-only. A renamed custom agent selecting a shipped role reference receives that prose, subject to its actual selected tools; an independent custom reference inherits none of it automatically.
 
 Within role authority, `run_command` remains appropriate for builds, tests, Git, external commands, generators, legitimate pipelines and operations dedicated tools cannot reasonably serve. Analyst still cannot perform delivery work, mutate source through shell, deploy or run delivery builds/tests. No unsuitable-tool attempt or explanation for every choice is required. Failure/conflict alone grants no shell bypass of tool contracts, permissions or record-write rules. Current `record:///` write/edit authority, invocation-final classified failures, publication-uncertainty fatality and confidentiality remain unchanged. Native absolute read/discovery support does not expand mutation authority; selected tool definitions own arguments, paths and result contracts.
 

@@ -10,11 +10,12 @@ import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-t
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 // @ts-expect-error Packaging tooling is JavaScript without a TypeScript declaration.
-import { assertClassicFamilyPromptParity } from '../../scripts/copy-system-template-prompts.js';
+import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, collectTemplatePromptClosure } from '../../scripts/copy-system-template-prompts.js';
 
 describe('system template registry',()=>{
-  it('registers exactly classic then classic-typed with module-relative prompt roots',()=>{
-    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed']);
+  it('registers the three profiles with isolated module-relative prompt roots',()=>{
+    expect(SYSTEM_TEMPLATES.map((template)=>template.name)).toEqual(['classic','classic-typed','paad-typed']);
+    expect(new Set(SYSTEM_TEMPLATES.map(template=>template.promptRoot)).size).toBe(SYSTEM_TEMPLATES.length);
     expect(DEFAULT_SYSTEM_TEMPLATE).toBe('classic');
     for(const template of SYSTEM_TEMPLATES){
       const moduleDirectory=join(fileURLToPath(new URL('.',import.meta.url)),'..','..','src','config','system-templates',template.name);
@@ -40,7 +41,7 @@ describe('system template registry',()=>{
   });
 
   it('fails unknown names with the exact listing and profile field path',()=>{
-    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed.");
+    expect(()=>resolveSystemTemplate('nope')).toThrow("Unknown template 'nope'. Available templates: classic, classic-typed, paad-typed.");
     try { resolveSystemTemplate('Standard'); } catch (error) {
       expect((error as Error & { fieldPath?: string }).fieldPath).toBe('profile');
     }
@@ -69,6 +70,14 @@ describe('system template registry',()=>{
     expect(()=>assertClassicFamilyPromptParity({templates:SYSTEM_TEMPLATES})).not.toThrow();
   });
 
+  it('reuses the complete frozen typed config with the same selected closure and only bounded prose deltas',()=>{
+    const typed=resolveSystemTemplate('classic-typed');const paad=resolveSystemTemplate('paad-typed');
+    expect(paad.config).toBe(typed.config);
+    expect(Object.isFrozen(paad.config)).toBe(true);
+    expect(collectTemplatePromptClosure({template:paad})).toEqual(collectTemplatePromptClosure({template:typed}));
+    expect(()=>assertPaadTypedPromptParity()).not.toThrow();
+  });
+
   it('materializes fresh typed classic config declarations and freezes the complete graph',()=>{
     const template=resolveSystemTemplate('classic');
     const firstGraph=structuredClone(template.config.card_types!);
@@ -88,7 +97,7 @@ describe('system template registry',()=>{
   });
 
   it('compiles each selected Executor with its observed guidance closure and one rendered outcome contract',()=>{
-    for(const templateName of ['classic','classic-typed'] as const){
+    for(const {name:templateName} of SYSTEM_TEMPLATES){
       const template=resolveSystemTemplate(templateName);const observed:string[]=[];
       const workflows=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(template.config)),{defaultPromptRoot:template.promptRoot,artifactObserver:(artifact)=>observed.push(artifact.path)});
       const rendered=createPromptTemplateRegistry(workflows).render({kind:'workflow-agent',cardType:'code'},'executor',{contractDescription:'UNIQUE-OUTCOME-CONTRACT'});
@@ -100,7 +109,7 @@ describe('system template registry',()=>{
   });
 
   it('ships the global role include and vocabulary tokens',()=>{
-    for(const templateName of ['classic','classic-typed'] as const){
+    for(const {name:templateName} of SYSTEM_TEMPLATES){
       const analyst=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/analyst.md'),'utf8');
       expect(analyst.match(/\{\{[^}]+\}\}/gu)).toEqual(['{{>project-guidance-common}}','{{>project-guidance-analyst}}','{{vocabularySnippet}}']);
       const oversight=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/oversight.md'),'utf8');

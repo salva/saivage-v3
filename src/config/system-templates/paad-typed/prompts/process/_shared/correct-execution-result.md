@@ -1,0 +1,1 @@
+Use the supplied violations and remaining-attempt diagnostics to correct the Executor result and required records. Redo delivery work only when those violations require it; then call `emit_result` according to the current generated contract.

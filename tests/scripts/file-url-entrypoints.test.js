@@ -26,7 +26,9 @@ function runChild(label, cwd, command, args, expectedStatus = 0) {
 function createFixture(root, name, caller) {
   const fixture = join(root, name);
   mkdirSync(fixture);
-  const listing = runChild(`${caller} (${name}) tracked fixture discovery`, repoRoot, 'git', ['ls-files', '-z', '--', ...fixtureInputs]);
+  // Copy the selected working-tree source, including new nonignored source files
+  // before staging. Ignored runtime/working artifacts are not fixture inputs.
+  const listing = runChild(`${caller} (${name}) fixture source discovery`, repoRoot, 'git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...fixtureInputs]);
   for (const path of listing.stdout.split('\0').filter((path) => path && !path.startsWith('docs/working/'))) {
     const destination = join(fixture, path);
     mkdirSync(dirname(destination), { recursive: true });
@@ -69,7 +71,7 @@ for (const name of ['checkout-ordinary', 'checkout café']) {
       const distRoot = join(fixture, 'dist');
       expect(existsSync(distRoot)).toBe(false);
       const success = runChild(`packaging (${name}) direct invocation`, fixture, process.execPath, args);
-      expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed']);
+      expect(SYSTEM_TEMPLATES.map((template) => template.name)).toEqual(['classic', 'classic-typed', 'paad-typed']);
       const summaries = [];
       for (const template of SYSTEM_TEMPLATES) {
         const sourceRoot = join(fixture, 'src/config/system-templates', template.name, 'prompts');

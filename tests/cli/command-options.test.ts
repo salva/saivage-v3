@@ -24,6 +24,7 @@ afterEach(() => {
 describe('command-specific CLI parsing', () => {
   it.each([
     ['init', ['--host', '127.0.0.1']],
+    ['init', ['--profile', 'paad-typed', '--unknown']],
     ['start', ['--profile', 'classic']],
     ['status', ['--host', '127.0.0.1']],
     ['pause', ['--port', '8081']],
@@ -66,6 +67,7 @@ describe('command-specific CLI parsing', () => {
 
   it.each([
     ['init', '--profile', 'classic'],
+    ['init', '--profile', 'paad-typed'],
     ['start', '--host', '127.0.0.1'],
     ['start', '--port', '8080'],
     ['start', '--config', 'saivage.yaml'],
@@ -80,6 +82,7 @@ describe('command-specific CLI parsing', () => {
 
   it.each([
     ['init', '--profile', 'classic'],
+    ['init', '--profile', 'paad-typed'],
     ['start', '--host', '127.0.0.1'],
     ['start', '--port', '8080'],
     ['start', '--config', 'saivage.yaml'],

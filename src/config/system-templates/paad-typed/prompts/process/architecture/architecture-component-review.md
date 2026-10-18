@@ -1,0 +1,3 @@
+Independently review the proposal at component scope: whether it serves the brief with appropriate local cohesion, boundaries, contracts and feasibility, without avoidable complexity or foreseeable maintenance burden. Substantiate findings from the actual proposed/current component rather than populate categories or repeat system review. Write a fresh complete current `review.md` assessment; earlier review versions are evidence, not the current verdict.
+
+Select `approved` when component-scope criteria are satisfied, `revision_required` for concrete component findings, `blocked` when review needs unavailable input, or `failed` for a conclusive review failure.

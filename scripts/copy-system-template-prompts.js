@@ -87,6 +87,31 @@ function assertEqualPaths(actual, expected, message) {
   }
 }
 
+export const PAAD_TYPED_PROMPT_DELTAS = Object.freeze([
+  'agents/_shared/executor.md',
+  'agents/_shared/planner.md',
+  'agents/_shared/reviewer.md',
+  'process/architecture/architecture-component-review.md',
+  'process/architecture/architecture-system-review.md',
+]);
+
+/** Bounded source-family invariant, not runtime profile inheritance. */
+export function assertPaadTypedPromptParity({ templates = SYSTEM_TEMPLATES } = {}) {
+  const [typed, paad] = ['classic-typed', 'paad-typed'].map((name) => {
+    const template = templates.find((entry) => entry.name === name);
+    if (!template) throw new Error(`PAAD typed parity requires system template '${name}'.`);
+    return template;
+  });
+  if (JSON.stringify(typed.config) !== JSON.stringify(paad.config)) throw new Error('PAAD typed configuration differs from classic-typed.');
+  const closure = collectTemplatePromptClosure({ template: typed });
+  assertEqualPaths(collectTemplatePromptClosure({ template: paad }), closure, 'PAAD typed selected membership differs');
+  for (const path of closure) {
+    if (!PAAD_TYPED_PROMPT_DELTAS.includes(path) && !readFileSync(join(typed.promptRoot, path)).equals(readFileSync(join(paad.promptRoot, path)))) {
+      throw new Error(`PAAD typed bytes differ outside intentional deltas: ${path}`);
+    }
+  }
+}
+
 function assertExactTree(root, closure, templateName) {
   assertDirectory(root, templateName);
   assertEqualPaths(walkFiles(root), closure, `System template '${templateName}' prompt tree must contain exactly its compiled closure`);
@@ -127,6 +152,7 @@ export function copySystemTemplatePrompts({ templates = SYSTEM_TEMPLATES, distRo
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     assertClassicFamilyPromptParity({ templates: SYSTEM_TEMPLATES });
+    assertPaadTypedPromptParity({ templates: SYSTEM_TEMPLATES });
     const packaged = copySystemTemplatePrompts();
     console.log(packaged.map((entry) => `Copied ${entry.count} '${entry.name}' prompt artifacts to ${relative(repoRoot, entry.outputRoot)}`).join('\n'));
   } catch (error) {

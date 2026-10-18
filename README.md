@@ -193,6 +193,14 @@ cd "$TARGET_PROJECT"
 env -u SAIVAGE_API_TOKEN "$SAIVAGE_BIN" start --host 127.0.0.1 --port 8080
 ```
 
+On a config-absent project, `init` defaults to `classic`; use `init --profile
+classic-typed` for typed workflows or `init --profile paad-typed` for the same
+typed configuration with optional PAAD-derived pushback, alignment and structural
+review guidance. See the [profile guidance and attribution](src/config/system-templates/paad-typed/README.md).
+This is prompt guidance, not measured quality or an additional runtime gate.
+Existing-config init preserves YAML, prompts and marker; it never switches or
+upgrades profiles. Later adoption requires separately authorized stopped reconciliation.
+
 The startup announcement reports the actual binding (including the OS-selected
 port for `--port 0`). Qualified wildcard output is not a browser destination;
 see [startup command inputs](docs/runbook/index.md#startup-command-inputs).

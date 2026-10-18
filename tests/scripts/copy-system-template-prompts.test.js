@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { SYSTEM_TEMPLATES, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { minimalSystemTemplate, secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
-import { assertClassicFamilyPromptParity, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
+import { assertClassicFamilyPromptParity, assertPaadTypedPromptParity, PAAD_TYPED_PROMPT_DELTAS, collectTemplatePromptClosure, copySystemTemplatePrompts } from '../../scripts/copy-system-template-prompts.js';
 
 function fail(message) { throw new Error(message); }
 function assert(condition, message) { if (!condition) fail(message); }
@@ -205,7 +205,12 @@ function runCopySystemTemplatePromptsTest() {
 
     const classicRoot = resolveSystemTemplate('classic').promptRoot;
     const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
-    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed', 'registered templates must be exactly classic then classic-typed');
+    assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed,paad-typed', 'registered template order changed');
+    const paad = resolveSystemTemplate('paad-typed');
+    assert(collectTemplatePromptClosure({ template: paad }).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed selected closure differs');
+    assert(walkFiles(paad.promptRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'paad-typed has missing or unselected artifacts');
+    assertPaadTypedPromptParity();
+    for (const path of PAAD_TYPED_PROMPT_DELTAS) assert(!readFileSync(join(paad.promptRoot, path)).equals(readFileSync(join(typedRoot, path))), `intentional delta is absent: ${path}`);
     assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the source-declared lock');
     assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the source-declared lock');
     assert(walkFiles(classicRoot).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic source tree contains an unselected or missing artifact');
@@ -214,6 +219,11 @@ function runCopySystemTemplatePromptsTest() {
 
     const distRoot = temporary('saivage-template-dist-');
     copySystemTemplatePrompts({ distRoot });
+    const paadOutput = join(distRoot, 'src', 'config', 'system-templates', 'paad-typed', 'prompts');
+    assertTreesEqual(paad.promptRoot, paadOutput);
+    const plannerPath = 'agents/_shared/planner.md';
+    const notice = readFileSync(join(paad.promptRoot, plannerPath), 'utf8').split('MIT License')[1];
+    assert(notice && readFileSync(join(paadOutput, plannerPath), 'utf8').endsWith(notice), 'carried attribution did not survive packaging');
     const classicOutput = join(distRoot, 'src', 'config', 'system-templates', 'classic', 'prompts');
     const typedOutput = join(distRoot, 'src', 'config', 'system-templates', 'classic-typed', 'prompts');
     assertTreesEqual(classicRoot, classicOutput);
@@ -237,6 +247,29 @@ function runCopySystemTemplatePromptsTest() {
     rmSync(join(mutatedSource, 'extra.md'));
     rmSync(join(mutatedSource, 'process', '_shared', 'execute.md'));
     expectThrows(() => copySystemTemplatePrompts({ templates: [mutated], distRoot }), /ENOENT|execute\.md/u, 'copy accepted a missing selected source artifact');
+
+    const paadSource = temporary('saivage-paad-source-');
+    cpSync(paad.promptRoot, paadSource, { recursive: true });
+    const changedPaad = { ...paad, promptRoot: paadSource };
+    const family = [resolveSystemTemplate('classic-typed'), changedPaad];
+    writeFileSync(join(paadSource, 'extra.md'), 'unselected');
+    expectThrows(() => copySystemTemplatePrompts({ templates: [changedPaad], distRoot }), /must contain exactly its compiled closure/u, 'PAAD accepted an unselected artifact');
+    rmSync(join(paadSource, 'extra.md'));
+    const neutral = join(paadSource, 'fragments/_shared/project-guidance-common.md');
+    writeFileSync(neutral, `${readFileSync(neutral, 'utf8')}\ndrift`);
+    expectThrows(() => assertPaadTypedPromptParity({ templates: family }), /bytes differ outside intentional deltas/u, 'PAAD parity accepted neutral-hook drift');
+    cpSync(join(paad.promptRoot, 'fragments/_shared/project-guidance-common.md'), neutral);
+    const configDrift = { ...changedPaad, config: structuredClone(paad.config) };
+    configDrift.config.agents.executor.tools.reverse();
+    expectThrows(() => assertPaadTypedPromptParity({ templates: [family[0], configDrift] }), /configuration differs/u, 'PAAD parity accepted ordered-tool drift');
+    const plannerBytes = readFileSync(join(paadSource, plannerPath));
+    writeFileSync(join(paadSource, plannerPath), `${plannerBytes.toString()}\n{{> paad-extra}}\n`);
+    write(paadSource, 'fragments', '_shared', 'paad-extra', 'Selected but not in the typed family closure.');
+    expectThrows(() => assertPaadTypedPromptParity({ templates: family }), /selected membership differs/u, 'PAAD delta exception permitted arbitrary selected fragments');
+    writeFileSync(join(paadSource, plannerPath), plannerBytes);
+    rmSync(join(paadSource, 'fragments/_shared/paad-extra.md'));
+    rmSync(join(paadSource, plannerPath));
+    expectThrows(() => copySystemTemplatePrompts({ templates: [changedPaad], distRoot }), /ENOENT|planner\.md/u, 'PAAD accepted a missing intentional delta artifact');
   } finally {
     for (const root of roots) rmSync(root, { recursive: true, force: true });
   }

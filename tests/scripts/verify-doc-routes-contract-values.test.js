@@ -21,7 +21,7 @@ jest.setTimeout(240_000);
 const CUTOVERS = JSON.parse(readFileSync(join(process.cwd(), 'tests/fixtures/doc-value-contracts/cutover-paragraphs.json'), 'utf8'));
 const CARD_ERROR_PATHS = ['src/application/read-models/cards-read-model.ts', 'src/cards/card-service.ts', 'src/contracts/historical-version-not-found.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/server/routes/operator-runtime-card-handlers.ts'];
 const PROCESS_PATHS = ['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts'];
-const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
+const SHIPPED_TOOL_PATHS = ['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts'];
 const TOOL_RELATION_PATHS = [...SHIPPED_TOOL_PATHS, 'src/contracts/result-envelope.ts', 'src/tools/mcp-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts'];
 const EXPECTED_CATALOG = {
   'constant.analyst-orientation-max-bytes': ['constants', ['src/application/read-models/analyst-orientation.ts']],
@@ -424,6 +424,15 @@ describe('documentation value contracts', () => {
   });
 
   it('rejects detached template-factory wiring and keeps registry admission restricted to actual templates', () => {
+    for (const [before, after] of [
+      ['config: CLASSIC_TYPED_TEMPLATE.config', 'config: { ...CLASSIC_TYPED_TEMPLATE.config }'],
+      ['config: CLASSIC_TYPED_TEMPLATE.config', 'config: CLASSIC_TYPED_TEMPLATE.other'],
+      ["from '../classic-typed/template.js'", "from '../classic/template.js'"],
+      ["new URL('./prompts/', import.meta.url)", "new URL('../classic-typed/prompts/', import.meta.url)"],
+    ]) withProject(root => {
+      replaceChecked(root, 'src/config/system-templates/paad-typed/template.ts', before, after);
+      expect(verifyToolContractDocs({ projectRoot: root }).ok).toBe(false);
+    });
     for (const template of ['classic', 'classic-typed']) {
       const path = `src/config/system-templates/${template}/template.ts`;
       for (const [before, after] of [

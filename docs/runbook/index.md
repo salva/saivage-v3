@@ -112,7 +112,7 @@ other environment interpolation is unchanged. Compilation freezes the selected
 choice. Reconcile authorized config/selected prompt edits while stopped and start a
 genuinely new process; Run/refresh is not recompilation. Existing-YAML init preserves
 definitions and materialized/custom prompts rather than upgrading them. Shipped
-classic/classic-typed status declarations carry a brief-relative starter; custom
+classic/classic-typed/paad-typed status declarations carry a brief-relative starter; custom
 selected hosts do not automatically acquire new guidance.
 
 `first_required_entry` seeds only while the exact head is absent, not when a present
@@ -425,7 +425,7 @@ Status: current operator procedures for runtime maintenance.
 
 | Task | Command or location |
 | --- | --- |
-| Initialize a project | `saivage init [--profile classic\|classic-typed]` from the target project root |
+| Initialize a project | `saivage init [--profile classic\|classic-typed\|paad-typed]` from the target project root |
 | Start the server | `saivage start --host <host> --port <port>` (bearer token via `SAIVAGE_API_TOKEN`) |
 | Runtime status / control | `saivage status` · `saivage pause` · `saivage resume` · `saivage stop` |
 | Confirmed service restart | `saivage restart_server` (bearer mode only; capability-gated **Restart server** in the UI global strip, with confirmation) |
@@ -1002,7 +1002,27 @@ The provider capability key `streaming` is obsolete and rejected at provider, mo
 
 ::: v-pre
 
-The selected `.saivage/saivage.yaml` must contain the strict global `agents` catalog with each agent's `record_writes`, `analyst_agent`, and named model routes. Card-type source ownership is one of two forms: a complete closed `card_types` map, or omission of `card_types`, which resolves to the bundled `classic` definitions. The deleted `card_type_set` selector key fails strict validation as an unknown key. `saivage init [--profile <classic|classic-typed>]` materializes the complete selected system template once on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker (`template` name plus Saivage version) into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single completion commit. An existing config gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML, and `--profile` is inert. Templates contain complete card types, workflows, record declarations, and their exact prompt closures; agents, routes, providers, compaction, server, and MCP remain ordinary instance keys. `ResolvedConfigAuthority` resolves the source once into the complete effective map used by compilation, REST config, `show_config`, and selected-config Files preview; those effective projections contain `card_types` only.
+The selected `.saivage/saivage.yaml` must contain the strict global `agents` catalog with each agent's `record_writes`, `analyst_agent`, and named model routes. Card-type source ownership is one of two forms: a complete closed `card_types` map, or omission of `card_types`, which resolves to the bundled `classic` definitions. The deleted `card_type_set` selector key fails strict validation as an unknown key. `saivage init [--profile <classic|classic-typed|paad-typed>]` materializes the complete selected system template once on a config-absent project: the template's full prompt tree into `.saivage/config/prompts`, a provenance marker (`template` name plus Saivage version) into `.saivage/config/template.json`, and the complete config YAML—containing its explicit `card_types` map—published last as the single completion commit. An existing config gates the whole template/config materialization: `init` preserves the prompt tree, marker, and YAML, and `--profile` is inert. Templates contain complete card types, workflows, record declarations, and their exact prompt closures; agents, routes, providers, compaction, server, and MCP remain ordinary instance keys. `ResolvedConfigAuthority` resolves the source once into the complete effective map used by compilation, REST config, `show_config`, and selected-config Files preview; those effective projections contain `card_types` only.
+
+### Choosing an init profile
+
+| Profile | Configuration and guidance |
+| --- | --- |
+| `classic` (default) | Planning/review plus one-node leaf execution. |
+| `classic-typed` | Typed code, test, research, data and architecture flows; ordinary doc/ops execution. |
+| `paad-typed` | Exactly classic-typed's immutable configuration, tools, records and outcomes; optional PAAD-derived pushback/alignment and bounded structural/anti-degradation guidance in five prompts. |
+
+For a fresh target with no config, run `saivage init --profile paad-typed` from
+that target's root to materialize its entire independent closure. See
+[prompt scope and attribution](../architecture/prompts.md#optional-paad-typed-guidance).
+This is guidance, not extra runtime enforcement, upstream endorsement or measured
+model quality. It supplies no new BLOCKED reason or universal review ceremony.
+Existing-config init with another valid profile still preserves YAML, prompt tree
+and marker. It never upgrades or switches an instance. Any later adoption needs
+separately authorized stopped reconciliation of the actual selected configuration
+and prompts, preserving customization and independently resolving identity/format
+compatibility under the cutover rules below. Source availability authorizes no
+deployment, migration, reset, restart or Run.
 
 Successful `init` reports generated layout and configuration independently. `Project layout initialized at <canonical root>` or `Project layout already exists at <canonical root>` is followed by `Configuration materialized from template <selected name>` or `Existing configuration preserved`. An existing generated project with missing YAML can report existing layout plus materialized configuration only when the materialized effective identities remain compatible and final generated-state admission succeeds. This is the single ordinary `init` operation, not generated-state repair, identity-cutover authorization, or a profile upgrade; no completion line is reported when strict admission rejects.
 
@@ -1018,7 +1038,7 @@ The [dedicated file-tool preference](../architecture/prompts.md#dedicated-file-t
 
 For the conversation-9 current-record cutover, separately reconcile optional node
 `record_prompts` declarations and their selected process/fragment files while
-stopped. Both shipped profiles use reference-only `changed-record` bootstrap
+stopped. All shipped profiles use reference-only `changed-record` bootstrap
 guidance and `changed-record-with-body` effective/optional own requirement inputs.
 Existing-config init installs none of these changes. Template edits/restart do not
 re-fire unchanged selections: indispensable node procedure belongs in the prepared
@@ -1165,7 +1185,7 @@ For this named app-log and workflow/config cutover, both paths must reconcile th
 
 1. Identify and stop the matching service, verify no process owns the target, and resolve only a positively abandoned exact lifecycle lock by the documented manual procedure.
 2. Back up the full target. Preserve `.saivage/saivage.yaml`, auth profiles, project identity, prompt overrides, `.saivage/skills/`, instructions, source, and canonical project documents.
-3. Before reset or restart, replace old role/family configuration with strict global `agents`, `analyst_agent`, and `models.routes`, plus the card-type source form: a complete closed `card_types` map containing `project`, or omission for the bundled `classic` definitions. Never merge definitions or expect an invalid map to fall back. Templates do not own global agents/routes; materialize one with `saivage init [--profile <classic|classic-typed>]` or hand-author the complete map. After source resolution, every child reference names a configured non-root effective type, every agent references an existing global route, every workflow node references a card-scoped global agent, and the selected Analyst is global. Unknown or old keys—including the deleted `card_type_set` selector—are invalid, not silently discarded.
+3. Before reset or restart, replace old role/family configuration with strict global `agents`, `analyst_agent`, and `models.routes`, plus the card-type source form: a complete closed `card_types` map containing `project`, or omission for the bundled `classic` definitions. Never merge definitions or expect an invalid map to fall back. Templates do not own global agents/routes; materialize one with `saivage init [--profile <classic|classic-typed|paad-typed>]` or hand-author the complete map. After source resolution, every child reference names a configured non-root effective type, every agent references an existing global route, every workflow node references a card-scoped global agent, and the selected Analyst is global. Unknown or old keys—including the deleted `card_type_set` selector—are invalid, not silently discarded.
 4. Validate every skill-index `target_agents` value against the configured agent catalog and each target's skill capability. The default Planner lacks `skill` and is therefore not a valid target. Correct invalid preserved entries manually without remapping or automatic rewrite.
 5. From the exact project root, run the current built `saivage reset`. It removes `.saivage/cards`, `.saivage/agents`, `.saivage/logs`, and `.saivage/work` wholesale and republishes the root card. Never copy an old app log or other generated state back afterward.
 6. Start only the current binary and require startup/config validation plus health/readiness checks.

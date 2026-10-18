@@ -69,7 +69,7 @@ type ParsedCommand =
 const USAGE = `Saivage v3 CLI
 
 Usage:
-  saivage init [--profile <classic|classic-typed>]
+  saivage init [--profile <classic|classic-typed|paad-typed>]
   saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime] [--failed-provider-diagnostics <UUID>]
   saivage status
   saivage pause

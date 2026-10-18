@@ -255,6 +255,7 @@ const OVERSIGHT_POLICY_SOURCE = 'src/contracts/oversight-tool-policy.ts';
 const SHIPPED_TEMPLATE_SOURCES = [
   'src/config/system-templates/classic-typed/template.ts',
   'src/config/system-templates/classic/template.ts',
+  'src/config/system-templates/paad-typed/template.ts',
 ];
 
 function requireNamedImport(ast, module, name) {
@@ -818,8 +819,8 @@ const PATHS = Object.freeze({
   loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']),
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
-  shippedTools: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
-  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/tools/mcp-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
+  shippedTools: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts']),
+  toolRelations: sourcePathSet(['src/config/system-templates/classic-shared.ts', 'src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/paad-typed/template.ts', 'src/config/system-templates/registry.ts', 'src/contracts/index.ts', 'src/contracts/oversight-tool-policy.ts', 'src/contracts/result-envelope.ts', 'src/tools/mcp-provider.ts', 'src/tools/tool-invocation-outbound.ts', 'web/src/utils/tool-presenters/presenters.ts']),
   uiDiff: sourcePathSet(['web/src/api/client.ts', 'web/src/stores/cards.ts']),
 });
 
@@ -1039,7 +1040,6 @@ function directIdentifierCall(node, name, context) {
 }
 function extractMaterializedTemplate(projectRoot, path, templateName) {
   const { ast } = sourceAst(projectRoot, path);
-  requireNamedImport(ast, '../classic-shared.js', 'createClassicConfig');
   if (!ast.statements.some((statement) => ts.isVariableStatement(statement)
     && (statement.declarationList.flags & ts.NodeFlags.Const)
     && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
@@ -1053,13 +1053,23 @@ function extractMaterializedTemplate(projectRoot, path, templateName) {
   if (!ts.isObjectLiteralExpression(template)) throw new Error(`${path} ${templateName} must freeze an object literal`);
   requireLiteralMembers(template, `${path} ${templateName}`);
   const name = stringLiteralText(propertyAssignment(template, 'name', `${path} ${templateName}`), `${path} ${templateName}.name`);
-  const configName = identifierText(propertyAssignment(template, 'config', `${path} ${templateName}`), `${path} ${templateName}.config`);
-  const configCall = directIdentifierCall(requiredInitializer(initializers, configName, path), 'createClassicConfig', `${path} ${configName}`);
-  if (configCall.arguments.length !== 1 || identifierText(configCall.arguments[0], `${path} ${configName} argument`) !== 'cardTypes') {
-    throw new Error(`${path} ${configName} must call createClassicConfig(cardTypes)`);
+  const configExpression = unwrapExpression(propertyAssignment(template, 'config', `${path} ${templateName}`));
+  if (path === 'src/config/system-templates/paad-typed/template.ts') {
+    requireNamedImport(ast, '../classic-typed/template.js', 'CLASSIC_TYPED_TEMPLATE');
+    if (name !== 'paad-typed' || !ts.isPropertyAccessExpression(configExpression)
+      || identifierText(configExpression.expression, `${path} config owner`) !== 'CLASSIC_TYPED_TEMPLATE'
+      || configExpression.name.text !== 'config') throw new Error(`${path} must directly reuse CLASSIC_TYPED_TEMPLATE.config`);
+    extractMaterializedTemplate(projectRoot, 'src/config/system-templates/classic-typed/template.ts', 'CLASSIC_TYPED_TEMPLATE');
+  } else {
+    requireNamedImport(ast, '../classic-shared.js', 'createClassicConfig');
+    const configName = identifierText(configExpression, `${path} ${templateName}.config`);
+    const configCall = directIdentifierCall(requiredInitializer(initializers, configName, path), 'createClassicConfig', `${path} ${configName}`);
+    if (configCall.arguments.length !== 1 || identifierText(configCall.arguments[0], `${path} ${configName} argument`) !== 'cardTypes') {
+      throw new Error(`${path} ${configName} must call createClassicConfig(cardTypes)`);
+    }
+    const cardTypes = requiredInitializer(initializers, 'cardTypes', path);
+    if (!ts.isObjectLiteralExpression(cardTypes)) throw new Error(`${path} cardTypes must be an object literal`);
   }
-  const cardTypes = requiredInitializer(initializers, 'cardTypes', path);
-  if (!ts.isObjectLiteralExpression(cardTypes)) throw new Error(`${path} cardTypes must be an object literal`);
   requireNamedImport(ast, 'node:url', 'fileURLToPath');
   const promptRoot = directIdentifierCall(propertyAssignment(template, 'promptRoot', `${path} ${templateName}`), 'fileURLToPath', `${path} ${templateName}.promptRoot`);
   const url = promptRoot.arguments[0];

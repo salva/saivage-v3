@@ -1,5 +1,5 @@
 import { expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SYSTEM_TEMPLATES } from '../../src/config/system-templates/registry.js';
@@ -27,7 +27,8 @@ it.each(SYSTEM_TEMPLATES)('renders $name selected role/generated-contract/node c
       const refs = state.agent.tools.filter(tool => tool.name.startsWith('mcp_'));
       const surface = new BoundAgentToolSet(refs).bind({ scope: 'card', agentName: state.agent.name, projectRoot: root, mcpToolInvocation: unusedMcpToolInvocation } as never);
       const definitions = surfaceToolDefinitions(surface);
-      const toolNames = definitions.map(tool => tool.function.name);
+       const toolNames = definitions.map(tool => tool.function.name);
+       expect(toolNames).toEqual(refs.map(tool => tool.name));
       if (role === 'executor') {
         expect(toolNames).toContain('mcp_catalog_refresh');
         expect(definitions.find(tool => tool.function.name === 'mcp_tool_call')!.function.parameters).toMatchObject({ required: expect.arrayContaining(['bindingId', 'catalogId']) });
@@ -40,6 +41,10 @@ it.each(SYSTEM_TEMPLATES)('renders $name selected role/generated-contract/node c
     renders.push({ role: 'analyst', roleText: analystText, toolNames: compiled.analyst.tools.map(tool => tool.name) });
     expect(renders[2]!.toolNames).not.toContain('mcp_catalog_refresh');
     expect(renders.map(render => render.role)).toEqual(['executor', 'reviewer', 'analyst']);
+    const oversightText = renderCompiledPrompt({ kind: 'global-agent' }, compiled.oversight.name, compiled.oversightPrompt.compiled, { vocabularySnippet: 'Offline vocabulary orientation; no project data.' });
+    renders.push({ role:'oversight', roleText:oversightText, toolNames:compiled.oversight.tools.map(tool=>tool.name) });
+    const evidence = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+    if (evidence) { mkdirSync(evidence, {recursive:true}); writeFileSync(join(evidence, `mcp-${template.name}.json`), JSON.stringify(renders,null,2)); }
     // Existing compiler rendering, generated input schemas and selected inventories
     // are the evidence. No prose keyword test substitutes for whole-composition review.
     for (const render of renders) expect(render.roleText.length).toBeGreaterThan(0);

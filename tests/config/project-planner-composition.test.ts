@@ -153,7 +153,7 @@ describe('shipped project Planner semantic composition', () => {
     expect(new Set(rendered.map(({ instruction }) => instruction)).size).toBe(1);
   });
 
-  it.each(['classic', 'classic-typed'] as const)('compiles explicit project-planner plan/recover selection while preserving configured omission in %s', (templateName) => {
+  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('compiles explicit project-planner plan/recover selection while preserving configured omission in %s', (templateName) => {
     const template = resolveSystemTemplate(templateName);
     const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
     const projectPlanner = structuredClone(config.agents.planner!);
@@ -183,7 +183,7 @@ describe('shipped project Planner semantic composition', () => {
     for (const nodeId of ['plan', 'recover']) expect(requireNode(goal, nodeId).agent.tools.map(({ name }) => name)).not.toContain('reopen_card');
   });
 
-  it.each(['classic', 'classic-typed'] as const)('preserves source-derived %s project/goal process composition and transition values', (templateName) => {
+  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('preserves source-derived %s project/goal process composition and transition values', (templateName) => {
     const template = resolveSystemTemplate(templateName);
     const compiled = compile(template);
     const compositions = (['project', 'goal'] as const).map((cardType) => {
@@ -237,7 +237,7 @@ describe('shipped project Planner semantic composition', () => {
       expect(handlerPrompt.text).toBe(readFileSync(handlerPrompt.path, 'utf8').replaceAll('{{cardType}}', cardType));
       expect(processNodeOutcomes(process, 'node:handle-notifications')).toEqual(['admit_review', 'blocked', 'failed']);
       expect(processNodeOutcomes(process, 'node:handle-notifications')).not.toContain('complete_direct');
-      if (templateName === 'classic-typed')
+      if (templateName !== 'classic')
         expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
       expect(requirePrompt(process, plan.correctionPrompt.promptId)).toBe(readFileSync(process.processPrompts.get(plan.correctionPrompt.promptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
     }

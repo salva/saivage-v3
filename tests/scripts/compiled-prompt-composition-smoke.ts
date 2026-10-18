@@ -45,6 +45,13 @@ function requireValue<T>(value: T | undefined, message: string): T {
   return value;
 }
 
+function captureComposition(name: string, value: unknown): void {
+  const root = process.env.SAIVAGE_TEST_COMPOSITION_EVIDENCE;
+  if (!root) return;
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, `${name}.json`), JSON.stringify(value, null, 2));
+}
+
 const WORKFLOW_ROLES = ['planner', 'executor', 'reviewer'] as const;
 const SHIPPED_ROLES = [...WORKFLOW_ROLES, 'analyst', 'oversight'] as const;
 type ShippedRole = typeof SHIPPED_ROLES[number];
@@ -179,7 +186,11 @@ try {
         const packagedInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, packagedState.agent.name, packagedState.selectedAgentPrompt.compiled, { contractDescription: packagedContract });
         const sourceInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceState.agent.name, sourceState.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
         if (packagedState.agent.name !== sourceState.agent.name || packagedState.selectedAgentPrompt.reference !== sourceState.selectedAgentPrompt.reference || packagedContract !== sourceContract || packagedInstruction !== sourceInstruction) throw new Error(`Source/package role composition differs for ${templateName}/${cardType}/${stateId}.`);
-        if (packagedInstruction.split(packagedContract).length - 1 !== 1) throw new Error(`Generated role contract is not rendered exactly once for ${templateName}/${cardType}/${stateId}.`);
+         if (packagedInstruction.split(packagedContract).length - 1 !== 1) throw new Error(`Generated role contract is not rendered exactly once for ${templateName}/${cardType}/${stateId}.`);
+         if (JSON.stringify(packagedState.agent.tools) !== JSON.stringify(sourceState.agent.tools)) throw new Error(`Source/package selected tools differ for ${templateName}/${cardType}/${stateId}.`);
+         const nodeText = requireValue(packagedProcess.processPrompts.get(packagedState.prompt.promptId), `Missing ${templateName}/${cardType}/${stateId} process prompt.`).text;
+         if (nodeText.includes('{{')) throw new Error(`Unresolved node syntax for ${templateName}/${cardType}/${stateId}.`);
+         captureComposition(`compiled-${templateName}-${cardType}-${stateId.replace(':', '-')}`, { roleText: packagedInstruction, contract: packagedContract, nodeText, tools: packagedState.agent.tools });
         const role = WORKFLOW_ROLES.find((candidate) => candidate === packagedState.selectedAgentPrompt.reference);
         if (role) {
           composedWorkflowRoles.add(role);
@@ -202,10 +213,17 @@ try {
     if (packagedOversight !== sourceOversight) throw new Error(`Source/package Oversight composition differs for ${templateName}.`);
     assertGuidanceComposition(packagedOversight, packagedRoot, 'oversight', `${templateName} packaged Oversight`);
     assertGuidanceComposition(sourceOversight, sourceRoot, 'oversight', `${templateName} source Oversight`);
+    captureComposition(`compiled-${templateName}-globals`, { analyst: { roleText: packagedAnalyst, tools: packaged.analyst.tools }, oversight: { roleText: packagedOversight, tools: packaged.oversight.tools } });
   };
   assertRoleComposition('classic', classic.promptRoot, classicSourceRoot, classicWorkflows, classicSourceWorkflows);
   assertRoleComposition('classic-typed', classicTyped.promptRoot, typedSourceRoot, typedWorkflows, typedSourceWorkflows);
-  for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig]] as const) {
+  const paad = resolveSystemTemplate('paad-typed');
+  const paadConfig = effectiveSaivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(paad.config.card_types) });
+  const paadSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', paad.name, 'prompts');
+  const paadWorkflows = compileProjectWorkflows(paadConfig, { defaultPromptRoot: paad.promptRoot, projectRoot, artifactObserver: observeInside(paad.name, paad.promptRoot) });
+  const paadSourceWorkflows = compileProjectWorkflows(paadConfig, { defaultPromptRoot: paadSourceRoot, projectRoot, artifactObserver: observeInside('paad source', paadSourceRoot) });
+  assertRoleComposition(paad.name, paad.promptRoot, paadSourceRoot, paadWorkflows, paadSourceWorkflows);
+  for (const [template, config] of [[classic, classicTestConfig], [classicTyped, typedTestConfig], [paad, paadConfig]] as const) {
     const custom = structuredClone(config);
     custom.agents['evidence-reader'] = { ...custom.agents.reviewer!, tools: ['read', 'write'], skills: false };
     for (const cardType of Object.values(custom.card_types)) for (const node of Object.values(cardType.workflow.nodes)) {
@@ -263,6 +281,7 @@ try {
   };
   assertPlanningComposition('classic', classicWorkflows, classicSourceWorkflows);
   assertPlanningComposition('classic-typed', typedWorkflows, typedSourceWorkflows);
+  assertPlanningComposition(paad.name, paadWorkflows, paadSourceWorkflows);
   const architecture = requireValue(typedWorkflows.cardTypes.get('architecture'), 'Missing architecture workflow.');
   for (const nodeId of ['component-review', 'system-review']) {
     const node = requireValue(architecture.states.get(`node:${nodeId}`), `Missing ${nodeId}.`);

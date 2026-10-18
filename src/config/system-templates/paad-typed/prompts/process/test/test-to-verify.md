@@ -1,0 +1,1 @@
+The focused tests pass, whether already passing at diagnosis or after coverage or repair work. This is applicable author/check evidence, not independent approval. Resolve remaining brief-relative acceptance, including assigned investigation, and verify the affected suite and coverage's meaning, stability and scope.

@@ -59,8 +59,8 @@ describe('literal workflow record initializers', () => {
     expect(() => compileProjectWorkflows(effectiveSaivageConfigSchema.parse(config))).toThrow(/requires the write tool/);
   });
 
-  it('ships selectable status data in both profiles rather than an engine default', () => {
-    for (const profile of ['classic', 'classic-typed'] as const) {
+  it('ships selectable status data in every profile rather than an engine default', () => {
+    for (const profile of ['classic', 'classic-typed', 'paad-typed'] as const) {
       const template = resolveSystemTemplate(profile);
       const workflows = compileProjectWorkflows(effectiveSaivageConfigSchema.parse(template.config), { defaultPromptRoot: template.promptRoot });
       expect(workflows.cardTypes.get('project')!.records.get('status.md')!.initialization?.at).toEqual(['first_required_entry']);

@@ -21,7 +21,7 @@ const session = 'agent:planner:project' as const;
 const candidate = { provider: 'test', account: null, model: 'test' } as const;
 
 describe('bundled record excerpt composition', () => {
-  it.each(['classic', 'classic-typed'] as const)('retains actual %s excerpt and draft facts through summary, zero-tail compaction and re-entry', async name => {
+  it.each(['classic', 'classic-typed', 'paad-typed'] as const)('retains actual %s excerpt and draft facts through summary, zero-tail compaction and re-entry', async name => {
     const root = mkdtempSync(join(tmpdir(), 'record-excerpt-composition-'));
     try {
       initProjectTree(root);

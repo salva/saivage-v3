@@ -21,7 +21,7 @@ const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{r
 
 describe('named-agent card-type workflow compilation',()=>{
   it('requires recipient-first STOPPED across classic, typed architecture and custom child-bearing workflows without enforcing dispatch tools',()=>{
-    for (const profile of ['classic','classic-typed'] as const) {
+    for (const profile of ['classic','classic-typed','paad-typed'] as const) {
       const config=effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate(profile).config));
       const compiled=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate(profile).promptRoot});
       for (const [type, process] of compiled.cardTypes) {
@@ -31,7 +31,7 @@ describe('named-agent card-type workflow compilation',()=>{
         expect(recipient.agent.name).toBe(process.notificationRecipient);
         for (const state of process.states.values()) if(state.kind==='node') expect(state.on.get('notification:interrupt')).toMatchObject({targetStateId:entry.targetStateId,semantic:{kind:'notification-interrupt'}});
       }
-      if (profile==='classic-typed') {
+      if (profile!=='classic') {
         const architecture=compiled.cardTypes.get('architecture')!;
         for (const node of ['draft','component-review','system-review']) expect(architecture.states.get(`node:${node}`)!.on.get('notification:interrupt')?.targetStateId).toBe('node:draft');
       }

@@ -1,0 +1,1 @@
+Pursue the concrete in-scope evidence or materially different useful analysis named in the accepted prior result. Do not repeat completed exploration or relabel exhausted uncertainty as an evidence gap.
