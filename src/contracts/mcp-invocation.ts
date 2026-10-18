@@ -13,6 +13,12 @@ export const McpServerUnregisterArgumentsSchema = z
     serverName: z.string().min(1),
   })
   .strict();
+export const McpServerReplaceArgumentsSchema = z
+  .object({
+    serverName: z.string().min(1),
+    connection: mcpConnectionSchema,
+  })
+  .strict();
 export const McpServersArgumentsSchema = z
   .object({
     serverName: z.string().min(1).optional(),

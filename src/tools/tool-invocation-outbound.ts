@@ -47,6 +47,7 @@ import {
   McpToolsArgumentsSchema,
   McpCatalogRefreshArgumentsSchema,
   McpServerRegisterArgumentsSchema,
+  McpServerReplaceArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
   McpServersArgumentsSchema,
   type ToolInvocationProjectionInput,
@@ -61,7 +62,7 @@ import {
 } from '../redaction/index.js';
 import {
   projectMcpToolCallArgumentsForOutbound,
-  projectMcpRegistrationForOutbound,
+  projectMcpConnectionDefinitionForOutbound,
 } from './mcp-invocation-outbound.js';
 import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
 
@@ -115,6 +116,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'mcp_tools',
   'mcp_catalog_refresh',
   'mcp_server_register',
+  'mcp_server_replace',
   'mcp_server_unregister',
   'mcp_servers',
   'edit_card',
@@ -200,7 +202,8 @@ function projectUnsupportedInvocation(
 }
 
 function projectParsedArguments(toolName: KnownToolInvocationName, value: unknown): unknown {
-  if (toolName === 'mcp_server_register') return projectMcpRegistrationForOutbound(value);
+  if (toolName === 'mcp_server_register' || toolName === 'mcp_server_replace')
+    return projectMcpConnectionDefinitionForOutbound(value);
   if (toolName === 'list_cards') return structuredClone(value);
   if (toolName === 'create_card') {
     const projected = structuredClone(value);
@@ -276,6 +279,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'mcp_servers':
     case 'mcp_server_unregister':
     case 'mcp_server_register':
+    case 'mcp_server_replace':
       return projectDynamicForOutbound(input);
     case 'emit_result':
       return {
@@ -466,6 +470,8 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
       return McpServersArgumentsSchema;
     case 'mcp_server_register':
       return McpServerRegisterArgumentsSchema;
+    case 'mcp_server_replace':
+      return McpServerReplaceArgumentsSchema;
     case 'mcp_server_unregister':
       return McpServerUnregisterArgumentsSchema;
     case 'edit_card':

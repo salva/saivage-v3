@@ -39,6 +39,7 @@ export function createMcpToolInvocationInstallation(): McpToolInvocationInstalla
 
   const port: McpToolInvocationPort = {
     registerServer: (name, connection) => authority().registerServer(name, connection),
+    replaceServer: (name, connection) => authority().replaceServer(name, connection),
     unregisterServer: (name) => authority().unregisterServer(name),
     getStatus: () => authority().getStatus(),
     getServerStatus: (name) => authority().getServerStatus(name),

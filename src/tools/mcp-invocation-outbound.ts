@@ -6,7 +6,7 @@ import {
 } from '../redaction/index.js';
 
 // Also used for rejected inputs: env values must never depend on secret-key heuristics.
-export function projectMcpRegistrationForOutbound(value: unknown): unknown {
+export function projectMcpConnectionDefinitionForOutbound(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     return projectDynamicForOutbound(value);
   const input = value as Record<string, unknown>;

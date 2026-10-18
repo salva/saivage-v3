@@ -11,6 +11,7 @@ import {
 function port(label: string): McpToolInvocationPort {
   return {
     registerServer: jest.fn((name: string) => ({ serverName: name, registered: true as const })),
+    replaceServer: jest.fn((name: string) => ({ serverName: name, replaced: true as const, status: 'stopped' as const })),
     unregisterServer: jest.fn(async (name: string) => ({
       serverName: name,
       unregistered: true as const,
@@ -43,6 +44,7 @@ describe('one-shot MCP tool invocation installation', () => {
       () => installation.port.getStatus(),
       () => installation.port.getServerStatus('server'),
       () => installation.port.registerServer('server', { transport: 'stdio', command: 'node' }),
+      () => installation.port.replaceServer('server', { transport: 'stdio', command: 'node' }),
       () => installation.port.unregisterServer('server'),
     ]) {
       expect(operation).toThrow(McpToolInvocationNotInstalledError);
@@ -57,6 +59,9 @@ describe('one-shot MCP tool invocation installation', () => {
     installation.installer.install(authority);
 
     expect(installation.port).toBe(facade);
+    const connection = { transport: 'stdio' as const, command: 'node' };
+    expect(facade.replaceServer('server', connection)).toEqual({ serverName: 'server', replaced: true, status: 'stopped' });
+    expect(authority.replaceServer).toHaveBeenCalledWith('server', connection);
     expect(facade.getServerCatalog('server')).toMatchObject({ serverName: 'first', catalogId: '22222222-2222-4222-8222-222222222222' });
     await expect(facade.refreshServerCatalog('server', '11111111-1111-4111-8111-111111111111')).resolves.toMatchObject({ serverName: 'server', toolCount: 0 });
     expect(authority.refreshServerCatalog).toHaveBeenCalledWith('server', '11111111-1111-4111-8111-111111111111', undefined);

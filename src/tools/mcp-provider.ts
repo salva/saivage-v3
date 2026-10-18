@@ -16,6 +16,7 @@ import {
   McpToolsArgumentsSchema,
   McpCatalogRefreshArgumentsSchema,
   McpServerRegisterArgumentsSchema,
+  McpServerReplaceArgumentsSchema,
   McpServerUnregisterArgumentsSchema,
   McpServersArgumentsSchema,
   toolSucceeded,
@@ -42,6 +43,26 @@ export interface McpProviderContext {
 }
 
 export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Object.freeze([
+  defineToolBinder({
+    name: 'mcp_server_replace',
+    description:
+      'Wholly replace an existing agent-owned MCP connection only when known stopped. Stop and join a used server first; start and discover separately afterward. Omitted connection fields are removed. Replacement never launches or autostarts a server and grants no call/control permission.',
+    resultPolicyTemplate: MCP_RESULT_POLICY_TEMPLATE,
+    inputSchema: () => McpServerReplaceArgumentsSchema,
+    executor: async (ctx: McpProviderContext, args, signal) => {
+      signal.throwIfAborted();
+      try {
+        return executedToolOutcome(
+          'none',
+          toolSucceeded(ctx.mcpToolInvocation.replaceServer(args.serverName, args.connection)),
+        );
+      } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
+        if (!(error instanceof McpInvokeError)) throw error;
+        return executedToolOutcome('none', toolFailed(boundedMcpError(error.message)));
+      }
+    },
+  }),
   defineToolBinder({
     name: 'mcp_server_register',
     description:

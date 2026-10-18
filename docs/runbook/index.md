@@ -264,7 +264,7 @@ closed owner and forbids replacement. Startup autostart is preserved.
 
 ### Dynamic MCP connections
 
-Explicitly select register/unregister/servers tools in the named agent inventory;
+Explicitly select register/replace/unregister/servers tools in the named agent inventory;
 this adds no default grants. A typical independently authorized sequence is:
 
 ```text
@@ -272,6 +272,11 @@ mcp_server_register({serverName:"local",connection:{transport:"stdio",command:"n
 mcp_server_control({serverName:"local",action:"start"})
 mcp_tools({serverName:"local"})
 mcp_tool_call({serverName:"local",bindingId:"<observed binding UUID>",catalogId:"<observed catalog UUID>",toolName:"ping",args:{}})
+mcp_server_control({serverName:"local",action:"stop"})
+mcp_server_replace({serverName:"local",connection:{transport:"stdio",command:"node",args:["peer-b.js"]}})
+mcp_server_control({serverName:"local",action:"start"})
+mcp_tools({serverName:"local"})
+mcp_tool_call({serverName:"local",bindingId:"<new binding UUID>",catalogId:"<new catalog UUID>",toolName:"ping",args:{}})
 mcp_server_control({serverName:"local",action:"stop"})
 mcp_server_unregister({serverName:"local"})
 ```
@@ -293,7 +298,18 @@ required after stop/start or restart; stale bindings fail before wire dispatch, 
 Unregister publishes removal before containment: on containment failure the
 definition stays absent and its closed owner blocks register/start. Do not assume
 failure undid removal or replay automatically; publication uncertainty is fatal
-before further operations. There is no atomic replacement or edit tool; explicit restart is non-atomic.
+before further operations. Explicit restart is non-atomic and distinct from definition replacement.
+
+`mcp_server_replace` accepts a complete connection, not a patch: omitted args/env
+disappear and transport may change. Values remain literal, without YAML interpolation
+or auth-profile lookup. Only an existing exclusively agent-owned definition qualifies.
+No runtime or pristine unstarted runtime needs a fake start/stop; a used owner must
+complete successful stop/join first. Starting/running, queued/active work, stop join
+in progress and failed containment block replacement. Rejection has no lifecycle effects.
+Success reports only `{serverName,replaced:true,status:'stopped'}` and launches nothing;
+the old runtime/binding is retired after publication. Explicit start and fresh discovery
+are separate. Old identities cannot dispatch to the successor. Publication uncertainty
+is fatal before retirement, result or any follow-up; do not retry/read back automatically.
 
 Stdio `processId` is a safe shared Process observation association, not wait/kill
 authority. MCP owns the runtime launch and retirement; stdout/stderr are

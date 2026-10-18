@@ -6,6 +6,7 @@ import { createServer as createViteServer } from 'vite';
 import { pathToFileURL } from 'node:url';
 import * as YAML from 'yaml';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { readMcpServerDefinitions } from '../../src/mcp/server-definitions.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -110,16 +111,21 @@ describe('MCP tool invocation production composition', () => {
         script,
         `
 const fs=require('node:fs'); const readline=require('node:readline');
+const responseLabel=process.argv[2]||'pong';
 const send=(id,result)=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id,result})+'\\n');
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line);
  if(r.method==='initialize')send(r.id,{protocolVersion:'2025-06-18'});
  if(r.method==='tools/list')send(r.id,{tools:[{name:'ping',inputSchema:{type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false}}]});
  if(r.method==='tools/call') { fs.appendFileSync(${JSON.stringify(callsPath)},JSON.stringify({value:r.params.arguments.value,at:Date.now()})+'\\n');
- setTimeout(()=>{send(r.id,{content:[{type:'text',text:'pong:'+r.params.arguments.value}]});if(r.params.arguments.value==='exit')setTimeout(()=>process.exit(0),30);},120); }
+  setTimeout(()=>{send(r.id,{content:[{type:'text',text:responseLabel+':'+r.params.arguments.value}]});if(r.params.arguments.value==='exit')setTimeout(()=>process.exit(0),30);},120); }
 });`,
       );
       const wireCalls: unknown[] = [];
+      let enterHeld!: () => void;
+      let releaseHeld!: () => void;
+      const heldEntered = new Promise<void>(resolve => { enterHeld = resolve; });
+      const heldRelease = new Promise<void>(resolve => { releaseHeld = resolve; });
       const peer = createServer(async (req, res) => {
         const body = await readJsonRequest(req);
         if (body.method === 'notifications/initialized') {
@@ -128,6 +134,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           return;
         }
         if (body.method === 'tools/call') wireCalls.push(body.params);
+        if (body.method === 'tools/call' && body.params.arguments.value === 'held-replacement') {
+          enterHeld();
+          await heldRelease;
+        }
         res.setHeader('content-type', 'application/json');
         res.end(
           JSON.stringify({
@@ -182,7 +192,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       const provider = createServer(async (req, res) => {
         try {
           const body = (await readJsonRequest(req)) as ChatCompletionRequest;
-          if (gateway === undefined) gateway = body.tools;
+          if (gateway === undefined) {
+            gateway = body.tools;
+            expect(body.tools?.find(tool => tool.function.name === 'mcp_server_replace')).toMatchObject({ function: { parameters: { required: ['serverName', 'connection'], additionalProperties: false } } });
+          }
           else expect(body.tools).toEqual(gateway);
           const last = body.messages.at(-1);
           const settled = last?.role === 'tool' ? JSON.parse(last.content) : null;
@@ -287,15 +300,58 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
               break;
             case 10:
               expect(JSON.stringify(settled)).toContain('pong:selected-agent');
-              emit('mcp_server_control', { serverName: 'dynamic', action: 'stop' });
+              emit('mcp_server_replace', { serverName: 'dynamic', connection: httpConnection });
               break;
             case 11:
+              expect(settled).toMatchObject({ success: false, error: expect.stringContaining('containment') });
+              expect(app!.server.mcpManager.getServerStatus('dynamic')!.bindingId).toBe(binding);
+              emit('mcp_server_control', { serverName: 'dynamic', action: 'stop' });
+              break;
+            case 12:
               expect(settled.success).toBe(true);
               if (processId)
                 expect(app!.server.runtimeApplication.processRunner.get(processId)).toBeNull();
+              emit('mcp_server_replace', { serverName: 'dynamic', connection: httpConnection });
+              break;
+            case 13:
+              expect(settled).toEqual({ success: true, data: { serverName: 'dynamic', replaced: true, status: 'stopped' } });
+              expect(readMcpServerDefinitions(projectRoot)).toEqual({ dynamic: httpConnection });
+              expect(app!.server.mcpManager.getServerStatus('dynamic')).toMatchObject({ status: 'stopped', transport: 'streamable-http', bindingId: null, processId: null, tools_count: 0 });
+              emit('mcp_server_control', { serverName: 'dynamic', action: 'start' });
+              break;
+            case 14:
+              expect(settled).toMatchObject({ success: true, data: { status: 'running' } });
+              emit('mcp_tools', { serverName: 'dynamic' });
+              break;
+            case 15:
+              expect(settled.success).toBe(true);
+              expect(settled.data.bindingId).not.toBe(binding);
+              emit('mcp_tool_call', { serverName: 'dynamic', bindingId: binding, catalogId, toolName: 'ping', args: { value: 'stale-no-dispatch' } });
+              break;
+            case 16:
+              expect(settled).toMatchObject({ success: false, error: expect.stringContaining('Stale MCP binding') });
+              expect(JSON.stringify(wireCalls)).not.toContain('stale-no-dispatch');
+              emit('mcp_tool_call', { serverName: 'dynamic', bindingId: app!.server.mcpManager.getServerStatus('dynamic')!.bindingId!, catalogId: app!.server.mcpManager.getServerCatalog('dynamic')!.catalogId, toolName: 'ping', args: { value: 'replacement-B' } });
+              break;
+            case 17:
+              expect(JSON.stringify(settled)).toContain('pong:replacement-B');
+              {
+                const manager = app!.server.mcpManager;
+                const before = manager.getServerStatus('dynamic');
+                const call = manager.invokeTool('dynamic', before!.bindingId!, manager.getServerCatalog('dynamic')!.catalogId, 'ping', { value: 'held-replacement' });
+                await heldEntered;
+                expect(() => manager.replaceServer('dynamic', connection)).toThrow('containment');
+                expect(manager.getServerStatus('dynamic')!.bindingId).toBe(before!.bindingId);
+                releaseHeld();
+                await expect(call).resolves.toMatchObject({ content: [{ text: 'pong:held-replacement' }] });
+              }
+              emit('mcp_server_control', { serverName: 'dynamic', action: 'stop' });
+              break;
+            case 18:
+              expect(settled.success).toBe(true);
               emit('mcp_server_unregister', { serverName: 'dynamic' });
               break;
-            case 12:
+            case 19:
               expect(settled).toMatchObject({ success: true, data: { unregistered: true } });
               sendFinalMessage(res, 'Dynamic connection removed.');
               break;
@@ -315,6 +371,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           productionTestConfig(providerPort, (config) => {
             config.agents.analyst!.tools.push(
               'mcp_server_register',
+              'mcp_server_replace',
               'mcp_server_unregister',
               'mcp_servers',
             );
@@ -329,6 +386,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         // Observation-only spies retain the real shared runner and owner mechanics.
         processWait = jest.spyOn(app.server.runtimeApplication.processRunner, 'waitForSettlement');
         processKill = jest.spyOn(app.server.runtimeApplication.processRunner, 'kill');
+        const independentBefore = app.server.mcpManager.getServerCatalog('independent')!;
         const response = await fetch(`${appOrigin(app)}/api/chat`, {
           method: 'POST',
           headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
@@ -337,10 +395,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         const reply = await response.json();
         if (fixtureFailure) throw fixtureFailure;
         expect(response.status).toBe(200);
-        expect(step).toBe(12);
-        expect(seen).toHaveLength(11);
+        expect(step).toBe(19);
+        expect(seen).toHaveLength(18);
         expect(JSON.stringify(reply)).not.toContain('synthetic-private-env');
         const manager = app.server.mcpManager;
+        expect(manager.getServerCatalog('independent')).toEqual(independentBefore);
         const runner = app.server.runtimeApplication.processRunner;
         await expect(
           manager.invokeTool(
@@ -377,16 +436,38 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         expect(wireCount()).toBe(beforeStale);
         await manager.invokeTool('dynamic', replacementBinding, manager.getServerCatalog('dynamic')!.catalogId, 'ping', { value: 'bound-B' });
         expect(wireCount()).toBe(beforeStale + 1);
+        if (transport === 'stdio') {
+          const oldCatalog = manager.getServerCatalog('dynamic')!.catalogId;
+          const oldProcess = manager.getServerStatus('dynamic')!.processId!;
+          await manager.stopServer('dynamic');
+          expect(runner.get(oldProcess)).toBeNull();
+          const stdioB = { transport: 'stdio' as const, command: process.execPath, args: [script, 'stdio-B'] };
+          expect(manager.replaceServer('dynamic', stdioB)).toEqual({ serverName: 'dynamic', replaced: true, status: 'stopped' });
+          expect(readMcpServerDefinitions(projectRoot)).toEqual({ dynamic: stdioB });
+          expect(manager.getServerStatus('dynamic')).toMatchObject({ status: 'stopped', transport: 'stdio', bindingId: null, processId: null, tools_count: 0 });
+          const beforeStdioB = wireCount();
+          await manager.startServer('dynamic');
+          const fresh = manager.getServerCatalog('dynamic')!;
+          expect(fresh.bindingId).not.toBe(replacementBinding);
+          expect(fresh.catalogId).not.toBe(oldCatalog);
+          await expect(manager.invokeTool('dynamic', replacementBinding, oldCatalog, 'ping', { value: 'stale-stdio-A' })).rejects.toThrow('Stale MCP binding');
+          await expect(manager.invokeTool('dynamic', fresh.bindingId, oldCatalog, 'ping', { value: 'stale-stdio-catalog' })).rejects.toThrow('Stale MCP catalog');
+          expect(wireCount()).toBe(beforeStdioB);
+          await expect(manager.invokeTool('dynamic', fresh.bindingId, fresh.catalogId, 'ping', { value: 'stdio-replacement' })).resolves.toMatchObject({ content: [{ text: 'stdio-B:stdio-replacement' }] });
+          expect(wireCount()).toBe(beforeStdioB + 1);
+        }
         await manager.unregisterServer('dynamic');
         if (transport === 'stdio') {
           manager.registerServer('serial', connection);
           await manager.startServer('serial');
           const serialBinding = manager.getServerStatus('serial')!.bindingId!;
           const before = Date.now();
-          await Promise.all([
+          const queuedCalls = Promise.all([
             manager.invokeTool('serial', serialBinding, manager.getServerCatalog('serial')!.catalogId, 'ping', { value: 'first' }),
             manager.invokeTool('serial', serialBinding, manager.getServerCatalog('serial')!.catalogId, 'ping', { value: 'second' }),
           ]);
+          expect(() => manager.replaceServer('serial', httpConnection)).toThrow('containment');
+          await queuedCalls;
           const calls = readFileSync(callsPath, 'utf8')
             .trim()
             .split('\n')
@@ -394,10 +475,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           expect(calls.map((c) => c.value)).toEqual([
             'selected-agent',
             'bound-B',
+            'stdio-replacement',
             'first',
             'second',
           ]);
-          expect(calls[3].at - calls[2].at).toBeGreaterThanOrEqual(100);
+          expect(calls[4].at - calls[3].at).toBeGreaterThanOrEqual(100);
           expect(Date.now() - before).toBeGreaterThanOrEqual(220);
           const serialProcess = manager.getServerStatus('serial')!.processId!;
           await manager.unregisterServer('serial');
@@ -417,8 +499,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
           expect(['stopped', 'error']).toContain(manager.getServerStatus('natural')!.status);
           expect(manager.getServerStatus('natural')).toMatchObject({ processId: null });
           await manager.unregisterServer('natural');
-        } else expect(wireCalls).toHaveLength(3);
+        } else expect(wireCalls).toHaveLength(5);
       } finally {
+        releaseHeld();
         if (app) {
           apps.delete(app);
           await app.stop();

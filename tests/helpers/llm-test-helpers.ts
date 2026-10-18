@@ -102,6 +102,7 @@ export const unusedSummarizerProvider: SummarizerProviderPort = {
 };
 export const unusedMcpToolInvocation: McpToolInvocationPort = {
   registerServer: () => { throw new Error('Unexpected MCP register'); },
+  replaceServer: () => { throw new Error('Unexpected MCP replace'); },
   unregisterServer: async () => { throw new Error('Unexpected MCP unregister'); },
   getStatus: () => { throw new Error('Unexpected MCP status'); },
   getServerStatus: () => { throw new Error('Unexpected MCP server status'); },

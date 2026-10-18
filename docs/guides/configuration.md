@@ -312,6 +312,13 @@ lazy `.saivage/config/mcp-servers.json` (format 1, type `mcp-server-definitions`
 dynamic definitions survive restart/reset but always require explicit start.
 `mcp_server_unregister` removes only dynamic entries and contains their exact
 runtime. `mcp_servers` observes configured and retained owners independently.
+An independently selected `mcp_server_replace` wholly replaces only an existing
+exclusively agent-owned connection at a known-stopped boundary. Used owners require
+successful explicit stop/join; pristine unstarted definitions need no ceremony.
+Transport may change and omitted args/env are removed, not merged. Dynamic command,
+args, env and URL values remain literal (including `${...}`); only YAML uses configuration
+interpolation. No auth-profile lookup or credential injection is added. Replacement
+does not launch; separately start/discover before calling with fresh identities.
 No new permissions are added to defaults. Discover with `mcp_tools`, then pass
 its `bindingId` and `catalogId` to `mcp_tool_call`; stop/start or restart requires fresh discovery.
 Any eligible configured global/card agent may independently opt in to
@@ -322,7 +329,7 @@ invocation nor lifecycle control, and defaults remain unchanged. Oversight admit
 no MCP tools. See [explicit refresh](../runbook/index.md#explicit-mcp-catalog-refresh).
 Stdio is an MCP-managed runtime process, not an attachable agent command;
 ordinary process wait/kill remains denied. HTTP is an external URL and local
-stop does not terminate it. Editing, notifications/native projection and card-tree lifetime
+stop does not terminate it. Hot editing, notifications/native projection and card-tree lifetime
 refinements are deferred. `show_config` remains YAML-only; Files refuses the
 secret-bearing dynamic definition file. Include it in complete project backups.
 

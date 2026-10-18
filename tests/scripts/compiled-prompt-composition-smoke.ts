@@ -304,6 +304,7 @@ try {
   const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
   const mcpToolInvocation = {
     registerServer() { throw new Error('Unexpected MCP register'); },
+    replaceServer() { throw new Error('Unexpected MCP replace'); },
     async unregisterServer() { throw new Error('Unexpected MCP unregister'); },
     getStatus() { throw new Error('Unexpected MCP status'); },
     getServerStatus() { throw new Error('Unexpected MCP status'); },

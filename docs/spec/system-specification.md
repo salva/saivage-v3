@@ -1859,7 +1859,23 @@ Authenticated `POST /api/mcp/servers/:name/restart` (`mcp.restart`) accepts only
 and delegates to the same operation as the selected control tool, with existing
 lifecycle auth/error boundaries. No new permission or default role grant is added.
 
-Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No edit/enable/disable tools or card-tree lifetime rules are added.
+Independently selectable `mcp_server_register({serverName,connection})` persists a strict stdio command/args/env or Streamable HTTP URL without launching. `mcp_server_unregister({serverName})` removes only a dynamic definition, then synchronously fences its captured owner before awaiting containment. Admission/collision errors have no effects. Removal followed by containment failure leaves the definition absent and the old closed owner retained; register/start cannot replace it. Publication uncertainty permits no follow-up, result, logging or containment. No enable/disable tools or card-tree lifetime rules are added.
+
+Independently selectable `mcp_server_replace({serverName,connection})` wholly replaces
+an existing exclusively agent-owned definition, including a transport switch. Omitted
+args/env disappear; dynamic values remain literal, without YAML interpolation or auth-profile
+lookup. Operator entries, including source collisions, and missing dynamic entries reject.
+The operation requires no runtime, a pristine idle/unstarted runtime, or completed successful
+containment. Starting/running, queued/active work, closure/stop join and failed containment
+reject before publication, regardless of displayed stopped status. Explicitly stop/join a used
+server first. One synchronous map publication precedes retirement of its old runtime; success
+is only `{serverName,replaced:true,status:'stopped'}`, with null binding/process and zero tools
+in subsequent observation. Replacement does not stop, launch, reconcile, refresh or replay.
+Start/discover separately afterward; even identical replacement retires the old binding,
+and stale binding/catalog calls fail before dispatch. In-flight known responses retain their
+original attribution; HTTP containment remains local only. Publication uncertainty permits
+no retirement, result, observation, logging, retry or cleanup. This adds no default grant,
+REST topology endpoint, editor, autostart or durable-format change.
 
 `mcp_servers({serverName?})` independently observes definitions and retained owners, bounded at 1 MiB (select an exact name on overflow). Common observations expose source `operator|agent|null`, `starting|running|stopped|error`, containment failure, binding and safe process association. Running means discovery complete; starting exposes no ready tools. Null source means an unregistered retained owner. `mcp_tool_call` strictly requires both discovered identities and validates against that exact catalog at dispatch, inside the stdio exchange queue or immediately before HTTP dispatch. Stale identities fail without sending the call, retry or replay. Possession grants no tool permission. Prepared generic gateways stay frozen; configured card/global participants may independently select management, refresh, observation or invocation. Oversight remains observation-only and admits no MCP tools.
 

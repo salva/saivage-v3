@@ -60,6 +60,11 @@ describe('durable-preserving MCP topology history', () => {
         args: { serverName: 'one', action },
         data: { serverName: 'one', status: action === 'stop' ? 'stopped' : 'running', toolCount: action === 'stop' ? 0 : 1 },
       })),
+      {
+        tool: 'mcp_server_replace',
+        args: { serverName: 'two', connection: { transport: 'stdio', command: 'node', env: { CUSTOM: 'private-replacement-env' } } },
+        data: { serverName: 'two', replaced: true, status: 'stopped' },
+      },
     ];
     const rows: AgentMessage[] = [
       {
@@ -183,7 +188,11 @@ describe('durable-preserving MCP topology history', () => {
           expect(result).toMatchObject({ arguments: args });
           expect(JSON.stringify(result)).not.toContain('catalogId');
         }
-        if (index >= 3) expect(result).toMatchObject({ arguments: args });
+        if (tool === 'mcp_server_replace') {
+          expect(JSON.stringify(result)).not.toContain('private-replacement-env');
+          expect(request.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ function: { name: tool, arguments: JSON.stringify(args) } })] })]));
+          expect(request.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'tool', content: JSON.stringify({ success: true, data }) })]));
+        } else if (index >= 3) expect(result).toMatchObject({ arguments: args });
         if (index === 2) expect(JSON.stringify(result)).not.toContain('private-env-value');
       });
     } finally {

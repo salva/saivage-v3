@@ -73,6 +73,37 @@ function deferred() {
 const connection = { transport: 'streamable-http' as const, url: 'http://localhost/mcp' };
 
 describe('dynamic MCP exact definitions and owner fences', () => {
+  it('replaces whole literal connections before launch and retires pristine owners without changing YAML or neighbors', async () => {
+    const { root, manager, runner } = setup({ operator: { ...connection, autostart: false } });
+    const yaml = readFileSync(join(root, '.saivage/saivage.yaml'));
+    const original = { transport: 'stdio' as const, command: '${LITERAL_COMMAND}', args: ['old'], env: { CUSTOM: '${LITERAL_VALUE}' } };
+    manager.registerServer('one', original);
+    manager.registerServer('other', connection);
+    const start = jest.spyOn(McpServerRuntime.prototype, 'start');
+    const stop = jest.spyOn(McpServerRuntime.prototype, 'stop');
+    const launch = jest.spyOn(runner, 'closeAndTerminateDirectScope');
+    expect(manager.replaceServer('one', { transport: 'stdio', command: '${NEW_LITERAL}' })).toEqual({ serverName: 'one', replaced: true, status: 'stopped' });
+    expect(readMcpServerDefinitions(root)).toEqual({ one: { transport: 'stdio', command: '${NEW_LITERAL}' }, other: connection });
+    await manager.reconcilePersistedConfig();
+    expect(manager.getServerStatus('one')!.bindingId).toEqual(expect.any(String));
+    manager.replaceServer('one', connection);
+    expect(manager.getServerStatus('one')).toMatchObject({ status: 'stopped', transport: 'streamable-http', bindingId: null, processId: null, tools_count: 0 });
+    manager.replaceServer('one', connection); // Identical replacement is still an explicit publication.
+    const bytes = readFileSync(mcpServerDefinitionsPath(root));
+    for (const [name, value] of [
+      ['', connection], ['missing', connection], ['operator', connection],
+      ['one', { transport: 'stdio' }], ['one', { ...connection, autostart: true }],
+      ['one', { ...connection, disabled: false }], ['one', { ...connection, auth_profile: 'secret' }],
+    ] as const) expect(() => manager.replaceServer(name, value as never)).toThrow();
+    expect(readFileSync(mcpServerDefinitionsPath(root))).toEqual(bytes);
+    expect(readFileSync(join(root, '.saivage/saivage.yaml'))).toEqual(yaml);
+    expect(start).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+    await manager.cleanupForApplicationStop();
+    expect(() => manager.replaceServer('one', connection)).toThrow();
+  });
+
   it('strictly reads the lazy exact family and preserves unrelated definitions and YAML', async () => {
     const { root, manager } = setup({ operator: { ...connection, autostart: false } });
     const yaml = readFileSync(join(root, '.saivage/saivage.yaml'));
@@ -106,17 +137,22 @@ describe('dynamic MCP exact definitions and owner fences', () => {
         typeof value === 'string' ? value : JSON.stringify(value),
       );
       expect(() => readMcpServerDefinitions(root)).toThrow('Invalid MCP');
+      expect(() => manager.replaceServer('two', connection)).toThrow('Invalid MCP');
     }
   });
 
-  it.each(['register', 'unregister'] as const)(
+  it.each(['register', 'replace', 'unregister'] as const)(
     '%s publication uncertainty reaches the caller before further reads, status, logs, results or containment',
     async (operation) => {
       const { manager, events, runner } = setup();
       manager.registerServer('one', connection);
       await manager.reconcilePersistedConfig(); // Establish an exact retained owner without launching.
+      expect(manager.getServerStatus('one')).toMatchObject({
+        status: 'stopped', bindingId: expect.any(String), processId: null,
+      }); // A non-null binding proves this is a retained runtime, not a definition-only observation.
       // Deterministic primitive fault, not an E2E or a simulated successful publication.
       publicationFault = true;
+      const deleteEntry = jest.spyOn(Map.prototype, 'delete');
       const stop = jest.spyOn(McpServerRuntime.prototype, 'stop');
       const status = jest.spyOn(manager, 'getStatus');
       const terminate = jest.spyOn(runner, 'closeAndTerminateDirectScope');
@@ -124,6 +160,8 @@ describe('dynamic MCP exact definitions and owner fences', () => {
         await expect(manager.unregisterServer('one')).rejects.toBeInstanceOf(
           PublicationOutcomeUnknownError,
         );
+      else if (operation === 'replace')
+        expect(() => manager.replaceServer('one', connection)).toThrow(PublicationOutcomeUnknownError);
       else
         expect(() => manager.registerServer('two', connection)).toThrow(
           PublicationOutcomeUnknownError,
@@ -133,6 +171,9 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       expect(status).not.toHaveBeenCalled();
       expect(events.appendEventPrepared).not.toHaveBeenCalled();
       expect(readsAfterUncertainty).toBe(0);
+      // Observe the in-memory deletion primitive, not persisted state after uncertainty.
+      // No map deleted this name, in particular not the manager's retained runtime map.
+      expect(deleteEntry).not.toHaveBeenCalledWith('one');
     },
   );
 
@@ -148,6 +189,7 @@ describe('dynamic MCP exact definitions and owner fences', () => {
       }),
     );
     const start = jest.spyOn(McpServerRuntime.prototype, 'start');
+    expect(() => manager.replaceServer('one', connection)).toThrow('agent-owned');
     await expect(manager.reconcilePersistedConfig()).rejects.toThrow('conflicting');
     expect(start).not.toHaveBeenCalled();
     await manager.cleanupForApplicationStop();
@@ -156,10 +198,70 @@ describe('dynamic MCP exact definitions and owner fences', () => {
     expect(() => readMcpServerDefinitions(root)).toThrow(); // EISDIR is not lazy absence.
   });
 
+  it.each([false, true])('rejects apparent stopped during the stop join and failed containment=%s', async failed => {
+    const { root, manager, runner } = setup();
+    manager.registerServer('one', connection);
+    const original = globalThis.fetch;
+    const entered = deferred();
+    const release = deferred();
+    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.method === 'notifications/initialized') return new Response(null, { status: 202 });
+      if (body.method === 'tools/call') {
+        entered.resolve();
+        await release.promise;
+        init!.signal!.throwIfAborted();
+      }
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: body.method === 'tools/list' ? { tools: [{ name: 'ping', inputSchema: { type: 'object' } }] } : {} }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      await manager.startServer('one');
+      const binding = manager.getServerStatus('one')!.bindingId!;
+      const catalog = manager.getServerCatalog('one')!.catalogId;
+      const active = manager.invokeTool('one', binding, catalog, 'ping', {}).catch(e => e);
+      await entered.promise;
+      const bytes = readFileSync(mcpServerDefinitionsPath(root));
+      if (failed) jest.spyOn(runner, 'closeAndTerminateDirectScope').mockRejectedValue(new Error('containment failed'));
+      const stopping = manager.stopServer('one').catch(e => e);
+      expect(() => manager.replaceServer('one', connection)).toThrow('containment');
+      expect(readFileSync(mcpServerDefinitionsPath(root))).toEqual(bytes);
+      release.resolve();
+      await active;
+      await stopping;
+      if (failed) expect(() => manager.replaceServer('one', connection)).toThrow('containment');
+      else {
+        expect(manager.replaceServer('one', connection)).toMatchObject({ replaced: true });
+        await expect(manager.invokeTool('one', binding, catalog, 'ping', {})).rejects.toThrow();
+        await manager.startServer('one');
+        expect(manager.getServerStatus('one')!.bindingId).not.toBe(binding);
+        await expect(manager.invokeTool('one', binding, catalog, 'ping', {})).rejects.toThrow('Stale');
+      }
+    } finally {
+      release.resolve();
+      globalThis.fetch = original;
+      jest.restoreAllMocks();
+      if (!failed) await manager.cleanupForApplicationStop();
+    }
+  });
+
+  it('allows replacement after failed startup has completed successful containment', async () => {
+    const { manager } = setup();
+    manager.registerServer('one', connection);
+    const original = globalThis.fetch;
+    globalThis.fetch = jest.fn(async () => { throw new Error('synthetic startup failure'); }) as typeof fetch;
+    try {
+      await expect(manager.startServer('one')).rejects.toThrow();
+      expect(manager.replaceServer('one', { transport: 'stdio', command: 'node' })).toMatchObject({ replaced: true });
+    } finally {
+      globalThis.fetch = original;
+      await manager.cleanupForApplicationStop();
+    }
+  });
+
   it.each(['startup', 'call'] as const)(
     'successful removal joins old %s; later explicit owner cannot be deleted by old completion',
     async (phase) => {
-      const { manager } = setup();
+      const { root, manager } = setup();
       manager.registerServer('one', connection);
       manager.registerServer('other', connection);
       const original = globalThis.fetch;
@@ -210,6 +312,9 @@ describe('dynamic MCP exact definitions and owner fences', () => {
             ? start
             : manager.invokeTool('one', oldBinding, manager.getServerCatalog('one')!.catalogId, 'ping', {}).catch((e) => e);
         await entered.promise;
+        const beforeReplace = readFileSync(mcpServerDefinitionsPath(root));
+        expect(() => manager.replaceServer('one', connection)).toThrow('containment');
+        expect(readFileSync(mcpServerDefinitionsPath(root))).toEqual(beforeReplace);
         const removal = manager.unregisterServer('one');
         expect(() => manager.registerServer('one', connection)).toThrow('containment');
         hold = false;

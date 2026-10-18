@@ -74,6 +74,10 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
     connection: { transport: 'stdio', command: 'node', env: { CUSTOM: OUTBOUND_RAW_MARKER } },
   },
   mcp_server_unregister: { serverName: 'ghu_server' },
+  mcp_server_replace: {
+    serverName: 'ghu_server',
+    connection: { transport: 'stdio', command: 'node', env: { CUSTOM: OUTBOUND_RAW_MARKER } },
+  },
   mcp_servers: { serverName: 'ghu_server' },
   mcp_tools: { serverName: 'ghu_server', toolName: 'rt_tool' },
   mcp_catalog_refresh: { serverName: 'ghu_server', bindingId: '11111111-1111-4111-8111-111111111111' },
@@ -84,6 +88,18 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
+  it.each(['mcp_server_register', 'mcp_server_replace'])('suppresses %s connection secrets before input validation in live and historical projections', toolName => {
+    for (const env of [{ CUSTOM: 'opaque-environment-canary' }, ['opaque-environment-canary'], 'opaque-environment-canary']) {
+      const args = { serverName: 'one', connection: { transport: 'stdio', command: 'node token=command-canary', args: ['token=argument-canary'], url: 'https://user:password-canary@host.invalid/?token=query-canary', env, extra: true } };
+      for (const result of [{ success: true as const, data: { replaced: true, status: 'stopped' } }, { success: false as const, error: 'Invalid MCP connection.' }]) {
+        const complete = { shape: 'complete' as const, identity: identity(toolName), arguments: args, result };
+        const historical = { shape: 'call-row' as const, identity: callIdentity(toolName), arguments: JSON.stringify(args) };
+        for (const projected of [projectToolInvocation(complete), projectLiveToolInvocation(complete), projectToolInvocation(historical)]) {
+          for (const secret of ['opaque-environment-canary', 'command-canary', 'argument-canary', 'password-canary', 'query-canary']) expect(JSON.stringify(projected)).not.toContain(secret);
+        }
+      }
+    }
+  });
   const locations = [
     ['read', 'path', readWorkspaceInputSchema],
     ['view_image', 'path', viewImageInputSchema],

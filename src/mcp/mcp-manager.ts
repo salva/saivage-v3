@@ -35,6 +35,10 @@ type McpToolCapability = McpToolDefinition & {
 };
 export interface McpToolInvocationPort {
   registerServer(name: string, connection: McpConnection): { serverName: string; registered: true };
+  replaceServer(
+    name: string,
+    connection: McpConnection,
+  ): { serverName: string; replaced: true; status: 'stopped' };
   unregisterServer(
     name: string,
   ): Promise<{ serverName: string; unregistered: true; status: 'stopped' }>;
@@ -330,6 +334,34 @@ export class McpManager implements McpReconciliationPort {
     });
     replaceMcpServerDefinitions(this.#processRunner.projectRoot, dynamic);
     return { serverName: name, registered: true };
+  }
+
+  replaceServer(
+    name: string,
+    connection: McpConnection,
+  ): { serverName: string; replaced: true; status: 'stopped' } {
+    this.assertAdmission();
+    if (!name.length) throw new McpLifecycleError('MCP server name must be nonempty.', 409);
+    const parsed = mcpConnectionSchema.safeParse(connection);
+    if (!parsed.success) throw new McpLifecycleError('Invalid MCP connection.', 409);
+    const dynamic = readMcpServerDefinitions(this.#processRunner.projectRoot);
+    if (this.configAuthority.loadMcpServer(name) || !Object.hasOwn(dynamic, name))
+      throw new McpLifecycleError(
+        `MCP server '${name}' is not an exclusively agent-owned definition.`,
+        409,
+      );
+    const runtime = this.#runtimes.get(name);
+    if (runtime && !runtime.canReplaceDefinition())
+      throw new McpLifecycleError(`MCP server '${name}' requires completed containment.`, 409);
+    Object.defineProperty(dynamic, name, {
+      value: parsed.data,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    replaceMcpServerDefinitions(this.#processRunner.projectRoot, dynamic);
+    this.#runtimes.delete(name);
+    return { serverName: name, replaced: true, status: 'stopped' };
   }
 
   async unregisterServer(

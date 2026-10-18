@@ -128,6 +128,9 @@ export class McpServerRuntime {
   isContained(): boolean {
     return this.contained;
   }
+  canReplaceDefinition(): boolean {
+    return this.contained || (this.admissionOpen && !this.handle && this.operations.size === 0);
+  }
   isAdmissionOpen(): boolean {
     return this.admissionOpen;
   }

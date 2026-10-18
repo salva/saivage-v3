@@ -165,6 +165,12 @@ containment failure is a removed retained blocker, not an available definition.
 Starting exposes no ready tools. Process association grants no wait/kill authority
 and promises no captured protocol output. Registration/removal presenters show
 recorded publication/containment facts; no topology controls are added.
+The `mcp_server_replace` presenter shows the requested server and safely projected
+connection, then recorded `serverName`, `replaced` and `status`: **Definition replaced ·
+not launched** is a definition-publication fact, not readiness or target termination.
+Both registration and replacement suppress arbitrary env values structurally, including
+malformed rejected inputs, and redact URL/command secrets before live or historical
+presentation. Raw definition reads remain denied; no topology editor or endpoint is added.
 The `mcp_catalog_refresh` presenter shows requested server/connection and recorded
 returned server, `bindingId`, `catalogId` and tool count. **Refresh recorded** requires
 a successful result with those supporting facts; failed, uncertain or missing facts

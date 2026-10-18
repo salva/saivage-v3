@@ -70,7 +70,7 @@ describe('current family semantic authority', () => {
   });
   it('owns every actual tool through one full-envelope presenter', () => {
     const names = ['activate_card','apply_patch','cancel_card','create_card','delete_card','diff_card_versions','edit','edit_card','emit_result','get_card','get_card_version','get_status','get_tree','glob','grep','kill_process','list_agent_sessions','list_card_versions','list_cards','list_processes_tool','mcp_tool_call','navigate_back','navigate_workspace','pause_runtime','queue_notification','read','read_agent_session','read_control_actions','read_record_version','read_runtime_errors','read_runtime_events','reconfigure','reorder_child','reopen_card','restart_server','resume_runtime','run_command','show_config','skill','start_project','stop_project','wait_process','webfetch','websearch','write'];
-    names.push('view_image', 'mcp_server_control', 'mcp_tools', 'mcp_server_register', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh');
+    names.push('view_image', 'mcp_server_control', 'mcp_tools', 'mcp_server_register', 'mcp_server_replace', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh');
     expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(names.sort());
     for (const tool of names) {
       expect(TOOL_PRESENTERS[tool].result).toBeTypeOf('function');
@@ -112,6 +112,20 @@ describe('current family semantic authority', () => {
         expect(fields.find(field => field.label === 'catalogId')?.parts).toEqual(catalogId ? [{ kind: 'text', text: catalogId, language: 'text' }] : undefined);
       }
     }
+  });
+  it('presents replacement as a recorded definition only, never a launch or an inferred failed publication', () => {
+    const args = { serverName: 'one', connection: { transport: 'stdio', command: 'node', env: { CUSTOM: '[REDACTED]' } } };
+    const call = presentToolCall(callEnvelope('mcp_server_replace', args));
+    expect(call.name).toBe('mcp_server_replace');
+    expect(JSON.stringify(call.sections)).toContain('Safe connection definition');
+    const facts = { serverName: 'one', replaced: true, status: 'stopped' };
+    const result = present('mcp_server_replace', facts);
+    expect(result.outcome).toBe('Definition replaced · not launched');
+    expect(result.sections[0].fields?.map(field => field.label)).toEqual(['serverName', 'replaced', 'status']);
+    for (const data of [undefined, {}, { ...facts, replaced: false }, { ...facts, status: 'running' }])
+      expect(present('mcp_server_replace', data).outcome).not.toContain('Definition replaced');
+    expect(present('mcp_server_replace', facts, false).outcome).toBe('Failed');
+    expect(present('mcp_server_replace', { ...facts, outcome_unknown: true }, false).outcome).toBe('Effects uncertain');
   });
   it('shows supplied edits and patches separately from measured effects', () => {
     const request = presentToolCall(callEnvelope('edit', { path: 'src/main.ts', old_string: 'before\n', new_string: 'after\n', replace_all: true }));

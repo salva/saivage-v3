@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { invokeToolForLlm } from '../../src/tools/invocation.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
-import { projectMcpRegistrationForOutbound } from '../../src/tools/mcp-invocation-outbound.js';
+import { projectMcpConnectionDefinitionForOutbound } from '../../src/tools/mcp-invocation-outbound.js';
 import {
   testLlmToolInvocationContext,
   unusedMcpToolInvocation,
@@ -14,6 +14,7 @@ import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 import {
   PublicationOutcomeUnknownError,
   McpServerRegisterArgumentsSchema,
+  McpServerReplaceArgumentsSchema,
   McpToolCallArgumentsSchema,
 } from '../../src/contracts/index.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
@@ -50,7 +51,7 @@ async function invoke(
 
 describe('dynamic MCP ordinary surfaces', () => {
   it('compiles independent management selections for custom card participants without default or Oversight grants', () => {
-    const tools = ['mcp_server_register', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh'];
+    const tools = ['mcp_server_register', 'mcp_server_replace', 'mcp_server_unregister', 'mcp_servers', 'mcp_catalog_refresh'];
     for (const name of ['planner', 'executor', 'reviewer', 'analyst']) {
       const config = structuredClone(DEFAULT_SAIVAGE_CONFIG);
       config.agents[name]!.tools.push(...tools);
@@ -133,6 +134,7 @@ describe('dynamic MCP ordinary surfaces', () => {
     const port = {
       ...unusedMcpToolInvocation,
       getStatus,
+      replaceServer: () => { throw error; },
       registerServer: () => {
         throw error;
       },
@@ -150,6 +152,31 @@ describe('dynamic MCP ordinary surfaces', () => {
       invoke(['mcp_server_unregister'], port, 'mcp_server_unregister', { serverName: 'one' }),
     ).rejects.toBe(error);
     expect(getStatus).not.toHaveBeenCalled();
+    await expect(invoke(['mcp_server_replace'], port, 'mcp_server_replace', {
+      serverName: 'one', connection: { transport: 'stdio', command: 'node' },
+    })).rejects.toBe(error);
+    expect(getStatus).not.toHaveBeenCalled();
+  });
+
+  it('replacement is independently authorized and publishes only the committed synchronous fact', async () => {
+    const replaceServer = jest.fn((serverName: string) => ({ serverName, replaced: true as const, status: 'stopped' as const }));
+    const port = { ...unusedMcpToolInvocation, replaceServer };
+    const args = { serverName: 'one', connection: { transport: 'stdio', command: 'node' } };
+    for (const selected of ['mcp_server_register', 'mcp_server_unregister', 'mcp_server_control', 'mcp_servers', 'mcp_tools', 'mcp_catalog_refresh', 'mcp_tool_call']) {
+      expect(await invoke([selected], port, 'mcp_server_replace', args)).toMatchObject({ success: false, error: expect.stringContaining('Unsupported tool') });
+    }
+    expect(replaceServer).not.toHaveBeenCalled();
+    expect(await invoke(['mcp_server_replace'], port, 'mcp_server_replace', args)).toEqual({ success: true, data: { serverName: 'one', replaced: true, status: 'stopped' } });
+    expect(replaceServer).toHaveBeenCalledTimes(1);
+    for (const tool of ['mcp_server_control', 'mcp_tool_call'])
+      expect(await invoke(['mcp_server_replace'], port, tool, {})).toMatchObject({ success: false, error: expect.stringContaining('Unsupported tool') });
+    for (const bad of [
+      { ...args, serverName: '' }, { ...args, extra: true },
+      { ...args, connection: { transport: 'stdio' } },
+      { ...args, connection: { ...args.connection, autostart: true } },
+      { ...args, connection: { ...args.connection, disabled: false } },
+      { ...args, connection: { ...args.connection, auth_profile: 'private' } },
+    ]) expect(McpServerReplaceArgumentsSchema.safeParse(bad).success).toBe(false);
   });
 
   it('observes starting and removed retained owners without exposing runtime diagnostics or connection secrets', async () => {
@@ -200,7 +227,7 @@ describe('dynamic MCP ordinary surfaces', () => {
       { CUSTOM: 'opaque-env-secret', OBJECT: { value: 'opaque-env-secret' } },
       'opaque-env-secret',
     ]) {
-      const result = projectMcpRegistrationForOutbound({
+      const result = projectMcpConnectionDefinitionForOutbound({
         serverName: 'one',
         connection: {
           transport: 'stdio',
@@ -216,7 +243,7 @@ describe('dynamic MCP ordinary surfaces', () => {
     }
     expect(
       JSON.stringify(
-        projectMcpRegistrationForOutbound({
+        projectMcpConnectionDefinitionForOutbound({
           connection: {
             transport: 'streamable-http',
             url: 'https://user:password@host.invalid/mcp?token=query-secret',

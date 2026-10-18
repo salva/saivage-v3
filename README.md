@@ -34,7 +34,7 @@ projected non-image text/JSON 1 MiB. Selected Analyst/Executor tools can start a
 configured official Playwright MCP server, discover exact schemas and invoke native
 screenshots (`scale:'css'`, no filename). See the [pinned browser recipe](docs/runbook/index.md#configured-browser-lifecycle).
 Reviewer requires explicit admission; Oversight has no MCP. Independently selected
-registration/removal tools persist connections separately from operator YAML;
+registration/replacement/removal tools persist connections separately from operator YAML;
 registration does not launch and dynamic connections never autostart. Discover
 `bindingId` and `catalogId` before calling; bindings change on stop/start or explicit
 `mcp_server_control` restart. Restart stops the retained owner before fresh startup
@@ -45,7 +45,10 @@ continuity. Default role grants are unchanged. See the
 publishes a fresh catalog identity; discover again before a new call. See the
 [refresh procedure](docs/runbook/index.md#explicit-mcp-catalog-refresh). MCP-managed stdio process
 association does not grant ordinary process wait/kill; HTTP stop is local only.
-Notifications/native tool projection, editing and card-tree lifetimes remain deferred. One server shares a
+Opt-in `mcp_server_replace` wholly replaces an exclusively agent-owned, known-stopped
+connection without launching it; explicitly stop/join used owners first, then separately
+start and discover. See [dynamic connections](docs/runbook/index.md#dynamic-mcp-connections).
+Notifications/native tool projection and card-tree lifetimes remain deferred. One server shares a
 disposable context, lost on stop/active cancellation. Pixels cannot be certified secret-free.
 Configured stdio servers receive the admitted project workspace through negotiated
 `roots/list` throughout the connection lifetime, including discovery and idle intervals.
