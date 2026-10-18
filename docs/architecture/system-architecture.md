@@ -832,6 +832,16 @@ pending response slot is registered before request writing; method requests are
 dispatched before response correlation, so colliding server IDs cannot consume a
 client response. Roots answers use the immutable admitted workspace URI. Runtime
 serialization remains the only call queue; HTTP advertises no roots capability.
+Invocation defaults to 900,000 ms (15 minutes), distinct from the 180-second
+startup and 30-second catalog-refresh budgets. The stdio runtime starts its active
+exchange deadline after serialized dispatch admission, excluding queue wait; HTTP
+owns the forwarded deadline through request/response-body consumption. A consumed
+response clears its timer. Caller cancellation or owner shutdown can interrupt
+earlier. Actual stdio expiry retains connection-wide containment and can discard
+all sessions on that server, not independent server scopes; HTTP abort remains
+request-local and cannot certify remote termination. No automatic restart/replay
+or public timeout configuration is introduced. Timer scheduling and containment
+joins do not promise hard wall-time completion.
 Ordinary receiver failures settle the pending error before runtime-owned admission
 closure and direct containment. Disposal detaches only connection-owned listeners
 and pipes, never process-runner-owned streams. A consumed correlated response ends

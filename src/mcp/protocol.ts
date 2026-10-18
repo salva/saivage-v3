@@ -58,7 +58,7 @@ export interface McpServerStatus {
 }
 
 export const MCP_START_TIMEOUT_MS = 180_000;
-export const MCP_INVOKE_TIMEOUT_MS = 30_000;
+export const MCP_INVOKE_TIMEOUT_MS = 900_000;
 export const MCP_REFRESH_TIMEOUT_MS = 30_000;
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 export const MCP_WIRE_RESPONSE_LIMIT_BYTES = 48 * 1024 * 1024;

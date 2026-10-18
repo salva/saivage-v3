@@ -45,6 +45,9 @@ continuity. Default role grants are unchanged. See the
 publishes a fresh catalog identity; discover again before a new call. See the
 [refresh procedure](docs/runbook/index.md#explicit-mcp-catalog-refresh). MCP-managed stdio process
 association does not grant ordinary process wait/kill; HTTP stop is local only.
+Tool execution defaults to 900,000 ms (15 minutes) after dispatch, with earlier
+caller cancellation still possible. Actual stdio expiry can lose every session on
+that server; see [deadline consequences](docs/runbook/index.md#mcp-invocation-deadlines).
 Opt-in `mcp_server_replace` wholly replaces an exclusively agent-owned, known-stopped
 connection without launching it; explicitly stop/join used owners first, then separately
 start and discover. See [dynamic connections](docs/runbook/index.md#dynamic-mcp-connections).

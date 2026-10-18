@@ -49,6 +49,161 @@ const success = { failed: [] };
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
 
 describe('active stdio cancellation ownership', () => {
+  it.each(['expiry', 'success'] as const)('uses the real installed/shared default for 900000ms (%s), not a 30-second outer cap', async mode => {
+    // Initialize with real timers: the fixture's peer replies with setImmediate.
+    const f = await fixture();
+    const installation = createMcpToolInvocationInstallation();
+    installation.installer.install({ ...unusedMcpToolInvocation, findToolCapability: () => null, invokeTool: (_server, binding, catalog, tool, args, options) => f.runtime.invokeTool(binding, catalog, tool, args, options) });
+    const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('mcp', mcpToolBinders, { projectRoot: '/unused', mcpToolInvocation: installation.port })]);
+    jest.useFakeTimers();
+    try {
+      let settled = false;
+      const result = invokeToolForLlm(surface, 'mcp_tool_call', { serverName: 'one', bindingId: f.runtime.bindingId, catalogId: f.catalogId, toolName: 'pending' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })).then(value => { settled = true; return value; });
+      await f.entered.promise;
+      for (const delta of [30_000, 35_000, 834_999]) {
+        await jest.advanceTimersByTimeAsync(delta);
+        expect(settled).toBe(false);
+        expect(f.runtime.isReady()).toBe(true);
+        expect(f.runtime.getCatalog()?.catalogId).toBe(f.catalogId);
+        expect(f.terminate).not.toHaveBeenCalled();
+        expect(f.calls).toHaveLength(1);
+      }
+      if (mode === 'success') {
+        f.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: f.calls[0].id, result: { content: [] } }) + '\n');
+        expect(await result).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'succeeded' } } });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(jest.getTimerCount()).toBe(0);
+        await jest.advanceTimersByTimeAsync(900_000);
+        expect(f.runtime.isReady()).toBe(true);
+        expect(f.terminate).not.toHaveBeenCalled();
+      } else {
+        await jest.advanceTimersByTimeAsync(1);
+        expect(f.runtime.isAdmissionOpen()).toBe(false);
+        expect(f.runtime.isReady()).toBe(false);
+        expect(f.runtime.getCatalog()).toBeUndefined();
+        expect(f.terminate).toHaveBeenCalledTimes(1);
+        expect(settled).toBe(false); // Public completion must still join containment.
+        const stopping = f.runtime.stop();
+        f.containment.resolve(success);
+        const execution = await result;
+        expect(execution).toMatchObject({ kind: 'executed', execution: { providerOutcome: { kind: 'failed' } } });
+        const outcome = execution.kind === 'executed' ? execution.execution.providerOutcome : execution.providerOutcome;
+        expect(settleToolActionOutcome(outcome).providerResult).toMatchObject({ success: false, error: expect.stringContaining('900000ms') });
+        await stopping;
+        expect(f.runtime.isContained()).toBe(true);
+        expect(f.calls).toHaveLength(1);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(jest.getTimerCount()).toBe(0);
+      }
+    } finally {
+      f.containment.resolve(success);
+      try { await f.runtime.stop(); } finally { jest.useRealTimers(); }
+    }
+  });
+
+  it.each(['fetch', 'body', 'success'] as const)('forwards the default to the HTTP request/body owner (%s) without claiming remote shutdown', async mode => {
+    const originalFetch = globalThis.fetch;
+    const entered = deferred<void>();
+    const terminate = jest.fn(async () => success);
+    let requestSignal: AbortSignal | undefined;
+    let finishBody: (() => void) | undefined;
+    let calls = 0;
+    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
+      if (request.method === 'tools/call') {
+        calls++;
+        requestSignal = init!.signal!;
+        entered.resolve();
+        if (mode === 'fetch') return new Promise<Response>((_resolve, reject) => requestSignal!.addEventListener('abort', () => reject(requestSignal!.reason), { once: true }));
+        return new Response(new ReadableStream({ start(controller) {
+          requestSignal!.addEventListener('abort', () => controller.error(requestSignal!.reason), { once: true });
+          finishBody = () => { controller.enqueue(new TextEncoder().encode(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { content: [] } }))); controller.close(); };
+        } }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'initialize' ? {} : { tools: [{ name: 'pending', inputSchema: { type: 'object' } }] } }));
+    }) as typeof fetch;
+    let id = 0;
+    const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder({ appendEventPrepared() {} } as never) });
+    try {
+      await runtime.start();
+      const catalog = runtime.getCatalog()!;
+      jest.useFakeTimers();
+      let settled = false;
+      const observed = runtime.invokeTool(runtime.bindingId, catalog.catalogId, 'pending', {}).then(value => { settled = true; return value; }, error => { settled = true; return error; });
+      await entered.promise;
+      for (const delta of [30_000, 35_000, 834_999]) {
+        await jest.advanceTimersByTimeAsync(delta);
+        expect(settled).toBe(false);
+        expect(requestSignal!.aborted).toBe(false);
+        expect(runtime.isReady()).toBe(true);
+      }
+      if (mode === 'success') {
+        finishBody!();
+        expect(await observed).toEqual({ content: [] });
+        expect(jest.getTimerCount()).toBe(0);
+        await jest.advanceTimersByTimeAsync(900_000);
+        expect(requestSignal!.aborted).toBe(false);
+      } else {
+        await jest.advanceTimersByTimeAsync(1);
+        const error = await observed;
+        expect(error).toBeInstanceOf(TimeoutError);
+        expect(error).toMatchObject({ code: 'TIMEOUT', message: expect.stringContaining('900000ms') });
+        expect(requestSignal!.aborted).toBe(true);
+        expect(jest.getTimerCount()).toBe(0);
+      }
+      expect(calls).toBe(1);
+      expect(runtime.getCatalog()).toEqual(catalog);
+      expect(runtime.isReady()).toBe(true);
+      expect(terminate).not.toHaveBeenCalled(); // Request abort is not remote containment.
+    } finally {
+      try { await runtime.stop(); } finally { globalThis.fetch = originalFetch; jest.useRealTimers(); }
+    }
+  });
+
+  it.each(['startup', 'refresh'] as const)('keeps the distinct %s budget across paginated discovery', async phase => {
+    const originalFetch = globalThis.fetch;
+    const methods: string[] = [];
+    const terminate = jest.fn(async () => success);
+    let refreshing = false;
+    globalThis.fetch = jest.fn(async (_url, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      methods.push(request.method);
+      if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
+      if (request.method === 'initialize') {
+        if (phase === 'startup') await new Promise(resolve => setTimeout(resolve, 100_000));
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }));
+      }
+      if (phase === 'refresh' && !refreshing) return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: [] } }));
+      if (!request.params?.cursor) {
+        if (phase === 'refresh') await new Promise(resolve => setTimeout(resolve, 20_000));
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: [], nextCursor: 'last' } }));
+      }
+      return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true }));
+    }) as typeof fetch;
+    let id = 0;
+    const runtime = new McpServerRuntime({ name: 'one', config: { transport: 'streamable-http', url: 'http://localhost/mcp', autostart: false, disabled: false }, revision: 'r', processRunner: { closeAndTerminateDirectScope: terminate } as never, processScope: {} as never, ids: { next: () => ++id }, invocationStats: new McpInvocationStatsRecorder({ appendEventPrepared() {} } as never) });
+    try {
+      if (phase === 'refresh') { await runtime.start(); methods.length = 0; refreshing = true; }
+      const previous = runtime.getCatalog();
+      jest.useFakeTimers();
+      let settled = false;
+      const budget = phase === 'startup' ? 180_000 : 30_000;
+      const operation = (phase === 'startup' ? runtime.start() : runtime.refreshCatalog(runtime.bindingId)).catch(error => { settled = true; return error; });
+      await jest.advanceTimersByTimeAsync(budget - 1);
+      expect(methods).toEqual(phase === 'startup' ? ['initialize', 'notifications/initialized', 'tools/list', 'tools/list'] : ['tools/list', 'tools/list']);
+      expect(settled).toBe(false);
+      expect(terminate).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(await operation).toMatchObject({ code: 'TIMEOUT', message: expect.stringContaining(`${budget}ms`) });
+      expect(runtime.isReady()).toBe(phase === 'refresh');
+      expect(runtime.isContained()).toBe(phase === 'startup');
+      expect(terminate).toHaveBeenCalledTimes(phase === 'startup' ? 1 : 0);
+      if (phase === 'refresh') expect(runtime.getCatalog()).toEqual(previous);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally { try { await runtime.stop(); } finally { globalThis.fetch = originalFetch; jest.useRealTimers(); } }
+  });
+
   it.each(['unknown', 'caller', 'publication'] as const)('preserves actual HTTP discovery %s identity with the existing containment boundary', async mode => {
     if (mode === 'publication') jest.useFakeTimers();
     const originalFetch = globalThis.fetch;

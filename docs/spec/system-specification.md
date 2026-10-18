@@ -1791,16 +1791,26 @@ Native static PNG/JPEG/WebP require canonical base64 and declared MIME matching 
 
 Stdio JSON frames and HTTP JSON/SSE assembly are bounded at 48 MiB UTF-8 wire bytes. Complete projected non-image text/JSON is bounded at 1 MiB, never truncated or paged. Effects may have occurred before oversize failure. All asynchronous conversion and validation finish before the exact invoking signal's immediate fence ahead of synchronous exact-session image publication. Cancellation during normalization publishes no image and propagates the identical reason, including recognized conversion failures; unrelated errors/publication uncertainty propagate unchanged without later effects. Ordinary projected transport/input error fields remain at most 512 UTF-8 bytes. MCP remains outside response paging and participates normally in compaction/admission, through the shared single originating-call Responses/Codex output and distinct atomic multimodal summary/refine user path.
 
+MCP tool execution defaults to 900,000 ms (15 minutes) from dispatch through
+response consumption. Stdio queue wait and the total agent turn are not part of
+that budget. Startup retains its separate 180-second budget and catalog refresh
+its 30-second queue/pagination-inclusive budget. Exact caller cancellation,
+explicit MCP Stop or application shutdown can interrupt invocation earlier.
+Timers are event-loop scheduled; containment can extend completion beyond the
+deadline. No public timeout override is introduced.
+
 An active stdio invocation's runtime-owned deadline or exact caller cancellation
 synchronously closes that server's admission and discovery, aborts queued work,
-and contains the existing owner before returning. The shared browser context may
-be lost. Queued-only cancellation writes nothing and does not stop another active
+and contains the existing owner before returning. All sessions on that same
+server, including idle unrelated sessions and the shared browser context, may be
+lost; independent server scopes remain unaffected. Queued-only cancellation writes
+nothing and does not stop another active
 call; a completely consumed response ends the external-request deadline. Successful
 containment preserves the first abort reason: deadline failures are executed MCP
 TIMEOUT failures, while the exact caller reason reaches shared synthetic
 `execution_failed` settlement. Failed containment and unclassified errors propagate
 unchanged; no replay or denial of possible remote effects is implied. HTTP call
-cancellation remains request-local and does not stop the remote service.
+cancellation remains request-local and does not prove remote execution stopped.
 
 MCP lifecycle uses `mcp_server_control({serverName,action:'start'|'stop'|'restart'})`
 and read-only `mcp_tools({serverName,toolName?})`, strict nonempty names and no extra

@@ -236,15 +236,34 @@ cancellation is checked immediately before synchronous exact-session publication
 Configured lifecycle/discovery is available as described below. Official-server
 integration evidence is separate from metadata UI tests and claims no model perception.
 
-An active stdio call timeout or caller cancellation now closes invocation and
+### MCP invocation deadlines
+
+Tool execution defaults to 900,000 ms (15 minutes) from dispatch through response
+consumption, not including stdio queue wait or the whole agent turn. Caller
+cancellation, explicit MCP Stop and application shutdown can interrupt earlier.
+There is no public operator/per-call timeout override in this change; the internal
+test/caller option is not an operator setting. Startup retains its separate
+180-second initialization/discovery budget; explicit catalog refresh retains its
+30-second budget, including queue wait and pagination. A queued refresh may expire
+without interrupting the preceding long-running invocation. Timers are event-loop
+scheduled and containment can take additional time; this is not a hard wall-time
+completion guarantee.
+
+An active stdio call timeout or caller cancellation closes invocation and
 discovery immediately and awaits the retained server owner's containment and inner
-operation joins. A shared browser context may be discarded; do not assume effects
+operation joins. Every session on that same server, including idle unrelated
+sessions or a shared browser context, may be lost; independent servers are not
+stopped by that call's expiry. Do not assume effects
 were undone or replay the call automatically. A cancelled queued call does not
 dispatch or stop another active call. Caller reasons retain exact identity; deadline
 failures report TIMEOUT only after successful containment. Failed containment leaves
 a closed, non-ready owner and is not an ordinary tool failure. HTTP cancellation
 aborts only that request, not the remote service. Application shutdown joins all
 retained runtime work; ordinary Project Stop still leaves MCP services alive.
+An explicit fresh start/restart and discovery is a separate operator/agent
+decision with fresh binding/catalog identities, not an automatic retry of the old
+call or restoration of lost sessions. HTTP expiry does not prove remote execution
+terminated or undo effects.
 
 ### Configured browser lifecycle
 
