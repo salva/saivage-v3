@@ -104,14 +104,36 @@ describe('CardService scoped relationship reads', () => {
     const goal = cards.create(input('project', 'goal'));
     const first = cards.create(input(goal.id, 'goal'));
     const nested = cards.create(input(first.id));
-    const second = cards.create(input(goal.id, 'code', [first.id]));
+    const second = cards.create(input(goal.id, 'goal', [first.id]));
+    const secondNested = cards.create(input(second.id));
 
     expect(cards.getParent('project')).toBeNull();
     expect(cards.getParent(nested.id)).toBe(first.id);
     expect(cards.getAncestors(nested.id)).toEqual(['project', goal.id, first.id]);
-    expect(cards.list().map((card) => card.id)).toEqual(['project', goal.id, first.id, second.id, nested.id]);
+    expect(cards.list().map((card) => card.id)).toEqual(['project', goal.id, first.id, second.id, nested.id, secondNested.id]);
     cards.reorderChildren(goal.id, [second.id, first.id]);
-    expect(cards.readCurrentSubtree(goal.id).map((card) => card.id)).toEqual([goal.id, second.id, first.id, nested.id]);
+    expect(cards.readCurrentSubtree(goal.id).map((card) => card.id)).toEqual([goal.id, second.id, secondNested.id, first.id, nested.id]);
+    expect(cards.list().map((card) => card.id)).toEqual(['project', goal.id, second.id, first.id, secondNested.id, nested.id]);
+  });
+
+  it('returns independent nested lists and sees subsequent supported updates freshly', () => {
+    const { cards } = project();
+    const first = cards.create(input('project'));
+    const second = cards.create(input('project', 'code', [first.id]));
+    const held = cards.list();
+    const edited = cards.list();
+    edited[0]!.child_membership.length = 0;
+    edited[0]!.active_child_order.reverse();
+    edited[2]!.depends_on.length = 0;
+    edited[2]!.lifecycle.status = 'running';
+    expect(held[0]!.child_membership).toEqual([first.id, second.id]);
+    expect(held[0]!.active_child_order).toEqual([first.id, second.id]);
+    expect(held[2]!.depends_on).toEqual([first.id]);
+    expect(held[2]!.lifecycle.status).toBe('backlog');
+    expect(cards.list()).toEqual(held);
+    cards.setStatus(second.id, 'running');
+    expect(cards.list()[2]!.lifecycle.status).toBe('running');
+    expect(held[2]!.lifecycle.status).toBe('backlog');
   });
 
   it('returns independent nested observations and sees subsequent supported updates freshly', () => {
@@ -140,6 +162,7 @@ describe('CardService scoped relationship reads', () => {
     corruptCurrent(root, child.id);
     expect(cards.readCurrentSubtree(goal.id)).toEqual([]);
     expect(cards.readCurrentSubtree('project').map((card) => card.id)).toEqual(['project']);
+    expect(cards.list().map((card) => card.id)).toEqual(['project']);
   });
 
   it('rejects a missing linked canonical selection rather than treating it as absence', () => {
@@ -148,6 +171,7 @@ describe('CardService scoped relationship reads', () => {
     const child = cards.create(input(goal.id));
     unlinkSync(cardHeadFile(root, child.id));
     expect(() => cards.readCurrentSubtree(goal.id)).toThrow();
+    expect(() => cards.list()).toThrow();
   });
 
   it('visits each reached descendant membership fold once',()=>{

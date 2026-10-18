@@ -383,7 +383,11 @@ export class CardService {
     return card ? clone(card) : null;
   }
   list(): CardRecord[] {
-    return clone(this.buildFullIndex().list());
+    return clone(
+      listActiveCardTraversal(this.projectRoot)
+        .map(({ card }) => card)
+        .sort((left, right) => cardDepth(left.id) - cardDepth(right.id)),
+    );
   }
   listChildren(parentId: string): string[] {
     return readLinkedChildren(this.projectRoot, parentId).map((card) => card.id);
